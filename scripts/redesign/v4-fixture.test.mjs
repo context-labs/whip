@@ -103,7 +103,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     assert.equal(client.runtimeID, runtime.info.runtime_id);
     const createParams = {
       metadata: { title: 'v4 acceptance', archived: false, pinned: false },
-      engine: 'starlark', policy: { max_depth: 8, max_sessions: 100, max_queued_inputs_per_session: 100 },
+      engine: 'starlark', resources: [{ kind: 'depth', limit: '8' }, { kind: 'descendants', limit: '99' }, { kind: 'queued_inputs', limit: '100' }],
       definition: client.builtins[0], overrides: { model: { provider: 'scripted', name: 'scripted', effort: '' } },
       working_directory: runtime.directory,
     };
@@ -190,6 +190,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     const example = await exec(process.execPath, ['packages/sdk/examples/session.mjs', runtime.info.socket], { timeout: 20_000 });
     assert.equal(JSON.parse(example.stdout).completed.turn.state, 'succeeded');
     await assert.rejects(Client.connect(unixSocket(runtime.info.socket), { clientID: 'wrong', expectedRuntimeID: 'different', ...deadline() }), error => error instanceof RemoteError && error.kind === 'IDENTITY');
+    await resourceAcceptance(runtime, client, createParams, evidence);
     await budgetAcceptance(client, createParams, evidence);
     await mailAcceptance(runtime, client, createParams, evidence);
     await stateAcceptance(runtime, client, createParams, evidence);
@@ -727,4 +728,57 @@ async function stateSubscriptionAcceptance(runtime, client, createParams, eviden
   assert.ok((await client.subscribeState(params, subscription.id, deadline())).cancelled_at, 'retry must not resurrect a cancelled subscription');
   await client.call('sessions.delete', { session_id: root.id }, deadline());
   evidence.push({ stateSubscriptions: { subscription, second, inbox, next, cancelled } });
+}
+
+
+async function resourceAcceptance(runtime, client, createParams, evidence) {
+  const { root } = await client.call('trees.create', {
+    ...createParams,
+    resources: [{ kind: 'descendants', limit: '1' }],
+  }, deadline());
+  const list = sessionID => client.call('resources.list', { session_id: sessionID }, deadline());
+  const scope = (page, owner, kind) => page.items.find(item => item.session_id === owner && item.kind === kind);
+  const rootResources = await list(root.id);
+  assert.equal(rootResources.items.length, 5);
+  assert.equal(scope(rootResources, root.id, 'descendants').limit, '1');
+  const spawnParams = {
+    parent_id: root.id, parts: [{ type: 'text', text: 'resource child' }], overrides: {}, grant_ids: [],
+    resources: [{ kind: 'descendants', limit: '0' }],
+  };
+  const child = await client.spawn(spawnParams, 'resource-child', deadline());
+  const childResources = await list(child.session.id);
+  assert.deepEqual(childResources.items.map(item => item.session_id), [
+    ...Array(5).fill(child.session.id), ...Array(5).fill(root.id),
+  ]);
+  assert.equal(scope(childResources, root.id, 'descendants').used, '1');
+  await assert.rejects(client.spawn(spawnParams, 'resource-rejected', deadline()), error => error instanceof RemoteError && error.kind === 'LIMIT');
+  const childLimit = scope(childResources, child.session.id, 'descendants');
+  const cleared = await client.call('resources.set', {
+    session_id: child.session.id, expected_revision: childLimit.revision,
+    resource: { kind: 'descendants', limit: null },
+  }, deadline());
+  assert.equal(cleared.limit, null);
+  await assert.rejects(client.call('resources.set', {
+    session_id: child.session.id, expected_revision: childLimit.revision,
+    resource: { kind: 'descendants', limit: '0' },
+  }, deadline()), error => error.kind === 'CONFLICT');
+  const active = scope(rootResources, root.id, 'active_operations');
+  const exact = await client.call('resources.set', {
+    session_id: root.id, expected_revision: active.revision,
+    resource: { kind: 'active_operations', limit: '9007199254740993' },
+  }, deadline());
+  assert.equal(exact.limit, '9007199254740993');
+  await client.wait('resource-child', deadline());
+  await runtime.stop(); await runtime.start('0');
+  const reopened = await list(child.session.id);
+  assert.equal(scope(reopened, root.id, 'active_operations').limit, exact.limit);
+  assert.equal(scope(reopened, root.id, 'active_operations').revision, exact.revision);
+  assert.equal(scope(reopened, child.session.id, 'descendants').limit, null);
+  assert.equal(scope(reopened, child.session.id, 'descendants').revision, cleared.revision);
+  await client.call('sessions.delete', { session_id: child.session.id }, deadline());
+  const released = await list(root.id);
+  assert.equal(scope(released, root.id, 'descendants').used, '0');
+  const replacement = await client.spawn(spawnParams, 'resource-rejected', deadline());
+  assert.equal((await client.wait('resource-rejected', deadline())).turn.state, 'succeeded');
+  evidence.push({ resourceRoot: root.id, rootResources, childResources, cleared, exact, reopened, released, replacement });
 }

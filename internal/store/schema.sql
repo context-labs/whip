@@ -10,7 +10,7 @@ CREATE TRIGGER definition_immutable BEFORE UPDATE ON definition_revisions
 CREATE TABLE session_trees (
  id TEXT PRIMARY KEY, metadata TEXT NOT NULL CHECK(json_valid(metadata)),
  engine TEXT NOT NULL CHECK(engine IN ('starlark','quickjs')),
- policy TEXT NOT NULL CHECK(json_valid(policy)), revision INTEGER NOT NULL CHECK(revision > 0),
+ revision INTEGER NOT NULL CHECK(revision > 0),
  created_at INTEGER NOT NULL
 ) STRICT;
 CREATE TABLE sessions (
@@ -271,6 +271,15 @@ CREATE TRIGGER attempt_transition BEFORE UPDATE ON model_attempts
  OR (OLD.state='reserved' AND NEW.state NOT IN ('dispatched','cancelled'))
  OR (OLD.state='dispatched' AND (NEW.state IN ('reserved','dispatched') OR NEW.dispatched_at IS NOT OLD.dispatched_at))
  BEGIN SELECT RAISE(ABORT, 'invalid model attempt transition'); END;
+
+-- Reusable capacity derives usage from its owning rows and their lifecycle.
+CREATE TABLE resource_limits (
+ session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+ kind TEXT NOT NULL CHECK(kind IN ('depth','descendants','queued_inputs','active_operations','subscriptions')),
+ revision INTEGER NOT NULL CHECK(revision>0),
+ limit_value INTEGER CHECK(limit_value IS NULL OR limit_value>=0),
+ PRIMARY KEY(session_id,kind)
+) STRICT;
 
 -- Limits are mutable policy. Accounting is derived from attempts, including
 -- attempts whose original session/turn/transcript has been deleted.

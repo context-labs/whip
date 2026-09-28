@@ -11,7 +11,7 @@ import (
 func TreeFromDomain(value session.Tree) Tree {
 	return Tree{
 		ID: ID(value.ID), Metadata: TreeMetadata(value.Metadata), Engine: string(value.Engine),
-		Policy: TreePolicy(value.Policy), Revision: Counter(value.Revision), CreatedAt: value.CreatedAt.Format(time.RFC3339Nano),
+		Revision: Counter(value.Revision), CreatedAt: value.CreatedAt.Format(time.RFC3339Nano),
 	}
 }
 

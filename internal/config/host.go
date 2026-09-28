@@ -18,7 +18,7 @@ import (
 
 const (
 	FileName = "host.json"
-	Version  = 1
+	Version  = 2
 )
 
 var environmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -73,17 +73,17 @@ func (m Model) Resolve() (Model, error) {
 }
 
 type Host struct {
-	Version   int                   `json:"version"`
-	Providers map[string]Provider   `json:"providers"`
-	Defaults  session.Configuration `json:"defaults"`
-	Engine    session.Engine        `json:"engine"`
-	Policy    session.TreePolicy    `json:"policy"`
+	Version   int                     `json:"version"`
+	Providers map[string]Provider     `json:"providers"`
+	Defaults  session.Configuration   `json:"defaults"`
+	Engine    session.Engine          `json:"engine"`
+	Resources []session.ResourceLimit `json:"resources"`
 }
 
 // Default is intentionally unconfigured. Model/provider selection is required
 // before resolving a runnable session; initialization invents no credentials.
 func Default() Host {
-	return Host{Version: Version, Providers: map[string]Provider{}, Engine: session.Starlark, Policy: session.DefaultTreePolicy()}
+	return Host{Version: Version, Providers: map[string]Provider{}, Engine: session.Starlark, Resources: session.DefaultResourceLimits()}
 }
 
 func (h Host) Validate() error {
@@ -93,7 +93,7 @@ func (h Host) Validate() error {
 	if err := h.Engine.Validate(); err != nil {
 		return err
 	}
-	if err := h.Policy.Validate(); err != nil {
+	if _, err := session.ResolveResourceLimits(h.Resources, nil); err != nil {
 		return err
 	}
 	if len(h.Providers) > 128 {
@@ -178,6 +178,10 @@ func Load(directory string) (Host, error) {
 		return Host{}, fmt.Errorf("%w: trailing host configuration data", session.ErrInvalid)
 	}
 	if err := host.Validate(); err != nil {
+		return Host{}, err
+	}
+	host.Resources, err = session.ResolveResourceLimits(host.Resources, nil)
+	if err != nil {
 		return Host{}, err
 	}
 	return host, nil

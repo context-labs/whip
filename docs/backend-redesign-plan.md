@@ -78,7 +78,8 @@ The implemented Phase 1 contract is [backend-domain.md](backend-domain.md).
 | Concept | Owns | Authoritative storage |
 | --- | --- | --- |
 | AgentDefinition | Immutable revision of defaults, instruction policy, tool descriptions, child templates, hook/output declarations | SQL definition revisions, including built-ins |
-| SessionTree | Shared policy and limits; conversation title, archive/pin metadata; common engine selection | SQL |
+| SessionTree | Conversation title, archive/pin metadata; common engine selection | SQL |
+| ResourceLimit | Session-scoped reusable subtree capacity; every ancestor applies | SQL limits; usage derived from owning rows |
 | Session | Identity, tree/parent relationship, source definition revision, resolved configuration and its revision, working directory, retained lifecycle | SQL |
 | Input | Accepted work, recipient, source, queue/delivery state, link to execution | SQL |
 | RequestReceipt | Stable request identity, payload identity, admission/outcome needed for client recovery | SQL; provider credentials and ephemeral operations excluded |
@@ -125,7 +126,8 @@ The implemented Phase 1 contract is [backend-domain.md](backend-domain.md).
 - A SessionWorker may cache immutable configuration and derived context. The
   database remains authoritative; there is one path for committed updates to
   invalidate or replace those execution snapshots.
-- SessionTree starts as data and policy. One runtime scheduler and per-session
+- SessionTree owns shared metadata and engine selection. Capacity belongs to
+  session-scoped resource limits. One runtime scheduler and per-session
   execution ownership are the default. Add another actor only for an invariant
   that transactions and the scheduler cannot express clearly.
 - Client disconnect, view closure, and aborted local waits release observation.
@@ -247,7 +249,8 @@ The client-facing shape should make identity consistent:
 | Concern | Intended service shape |
 | --- | --- |
 | New conversation tree | `trees.create(...)`, returning tree and root session identities |
-| Shared metadata/policy | `trees.get/update(...)` |
+| Shared metadata | `trees.get/update(...)` |
+| Reusable subtree capacity | `resources.list/set(...)` |
 | Any root or child | `sessions.get(id)` / `session(id)` |
 | Child creation | `sessions.spawn({ parentId, ... })` |
 | Work submission | `session.submit(...)`, returning accepted input identity |
@@ -366,7 +369,8 @@ Maintain one compact table here as families are addressed:
 | Admission and client recovery | Stable request identity; accepted work survives lost acknowledgement | `scripts/redesign/v4-fixture.test.mjs`: lost acknowledgement, identical retry, SIGKILL and queue recovery | 2 complete |
 | Execution and crash recovery | Explicit interruption, durable completed evidence, no uncertain-effect replay | `store/cells_test.go`, `runtime/engine_test.go`, SDK process-kill fixture | 3 complete |
 | Accounting | Every dispatched attempt recorded; settlement retry does not redispatch | `store/attempts_test.go`, `runtime/provider_test.go`, `runtime/observation_test.go`; ancestor accounting in `store/budgets_test.go` | 3 complete; model limits implemented in 4 |
-| Recursion and authority | Uniform session behavior, scoped grants, shared limits | `runtime/recursion_test.go`, `store/delegation_test.go`, `store/budgets_test.go`; coordination/resource limits remain | 4 in progress |
+| Recursion and authority | Uniform session behavior, scoped grants, shared limits | `runtime/recursion_test.go`, `store/delegation_test.go`, `store/budgets_test.go`, `store/resources_test.go`; uniform lifecycle, report/retry and broader retained-resource policy remain | 4 in progress |
+| Reusable capacity | Shared subtree admission and lifecycle release; old per-target queue semantics intentionally replaced with ancestor aggregation | `store/resources_test.go`, `runtime/resources_test.go`, `rpc/resources_test.go`, both-engine recursion and SDK restart fixture; counters derived rather than repaired | 4 count/depth limits complete; retained bytes/records pending |
 | Mail and explicit state | Revisioned delivery distinct from inspection; private/shared isolation; immutable history and CAS | `store/mail_test.go`, `runtime/mail_test.go`, `store/state*_test.go`, `runtime/state_test.go`, RPC/SDK fixtures; `store/state_subscriptions_test.go` covers atomic coalescing, cursor/notification rollback and recipient deferral | 4 in progress |
 | Context and checkpointing | Raw history retained; checkpoint boundary and fidelity explicit | Both engines pass `runtime/engine_test.go`; compaction remains pending | 3 complete; 5 pending |
 | Integrations and product features | Preserve capability outcomes; inspect existing regression scenarios | Pending | 5 |
@@ -533,6 +537,9 @@ Acceptance:
       scenarios. No parallel child commit or transcript implementation exists.
 - [ ] Concurrent descendants cannot overspend shared reservations or widen
       authority. Unrelated sessions cannot alter each other's scoped state.
+- [x] Reusable depth, descendant, input queue, host-operation and subscription
+      capacities share revisioned ancestor-enforced limits; usage derives from
+      canonical rows. General retained byte/record limits remain outstanding.
 - [x] Saturated worker/kernel capacity still permits required child progress;
       parent waits do not deadlock children. Queued work remains durable.
 - [ ] Retry and report behavior is explicit policy; failed/uncertain work follows

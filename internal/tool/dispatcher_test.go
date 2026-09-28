@@ -30,7 +30,7 @@ func dispatchFixture(t *testing.T) (*store.Store, *Dispatcher, session.Session, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, root, err := db.CreateTree(t.Context(), store.CreateTree{Engine: session.Starlark, Policy: session.DefaultTreePolicy(), Definition: ref, WorkingDirectory: t.TempDir(), Overrides: session.ConfigPatch{Model: &session.ModelSelection{Provider: "scripted", Name: "scripted"}}})
+	_, root, err := db.CreateTree(t.Context(), store.CreateTree{Engine: session.Starlark, Definition: ref, WorkingDirectory: t.TempDir(), Overrides: session.ConfigPatch{Model: &session.ModelSelection{Provider: "scripted", Name: "scripted"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

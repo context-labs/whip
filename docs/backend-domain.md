@@ -11,7 +11,9 @@ separate legacy runtime and SDK until their client cutover.
 | --- | --- |
 | Runtime identity and schema version | Fresh SQLite database |
 | Definition defaults and declarations | Immutable definition revision document |
-| Tree metadata, engine and admission limits | Tree row |
+| Tree metadata and common engine | Tree row |
+| Reusable subtree capacity limits | Revisioned resource-limit rows; usage derived from live owning records |
+| Permanent model spending limits | Revisioned budget-limit rows; usage derived from immutable attempts |
 | Session identity, immutable parent/tree, definition origin, lifecycle | Session row |
 | Effective configuration | Immutable configuration revision selected by the session |
 | Configuration used by execution | Turn's pinned configuration revision |
@@ -419,7 +421,8 @@ execute a recursive chain because no waiting parent holds either resource.
 `model_tokens` (input plus output totals), `model_cost_nano_usd`, and
 `model_elapsed_millis`. Each scope has a nullable limit and a compare-and-set
 revision. An absent limit is unlimited locally; every ancestor's live cap still
-applies. `budgets.set` requires the current revision (zero for an unset scope).
+applies. Null removes only the local cap, with the same inheritance semantics as
+resource limits. `budgets.set` requires the current revision (zero for an unset scope).
 Child admission may include explicit narrower `budgets`; limits are not copied
 into each descendant. A child cannot explicitly widen a finite ancestor cap.
 Changing a parent cap immediately constrains subsequent descendant reservations.
@@ -461,6 +464,61 @@ a provider limit. Actual usage, charges and timeout overruns are never clamped
 to it. Elapsed usage is monotonic execution time rounded up to milliseconds;
 SQL settlement retries do not add execution usage. Provider timeouts are
 cooperative, so an actual duration may exceed its reserved timeout.
+
+## Reusable resource capacity
+
+Resource limits belong to sessions, not the tree metadata or model accounting.
+`resources.list(session_id)` returns each kind for the requested session and every
+ancestor, nearest first. Each entry identifies its scope, revision, nullable local
+limit, and current usage. A child's absent row has revision zero and no local cap;
+ancestor caps still apply. The response is bounded by the absolute 128-edge ancestry
+limit and the five supported kinds. It is a single database snapshot, not a cache.
+
+| Kind | Usage within the owner's subtree | Capacity becomes available when |
+| --- | --- | --- |
+| `depth` | Greatest retained descendant edge distance; owner is depth zero | Deepest descendants are deleted |
+| `descendants` | Retained descendant identities, excluding the owner | Descendants are deleted |
+| `queued_inputs` | Unclaimed, uncancelled inputs, including the owner's | Inputs are claimed, cancelled while queued, or deleted |
+| `active_operations` | Unsettled host operations, including permission waiters | Operations reach any terminal outcome |
+| `subscriptions` | Active shared-state subscriptions | Subscriptions are cancelled or their owner is deleted |
+
+All applicable ancestor scopes are checked inside the same immediate transaction
+that admits work. Siblings share their parent's allowance. In particular, queue
+capacity is now aggregated across the subtree, replacing the old independent
+per-session queue cap. Child creation acquires its identity and initial input
+capacity atomically; denial leaves neither a child nor a receipt. Exact accepted
+retries return their receipt before new capacity checks, including deletion markers.
+No counters need repair after a crash. Stop, worker eviction, turn completion, and
+model changes do not release retained session capacity. Claiming a mail-only turn
+does not change queued-input usage. Recovery settles operations but retains
+unclaimed inputs. Cancelling a subscription retains its historical row and committed
+notification evidence; its separate physical retention bound still applies.
+
+`resources.set` requires the scope's current revision. It rejects a limit below
+current usage; stale revisions conflict. Removing a child's local cap with null
+inherits ancestor enforcement. Explicit child limits cannot exceed ancestor caps;
+for depth and descendants, subtract the ancestor-to-child distance because those
+identities already consume ancestor capacity. A child depth cap of zero permits
+that child but no descendants. Tightening a parent immediately constrains later
+admission even if a child's older local cap is larger. Inspection returns all
+scopes so callers can see which allowance is exhausted. A local allowance is not
+reserved exclusively for that child.
+
+Fresh host configuration is version 2. Optional finite `resources` defaults and
+creation overrides resolve once into root rows at revision one: depth 8,
+127 descendants, 256 queued inputs, 64 active operations, and 1,000 subscriptions.
+Root limits cannot be null. Partial creation/configuration lists inherit the
+remaining built-in defaults; duplicate kinds are rejected. Limits use decimal
+strings, including host JSON and guest child-spawn arguments. Host edits never
+change existing root limits. `TreePolicy` and its duplicate JSON column no longer
+exist; this disposable database uses schema 11 and rejects previous schemas.
+The absolute depth ceiling remains 128 for bounded hierarchy and grant traversal.
+
+Capacity reuse never replenishes permanent model spend. Deleting a child releases
+its retained resources while its immutable model attempts remain charged to live
+ancestors. Per-value, retained-history and byte safety bounds remain at their
+owning boundaries. Unified retained byte/record allowances and runnable execution
+capacity are still Phase 4 work; these five kinds do not claim to cover them.
 
 ## Mail and presentation
 

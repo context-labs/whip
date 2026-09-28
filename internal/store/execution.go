@@ -150,17 +150,6 @@ func admitInput(ctx context.Context, tx *sql.Tx, identity session.RequestIdentit
 	if err := validateContentReferences(ctx, tx, current.ID, request.Parts); err != nil {
 		return result, err
 	}
-	tree, err := readTree(ctx, tx, current.TreeID)
-	if err != nil {
-		return result, err
-	}
-	var queued int
-	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM inputs WHERE session_id=? AND turn_id IS NULL AND cancelled_at IS NULL", current.ID).Scan(&queued); err != nil {
-		return result, err
-	}
-	if queued >= tree.Policy.MaxQueuedInputsPerSession {
-		return result, ErrLimit
-	}
 	parts, err := encode(request.Parts)
 	if err != nil {
 		return result, err
@@ -171,6 +160,9 @@ func admitInput(ctx context.Context, tx *sql.Tx, identity session.RequestIdentit
 		return result, err
 	}
 	if _, err := tx.ExecContext(ctx, "INSERT INTO receipts VALUES (?,?,?,?,NULL,?)", identity.ClientID, identity.RequestID, digest, inputID, created); err != nil {
+		return result, err
+	}
+	if err := checkResources(ctx, tx, current.ID, session.ResourceQueuedInputs); err != nil {
 		return result, err
 	}
 	result, err = readAdmission(ctx, tx, identity)

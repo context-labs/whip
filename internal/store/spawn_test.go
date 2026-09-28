@@ -43,9 +43,7 @@ func spawnChildTest(t *testing.T, s *Store, key string, request ChildRequest) Ch
 func TestSpawnChildConcurrentRetryRestartAndDeletion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "runtime.db")
 	s, other := openTest(t, path), openTest(t, path)
-	policy := session.DefaultTreePolicy()
-	policy.MaxSessions = 2
-	_, parent := create(t, s, policy)
+	_, parent := create(t, s, []session.ResourceLimit{{Kind: session.ResourceDescendants, Limit: new(int64(1))}})
 	grant := standingGrant(t, s, parent.ID, "parent-grant")
 	request := childRequest(parent.ID)
 	identity := session.RequestIdentity{ClientID: "client", RequestID: "spawn"}
@@ -120,8 +118,8 @@ func TestSpawnChildConcurrentRetryRestartAndDeletion(t *testing.T) {
 
 func TestSpawnChildRollbackAndReferenceIsolation(t *testing.T) {
 	s := fresh(t)
-	_, parent := create(t, s, session.DefaultTreePolicy())
-	_, unrelated := create(t, s, session.DefaultTreePolicy())
+	_, parent := create(t, s, nil)
+	_, unrelated := create(t, s, nil)
 	standingGrant(t, s, parent.ID, "grant")
 	reference := contentReference(parent.ID, "parent-ref", "body")
 	if _, err := s.RegisterContent(t.Context(), reference); err != nil {
@@ -225,7 +223,7 @@ func TestSpawnChildGrantSelectionAndLimits(t *testing.T) {
 			}
 		}
 	}
-	_, other := create(t, s, session.DefaultTreePolicy())
+	_, other := create(t, s, nil)
 	foreign := standingGrant(t, s, other.ID, "foreign")
 	for i, ids := range [][]session.GrantID{{revoked.ID}, {*oneUse.GrantID}, {foreign.ID}, {"missing"}, {read.ID, read.ID}, make([]session.GrantID, session.MaxGrantsPerSession+1)} {
 		request := childRequest(parent.ID)
@@ -316,7 +314,7 @@ func TestSpawnChildOperationAtomicDispatchAndRetry(t *testing.T) {
 
 func TestSpawnChildRevalidatesRemappedInputSize(t *testing.T) {
 	s := fresh(t)
-	_, parent := create(t, s, session.DefaultTreePolicy())
+	_, parent := create(t, s, nil)
 	if _, err := s.RegisterContent(t.Context(), contentReference(parent.ID, "a", "body")); err != nil {
 		t.Fatal(err)
 	}

@@ -57,6 +57,9 @@ func Fixtures() ([]Fixture, error) {
 		{"MailAdmission", MailAdmission{MailID: "mail_deleted", DeletedAt: new(created.Format(time.RFC3339Nano))}},
 		{"ReadMailResult", ReadMailResult{Mail: MailMetadataFromDomain(session.MailMetadata{ID: "mail_fixture", Revision: 128, Source: session.MailSource{Kind: "session", ID: "session_root"}, RecipientID: "session_child", Delivery: session.MailNextTurn, Subject: "Subject", BodyBytes: 5, State: session.MailPending, AvailableAt: created, CreatedAt: created, RevisedAt: created}), Body: "hello"}},
 		{"Message", MessageFromDomain(session.Message{ID: "message_mail", SessionID: "session_child", TurnID: "turn_fixture", Sequence: 9007199254740995, Role: session.User, Mail: &session.MailRef{ID: "mail_fixture", Revision: 128, Presentation: session.MailDigest}, Parts: []session.Part{{Type: "text", Text: "Mail from session_root: Subject"}}, CreatedAt: created})},
+		{"ResourceUsage", ResourceUsageFromDomain(session.ResourceUsage{SessionID: "session_root", Kind: session.ResourceQueuedInputs, Revision: 9007199254740993, Limit: new(int64(9007199254740994)), Used: 9007199254740993})},
+		{"ResourceUsage", ResourceUsageFromDomain(session.ResourceUsage{SessionID: "session_child", Kind: session.ResourceDescendants, Revision: 0, Limit: nil, Used: 0})},
+		{"SetResourceParams", SetResourceParams{SessionID: "session_child", ExpectedRevision: 9007199254740993, Resource: ResourceLimit{Kind: "descendants", Limit: nil}}},
 		{"Budget", BudgetFromDomain(session.Budget{SessionID: "session_root", Kind: session.BudgetModelTokens, Revision: 9007199254740993, Limit: new(int64(9007199254740994)), Used: 9007199254740993, Reserved: 1})},
 		{"SessionObservation", SessionObservation{Epoch: "boot_fixture", Messages: []Message{message}, Preview: &MessagePreview{AttemptID: "attempt_live", TurnID: "turn_fixture", MessageID: "message_live", Revision: 9007199254740993, Text: "In progress", Calls: []CallPreview{{Index: 0, ID: "call_partial", Name: "execute", Arguments: `{"code":"print(`}}}}},
 		{"SessionObservation", SessionObservation{Epoch: "boot_restarted", Messages: []Message{}, Preview: nil}},
@@ -102,6 +105,14 @@ func Fixtures() ([]Fixture, error) {
 		`{"session_id":"session_child","after":"0","limit":10,"unexpected":true}`,
 	} {
 		result = append(result, Fixture{Type: "HistoryParams", Value: json.RawMessage(raw), Valid: false})
+	}
+	for _, raw := range []string{
+		`{"session_id":"session_child","expected_revision":"1","resource":{"kind":"queued_inputs","limit":1}}`,
+		`{"session_id":"session_child","expected_revision":1,"resource":{"kind":"queued_inputs","limit":"1"}}`,
+		`{"session_id":"session_child","expected_revision":"1","resource":{"kind":"unknown","limit":"1"}}`,
+		`{"session_id":"session_child","expected_revision":"1","resource":{"kind":"depth","limit":"9223372036854775808"}}`,
+	} {
+		result = append(result, Fixture{Type: "SetResourceParams", Value: json.RawMessage(raw), Valid: false})
 	}
 	result = append(result, Fixture{Type: "SubmitParams", Valid: false, Value: json.RawMessage(`{"identity":{"client_id":"client","request_id":"request"},"session_id":"session_child","source":"user","parts":[{"type":"text","text":"x","reference_id":"content"}]}`)})
 	result = append(result, Fixture{Type: "SubmitParams", Valid: false, Value: json.RawMessage(`{"identity":{"client_id":"client","request_id":"request"},"session_id":"session_child","source":"user","parts":[{"type":"tool_call","call":{"id":"call_fixture","name":"execute","arguments":{"code":"print(1)"}}}]}`)})

@@ -36,7 +36,7 @@ func stateMailTest(t *testing.T, s *Store, owner session.SessionID) session.Mail
 
 func TestStateSubscriptionsCoalesceAtomicallyAndPreservePresentedRevisions(t *testing.T) {
 	s := fresh(t)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	child := spawnChildTest(t, s, "child", childRequest(root.ID)).Session
 	subscribeStateTest(t, s, root.ID, "own", "topic", 0)
 	subscription := subscribeStateTest(t, s, child.ID, "watcher", "topic", 0)
@@ -119,9 +119,9 @@ func TestStateSubscriptionsCoalesceAtomicallyAndPreservePresentedRevisions(t *te
 func TestStateSubscriptionSnapshotRestartCancellationAndIsolation(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.db")
 	s := openTest(t, path)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	child := spawnChildTest(t, s, "child", childRequest(root.ID)).Session
-	_, stranger := create(t, s, session.DefaultTreePolicy())
+	_, stranger := create(t, s, nil)
 	first := putStateTest(t, s, stateWrite(root.ID, session.TreeState, "first", "topic", `1`, 0))
 	// after=0 closes the gap between an earlier empty snapshot and subscribing.
 	subscribed := subscribeStateTest(t, s, child.ID, "watcher", "topic", 0)
@@ -220,7 +220,7 @@ func TestStateSubscriptionCoalescingPreservesRecipientDeferral(t *testing.T) {
 
 func TestStateNotificationPressureRollsBackEveryCursorAndValue(t *testing.T) {
 	s := fresh(t)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	child := spawnChildTest(t, s, "child", childRequest(root.ID)).Session
 	subscribeStateTest(t, s, root.ID, "a_own", "topic", 0)
 	subscribeStateTest(t, s, child.ID, "z_watcher", "topic", 0)

@@ -146,11 +146,12 @@ export interface CreateTreeParams {
     pinned: boolean;
   };
   engine: "starlark" | "quickjs";
-  policy: {
-    max_depth: number;
-    max_sessions: number;
-    max_queued_inputs_per_session: number;
-  };
+  resources?:
+    | null
+    | {
+        kind: "depth" | "descendants" | "queued_inputs" | "active_operations" | "subscriptions";
+        limit: null | string;
+      }[];
   definition: {
     id: string;
     revision: string;
@@ -201,11 +202,6 @@ export interface CreateTreeResult {
       pinned: boolean;
     };
     engine: "starlark" | "quickjs";
-    policy: {
-      max_depth: number;
-      max_sessions: number;
-      max_queued_inputs_per_session: number;
-    };
     revision: string;
     created_at: string;
   };
@@ -1139,6 +1135,24 @@ export interface ResolvePermissionParams {
   operation_id: string;
   approved: boolean;
 }
+export interface ResourceUsage {
+  session_id: string;
+  kind: "depth" | "descendants" | "queued_inputs" | "active_operations" | "subscriptions";
+  revision: string;
+  limit: null | string;
+  used: string;
+}
+export interface ResourcesResult {
+  items:
+    | null
+    | {
+        session_id: string;
+        kind: "depth" | "descendants" | "queued_inputs" | "active_operations" | "subscriptions";
+        revision: string;
+        limit: null | string;
+        used: string;
+      }[];
+}
 export type Response = {
   jsonrpc: "2.0";
   id: string;
@@ -1418,6 +1432,14 @@ export interface SetBudgetParams {
     limit: null | string;
   };
 }
+export interface SetResourceParams {
+  session_id: string;
+  expected_revision: string;
+  resource: {
+    kind: "depth" | "descendants" | "queued_inputs" | "active_operations" | "subscriptions";
+    limit: null | string;
+  };
+}
 export interface SpawnSessionParams {
   identity: {
     client_id: string;
@@ -1495,6 +1517,12 @@ export interface SpawnSessionParams {
     | null
     | {
         kind: "model_calls" | "model_tokens" | "model_cost_nano_usd" | "model_elapsed_millis";
+        limit: null | string;
+      }[];
+  resources?:
+    | null
+    | {
+        kind: "depth" | "descendants" | "queued_inputs" | "active_operations" | "subscriptions";
         limit: null | string;
       }[];
 }
@@ -1724,11 +1752,6 @@ export interface Tree {
     pinned: boolean;
   };
   engine: "starlark" | "quickjs";
-  policy: {
-    max_depth: number;
-    max_sessions: number;
-    max_queued_inputs_per_session: number;
-  };
   revision: string;
   created_at: string;
 }
@@ -1864,12 +1887,15 @@ export interface ContractTypes {
   Request: Request;
   RequestIdentity: RequestIdentity;
   ResolvePermissionParams: ResolvePermissionParams;
+  ResourceUsage: ResourceUsage;
+  ResourcesResult: ResourcesResult;
   Response: Response;
   SendMailParams: SendMailParams;
   Session: Session;
   SessionObservation: SessionObservation;
   SessionParams: SessionParams;
   SetBudgetParams: SetBudgetParams;
+  SetResourceParams: SetResourceParams;
   SpawnSessionParams: SpawnSessionParams;
   SpawnSessionResult: SpawnSessionResult;
   StateHistoryParams: StateHistoryParams;
@@ -1904,6 +1930,8 @@ export interface Operations {
   "mail.send": { params: SendMailParams; result: MailAdmission };
   "mail.list": { params: ListMailParams; result: ListMailResult };
   "mail.read": { params: ReadMailParams; result: ReadMailResult };
+  "resources.list": { params: SessionParams; result: ResourcesResult };
+  "resources.set": { params: SetResourceParams; result: ResourceUsage };
   "budgets.list": { params: SessionParams; result: BudgetsResult };
   "budgets.set": { params: SetBudgetParams; result: Budget };
   "sessions.observe": { params: HistoryParams; result: SessionObservation };

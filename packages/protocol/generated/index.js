@@ -65,6 +65,16 @@ export const manifest = {
       "result": "ReadMailResult"
     },
     {
+      "name": "resources.list",
+      "params": "SessionParams",
+      "result": "ResourcesResult"
+    },
+    {
+      "name": "resources.set",
+      "params": "SetResourceParams",
+      "result": "ResourceUsage"
+    },
+    {
       "name": "budgets.list",
       "params": "SessionParams",
       "result": "BudgetsResult"

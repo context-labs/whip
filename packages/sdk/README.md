@@ -110,9 +110,37 @@ and kernel capacity until those inputs finish. Same-cell blocking `agents.wait`
 is unavailable in the new runtime. Both operations use tree-ID grant resources.
 
 
+Reusable capacity lives in session resource scopes, separately from model budgets
+and tree metadata. `trees.create` and `client.spawn` accept an optional `resources`
+array, for example `[{kind: 'descendants', limit: '10'}]`. Fresh host configuration
+version 2 supplies root defaults; existing trees retain their persisted limits.
+Root limits must be finite. Omitted child limits and `limit: null` inherit the
+ancestor bounds. Duplicate kinds are invalid.
+
+```ts
+const resources = await client.call('resources.list', { session_id: sessionID });
+const current = resources.items.find(item => item.session_id === sessionID && item.kind === 'queued_inputs');
+await client.call('resources.set', {
+  session_id: sessionID,
+  expected_revision: current.revision,
+  resource: { kind: 'queued_inputs', limit: '20' },
+});
+```
+
+The listing includes all applicable scopes, nearest first. Each scope exposes
+`session_id`, `kind`, `revision`, nullable `limit`, and `used`, with exact decimal
+strings for numbers. Revision `'0'` means no local record; clearing a child cap
+still advances its revision. Kinds are `depth`, `descendants`, `queued_inputs`,
+`active_operations`, and `subscriptions`. Usage is derived from live owning rows
+across each subtree. Claiming or cancelling queued input, settling operations,
+unsubscribing, and deleting children release the corresponding capacity.
+Depth counts edges and descendants excludes the owner. Stale updates conflict;
+a finite limit below current usage is rejected. `LIMIT` admission failures create
+no work, so a caller can explicitly retry after capacity becomes available.
+
 `budgets.list({session_id})` returns local model-call, token, nano-USD and elapsed
 millisecond scopes with exact decimal-string counters. `limit: null` is locally
-unlimited; ancestor caps still apply. `budgets.set` takes
+unlimited; clearing a child cap inherits ancestor enforcement, just as for resources. `budgets.set` takes
 `{session_id, expected_revision, budget: {kind, limit}}`; revision `'0'` creates an
 initial cap. Spawning may include a `budgets` array of narrower child caps.
 

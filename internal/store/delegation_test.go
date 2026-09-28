@@ -84,7 +84,7 @@ func TestCreateGrantRequiresExactLiveDirectParentIssuer(t *testing.T) {
 	grandchild := spawnChildTest(t, s, "grandchild", childRequest(child.Session.ID))
 	sibling := spawnChildTest(t, s, "sibling", childRequest(root.ID))
 	siblingIssuer := childGrants(t, s, sibling.Session.ID)[0]
-	_, other := create(t, s, session.DefaultTreePolicy())
+	_, other := create(t, s, nil)
 	foreign := standingGrant(t, s, other.ID, "foreign")
 	spec := operationSpec(cell, "approval")
 	spec.Resource = "/one-use"
@@ -145,7 +145,7 @@ func TestCreateGrantRequiresExactLiveDirectParentIssuer(t *testing.T) {
 
 func TestAncestorRevocationAndAdmissionValidateWholeChain(t *testing.T) {
 	s := fresh(t)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	issuer := standingGrant(t, s, root.ID, "root")
 	child := spawnChildTest(t, s, "child", childRequest(root.ID))
 	grandchild := spawnChildTest(t, s, "grandchild", childRequest(child.Session.ID))
@@ -206,7 +206,7 @@ func TestAncestorRevocationRacesDispatch(t *testing.T) {
 		t.Run(strconv.Itoa(i), func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "runtime.db")
 			s, other := openTest(t, path), openTest(t, path)
-			_, root := create(t, s, session.DefaultTreePolicy())
+			_, root := create(t, s, nil)
 			issuer := standingGrant(t, s, root.ID, "issuer")
 			child := spawnChildTest(t, s, "child", childRequest(root.ID))
 			cell := childOperationCell(t, s, child.Session.ID)
@@ -237,7 +237,7 @@ func TestAncestorRevocationRacesDispatch(t *testing.T) {
 func TestSpawnOperationRejectsMismatchedScopeAndCancelledTurn(t *testing.T) {
 	s := fresh(t)
 	owner, cell := operationCell(t, s)
-	_, foreign := create(t, s, session.DefaultTreePolicy())
+	_, foreign := create(t, s, nil)
 	for _, test := range []struct {
 		id, capability, resource string
 		parent                   session.SessionID
@@ -272,7 +272,7 @@ func TestSpawnOperationRejectsMismatchedScopeAndCancelledTurn(t *testing.T) {
 
 func TestStoppingParentDoesNotRevokeChildAuthority(t *testing.T) {
 	s := fresh(t)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	standingGrant(t, s, root.ID, "issuer")
 	child := spawnChildTest(t, s, "child", childRequest(root.ID))
 	cell := childOperationCell(t, s, child.Session.ID)

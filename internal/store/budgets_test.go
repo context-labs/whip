@@ -60,7 +60,7 @@ func budgetTurn(t *testing.T, s *Store, owner session.SessionID) session.TurnID 
 func TestBudgetsCompetingSiblingsReserveAllAncestorsAtomically(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "runtime.db")
 	s, other := openTest(t, path), openTest(t, path)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	for kind, limit := range map[session.BudgetKind]int64{
 		session.BudgetModelCalls: 1, session.BudgetModelTokens: 30, session.BudgetModelCostNanoUSD: 130, session.BudgetModelElapsedMillis: 100,
 	} {
@@ -112,7 +112,7 @@ func TestBudgetsCompetingSiblingsReserveAllAncestorsAtomically(t *testing.T) {
 
 func TestBudgetSettlementRetainsPartialEvidenceAndOverages(t *testing.T) {
 	s := fresh(t)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	turn := budgetTurn(t, s, root.ID)
 	for kind, limit := range map[session.BudgetKind]int64{session.BudgetModelTokens: 30, session.BudgetModelCostNanoUSD: 130, session.BudgetModelElapsedMillis: 100} {
 		budgetLimit(t, s, root.ID, kind, limit)
@@ -155,7 +155,7 @@ func TestBudgetUnknownBoundsPricesAndFreeRequests(t *testing.T) {
 	for _, kind := range []session.BudgetKind{session.BudgetModelTokens, session.BudgetModelCostNanoUSD} {
 		t.Run(string(kind), func(t *testing.T) {
 			s := fresh(t)
-			_, root := create(t, s, session.DefaultTreePolicy())
+			_, root := create(t, s, nil)
 			turn := budgetTurn(t, s, root.ID)
 			budgetLimit(t, s, root.ID, kind, 1000000)
 			request := budgetRequest(turn, "unknown")
@@ -184,7 +184,7 @@ func TestBudgetUnknownBoundsPricesAndFreeRequests(t *testing.T) {
 func TestBudgetRecoveryReleasesOnlyUndispatchedAndIsIdempotent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "runtime.db")
 	s := openTest(t, path)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	turn := budgetTurn(t, s, root.ID)
 	reserved := reserveTest(t, s, budgetRequest(turn, "reserved"))
 	dispatched := reserveTest(t, s, budgetRequest(turn, "dispatched"))
@@ -219,7 +219,7 @@ func TestBudgetRecoveryReleasesOnlyUndispatchedAndIsIdempotent(t *testing.T) {
 
 func TestUnknownSettlementBlocksInstallingFiniteLimit(t *testing.T) {
 	s := fresh(t)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	turn := budgetTurn(t, s, root.ID)
 	request := budgetRequest(turn, "unknown-input")
 	request.Request.InputTokenBound = nil
@@ -244,7 +244,7 @@ func TestUnknownSettlementBlocksInstallingFiniteLimit(t *testing.T) {
 
 func TestBudgetRetryEachAttemptChargesAndChildDeletionPreservesAllowance(t *testing.T) {
 	s := fresh(t)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	budgetLimit(t, s, root.ID, session.BudgetModelCalls, 2)
 	child := spawnChildTest(t, s, "child", childRequest(root.ID))
 	turn := claim(t, s, child.Session.ID).Turn.ID
@@ -297,7 +297,7 @@ func TestBudgetRetryEachAttemptChargesAndChildDeletionPreservesAllowance(t *test
 
 func TestBudgetCASAndExplicitChildNarrowing(t *testing.T) {
 	s := fresh(t)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	initial := budgetState(t, s, root.ID, session.BudgetModelTokens)
 	if initial.Revision != 0 || initial.Limit != nil {
 		t.Fatalf("absent budget: %+v", initial)
@@ -310,15 +310,23 @@ func TestBudgetCASAndExplicitChildNarrowing(t *testing.T) {
 		t.Fatalf("explicit child cap: %+v", state)
 	}
 	budgetLimit(t, s, root.ID, session.BudgetModelTokens, 80)
-	for _, limit := range []*int64{nil, new(int64(81))} {
-		if _, err := s.SetBudget(t.Context(), child.Session.ID, 1, session.BudgetLimit{Kind: session.BudgetModelTokens, Limit: limit}); !errors.Is(err, ErrLimit) {
-			t.Fatalf("widened child cap beyond live ancestor: %v", err)
-		}
+	if _, err := s.SetBudget(t.Context(), child.Session.ID, 1, session.BudgetLimit{Kind: session.BudgetModelTokens, Limit: new(int64(81))}); !errors.Is(err, ErrLimit) {
+		t.Fatalf("widened child cap beyond live ancestor: %v", err)
 	}
 	if _, err := s.SetBudget(t.Context(), child.Session.ID, 0, session.BudgetLimit{Kind: session.BudgetModelTokens, Limit: new(int64(70))}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("stale revision succeeded: %v", err)
 	}
-	budgetLimit(t, s, child.Session.ID, session.BudgetModelTokens, 70)
+	narrow := budgetLimit(t, s, child.Session.ID, session.BudgetModelTokens, 70)
+	cleared, err := s.SetBudget(t.Context(), child.Session.ID, narrow.Revision, session.BudgetLimit{Kind: session.BudgetModelTokens})
+	if err != nil || cleared.Limit != nil || cleared.Revision != narrow.Revision+1 {
+		t.Fatalf("clear local cap: %+v %v", cleared, err)
+	}
+	turn := claim(t, s, child.Session.ID).Turn.ID
+	wideAttempt := budgetRequest(turn, "inherited")
+	wideAttempt.Request.InputTokenBound = new(int64(61))
+	if _, err := s.ReserveModelAttempt(t.Context(), wideAttempt); !errors.Is(err, ErrLimit) {
+		t.Fatalf("cleared local cap bypassed ancestor token limit: %v", err)
+	}
 	request = childRequest(root.ID)
 	request.Budgets = []session.BudgetLimit{{Kind: session.BudgetModelCalls, Limit: new(int64(1))}, {Kind: session.BudgetModelTokens, Limit: new(int64(81))}}
 	before := count(t, s, "budget_limits")
@@ -336,7 +344,7 @@ func TestBudgetCASAndExplicitChildNarrowing(t *testing.T) {
 
 func TestBudgetReservationAssociationRollback(t *testing.T) {
 	s := fresh(t)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	turn := budgetTurn(t, s, root.ID)
 	budgetLimit(t, s, root.ID, session.BudgetModelCalls, 1)
 	execTest(t, s, `CREATE TRIGGER fail_budget_capture BEFORE INSERT ON attempt_budget_ancestors BEGIN SELECT RAISE(ABORT,'capture fault'); END`)
@@ -350,7 +358,7 @@ func TestBudgetReservationAssociationRollback(t *testing.T) {
 
 func TestBudgetOverflowNeverWrapsOrDropsActualEvidence(t *testing.T) {
 	s := fresh(t)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	turn := budgetTurn(t, s, root.ID)
 	for _, id := range []string{"huge", "second"} {
 		attempt := reserveTest(t, s, budgetRequest(turn, id))
@@ -370,7 +378,7 @@ func TestBudgetOverflowNeverWrapsOrDropsActualEvidence(t *testing.T) {
 			t.Fatalf("finite limit accepted overflow: %v", err)
 		}
 	}
-	_, bounded := create(t, s, session.DefaultTreePolicy())
+	_, bounded := create(t, s, nil)
 	boundedTurn := budgetTurn(t, s, bounded.ID)
 	budgetLimit(t, s, bounded.ID, session.BudgetModelCostNanoUSD, math.MaxInt64)
 	request := budgetRequest(boundedTurn, "cost-overflow")
@@ -396,7 +404,7 @@ func TestBudgetUnknownComplementPreservesReportedOverage(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			s := fresh(t)
-			_, root := create(t, s, session.DefaultTreePolicy())
+			_, root := create(t, s, nil)
 			turn := budgetTurn(t, s, root.ID)
 			attempt := reserveTest(t, s, budgetRequest(turn, test.name))
 			dispatchTest(t, s, attempt.ID)
@@ -424,7 +432,7 @@ func TestEveryBudgetKindEnforcesFrozenRequestWithoutClamping(t *testing.T) {
 	for kind, required := range map[session.BudgetKind]int64{session.BudgetModelCalls: 1, session.BudgetModelTokens: 30, session.BudgetModelCostNanoUSD: 130, session.BudgetModelElapsedMillis: 100} {
 		t.Run(string(kind), func(t *testing.T) {
 			s := fresh(t)
-			_, root := create(t, s, session.DefaultTreePolicy())
+			_, root := create(t, s, nil)
 			turn := budgetTurn(t, s, root.ID)
 			budgetLimit(t, s, root.ID, kind, required-1)
 			request := budgetRequest(turn, "bounded")
@@ -447,7 +455,7 @@ func TestBudgetLimitChangeRacesReservation(t *testing.T) {
 	for range 8 {
 		path := filepath.Join(t.TempDir(), "runtime.db")
 		s, other := openTest(t, path), openTest(t, path)
-		_, root := create(t, s, session.DefaultTreePolicy())
+		_, root := create(t, s, nil)
 		turn := budgetTurn(t, s, root.ID)
 		budgetLimit(t, s, root.ID, session.BudgetModelCalls, 1)
 		start := make(chan struct{})
@@ -476,7 +484,7 @@ func TestBudgetLimitChangeRacesReservation(t *testing.T) {
 
 func TestBudgetComputedCostOverflowRemainsKnownSpentLowerBound(t *testing.T) {
 	s := fresh(t)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	turn := budgetTurn(t, s, root.ID)
 	attempt := reserveTest(t, s, budgetRequest(turn, "cost-overflow"))
 	dispatchTest(t, s, attempt.ID)

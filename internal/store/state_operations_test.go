@@ -73,7 +73,7 @@ func TestStateOperationReadsRetainObservedVersionWithoutCopyingBody(t *testing.T
 	if err != nil || string(first) != string(retry) {
 		t.Fatal("read retry drifted to new head", err)
 	}
-	_, foreign := create(t, s, session.DefaultTreePolicy())
+	_, foreign := create(t, s, nil)
 	read := stateOperation(t, s, owner, cell, "foreign", "read", session.StateRead{ID: putStateTest(t, s, stateWrite(foreign.ID, session.SessionState, "foreign", "key", `1`, 0)).ID, Length: 10})
 	if _, err := s.ApplyStateOperation(t.Context(), read.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatal("foreign handle read", err)

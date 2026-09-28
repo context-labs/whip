@@ -214,28 +214,8 @@ func budgetExceeds(budget session.Budget, limit int64) bool {
 	return budget.Uncertain > remaining-budget.Reserved
 }
 
-func budgetAncestors(ctx context.Context, q querier, owner session.SessionID) ([]session.SessionID, error) {
-	rows, err := q.QueryContext(ctx, `WITH RECURSIVE ancestors(id,parent_id,depth) AS (
- SELECT id,parent_id,0 FROM sessions WHERE id=? UNION ALL
- SELECT s.id,s.parent_id,a.depth+1 FROM sessions s JOIN ancestors a ON a.parent_id=s.id
- ) SELECT id FROM ancestors ORDER BY depth`, owner)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-	var result []session.SessionID
-	for rows.Next() {
-		var id session.SessionID
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		result = append(result, id)
-	}
-	return result, rows.Err()
-}
-
 func reserveBudgets(ctx context.Context, tx *sql.Tx, owner session.SessionID, request session.ModelRequestSnapshot) ([]session.SessionID, error) {
-	ancestors, err := budgetAncestors(ctx, tx, owner)
+	ancestors, err := sessionAncestors(ctx, tx, owner)
 	if err != nil {
 		return nil, err
 	}
@@ -295,7 +275,7 @@ func setBudget(ctx context.Context, tx *sql.Tx, owner session.SessionID, expecte
 	if limit.Limit != nil && budgetExceeds(result, *limit.Limit) {
 		return result, fmt.Errorf("%w: budget limit is below allocated exposure", ErrLimit)
 	}
-	ancestors, err := budgetAncestors(ctx, tx, owner)
+	ancestors, err := sessionAncestors(ctx, tx, owner)
 	if err != nil {
 		return result, err
 	}
@@ -305,7 +285,7 @@ func setBudget(ctx context.Context, tx *sql.Tx, owner session.SessionID, expecte
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return result, err
 		}
-		if parentLimit != nil && (limit.Limit == nil || *limit.Limit > *parentLimit) {
+		if parentLimit != nil && limit.Limit != nil && *limit.Limit > *parentLimit {
 			return result, fmt.Errorf("%w: child budget exceeds ancestor limit", ErrLimit)
 		}
 	}

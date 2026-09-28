@@ -56,6 +56,40 @@
     "valid": true
   },
   {
+    "type": "ResourceUsage",
+    "value": {
+      "session_id": "session_root",
+      "kind": "queued_inputs",
+      "revision": "9007199254740993",
+      "limit": "9007199254740994",
+      "used": "9007199254740993"
+    },
+    "valid": true
+  },
+  {
+    "type": "ResourceUsage",
+    "value": {
+      "session_id": "session_child",
+      "kind": "descendants",
+      "revision": "0",
+      "limit": null,
+      "used": "0"
+    },
+    "valid": true
+  },
+  {
+    "type": "SetResourceParams",
+    "value": {
+      "session_id": "session_child",
+      "expected_revision": "9007199254740993",
+      "resource": {
+        "kind": "descendants",
+        "limit": null
+      }
+    },
+    "valid": true
+  },
+  {
     "type": "Budget",
     "value": {
       "session_id": "session_root",
@@ -622,6 +656,54 @@
       "after": "0",
       "limit": 10,
       "unexpected": true
+    },
+    "valid": false
+  },
+  {
+    "type": "SetResourceParams",
+    "value": {
+      "session_id": "session_child",
+      "expected_revision": "1",
+      "resource": {
+        "kind": "queued_inputs",
+        "limit": 1
+      }
+    },
+    "valid": false
+  },
+  {
+    "type": "SetResourceParams",
+    "value": {
+      "session_id": "session_child",
+      "expected_revision": 1,
+      "resource": {
+        "kind": "queued_inputs",
+        "limit": "1"
+      }
+    },
+    "valid": false
+  },
+  {
+    "type": "SetResourceParams",
+    "value": {
+      "session_id": "session_child",
+      "expected_revision": "1",
+      "resource": {
+        "kind": "unknown",
+        "limit": "1"
+      }
+    },
+    "valid": false
+  },
+  {
+    "type": "SetResourceParams",
+    "value": {
+      "session_id": "session_child",
+      "expected_revision": "1",
+      "resource": {
+        "kind": "depth",
+        "limit": "9223372036854775808"
+      }
     },
     "valid": false
   },

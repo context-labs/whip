@@ -781,3 +781,52 @@ cell-result and subscription assertions are unchanged.
 Five repeated race runs of both state workflows across both engines, using the
 hosted shuffle seed, passed in 32.883 s with the corrected integration deadline.
 Final pinned analysis again passed with zero issues and no reachable vulnerabilities.
+
+
+The subscription head `f7cc98c99` passed the complete
+[Linux/macOS hosted gate](https://github.com/context-labs/whip/actions/runs/36438104798),
+including analysis and the required aggregate check.
+
+## Phase 4 reusable capacity increment
+
+Fresh schema 11 removes the tree's duplicated policy document. Session-scoped,
+revisioned resource limits govern depth, retained descendants, queued inputs,
+unsettled host operations and active state subscriptions through every ancestor.
+Usage is derived from their canonical owning rows. Host configuration version 2
+resolves finite defaults once into new root records. The generated wire contract,
+SDK and both guest engines carry explicit child caps; inspection returns every
+enforcing scope. Stale edits conflict, narrowing below usage fails, and admission
+and policy edits serialize in the same immediate transaction.
+
+Queues now share ancestor capacity across siblings. Stop and worker eviction
+retain queued inputs and session identity; claim/cancel and deletion release their
+respective capacity. Capacity reuse never erases permanent ancestor model spend.
+Both budget and resource null limits consistently remove only the local cap;
+ancestor enforcement remains intact. The former test that treated a null child
+budget as an explicit widening was replaced by a real reservation that proves
+the ancestor still rejects excess exposure.
+
+Ten focused store scenarios cover two-handle sibling contention, limit-update
+races, revision checks, multi-level narrowing, initial-input rollback, exhausted
+and deleted retries, correct release boundaries, retained model spend, and the
+maximum depth/authority chain. The full public deep-chain setup passed under race
+instrumentation but took 71 seconds. Its ordinary fixture now builds the first
+127 valid edges in one transaction, then uses public admission for the 128th and
+rejected 129th edge and public grant creation to validate all 129 owners. This
+preserves the boundary assertions without taxing every development iteration.
+Admission now loads applicable finite caps together and skips usage aggregation
+for inherited scopes. The final focused resource/budget race run passed in 4.050 s.
+
+The race-built SDK process acceptance passed, covering cap rejection, local
+inheritance, exact counters beyond JavaScript's safe integer range, restart and
+deletion/reuse. Both engine recursion tests execute a leaf with a local depth-zero
+cap. Broader byte/record capacity, report/retry policy and final Phase 4 lifecycle
+acceptance remain outstanding; Phase 5–7 scope is unchanged.
+
+The full local phase gate passed: active build/vet/race, the complete process
+engine suite (97.701 s), generated contract/SDK checks, both process fixtures and
+required retained daemon regressions (2.764 s). Store race coverage took 29.204 s
+and runtime race coverage 61.783 s. The final helper-instruction/recursive-cap
+check passed in 11.280 s. Pinned analysis reports zero lint issues and no reachable
+vulnerabilities. An independent review found no correctness blockers; admission
+queries may merit profiling with many unrelated trees before scale claims.

@@ -160,6 +160,9 @@ func (s *Store) AdmitOperation(ctx context.Context, spec session.OperationSpec) 
 				return err
 			}
 		}
+		if err := checkResources(ctx, tx, cell.SessionID, session.ResourceActiveOperations); err != nil {
+			return err
+		}
 		result, err = readOperation(ctx, tx, spec.ID)
 		return err
 	})
@@ -212,7 +215,7 @@ func authorizeOperation(ctx context.Context, q querier, operation session.Operat
 // Every hop must retain the same scope and move to the direct parent. Session
 // ancestry is immutable; the bound also rejects corrupted cyclic grant chains.
 func validateGrantChain(ctx context.Context, q querier, grant session.Grant) error {
-	for range 129 {
+	for range session.MaxSessionDepth + 1 {
 		if grant.RevokedAt != nil {
 			return ErrConflict
 		}

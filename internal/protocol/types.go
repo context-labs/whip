@@ -122,11 +122,6 @@ type Definition struct {
 	Document  DefinitionDocument `json:"document"`
 	CreatedAt string             `json:"created_at"`
 }
-type TreePolicy struct {
-	MaxDepth                  int `json:"max_depth" min:"0" max:"128"`
-	MaxSessions               int `json:"max_sessions" min:"1" max:"10000"`
-	MaxQueuedInputsPerSession int `json:"max_queued_inputs_per_session" min:"1" max:"10000"`
-}
 type TreeMetadata struct {
 	Title    *string `json:"title"`
 	Archived bool    `json:"archived"`
@@ -136,7 +131,6 @@ type Tree struct {
 	ID        ID           `json:"id"`
 	Metadata  TreeMetadata `json:"metadata"`
 	Engine    string       `json:"engine" enum:"starlark,quickjs"`
-	Policy    TreePolicy   `json:"policy"`
 	Revision  Counter      `json:"revision"`
 	CreatedAt string       `json:"created_at"`
 }
@@ -215,12 +209,12 @@ type Admission struct {
 }
 
 type CreateTreeParams struct {
-	Metadata         TreeMetadata  `json:"metadata"`
-	Engine           string        `json:"engine" enum:"starlark,quickjs"`
-	Policy           TreePolicy    `json:"policy"`
-	Definition       DefinitionRef `json:"definition"`
-	Overrides        ConfigPatch   `json:"overrides"`
-	WorkingDirectory string        `json:"working_directory"`
+	Metadata         TreeMetadata    `json:"metadata"`
+	Engine           string          `json:"engine" enum:"starlark,quickjs"`
+	Resources        []ResourceLimit `json:"resources,omitempty"`
+	Definition       DefinitionRef   `json:"definition"`
+	Overrides        ConfigPatch     `json:"overrides"`
+	WorkingDirectory string          `json:"working_directory"`
 }
 type CreateTreeResult struct {
 	Tree Tree    `json:"tree"`
@@ -246,6 +240,7 @@ type SpawnSessionParams struct {
 	Parts            []Part          `json:"parts"`
 	GrantIDs         []ID            `json:"grant_ids"`
 	Budgets          []BudgetLimit   `json:"budgets,omitempty"`
+	Resources        []ResourceLimit `json:"resources,omitempty"`
 }
 type SpawnSessionResult struct {
 	Session   *Session  `json:"session"`

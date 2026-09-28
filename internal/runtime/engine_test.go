@@ -83,7 +83,7 @@ func createEngineSession(t *testing.T, r *Runtime, engine session.Engine) sessio
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, s, err := r.CreateTree(t.Context(), store.CreateTree{Engine: engine, Policy: session.DefaultTreePolicy(), Definition: refs[0], WorkingDirectory: t.TempDir(), Overrides: session.ConfigPatch{Model: &session.ModelSelection{Provider: "scripted", Name: "scripted"}}})
+	_, s, err := r.CreateTree(t.Context(), store.CreateTree{Engine: engine, Definition: refs[0], WorkingDirectory: t.TempDir(), Overrides: session.ConfigPatch{Model: &session.ModelSelection{Provider: "scripted", Name: "scripted"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

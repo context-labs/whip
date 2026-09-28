@@ -8,7 +8,7 @@ const client = await Client.connect(unixSocket(socket), { clientID: 'example', s
 const { root } = await client.call('trees.create', {
   metadata: { title: 'First v4 session', archived: false, pinned: false },
   engine: 'starlark',
-  policy: { max_depth: 8, max_sessions: 100, max_queued_inputs_per_session: 100 },
+  resources: [{ kind: 'depth', limit: '8' }, { kind: 'descendants', limit: '99' }, { kind: 'queued_inputs', limit: '100' }],
   definition: client.builtins[0],
   overrides: { model: { provider: 'scripted', name: 'scripted', effort: '' } },
   working_directory: process.cwd(),

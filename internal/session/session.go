@@ -50,26 +50,6 @@ func (e Engine) Validate() error {
 	return nil
 }
 
-// TreePolicy is shared by every session in a tree. These are storage admission
-// limits; execution budgets and authority are separate records in later phases.
-type TreePolicy struct {
-	MaxDepth                  int `json:"max_depth"`
-	MaxSessions               int `json:"max_sessions"`
-	MaxQueuedInputsPerSession int `json:"max_queued_inputs_per_session"`
-}
-
-func DefaultTreePolicy() TreePolicy {
-	return TreePolicy{MaxDepth: 8, MaxSessions: 128, MaxQueuedInputsPerSession: 256}
-}
-
-func (p TreePolicy) Validate() error {
-	if p.MaxDepth < 0 || p.MaxDepth > 128 || p.MaxSessions < 1 || p.MaxSessions > 10000 ||
-		p.MaxQueuedInputsPerSession < 1 || p.MaxQueuedInputsPerSession > 10000 {
-		return fmt.Errorf("%w: tree limits outside supported bounds", ErrInvalid)
-	}
-	return nil
-}
-
 type TreeMetadata struct {
 	Title    *string `json:"title"`
 	Archived bool    `json:"archived"`
@@ -80,7 +60,6 @@ type Tree struct {
 	ID        TreeID
 	Metadata  TreeMetadata
 	Engine    Engine
-	Policy    TreePolicy
 	Revision  Revision
 	CreatedAt time.Time
 }

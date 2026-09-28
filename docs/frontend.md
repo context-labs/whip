@@ -98,6 +98,13 @@ is separate from committed messages: replace it by the matching message ID, and
 clear it on a null preview or changed process epoch. The iterator keeps no second
 transcript authority. An aborted wait or observation does not cancel execution. See [its example and recovery
 contract](../packages/sdk/README.md) and [the backend domain contract](backend-domain.md).
+Reusable limits are session-scoped `resources.list/set` records, separate from
+permanent model budgets. Inspect all returned ancestor scopes before displaying
+available subtree capacity: a child's null local limit means inheritance. Queued
+inputs share ancestor capacity across siblings. Keep resource revisions for
+explicit compare-and-set edits; counters are exact decimal strings. Tree metadata
+contains no duplicate limit policy. Host defaults are captured into new root
+records and never silently change an existing conversation's limits.
 Child creation in v4 is a durable `client.spawn` request: its receipt covers the
 child, initial input and delegated authority together. Keep its identity and exact
 payload for recovery just as for submissions.

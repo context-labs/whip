@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -39,9 +40,13 @@ func TestRecursiveWaitReleasesWorkerAndKernelAtCommittedCell(t *testing.T) {
 						if prompt == "child" {
 							next = "leaf"
 						}
-						code = fmt.Sprintf("marker=41\nchild=agents.spawn(prompt=%q)\nregistered=agents.wait_after_cell(input_ids=[child[\"input_id\"]])\nprint(registered[\"boundary\"])", next)
+						resources := ""
+						if next == "leaf" {
+							resources = `, resources=[{"kind":"depth","limit":"0"}]`
+						}
+						code = fmt.Sprintf("marker=41\nchild=agents.spawn(prompt=%q%s)\nregistered=agents.wait_after_cell(input_ids=[child[\"input_id\"]])\nprint(registered[\"boundary\"])", next, resources)
 						if engine == session.QuickJS {
-							code = fmt.Sprintf("var marker=41; var child=await agents.spawn({prompt:%q}); var registered=await agents.wait_after_cell({input_ids:[child.input_id]}); print(registered.boundary)", next)
+							code = fmt.Sprintf("var marker=41; var child=await agents.spawn({prompt:%q%s}); var registered=await agents.wait_after_cell({input_ids:[child.input_id]}); print(registered.boundary)", next, strings.ReplaceAll(resources, "resources=", "resources:"))
 						}
 					case "leaf":
 						code = "print(42)"
@@ -118,6 +123,21 @@ func TestRecursiveWaitReleasesWorkerAndKernelAtCommittedCell(t *testing.T) {
 			for _, current := range sessions {
 				if current.ID == root.ID {
 					continue
+				}
+				if current.ParentID != nil && *current.ParentID != root.ID {
+					limits, err := r.Resources(t.Context(), current.ID)
+					if err != nil {
+						t.Fatal(err)
+					}
+					for _, limit := range limits {
+						if limit.SessionID == current.ID && limit.Kind == session.ResourceDepth && (limit.Limit == nil || *limit.Limit != 0) {
+							t.Fatalf("guest spawn lost local depth cap: %+v", limit)
+						}
+					}
+					_, err = r.SpawnChild(t.Context(), session.RequestIdentity{ClientID: "test", RequestID: "beyond_leaf"}, store.ChildRequest{ParentID: current.ID, Parts: []session.Part{{Type: "text", Text: "forbidden descendant"}}})
+					if !errors.Is(err, store.ErrLimit) {
+						t.Fatalf("leaf resource cap did not reject descendant: %v", err)
+					}
 				}
 				transcript, err := r.History(t.Context(), current.ID, 0, 100)
 				if err != nil || len(transcript) != 4 || transcript[3].Role != session.Assistant {

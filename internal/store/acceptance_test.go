@@ -57,7 +57,7 @@ func TestTreeConfigurationAndDeletionRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := CreateTree{Engine: session.Starlark, Policy: session.DefaultTreePolicy(), Definition: ref, WorkingDirectory: t.TempDir(), Defaults: session.Configuration{Model: session.ModelSelection{Provider: "test", Name: "scripted"}}}
+	request := CreateTree{Engine: session.Starlark, Definition: ref, WorkingDirectory: t.TempDir(), Defaults: session.Configuration{Model: session.ModelSelection{Provider: "test", Name: "scripted"}}}
 	if _, _, err := s.CreateTree(t.Context(), request); err == nil {
 		t.Fatal("creation unexpectedly succeeded")
 	}
@@ -110,7 +110,7 @@ func TestDefinitionAndHostEditsDoNotChangeRetainedSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, root, err := s.CreateTree(t.Context(), CreateTree{Engine: host.Engine, Policy: host.Policy, Definition: registered.Ref, Defaults: host.Defaults, WorkingDirectory: t.TempDir()})
+	_, root, err := s.CreateTree(t.Context(), CreateTree{Engine: host.Engine, Resources: host.Resources, Definition: registered.Ref, Defaults: host.Defaults, WorkingDirectory: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestDefinitionAndHostEditsDoNotChangeRetainedSessions(t *testing.T) {
 
 func TestHistoryByteBudgetAndCursor(t *testing.T) {
 	s := fresh(t)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	submit(t, s, root.ID, "one")
 	active := claim(t, s, root.ID)
 	text := strings.Repeat("x", session.MaxDocumentBytes-128)
@@ -172,7 +172,7 @@ func TestHistoryByteBudgetAndCursor(t *testing.T) {
 func TestClosedStoreRecoveryRetainsQueuedWork(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "runtime.db")
 	s := openTest(t, path)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	submit(t, s, root.ID, "running")
 	active := claim(t, s, root.ID)
 	queued := submit(t, s, root.ID, "queued")

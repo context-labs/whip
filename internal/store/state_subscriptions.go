@@ -80,6 +80,9 @@ func subscribeState(ctx context.Context, tx *sql.Tx, actor session.SessionID, id
 	if _, err := tx.ExecContext(ctx, "INSERT INTO state_subscriptions VALUES (?,?,?,?,?,?,?,?,NULL)", id, owner.TreeID, actor, request.Key, request.Delivery, digest, request.After, now()); err != nil {
 		return session.StateSubscription{}, err
 	}
+	if err := checkResources(ctx, tx, actor, session.ResourceSubscriptions); err != nil {
+		return session.StateSubscription{}, err
+	}
 	value, err := scanStateSubscription(tx.QueryRowContext(ctx, stateSubscriptionSelect+" WHERE id=?", id))
 	if err != nil {
 		return value, err

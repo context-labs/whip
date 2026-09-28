@@ -74,7 +74,7 @@ func settleMailCell(t *testing.T, s *Store, cell session.Cell) {
 func TestMailConcurrentSendRetryAndAtomicAdmission(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "runtime.db")
 	s, other := openTest(t, path), openTest(t, path)
-	_, owner := create(t, s, session.DefaultTreePolicy())
+	_, owner := create(t, s, nil)
 	spec := mailSpec(owner.ID, "mail", session.MailQueued)
 	var workers sync.WaitGroup
 	for i := range 12 {
@@ -106,7 +106,7 @@ func TestMailConcurrentSendRetryAndAtomicAdmission(t *testing.T) {
 
 func TestMailClaimsRevisionsWithoutRewritingHistoryAndFinishIsAtomic(t *testing.T) {
 	s := fresh(t)
-	_, owner := create(t, s, session.DefaultTreePolicy())
+	_, owner := create(t, s, nil)
 	spec := mailSpec(owner.ID, "mail", session.MailQueued)
 	sendMailTest(t, s, spec)
 	turn := claim(t, s, owner.ID)
@@ -147,7 +147,7 @@ func TestMailFailureBarrierAppliesAtEveryDepthAndSurvivesReopen(t *testing.T) {
 		t.Run(string(state), func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "runtime.db")
 			s := openTest(t, path)
-			_, root := create(t, s, session.DefaultTreePolicy())
+			_, root := create(t, s, nil)
 			child := spawnChildTest(t, s, "child", childRequest(root.ID))
 			finishMailTest(t, s, claim(t, s, child.Session.ID).Turn.ID, session.Succeeded)
 			for i, id := range []session.SessionID{root.ID, child.Session.ID} {
@@ -265,7 +265,7 @@ func TestMailHandlingRequiresObservedCurrentRevisionsAndRollsBack(t *testing.T) 
 
 func TestMailSenderDeletionRetainsMailAndRecipientDeletionRetainsOnlyTombstone(t *testing.T) {
 	s := fresh(t)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	child := spawnChildTest(t, s, "child", childRequest(root.ID))
 	spec := mailSpec(root.ID, "mail", session.MailNextTurn)
 	spec.SenderID = child.Session.ID
@@ -288,7 +288,7 @@ func TestMailSenderDeletionRetainsMailAndRecipientDeletionRetainsOnlyTombstone(t
 
 func TestMailDeliveryClassesAvailabilityAndBounds(t *testing.T) {
 	s := fresh(t)
-	_, owner := create(t, s, session.DefaultTreePolicy())
+	_, owner := create(t, s, nil)
 	next := mailSpec(owner.ID, "next", session.MailNextTurn)
 	sendMailTest(t, s, next)
 	future := mailSpec(owner.ID, "future", session.MailQueued)

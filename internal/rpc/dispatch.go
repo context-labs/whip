@@ -49,6 +49,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 		return dispatchState(ctx, r, method, raw)
 	case "mail.send", "mail.list", "mail.read":
 		return dispatchMail(ctx, r, method, raw)
+	case "resources.list", "resources.set":
+		return dispatchResource(ctx, r, method, raw)
 	case "budgets.list", "budgets.set":
 		return dispatchBudget(ctx, r, method, raw)
 	case "sessions.observe":
@@ -93,7 +95,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 			if err != nil {
 				return nil, err
 			}
-			tree, root, err := r.CreateTree(ctx, store.CreateTree{Metadata: session.TreeMetadata(p.Metadata), Engine: session.Engine(p.Engine), Policy: session.TreePolicy(p.Policy), Definition: definitionRef(p.Definition), Overrides: patch, WorkingDirectory: p.WorkingDirectory})
+			tree, root, err := r.CreateTree(ctx, store.CreateTree{Metadata: session.TreeMetadata(p.Metadata), Engine: session.Engine(p.Engine), Resources: protocol.ResourceLimitsDomain(p.Resources), Definition: definitionRef(p.Definition), Overrides: patch, WorkingDirectory: p.WorkingDirectory})
 			if err != nil {
 				return nil, err
 			}
@@ -124,7 +126,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 			if err != nil {
 				return nil, err
 			}
-			request := store.ChildRequest{ParentID: session.SessionID(p.ParentID), Overrides: patch}
+			request := store.ChildRequest{ParentID: session.SessionID(p.ParentID), Overrides: patch, Resources: protocol.ResourceLimitsDomain(p.Resources)}
 			for _, limit := range p.Budgets {
 				request.Budgets = append(request.Budgets, limit.Domain())
 			}

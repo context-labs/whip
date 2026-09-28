@@ -1,0 +1,48 @@
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "depth",
+        "descendants",
+        "queued_inputs",
+        "active_operations",
+        "subscriptions"
+      ]
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "limit": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "used": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ResourceUsage",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ResourceUsage",
+  "required": [
+    "session_id",
+    "kind",
+    "revision",
+    "limit",
+    "used"
+  ],
+  "additionalProperties": false
+}

@@ -70,7 +70,7 @@ func call[R any](t *testing.T, c *client.Client, method string, p any) R {
 func create(t *testing.T, c *client.Client) protocol.CreateTreeResult {
 	t.Helper()
 	return call[protocol.CreateTreeResult](t, c, "trees.create", protocol.CreateTreeParams{
-		Engine: "starlark", Policy: protocol.TreePolicy{MaxDepth: 4, MaxSessions: 100, MaxQueuedInputsPerSession: 100}, Definition: c.Builtins()[0], WorkingDirectory: t.TempDir(), Overrides: protocol.ConfigPatch{Model: &protocol.ModelSelection{Provider: "scripted", Name: "scripted"}},
+		Engine: "starlark", Definition: c.Builtins()[0], WorkingDirectory: t.TempDir(), Overrides: protocol.ConfigPatch{Model: &protocol.ModelSelection{Provider: "scripted", Name: "scripted"}},
 	})
 }
 

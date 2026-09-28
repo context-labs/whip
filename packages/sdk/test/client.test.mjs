@@ -65,3 +65,20 @@ test('aborting a stalled observation stops polling and never sends execution can
   await assert.rejects(waiting, error => error.name === 'AbortError');
   assert.deepEqual(calls, ['initialize', 'sessions.observe']);
 });
+
+test('resource calls preserve exact limits and validate before transport', async () => {
+  const calls = [];
+  const value = { session_id: 'child', kind: 'queued_inputs', revision: '9007199254740993', limit: null, used: '9007199254740994' };
+  const client = await Client.connect(async request => {
+    if (request.method === 'initialize') return success(request, initial);
+    calls.push(request);
+    return success(request, request.method === 'resources.list' ? { items: [value] } : value);
+  }, { clientID: 'resources' });
+  assert.deepEqual(await client.call('resources.list', { session_id: 'child' }), { items: [value] });
+  const params = { session_id: 'child', expected_revision: '9007199254740992', resource: { kind: 'queued_inputs', limit: null } };
+  assert.deepEqual(await client.call('resources.set', params), value);
+  assert.deepEqual(calls[1].params, params);
+  await assert.rejects(client.call('resources.set', { ...params, expected_revision: 9007199254740992 }), TypeError);
+  await assert.rejects(client.call('resources.set', { ...params, resource: { kind: 'queued_inputs', limit: 1 } }), TypeError);
+  assert.equal(calls.length, 2);
+});

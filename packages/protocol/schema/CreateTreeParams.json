@@ -31,31 +31,39 @@
         "quickjs"
       ]
     },
-    "policy": {
-      "type": "object",
-      "properties": {
-        "max_depth": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 128
-        },
-        "max_sessions": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 10000
-        },
-        "max_queued_inputs_per_session": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 10000
-        }
-      },
-      "required": [
-        "max_depth",
-        "max_sessions",
-        "max_queued_inputs_per_session"
+    "resources": {
+      "type": [
+        "null",
+        "array"
       ],
-      "additionalProperties": false
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "depth",
+              "descendants",
+              "queued_inputs",
+              "active_operations",
+              "subscriptions"
+            ]
+          },
+          "limit": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^(0|[1-9][0-9]{0,18})$",
+            "format": "counter"
+          }
+        },
+        "required": [
+          "kind",
+          "limit"
+        ],
+        "additionalProperties": false
+      }
     },
     "definition": {
       "type": "object",
@@ -238,7 +246,6 @@
   "required": [
     "metadata",
     "engine",
-    "policy",
     "definition",
     "overrides",
     "working_directory"

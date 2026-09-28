@@ -30,9 +30,9 @@ func putStateTest(t *testing.T, s *Store, write session.StateWrite) session.Stat
 
 func TestStateVersionOwnershipHistoryAndAuthorDeletion(t *testing.T) {
 	s := fresh(t)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	child := spawnChildTest(t, s, "child", childRequest(root.ID)).Session
-	_, stranger := create(t, s, session.DefaultTreePolicy())
+	_, stranger := create(t, s, nil)
 	private := putStateTest(t, s, stateWrite(child.ID, session.SessionState, "private", "same-key", `{"large":9007199254740993}`, 0))
 	shared := putStateTest(t, s, stateWrite(child.ID, session.TreeState, "shared", "same-key", `"first"`, 0))
 	for _, actor := range []session.SessionID{root.ID, stranger.ID} {
@@ -84,7 +84,7 @@ func TestStateVersionOwnershipHistoryAndAuthorDeletion(t *testing.T) {
 func TestStateCASAcrossConnectionsAndIdempotentPriorVersion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "runtime.db")
 	s, other := openTest(t, path), openTest(t, path)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	initial := stateWrite(root.ID, session.TreeState, "initial", "key", `0`, 0)
 	first := putStateTest(t, s, initial)
 	var winners atomic.Int32
@@ -119,7 +119,7 @@ func TestStateCASAcrossConnectionsAndIdempotentPriorVersion(t *testing.T) {
 
 func TestStateWriteRollsBackBodyMetadataAndCannotWidenContentAccess(t *testing.T) {
 	s := fresh(t)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	write := stateWrite(root.ID, session.SessionState, "value", "key", `null`, 0)
 	execTest(t, s, `CREATE TRIGGER fail_state BEFORE INSERT ON state_versions BEGIN SELECT RAISE(ABORT,'fault'); END`)
 	if _, err := s.WriteState(t.Context(), write); err == nil {
@@ -152,7 +152,7 @@ func TestStateRetentionLimitsCoverPrivateAndSharedHistory(t *testing.T) {
 	for _, kind := range []string{"versions", "bytes"} {
 		t.Run(kind, func(t *testing.T) {
 			s := fresh(t)
-			_, owner := create(t, s, session.DefaultTreePolicy())
+			_, owner := create(t, s, nil)
 			write := stateWrite(owner.ID, session.SessionState, "initial", "private", `0`, 0)
 			copies := session.MaxStateVersions - 1
 			if kind == "bytes" {

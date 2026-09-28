@@ -16,7 +16,7 @@ import (
 
 func operationCell(t *testing.T, s *Store) (session.Session, session.Cell) {
 	t.Helper()
-	_, owner := create(t, s, session.DefaultTreePolicy())
+	_, owner := create(t, s, nil)
 	key := string(owner.ID)
 	submit(t, s, owner.ID, key)
 	turn := claim(t, s, owner.ID).Turn
@@ -159,7 +159,7 @@ func TestOperationConcurrentSingleDispatchAndSettlement(t *testing.T) {
 func TestOperationGrantScopeAndRevocation(t *testing.T) {
 	s := fresh(t)
 	owner, cell := operationCell(t, s)
-	_, other := create(t, s, session.DefaultTreePolicy())
+	_, other := create(t, s, nil)
 	foreign := standingGrant(t, s, other.ID, "foreign")
 	if op := admitOperation(t, s, operationSpec(cell, "foreign-test")); op.State != session.OperationWaiting {
 		t.Fatal("foreign session authorized operation")
@@ -468,7 +468,7 @@ func TestOperationAuthorityRaces(t *testing.T) {
 func TestOperationBoundsAndLists(t *testing.T) {
 	s := fresh(t)
 	owner, cell := operationCell(t, s)
-	_, other := create(t, s, session.DefaultTreePolicy())
+	_, other := create(t, s, nil)
 	for i := range 5 {
 		spec := operationSpec(cell, fmt.Sprintf("op%d", i))
 		spec.Arguments = json.RawMessage(`{"value":"` + strings.Repeat("a", session.MaxDocumentBytes-20) + `"}`)

@@ -141,6 +141,8 @@ func TestStrictConfigurationBoundary(t *testing.T) {
 	for _, mutate := range []func(map[string]any){
 		func(v map[string]any) { v["api_key"] = "secret" },
 		func(v map[string]any) { v["version"] = 999 },
+		func(v map[string]any) { v["version"] = 1 },
+		func(v map[string]any) { v["policy"] = map[string]any{"max_depth": 8} },
 		func(v map[string]any) {
 			v["providers"] = map[string]any{"test": map[string]any{"kind": "openai-chat", "base_url": "https://user:password@example.test", "credential_env": ""}}
 		},
@@ -191,5 +193,42 @@ func TestSaveIncludesNewlineInSizeLimit(t *testing.T) {
 	}
 	if _, err := Load(directory); err != nil {
 		t.Fatal("accepted save cannot be read", err)
+	}
+}
+
+func TestResourceDefaultsResolveFromFreshVersionTwoHost(t *testing.T) {
+	host := Default()
+	host.Resources = []session.ResourceLimit{{Kind: session.ResourceDescendants, Limit: new(int64(7))}}
+	directory := t.TempDir()
+	if err := Save(directory, host); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Version != 2 || len(loaded.Resources) != len(session.ResourceKinds()) {
+		t.Fatalf("unresolved resource defaults: %+v", loaded)
+	}
+	*host.Resources[0].Limit = 99
+	for _, limit := range loaded.Resources {
+		if limit.Limit == nil || (limit.Kind == session.ResourceDescendants && *limit.Limit != 7) {
+			t.Fatalf("missing or mutable default: %+v", limit)
+		}
+	}
+	for _, limits := range [][]session.ResourceLimit{
+		{{Kind: session.ResourceDepth, Limit: new(int64(1))}, {Kind: session.ResourceDepth, Limit: new(int64(2))}},
+		{{Kind: session.ResourceDepth, Limit: nil}},
+		{{Kind: session.ResourceDepth, Limit: new(int64(129))}},
+	} {
+		host.Resources = limits
+		if err := Save(directory, host); err == nil {
+			t.Fatalf("accepted invalid root defaults: %+v", limits)
+		}
+	}
+	host = Default()
+	host.Version = 1
+	if err := Save(directory, host); err == nil {
+		t.Fatal("accepted old host version")
 	}
 }

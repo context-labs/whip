@@ -11,7 +11,8 @@ const (
 	BudgetModelElapsedMillis BudgetKind = "model_elapsed_millis"
 )
 
-// BudgetLimit is a local cap. Every live ancestor's cap also applies.
+// BudgetLimit is a local cap. Nil removes only this cap; every live ancestor's
+// cap still applies, just as for reusable resource limits.
 type BudgetLimit struct {
 	Kind  BudgetKind `json:"kind"`
 	Limit *int64     `json:"limit"`

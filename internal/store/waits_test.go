@@ -56,7 +56,7 @@ func TestChildWaitRegistrationAtomicAndScoped(t *testing.T) {
 	if complete, err := s.ChildInputsComplete(t.Context(), owner.ID, targets); err != nil || !complete {
 		t.Fatalf("cancelled work did not resolve wait: %v %v", complete, err)
 	}
-	_, other := create(t, s, session.DefaultTreePolicy())
+	_, other := create(t, s, nil)
 	otherInput := submit(t, s, other.ID, "unrelated")
 	if _, err := s.ChildInputsComplete(t.Context(), owner.ID, []session.InputID{otherInput.Input.ID}); !errors.Is(err, session.ErrInvalid) {
 		t.Fatalf("unrelated input accepted: %v", err)
