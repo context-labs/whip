@@ -461,6 +461,9 @@ func (m *Manager) Statuses() []Status {
 		for key, cs := range m.clients {
 			if strings.HasPrefix(key, n+"\x00") {
 				st.State = "connected"
+				if cs.cli.isDead() {
+					st.State, st.Err = "failed", "language server connection closed"
+				}
 				st.Root = cs.root
 			}
 		}

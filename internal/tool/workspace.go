@@ -40,6 +40,8 @@ type Prepared struct {
 	// ModelTimeouts leaves request deadlines to the model attempt runner. It is
 	// valid only for models.call/batch; parent cancellation still applies.
 	ModelTimeouts bool
+	// FileSnapshot returns bounded captured content after a successful file run.
+	FileSnapshot func() FileSnapshot
 	// Apply is used instead of Acquire/Run for database-only coordination. It
 	// rechecks dispatch authority, performs the mutation and records its outcome
 	// in one transaction. It never performs an external effect.
@@ -69,6 +71,7 @@ type fileExecution struct {
 	root      *os.Root
 	attempted bool
 	ran       bool
+	snapshot  FileSnapshot
 }
 
 func (f *Files) Prepare(cwd, operation string, args map[string]any) (Prepared, error) {
@@ -101,7 +104,7 @@ func (f *Files) Prepare(cwd, operation string, args map[string]any) (Prepared, e
 	}
 	return Prepared{
 		Capability: operation, Resource: cwd, Arguments: normalized, Mutating: fileMutation(operation),
-		Acquire: execution.acquire, Run: execution.run,
+		Acquire: execution.acquire, Run: execution.run, FileSnapshot: func() FileSnapshot { execution.mu.Lock(); defer execution.mu.Unlock(); return execution.snapshot },
 	}, nil
 }
 
@@ -150,6 +153,14 @@ func prepareFileRequest(operation string, args map[string]any) (fileRequest, jso
 			return request, nil, fmt.Errorf("limit must be from 1 to %d", maximum)
 		}
 		normalized["limit"] = request.limit
+	case "files.diagnostics":
+		var args struct {
+			Path string `json:"path"`
+		}
+		if err := decoder.Decode(&args); err != nil {
+			return request, nil, err
+		}
+		request.path = args.Path
 	case "files.read":
 		var args struct {
 			Path   string `json:"path"`
@@ -233,7 +244,7 @@ func (e *fileExecution) acquire(ctx context.Context) (func(), error) {
 	}
 	e.attempted = true
 	release := func() {}
-	if fileMutation(e.operation) {
+	if fileMutation(e.operation) || e.operation == "files.diagnostics" {
 		path, unlock, err := e.workspace.LockPath(ctx, e.request.path)
 		if err != nil {
 			return nil, err
@@ -296,6 +307,16 @@ func (e *fileExecution) run(ctx context.Context, _ session.OperationID) (any, er
 		return e.search(ctx)
 	case "files.read":
 		return e.read()
+	case "files.diagnostics":
+		data, info, err := readRegular(e.root, e.relative)
+		if err != nil {
+			return nil, err
+		}
+		if info.Size() > fileBytes || !utf8.Valid(data) {
+			return nil, errors.New("diagnostics require a UTF-8 file of at most 256 KiB")
+		}
+		e.snapshot = FileSnapshot{Path: e.target, Text: string(data), WorkspaceIdentity: e.identity}
+		return map[string]any{"path": e.request.path}, nil
 	}
 	parentPath := filepath.Dir(e.relative)
 	if e.operation == "files.write" {
@@ -354,6 +375,7 @@ func (e *fileExecution) run(ctx context.Context, _ session.OperationID) (any, er
 			break
 		}
 	}
+	e.snapshot = FileSnapshot{Path: e.target, Text: string(data), WorkspaceIdentity: e.identity}
 	result["bytes_written"] = len(data)
 	return result, nil
 }

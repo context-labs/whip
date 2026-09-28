@@ -85,6 +85,7 @@ func (r *Runtime) ModelAttempts(ctx context.Context, id session.TurnID, after se
 func (r *Runtime) CancelTurn(ctx context.Context, id session.TurnID) (session.Turn, error) {
 	result, err := r.store.CancelTurn(ctx, id)
 	if err == nil {
+		r.languageServers.RetireAll()
 		r.cancelTurn(id)
 	}
 	return result, err
@@ -93,6 +94,7 @@ func (r *Runtime) CancelTurn(ctx context.Context, id session.TurnID) (session.Tu
 func (r *Runtime) CancelInput(ctx context.Context, id session.InputID) (session.Input, error) {
 	result, err := r.store.CancelInput(ctx, id)
 	if err == nil && result.TurnID != nil {
+		r.languageServers.RetireAll()
 		r.cancelTurn(*result.TurnID)
 	}
 	return result, err
@@ -108,6 +110,9 @@ func (r *Runtime) SetLifecycle(ctx context.Context, id session.SessionID, state 
 }
 
 func (r *Runtime) applyLifecycleChange(change store.LifecycleChange) {
+	if change.Session.Lifecycle != session.Active {
+		r.languageServers.RetireAll()
+	}
 	if change.CancelTurnID != nil {
 		r.cancelTurn(*change.CancelTurnID)
 	}
@@ -124,6 +129,7 @@ func (r *Runtime) DeleteSubtree(ctx context.Context, id session.SessionID) error
 }
 
 func (r *Runtime) cleanupDeletedKernels(ctx context.Context) error {
+	r.languageServers.RetireAll()
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	// SQL rejects active subtrees, so deleted sessions cannot still be executing.

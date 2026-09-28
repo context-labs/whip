@@ -113,11 +113,15 @@ func TestPoolAuthorityLifetimeAndEphemeralIsolation(t *testing.T) {
 	writeFile(t, path, "package main")
 	processes := capability.NewProcessManager()
 	defer processes.Close()
+	identity, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	pool := NewPool(processes)
 	defer pool.Close()
 	spec := fakeExecSpec()
 	values := map[string]Config{"fake": {Command: spec.Command, Extensions: spec.Extensions, RootMarkers: spec.RootMarkers, Env: spec.Env}}
-	result, err := pool.Diagnostics(t.Context(), "root", dir, path, "package main", values, false, pool.Generation())
+	result, err := pool.Diagnostics(t.Context(), "root", dir, path, "package main", values, false, pool.Generation(), identity)
 	if err != nil || !strings.Contains(result.Output, "real process") {
 		t.Fatalf("ephemeral: %+v %v", result, err)
 	}
@@ -125,7 +129,7 @@ func TestPoolAuthorityLifetimeAndEphemeralIsolation(t *testing.T) {
 		t.Fatal("one-use diagnostics retained process authority")
 	}
 	generation := pool.Generation()
-	result, err = pool.Diagnostics(t.Context(), "root", dir, path, "package main", values, true, generation)
+	result, err = pool.Diagnostics(t.Context(), "root", dir, path, "package main", values, true, generation, identity)
 	if err != nil || result.State != "ready" {
 		t.Fatalf("retained: %+v %v", result, err)
 	}
@@ -136,7 +140,7 @@ func TestPoolAuthorityLifetimeAndEphemeralIsolation(t *testing.T) {
 	if len(pool.active) != 0 || len(pool.slots) != 0 {
 		t.Fatal("retired process survived")
 	}
-	if _, err = pool.Diagnostics(t.Context(), "root", dir, path, "package main", values, true, generation); err == nil {
+	if _, err = pool.Diagnostics(t.Context(), "root", dir, path, "package main", values, true, generation, identity); err == nil {
 		t.Fatal("stale authority started server")
 	}
 }
@@ -188,5 +192,35 @@ func TestConfigIsolationAndBounds(t *testing.T) {
 	original["gopls"].Command[0] = "changed"
 	if FromConfigMap(nil)["gopls"].Command[0] != "gopls" {
 		t.Fatal("built-in declarations aliased")
+	}
+}
+
+func TestPoolRejectsReplacedCapturedWorkspace(t *testing.T) {
+	dir := t.TempDir()
+	identity, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved := dir + "-old"
+	if err := os.Rename(dir, moved); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(moved) })
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "main.go")
+	writeFile(t, path, "package replacement")
+	processes := capability.NewProcessManager()
+	defer processes.Close()
+	pool := NewPool(processes)
+	defer pool.Close()
+	spec := fakeExecSpec()
+	config := map[string]Config{"fake": {Command: spec.Command, Extensions: spec.Extensions, Env: spec.Env}}
+	if _, err := pool.Diagnostics(t.Context(), "root", dir, path, "package captured", config, true, pool.Generation(), identity); err == nil {
+		t.Fatal("replacement directory inherited captured authority")
+	}
+	if len(pool.slots) != 0 {
+		t.Fatal("server spawned for replacement directory")
 	}
 }

@@ -51,6 +51,11 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return dispatchWorkspace(ctx, r, method, raw)
 	case "providers.presets", "providers.bundled", "providers.list", "providers.create", "providers.update", "providers.remove", "providers.defaults", "providers.compaction", "providers.catalog", "providers.refresh", "providers.readiness":
 		return dispatchProvider(ctx, host.ProviderHost, method, raw)
+	case "lsp.status":
+		return decode(raw, func(p protocol.SessionParams) (any, error) {
+			values, err := r.LSPStatus(ctx, session.SessionID(p.SessionID))
+			return protocol.LanguageServersFromDomain(values), err
+		})
 	case "accounts.openai.begin", "accounts.openai.get", "accounts.openai.list", "accounts.openai.cancel", "accounts.openai.status", "accounts.openai.setup", "accounts.openai.logout":
 		return dispatchAccount(ctx, host.OpenAI, method, raw)
 	case "accounts.inference.begin", "accounts.inference.get", "accounts.inference.list", "accounts.inference.cancel", "accounts.inference.team", "accounts.inference.project", "accounts.inference.create_project", "accounts.inference.retry", "accounts.inference.rotate", "accounts.inference.status", "accounts.inference.setup", "accounts.inference.logout", "accounts.inference.cleanup", "accounts.inference.retry_cleanup":

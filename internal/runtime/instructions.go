@@ -300,11 +300,11 @@ func executionInstructions(current session.Session, tree session.Tree) string {
 	}
 	instructions := "The execute tool runs " + language + " in a persistent isolated REPL. Variables survive cells and turns. Host operations are separately authorized; no ambient filesystem, network, or process access is available. A failed cell can have partially changed variables or completed effects. Never replay effects merely because a checkpoint or connection failed."
 	if tree.Engine == session.Starlark {
-		instructions += " Available workspace operations: files.read(path=\"relative/path\", offset=1, limit=2000), files.write(path=\"relative/path\", content=\"text\"), files.patch(path=\"relative/path\", old_text=\"old\", new_text=\"new\", replace_all=False)."
+		instructions += " Available workspace operations: files.list(path=\".\", limit=2000), files.search(path=\".\", query=\"literal\", limit=100), files.diagnostics(path=\"relative/path\"), files.read(path=\"relative/path\", offset=1, limit=2000), files.write(path=\"relative/path\", content=\"text\"), files.patch(path=\"relative/path\", old_text=\"old\", new_text=\"new\", replace_all=False)."
 	} else {
-		instructions += " Available workspace operations: await files.read({path: \"relative/path\", offset: 1, limit: 2000}), await files.write({path: \"relative/path\", content: \"text\"}), await files.patch({path: \"relative/path\", old_text: \"old\", new_text: \"new\", replace_all: false})."
+		instructions += " Available workspace operations: await files.list({path: \".\", limit: 2000}), await files.search({path: \".\", query: \"literal\", limit: 100}), await files.diagnostics({path: \"relative/path\"}), await files.read({path: \"relative/path\", offset: 1, limit: 2000}), await files.write({path: \"relative/path\", content: \"text\"}), await files.patch({path: \"relative/path\", old_text: \"old\", new_text: \"new\", replace_all: false})."
 	}
-	instructions += " File operations are confined to the session workspace and may wait for an explicit permission decision. An approval authorizes that operation only."
+	instructions += " File operations are confined to the session workspace and may wait for an explicit permission decision. An approval authorizes that operation only. Post-write diagnostics are separate observational evidence and run automatically only with standing lsp.diagnostics workspace authority; skipped or unavailable diagnostics do not undo a successful file write."
 	if tree.Engine == session.Starlark {
 		instructions += " Stateless model helpers: models.call(prompt=\"question\", max_tokens=1024) or models.batch(prompts=[\"first\", \"second\"], max_tokens=1024)."
 	} else {

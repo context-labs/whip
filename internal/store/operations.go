@@ -89,7 +89,20 @@ func operationLive(ctx context.Context, q querier, cellID session.CellID) error 
 
 // AdmitOperation records immutable intent and either an exact standing grant or
 // a pending permission. Retrying admission never grants a dispatch right.
-func (s *Store) AdmitOperation(ctx context.Context, spec session.OperationSpec) (result session.Operation, err error) {
+func (s *Store) AdmitOperation(ctx context.Context, spec session.OperationSpec) (session.Operation, error) {
+	return s.admitOperation(ctx, spec, false)
+}
+
+// AdmitStandingOperation admits optional diagnostics only with current standing
+// authority. A zero operation means skipped; no permission or intent is written.
+func (s *Store) AdmitStandingOperation(ctx context.Context, spec session.OperationSpec) (session.Operation, error) {
+	if spec.Capability != "lsp.diagnostics" {
+		return session.Operation{}, session.ErrInvalid
+	}
+	return s.admitOperation(ctx, spec, true)
+}
+
+func (s *Store) admitOperation(ctx context.Context, spec session.OperationSpec, standingOnly bool) (result session.Operation, err error) {
 	if err := spec.Validate(); err != nil {
 		return result, err
 	}
@@ -158,6 +171,9 @@ func (s *Store) AdmitOperation(ctx context.Context, spec session.OperationSpec) 
 			} else if !errors.Is(err, ErrNotFound) {
 				return err
 			}
+		}
+		if standingOnly && grantID == nil {
+			return nil
 		}
 		created := now()
 		if _, err := tx.ExecContext(ctx, `INSERT INTO operations

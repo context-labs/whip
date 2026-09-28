@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"sync"
 
@@ -15,7 +16,6 @@ const maxManagers = 128
 
 type managed struct {
 	manager *Manager
-	owner   string
 	cwd     string
 	config  [32]byte
 }
@@ -45,11 +45,11 @@ func (p *Pool) Generation() uint64 { p.mu.Lock(); defer p.mu.Unlock(); return p.
 
 // Diagnostics holds one manager reference until the call finishes. Nonretained
 // calls use an isolated manager whose processes are joined before returning.
-func (p *Pool) Diagnostics(ctx context.Context, owner, cwd, path, text string, config map[string]Config, retain bool, generation uint64) (Result, error) {
+func (p *Pool) Diagnostics(ctx context.Context, owner, cwd, path, text string, config map[string]Config, retain bool, generation uint64, identity os.FileInfo) (Result, error) {
 	if p.processes == nil {
 		return Result{}, errors.New("contained language server processes are unavailable")
 	}
-	if owner == "" || !filepath.IsAbs(cwd) {
+	if owner == "" || !filepath.IsAbs(cwd) || identity == nil {
 		return Result{}, errors.New("language server owner and absolute workspace are required")
 	}
 	if err := ValidateConfig(config); err != nil {
@@ -85,7 +85,8 @@ func (p *Pool) Diagnostics(ctx context.Context, owner, cwd, path, text string, c
 		manager := NewManager(FromConfigMap(config))
 		manager.slots = p.slots
 		manager.SetProcessOptions(p.processes, owner, cwd, nil)
-		entry = &managed{manager: manager, owner: owner, cwd: cwd, config: digest}
+		manager.workspaceInfo = identity
+		entry = &managed{manager: manager, cwd: cwd, config: digest}
 		p.active[manager] = struct{}{}
 		if retain {
 			p.retained[owner] = entry

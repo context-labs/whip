@@ -75,6 +75,7 @@ func Fixtures() ([]Fixture, error) {
 		{"RPCError", RPCError{Code: -32033, Kind: "PROVIDER_KEY_PENDING", Message: "Published key durability is unconfirmed; retry the same key identity"}},
 		{"EmptyParams", EmptyParams{}},
 		{"RPCError", RPCError{Code: -32024, Kind: "ACCOUNT_MANAGEMENT", Message: "Management authorization is required"}},
+		{"LanguageServersResult", LanguageServersResult{Items: []LanguageServerStatus{{Name: "gopls", State: "not_started"}, {Name: "custom", State: "connected", WorkspaceRoot: new("/workspace")}}}},
 		{"InferenceFlowParams", InferenceFlowParams{FlowID: "AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB"}},
 		{"InferenceTeamParams", InferenceTeamParams{FlowID: "AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB", TeamID: "team"}},
 		{"InferenceProjectParams", InferenceProjectParams{FlowID: "AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB", ProjectID: "project"}},

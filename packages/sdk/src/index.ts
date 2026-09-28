@@ -100,6 +100,11 @@ export class Client {
     return this.call('questions.answer', { session_id: sessionID, operation_id: operationID, answers }, options);
   }
 
+  /** Read-only observation; never starts a server or grants workspace access. */
+  languageServerStatus(sessionID: string, options: CallOptions = {}): Promise<Operations['lsp.status']['result']> {
+    return this.call('lsp.status', { session_id: sessionID }, options);
+  }
+
   /** Accepted login belongs to the host. Recover lost delivery with list/get; never replay begin automatically. */
   beginInferenceLogin(options: CallOptions = {}): Promise<Operations['accounts.inference.begin']['result']> {
     return this.call('accounts.inference.begin', {}, options);

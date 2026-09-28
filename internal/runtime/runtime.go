@@ -13,9 +13,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/content"
 	"github.com/context-labs/whip/internal/engine/process"
+	"github.com/context-labs/whip/internal/lsp"
 	"github.com/context-labs/whip/internal/runner"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/store"
@@ -44,37 +46,39 @@ type execution struct {
 	waiting bool
 }
 type Runtime struct {
-	store            *store.Store
-	content          *content.Store
-	runner           *runner.Runner
-	tools            *tool.Dispatcher
-	engineManager    *process.Manager
-	kernels          map[session.SessionID]*sessionKernel
-	owner            *owner
-	directory        string
-	host             config.Host
-	configuration    *config.Authority
-	options          Options
-	wake             chan struct{}
-	done             chan struct{}
-	mu               sync.Mutex
-	active           map[session.SessionID]*execution
-	runnable         int
-	waiting          int
-	resumptions      []*workerResumption
-	queueCursor      store.QueueCursor // owned only by the scheduling goroutine
-	preferResumption bool
-	started, closed  bool
-	cancel           context.CancelFunc
-	failure          error
-	closeOnce        sync.Once
-	closeErr         error
-	epoch            string
-	previewMu        sync.Mutex
-	previews         map[session.SessionID]*livePreview
-	workspace        *workspace.Git
-	workspaceCalls   sync.WaitGroup
-	workspaceSlots   chan struct{}
+	languageServers   *lsp.Pool
+	languageProcesses *capability.ProcessManager
+	store             *store.Store
+	content           *content.Store
+	runner            *runner.Runner
+	tools             *tool.Dispatcher
+	engineManager     *process.Manager
+	kernels           map[session.SessionID]*sessionKernel
+	owner             *owner
+	directory         string
+	host              config.Host
+	configuration     *config.Authority
+	options           Options
+	wake              chan struct{}
+	done              chan struct{}
+	mu                sync.Mutex
+	active            map[session.SessionID]*execution
+	runnable          int
+	waiting           int
+	resumptions       []*workerResumption
+	queueCursor       store.QueueCursor // owned only by the scheduling goroutine
+	preferResumption  bool
+	started, closed   bool
+	cancel            context.CancelFunc
+	failure           error
+	closeOnce         sync.Once
+	closeErr          error
+	epoch             string
+	previewMu         sync.Mutex
+	previews          map[session.SessionID]*livePreview
+	workspace         *workspace.Git
+	workspaceCalls    sync.WaitGroup
+	workspaceSlots    chan struct{}
 }
 
 // Open acquires exclusive execution ownership before opening fresh host/storage.
@@ -166,6 +170,8 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 		preferResumption: true,
 		workspace:        workspace.New(string(database.Identity())), workspaceSlots: make(chan struct{}, 16),
 	}
+	r.languageProcesses = capability.NewProcessManager()
+	r.languageServers = lsp.NewPool(r.languageProcesses)
 	r.tools = tool.NewDispatcher(database, database, r)
 	r.runner, err = runner.New(provider, database, database, r, r, r, r, database, database)
 	if err != nil {
@@ -214,6 +220,8 @@ func (r *Runtime) Close() error {
 		r.mu.Unlock()
 		workspaceErr := r.workspace.Close()
 		r.workspaceCalls.Wait()
+		r.languageServers.Close()
+		_ = r.languageProcesses.Close()
 		r.engineManager.Close()
 		if started {
 			<-r.done

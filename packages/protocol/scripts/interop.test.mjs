@@ -121,3 +121,11 @@ test('compaction policy distinguishes an explicit reset from captured defaults',
   session.configuration.compaction.threshold_percent = 0;
   assert.equal(validate('Session', session), false, 'effective configuration contains resolved defaults');
 });
+
+
+test('bounded language server strings use standalone Unicode length checks', () => {
+  const result = { items: [{ name: '🌱'.repeat(128), state: 'not_started', workspace_root: null, failure: null }] };
+  assert.equal(validate('LanguageServersResult', result), true);
+  result.items[0].name += '🌱';
+  assert.equal(validate('LanguageServersResult', result), false);
+});

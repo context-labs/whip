@@ -193,6 +193,26 @@
     "valid": true
   },
   {
+    "type": "LanguageServersResult",
+    "value": {
+      "items": [
+        {
+          "name": "gopls",
+          "state": "not_started",
+          "workspace_root": null,
+          "failure": null
+        },
+        {
+          "name": "custom",
+          "state": "connected",
+          "workspace_root": "/workspace",
+          "failure": null
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
     "type": "InferenceFlowParams",
     "value": {
       "flow_id": "AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB"
