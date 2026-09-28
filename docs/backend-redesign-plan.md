@@ -750,9 +750,12 @@ preservation, reversed completion order, cancellation, restart and large content
 The helper ledger foundation now records operation/item provenance, validates
 the admitted helper scope and output cap, joins attempt settlement before
 operation/cell settlement, and preserves permanent charges after child deletion.
-Dispatch rechecks ancestor exposure after sibling settlement. The public
-projection, fatal guest boundary and shared runner call/batch execution remain
-open; this foundation does not make guest model helpers available yet.
+Dispatch rechecks ancestor exposure after sibling settlement. A typed fatal host
+boundary now prevents guest exception handling from continuing after unresolved
+accepted-operation persistence failures, while preserving recovery evidence and
+joining outstanding host calls. The public projection and shared runner
+call/batch execution remain open; these foundations do not make guest model
+helpers available yet.
 
 
 Fork, rewind and workspace implementation decisions (work remains open):
