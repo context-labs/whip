@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { ActivityIndicator, ThemeProvider, UIProvider } from '@whip/ui';
-import type { ExecutionCell, SessionViewSnapshot } from '@whip/sdk/state';
+import type { ExecutionCell, SessionViewSnapshot } from '@whip/legacy-sdk/state';
 import { conversationActivityRows, isActivityGroup, responseCopies, type ActivityGroup } from '../src/chat-activity-rows';
 import { activityStatus, TranscriptWorking } from '../src/chat-activity';
 import { timelineRows, type TimelineRow } from '../src/conversation-rows';

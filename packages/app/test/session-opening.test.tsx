@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider, UIProvider } from '@whip/ui';
-import type { SessionView, SessionViewSnapshot } from '@whip/sdk/state';
+import type { SessionView, SessionViewSnapshot } from '@whip/legacy-sdk/state';
 import { AppRuntime } from '../src/runtime';
 import { RuntimeContext } from '../src/context';
 import { SessionContent } from '../src/conversation';

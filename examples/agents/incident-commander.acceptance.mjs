@@ -8,8 +8,8 @@ import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { createWhipClient } from '@whip/sdk';
-import { eventually, startFixture } from '@whip/sdk/testing/node';
+import { createWhipClient } from '@whip/legacy-sdk';
+import { eventually, startFixture } from '@whip/legacy-sdk/testing/node';
 import { createIncidentCommander } from './dist/incident-commander.js';
 
 let fixture;

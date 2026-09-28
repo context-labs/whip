@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { chromium, firefox, expect } from '@playwright/test';
-import { startFixture } from '../../../packages/sdk/scripts/fixture.mjs';
+import { startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
 
 process.env.OPENROUTER_API_KEY = 'fixture-settings-key';
 process.env.INFERENCE_API_KEY = '';

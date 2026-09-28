@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { HookContext, ToolContext } from '@whip/sdk/agents';
+import type { HookContext, ToolContext } from '@whip/legacy-sdk/agents';
 import { createIncidentCommander } from './incident-commander.js';
 
 const toolContext: ToolContext = { invocationId: 'inv-1', rootId: 'root', agentId: 'agent', turnId: 'turn', deadline: Date.now() + 1000, signal: new AbortController().signal, progress: () => {} };

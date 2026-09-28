@@ -5,8 +5,8 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { createWhipClient } from '@whip/sdk/node';
-import type { TransportFactory } from '@whip/sdk';
+import { createWhipClient } from '@whip/legacy-sdk/node';
+import type { TransportFactory } from '@whip/legacy-sdk';
 import type { ConnectionTarget, OpenProjectRequest, ProjectEditor, ProjectEditorID } from '@whip/app/platform';
 
 const execute = promisify(execFile);

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { UIProvider } from '@whip/ui';
-import type { HistoryView } from '@whip/sdk/state';
+import type { HistoryView } from '@whip/legacy-sdk/state';
 import {
   SubmittedInputs,
   queuedInputRows,

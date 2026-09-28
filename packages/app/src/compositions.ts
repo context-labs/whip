@@ -1,4 +1,4 @@
-import type { InputAttachment, Session } from '@whip/sdk';
+import type { InputAttachment, Session } from '@whip/legacy-sdk';
 
 export interface CompositionAttachment {
   readonly id: string;

@@ -8,6 +8,65 @@ import (
 	"github.com/context-labs/whip/internal/session"
 )
 
+func TreeFromDomain(value session.Tree) Tree {
+	return Tree{
+		ID: ID(value.ID), Metadata: TreeMetadata(value.Metadata), Engine: string(value.Engine),
+		Policy: TreePolicy(value.Policy), Revision: Counter(value.Revision), CreatedAt: value.CreatedAt.Format(time.RFC3339Nano),
+	}
+}
+
+func timeString(value *time.Time) *string {
+	if value == nil {
+		return nil
+	}
+	text := value.Format(time.RFC3339Nano)
+	return &text
+}
+
+func TurnFromDomain(value session.Turn) Turn {
+	return Turn{
+		ID: ID(value.ID), SessionID: ID(value.SessionID), ConfigRevision: Counter(value.ConfigRevision), State: string(value.State),
+		Failure: value.Failure, StartedAt: value.StartedAt.Format(time.RFC3339Nano), FinishedAt: timeString(value.FinishedAt),
+	}
+}
+
+func InputFromDomain(value session.Input) Input {
+	result := Input{ID: ID(value.ID), SessionID: ID(value.SessionID), Source: string(value.Source), State: string(value.State), CreatedAt: value.CreatedAt.Format(time.RFC3339Nano)}
+	if value.TurnID != nil {
+		id := ID(*value.TurnID)
+		result.TurnID = &id
+	}
+	result.Parts = make([]Part, len(value.Parts))
+	for i, part := range value.Parts {
+		result.Parts[i] = Part{Type: part.Type, Text: part.Text, ReferenceID: ID(part.ReferenceID)}
+	}
+	return result
+}
+
+func ReceiptFromDomain(value session.Receipt) Receipt {
+	result := Receipt{Identity: RequestIdentity{ClientID: ID(value.ClientID), RequestID: ID(value.RequestID)}, Digest: value.Digest, DeletedAt: timeString(value.DeletedAt), CreatedAt: value.CreatedAt.Format(time.RFC3339Nano)}
+	if value.InputID != nil {
+		id := ID(*value.InputID)
+		result.InputID = &id
+	}
+	return result
+}
+
+func DefinitionFromDomain(value session.DefinitionRevision) (Definition, error) {
+	raw, err := json.Marshal(value.Document)
+	if err != nil {
+		return Definition{}, err
+	}
+	result := Definition{Ref: DefinitionRef{ID: ID(value.Ref.ID), Revision: value.Ref.Revision}, CreatedAt: value.CreatedAt.Format(time.RFC3339Nano)}
+	err = json.Unmarshal(raw, &result.Document)
+	return result, err
+}
+
+func (p DefinitionDocument) Domain() (session.DefinitionDocument, error) {
+	defaults, err := p.Defaults.Domain()
+	return session.DefinitionDocument{ID: string(p.ID), Name: p.Name, Defaults: defaults}, err
+}
+
 // ConfigurationFromDomain copies a durable value across the wire boundary.
 // Encoding is deliberate: configuration DTOs use the same documented JSON field
 // names but are separate types, so no map/slice storage can alias a live caller.

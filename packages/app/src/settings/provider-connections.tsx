@@ -2,7 +2,7 @@ import { ErrorNotice } from '../error-feedback';
 import { recallProviderReady, rememberProviderReady } from '../provider-readiness';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { WhipClient } from '@whip/sdk';
+import type { WhipClient } from '@whip/legacy-sdk';
 import type { ProviderList, ProviderLoginStatus } from '@whip/legacy-protocol';
 import { Alert, Badge, Button, Dialog, Field, Input, Menu, type MenuItem } from '@whip/ui';
 import { ChevronDown, ChevronUp, Plus } from 'lucide-react';

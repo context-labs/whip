@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { NativeSurfaceProvider, UIProvider } from '@whip/ui';
-import type { BrowserSelection, BrowserSelectionOptions, WhipClient } from '@whip/sdk';
+import type { BrowserSelection, BrowserSelectionOptions, WhipClient } from '@whip/legacy-sdk';
 import type { BrowserAgentBridge, BrowserAgentEvent } from '../src/browser-agent-types';
 import type { BrowserWorkspace } from '../src/browser-workspace';
 import { BrowserAssociations, browserProjectId } from '../src/browser-provider';

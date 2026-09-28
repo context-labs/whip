@@ -1,4 +1,4 @@
-import type { DeepReadonly, HistoryGap, HistoryView } from '@whip/sdk/state';
+import type { DeepReadonly, HistoryGap, HistoryView } from '@whip/legacy-sdk/state';
 import type { DesignContext } from './browser-design-presentation';
 import type { RootSnapshot, StreamEvent } from '@whip/legacy-protocol';
 import { admittedText, inboxInputId, isChatInput, matchesInput, submittedInputId, type InboxInput, type SubmittedInput } from './input-presentation';

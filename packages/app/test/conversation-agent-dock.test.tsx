@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useImperativeHandle, type ComponentProps } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ThemeProvider, UIProvider } from '@whip/ui';
-import type { SessionView } from '@whip/sdk/state';
+import type { SessionView } from '@whip/legacy-sdk/state';
 import { AppRuntime } from '../src/runtime';
 import { RuntimeContext } from '../src/context';
 import { SessionContent } from '../src/conversation';

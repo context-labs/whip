@@ -1,5 +1,5 @@
 import { queryOptions, type QueryClient } from '@tanstack/react-query';
-import type { WhipClient } from '@whip/sdk';
+import type { WhipClient } from '@whip/legacy-sdk';
 
 type Listing = { path?: string; prefix?: string; hidden?: boolean; after?: string };
 export function directoryOptions(client: WhipClient, { path, prefix, hidden = false, after }: Listing = {}) {

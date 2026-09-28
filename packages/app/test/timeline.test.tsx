@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { RuntimeContext } from '../src/context';
 import type { AppRuntime } from '../src/runtime';
-import type { HistoryView } from '@whip/sdk/state';
+import type { HistoryView } from '@whip/legacy-sdk/state';
 import { executionCode, Prose, Timeline, timelineRows } from '../src/timeline';
 import { responseCopies } from '../src/chat-activity-rows';
 

@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { UIProvider } from '@whip/ui';
-import type { SessionView } from '@whip/sdk/state';
+import type { SessionView } from '@whip/legacy-sdk/state';
 import { Action, QueryFeedback } from '../src/details/shared';
 import { GeneralSettings } from '../src/settings/general';
 import { RuntimeContext } from '../src/context';

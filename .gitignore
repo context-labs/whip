@@ -16,6 +16,8 @@ internal/tui/whip-transcript-*.md
 node_modules/
 packages/sdk/dist/
 packages/sdk/build/
+packages/legacy-sdk/dist/
+packages/legacy-sdk/build/
 examples/*/dist/
 apps/*/dist/
 apps/desktop/out/

@@ -1,8 +1,8 @@
 import { memo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import type { Session } from '@whip/sdk';
-import type { SessionView } from '@whip/sdk/state';
+import type { Session } from '@whip/legacy-sdk';
+import type { SessionView } from '@whip/legacy-sdk/state';
 import type { SubmitPayload } from '@whip/legacy-protocol';
 import { Button, Dialog, Spinner, Tooltip } from '@whip/ui';
 import { CornerDownRight, ListEnd, Paperclip, Trash2 } from 'lucide-react';

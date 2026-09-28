@@ -15,7 +15,7 @@ Run `npm ci` and `npm run check -w @whip/legacy-protocol` from the repository ro
 editing Go types with `npm run generate -w @whip/legacy-protocol`; drift checks compare without rewriting
 files. Standalone validators require no runtime code generation or Ajv dependency.
 Typed RPC/runtime maps classify query, durable and ephemeral operations. The
-handwritten `@whip/sdk` consumes this contract; see [SDK usage](../packages/sdk/README.md).
+handwritten `@whip/legacy-sdk` consumes this contract; see [SDK usage](../packages/legacy-sdk/README.md).
 
 Protocol **6.9** adds `session.create.effort` and makes effort one vocabulary.
 An effort value is `off` or a catalog level everywhere; blank is not a value.
@@ -353,7 +353,7 @@ by default, with a [desktop launch-time opt-out](desktop.md#browser-tabs-experim
 Advertising `desktop-browser-v1` during initialization does not authorize control.
 `browser.provider.bind` explicitly associates one root with its exact
 authenticated connection and a fresh provider epoch; another connection is not
-a replacement merely because it is newer. The [SDK provider guide](../packages/sdk/README.md#experimental-native-browser-provider)
+a replacement merely because it is newer. The [SDK provider guide](../packages/legacy-sdk/README.md#experimental-native-browser-provider)
 owns selection/acknowledgement behavior. See the
 [Browser lifecycle guide](browser-computer-use.md#desktop-browser-tabs) for the
 agent operations; generated schemas remain the wire inventory.

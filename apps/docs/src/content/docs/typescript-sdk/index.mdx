@@ -10,25 +10,25 @@ Use the SDK to run tasks, observe sessions, or serve agents with your own tools.
 
 ## Availability and installation
 
-`@whip/sdk` is currently a private ESM workspace package in the [whip repository](https://github.com/context-labs/whip/tree/main/packages/sdk). It is not a public npm package. Use Node.js 24 and a matching whip daemon; keep the SDK and host versions together.
+`@whip/legacy-sdk` is currently a private ESM workspace package in the [whip repository](https://github.com/context-labs/whip/tree/main/packages/legacy-sdk). It is not a public npm package. Use Node.js 24 and a matching whip daemon; keep the SDK and host versions together.
 
 From a source checkout:
 
 ```bash
 npm ci
-npm run build -w @whip/sdk
+npm run build -w @whip/legacy-sdk
 ```
 
 Place the `.mts` examples below in the checkout so Node can resolve its workspace packages. Node 24 runs these examples directly; for example, `node run.mts`.
 
 | Import | Use |
 | --- | --- |
-| `@whip/sdk` | Browser-safe client, sessions, commands and turns |
-| `@whip/sdk/node` | Node client and Unix-socket transport |
-| `@whip/sdk/agents` | Agent definitions and custom tools |
-| `@whip/sdk/state` | Synchronized session views |
-| `@whip/sdk/react` | React 19 subscriptions to those views |
-| `@whip/sdk/testing` | Scripted daemon for tests without model calls |
+| `@whip/legacy-sdk` | Browser-safe client, sessions, commands and turns |
+| `@whip/legacy-sdk/node` | Node client and Unix-socket transport |
+| `@whip/legacy-sdk/agents` | Agent definitions and custom tools |
+| `@whip/legacy-sdk/state` | Synchronized session views |
+| `@whip/legacy-sdk/react` | React 19 subscriptions to those views |
+| `@whip/legacy-sdk/testing` | Scripted daemon for tests without model calls |
 
 ## Connect to a host
 
@@ -41,7 +41,7 @@ Start the daemon with `whipcode daemon start`. Find its socket with `whipcode da
 Save as `connect.mts`:
 
 ```typescript file=connect.mts
-import { createWhipClient, unixSocket } from '@whip/sdk/node';
+import { createWhipClient, unixSocket } from '@whip/legacy-sdk/node';
 
 const socket = process.env.WHIP_SOCKET;
 if (!socket) throw new Error('Set WHIP_SOCKET to the daemon socket path');
@@ -60,7 +60,7 @@ Browser clients use the host's web gateway. For a local development gateway, run
 For HTTP, replace the contents of `connect.mts` with this version (a browser app can use the same client options):
 
 ```typescript file=connect-http.mts
-import { createWhipClient } from '@whip/sdk';
+import { createWhipClient } from '@whip/legacy-sdk';
 
 export const client = createWhipClient({
   endpoint: 'http://127.0.0.1:4444',
@@ -121,7 +121,7 @@ To reuse a session, keep its root ID and call `client.session(rootId)` after con
 Upload explicitly, then pass the returned reference. This helper accepts a session from a connected client:
 
 ```typescript file=attachment.mts
-import type { Session } from '@whip/sdk';
+import type { Session } from '@whip/legacy-sdk';
 
 export async function summarizeNotes(session: Session, notes: string) {
   const uploaded = await session.client.upload(
@@ -142,7 +142,7 @@ Uploading alone does not put a file in a prompt. Content is scoped to its sessio
 A `Turn` is an async iterable. It subscribes before submitting, so you can observe the work without racing its first event.
 
 ```typescript file=stream.mts
-import type { Session } from '@whip/sdk';
+import type { Session } from '@whip/legacy-sdk';
 
 export async function streamTask(session: Session, prompt: string) {
   const turn = session.run(prompt, { includeChildren: true });
@@ -170,7 +170,7 @@ export async function streamTask(session: Session, prompt: string) {
 Other events include progress, usage, questions and permission requests. For a human UI, use `clientKind: 'human'` and present the request before deciding:
 
 ```typescript file=approval.mts
-import type { PermissionEvent } from '@whip/sdk';
+import type { PermissionEvent } from '@whip/legacy-sdk';
 
 type ApprovalRequest = { operation: string; command: string; path: string };
 
@@ -195,7 +195,7 @@ Call this for `permission` events with your actual approval dialog. Questions ex
 For a stop button, call `await turn.cancel()`. For a deadline, pass a signal to `session.run`:
 
 ```typescript file=deadline.mts
-import type { Session } from '@whip/sdk';
+import type { Session } from '@whip/legacy-sdk';
 
 export async function runWithDeadline(session: Session, prompt: string) {
   const turn = session.run(prompt, {
@@ -230,7 +230,7 @@ Save as `agent.mts` beside `connect.mts`:
 
 ```typescript file=agent.mts
 import { client } from './connect.mts';
-import { defineAgent, tool } from '@whip/sdk/agents';
+import { defineAgent, tool } from '@whip/legacy-sdk/agents';
 import { z } from 'zod';
 
 const ticketSchema = z.object({
@@ -291,15 +291,15 @@ try {
 
 Your tool handler owns its side effects. Respect `context.signal`; use `context.invocationId` as an idempotency key when calling a service. A timeout or disconnect cannot undo an external write. The example's in-memory lookup is read-only; approvals still follow the host policy.
 
-Named children and hooks belong in the same definition. See [Agents & subagents](/docs/agents-subagents) for the model and the [SDK reference](https://github.com/context-labs/whip/blob/main/packages/sdk/README.md#author-serve-run) for the full definition contract.
+Named children and hooks belong in the same definition. See [Agents & subagents](/docs/agents-subagents) for the model and the [SDK reference](https://github.com/context-labs/whip/blob/main/packages/legacy-sdk/README.md#author-serve-run) for the full definition contract.
 
 ## State views and React
 
 Views combine snapshots and live events. Create and start one view per session owner; React hooks only subscribe to it.
 
 ```typescript file=view.mts
-import type { Session } from '@whip/sdk';
-import { createSessionView } from '@whip/sdk/state';
+import type { Session } from '@whip/legacy-sdk';
+import { createSessionView } from '@whip/legacy-sdk/state';
 
 export async function openSessionView(session: Session) {
   const view = createSessionView(session);
@@ -317,8 +317,8 @@ Pass the started view into components. This React 19 example uses `createElement
 
 ```typescript file=status.mts
 import { createElement } from 'react';
-import { useSessionView } from '@whip/sdk/react';
-import type { SessionView } from '@whip/sdk/state';
+import { useSessionView } from '@whip/legacy-sdk/react';
+import type { SessionView } from '@whip/legacy-sdk/state';
 
 export function SessionStatus({ view }: { view: SessionView }) {
   const snapshot = useSessionView(view);
@@ -328,4 +328,4 @@ export function SessionStatus({ view }: { view: SessionView }) {
 
 The owner calls `await view.dispose()` when leaving the session, then closes the client when the application no longer needs it. Do not create a client or view during React rendering, and do not reuse a disposed view. Non-React code can use `view.subscribe()` and `view.getSnapshot()` directly.
 
-For a working interface and offline test helpers, see the [client example](https://github.com/context-labs/whip/tree/main/examples/client) and [SDK testing reference](https://github.com/context-labs/whip/blob/main/packages/sdk/README.md#testing).
+For a working interface and offline test helpers, see the [client example](https://github.com/context-labs/whip/tree/main/examples/client) and [SDK testing reference](https://github.com/context-labs/whip/blob/main/packages/legacy-sdk/README.md#testing).

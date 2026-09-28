@@ -2,7 +2,7 @@
 // definition is data the daemon stores; the tool handlers and hooks run in the
 // process that calls client.agents.serve. Everything below is exercised end to
 // end against a live daemon by incident-commander.acceptance.mjs.
-import { defineAgent, tool, type AgentDefinition, type ModelInput } from '@whip/sdk/agents';
+import { defineAgent, tool, type AgentDefinition, type ModelInput } from '@whip/legacy-sdk/agents';
 import { z } from 'zod';
 
 const Incident = z.object({ id: z.string(), service: z.string(), title: z.string(), status: z.enum(['open', 'mitigated', 'closed']), severity: z.union([z.literal(1), z.literal(2), z.literal(3)]) });
@@ -165,7 +165,7 @@ export const incidentCommander = createIncidentCommander().agent;
 
 // Serve it and start a session that can call it:
 //
-//   import { createWhipClient } from '@whip/sdk';
+//   import { createWhipClient } from '@whip/legacy-sdk';
 //   const client = createWhipClient({ endpoint: 'http://127.0.0.1:8080', clientId: 'incident-commander' });
 //   await client.connect();
 //   const executor = await client.agents.serve(incidentCommander); // registers, binds tools and hooks, serves until close()

@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useRef, useState } from 'react';
 import { UIProvider } from '@whip/ui';
-import type { WhipClient } from '@whip/sdk';
+import type { WhipClient } from '@whip/legacy-sdk';
 import type { CompletionResult } from '@whip/legacy-protocol';
 import { useSkillCompletion } from '../src/use-skill-completion';
 

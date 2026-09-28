@@ -2,7 +2,7 @@ import { ErrorNotice } from '../error-feedback';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useForm, useStore } from '@tanstack/react-form';
-import type { WhipClient } from '@whip/sdk';
+import type { WhipClient } from '@whip/legacy-sdk';
 import type { ConfigurationUpdate, RuntimeConfiguration } from '@whip/legacy-protocol';
 import { Button, Input, Select, Switch } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';

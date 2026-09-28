@@ -88,15 +88,20 @@ All JavaScript packages are private ESM npm workspaces with one root lockfile.
 Use Node 24. Exact installed versions belong to the package manifests and
 `package-lock.json`; do not copy a historical plan's version list into a new setup.
 
-During the backend redesign, the SDK and product clients use
-`@whip/legacy-protocol`. Adoption of the new `@whip/protocol` v4 contract begins
-in Phase 2; see [the backend domain contract](backend-domain.md) for its ownership
-and persistence rules. The package map below describes the retained clients.
+During the backend redesign, the retained product clients use
+`@whip/legacy-sdk` and `@whip/legacy-protocol`. The new `@whip/sdk` now talks
+directly to `@whip/protocol` v4 over its Node transport. Its main entry point is
+transport-independent and validates generated request/response types. It keeps
+only connection identity, reading durable receipts and bounded transcript pages
+from Go. An aborted wait does not cancel execution. See [its example and recovery
+contract](../packages/sdk/README.md) and [the backend domain contract](backend-domain.md).
+Product clients continue to use the explicitly retained packages until their
+cutover. The package map below describes those retained clients.
 
 | Package | Responsibility | Internal dependencies and boundary |
 | --- | --- | --- |
 | `@whip/legacy-protocol` — `packages/legacy-protocol` | Generated wire types, operation metadata, schemas, standalone validators | Generated from the Go registry; no application behavior |
-| `@whip/sdk` — `packages/sdk` | Attachment, transports, typed services, durable commands, recovery, subscriptions | Protocol; optional `/state`, `/react`, and `/node` entry points |
+| `@whip/legacy-sdk` — `packages/legacy-sdk` | Attachment, transports, typed services, durable commands, recovery, subscriptions | Protocol; optional `/state`, `/react`, and `/node` entry points |
 | `@whip/ui` — `packages/ui` | Tokens, themes, fonts, accessible controls, layout primitives, code highlighting, Storybook | No SDK, protocol, router, Query, host access, or product state |
 | `@whip/app` — `packages/app` | Shared React application, routes, feature UI, application state/lifetimes | UI, SDK, protocol types, TanStack tools |
 | `@whip/web` — `apps/web` | Browser bootstrap, platform adapters, Vite configuration, static release build | App and UI bootstrap exports |
@@ -137,7 +142,7 @@ For UI development, `npm run dev:desktop -- --attach` uses the same Vite rendere
 and the main installed daemon by default, without rebuilding or managing its
 native runtime. Explicit home/executable flags can select an isolated daemon. This unpackaged mode has separate GUI settings and uses the native
 Unix-socket bridge. See [desktop development](desktop.md#build-and-develop).
-Node APIs, Electron IPC, filesystem access, and `@whip/sdk/node` stay in
+Node APIs, Electron IPC, filesystem access, and `@whip/legacy-sdk/node` stay in
 `apps/desktop`; the Vite import-graph guard rejects them in the renderer.
 `@whip/app/desktop-bridge` exports only the serialized host contract. The desktop
 adapter calls that versioned bridge without importing Electron. Ordinary DOM,
@@ -286,7 +291,7 @@ adds only the caller's attachment handles. Titles and URLs are untrusted data,
 not instructions. Neither tab inventories nor attachment inventories are injected
 into turn prompts.
 
-[`client.browser`](../packages/sdk/src/browser.ts) owns selected-holder transport,
+[`client.browser`](../packages/legacy-sdk/src/browser.ts) owns selected-holder transport,
 command IDs, cancellation, upload and teardown; the daemon owns durable scoped
 permission decisions. [`BrowserAgentBridge`](../packages/app/src/browser-agent-types.ts)
 is a trusted native adapter, not an arbitrary-CDP method on `BrowserPlatform`.
@@ -648,7 +653,7 @@ draft/attachment close handshake. Browser adapters omit this capability.
 Query client, root-view leases, command observations, drafts, and tab/composition/
 reading stores. [`HostConnections`](../packages/app/src/hosts.ts) owns an independent
 SDK client and `SessionListView` for each attached daemon. Components subscribe
-using `useSyncExternalStore` through app hooks or `@whip/sdk/react`. Store
+using `useSyncExternalStore` through app hooks or `@whip/legacy-sdk/react`. Store
 snapshots remain immutable and referentially stable between changes.
 
 Optimistic intent lives in the SDK view that owns the data, not in component
@@ -802,12 +807,12 @@ update their source, boundary tests, and this table together.
 
 | Resource | Bound | Source |
 | --- | --- | --- |
-| SDK session view | 8 MiB retained payload; 512 history messages per opened agent | [state.ts](../packages/sdk/src/state.ts) |
+| SDK session view | 8 MiB retained payload; 512 history messages per opened agent | [state.ts](../packages/legacy-sdk/src/state.ts) |
 | Durable presentation | 64 KiB per transcript record, 128 ordered parts, 128 host operations per execution; inline content-handle summaries at most 8 KiB within page bounds | [presentation.go](../internal/llm/presentation.go) |
 | Markdown display cache | 512 documents / 2 MiB source, coalesced to 30 live parses/second; per-block fade chunks capped at 32 | [streaming-markdown.tsx](../packages/app/src/streaming-markdown.tsx) |
 | Transcript disclosures | 128 explicit choices, 512 member aliases per activity group | [timeline.tsx](../packages/app/src/timeline.tsx), [chat-activity-rows.ts](../packages/app/src/chat-activity-rows.ts) |
-| SDK execution evidence | 256 entries per root, 128 host calls per cell, 1 MiB within the session view budget | [executions.ts](../packages/sdk/src/executions.ts) |
-| SDK trace evidence | 4,096 spans and 2 MiB per root; the oldest traces are evicted whole and the view says so | [trace.ts](../packages/sdk/src/trace.ts) |
+| SDK execution evidence | 256 entries per root, 128 host calls per cell, 1 MiB within the session view budget | [executions.ts](../packages/legacy-sdk/src/executions.ts) |
+| SDK trace evidence | 4,096 spans and 2 MiB per root; the oldest traces are evicted whole and the view says so | [trace.ts](../packages/legacy-sdk/src/trace.ts) |
 | App root views | 4 retained roots across all hosts; unused views expire after 30 seconds; never evict an actively leased root | [runtime.ts](../packages/app/src/runtime.ts) |
 | New Chat host metadata | Provider inventory, runtime configuration, model catalogs, and definitions retained for five minutes after the last observer leaves; 10-second freshness unchanged; detach clears that host’s entries | [runtime.ts](../packages/app/src/runtime.ts) |
 | Tab layout | One workspace: 4 panes, 32 open views, 20 closed entries, 64 KiB metadata; unmigrated v1/v2 layouts remain in their original storage | [session-tabs.ts](../packages/app/src/session-tabs.ts) |
@@ -2692,11 +2697,11 @@ Useful starting files:
 | Host/detail query | [details/shared.tsx](../packages/app/src/details/shared.tsx), [directory-picker.tsx](../packages/app/src/directory-picker.tsx) |
 | Durable input and drafts | [composer.tsx](../packages/app/src/composer.tsx), [compositions.ts](../packages/app/src/compositions.ts) |
 | Permissions and questions | [requests.tsx](../packages/app/src/requests.tsx), [attention.tsx](../packages/app/src/attention.tsx) |
-| Transcript / scroll / execution | [timeline.tsx](../packages/app/src/timeline.tsx), [details/observation.tsx](../packages/app/src/details/observation.tsx), [SDK state](../packages/sdk/src/state.ts) |
+| Transcript / scroll / execution | [timeline.tsx](../packages/app/src/timeline.tsx), [details/observation.tsx](../packages/app/src/details/observation.tsx), [SDK state](../packages/legacy-sdk/src/state.ts) |
 | Tabs and routing | [session-tab-routing.ts](../packages/app/src/session-tab-routing.ts), [session-tab-strip.tsx](../packages/app/src/session-tab-strip.tsx), [UI workspace tabs](../packages/ui/src/workspace-tabs.tsx) |
 | UI component and visual roles | [UI README](../packages/ui/README.md), [tokens.stylex.ts](../packages/ui/src/tokens.stylex.ts), [stories](../packages/ui/stories) |
 | Theme behavior | [themes.tsx](../packages/ui/src/themes.tsx), [theme-contrast.ts](../packages/ui/src/theme-contrast.ts), [theme generator](../cmd/themegen) |
-| New protocol/SDK capability | [SDK README](../packages/sdk/README.md), [protocol reference](protocol-v2.md), [registry.go](../internal/legacy/protocol/registry.go) |
+| New protocol/SDK capability | [SDK README](../packages/legacy-sdk/README.md), [protocol reference](protocol-v2.md), [registry.go](../internal/legacy/protocol/registry.go) |
 
 ## Development and validation
 
@@ -2791,7 +2796,7 @@ starting a daemon or executing the displayed commands.
 
 This file owns frontend philosophy, architectural decisions, and extension rules.
 [UI README](../packages/ui/README.md) owns detailed component APIs;
-[SDK README](../packages/sdk/README.md) owns client APIs;
+[SDK README](../packages/legacy-sdk/README.md) owns client APIs;
 [web-app.md](web-app.md) owns operational setup and dated validation evidence;
 [protocol reference](protocol-v2.md) and [concurrency](concurrency.md) own wire and
 runtime detail. Link to those references instead of copying their full inventories.

@@ -7,8 +7,8 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { _electron } from 'playwright';
-import { createWhipClient } from '../../../packages/sdk/dist/index.js';
-import { unixSocket } from '../../../packages/sdk/dist/node.js';
+import { createWhipClient } from '../../../packages/legacy-sdk/dist/index.js';
+import { unixSocket } from '../../../packages/legacy-sdk/dist/node.js';
 import { LocalRuntime, readRuntimeManifest } from '../src/runtime.ts';
 import { repositoryRoot } from '../../../scripts/renderer-artifact.mjs';
 

@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, useSyncExternalStore, type PropsWithChildren } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { useIsFocused } from 'expo-router';
-import type { DeepReadonly, SessionListSnapshot, SessionView } from '@whip/sdk/state';
+import type { DeepReadonly, SessionListSnapshot, SessionView } from '@whip/legacy-sdk/state';
 import { MobileRuntime } from './runtime';
 import { NativeTheme } from '../theme/theme';
 import { WorkspaceAttentionProvider } from '../features/workspace-index';

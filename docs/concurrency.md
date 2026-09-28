@@ -223,7 +223,7 @@ retired command, attachment or epoch. Exact-holder/epoch unbind, disconnect and
 revocation cancel dependent work; reconnect does not rebind automatically.
 Agent release never owns the human tab's lifetime. The SDK waits for native
 selection acknowledgement and bounds ordered observations; see the
-[SDK provider lifetime and queue limits](../packages/sdk/README.md#experimental-native-browser-provider)
+[SDK provider lifetime and queue limits](../packages/legacy-sdk/README.md#experimental-native-browser-provider)
 and [Browser lifecycle](browser-computer-use.md#desktop-browser-tabs). These
 ownership rules are not a packaged-release acceptance claim.
 

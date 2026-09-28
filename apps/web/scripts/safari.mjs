@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createWhipClient } from '../../../packages/sdk/dist/index.js';
-import { eventually, run, startFixture } from '../../../packages/sdk/scripts/fixture.mjs';
+import { createWhipClient } from '../../../packages/legacy-sdk/dist/index.js';
+import { eventually, run, startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
 
 if (process.platform !== 'darwin') throw new Error('Actual Safari application smoke requires macOS. WebKit automation is separate coverage.');
 const source = fileURLToPath(new URL('../dist/', import.meta.url));

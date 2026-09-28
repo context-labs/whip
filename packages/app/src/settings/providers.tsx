@@ -1,4 +1,4 @@
-import type { WhipClient } from '@whip/sdk';
+import type { WhipClient } from '@whip/legacy-sdk';
 import { ProviderConnections } from './provider-connections';
 
 export function ProvidersSettings({

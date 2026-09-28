@@ -11,8 +11,8 @@ internal/tui/whip-transcript-*.md
 
 # TypeScript clients: generated contracts are tracked, build output is not.
 node_modules/
-packages/sdk/dist/
-packages/sdk/build/
+packages/legacy-sdk/dist/
+packages/legacy-sdk/build/
 examples/*/dist/
 apps/*/dist/
 apps/desktop/out/

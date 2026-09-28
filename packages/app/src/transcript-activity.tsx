@@ -1,4 +1,4 @@
-import type { DeepReadonly, ExecutionCell } from '@whip/sdk/state';
+import type { DeepReadonly, ExecutionCell } from '@whip/legacy-sdk/state';
 import type { RootSnapshot } from '@whip/legacy-protocol';
 import { useState } from 'react';
 import { Button, CodeBlock } from '@whip/ui';

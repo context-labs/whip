@@ -2,8 +2,8 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
-import { Session, type WhipClient } from '@whip/sdk';
-import type { SessionView, SessionViewSnapshot } from '@whip/sdk/state';
+import { Session, type WhipClient } from '@whip/legacy-sdk';
+import type { SessionView, SessionViewSnapshot } from '@whip/legacy-sdk/state';
 import type { RootSnapshot } from '@whip/legacy-protocol';
 import { ThemeProvider, UIProvider } from '@whip/ui';
 import { RuntimeContext } from '../src/context';

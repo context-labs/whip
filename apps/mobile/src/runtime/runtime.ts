@@ -1,7 +1,7 @@
 import { QueryClient } from '@tanstack/react-query';
 import * as Crypto from 'expo-crypto';
-import { createWhipClient, RpcError, WhipError, isTerminal, type WhipClient, type CommandHandle, type CommandOutcome, type RecoveryRecord } from '@whip/sdk';
-import { createSessionListView, createSessionView, type SessionView, type SessionListView } from '@whip/sdk/state';
+import { createWhipClient, RpcError, WhipError, isTerminal, type WhipClient, type CommandHandle, type CommandOutcome, type RecoveryRecord } from '@whip/legacy-sdk';
+import { createSessionListView, createSessionView, type SessionView, type SessionListView } from '@whip/legacy-sdk/state';
 import { SubmittedInputs } from '@whip/app/presentation';
 import type { CommandOperation, RuntimeOperations } from '@whip/legacy-protocol';
 import { serverOrigin } from './address';

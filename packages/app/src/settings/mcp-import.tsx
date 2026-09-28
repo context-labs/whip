@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { WhipClient } from '@whip/sdk';
+import type { WhipClient } from '@whip/legacy-sdk';
 import { Button, Dialog, Switch } from '@whip/ui';
 import { useRuntime, useSessionTabs } from '../context';
 import { isSessionTab, selectedSessionTab } from '../session-tabs';

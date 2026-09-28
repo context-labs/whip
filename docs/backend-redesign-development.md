@@ -1,10 +1,10 @@
 # Backend redesign development
 
 This is the working loop for [the redesign plan](backend-redesign-plan.md).
-Phase 1 adds the new domain, SQLite store, host configuration and initial v4
-contract described in [backend-domain.md](backend-domain.md). Runtime/SDK adoption
-starts in Phase 2. The existing real-runtime SDK fixture remains an explicit
-legacy reference until that slice replaces it.
+Phases 1–2 add the new domain, SQLite store, host configuration, v4 contract,
+runtime, runner and SDK described in [backend-domain.md](backend-domain.md).
+The new v4 process fixture is required. The retained legacy product fixture
+remains a separate reference while later capabilities are ported.
 
 ## Start working
 
@@ -30,6 +30,7 @@ production gates on `main` and `development` remain unchanged.
 | `task check:analysis` | New lint findings since the frozen baseline, plus reachable vulnerability checks on the active packages |
 | `task check:fixture` | Rebuild SDK and run the isolated process-restart scenario |
 | `task dev:redesign -- --minutes=10` | Start a disposable scripted-provider daemon for manual SDK/app work |
+| `task dev:v4 -- -directory /tmp/whip-example/state` | Start the new scripted runtime with explicit private storage |
 
 The optional repository pre-commit hook uses `check:fast` on the integration
 branch and `codex/backend-redesign-*` branches. Other branches retain the current
@@ -46,7 +47,11 @@ list for fast, build, vet, race and analysis checks:
 - `internal/store`: fresh schema, uniform root/child records and atomic transitions.
 - `internal/config`: explicit fresh host files and credential references.
 - `internal/protocol`: independent v4 DTOs, schemas and interchange fixtures.
+- `internal/model`, `internal/runner`: injected provider adapter and ordinary execution loop.
+- `internal/runtime`: exclusive ownership, scheduling, cancellation and cleanup.
+- `internal/rpc`, `internal/client`: v4 transport mapping and initial Go client.
 - `cmd/whip-contract`: deterministic v4 generation and fixture validation.
+- `cmd/whip-runtime`: explicit-directory new runtime entry point.
 
 All tests in these packages are active. Add new domain/store/runtime packages as
 they land. Remove old packages only when their retained guarantees have been
@@ -58,13 +63,35 @@ before provider construction, queued child input across restart, settlement
 failure without provider replay, and accounting-lock ordering. They are temporary
 reference checks, not a requirement to preserve actors or child-specific APIs.
 
-Both TypeScript contract packages, the retained SDK and SDK examples are active.
-The fixture test
-uses both Unix sockets and WebSocket. Full web/desktop/mobile/TUI/ACP suites
+Both TypeScript contract packages, both SDKs and their examples are active.
+The v4 fixture uses Unix sockets; the retained legacy fixture uses Unix sockets
+and WebSocket. Full web/desktop/mobile/TUI/ACP suites
 remain milestone obligations in phases 5–6. A shared contract change must expand
 checks to every client already ported to that contract.
 
-## Disposable fixture
+## New v4 disposable fixture
+
+[v4-fixture.test.mjs](../scripts/redesign/v4-fixture.test.mjs) builds
+`cmd/whip-runtime`, uses a private `/tmp/whip-v4-*` directory, and runs the real
+scheduler/runner/store/RPC through `@whip/sdk`. `WHIP_SDK_RACE=1` instruments the
+Go binary; CI sets it. It does not need provider credentials or touch an installed
+daemon. The runnable SDK example is also executed against this process.
+
+The fixture drops a committed submission acknowledgement through a socket proxy,
+checks identity reuse/conflict, concurrent submissions, aborted observation,
+uniform root/child execution, and then kills an active process. Restart preserves
+completed history, interrupts its claimed turn, retains cancelled input, and
+executes queued input exactly once. A mismatched runtime identity fails attachment.
+Failures retain database/config, bounded process output and observations in
+`test-results/redesign/`; successful runs remove their temporary directory.
+
+For manual v4 work, run `task dev:v4 -- -directory /tmp/whip-example/state`, then
+the [SDK example](../packages/sdk/examples/session.mjs) using its printed socket.
+The chosen directory is retained for inspection and later reopening. Stop with
+SIGINT/SIGTERM. Phase 2's provider acknowledges text; engine/tool execution is
+added in Phase 3.
+
+## Retained legacy disposable fixture
 
 The existing SDK fixture starts a real daemon and SQLite database in a temporary
 home. `WHIP_SDK_AGENTS_FIXTURE=1` selects its actual agent loop and Starlark runtime
@@ -97,9 +124,9 @@ under `test-results/redesign/`, with the original temporary path printed too.
 CI uploads that directory on failure. Fixture-startup failures also retain their
 original temporary directory through the existing SDK helper.
 
-This initial scenario does not establish lost-acknowledgement injection, queued
-input crash behavior through the new SDK, mid-effect recovery or new-schema
-semantics. Those remain explicit phase 2–3 acceptance obligations.
+This retained scenario is not evidence for the new core. The v4 fixture above
+now establishes lost-acknowledgement and queued-input crash behavior; mid-effect
+recovery remains a Phase 3 obligation.
 
 ## CI
 
@@ -258,3 +285,38 @@ relocated packages, not the local warm measurements above.
 Phase 1 is complete in [PR #199](https://github.com/context-labs/whip/pull/199),
 stacked on Phase 0's PR #197. The final documentation commit is checked by the
 same workflow; the PR records the current head's result.
+
+## Phase 2 behavior ownership and evidence
+
+The new runtime/runner/RPC/Go client and `@whip/sdk` use v4 directly. Retained
+applications import `@whip/legacy-sdk` explicitly; no compatibility adapter sends
+new execution through the old daemon. Domain message drafts moved out of store
+so the runner's transcript interface depends only on domain values.
+
+| Phase 2 acceptance | Replacement evidence |
+| --- | --- |
+| Create, submit, observe and read a complete turn | `packages/sdk/examples/session.mjs`, executed by the v4 process fixture; Go RPC acceptance |
+| Lost acknowledgement, stable admission, payload conflicts | Socket proxy drops a committed response in `v4-fixture.test.mjs`; retry returns the same input ID and changed input fails with `CONFLICT` |
+| One active turn per session | Runtime barrier test permits separate sessions concurrently and keeps a second input queued; SQLite claim invariant; concurrent SDK submissions |
+| Reconnect without duplicate transcript | Process fixture compares committed messages before and after SIGKILL and repeats the original identity |
+| Queued input survives, history starts no work | Runtime reopen/read test and RPC pre-Start history test; process kill while a second input remains queued |
+| Observer cancellation is separate from execution | Runtime request-context cancellation, Go socket disconnect and SDK aborted-wait tests |
+| Generated Go/TypeScript agreement | Actual Go fixture JSON, strict standalone validators, decimal counters, initialization and exclusive result/error envelopes |
+| Required gate | `check:change` includes new packages, both SDKs, generated contracts and the v4 process fixture |
+
+Additional tests cover exclusive directory ownership, duplicate listener refusal,
+context-aware shutdown, interrupted claimed work without replay, queued deletion
+without unrelated runtime failure, stable completed-output write retries and
+bounded external error text. Import checks keep provider/runner code outside
+runtime/storage and Go clients outside all execution packages.
+
+Local validation passed on 2026-09-27: `task check:phase`, targeted race/shuffle
+checks after lint fixes, the v4 process fixture with `WHIP_SDK_RACE=1`, contract
+generation/interchange, and `task check:analysis` (zero new lint issues; no
+reachable vulnerabilities). The retained SDK's 466 tests and its original
+process fixture still pass. Hosted Linux/macOS validation runs on [Phase 2 PR #200](https://github.com/context-labs/whip/pull/200), stacked on Phase 1 PR #199.
+
+Phase 2 intentionally does not claim engine execution, real-provider integration,
+model accounting, effect permissions, checkpointing, or product UI adoption.
+The first five belong to Phase 3; uniform recursion and retained integrations
+follow in Phases 4–5. The overall execution objective remains through Phase 5.

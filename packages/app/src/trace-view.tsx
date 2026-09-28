@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { RootSnapshot } from '@whip/legacy-protocol';
-import { serverNowMs, traceRoots, traceSpans, type DeepReadonly, type SessionView, type SessionViewSnapshot } from '@whip/sdk/state';
+import { serverNowMs, traceRoots, traceSpans, type DeepReadonly, type SessionView, type SessionViewSnapshot } from '@whip/legacy-sdk/state';
 import { Badge, Button, CodeBlock, IconButton, Select, ToggleGroup } from '@whip/ui';
 import { ChevronDown, ChevronRight, Maximize2, ZoomIn, ZoomOut } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';

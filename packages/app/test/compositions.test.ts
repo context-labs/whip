@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Session } from '@whip/sdk';
+import type { Session } from '@whip/legacy-sdk';
 import { CompositionStore, compositionKey } from '../src/compositions';
 
 afterEach(() => vi.unstubAllGlobals());

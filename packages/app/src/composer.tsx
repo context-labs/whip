@@ -8,7 +8,7 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
-import type { Session } from '@whip/sdk';
+import type { Session } from '@whip/legacy-sdk';
 import { Button, IconButton, Select, Textarea } from '@whip/ui';
 import { ArrowUp, AtSign, Paperclip, Square } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';

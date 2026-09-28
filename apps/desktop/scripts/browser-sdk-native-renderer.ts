@@ -1,5 +1,5 @@
 // Opt-in acceptance driver: production SDK + production desktop transport + real native bridge.
-import { createWhipClient } from '@whip/sdk';
+import { createWhipClient } from '@whip/legacy-sdk';
 import type { DesktopBridge, BrowserPlatform, BrowserAgentBridge } from '@whip/app/desktop-bridge';
 import { desktopTransport } from '../../web/src/platform/desktop';
 

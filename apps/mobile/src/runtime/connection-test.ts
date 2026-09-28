@@ -1,6 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import { fetch } from 'expo/fetch';
-import { createWhipClient, WhipError, type WhipClient } from '@whip/sdk';
+import { createWhipClient, WhipError, type WhipClient } from '@whip/legacy-sdk';
 import { manifest } from '@whip/legacy-protocol';
 import { serverOrigin } from './address';
 

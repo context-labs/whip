@@ -3,7 +3,7 @@ import { expect, it, vi } from 'vitest';
 import { useState } from 'react';
 import userEvent from '@testing-library/user-event';
 import { ThemeProvider, UIProvider } from '@whip/ui';
-import type { SessionViewSnapshot } from '@whip/sdk/state';
+import type { SessionViewSnapshot } from '@whip/legacy-sdk/state';
 import { SessionTopBar } from '../src/session-top-bar';
 import { activityStatus, CurrentActivity } from '../src/chat-activity';
 

@@ -2,8 +2,8 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider, UIProvider } from '@whip/ui';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { WhipClient } from '@whip/sdk';
-import type { Definition } from '@whip/sdk/agents';
+import type { WhipClient } from '@whip/legacy-sdk';
+import type { Definition } from '@whip/legacy-sdk/agents';
 import type { ReactNode } from 'react';
 import { RuntimeContext } from '../src/context';
 import type { AppRuntime } from '../src/runtime';

@@ -1,5 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query';
-import type { WhipClient } from '@whip/sdk';
+import type { WhipClient } from '@whip/legacy-sdk';
 import type { HostAttentionResult } from '@whip/legacy-protocol';
 import type { AppNotification } from './platform';
 

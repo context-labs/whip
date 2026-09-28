@@ -9,9 +9,39 @@ import (
 )
 
 const (
-	Major = 4
-	Minor = 0
+	Major         = 4
+	Minor         = 0
+	MaxFrameBytes = 8 << 20
 )
+
+type Request struct {
+	JSONRPC string          `json:"jsonrpc" enum:"2.0"`
+	ID      ID              `json:"id"`
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params"`
+}
+type Response struct {
+	JSONRPC string          `json:"jsonrpc" enum:"2.0"`
+	ID      ID              `json:"id"`
+	Result  json.RawMessage `json:"result,omitempty"`
+	Error   *RPCError       `json:"error,omitempty"`
+}
+
+type InitializeParams struct {
+	Major             int `json:"major" min:"4" max:"4"`
+	ExpectedRuntimeID *ID `json:"expected_runtime_id,omitempty"`
+}
+type InitializeResult struct {
+	Major     int             `json:"major" min:"4" max:"4"`
+	Minor     int             `json:"minor"`
+	RuntimeID ID              `json:"runtime_id"`
+	Builtins  []DefinitionRef `json:"builtins"`
+}
+type RPCError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Kind    string `json:"kind" enum:"INVALID,NOT_FOUND,CONFLICT,BUSY,LIMIT,STOPPED,CLOSED,IDENTITY,METHOD,INTERNAL"`
+}
 
 type (
 	ID      string

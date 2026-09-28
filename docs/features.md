@@ -28,7 +28,7 @@ contract easier to locate.
   to its latest revision and pins it, so a daemon that no longer knows the
   revision refuses the session rather than running a different agent. The
   TypeScript SDK authors them with `defineAgent` and `tool`
-  (`@whip/sdk/agents`), and the JuniorDeveloper fixture is written both ways:
+  (`@whip/legacy-sdk/agents`), and the JuniorDeveloper fixture is written both ways:
   `internal/agentdef/testdata/junior-developer.json` must equal the Go built-in
   and the SDK output (`TestTypeScriptJuniorDeveloperMatchesBuiltIn`,
   `examples/agents`).
@@ -373,7 +373,7 @@ Code: `internal/legacy/config/providers.go`, `internal/daemon/provider_{list,dis
 `internal/daemon/budget.go`, `packages/app/src/settings/provider-connections.tsx`,
 `packages/app/src/settings/provider-login.tsx`, and `apps/desktop/src/runtime.ts`.
 Tests: `internal/legacy/config/providers_test.go`,
-`internal/daemon/provider_connections_test.go`, `packages/sdk/test/services.test.ts`,
+`internal/daemon/provider_connections_test.go`, `packages/legacy-sdk/test/services.test.ts`,
 `packages/app/test/provider-connections.test.tsx`, `packages/app/test/model-selection.test.tsx`,
 `apps/desktop/tests/provider-environment.test.ts`, and the production
 `apps/web/scripts/provider-connections.mjs` workflow. See the
@@ -515,11 +515,11 @@ web custom-provider form is introduced.
 Code: `internal/tui/setup_provider.go`, `internal/tui/setup_host.go`,
 `internal/daemon/provider_configuration.go`, `internal/legacy/config/providers.go`,
 `internal/llm/openai.go`, `internal/legacy/protocol/provider_types.go`, and
-`packages/sdk/src/services.ts`.
+`packages/legacy-sdk/src/services.ts`.
 Tests: `internal/tui/setup_provider_test.go`,
 `internal/daemon/provider_configuration_test.go`,
 `internal/legacy/config/provider_auth_test.go`, `internal/llm/openai_noauth_test.go`,
-`cmd/whip/acp_test.go`, and `packages/sdk/test/services.test.ts`.
+`cmd/whip/acp_test.go`, and `packages/legacy-sdk/test/services.test.ts`.
 See [configuration instructions](models-providers.md#supported-provider-types-and-custom-endpoints)
 and [implementation and acceptance](../.ai-docs/plans/tui-provider-configuration/README.md).
 
@@ -658,7 +658,7 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
   routing tests (`title_lifecycle_test.go`, `metadata_routing_test.go`), title
   model-accounting tests, and notification delivery/lifecycle tests in
   `internal/daemon/title_notifications_test.go`. Client coverage lives in
-  `packages/sdk/test/{client,state}.test.ts` and
+  `packages/legacy-sdk/test/{client,state}.test.ts` and
   `packages/app/test/{session-title-notifications,session-tab-titles}.test.ts*`.
   `apps/web/scripts/session-title-notifications.mjs` verifies real WebSocket
   delivery and unopened-sidebar/inactive-tab updates in Chromium and Firefox.
@@ -674,7 +674,7 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
   input/content identities. Older daemons retain the previous delivery selector.
 
 - Private Node 24 ESM workspace: `@whip/legacy-protocol` generates typed RPC/runtime
-  maps and standalone CSP-safe validators; `@whip/sdk` attaches over native
+  maps and standalone CSP-safe validators; `@whip/legacy-sdk` attaches over native
   WebSockets or Node Unix sockets without owning daemon processes.
 - Stable session handles, committed command acceptance, typed terminal outcomes,
   metadata-only application recovery storage, explicit identical-request retries,
@@ -705,8 +705,8 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
   events (text, cell, host, hook, question and permission with reply methods,
   child, end, raw) and a `TurnResult` typed by the output contract;
   `session.prompts()` recovers open prompts from a snapshot.
-  `@whip/sdk/testing` ships the scripted daemon (with `turn()` scripts) and
-  `@whip/sdk/testing/node` the live daemon fixture. `examples/agents/
+  `@whip/legacy-sdk/testing` ships the scripted daemon (with `turn()` scripts) and
+  `@whip/legacy-sdk/testing/node` the live daemon fixture. `examples/agents/
   support-triage.ts` is the README program with a scripted-daemon test and a
   live acceptance; `incident-commander.ts` uses every primitive at once and
   `incident-commander.acceptance.mjs` drives it through a live daemon (the SDK
@@ -714,10 +714,10 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
   scripted model), including hook denials and rewrites, a spawn redirected to
   a named child, and the fail-fast behavior of a closed executor
   (`npm run acceptance -w @whip/agents-example`).
-- Implementation: `packages/sdk`, `examples/client`. Coverage: SDK TypeScript
+- Implementation: `packages/legacy-sdk`, `examples/client`. Coverage: SDK TypeScript
   unit tests, `daemon.acceptance.mjs`, isolated `TestV2SDKBridge`, actual SDK
   strict-CSP Chromium/Firefox/Safari and React StrictMode smoke tests, plus packed
-  package installation. See [SDK usage](../packages/sdk/README.md).
+  package installation. See [SDK usage](../packages/legacy-sdk/README.md).
 
 ## macOS desktop application
 
@@ -751,7 +751,7 @@ provider message passed; see the
 | One bootstrap and UI in browser and desktop, with independent SDK clients per host; native effects behind an adapter | `apps/web/src/{main,bootstrap}.tsx`, `apps/web/src/platform/`, `packages/app/src/{platform,desktop-bridge}.ts` | App architecture/bootstrap/desktop-adapter tests; packed app/UI consumer and production renderer native-import guard |
 | Exact shared renderer in Go embed and Electron ASAR, verified native companions and full DMG/ZIP contents | `scripts/{renderer-artifact,pack-web}.mjs`, `apps/desktop/scripts/{build,package,verify,distribution}.mjs`, `apps/desktop/forge.config.cjs` | Renderer/provenance/distribution tests, actual signed archive extraction/mount and signature/fuse checks |
 | One-command local source update of the signed app and shared backend; verify before quit, wait through macOS deferred quit, retain previous binaries, gracefully restart and check the running build | `scripts/update-local.mjs`, `Taskfile.yaml` (`update:local`), `cmd/whip/desktop_runtime_sync.go`; [usage](setup.md#update-your-local-installation-from-source) | `scripts/update-local.test.mjs` (deferred quit, cancellation, real filesystem staging and failure preservation), `TestDesktopCompiledUpdate` (real backend handoff) |
-| Stable local/URL/SSH profiles, safe migration, explicit replacement identity and stale connection disposal | `packages/app/src/{connections,hosts,runtime}.ts`, `packages/app/src/{host-dialog,connection-dialog}.tsx`, `packages/sdk/src/client.ts` | App connections/runtime/replacement-runtime/session-navigator tests; SDK changed-runtime regression |
+| Stable local/URL/SSH profiles, safe migration, explicit replacement identity and stale connection disposal | `packages/app/src/{connections,hosts,runtime}.ts`, `packages/app/src/{host-dialog,connection-dialog}.tsx`, `packages/legacy-sdk/src/client.ts` | App connections/runtime/replacement-runtime/session-navigator tests; SDK changed-runtime regression |
 | Canonical installed whipcode selection, compatible attach-before-start, owner-proven stale socket recovery, no daemon shutdown on GUI exit or backend replacement during an app update | `apps/desktop/src/{main,runtime,transport}.ts`, `cmd/whip/daemon_manage.go`, `cmd/whip/desktop_runtime.go` | `apps/desktop/tests/runtime.test.ts`: saved-path precedence, missing-path refusal, compatible reuse, explicit restart, port conflicts and bounded/cancelled processes; Go owner/socket tests |
 | Verified whipcode payload with source/build/distribution provenance and the matching embedded Swift helper; explicit installation refuses a different existing executable | `apps/desktop/scripts/{build,verify,distribution}.mjs`, `apps/desktop/src/runtime.ts`, `cmd/whip/desktop_runtime.go` | Native runtime manifest/integrity, explicit-install, concurrent-publication and cancelled-copy tests; distribution checks; signed/notarized installed artifact and matching canonical executable verified |
 | This Mac setup before daemon availability, read-only Test Connection, native executable choice, explicit installation/restart and expandable path/build diagnostics | `packages/app/src/{platform,desktop-bridge}.ts`, `packages/app/src/host-dialog.tsx`, `apps/web/src/platform/desktop.ts`, `apps/desktop/src/{main,preload,runtime}.ts` | `packages/app/test/{local-runtime,desktop-adapter,architecture}.test.ts*`; `TestDaemonStatusDoesNotInitializeHome`, `TestDaemonStatusPreservesExistingRuntime`; Chromium missing-daemon UI check |
@@ -775,7 +775,7 @@ See [desktop behavior](desktop.md#browser-tabs-experimental) and the
 | --- | --- | --- |
 | Design Mode (Cmd+Shift+D toggles in the active Browser pane, including native guest and floating composer focus) hover/multi-selection (hover-only 100ms ease-out outline motion, geometry-invalidation snapping, app/OS reduced motion) with a trusted floating composer, explicit conversation recipient, bounded text evidence plus optional viewport PNG; isolated drafts reuse ordinary upload/send/recovery. Submitted evidence appears as a compact screenshot/element reference with on-demand captured details and raw context; persisted provenance keeps agent evidence out of authored transcript prose. No direct visual editing or automatic browser grants. | [App UI/controller](../packages/app/src/browser-design.tsx), [isolated overlay](../packages/app/src/browser-design-overlay.tsx), [native inspection/capture](../apps/desktop/src/browser-design.ts), [shared submission](../packages/app/src/chat-submission.ts) | [Shortcut/focus scope tests](../packages/app/test/browser-workspace.test.tsx), [Controller/motion tests](../packages/app/test/browser-design.test.ts), [overlay interactions](../packages/app/test/browser-design-overlay.test.tsx), [real SDK/upload integration](../packages/app/test/browser-design-integration.test.tsx), [compact transcript presentation](../packages/app/test/browser-design-message.test.tsx), [persisted evidence provenance](../internal/daemon/design_context_test.go), [production renderer checks](../apps/web/scripts/browser-design.mjs), [production Electron fixture](../apps/desktop/scripts/browser-design-production.mjs), [native compositor spike](../apps/desktop/scripts/browser-design-native.mjs) |
 | Human navigation, find/zoom, split-pane movement and metadata recovery without an execution daemon; web-only pages remain unavailable metadata. Native guests have no app preload, and interactive overlays wait for native hide ACK. | [Workspace coordinator](../packages/app/src/browser-workspace.ts), [native manager](../apps/desktop/src/browser-manager.ts), [shared overlay boundary](../packages/ui/src/native-surfaces.tsx) | [Workspace/UI regressions](../packages/app/test/browser-workspace.test.tsx), [actual renderer→preload→IPC restore seam](../apps/desktop/scripts/browser-workspace-native-renderer.ts), [native policy tests](../apps/desktop/tests/browser-policy.test.ts) |
-| Explicit host/conversation selection offers exact resources, not permission. Browser v1 open/attach/port expansion use durable Once-only approval; release or disconnect ends agent control without closing human pages, and reconnect never reselects automatically. Historical roots are not upgraded. | [Provider controls](../packages/app/src/browser-provider-controls.tsx), [SDK provider transport](../packages/sdk/src/browser.ts), [daemon Browser operations](../internal/tools/browser_desktop.go) | [Selection/UI tests](../packages/app/test/browser-provider.test.tsx), [SDK lifecycle tests](../packages/sdk/test/browser.test.ts), [daemon provider tests](../internal/daemon/browser_provider_test.go) |
+| Explicit host/conversation selection offers exact resources, not permission. Browser v1 open/attach/port expansion use durable Once-only approval; release or disconnect ends agent control without closing human pages, and reconnect never reselects automatically. Historical roots are not upgraded. | [Provider controls](../packages/app/src/browser-provider-controls.tsx), [SDK provider transport](../packages/legacy-sdk/src/browser.ts), [daemon Browser operations](../internal/tools/browser_desktop.go) | [Selection/UI tests](../packages/app/test/browser-provider.test.tsx), [SDK lifecycle tests](../packages/legacy-sdk/test/browser.test.ts), [daemon provider tests](../internal/daemon/browser_provider_test.go) |
 | Human SSH previews need no agent/root selection: choose a saved connected SSH host, verified runtime catalog project and literal-loopback URL, then confirm natively before routes commit. Network policy belongs to the project environment, separately from agent grants; no URL-host, Mac-local or direct fallback exists. | [Human preview controls](../packages/app/src/browser-preview-controls.tsx), [native confirmation/admission](../apps/desktop/src/browser-human-preview.ts), [environment lifecycle](../apps/desktop/src/preview-environments.ts) | [Preview UI/admission tests](../packages/app/test/browser-preview.test.tsx), [native human-preview tests](../apps/desktop/tests/browser-human-preview.test.ts), [selected-host SSH fixture](../apps/desktop/scripts/browser-preview-native-main.ts) |
 | The main-process opt-out is independent of persisted metadata; disabling the feature must not erase saved addresses or make old clients/providers authoritative. | [Main-owned feature gate](../apps/desktop/src/browser-feature.ts), [workspace persistence](../packages/app/src/session-tabs.ts) | [Feature-gate tests](../apps/desktop/tests/browser-feature.test.ts), [workspace downgrade/recovery regressions](../packages/app/test/browser-workspace.test.tsx) |
 
@@ -797,9 +797,9 @@ behavior to its owning code and repeatable validation.
 
 | Behavior | Implementation | Validation |
 | --- | --- | --- |
-| Live session trace view (resizable execution tree, waterfall, and span details; pointer/keyboard dividers; ~30 fps live clock, paused when hidden/idle or motion is reduced) fed by durable nanosecond spans and live span events; one trace per root turn with child turns parented under their cause; OTLP/JSON export with GenAI + OpenInference attributes via `trace.export` and `whipcode sessions export` | `internal/legacy/session/{span,otlp_export}.go`, `internal/daemon/spans.go`, `packages/sdk/src/trace.ts`, `packages/app/src/{trace-view,trace-math}.ts*`, `cmd/whip/sessions_export.go` | `internal/legacy/session/{span,otlp_export}_test.go`, `internal/daemon/v2_event_schema_test.go`, `packages/sdk/test/trace.test.ts`, `packages/app/test/{trace-view,trace-math}.test.ts*` |
+| Live session trace view (resizable execution tree, waterfall, and span details; pointer/keyboard dividers; ~30 fps live clock, paused when hidden/idle or motion is reduced) fed by durable nanosecond spans and live span events; one trace per root turn with child turns parented under their cause; OTLP/JSON export with GenAI + OpenInference attributes via `trace.export` and `whipcode sessions export` | `internal/legacy/session/{span,otlp_export}.go`, `internal/daemon/spans.go`, `packages/legacy-sdk/src/trace.ts`, `packages/app/src/{trace-view,trace-math}.ts*`, `cmd/whip/sessions_export.go` | `internal/legacy/session/{span,otlp_export}_test.go`, `internal/daemon/v2_event_schema_test.go`, `packages/legacy-sdk/test/trace.test.ts`, `packages/app/test/{trace-view,trace-math}.test.ts*` |
 | Attach to existing hosts, discover each directory tree, and route to retained sessions | `apps/web/src/main.tsx`, `packages/app/src/runtime.ts`, `packages/app/src/{shell,directory-picker}.tsx`, `internal/daemon/host.go` | `packages/app/test/runtime.test.ts`, `internal/daemon/host_test.go`, `apps/web/scripts/browser.mjs` |
-| Choose a Local working directory in the OS-native folder dialog (osascript/zenity/kdialog/PowerShell), falling back to the web directory browser; Remote uses its daemon directory browser | `host.directory.pick` in `internal/{protocol,daemon}/host.go`, `packages/sdk/src/services.ts`, `packages/app/src/directory-picker.tsx` | `TestDirectoryPickCommand`/`TestHostDirectoryPickValidation` in `internal/daemon/host_test.go` |
+| Choose a Local working directory in the OS-native folder dialog (osascript/zenity/kdialog/PowerShell), falling back to the web directory browser; Remote uses its daemon directory browser | `host.directory.pick` in `internal/{protocol,daemon}/host.go`, `packages/legacy-sdk/src/services.ts`, `packages/app/src/directory-picker.tsx` | `TestDirectoryPickCommand`/`TestHostDirectoryPickValidation` in `internal/daemon/host_test.go` |
 | Multiple daemon connections, Local-owned saved profiles, verified identities, isolated disconnects and guided Local/Remote session creation | `packages/app/src/{hosts,runtime}.ts`, `{host-dialog,welcome,settings}.tsx`, `internal/legacy/config/remote_hosts.go`, daemon configuration service | `packages/app/test/hosts.test.ts`, `runtime.test.ts`, `sidebar-creation.test.tsx`; `internal/legacy/config/remote_hosts_test.go`; `TestProviderClientRemoteHostsPreserveConfigurationAndRejectConflicts` |
 | Search and advisory attention across hosts, source labels/filter, independent bounded pagination and partial failures without root hydration | `packages/app/src/{session-search-dialog,attention}.tsx` | `packages/app/test/multi-host-discovery.test.tsx` |
 | Author data-only agent definitions in Settings (persona, rules, discovery, modules, capabilities, surface), copy built-ins, add revisions to registered ids, and pick the agent a new session runs | `packages/app/src/settings/agents.tsx`, `packages/app/src/definitions.ts`, `packages/app/src/welcome.tsx`, `session-tabs.ts` (`definition`) | `packages/app/test/settings-agents.test.tsx`, `sidebar-creation.test.tsx` (agent picker), `session-tabs.test.ts` |
@@ -811,7 +811,7 @@ behavior to its owning code and repeatable validation.
 | Nested split views, draggable tabs between panes, duplicate chats with independent agents/scroll, shared drafts, and responsive layout restoration | `packages/app/src/{session-tabs,session-tab-strip,session-tab-routing,workspace-views,runtime,conversation,composer}.ts*`, `packages/ui/src/workspace-layout.tsx` | App model/routing/runtime/workspace/composer tests; `apps/web/scripts/workspace-layout.mjs`; UI layout Chromium/Firefox, Axe and strict-CSP fixture |
 | Shared session top bar with single-selection Chat/REPL/Trace navigation within the current tab, Details open-state toggle and narrow-pane controls | `packages/app/src/{session-top-bar,conversation,session-tab-strip,session-tab-routing,session-tabs}.ts*`, `packages/ui/src/actions.tsx` | App top-bar, tab and routing tests; `apps/web/scripts/{browser-toolbar,repl-viewer}.mjs` |
 | Every shared web/desktop code block has a top-right copy button, platform clipboard routing, exact loaded-source copying (including raw REPL output), and local retryable failure feedback | `packages/ui/src/{code-block,actions,presentation}.tsx`, `clipboard.ts`; `packages/app/src/{index,repl-view}.tsx` | `packages/app/test/{code-block-copy,clipboard-provider,repl-view}.test.tsx`; `packages/ui/tests/csp.mjs` (keyboard/touch, bounded source, narrow layout, failures) |
-| Read-only session REPL, adjacent Open REPL and nearest same-agent Open chat, independent split modes/agents, live cells and bounded history | `packages/app/src/{repl-view,reading-list,conversation,session-tab-strip}.tsx`, `packages/sdk/src/{executions,state}.ts`, mode-aware tab routing | SDK execution/state tests; app REPL, reader and routing tests; `apps/web/scripts/repl-viewer.mjs` with opt-in `v2_sdk_repl_test.go` fixtures |
+| Read-only session REPL, adjacent Open REPL and nearest same-agent Open chat, independent split modes/agents, live cells and bounded history | `packages/app/src/{repl-view,reading-list,conversation,session-tab-strip}.tsx`, `packages/legacy-sdk/src/{executions,state}.ts`, mode-aware tab routing | SDK execution/state tests; app REPL, reader and routing tests; `apps/web/scripts/repl-viewer.mjs` with opt-in `v2_sdk_repl_test.go` fixtures |
 | Root/child conversations, grouped tool calls, read-only Starlark, bounded history and recipient-scoped drafts | `packages/app/src/{conversation,timeline,composer}.tsx`, SDK session views | `packages/app/test/{timeline,composer}.test.tsx`, production browser fixture; `apps/web/scripts/performance.mjs` exercises 10,000 root messages, 100 retained children, stable selection/scroll and 32 drafts under 16 concurrent streams |
 | Compact growing composer, shared model/reasoning picker for idle root sessions, and neutral input focus borders | `packages/app/src/{composer,model-selection}.tsx`, shared UI form styles | Composer tests; `apps/web/scripts/browser.mjs` (growth/shrink, explicit model/effort changes, busy state, draft/reload preservation); `apps/web/scripts/model-picker.mjs` (detail-card bounds, side flipping, scrolling, keyboard and resize in Chromium/Firefox); split workspace browser fixture |
 | Right-aligned user bubbles, hover/focus timestamps and controls, immediate submission previews, queued/running inbox messages | `packages/app/src/{input-presentation,runtime}.ts`, `packages/app/src/{conversation,timeline,composer}.tsx` | `packages/app/test/input-presentation.test.tsx`, composer/runtime tests, `apps/web/scripts/user-messages.mjs` (Chromium/Firefox delayed request, running turn, reload, duplicate text, hover/focus and responsive themes) |
@@ -819,7 +819,7 @@ behavior to its owning code and repeatable validation.
 | Questions, permission decisions, remembered rules and exact-turn cancellation | `packages/app/src/{requests,conversation}.tsx`, SDK permission/command helpers | `packages/app/test/requests.test.tsx`, two-client production browser fixture, existing daemon permission tests |
 | Recursive work, mailbox/evidence inspection, goals, schedules, budgets, context and integrations | `packages/app/src/inspector.tsx`, `packages/app/src/details/`, host read services | `packages/app/test/inspector.test.tsx`, `internal/daemon/host_test.go`, generated SDK operation coverage |
 | Full-window Settings with six categories, local control search, responsive navigation and exact workspace return | `packages/app/src/settings.tsx`, `settings/navigation.ts`, `shell.tsx`, `runtime.ts` | `settings-navigation.test.ts`, `desktop-close-tab.test.tsx`, `apps/web/scripts/settings.mjs` and `settings-conversation.mjs` |
-| Terminal tabs: a login shell on the session's host in a fourth tab kind, opened from pane and tab menus, the palette or the terminal shortcut; drawn by ghostty-web; reattached with replay after reload or reconnect; closing the tab ends the shell | `packages/app/src/terminal-view.tsx`, `session-tabs.ts` (`TerminalTab`, `openTerminal`, `updateTerminal`), `session-tab-routing.ts` (`openTerminalTab`, `terminalDestination`), `routes/h.$runtimeId.t.$terminalId.tsx`, `session-tab-strip.tsx`, `packages/sdk/src/terminals.ts` | `terminal-view.test.tsx`, `session-tabs.test.ts`, `session-tab-routing.test.ts`, `packages/sdk/test/terminals.test.ts`, `apps/web/scripts/terminal-tabs.mjs`, `apps/desktop/scripts/terminal-smoke.mjs` |
+| Terminal tabs: a login shell on the session's host in a fourth tab kind, opened from pane and tab menus, the palette or the terminal shortcut; drawn by ghostty-web; reattached with replay after reload or reconnect; closing the tab ends the shell | `packages/app/src/terminal-view.tsx`, `session-tabs.ts` (`TerminalTab`, `openTerminal`, `updateTerminal`), `session-tab-routing.ts` (`openTerminalTab`, `terminalDestination`), `routes/h.$runtimeId.t.$terminalId.tsx`, `session-tab-strip.tsx`, `packages/legacy-sdk/src/terminals.ts` | `terminal-view.test.tsx`, `session-tabs.test.ts`, `session-tab-routing.test.ts`, `packages/legacy-sdk/test/terminals.test.ts`, `apps/web/scripts/terminal-tabs.mjs`, `apps/desktop/scripts/terminal-smoke.mjs` |
 | Host-scoped configuration, login cleanup and unsaved-edit guards | `packages/app/src/settings/{configuration,providers,unsaved}.tsx`, SDK/daemon services | `settings-configuration.test.tsx`, `settings-host-selection.test.tsx`, `settings-unsaved.test.tsx`, provider tests and production Settings workflow |
 | Working Appearance controls: bounded tool density, code wrapping, UI/code fonts and sizes, contrast/motion, preview and resets | `packages/app/src/settings/appearance.tsx`, `timeline.tsx`, `runtime.ts`, `packages/ui/src/{appearance-data,themes,tokens.stylex,code-block}.*`, native contrast bridge | `settings-density.test.tsx`, UI appearance/theme tests, desktop-adapter tests, production Settings/conversation workflows |
 | Accessible controls, all TUI themes, custom-theme resolution, auto appearance and portaled overlays | `packages/ui`, `internal/theme`, `cmd/themegen`, `internal/daemon/host.go` | Theme parity/drift tests, 66-theme Axe fixtures, thirteen component interaction scenarios, Chromium/Firefox/actual Safari CSP smoke |
@@ -945,7 +945,7 @@ scrolls with the transcript and disappears on completion. Reduced motion stops
 the wave and caption rotation.
 
 - Sources: `internal/daemon/transcript_presentation.go`, `internal/llm/presentation.go`,
-  `packages/sdk/src/executions.ts`, `packages/app/src/{chat-activity-rows,streaming-markdown,transcript-motion,transcript-activity,timeline,reading-list}.ts*`.
+  `packages/legacy-sdk/src/executions.ts`, `packages/app/src/{chat-activity-rows,streaming-markdown,transcript-motion,transcript-activity,timeline,reading-list}.ts*`.
 - Coverage: journal/storage/SDK reconciliation tests, app activity/Markdown/reading
   tests, and the isolated production browser fixture `apps/web/scripts/chat-activity.mjs`.
 - Composer agent dock and child splits: `packages/app/src/{agent-dock,conversation,session-tabs,session-tab-routing}.ts*`;
@@ -986,7 +986,7 @@ and Zed; Finder is local-only and browsers can copy the exact directory.
 
 | Behavior | Implementation | Verification |
 | --- | --- | --- |
-| Bounded full metadata without transcript hydration | `internal/legacy/session/metadata.go`, `sessions.get`, `packages/sdk/src/session.ts` | Metadata bounds/store tests, SDK command tests, browser frame assertions |
+| Bounded full metadata without transcript hydration | `internal/legacy/session/metadata.go`, `sessions.get`, `packages/legacy-sdk/src/session.ts` | Metadata bounds/store tests, SDK command tests, browser frame assertions |
 | Durable archive, filtered cursor revisions, one-way v10→v11 preservation | `internal/legacy/session/{migrations,metadata,catalog_page}.go`, `internal/daemon/client_control.go` | Migration rollback/reopen and catalog tests, busy archive/dedup/event tests, race suite |
 | Shared host-bound actions and deletion cleanup | `packages/app/src/session-actions.tsx`, `session-search-dialog.tsx`, `runtime.ts`, `session-tabs.ts`, `compositions.ts` | `session-actions.test.tsx`, runtime/tabs/compositions tests, `apps/web/scripts/session-actions.mjs` |
 | Fixed native editor launchers and verified runtime identity | `apps/desktop/src/project-open.ts`, main/preload bridge and web desktop adapter | Project opening/adapter tests, real Electron IPC, local launches and Cursor/VS Code SSH handoff; [native acceptance limits](../.ai-docs/plans/conversation-row-actions/README.md#implementation-record--2026-09-08) |

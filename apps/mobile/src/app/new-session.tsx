@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { router, useIsFocused, useLocalSearchParams } from 'expo-router';
 import * as Crypto from 'expo-crypto';
 import { useQuery } from '@tanstack/react-query';
-import type { WhipClient } from '@whip/sdk';
+import type { WhipClient } from '@whip/legacy-sdk';
 import { Actions, Field, Label, Loading, Notice, RowButton, Screen, Stack } from '../components/primitives';
 import { Connection } from '../components/connection';
 import { RuntimeScope, useRuntime, useRuntimeState } from '../runtime/context';

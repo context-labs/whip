@@ -235,12 +235,6 @@ func (s *Store) Claim(ctx context.Context, id session.SessionID) (result Claim, 
 	return
 }
 
-type MessageDraft struct {
-	ID    session.MessageID
-	Role  session.Role
-	Parts []session.Part
-}
-
 const messageSelect = `SELECT m.id,m.session_id,m.turn_id,m.sequence,m.role,m.input_id,
  COALESCE(m.parts,i.parts),m.created_at FROM messages m LEFT JOIN inputs i ON i.id=m.input_id`
 
@@ -256,7 +250,7 @@ func scanMessage(row scanner) (result session.Message, err error) {
 	return
 }
 
-func validDraft(draft MessageDraft) error {
+func validDraft(draft session.MessageDraft) error {
 	if err := session.ValidateID(string(draft.ID)); err != nil {
 		return err
 	}
@@ -266,7 +260,7 @@ func validDraft(draft MessageDraft) error {
 	return session.ValidateParts(draft.Parts)
 }
 
-func appendMessage(ctx context.Context, tx *sql.Tx, turn session.Turn, draft MessageDraft) (session.Message, error) {
+func appendMessage(ctx context.Context, tx *sql.Tx, turn session.Turn, draft session.MessageDraft) (session.Message, error) {
 	if err := validDraft(draft); err != nil {
 		return session.Message{}, err
 	}
@@ -295,7 +289,7 @@ func appendMessage(ctx context.Context, tx *sql.Tx, turn session.Turn, draft Mes
 	return scanMessage(tx.QueryRowContext(ctx, messageSelect+" WHERE m.id=?", draft.ID))
 }
 
-func (s *Store) AppendMessage(ctx context.Context, id session.TurnID, draft MessageDraft) (result session.Message, err error) {
+func (s *Store) AppendMessage(ctx context.Context, id session.TurnID, draft session.MessageDraft) (result session.Message, err error) {
 	err = s.write(ctx, func(tx *sql.Tx) error {
 		turn, err := readTurn(ctx, tx, id)
 		if err != nil {
@@ -339,7 +333,7 @@ func (s *Store) History(ctx context.Context, id session.SessionID, after int64, 
 	return result, rows.Err()
 }
 
-func (s *Store) Finish(ctx context.Context, id session.TurnID, state session.TurnState, failure *string, messages []MessageDraft) (result session.Turn, err error) {
+func (s *Store) Finish(ctx context.Context, id session.TurnID, state session.TurnState, failure *string, messages []session.MessageDraft) (result session.Turn, err error) {
 	if !state.Terminal() || (state == session.Succeeded && failure != nil) || len(messages) > 128 {
 		return result, fmt.Errorf("%w: invalid terminal outcome", session.ErrInvalid)
 	}

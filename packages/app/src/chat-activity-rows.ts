@@ -1,4 +1,4 @@
-import type { ExecutionCell, ExecutionHostCall, ExecutionRow } from '@whip/sdk/state';
+import type { ExecutionCell, ExecutionHostCall, ExecutionRow } from '@whip/legacy-sdk/state';
 import type { TimelineRow } from './conversation-rows';
 
 export interface ActivityGroup extends TimelineRow {

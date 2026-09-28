@@ -1,5 +1,5 @@
 import { act, fireEvent, render } from '@testing-library/react-native';
-import { WhipError } from '@whip/sdk';
+import { WhipError } from '@whip/legacy-sdk';
 import type { MobileRuntime } from '../runtime/runtime';
 import ServerScreen from '../app/server';
 

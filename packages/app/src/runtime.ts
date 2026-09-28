@@ -8,11 +8,11 @@ import {
   type RecoveryStorage,
   type CommandHandle,
   type CommandOutcome,
-} from '@whip/sdk';
+} from '@whip/legacy-sdk';
 import {
   createSessionView,
   type SessionView,
-} from '@whip/sdk/state';
+} from '@whip/legacy-sdk/state';
 import type { CommandOperation } from '@whip/legacy-protocol';
 import { errorMessage, readPreference, type AppPlatform } from './platform';
 import { parseSettingsReturn, settingsReturnKey, type SettingsReturn } from './settings/navigation';

@@ -7,7 +7,7 @@ import { build, preview } from 'vite';
 import react from '@vitejs/plugin-react';
 import stylex from '@stylexjs/unplugin';
 import { chromium, expect } from '@playwright/test';
-import { startFixture } from '../../../packages/sdk/scripts/fixture.mjs';
+import { startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
 
 // --desktop keeps the isolated Electron app open for Computer acceptance.
 // Default: real app workflows in Chromium, screenshots and assertion report.

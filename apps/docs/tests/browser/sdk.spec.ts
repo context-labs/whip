@@ -14,7 +14,7 @@ test.skip('SDK reference renders complete highlighted examples and preserves cop
   await expect(article).toContainText('client.close() only disconnects')
   await expect(article).toContainText('context.invocationId')
   await expect(article.locator('pre[data-language="typescript"]')).toHaveCount(10)
-  await expect(article).not.toContainText('npm install @whip/sdk')
+  await expect(article).not.toContainText('npm install @whip/legacy-sdk')
   const block = article.locator('.code-block').filter({ hasText: "const result = await turn.result();" }).first()
   const code = block.locator('pre code')
   const source = await code.textContent()

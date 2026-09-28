@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { readFile, writeFile, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { validateProfile, type ConnectionProfile } from '@whip/app/platform';
-import { unixSocket } from '@whip/sdk/node';
+import { unixSocket } from '@whip/legacy-sdk/node';
 import type { DesktopEvent, HostPrompt } from '@whip/app/desktop-bridge';
 import { createAssetHandler, desktopScheme, desktopURL, isApplicationURL, type RendererManifest } from './assets';
 import { LocalRuntime, readRuntimeManifest, runtimeEnvironment } from './runtime';

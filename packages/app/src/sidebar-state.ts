@@ -1,5 +1,5 @@
 import type { SessionCatalogPage } from '@whip/legacy-protocol';
-import type { DeepReadonly } from '@whip/sdk/state';
+import type { DeepReadonly } from '@whip/legacy-sdk/state';
 
 export const sidebarStorageKey = 'whip.web.sidebar.v1';
 export const defaultSidebarWidth = 320;

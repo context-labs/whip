@@ -240,6 +240,14 @@ type Message struct {
 	CreatedAt time.Time
 }
 
+// MessageDraft describes one completed transcript entry. Its stable ID makes a
+// persistence retry independent of repeating the model request or host effect.
+type MessageDraft struct {
+	ID    MessageID
+	Role  Role
+	Parts []Part
+}
+
 func ValidateText(value string, maxBytes int) error {
 	if strings.TrimSpace(value) == "" || len(value) > maxBytes || strings.ContainsRune(value, 0) {
 		return fmt.Errorf("%w: text is empty or outside supported bounds", ErrInvalid)

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { copyFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium, expect } from '@playwright/test';
-import { repository, run, startFixture } from '../../packages/sdk/scripts/fixture.mjs';
+import { repository, run, startFixture } from '../../packages/legacy-sdk/scripts/fixture.mjs';
 
 await run(process.execPath, ['examples/client/serve.mjs', '--build']);
 const fixture = await startFixture();

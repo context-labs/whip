@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test, { type TestContext } from 'node:test';
 import type { OpenProjectRequest } from '@whip/app/platform';
-import { transportFixture } from '../../../packages/sdk/test/transport-fixture';
+import { transportFixture } from '../../../packages/legacy-sdk/test/transport-fixture';
 import { ProjectEditors, projectArguments, projectEnvironment, projectSSHAlias, validateOpenProject, verifyProjectRuntime } from '../src/project-open';
 
 const request: OpenProjectRequest = { app: 'cursor', directory: '/remote/project', connectionId: 'handle', runtimeId: 'runtime' };

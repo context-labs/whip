@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { UIProvider } from '@whip/ui';
-import type { SessionView } from '@whip/sdk/state';
+import type { SessionView } from '@whip/legacy-sdk/state';
 import { ComposerQueue } from '../src/composer-queue';
 import { RuntimeContext } from '../src/context';
 import type { AppRuntime } from '../src/runtime';

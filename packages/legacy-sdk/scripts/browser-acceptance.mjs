@@ -1,6 +1,6 @@
 // Real daemon/SDK/WebSocket broker regression. The native bridge is deliberately
 // synthetic: this is NOT Electron, packaged desktop, or SSH-route acceptance.
-// Build SDK first, then: node --test packages/sdk/scripts/browser-acceptance.mjs
+// Build SDK first, then: node --test packages/legacy-sdk/scripts/browser-acceptance.mjs
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { test } from 'node:test';

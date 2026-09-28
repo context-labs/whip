@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { ExecutionCell } from '@whip/sdk/state';
+import type { ExecutionCell } from '@whip/legacy-sdk/state';
 import * as stylex from '@stylexjs/stylex';
 import { surface, typography } from '@whip/ui/tokens.stylex';
 

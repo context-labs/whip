@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expect } from '@playwright/test';
-import { createSessionView, executionRows } from '../../../packages/sdk/dist/state.js';
-import { eventually } from '../../../packages/sdk/scripts/fixture.mjs';
+import { createSessionView, executionRows } from '../../../packages/legacy-sdk/dist/state.js';
+import { eventually } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
 
 // Real committed records, with a delayed/failed transport read only in this
 // isolated browser. Both limits exercise the production snapshot and SDK paths.

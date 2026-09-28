@@ -1,6 +1,6 @@
 import { useContext, useEffect, useState, useSyncExternalStore } from 'react';
-import type { WhipClient } from '@whip/sdk';
-import { useWhipConnection } from '@whip/sdk/react';
+import type { WhipClient } from '@whip/legacy-sdk';
+import { useWhipConnection } from '@whip/legacy-sdk/react';
 import { Button } from '@whip/ui';
 import { ErrorNotice } from './error-feedback';
 import type { HostConnection } from './hosts';

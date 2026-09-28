@@ -1,5 +1,5 @@
 import { useContext, useEffect, useState } from 'react';
-import type { DeepReadonly, ExecutionCell, ExecutionRow, SessionViewSnapshot } from '@whip/sdk/state';
+import type { DeepReadonly, ExecutionCell, ExecutionRow, SessionViewSnapshot } from '@whip/legacy-sdk/state';
 import type { RootSnapshot } from '@whip/legacy-protocol';
 import { ActivityIndicator, Button, IconButton, Tooltip, useTheme } from '@whip/ui';
 import { Circle, Pause, Play, ShieldAlert } from 'lucide-react';

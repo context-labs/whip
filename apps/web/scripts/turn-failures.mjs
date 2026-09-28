@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium, firefox, expect } from '@playwright/test';
-import { startFixture } from '../../../packages/sdk/scripts/fixture.mjs';
+import { startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
 
 // Production renderer and real durable outcomes; no live credentials or model calls.
 process.env.WHIP_WEB_TURN_FAILURE_FIXTURE = '1';

@@ -1,8 +1,8 @@
 import { ErrorNotice } from '../error-feedback';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useWhipConnection } from '@whip/sdk/react';
-import type { WhipClient } from '@whip/sdk';
+import { useWhipConnection } from '@whip/legacy-sdk/react';
+import type { WhipClient } from '@whip/legacy-sdk';
 import type { Resolved } from '@whip/legacy-protocol';
 import { Button, Combobox, Dialog, Field, useTheme } from '@whip/ui';
 import { FileJson, Upload } from 'lucide-react';

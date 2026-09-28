@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useForm, useStore } from '@tanstack/react-form';
-import type { WhipClient } from '@whip/sdk';
-import { defineAgent, type Definition } from '@whip/sdk/agents';
+import type { WhipClient } from '@whip/legacy-sdk';
+import { defineAgent, type Definition } from '@whip/legacy-sdk/agents';
 import { Button, Checkbox, Input, Switch, Textarea } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { surface, typography, scale } from '@whip/ui/tokens.stylex';

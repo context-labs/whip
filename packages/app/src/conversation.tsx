@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import type { WhipClient } from '@whip/sdk';
-import { useSessionView, useWhipConnection } from '@whip/sdk/react';
-import { executionRows, inboxItems, type SessionView } from '@whip/sdk/state';
+import type { WhipClient } from '@whip/legacy-sdk';
+import { useSessionView, useWhipConnection } from '@whip/legacy-sdk/react';
+import { executionRows, inboxItems, type SessionView } from '@whip/legacy-sdk/state';
 import {
   Badge,
   Button,

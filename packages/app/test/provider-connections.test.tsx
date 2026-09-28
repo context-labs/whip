@@ -2,7 +2,7 @@ import { type ReactNode } from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { WhipClient } from '@whip/sdk';
+import type { WhipClient } from '@whip/legacy-sdk';
 import type { ConfigurationUpdate, ProviderList, ProviderLoginStatus } from '@whip/legacy-protocol';
 import { ThemeProvider, UIProvider } from '@whip/ui';
 import { RuntimeContext } from '../src/context';

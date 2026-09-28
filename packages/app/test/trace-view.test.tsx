@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
-import type { SessionView, SessionViewSnapshot, TraceEvidence, TraceSpan } from '@whip/sdk/state';
+import type { SessionView, SessionViewSnapshot, TraceEvidence, TraceSpan } from '@whip/legacy-sdk/state';
 import { ThemeProvider, UIProvider } from '@whip/ui';
 import { TraceView } from '../src/trace-view';
 import * as traceMath from '../src/trace-math';

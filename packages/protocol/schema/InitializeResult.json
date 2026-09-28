@@ -1,0 +1,51 @@
+{
+  "type": "object",
+  "properties": {
+    "major": {
+      "type": "integer",
+      "minimum": 4,
+      "maximum": 4
+    },
+    "minor": {
+      "type": "integer"
+    },
+    "runtime_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "builtins": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "id",
+          "revision"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/InitializeResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "InitializeResult",
+  "required": [
+    "major",
+    "minor",
+    "runtime_id",
+    "builtins"
+  ],
+  "additionalProperties": false
+}

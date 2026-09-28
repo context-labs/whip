@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { RootSnapshot } from '@whip/legacy-protocol';
-import { executionRows, type DeepReadonly, type ExecutionCell, type SessionView, type SessionViewSnapshot } from '@whip/sdk/state';
+import { executionRows, type DeepReadonly, type ExecutionCell, type SessionView, type SessionViewSnapshot } from '@whip/legacy-sdk/state';
 import { Badge, Button, CodeBlock } from '@whip/ui';
 import { Code2, RotateCcw } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';

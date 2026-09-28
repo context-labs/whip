@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryObserver } from '@tanstack/react-query';
-import { DeliveryUncertainError, RpcError, type CommandHandle, type ConnectionSnapshot, type RecoveryStorage } from '@whip/sdk';
+import { DeliveryUncertainError, RpcError, type CommandHandle, type ConnectionSnapshot, type RecoveryStorage } from '@whip/legacy-sdk';
 import { AppRuntime } from '../src/runtime';
 import { createFallbackStorage, type AppStorage } from '../src/platform';
 
@@ -8,8 +8,8 @@ const mocks = vi.hoisted(() => {
   const client = { clientId: 'client', configuration: { get: vi.fn(async () => ({ revision: '1', remote_hosts: [] as {id: string; name: string; url: string; runtime_id: string; connect_on_launch: boolean}[] })) }, connect: vi.fn(async () => {}), whenConnected: vi.fn(async () => {}), close: vi.fn(), subscribe: vi.fn((_listener: () => void) => vi.fn()), getSnapshot: vi.fn((): Pick<ConnectionSnapshot, 'state' | 'error'> & { info?: { runtime_id: string; connection_id: string } } => ({ state: 'connected', info: { runtime_id: 'runtime', connection_id: 'connection' } })), session: vi.fn((rootId: string) => ({ rootId })) };
   return { client, remotes: new Map<string, typeof client>(), options: [] as { recoveryStorage: RecoveryStorage }[], createView: vi.fn(() => ({ start: vi.fn(async () => {}), dispose: vi.fn(async () => {}) })), list: { start: vi.fn(async () => {}), dispose: vi.fn(async () => {}) } };
 });
-vi.mock('@whip/sdk', async importOriginal => ({ ...await importOriginal<typeof import('@whip/sdk')>(), createWhipClient: (options: { endpoint: string; recoveryStorage: RecoveryStorage }) => { mocks.options.push(options); return mocks.remotes.get(options.endpoint) ?? mocks.client; } }));
-vi.mock('@whip/sdk/state', () => ({ createSessionView: mocks.createView, createSessionListView: () => mocks.list }));
+vi.mock('@whip/legacy-sdk', async importOriginal => ({ ...await importOriginal<typeof import('@whip/legacy-sdk')>(), createWhipClient: (options: { endpoint: string; recoveryStorage: RecoveryStorage }) => { mocks.options.push(options); return mocks.remotes.get(options.endpoint) ?? mocks.client; } }));
+vi.mock('@whip/legacy-sdk/state', () => ({ createSessionView: mocks.createView, createSessionListView: () => mocks.list }));
 
 function runtime(storage?: AppStorage) {
   const values = new Map<string, string>();

@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import type { RootSnapshot } from '@whip/legacy-protocol';
-import type { SessionView, SessionViewSnapshot } from '@whip/sdk/state';
+import type { SessionView, SessionViewSnapshot } from '@whip/legacy-sdk/state';
 import { ThemeProvider, UIProvider } from '@whip/ui';
 import { AgentTurnNotice, useSelectedAgent } from '../src/agent-turn-notice';
 import { RuntimeContext } from '../src/context';

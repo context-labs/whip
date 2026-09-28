@@ -1,6 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { useState } from 'react';
-import { webSocket, WhipError, type Transport, type TransportFactory } from '@whip/sdk';
+import { webSocket, WhipError, type Transport, type TransportFactory } from '@whip/legacy-sdk';
 import { urlProfile, type AppStorage } from '@whip/app/platform';
 import { mountApplication } from '../../../src/bootstrap';
 import './fixture.css';

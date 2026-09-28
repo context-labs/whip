@@ -1,8 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ThemeProvider, UIProvider } from '@whip/ui';
-import type { WhipClient } from '@whip/sdk';
-import { RpcError } from '@whip/sdk';
+import type { WhipClient } from '@whip/legacy-sdk';
+import { RpcError } from '@whip/legacy-sdk';
 import { AppRuntime } from '../src/runtime';
 import { RuntimeContext } from '../src/context';
 import { TerminalView, createWriteQueue, dragSelection, passesToApp, terminalFontFamily, wheelReports } from '../src/terminal-view';

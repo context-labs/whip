@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
-import { createWhipClient, isTerminal, type WhipClient, type CommandHandle, type RecoveryRecord, type RecoveryStorage, type ContentReference } from '@whip/sdk';
-import { createSessionView, createSessionListView, type SessionView, type HistoryView, type DeepReadonly } from '@whip/sdk/state';
-import { useSessionView, useSessionListView, useWhipConnection } from '@whip/sdk/react';
+import { createWhipClient, isTerminal, type WhipClient, type CommandHandle, type RecoveryRecord, type RecoveryStorage, type ContentReference } from '@whip/legacy-sdk';
+import { createSessionView, createSessionListView, type SessionView, type HistoryView, type DeepReadonly } from '@whip/legacy-sdk/state';
+import { useSessionView, useSessionListView, useWhipConnection } from '@whip/legacy-sdk/react';
 
 const clientId = localStorage.getItem('whip.example.clientId') ?? crypto.randomUUID();
 localStorage.setItem('whip.example.clientId', clientId);

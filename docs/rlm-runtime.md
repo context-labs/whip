@@ -53,7 +53,7 @@ control and leaves the parent with delegation/revocation authority, not shared
 control; ancestry remains checked on use. Detach, stop and revoke cascade to
 retire dependent control without closing the human tab. Reconnect/restart does
 not restore native selection or replay uncertain page effects; see the
-[SDK provider lifetime](../packages/sdk/README.md#experimental-native-browser-provider).
+[SDK provider lifetime](../packages/legacy-sdk/README.md#experimental-native-browser-provider).
 This contract does not imply packaged-release acceptance.
 
 ## Durable communication

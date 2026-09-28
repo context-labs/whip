@@ -225,11 +225,11 @@ func TestConfigurationCaptureAndUniformHistory(t *testing.T) {
 		if _, err := s.UpdateConfiguration(t.Context(), target.ID, 1, session.ConfigPatch{}); !errors.Is(err, ErrConflict) {
 			t.Fatalf("stale update: %v", err)
 		}
-		draft := MessageDraft{ID: session.MessageID("reply_" + string(target.ID)), Role: session.Assistant, Parts: []session.Part{{Type: "text", Text: "complete"}}}
-		if _, err := s.Finish(t.Context(), active.Turn.ID, session.Succeeded, nil, []MessageDraft{draft}); err != nil {
+		draft := session.MessageDraft{ID: session.MessageID("reply_" + string(target.ID)), Role: session.Assistant, Parts: []session.Part{{Type: "text", Text: "complete"}}}
+		if _, err := s.Finish(t.Context(), active.Turn.ID, session.Succeeded, nil, []session.MessageDraft{draft}); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.Finish(t.Context(), active.Turn.ID, session.Succeeded, nil, []MessageDraft{draft}); err != nil {
+		if _, err := s.Finish(t.Context(), active.Turn.ID, session.Succeeded, nil, []session.MessageDraft{draft}); err != nil {
 			t.Fatal(err)
 		}
 		history, err := s.History(t.Context(), target.ID, 0, 100)
@@ -293,15 +293,15 @@ func TestAtomicAdmissionClaimFinishAndRetry(t *testing.T) {
 	execTest(t, s, "DROP TRIGGER fail_message")
 	active := claim(t, s, root.ID)
 	execTest(t, s, "CREATE TRIGGER fail_finish BEFORE UPDATE ON turns BEGIN SELECT RAISE(ABORT,'injected'); END")
-	draft := MessageDraft{ID: "reply", Role: session.Assistant, Parts: []session.Part{{Type: "text", Text: "done"}}}
-	if _, err := s.Finish(t.Context(), active.Turn.ID, session.Succeeded, nil, []MessageDraft{draft}); err == nil {
+	draft := session.MessageDraft{ID: "reply", Role: session.Assistant, Parts: []session.Part{{Type: "text", Text: "done"}}}
+	if _, err := s.Finish(t.Context(), active.Turn.ID, session.Succeeded, nil, []session.MessageDraft{draft}); err == nil {
 		t.Fatal("expected injected finish failure")
 	}
 	if count(t, s, "messages") != 1 {
 		t.Fatal("partial terminal message survived")
 	}
 	execTest(t, s, "DROP TRIGGER fail_finish")
-	if _, err := s.Finish(t.Context(), active.Turn.ID, session.Succeeded, nil, []MessageDraft{draft}); err != nil {
+	if _, err := s.Finish(t.Context(), active.Turn.ID, session.Succeeded, nil, []session.MessageDraft{draft}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.AppendMessage(t.Context(), active.Turn.ID, draft); err != nil {
@@ -371,7 +371,7 @@ func TestStopCancelRecoveryAndDeletion(t *testing.T) {
 	first := submit(t, s, child.ID, "first")
 	active := claim(t, s, child.ID)
 	queued := submit(t, s, child.ID, "queued")
-	draft := MessageDraft{ID: "partial", Role: session.Assistant, Parts: []session.Part{{Type: "text", Text: "committed before crash"}}}
+	draft := session.MessageDraft{ID: "partial", Role: session.Assistant, Parts: []session.Part{{Type: "text", Text: "committed before crash"}}}
 	if _, err := s.AppendMessage(t.Context(), active.Turn.ID, draft); err != nil {
 		t.Fatal(err)
 	}

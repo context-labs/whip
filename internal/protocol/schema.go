@@ -20,6 +20,7 @@ type Operation struct {
 
 func Operations() []Operation {
 	return []Operation{
+		{"initialize", reflect.TypeFor[InitializeParams](), reflect.TypeFor[InitializeResult]()},
 		{"trees.create", reflect.TypeFor[CreateTreeParams](), reflect.TypeFor[CreateTreeResult]()},
 		{"trees.get", reflect.TypeFor[TreeParams](), reflect.TypeFor[Tree]()},
 		{"trees.update", reflect.TypeFor[UpdateTreeParams](), reflect.TypeFor[Tree]()},
@@ -42,6 +43,9 @@ func Operations() []Operation {
 
 func Types() map[string]reflect.Type {
 	result := map[string]reflect.Type{}
+	result["RPCError"] = reflect.TypeFor[RPCError]()
+	result["Request"] = reflect.TypeFor[Request]()
+	result["Response"] = reflect.TypeFor[Response]()
 	for _, op := range Operations() {
 		result[op.Params.Name()] = op.Params
 		result[op.Result.Name()] = op.Result
@@ -67,6 +71,9 @@ func SchemaFor(t reflect.Type) (*jsonschema.Schema, error) {
 		return nil, err
 	}
 	applyTags(schema, t)
+	if t == reflect.TypeFor[Response]() {
+		schema.OneOf = []*jsonschema.Schema{{Required: []string{"result"}, Not: &jsonschema.Schema{Required: []string{"error"}}}, {Required: []string{"error"}, Not: &jsonschema.Schema{Required: []string{"result"}}}}
+	}
 	schema.Schema = "http://json-schema.org/draft-07/schema#"
 	schema.ID = "https://whip.dev/protocol/v4/" + t.Name()
 	schema.Title = t.Name()
@@ -134,7 +141,7 @@ func Validate(name string, raw []byte) error {
 	if !ok {
 		return fmt.Errorf("unknown contract type %q", name)
 	}
-	if len(raw) > 8<<20 {
+	if len(raw) > MaxFrameBytes {
 		return errors.New("contract document exceeds 8 MiB")
 	}
 	schema, err := SchemaFor(t)

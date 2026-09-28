@@ -8,7 +8,7 @@ import {
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { UIProvider } from '@whip/ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { Session } from '@whip/sdk';
+import type { Session } from '@whip/legacy-sdk';
 import { Composer } from '../src/composer';
 import { RuntimeContext } from '../src/context';
 import type { AppRuntime, CommandNotice } from '../src/runtime';

@@ -6,7 +6,7 @@ This README documents the app package's integration contract.
 
 WHIP's shared React application for the web shell and a future Electron renderer.
 This private ESM package distributes TypeScript source. It owns navigation and
-presentation; `@whip/sdk` owns connections and synchronized session state, and
+presentation; `@whip/legacy-sdk` owns connections and synchronized session state, and
 the execution host owns all work and configuration.
 
 ```tsx

@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { expect, it } from 'vitest';
-import type { ConnectionSnapshot, WhipClient } from '@whip/sdk';
+import type { ConnectionSnapshot, WhipClient } from '@whip/legacy-sdk';
 import { ConnectionNotice } from '../src/connection-notice';
 
 function fixture() {

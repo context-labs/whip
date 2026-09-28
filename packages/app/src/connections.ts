@@ -1,4 +1,4 @@
-import type { TransportFactory } from '@whip/sdk';
+import type { TransportFactory } from '@whip/legacy-sdk';
 import type { AppStorage } from './platform';
 
 export type ConnectionTarget =

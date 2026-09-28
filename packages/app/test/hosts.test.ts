@@ -38,8 +38,8 @@ const mocks = vi.hoisted(() => {
   };
   return { clients, create, identities, connecting, configurations, lists: [] as Array<{ start: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> }> };
 });
-vi.mock('@whip/sdk', () => ({ createWhipClient: mocks.create }));
-vi.mock('@whip/sdk/state', () => ({ createSessionListView: () => {
+vi.mock('@whip/legacy-sdk', () => ({ createWhipClient: mocks.create }));
+vi.mock('@whip/legacy-sdk/state', () => ({ createSessionListView: () => {
   const list = { start: vi.fn(async () => {}), dispose: vi.fn(async () => {}) };
   mocks.lists.push(list);
   return list;

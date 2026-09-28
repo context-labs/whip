@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { chromium } from '@playwright/test';
-import { createWhipClient } from '../../../packages/sdk/dist/index.js';
-import { createSessionView } from '../../../packages/sdk/dist/state.js';
+import { createWhipClient } from '../../../packages/legacy-sdk/dist/index.js';
+import { createSessionView } from '../../../packages/legacy-sdk/dist/state.js';
 import { checkComposerReading } from './composer-reading.mjs';
 import {
   eventually,
   startFixture,
-} from '../../../packages/sdk/scripts/fixture.mjs';
+} from '../../../packages/legacy-sdk/scripts/fixture.mjs';
 import { isolateDesktopPerformance, launchDesktopPerformance, exerciseDesktopTabs,
   exerciseDesktopTransfer, finishDesktopPerformance } from './performance-desktop.mjs';
 

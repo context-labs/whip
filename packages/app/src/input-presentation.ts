@@ -1,6 +1,6 @@
-import type { DeepReadonly } from '@whip/sdk/state';
+import type { DeepReadonly } from '@whip/legacy-sdk/state';
 import type { RootSnapshot } from '@whip/legacy-protocol';
-import type { CommandOutcome } from '@whip/sdk';
+import type { CommandOutcome } from '@whip/legacy-sdk';
 
 export interface SubmittedInput {
   readonly id: string;

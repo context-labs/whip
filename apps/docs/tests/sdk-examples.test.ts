@@ -39,8 +39,8 @@ it('typechecks every published SDK example against the actual source API', async
       types: ['node'],
       baseUrl: workspace,
       paths: {
-        '@whip/sdk': ['packages/sdk/src/index.ts'],
-        '@whip/sdk/*': ['packages/sdk/src/*.ts'],
+        '@whip/legacy-sdk': ['packages/legacy-sdk/src/index.ts'],
+        '@whip/legacy-sdk/*': ['packages/legacy-sdk/src/*.ts'],
         '@whip/legacy-protocol': ['packages/legacy-protocol/generated/index.d.ts'],
       },
     })

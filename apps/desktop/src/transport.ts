@@ -1,5 +1,5 @@
-import { unixSocket } from '@whip/sdk/node';
-import type { Transport } from '@whip/sdk';
+import { unixSocket } from '@whip/legacy-sdk/node';
+import type { Transport } from '@whip/legacy-sdk';
 import type { DesktopEvent } from '@whip/app/desktop-bridge';
 
 const frameLimit = 1 << 20;

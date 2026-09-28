@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import type { WhipClient } from '@whip/sdk';
+import type { WhipClient } from '@whip/legacy-sdk';
 import type { DefinitionList } from '@whip/legacy-protocol';
 
 export type DefinitionSummary = NonNullable<DefinitionList['items']>[number];

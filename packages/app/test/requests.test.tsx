@@ -2,7 +2,7 @@ import {act, fireEvent, render, screen, waitFor} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {expect, it, vi} from 'vitest';
 import {UIProvider} from '@whip/ui';
-import type {Session} from '@whip/sdk';
+import type {Session} from '@whip/legacy-sdk';
 import type {RootSnapshot} from '@whip/legacy-protocol';
 import {PendingRequests} from '../src/requests';
 import {RuntimeContext} from '../src/context';

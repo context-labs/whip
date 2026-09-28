@@ -1,5 +1,5 @@
 import './polyfills';
-import { WhipError } from '@whip/sdk';
+import { WhipError } from '@whip/legacy-sdk';
 import { manifest } from '@whip/legacy-protocol';
 import { connectionIssue, testConnection } from './connection-test';
 
@@ -8,7 +8,7 @@ const mockList = jest.fn();
 const mockClose = jest.fn();
 const mockCreate = jest.fn();
 jest.mock('expo-crypto', () => ({ randomUUID: () => 'probe-client' }));
-jest.mock('@whip/sdk', () => ({ ...jest.requireActual('@whip/sdk'), createWhipClient: (...args: unknown[]) => mockCreate(...args) }));
+jest.mock('@whip/legacy-sdk', () => ({ ...jest.requireActual('@whip/legacy-sdk'), createWhipClient: (...args: unknown[]) => mockCreate(...args) }));
 const mockFetch = jest.fn();
 jest.mock('expo/fetch', () => ({ fetch: (...args: unknown[]) => mockFetch(...args) }));
 function response(body: unknown = { available: true, protocol_major: manifest.major, websocket_path: '/api/v3/ws' }, status = 200, contentType = 'application/json') {
