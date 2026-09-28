@@ -277,7 +277,9 @@ func (s *Store) Claim(ctx context.Context, id session.SessionID) (result Claim, 
 			return ErrStopped
 		}
 		var active int
-		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM turns WHERE session_id=? AND state IN ('running','cancelling')", id).Scan(&active); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT
+ (SELECT count(*) FROM turns WHERE session_id=? AND state IN ('running','cancelling')) +
+ (SELECT count(*) FROM workspace_actions WHERE session_id=? AND state='claimed')`, id, id).Scan(&active); err != nil {
 			return err
 		}
 		if active != 0 {
