@@ -150,6 +150,10 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 			wire, err := protocol.SessionFromDomain(root)
 			return protocol.CreateTreeResult{Tree: protocol.TreeFromDomain(tree), Root: wire}, err
 		})
+	case "trees.list":
+		return listTrees(ctx, r, raw)
+	case "definitions.list":
+		return listDefinitions(ctx, r, raw)
 	case "trees.get":
 		return decode(raw, func(p protocol.TreeParams) (any, error) {
 			value, err := r.Tree(ctx, session.TreeID(p.TreeID))

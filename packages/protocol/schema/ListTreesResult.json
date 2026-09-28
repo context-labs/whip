@@ -1,0 +1,93 @@
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "tree": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "metadata": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "archived": {
+                    "type": "boolean"
+                  },
+                  "pinned": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "title",
+                  "archived",
+                  "pinned"
+                ],
+                "additionalProperties": false
+              },
+              "engine": {
+                "type": "string",
+                "enum": [
+                  "starlark",
+                  "quickjs"
+                ]
+              },
+              "revision": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "created_at": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "metadata",
+              "engine",
+              "revision",
+              "created_at"
+            ],
+            "additionalProperties": false
+          },
+          "root_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          }
+        },
+        "required": [
+          "tree",
+          "root_id"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 100
+    },
+    "next_cursor": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ListTreesResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ListTreesResult",
+  "required": [
+    "items",
+    "next_cursor"
+  ],
+  "additionalProperties": false
+}

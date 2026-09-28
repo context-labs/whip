@@ -296,6 +296,16 @@ export class Client {
     return this.call('goals.formulation', { session_id: sessionID, attempt_id: attemptID }, options);
   }
 
+  /** Live metadata pages; restart at the first page to refresh catalog membership. */
+  listTrees(params: Operations['trees.list']['params'], options: CallOptions = {}): Promise<Operations['trees.list']['result']> {
+    return this.call('trees.list', params, options);
+  }
+
+  /** All immutable revisions, without configuration bodies or a mutable latest alias. */
+  listDefinitions(params: Operations['definitions.list']['params'], options: CallOptions = {}): Promise<Operations['definitions.list']['result']> {
+    return this.call('definitions.list', params, options);
+  }
+
   /** Immutable naming intent. Its receipt_identity may precede admission; this read never starts work. */
   getAutomaticTitleDecision(treeID: string, options: CallOptions = {}): Promise<Operations['trees.title_decision']['result']> {
     return this.call('trees.title_decision', { tree_id: treeID }, options);

@@ -12,6 +12,7 @@ import { test } from 'node:test';
 import { Client, DeliveryError, RemoteError } from '../../packages/sdk/dist/index.js';
 import { unixSocket as socketTransport } from '../../packages/sdk/dist/node.js';
 import { workspaceAcceptance } from './workspace-fixture.mjs';
+import { discoveryAcceptance } from './discovery-fixture.mjs';
 
 const exec = promisify(execFile);
 const deadline = () => ({ signal: AbortSignal.timeout(15_000) });
@@ -281,6 +282,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await stage('human questions', () => questionAcceptance(runtime, client, createParams, evidence));
     await stage('saved permission modes', () => permissionModeAcceptance(runtime, client, createParams, evidence));
     await stage('streaming', () => streamAcceptance(runtime, client, createParams, evidence));
+    await stage('catalog discovery', () => discoveryAcceptance(runtime, client, createParams, evidence, deadline));
   } catch (error) {
     failure = error;
   } finally {

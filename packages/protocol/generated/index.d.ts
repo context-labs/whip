@@ -1841,6 +1841,30 @@ export interface ListCompletionsResult {
         omitted_parts: string;
       }[];
 }
+export interface ListDefinitionsParams {
+  after?: null | {
+    id: string;
+    revision: string;
+  };
+  limit: number;
+}
+export interface ListDefinitionsResult {
+  /**
+   * @maxItems 100
+   */
+  items: {
+    ref: {
+      id: string;
+      revision: string;
+    };
+    name: string;
+    created_at: string;
+  }[];
+  next_cursor: null | {
+    id: string;
+    revision: string;
+  };
+}
 export interface ListMailParams {
   session_id: string;
   state?: null | ("pending" | "delivered" | "done");
@@ -2013,6 +2037,32 @@ export interface ListStateParams {
   scope: "session" | "tree";
   after?: null | string;
   limit: number;
+}
+export interface ListTreesParams {
+  after?: null | string;
+  archived?: null | boolean;
+  pinned?: null | boolean;
+  limit: number;
+}
+export interface ListTreesResult {
+  /**
+   * @maxItems 100
+   */
+  items: {
+    tree: {
+      id: string;
+      metadata: {
+        title: null | string;
+        archived: boolean;
+        pinned: boolean;
+      };
+      engine: "starlark" | "quickjs";
+      revision: string;
+      created_at: string;
+    };
+    root_id: string;
+  }[];
+  next_cursor: null | string;
 }
 export interface MailAdmission {
   mail_id: string;
@@ -6383,6 +6433,8 @@ export interface ContractTypes {
   LifecycleParams: LifecycleParams;
   ListCompletionsParams: ListCompletionsParams;
   ListCompletionsResult: ListCompletionsResult;
+  ListDefinitionsParams: ListDefinitionsParams;
+  ListDefinitionsResult: ListDefinitionsResult;
   ListMailParams: ListMailParams;
   ListMailResult: ListMailResult;
   ListSchedulesParams: ListSchedulesParams;
@@ -6391,6 +6443,8 @@ export interface ContractTypes {
   ListSkillsParams: ListSkillsParams;
   ListSkillsResult: ListSkillsResult;
   ListStateParams: ListStateParams;
+  ListTreesParams: ListTreesParams;
+  ListTreesResult: ListTreesResult;
   MailAdmission: MailAdmission;
   Message: Message;
   ModelAttemptsParams: ModelAttemptsParams;
@@ -6585,6 +6639,8 @@ export interface Operations {
   "questions.answer": { params: AnswerQuestionParams; result: Question };
   "initialize": { params: InitializeParams; result: InitializeResult };
   "trees.create": { params: CreateTreeParams; result: CreateTreeResult };
+  "trees.list": { params: ListTreesParams; result: ListTreesResult };
+  "definitions.list": { params: ListDefinitionsParams; result: ListDefinitionsResult };
   "trees.get": { params: TreeParams; result: Tree };
   "trees.update": { params: UpdateTreeParams; result: Tree };
   "trees.title_decision": { params: TreeParams; result: AutomaticTitleDecision };
