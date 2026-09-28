@@ -2234,6 +2234,10 @@ export interface ReadStateResult {
   offset: string;
   data_base64: string;
 }
+export interface ReadWorkspaceActionParams {
+  session_id: string;
+  action_id: string;
+}
 export interface Request {
   jsonrpc: "2.0";
   id: string;
@@ -3362,6 +3366,77 @@ export interface UpdateTreeParams {
     pinned: boolean;
   };
 }
+export interface WorkspaceAction {
+  id: string;
+  session_id: string;
+  snapshot_id: string;
+  kind: "capture" | "restore" | "release";
+  state: "claimed" | "succeeded" | "uncertain";
+  failure: null | string;
+  created_at: string;
+  finished_at: null | string;
+}
+export interface WorkspaceActionParams {
+  action_id: string;
+  snapshot_id: string;
+  session_id: string;
+}
+export interface WorkspaceResult {
+  action: {
+    id: string;
+    session_id: string;
+    snapshot_id: string;
+    kind: "capture" | "restore" | "release";
+    state: "claimed" | "succeeded" | "uncertain";
+    failure: null | string;
+    created_at: string;
+    finished_at: null | string;
+  };
+  snapshot: {
+    id: string;
+    session_id: string;
+    capture_id: string;
+    state: "claimed" | "succeeded" | "uncertain";
+    scope: "session_working_directory";
+    semantics: string;
+    created_at: string;
+    released_at: null | string;
+  };
+}
+export interface WorkspaceSnapshot {
+  id: string;
+  session_id: string;
+  capture_id: string;
+  state: "claimed" | "succeeded" | "uncertain";
+  scope: "session_working_directory";
+  semantics: string;
+  created_at: string;
+  released_at: null | string;
+}
+export interface WorkspaceSnapshotParams {
+  session_id: string;
+  snapshot_id: string;
+}
+export interface WorkspaceSnapshotsParams {
+  session_id: string;
+  after?: string;
+  limit: number;
+}
+export interface WorkspaceSnapshotsResult {
+  /**
+   * @maxItems 100
+   */
+  items: {
+    id: string;
+    session_id: string;
+    capture_id: string;
+    state: "claimed" | "succeeded" | "uncertain";
+    scope: "session_working_directory";
+    semantics: string;
+    created_at: string;
+    released_at: null | string;
+  }[];
+}
 export interface WriteStateParams {
   session_id: string;
   scope: "session" | "tree";
@@ -3470,6 +3545,7 @@ export interface ContractTypes {
   ReadMailResult: ReadMailResult;
   ReadStateParams: ReadStateParams;
   ReadStateResult: ReadStateResult;
+  ReadWorkspaceActionParams: ReadWorkspaceActionParams;
   Request: Request;
   RequestIdentity: RequestIdentity;
   ResolvePermissionParams: ResolvePermissionParams;
@@ -3511,9 +3587,22 @@ export interface ContractTypes {
   UnsubscribeStateParams: UnsubscribeStateParams;
   UpdateConfigurationParams: UpdateConfigurationParams;
   UpdateTreeParams: UpdateTreeParams;
+  WorkspaceAction: WorkspaceAction;
+  WorkspaceActionParams: WorkspaceActionParams;
+  WorkspaceResult: WorkspaceResult;
+  WorkspaceSnapshot: WorkspaceSnapshot;
+  WorkspaceSnapshotParams: WorkspaceSnapshotParams;
+  WorkspaceSnapshotsParams: WorkspaceSnapshotsParams;
+  WorkspaceSnapshotsResult: WorkspaceSnapshotsResult;
   WriteStateParams: WriteStateParams;
 }
 export interface Operations {
+  "workspace.capture": { params: WorkspaceActionParams; result: WorkspaceResult };
+  "workspace.restore": { params: WorkspaceActionParams; result: WorkspaceResult };
+  "workspace.release": { params: WorkspaceActionParams; result: WorkspaceResult };
+  "workspace.action": { params: ReadWorkspaceActionParams; result: WorkspaceAction };
+  "workspace.snapshot": { params: WorkspaceSnapshotParams; result: WorkspaceSnapshot };
+  "workspace.snapshots": { params: WorkspaceSnapshotsParams; result: WorkspaceSnapshotsResult };
   "accounts.openai.begin": { params: EmptyParams; result: OpenAILoginFlow };
   "accounts.openai.get": { params: OpenAIFlowParams; result: OpenAILoginFlow };
   "accounts.openai.list": { params: EmptyParams; result: OpenAIFlowsResult };

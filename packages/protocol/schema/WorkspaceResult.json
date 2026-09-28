@@ -1,0 +1,126 @@
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "snapshot_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "capture",
+            "restore",
+            "release"
+          ]
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "claimed",
+            "succeeded",
+            "uncertain"
+          ]
+        },
+        "failure": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "finished_at": {
+          "type": [
+            "null",
+            "string"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "session_id",
+        "snapshot_id",
+        "kind",
+        "state",
+        "failure",
+        "created_at",
+        "finished_at"
+      ],
+      "additionalProperties": false
+    },
+    "snapshot": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "capture_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "claimed",
+            "succeeded",
+            "uncertain"
+          ]
+        },
+        "scope": {
+          "type": "string",
+          "enum": [
+            "session_working_directory"
+          ]
+        },
+        "semantics": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "released_at": {
+          "type": [
+            "null",
+            "string"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "session_id",
+        "capture_id",
+        "state",
+        "scope",
+        "semantics",
+        "created_at",
+        "released_at"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/WorkspaceResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "WorkspaceResult",
+  "required": [
+    "action",
+    "snapshot"
+  ],
+  "additionalProperties": false
+}

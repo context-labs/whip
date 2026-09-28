@@ -95,6 +95,27 @@ copied authority, children, schedules, goals, mail or state. Working-directory r
 does not create or restore a Git worktree. Ordinary content reads remain scoped to
 the new root, including after source deletion.
 
+Workspace actions are separate from history edits. `captureWorkspace`,
+`restoreWorkspace` and `releaseWorkspace` accept `{session_id, snapshot_id}` and
+an explicit `actionID`. Save both IDs and the exact request before sending;
+`getWorkspaceAction(sessionID, actionID)` observes a lost acknowledgement, and an
+exact mutation retry returns its durable outcome without replaying Git. Read
+metadata with `getWorkspaceSnapshot` or bounded `listWorkspaceSnapshots`.
+A response contains immutable action evidence plus the current snapshot projection.
+`claimed` means the accepted action has not settled; `uncertain` means effects may
+be partial and the same action will never execute again automatically.
+
+The owner must have no active turn, queued input or ready mail when claimed.
+Capture privately pins a Git object from the repository's tracked state; restore
+only overlays tracked paths under the captured session working directory.
+Untracked and later files may remain, staging is not preserved, and other
+sessions/tools/editors are not frozen. Paths and Git object IDs stay private;
+worktree/directory identity changes fail closed. Neither action rewinds history
+or changes the REPL. Pins survive restore/restart and must be explicitly released
+before deleting their owner or containing subtree. Released action receipts and
+snapshot metadata remain readable after deletion. A new explicit release can
+clean up after an uncertain release; the old action itself is never rerun.
+
 `turns.attempts` reads bounded provider accounting with exact decimal counters.
 Retries have separate attempt IDs, a shared logical-call ID, and a link to the
 completed response. Unknown usage/cost is `null`, independently of known zero.

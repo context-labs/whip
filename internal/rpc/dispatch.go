@@ -45,6 +45,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return nil, ErrMethod
 	}
 	switch method {
+	case "workspace.capture", "workspace.restore", "workspace.release", "workspace.action", "workspace.snapshot", "workspace.snapshots":
+		return dispatchWorkspace(ctx, r, method, raw)
 	case "accounts.openai.begin", "accounts.openai.get", "accounts.openai.list", "accounts.openai.cancel", "accounts.openai.status", "accounts.openai.setup", "accounts.openai.logout":
 		return dispatchAccount(ctx, host.OpenAI, method, raw)
 	case "accounts.inference.begin", "accounts.inference.get", "accounts.inference.list", "accounts.inference.cancel", "accounts.inference.team", "accounts.inference.project", "accounts.inference.create_project", "accounts.inference.retry", "accounts.inference.rotate", "accounts.inference.status", "accounts.inference.setup", "accounts.inference.logout", "accounts.inference.cleanup", "accounts.inference.retry_cleanup":
@@ -387,8 +389,10 @@ func wireError(err error) *protocol.RPCError {
 		{inferenceaccount.ErrManagement, -32024, "ACCOUNT_MANAGEMENT"},
 		{store.ErrNotFound, -32004, "NOT_FOUND"},
 		{store.ErrConflict, -32009, "CONFLICT"},
+		{runtime.ErrWorkspaceChanged, -32009, "CONFLICT"},
 		{store.ErrBusy, -32010, "BUSY"},
 		{store.ErrLimit, -32011, "LIMIT"},
+		{runtime.ErrWorkspaceLimit, -32011, "LIMIT"},
 		{store.ErrStopped, -32012, "STOPPED"},
 		{runtime.ErrClosed, -32013, "CLOSED"},
 		{ErrIdentity, -32014, "IDENTITY"},

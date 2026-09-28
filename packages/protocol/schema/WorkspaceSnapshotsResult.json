@@ -1,0 +1,70 @@
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "session_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "capture_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "claimed",
+              "succeeded",
+              "uncertain"
+            ]
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "session_working_directory"
+            ]
+          },
+          "semantics": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "released_at": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "session_id",
+          "capture_id",
+          "state",
+          "scope",
+          "semantics",
+          "created_at",
+          "released_at"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 100
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/WorkspaceSnapshotsResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "WorkspaceSnapshotsResult",
+  "required": [
+    "items"
+  ],
+  "additionalProperties": false
+}

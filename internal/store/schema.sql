@@ -527,6 +527,50 @@ CREATE TRIGGER fork_immutable BEFORE UPDATE ON forks
  BEGIN SELECT RAISE(ABORT,'fork receipt is immutable'); END;
 CREATE TRIGGER fork_retained BEFORE DELETE ON forks
  BEGIN SELECT RAISE(ABORT,'fork receipt is retained'); END;
+-- Human workspace actions own no fabricated turn/cell. Retained receipts and
+-- pins must be explicitly released before session deletion.
+CREATE TABLE workspace_snapshots (
+ id TEXT PRIMARY KEY,
+ session_id TEXT NOT NULL,
+ capture_id TEXT NOT NULL UNIQUE REFERENCES workspace_actions(id) DEFERRABLE INITIALLY DEFERRED,
+ binding TEXT NOT NULL CHECK(json_valid(binding) AND json_type(binding)='object'),
+ object_id TEXT CHECK(object_id IS NULL OR (length(object_id) IN(40,64) AND object_id NOT GLOB '*[^0-9a-f]*')),
+ created_at INTEGER NOT NULL,
+ released_at INTEGER,
+ UNIQUE(id,session_id)
+) STRICT;
+CREATE INDEX workspace_pins ON workspace_snapshots(session_id,id) WHERE released_at IS NULL;
+CREATE TABLE workspace_actions (
+ id TEXT PRIMARY KEY,
+ snapshot_id TEXT NOT NULL,
+ session_id TEXT NOT NULL,
+ kind TEXT NOT NULL CHECK(kind IN('capture','restore','release')),
+ digest TEXT NOT NULL CHECK(length(digest)=64),
+ state TEXT NOT NULL CHECK(state IN('claimed','succeeded','uncertain')),
+ failure TEXT CHECK(failure IS NULL OR length(CAST(failure AS BLOB)) BETWEEN 1 AND 1024),
+ created_at INTEGER NOT NULL,
+ finished_at INTEGER,
+ CHECK((state='claimed')=(finished_at IS NULL)),
+ CHECK((state='uncertain')=(failure IS NOT NULL)),
+ FOREIGN KEY(snapshot_id,session_id) REFERENCES workspace_snapshots(id,session_id)
+) STRICT;
+CREATE UNIQUE INDEX workspace_owner_claim ON workspace_actions(session_id) WHERE state='claimed';
+CREATE INDEX workspace_action_owner ON workspace_actions(session_id,id);
+CREATE TRIGGER workspace_action_transition BEFORE UPDATE ON workspace_actions
+ WHEN NEW.id IS NOT OLD.id OR NEW.snapshot_id IS NOT OLD.snapshot_id OR NEW.session_id IS NOT OLD.session_id
+ OR NEW.kind IS NOT OLD.kind OR NEW.digest IS NOT OLD.digest OR NEW.created_at IS NOT OLD.created_at
+ OR OLD.state<>'claimed' OR NEW.state='claimed'
+ BEGIN SELECT RAISE(ABORT,'invalid workspace action transition'); END;
+CREATE TRIGGER workspace_snapshot_transition BEFORE UPDATE ON workspace_snapshots
+ WHEN NEW.id IS NOT OLD.id OR NEW.session_id IS NOT OLD.session_id OR NEW.capture_id IS NOT OLD.capture_id
+ OR NEW.binding IS NOT OLD.binding OR NEW.created_at IS NOT OLD.created_at OR OLD.released_at IS NOT NULL
+ OR (NEW.object_id IS NOT OLD.object_id AND (OLD.object_id IS NOT NULL OR NEW.object_id IS NULL))
+ OR (NEW.object_id IS NOT OLD.object_id AND NEW.released_at IS NOT OLD.released_at)
+ BEGIN SELECT RAISE(ABORT,'invalid workspace snapshot transition'); END;
+CREATE TRIGGER workspace_snapshot_retained BEFORE DELETE ON workspace_snapshots
+ BEGIN SELECT RAISE(ABORT,'workspace snapshot receipt is retained'); END;
+CREATE TRIGGER workspace_action_retained BEFORE DELETE ON workspace_actions
+ BEGIN SELECT RAISE(ABORT,'workspace action receipt is retained'); END;
 CREATE TABLE context_heads (
  session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
  revision INTEGER NOT NULL CHECK(revision > 0),

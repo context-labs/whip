@@ -88,6 +88,9 @@ func (s *Store) SetLifecycle(ctx context.Context, id session.SessionID, lifecycl
 // ownership. It records interruption, never requeues inputs or repeats effects.
 func (s *Store) Recover(ctx context.Context) (count int64, err error) {
 	err = s.write(ctx, func(tx *sql.Tx) error {
+		if err := recoverWorkspace(ctx, tx); err != nil {
+			return err
+		}
 		if err := recoverAttempts(ctx, tx); err != nil {
 			return err
 		}
@@ -165,6 +168,9 @@ func deleteSubtree(ctx context.Context, tx *sql.Tx, id session.SessionID) error 
 	}
 	if active != 0 {
 		return ErrBusy
+	}
+	if err := workspaceDeletionCheck(ctx, tx, id); err != nil {
+		return err
 	}
 	if _, err := tx.ExecContext(ctx, subtree+` UPDATE receipts SET input_id=NULL,deleted_at=?
    WHERE input_id IN (SELECT id FROM inputs WHERE session_id IN (SELECT id FROM subtree))`, id, now()); err != nil {

@@ -1,0 +1,62 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "snapshot_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "capture",
+        "restore",
+        "release"
+      ]
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "claimed",
+        "succeeded",
+        "uncertain"
+      ]
+    },
+    "failure": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "finished_at": {
+      "type": [
+        "null",
+        "string"
+      ]
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/WorkspaceAction",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "WorkspaceAction",
+  "required": [
+    "id",
+    "session_id",
+    "snapshot_id",
+    "kind",
+    "state",
+    "failure",
+    "created_at",
+    "finished_at"
+  ],
+  "additionalProperties": false
+}

@@ -138,7 +138,7 @@ func TestForkSchemaRejectsPreviousVersion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "runtime.db")
 	s := openTest(t, path)
 	var version int
-	if err := s.db.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&version); err != nil || version != 33 {
+	if err := s.db.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&version); err != nil || version != schemaVersion {
 		t.Fatal(version, err)
 	}
 	execTest(t, s, "PRAGMA user_version=32")

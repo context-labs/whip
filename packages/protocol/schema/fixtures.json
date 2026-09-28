@@ -2369,5 +2369,164 @@
       "failure": null
     },
     "valid": false
+  },
+  {
+    "type": "WorkspaceResult",
+    "value": {
+      "action": {
+        "id": "capture_workspace",
+        "session_id": "session_child",
+        "snapshot_id": "snapshot_workspace",
+        "kind": "capture",
+        "state": "claimed",
+        "failure": null,
+        "created_at": "2026-09-27T12:00:00.123456Z",
+        "finished_at": null
+      },
+      "snapshot": {
+        "id": "snapshot_workspace",
+        "session_id": "session_child",
+        "capture_id": "capture_workspace",
+        "state": "claimed",
+        "scope": "session_working_directory",
+        "semantics": "Tracked files under the session working directory are overlaid. Untracked and later files may remain; staging is not preserved. Other writers are not frozen.",
+        "created_at": "2026-09-27T12:00:00.123456Z",
+        "released_at": null
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "WorkspaceResult",
+    "value": {
+      "action": {
+        "id": "capture_workspace",
+        "session_id": "session_child",
+        "snapshot_id": "snapshot_workspace",
+        "kind": "capture",
+        "state": "succeeded",
+        "failure": null,
+        "created_at": "2026-09-27T12:00:00.123456Z",
+        "finished_at": "2026-09-27T12:00:00.123456Z"
+      },
+      "snapshot": {
+        "id": "snapshot_workspace",
+        "session_id": "session_child",
+        "capture_id": "capture_workspace",
+        "state": "succeeded",
+        "scope": "session_working_directory",
+        "semantics": "Tracked files under the session working directory are overlaid. Untracked and later files may remain; staging is not preserved. Other writers are not frozen.",
+        "created_at": "2026-09-27T12:00:00.123456Z",
+        "released_at": null
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "WorkspaceResult",
+    "value": {
+      "action": {
+        "id": "capture_workspace",
+        "session_id": "session_child",
+        "snapshot_id": "snapshot_workspace",
+        "kind": "capture",
+        "state": "uncertain",
+        "failure": "Workspace action outcome is uncertain; inspect the workspace before any new action.",
+        "created_at": "2026-09-27T12:00:00.123456Z",
+        "finished_at": "2026-09-27T12:00:00.123456Z"
+      },
+      "snapshot": {
+        "id": "snapshot_workspace",
+        "session_id": "session_child",
+        "capture_id": "capture_workspace",
+        "state": "uncertain",
+        "scope": "session_working_directory",
+        "semantics": "Tracked files under the session working directory are overlaid. Untracked and later files may remain; staging is not preserved. Other writers are not frozen.",
+        "created_at": "2026-09-27T12:00:00.123456Z",
+        "released_at": null
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "WorkspaceActionParams",
+    "value": {
+      "session_id": "session_child",
+      "action_id": "capture_workspace",
+      "snapshot_id": "snapshot_workspace"
+    },
+    "valid": true
+  },
+  {
+    "type": "ReadWorkspaceActionParams",
+    "value": {
+      "session_id": "session_child",
+      "action_id": "capture_workspace"
+    },
+    "valid": true
+  },
+  {
+    "type": "WorkspaceSnapshotParams",
+    "value": {
+      "session_id": "session_child",
+      "snapshot_id": "snapshot_workspace"
+    },
+    "valid": true
+  },
+  {
+    "type": "WorkspaceSnapshotsParams",
+    "value": {
+      "session_id": "session_child",
+      "limit": 100
+    },
+    "valid": true
+  },
+  {
+    "type": "WorkspaceSnapshotsResult",
+    "value": {
+      "items": []
+    },
+    "valid": true
+  },
+  {
+    "type": "WorkspaceActionParams",
+    "value": {
+      "session_id": "session_child",
+      "snapshot_id": "snapshot_workspace"
+    },
+    "valid": false
+  },
+  {
+    "type": "WorkspaceActionParams",
+    "value": {
+      "session_id": "session_child",
+      "action_id": "capture_workspace",
+      "snapshot_id": "snapshot_workspace",
+      "object_id": "host-private"
+    },
+    "valid": false
+  },
+  {
+    "type": "WorkspaceSnapshotsParams",
+    "value": {
+      "session_id": "session_child",
+      "limit": 101
+    },
+    "valid": false
+  },
+  {
+    "type": "WorkspaceSnapshotsParams",
+    "value": {
+      "session_id": "session_child",
+      "limit": 0
+    },
+    "valid": false
+  },
+  {
+    "type": "WorkspaceSnapshotsResult",
+    "value": {
+      "items": null
+    },
+    "valid": false
   }
 ]

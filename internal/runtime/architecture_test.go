@@ -10,7 +10,7 @@ import (
 )
 
 func TestExecutionAndClientImportBoundaries(t *testing.T) {
-	command := exec.CommandContext(t.Context(), "go", "list", "-json", "./internal/model", "./internal/openaiauth", "./internal/inferenceauth", "./internal/account", "./internal/inferenceaccount", "./internal/runner", "./internal/tool", "./internal/instruction", "./internal/skills", "./internal/runtime", "./internal/rpc", "./internal/client")
+	command := exec.CommandContext(t.Context(), "go", "list", "-json", "./internal/model", "./internal/openaiauth", "./internal/inferenceauth", "./internal/account", "./internal/inferenceaccount", "./internal/runner", "./internal/tool", "./internal/instruction", "./internal/skills", "./internal/workspace", "./internal/runtime", "./internal/rpc", "./internal/client")
 	command.Dir = "../.."
 	raw, err := command.Output()
 	if err != nil {
@@ -28,7 +28,8 @@ func TestExecutionAndClientImportBoundaries(t *testing.T) {
 		"tool":             {"session": true, "capability": true},
 		"instruction":      {"session": true, "skills": true},
 		"skills":           {"buildinfo": true},
-		"runtime":          {"model": true, "session": true, "store": true, "config": true, "content": true, "runner": true, "engine/process": true, "tool": true, "instruction": true},
+		"workspace":        {"session": true, "capability": true},
+		"runtime":          {"model": true, "session": true, "store": true, "config": true, "content": true, "runner": true, "engine/process": true, "tool": true, "instruction": true, "workspace": true},
 		"rpc":              {"account": true, "inferenceaccount": true, "config": true, "session": true, "store": true, "protocol": true, "runtime": true},
 		"client":           {"protocol": true},
 	}

@@ -20,6 +20,7 @@ import (
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/store"
 	"github.com/context-labs/whip/internal/tool"
+	"github.com/context-labs/whip/internal/workspace"
 )
 
 var (
@@ -70,6 +71,9 @@ type Runtime struct {
 	epoch            string
 	previewMu        sync.Mutex
 	previews         map[session.SessionID]*livePreview
+	workspace        *workspace.Git
+	workspaceCalls   sync.WaitGroup
+	workspaceSlots   chan struct{}
 }
 
 // Open acquires exclusive execution ownership before opening fresh host/storage.
@@ -155,6 +159,7 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 		store: database, content: bodies, owner: lock, directory: directory, host: host, options: options,
 		wake: make(chan struct{}, 1), done: make(chan struct{}), active: map[session.SessionID]*execution{},
 		preferResumption: true,
+		workspace:        workspace.New(string(database.Identity())), workspaceSlots: make(chan struct{}, 16),
 	}
 	r.tools = tool.NewDispatcher(database, database, r)
 	r.runner, err = runner.New(provider, database, database, r, r, r, r, database, database)
@@ -176,6 +181,9 @@ func (r *Runtime) Start(ctx context.Context) error {
 	if r.started {
 		return errors.New("runtime already started")
 	}
+	if len(r.workspaceSlots) != 0 {
+		return store.ErrBusy
+	}
 	if _, err := r.store.Recover(ctx); err != nil {
 		return err
 	}
@@ -194,6 +202,8 @@ func (r *Runtime) Close() error {
 			r.cancel()
 		}
 		r.mu.Unlock()
+		workspaceErr := r.workspace.Close()
+		r.workspaceCalls.Wait()
 		r.engineManager.Close()
 		if started {
 			<-r.done
@@ -204,7 +214,7 @@ func (r *Runtime) Close() error {
 		r.previewMu.Lock()
 		clear(r.previews)
 		r.previewMu.Unlock()
-		r.closeErr = errors.Join(r.store.Close(), r.owner.Close())
+		r.closeErr = errors.Join(workspaceErr, r.store.Close(), r.owner.Close())
 	})
 	return r.closeErr
 }

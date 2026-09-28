@@ -1668,3 +1668,40 @@ claim work. Guest create/list/cancel use existing durable operation dispatch and
 exact invoking-session ownership; grants are scoped to the tree ID. Revoking a
 create grant prevents new creation, while an already accepted schedule persists
 until cancelled. Its future execution still checks current tool authority.
+
+
+## Separate workspace actions
+
+`workspace_actions` owns immutable human capture/restore/release identities and
+their claimed/succeeded/uncertain outcomes. `workspace_snapshots` owns opaque
+snapshot identities, private filesystem binding and Git object identity, and
+write-once release evidence. These are not fabricated guest operations, turns or
+cells. Actions bind their kind, owner and snapshot in a canonical request digest;
+exact retries resolve before mutable owner, filesystem and pin checks. Retained
+records survive owner deletion. Public DTOs expose neither filesystem bindings
+nor Git object identifiers.
+
+An atomic claim requires an idle active/stopped owner with no active turn, queued
+input or ready mail. Claimed workspace actions block that owner's ordinary turn
+claim. Capture creates an unreachable Git object from repository tracked state,
+records the object before compare-and-swap pin publication, and retains the pin
+until explicit release. Restore is a tracked-path overlay constrained to the
+captured session directory. Untracked and later files can remain; staging is not
+preserved. These actions do not rewind conversation, select checkpoints or reset
+the REPL. Other sessions/tools/editors are not frozen.
+
+Bindings include canonical worktree, gitdir/common-dir and scope directory
+identities. Replacement/movement or unexpected pin identity fails closed. A Git
+writer lock coordinates these runtime actions across processes, without claiming
+to freeze external writers. Subprocess groups have bounded output and deadlines,
+are cancelled and joined during shutdown, and ignore inherited Git environment.
+RPC disconnection after a durable claim does not cancel or repeat the action.
+Postclaim failures and restart recovery retain uncertainty, never automatic replay.
+An explicit new release may finish cleanup when an uncertain earlier release has
+already removed its pin. Retained pins block owner/subtree deletion.
+
+Limits are 128 unreleased snapshots per owner, 1024 per runtime, 16 concurrent
+workspace calls, 100 metadata items per page, 256 KiB per subprocess output stream,
+and bounded 30-second preflight/workflow stages. Historical action receipts stay
+durable rather than being evicted to allow identity reuse. Read calls do not run
+Git. The runtime closes and joins workspace work before closing its store.

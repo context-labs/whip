@@ -10,6 +10,7 @@ import { promisify } from 'node:util';
 import { test } from 'node:test';
 import { Client, DeliveryError, RemoteError } from '../../packages/sdk/dist/index.js';
 import { unixSocket as socketTransport } from '../../packages/sdk/dist/node.js';
+import { workspaceAcceptance } from './workspace-fixture.mjs';
 
 const exec = promisify(execFile);
 const deadline = () => ({ signal: AbortSignal.timeout(15_000) });
@@ -244,6 +245,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     });
     await stage('host account projections', () => accountAcceptance(runtime, client, evidence));
     await stage('Inference account projections', () => inferenceAccountAcceptance(runtime, client, evidence));
+    await stage('workspace snapshots and restore', () => workspaceAcceptance(runtime, client, createParams, evidence, { dropAcknowledgement, unixSocket, deadline }));
     await stage('content owners', () => contentOwnerAcceptance(runtime, client, createParams, evidence));
     await stage('resources', () => resourceAcceptance(runtime, client, createParams, evidence));
     await stage('schedules', () => scheduleAcceptance(runtime, client, createParams, evidence));
