@@ -113,7 +113,7 @@ func (s Scripted) Prepare(_ context.Context, request Request) (Prepared, error) 
 	hash := sha256.Sum256(raw)
 	zero := new(int64(0))
 	return Prepared{Snapshot: session.ModelRequestSnapshot{
-		Purpose: request.Purpose, Model: request.Selection, Route: "scripted://fixture", Adapter: "scripted", RequestDigest: hex.EncodeToString(hash[:]),
+		Purpose: request.Purpose, Model: request.Selection.Clone(), Route: "scripted://fixture", Adapter: "scripted", RequestDigest: hex.EncodeToString(hash[:]),
 		Prices: session.ModelPrices{Input: zero, Output: zero, Reasoning: zero, CachedInput: zero, CachedOutput: zero}, MaxOutputTokens: outputLimit, TimeoutMillis: 600000,
 		InputTokenBound: new(int64(0)), // Scripted execution bills no model input tokens.
 	}, Execute: func(ctx context.Context, emit func(Chunk)) (Response, error) {

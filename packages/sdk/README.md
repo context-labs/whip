@@ -83,6 +83,16 @@ Each session is limited to 1,024 references and 64 MiB of referenced bytes.
 For configured HTTP providers, omit `-scripted` and use the host configuration
 described in [the development guide](../../docs/backend-redesign-development.md#openai-compatible-dispatch-increment).
 
+Model selection accepts nullable `temperature` (0–2) and `top_p` (0–1), alongside
+`provider`, `name` and `effort`. Both values must be finite. Null or omission uses
+the provider default; explicit zero is preserved. A `sessions.configure` model
+patch replaces the entire selection, so omitted sampling values clear previous
+choices. Active turns and their retries retain their captured settings; later
+turns and newly inherited children use the updated selection. Compaction inherits
+these settings when its model is null, or uses its own complete model selection.
+Chat routes support both preferences. API Responses and subscription routes
+reject explicit sampling before credential lookup or HTTP dispatch.
+
 See [the runnable example](examples/session.mjs), [Go client](../../internal/client/client.go),
 and [real process acceptance](../../scripts/redesign/v4-fixture.test.mjs). Product-client adoption remains in progress.
 

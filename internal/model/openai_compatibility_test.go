@@ -48,6 +48,7 @@ func TestChatCompatibilityProfiles(t *testing.T) {
 				request.Selection.Name = "deepseek-v4-flash"
 			}
 			request.Selection.Effort = "high"
+			request.Selection.Temperature, request.Selection.TopP = new(0.0), new(0.75)
 			request.Tools = []Tool{executeTool()}
 			request.Messages = append(request.Messages,
 				Message{Role: session.Assistant, Parts: []session.Part{{Type: "tool_call", Call: &session.ToolCall{ID: "call", Name: "execute", Arguments: json.RawMessage(`{"code":"print(42)"}`)}}}},
@@ -77,21 +78,26 @@ func TestChatCompatibilityProfiles(t *testing.T) {
 				t.Fatalf("response=%+v error=%v calls=%d", response, err, calls)
 			}
 			var wire struct {
-				Model    string            `json:"model"`
-				Effort   *string           `json:"reasoning_effort"`
-				Cache    *string           `json:"prompt_cache_key"`
-				Thinking *chatThinking     `json:"thinking"`
-				Messages []chatMessage     `json:"messages"`
-				Tools    []chatTool        `json:"tools"`
-				Limit    int64             `json:"max_completion_tokens"`
-				Stream   bool              `json:"stream"`
-				Options  chatStreamOptions `json:"stream_options"`
+				Model       string            `json:"model"`
+				Effort      *string           `json:"reasoning_effort"`
+				Temperature *float64          `json:"temperature"`
+				TopP        *float64          `json:"top_p"`
+				Cache       *string           `json:"prompt_cache_key"`
+				Thinking    *chatThinking     `json:"thinking"`
+				Messages    []chatMessage     `json:"messages"`
+				Tools       []chatTool        `json:"tools"`
+				Limit       int64             `json:"max_completion_tokens"`
+				Stream      bool              `json:"stream"`
+				Options     chatStreamOptions `json:"stream_options"`
 			}
 			if err := json.Unmarshal(received, &wire); err != nil {
 				t.Fatal(err)
 			}
 			if wire.Model != request.Selection.Name || wire.Limit != 37 || !wire.Stream || !wire.Options.IncludeUsage || len(wire.Tools) != 1 || wire.Tools[0].Function.Name != "execute" {
 				t.Fatalf("request contract changed: %+v", wire)
+			}
+			if wire.Temperature == nil || *wire.Temperature != 0 || wire.TopP == nil || *wire.TopP != 0.75 {
+				t.Fatalf("sampling preferences changed: %+v", wire)
 			}
 			if tc.omitCache != (wire.Cache == nil) || wire.Cache != nil && *wire.Cache != string(request.SessionID) {
 				t.Fatalf("incorrect cache field: %+v", wire)
@@ -183,7 +189,7 @@ func TestChatCacheKeyAndOffEffortAreFrozenAtPreparation(t *testing.T) {
 func assertChatWireEvidence(t *testing.T, prepared Prepared, selection session.ModelSelection, body []byte) {
 	t.Helper()
 	digest := sha256.Sum256(body)
-	if prepared.Snapshot.RequestDigest != hex.EncodeToString(digest[:]) || prepared.Snapshot.Model != selection {
+	if prepared.Snapshot.RequestDigest != hex.EncodeToString(digest[:]) || !prepared.Snapshot.Model.Equal(selection) {
 		t.Fatal("durable evidence lost the exact wire digest or original model selection")
 	}
 	evidence, err := json.Marshal(prepared.Snapshot)

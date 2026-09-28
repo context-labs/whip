@@ -2250,3 +2250,38 @@ The scheduler fairness correction `b2a61bd69` now passes Linux, macOS, analysis
 and the aggregate gate in
 [run 36478833850](https://github.com/context-labs/whip/actions/runs/36478833850).
 The earlier failed goal-foundation/execution runs remain failed results.
+
+## Captured sampling preferences
+
+Integrated isolated `2369dbce3` as `5da92a882`. Nullable temperature and top-p
+belong to the complete revisioned model selection, with finite bounds 0–2 and
+0–1. Explicit zero survives wire encoding. Model/configuration/request copies
+own their optional values; context-pressure comparisons use value equality.
+Chat profiles forward the fields, while API Responses and subscription routes
+reject explicit values before credential resolution or HTTP dispatch.
+
+This deliberately replaces legacy per-route `samplingParams` fallback with
+captured host/definition/override configuration. Replacing a model clears omitted
+sampling preferences. Compaction and other helpers use their complete captured
+selection, including effort and sampling; legacy helper calls omitted both.
+No sampling setting changes continuation authorization scope or creates a second
+SDK settings cache. Fresh host config is now 9; schema 29 and protocol major 4
+are unchanged.
+
+The isolated domain/config/model/runner/protocol and store/RPC/command race suites,
+vet, lint, generated interchange and SDK checks passed. Integrated fast, contract,
+SDK and analysis gates passed; analysis reported zero lint findings and no
+reachable vulnerabilities. The new real-HTTP runtime test passed race/shuffle
+three times (6.731s): changing settings during a blocked request preserves its
+retry, affects the next turn, survives restart, is inherited by a child, and is
+cleared by whole-model replacement. The full SDK process fixture passed (16.438s),
+including explicit-zero sampling through generated validation, RPC and HTTP.
+Logs are `/tmp/whip-captured-sampling-{fast,contract,sdk,fixture,analysis}.log`.
+Hosted validation is pending.
+
+The public-goal revision `bbcf9ac52` now passes Linux, macOS, analysis and the
+aggregate gate in [run 36479306726](https://github.com/context-labs/whip/actions/runs/36479306726).
+The provider inventory confirmed that all retained inference protocols have
+adapters. Remaining provider scope is account lifecycle (including Inference.net),
+credential sources, presets, account-scoped catalogs/pricing, readiness/defaults,
+client adoption and a separate live-provider smoke. Phases 5–7 remain open.

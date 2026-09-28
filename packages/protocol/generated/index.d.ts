@@ -357,6 +357,8 @@ export interface CreateTreeParams {
         provider: string;
         name: string;
         effort: string;
+        temperature?: null | number;
+        top_p?: null | number;
       };
       threshold_percent: number;
     };
@@ -365,6 +367,8 @@ export interface CreateTreeParams {
       provider: string;
       name: string;
       effort: string;
+      temperature?: null | number;
+      top_p?: null | number;
     };
     instructions?: null | {
       project_root: null | string;
@@ -428,6 +432,8 @@ export interface CreateTreeResult {
           provider: string;
           name: string;
           effort: string;
+          temperature?: null | number;
+          top_p?: null | number;
         };
         threshold_percent: number;
       };
@@ -436,6 +442,8 @@ export interface CreateTreeResult {
         provider: string;
         name: string;
         effort: string;
+        temperature?: null | number;
+        top_p?: null | number;
       };
       instructions: {
         project_root: null | string;
@@ -504,6 +512,8 @@ export interface Definition {
           provider: string;
           name: string;
           effort: string;
+          temperature?: null | number;
+          top_p?: null | number;
         };
         threshold_percent: number;
       };
@@ -512,6 +522,8 @@ export interface Definition {
         provider: string;
         name: string;
         effort: string;
+        temperature?: null | number;
+        top_p?: null | number;
       };
       instructions?: null | {
         project_root: null | string;
@@ -558,6 +570,8 @@ export interface DefinitionDocument {
         provider: string;
         name: string;
         effort: string;
+        temperature?: null | number;
+        top_p?: null | number;
       };
       threshold_percent: number;
     };
@@ -566,6 +580,8 @@ export interface DefinitionDocument {
       provider: string;
       name: string;
       effort: string;
+      temperature?: null | number;
+      top_p?: null | number;
     };
     instructions?: null | {
       project_root: null | string;
@@ -1236,6 +1252,8 @@ export interface ListSessionsResult {
               provider: string;
               name: string;
               effort: string;
+              temperature?: null | number;
+              top_p?: null | number;
             };
             threshold_percent: number;
           };
@@ -1244,6 +1262,8 @@ export interface ListSessionsResult {
             provider: string;
             name: string;
             effort: string;
+            temperature?: null | number;
+            top_p?: null | number;
           };
           instructions: {
             project_root: null | string;
@@ -1520,6 +1540,8 @@ export interface ModelAttemptsResult {
             provider: string;
             name: string;
             effort: string;
+            temperature?: null | number;
+            top_p?: null | number;
           };
           route: string;
           adapter: string;
@@ -2023,6 +2045,8 @@ export interface Session {
         provider: string;
         name: string;
         effort: string;
+        temperature?: null | number;
+        top_p?: null | number;
       };
       threshold_percent: number;
     };
@@ -2031,6 +2055,8 @@ export interface Session {
       provider: string;
       name: string;
       effort: string;
+      temperature?: null | number;
+      top_p?: null | number;
     };
     instructions: {
       project_root: null | string;
@@ -2307,6 +2333,8 @@ export interface SpawnSessionParams {
         provider: string;
         name: string;
         effort: string;
+        temperature?: null | number;
+        top_p?: null | number;
       };
       threshold_percent: number;
     };
@@ -2315,6 +2343,8 @@ export interface SpawnSessionParams {
       provider: string;
       name: string;
       effort: string;
+      temperature?: null | number;
+      top_p?: null | number;
     };
     instructions?: null | {
       project_root: null | string;
@@ -2419,6 +2449,8 @@ export interface SpawnSessionResult {
           provider: string;
           name: string;
           effort: string;
+          temperature?: null | number;
+          top_p?: null | number;
         };
         threshold_percent: number;
       };
@@ -2427,6 +2459,8 @@ export interface SpawnSessionResult {
         provider: string;
         name: string;
         effort: string;
+        temperature?: null | number;
+        top_p?: null | number;
       };
       instructions: {
         project_root: null | string;
@@ -2722,6 +2756,8 @@ export interface UpdateConfigurationParams {
         provider: string;
         name: string;
         effort: string;
+        temperature?: null | number;
+        top_p?: null | number;
       };
       threshold_percent: number;
     };
@@ -2730,6 +2766,8 @@ export interface UpdateConfigurationParams {
       provider: string;
       name: string;
       effort: string;
+      temperature?: null | number;
+      top_p?: null | number;
     };
     instructions?: null | {
       project_root: null | string;

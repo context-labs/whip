@@ -74,9 +74,11 @@ type DefinitionRef struct {
 	Revision string `json:"revision" pattern:"^[a-f0-9]{64}$"`
 }
 type ModelSelection struct {
-	Provider ID     `json:"provider"`
-	Name     string `json:"name"`
-	Effort   string `json:"effort"`
+	Provider    ID       `json:"provider"`
+	Name        string   `json:"name"`
+	Effort      string   `json:"effort"`
+	Temperature *float64 `json:"temperature,omitempty" min:"0" max:"2"`
+	TopP        *float64 `json:"top_p,omitempty" min:"0" max:"1"`
 }
 type Instructions struct {
 	ProjectRoot          *string  `json:"project_root"`

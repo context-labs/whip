@@ -102,6 +102,12 @@ call fragments; `truncated` applies to their combined payload. It is disposable
 presentation, not assistant output or context, and has no persisted history.
 An aborted wait or observation does not cancel execution. See [its example and recovery
 contract](../packages/sdk/README.md) and [the backend domain contract](backend-domain.md).
+Model selections include nullable `temperature` (0–2) and `top_p` (0–1).
+Preserve explicit zero; null or omission means provider default. Configuration
+updates replace the entire model selection, and active turns keep their captured
+values. A model picker must send the intended full selection rather than keep a
+second per-route sampling cache. Chat routes support these preferences; API
+Responses and subscription routes reject explicit sampling before dispatch.
 Reusable limits are session-scoped `resources.list/set` records, separate from
 permanent model budgets. Inspect all returned ancestor scopes before displaying
 available subtree capacity: a child's null local limit means inheritance. Queued

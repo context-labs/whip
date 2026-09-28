@@ -379,7 +379,7 @@ Maintain one compact table here as families are addressed:
 | Cumulative write allowances | Explicit logical actions consume permanent ancestor allowance; initial child input now charged consistently with follow-up input | `store/logical_writes_test.go`, `runtime/state_allowances_test.go`, SDK cap/retry/restart/deletion fixture; accounting and derived notifications remain exempt | 4 implemented |
 | Mail and explicit state | Revisioned delivery distinct from inspection; private/shared isolation; immutable history and CAS | `store/mail_test.go`, `runtime/mail_test.go`, `store/state*_test.go`, `runtime/state_test.go`, RPC/SDK fixtures; `store/state_subscriptions_test.go` covers atomic coalescing, cursor/notification rollback and recipient deferral; `store/mail_evidence_test.go`, `runtime/mail_evidence_test.go` and SDK cover the audited evidence-sharing obligation | 4 complete; repair passes local and hosted Linux/macOS gates |
 | Context and checkpointing | Raw history retained; checkpoint boundary and fidelity explicit | Both engines pass `runtime/engine_test.go`; durable compaction, raw-history access, captured helper routing, proactive thresholds and bounded context-rejection recovery implemented; fork/rewind remains pending | 3 complete; 5 in progress |
-| Provider execution | Preserve supported wire protocols and tool cycles; uncertain partial-stream regeneration is retired in favor of explicit no-replay accounting | Chat wire profiles, Responses/private continuation, subscription captures and idle-stall termination implemented; captured sampling, reasoning previews and stateless helpers/batch remain | 5 in progress |
+| Provider execution | Preserve supported wire protocols and tool cycles; uncertain partial-stream regeneration is retired in favor of explicit no-replay accounting | Chat wire profiles, Responses/private continuation, subscription captures, idle-stall termination, captured sampling and reasoning previews implemented; stateless helpers/batch remain | 5 in progress |
 | Goals and schedules | Ordinary durable input admission; continuation/cursor state has one owner | Schedule store/runtime/guest/RPC/SDK and restart coverage implemented. Goal records, captured turns, atomic continuation and authorized completion settlement implemented internally; public controls and formulation remain | 5 in progress |
 | Integrations and product features | Preserve capability outcomes; inspect existing regression scenarios | Pending | 5 |
 | All client surfaces | Correct submission, observation, recovery and resource cleanup | New SDK/socket fixture passes; product clients remain on the retained implementation | 2 complete; 6 pending |
@@ -695,7 +695,7 @@ The goal-record foundation now implements immutable specifications, revisioned
 lifecycle, exact create/resume retries, current selection, atomic ordinary-input
 admission and deletion tombstones. Turn capture, durable continuation, recovery
 pause and authorized completion settlement are now implemented internally. Fresh
-config is 8 and schema 29. Generated input and turn projections preserve goal
+config is 9 and schema 29. Generated input and turn projections preserve goal
 provenance and exact decimal revisions. Runtime/guest/RPC/SDK controls now expose
 creation, inspection, resume, cancellation and authorized completion intents.
 Both-engine and process acceptance cover the controls. Formulation from context
@@ -868,7 +868,14 @@ stalls now terminate as uncertain without replay, preserving known accounting.
 Reasoning deltas now flow through the existing bounded runtime/RPC/SDK preview,
 share its byte budget and disappear at the attempt boundary without persistence
 or replay into context. Public account onboarding remains Phase 6 work. Stateless
-model helpers and captured sampling remain required. Legacy uncertain
+model helpers remain required. Captured sampling belongs to the complete model
+selection, including explicit zero and provider-default null values. Existing
+per-route sampling fallback is retired: host defaults, definitions and overrides
+resolve once into revisioned session configuration. Compaction and future helpers
+use the full captured selection, intentionally retaining effort and sampling
+where legacy helper calls omitted them. All retained inference protocols now
+have adapters; provider account setup, preset/catalog policy and readiness remain
+client/host integration work. Legacy uncertain
 partial-stream regeneration is explicitly retired under the new no-replay
 accounting policy; all dispatched attempts must still settle truthful evidence.
 This progress does not narrow Phases 5–7.

@@ -321,7 +321,7 @@ async function providerAcceptance(runtime, client, createParams, evidence) {
     await writeFile(path, JSON.stringify(host), { mode: 0o600 });
     await runtime.start(null);
     const { root } = await client.call('trees.create', {
-      ...createParams, overrides: { model: { provider: 'fixture', name: 'fixture-model', effort: '' } },
+      ...createParams, overrides: { model: { provider: 'fixture', name: 'fixture-model', effort: '', temperature: 0, top_p: 0.75 } },
     }, deadline());
     const image = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7S8AAAAASUVORK5CYII=';
     const upload = { session_id: root.id, reference_id: 'sdk-image', media_type: 'image/png', data_base64: image };
@@ -351,6 +351,8 @@ async function providerAcceptance(runtime, client, createParams, evidence) {
     assert.deepEqual(requests[0], requests[1]);
     assert.equal(requests[0].path, '/v1/chat/completions');
     assert.equal(requests[0].body.max_completion_tokens, 123);
+    assert.equal(requests[0].body.temperature, 0);
+    assert.equal(requests[0].body.top_p, 0.75);
     assert.equal(requests[0].body.messages.at(-1).content[1].image_url.url, 'data:image/png;base64,' + image);
     evidence.push({ httpProvider: { result, ledger, history, requests } });
   } finally {

@@ -75,6 +75,16 @@ schemas. Dynamic project files and skill discovery are policies, not frozen
 contents. An ordinary turn refreshes authorized workspace sources once and
 freezes the resulting instruction text for its execution.
 
+Model selection also captures nullable `temperature` (0–2) and `top_p` (0–1).
+Only finite values are accepted. Null or omitted values use the provider default;
+explicit zero is retained. Replacing the model replaces the complete selection,
+so omitted sampling fields clear previous choices. Children inherit the full
+selection unless a definition or override replaces it. Compaction inherits that
+same selection when its model is null; an explicit compaction model carries its
+own effort and sampling values. Each prepared attempt freezes those values.
+Chat profiles support both fields. API Responses and subscription routes reject
+explicit sampling before authentication or dispatch.
+
 Configuration updates compare the expected revision and append a new immutable
 revision. A running turn retains its captured revision; the next claim captures
 the current one. Changing model selection never rewrites history, topology or
@@ -267,7 +277,7 @@ must select a model/provider before creating a runnable session. API credentials
 use environment references resolved during request preparation. Subscription
 credentials belong to the independent host account manager and its private file.
 
-Current fresh host configuration is version 8; the SQLite schema is version 29.
+Current fresh host configuration is version 9; the SQLite schema is version 29.
 SQLite has an application identifier and schema version. Existing databases of
 another application/version are rejected, not imported. Reopening preserves the
 runtime identity and seeded revisions; separate databases receive distinct
@@ -276,7 +286,8 @@ The store owns database transactions only, with no resource-manager construction
 
 The new runtime implements the OpenAI-compatible Chat Completions, API Responses
 and ChatGPT subscription adapters and both Starlark and QuickJS subprocess engines. These are protocol/engine adapters,
-not a hardcoded commercial model or credentials. The remaining provider families
+not a hardcoded commercial model or credentials. These cover the retained
+inference protocols. Account onboarding, provider presets, catalogs, readiness
 and product integrations are still being ported.
 
 Chat requests omit `reasoning_effort` when the captured selection is `off`.

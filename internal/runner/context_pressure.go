@@ -29,11 +29,11 @@ type contextRoute struct {
 }
 
 func (p *contextPressure) sync(prepared model.Prepared, folds int) {
-	route := contextRoute{model: prepared.Snapshot.Model, route: prepared.Snapshot.Route, adapter: prepared.Snapshot.Adapter}
+	route := contextRoute{model: prepared.Snapshot.Model.Clone(), route: prepared.Snapshot.Route, adapter: prepared.Snapshot.Adapter}
 	if prepared.ContextWindowTokens != nil {
 		route.window = *prepared.ContextWindowTokens
 	}
-	if route != p.route || folds != p.folds {
+	if !route.model.Equal(p.route.model) || route.route != p.route.route || route.adapter != p.route.adapter || route.window != p.route.window || folds != p.folds {
 		p.inputTokens = nil
 	}
 	p.route, p.folds = route, folds
