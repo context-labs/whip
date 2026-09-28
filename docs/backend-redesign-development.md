@@ -2059,3 +2059,29 @@ The plan's feature table now reflects subscription and goal progress without
 closing the remaining capability families. Host account controls must reuse the
 same command-owned manager to keep login generation and refresh ownership
 coherent; their public client implementation remains pending.
+
+
+## Prepared request output limits for model helpers
+
+The adapter prerequisite is integrated as `052b26b43` from isolated commit
+`451d0f54e`. `model.Request.OutputTokenLimit` optionally narrows the valid captured
+host ceiling. Chat profiles and API Responses encode the effective limit and
+record the same value in the immutable reservation snapshot. Preparation freezes
+it even if the caller later changes request pointers or resolver values. A
+subscription bound below its natural ceiling fails before credential capture;
+equal/wider bounds retain the natural reservation without a wire cap. The scripted
+fixture records the bound without claiming tokenizer-based truncation.
+
+Wire/profile, digest, frozen request, private replay, invalid-route/bound and
+subscription capture tests passed. Full model race/shuffle passed five times
+(15.565s); the final focused tests passed again after lint cleanup (1.395s), and
+vet/pinned lint passed. Integrated `task check:fast` and `task check:analysis`
+passed with zero lint issues and no reachable vulnerabilities. Logs are
+`/tmp/whip-helper-output-limits-fast.log` and
+`/tmp/whip-helper-output-limits-analysis.log`. Hosted full-phase validation is
+pending. Config8/schema28/protocol development major4 are unchanged.
+
+This changes only the internal model request boundary. Model-helper operation
+provenance, dependency settlement, shared runner execution, bounded batches and
+public guest/SDK acceptance remain separate work. No new helper execution path
+or provider retry loop is introduced by this prerequisite.

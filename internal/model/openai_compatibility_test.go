@@ -42,6 +42,7 @@ func TestChatCompatibilityProfiles(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			request := chatRequest()
+			request.OutputTokenLimit = new(int64(37))
 			request.Selection.Name = tc.model
 			if request.Selection.Name == "" {
 				request.Selection.Name = "deepseek-v4-flash"
@@ -89,7 +90,7 @@ func TestChatCompatibilityProfiles(t *testing.T) {
 			if err := json.Unmarshal(received, &wire); err != nil {
 				t.Fatal(err)
 			}
-			if wire.Model != request.Selection.Name || wire.Limit != 100 || !wire.Stream || !wire.Options.IncludeUsage || len(wire.Tools) != 1 || wire.Tools[0].Function.Name != "execute" {
+			if wire.Model != request.Selection.Name || wire.Limit != 37 || !wire.Stream || !wire.Options.IncludeUsage || len(wire.Tools) != 1 || wire.Tools[0].Function.Name != "execute" {
 				t.Fatalf("request contract changed: %+v", wire)
 			}
 			if tc.omitCache != (wire.Cache == nil) || wire.Cache != nil && *wire.Cache != string(request.SessionID) {

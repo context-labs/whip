@@ -338,6 +338,17 @@ state. Public login/status/logout, device-flow onboarding and account catalogs
 remain client-adoption work; this adapter is not a live-provider availability
 verification.
 
+An internal model request may narrow its captured output ceiling with
+`OutputTokenLimit`. Nil retains the host ceiling; explicit values must be
+1–1000000 and cannot widen it. API encoders, the immutable request digest and the
+attempt reservation use the same effective limit. An invalid host route remains
+invalid even when a caller supplies a smaller bound. Subscription requests below
+the natural ceiling fail before credential capture because that wire protocol
+cannot enforce them. Equal or wider bounds retain the natural reservation and
+omit a wire cap. The scripted fixture records the narrowed reservation but does
+not simulate tokenization or truncate its deterministic acknowledgement. Public
+stateless helper execution remains pending.
+
 Provider attempts also have an idle deadline: two minutes for Chat and five
 minutes for API Responses or subscription requests. Response headers and positive
 body reads count as progress. Active streams may exceed that interval, subject
