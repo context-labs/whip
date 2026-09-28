@@ -549,7 +549,7 @@ Root limits cannot be null. Partial creation/configuration lists inherit the
 remaining built-in defaults; duplicate kinds are rejected. Limits use decimal
 strings, including host JSON and guest child-spawn arguments. Host edits never
 change existing root limits. `TreePolicy` and its duplicate JSON column no longer
-exist; this disposable database uses schema 14 and rejects previous schemas.
+exist; this disposable database uses schema 15 and rejects previous schemas.
 The absolute depth ceiling remains 128 for bounded hierarchy and grant traversal.
 
 Capacity reuse never replenishes permanent model spend. Deleting a child releases
@@ -742,6 +742,41 @@ Guest subscription admission/cancellation and operation outcomes share the same
 transaction as their generated notifications. No separate subscription runner
 or wakeup queue exists.
 
+
+## Final output contracts
+
+`Configuration.OutputSchema` is an optional JSON Schema captured by the turn's
+configuration revision. Null or an omitted schema means no output contract.
+The runner includes a configured schema in the model instructions, permits normal
+tool work before the first final response, and validates the complete text-only
+final response as one JSON value. One matching Markdown JSON fence is accepted.
+Invalid raw replies remain ordinary durable assistant messages.
+
+The first mismatch permits exactly one corrective model response through the
+ordinary attempt ledger and budget admission. The correction notice is bounded
+provisional request context, not another authored transcript entry. A second
+mismatch or any corrective tool call fails the turn with `output_invalid`;
+corrective tool calls never execute. Cancellation and uncertain provider outcomes
+keep their ordinary semantics. This is not a replay of the turn or prior effects.
+
+`turns.output` is a read projection of the last assistant message of a successful
+turn and that turn's captured schema. It stores no second mutable output value.
+Running turns report busy; failed, cancelled or interrupted turns and successful
+turns without a contract return a null output record. A successful JSON `null`
+value has a non-null record. The wire record contains the turn/message identities
+and bounded `data_base64` JSON bytes, preserving numeric lexemes across JavaScript
+clients. Later configuration edits do not change an earlier turn's output.
+
+Schema admission and output validation use the same precise-number validator.
+JSON numbers remain `json.Number`; constraints and values are compared without
+conversion to binary floating point. Before exact arithmetic, each number is
+limited to 4096 literal bytes and an absolute exponent of 4096. Larger values
+fail explicitly rather than rounding or allocating unbounded integers. Schema
+count constraints must also fit signed 64-bit integers, checked at schema
+positions rather than ordinary instance fields. The default draft is 2020-12.
+Schema documents must be self-contained: external HTTP, filesystem and custom-URL
+loading is disabled, while references within the supplied document are allowed.
+The pinned validator dependency is separate from the wire-schema generator.
 
 ## Child completion reports
 

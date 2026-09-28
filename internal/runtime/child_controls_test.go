@@ -103,8 +103,12 @@ print("controls complete")`
 			submitTest(t, r, root.ID, "root_controls")
 			finished := waitTestWithin(t, r, "root_controls", terminal, 30*time.Second)
 			if finished.Turn.State != session.Succeeded {
-				history, _ := r.History(t.Context(), root.ID, 0, 100)
-				t.Fatalf("control flow: %+v history=%+v runtime=%v", finished.Turn, history, r.Err())
+				history, historyErr := r.History(t.Context(), root.ID, 0, 100)
+				evidence, _ := json.Marshal(struct {
+					Turn    *session.Turn
+					History []session.Message
+				}{finished.Turn, history})
+				t.Fatalf("control flow: %s history_error=%v runtime=%v", evidence, historyErr, r.Err())
 			}
 			items, err := r.Sessions(t.Context(), root.TreeID, "", 100)
 			if err != nil || len(items) != 1 || items[0].ID != root.ID {

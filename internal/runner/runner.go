@@ -95,6 +95,7 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 		request.Instructions += "\n" + instructions
 		request.Tools = []model.Tool{{Name: "execute", Description: "Execute a code cell in this session’s persistent, isolated REPL. Host operations require separate authority.", InputSchema: json.RawMessage(`{"type":"object","properties":{"code":{"type":"string"}},"required":["code"],"additionalProperties":false}`)}}
 	}
+	request.Instructions += outputInstructions(configuration.OutputSchema)
 	var after int64
 	size := len(request.Instructions)
 	for {
@@ -123,6 +124,7 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 	if err := r.hydrate(ctx, &request); err != nil {
 		return Failure(err), nil
 	}
+	correctedOutput := false
 	for round := 1; round <= 32; round++ {
 		if r.mail != nil {
 			messages, err := r.mail.ObserveSteers(ctx, turn.ID)
@@ -148,8 +150,34 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 				calls = append(calls, *part.Call)
 			}
 		}
+		if correctedOutput && len(calls) != 0 {
+			return Failure(errors.New("output_invalid: the corrective response must be a final JSON value without tool calls")), nil
+		}
 		if len(calls) == 0 {
-			return Outcome{State: session.Succeeded}, nil
+			_, validationErr := session.ValidateOutput(configuration.OutputSchema, completed.parts)
+			if validationErr == nil {
+				return Outcome{State: session.Succeeded}, nil
+			}
+			if err := ctx.Err(); err != nil {
+				return Outcome{}, err
+			}
+			if correctedOutput {
+				return Failure(fmt.Errorf("output_invalid: final response does not match the captured output schema: %w", validationErr)), nil
+			}
+			correctedOutput = true
+			// The attempt and invalid authored message are already durable. Only
+			// the corrective notice is provisional context for the next recorded
+			// model call; no provider request or completed effect is replayed.
+			if err := appendContext(&request, session.Assistant, completed.parts, &size); err != nil {
+				return Failure(err), nil
+			}
+			if err := appendContext(&request, session.System, []session.Part{{Type: "text", Text: outputCorrection(validationErr)}}, &size); err != nil {
+				return Failure(err), nil
+			}
+			if err := r.hydrate(ctx, &request); err != nil {
+				return Failure(err), nil
+			}
+			continue
 		}
 		if r.executor == nil {
 			return Failure(errors.New("code executor is unavailable")), nil

@@ -54,6 +54,9 @@ func Fixtures() ([]Fixture, error) {
 		name  string
 		value any
 	}{
+		{"TurnOutputResult", TurnOutputFromDomain(nil)},
+		{"TurnOutputResult", TurnOutputFromDomain(&session.StructuredOutput{TurnID: "turn_fixture", MessageID: "message_output", Value: json.RawMessage(`{"count":9007199254740993}`)})},
+		{"TurnOutputResult", TurnOutputFromDomain(&session.StructuredOutput{TurnID: "turn_null", MessageID: "message_null", Value: json.RawMessage(`null`)})},
 		{"ListCompletionsResult", ListCompletionsResult{Items: []CompletionMetadata{{ParentID: "session_root", ChildID: "session_deleted", TurnID: "turn_fixture", InputID: new(ID("input_fixture")), State: "interrupted", Failure: new("runtime restarted"), Mode: "message", FinishedAt: created.Format(time.RFC3339Nano), TextBytes: 0, OmittedParts: 0}}}},
 		{"ReadCompletionParams", ReadCompletionParams{ParentID: "session_root", ChildID: "session_deleted", TurnID: "turn_fixture", Offset: 0, Length: 65536}},
 		{"ReadCompletionResult", ReadCompletionResult{Completion: CompletionMetadata{ParentID: "session_root", ChildID: "session_deleted", TurnID: "turn_fixture", State: "succeeded", Mode: "inline", FinishedAt: created.Format(time.RFC3339Nano), TextBytes: 70000}, Offset: 65536, TotalBytes: 71000, DataBase64: "e30="}},

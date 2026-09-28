@@ -132,6 +132,11 @@ pages in bounded consumer scope. These reads do not acknowledge mail. Subscripti
 and deliver ordinary revisioned mail; their cursor does not acknowledge handling.
 Reconstruct requested values in bounded
 consumer scope rather than introducing a second authoritative state cache.
+`turns.output` derives validated JSON from a terminal turn's captured schema and
+assistant message. Its `data_base64` bytes preserve exact numbers; the SDK does
+not keep another mutable output value. A live turn reports busy. A null output
+record differs from a valid JSON-null payload. Contract corrections are normal
+recorded model rounds, and raw invalid replies remain in the transcript.
 Product clients continue to use the explicitly retained packages until their
 cutover. The package map below describes those retained clients.
 

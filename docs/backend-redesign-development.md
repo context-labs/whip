@@ -1065,3 +1065,53 @@ targeted race/shuffle run (5.3 s), vet and scoped lint. No production files chan
 after the full gate started. Phase 4 acceptance is complete. Phase 5 begins with
 final-output validation, then context selection/compaction; Phases 5–7 remain
 fully authorized. This does not claim the entire retained legacy suite is green.
+
+The final Phase 4 revision `cb80f1307` also passed hosted Linux, macOS and analysis
+in [run 36447220434](https://github.com/context-labs/whip/actions/runs/36447220434).
+
+## Phase 5 output contracts
+
+Fresh schema 15 adds an indexed last-assistant lookup. The ordinary runner now
+enforces the turn-captured output schema. An invalid final candidate remains in
+raw history and permits one corrective model response through ordinary attempt
+reservation, budgets and settlement. A second mismatch or corrective tool call
+fails explicitly; the latter records the call but executes no cell. No whole-turn
+replay or separate output column was introduced.
+
+`turns.output` derives exact JSON bytes from a successful terminal message and
+its captured configuration. Base64 on the wire avoids JavaScript numeric
+coercion. A non-null output containing JSON `null` is distinct from no output.
+Config changes, clearing, restart and repeated reads cannot re-execute work or
+change an earlier turn's contract.
+
+Domain tests exposed both instance-number misclassification and floating-point
+constraint rounding in the earlier schema validator. Validation now uses pinned
+`github.com/santhosh-tekuri/jsonschema/v6` v6.0.3 with exact numbers and an explicit
+rejecting external loader; the existing library remains the wire generator.
+Pre-arithmetic numeric bounds and a schema-position count bound prevent huge
+exponent allocation and signed-count overflow. Tests distinguish schema keywords
+from similarly named keys inside ordinary const/enum/examples data and cover all
+supported explicit drafts, local references and recursive schemas.
+
+Output acceptance covers cancellation after candidate commit, uncertain usage,
+SQL settlement retry without provider replay, raw invalid responses, captured
+schema/clear behavior, JSON null, fences and exact integers/decimals. The real SDK
+fixture completes a correction, rejects a second invalid response, distinguishes
+null from clearing, preserves an integer above the JavaScript safe range, and
+re-reads the same result after restart without another provider call.
+
+The first full gate found a QuickJS child-control fixture exceeding the 256 MiB
+worker RSS cap under race instrumentation. Five measured runs of the same
+QuickJS control flow peaked at 189–256 MiB in test-binary workers, with one kill;
+the actual production worker peaked at 64–78 MiB and passed all five. The host
+runtime remains race-instrumented in integration tests, while its engine fixture
+now builds the actual production worker once. Engine/process race and memory
+exhaustion suites retain their original limits and assertions. No production
+memory limit was raised.
+
+The final `task check:phase` passed: store race 58.908 s, runtime race 67.953 s,
+generated contract drift/interop, SDK checks, both engine suites, the v4 SDK
+restart fixture 6.914 s, retained fixture 2.684 s and required daemon regressions
+2.836 s. `task check:analysis` reports zero issues and no reachable vulnerabilities;
+the final test-fixture changes also pass scoped pinned lint. Module tidy/verify
+passed. Phase 5 remains in progress; context and compaction are next.

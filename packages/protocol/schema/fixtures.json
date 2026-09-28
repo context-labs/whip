@@ -1,5 +1,34 @@
 [
   {
+    "type": "TurnOutputResult",
+    "value": {
+      "output": null
+    },
+    "valid": true
+  },
+  {
+    "type": "TurnOutputResult",
+    "value": {
+      "output": {
+        "turn_id": "turn_fixture",
+        "message_id": "message_output",
+        "data_base64": "eyJjb3VudCI6OTAwNzE5OTI1NDc0MDk5M30="
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "TurnOutputResult",
+    "value": {
+      "output": {
+        "turn_id": "turn_null",
+        "message_id": "message_null",
+        "data_base64": "bnVsbA=="
+      }
+    },
+    "valid": true
+  },
+  {
     "type": "ListCompletionsResult",
     "value": {
       "items": [

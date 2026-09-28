@@ -10,8 +10,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-
-	"github.com/google/jsonschema-go/jsonschema"
 )
 
 // ModelSelection contains logical names only. Endpoints, credentials and client
@@ -288,26 +286,6 @@ func (p ConfigPatch) Validate() error {
 	}
 	if len(data) > MaxDocumentBytes {
 		return fmt.Errorf("%w: configuration exceeds size limit", ErrInvalid)
-	}
-	return nil
-}
-
-func validateSchema(raw json.RawMessage, optional bool) error {
-	if optional && (len(raw) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null"))) {
-		return nil
-	}
-	var object map[string]json.RawMessage
-	if len(raw) > MaxDocumentBytes || json.Unmarshal(raw, &object) != nil || object == nil {
-		return fmt.Errorf("%w: schema must be a JSON object", ErrInvalid)
-	}
-	var schema jsonschema.Schema
-	if err := json.Unmarshal(raw, &schema); err != nil {
-		return fmt.Errorf("%w: malformed schema: %w", ErrInvalid, err)
-	}
-	// No loader: referenced schemas must be included in the document. Validation
-	// cannot fetch a remote URL or depend on a mutable external schema.
-	if _, err := schema.Resolve(nil); err != nil {
-		return fmt.Errorf("%w: unresolved schema: %w", ErrInvalid, err)
 	}
 	return nil
 }

@@ -1850,6 +1850,13 @@ export interface Turn {
   started_at: string;
   finished_at: null | string;
 }
+export interface TurnOutputResult {
+  output: null | {
+    turn_id: string;
+    message_id: string;
+    data_base64: string;
+  };
+}
 export interface TurnParams {
   turn_id: string;
 }
@@ -1999,6 +2006,7 @@ export interface ContractTypes {
   Tree: Tree;
   TreeParams: TreeParams;
   Turn: Turn;
+  TurnOutputResult: TurnOutputResult;
   TurnParams: TurnParams;
   UnsubscribeStateParams: UnsubscribeStateParams;
   UpdateConfigurationParams: UpdateConfigurationParams;
@@ -2006,6 +2014,7 @@ export interface ContractTypes {
   WriteStateParams: WriteStateParams;
 }
 export interface Operations {
+  "turns.output": { params: TurnParams; result: TurnOutputResult };
   "completions.list": { params: ListCompletionsParams; result: ListCompletionsResult };
   "completions.read": { params: ReadCompletionParams; result: ReadCompletionResult };
   "state.subscribe": { params: SubscribeStateParams; result: StateSubscription };

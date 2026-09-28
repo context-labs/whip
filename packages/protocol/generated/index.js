@@ -5,6 +5,11 @@ export const manifest = {
   "minor": 0,
   "operations": [
     {
+      "name": "turns.output",
+      "params": "TurnParams",
+      "result": "TurnOutputResult"
+    },
+    {
       "name": "completions.list",
       "params": "ListCompletionsParams",
       "result": "ListCompletionsResult"

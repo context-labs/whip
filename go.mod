@@ -22,6 +22,7 @@ require (
 	github.com/mattn/go-runewidth v0.0.28
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/muesli/termenv v0.16.0
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/tetratelabs/wazero v1.12.0
 	go.starlark.net v0.0.0-20260828210309-6dd8f160a37f
 	golang.org/x/image v0.45.0

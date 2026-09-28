@@ -20,6 +20,7 @@ type Operation struct {
 
 func Operations() []Operation {
 	return []Operation{
+		{"turns.output", reflect.TypeFor[TurnParams](), reflect.TypeFor[TurnOutputResult]()},
 		{"completions.list", reflect.TypeFor[ListCompletionsParams](), reflect.TypeFor[ListCompletionsResult]()},
 		{"completions.read", reflect.TypeFor[ReadCompletionParams](), reflect.TypeFor[ReadCompletionResult]()},
 		{"state.subscribe", reflect.TypeFor[SubscribeStateParams](), reflect.TypeFor[StateSubscription]()},
