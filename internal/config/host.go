@@ -3,13 +3,8 @@
 package config
 
 import (
-	"bytes"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"net/url"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -216,104 +211,4 @@ func (p Provider) Credential(lookup func(string) (string, bool)) (string, error)
 		return "", fmt.Errorf("credential environment variable %q is unset", p.CredentialEnv)
 	}
 	return value, nil
-}
-
-func Load(directory string) (Host, error) {
-	if directory == "" {
-		return Host{}, fmt.Errorf("%w: configuration directory is required", session.ErrInvalid)
-	}
-	//nolint:gosec // The host explicitly selects its configuration directory; the filename is fixed.
-	file, err := os.Open(filepath.Join(directory, FileName))
-	if err != nil {
-		return Host{}, err
-	}
-	defer file.Close()
-	raw, err := io.ReadAll(io.LimitReader(file, session.MaxDocumentBytes+1))
-	if err != nil {
-		return Host{}, err
-	}
-	if len(raw) > session.MaxDocumentBytes {
-		return Host{}, fmt.Errorf("%w: host configuration exceeds size limit", session.ErrInvalid)
-	}
-	var host Host
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&host); err != nil {
-		return Host{}, fmt.Errorf("decode host configuration: %w", err)
-	}
-	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
-		return Host{}, fmt.Errorf("%w: trailing host configuration data", session.ErrInvalid)
-	}
-	if err := host.Validate(); err != nil {
-		return Host{}, err
-	}
-	host.Resources, err = session.ResolveResourceLimits(host.Resources, nil)
-	if err != nil {
-		return Host{}, err
-	}
-	return host, nil
-}
-
-// Initialize publishes one complete default file, or loads the existing file.
-// The directory is explicit; old filenames and installed runtimes are ignored.
-func Initialize(directory string) (Host, error) {
-	if directory == "" {
-		return Host{}, fmt.Errorf("%w: configuration directory is required", session.ErrInvalid)
-	}
-	if err := write(directory, Default(), true); err != nil && !errors.Is(err, os.ErrExist) {
-		return Host{}, err
-	}
-	return Load(directory)
-}
-func Save(directory string, host Host) error { return write(directory, host, false) }
-func write(directory string, host Host, onlyNew bool) (err error) {
-	if directory == "" {
-		return fmt.Errorf("%w: configuration directory is required", session.ErrInvalid)
-	}
-	if err := host.Validate(); err != nil {
-		return err
-	}
-	raw, err := json.MarshalIndent(host, "", "  ")
-	if err != nil {
-		return err
-	}
-	if len(raw)+1 > session.MaxDocumentBytes {
-		return fmt.Errorf("%w: host configuration exceeds size limit", session.ErrInvalid)
-	}
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return err
-	}
-	file, err := os.CreateTemp(directory, ".host-*")
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if removeErr := os.Remove(file.Name()); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-			err = errors.Join(err, removeErr)
-		}
-	}()
-	if _, err := file.Write(append(raw, '\n')); err != nil {
-		return errors.Join(err, file.Close())
-	}
-	if err := file.Sync(); err != nil {
-		return errors.Join(err, file.Close())
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	target := filepath.Join(directory, FileName)
-	if onlyNew {
-		err = os.Link(file.Name(), target)
-	} else {
-		err = os.Rename(file.Name(), target)
-	}
-	if err != nil {
-		return err
-	}
-	//nolint:gosec // Open the caller-selected host directory to sync the configuration file publication.
-	dir, err := os.Open(directory)
-	if err != nil {
-		return err
-	}
-	return errors.Join(dir.Sync(), dir.Close())
 }
