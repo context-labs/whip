@@ -238,6 +238,15 @@ that merely captured the goal independently owned. A successful guest completion
 operation accepts an intent; only successful final turn settlement completes the
 unchanged goal. Do not create a client-side continuation loop or decrement the
 server's allowance locally.
+`formulateGoal` uses a caller-owned durable maintenance receipt, so its exact
+payload and request ID use ordinary recovery and waiting. It does not append a
+conversation reply. Inspect `getGoalFormulation(sessionID, attemptID)` for the
+immutable candidate and activation decision: `accepted` remains true after later
+goal cancellation or deletion, and an interrupted maintenance turn may already
+have activated its goal. Semantic activation rejection can coexist with a
+successfully billed provider attempt. Show those distinct outcomes rather than
+inferring activation from the turn or attempt status. Preserve nullable
+`origin_formulation_attempt_id` on goal records; clients own no formulation cache.
 
 | Package | Responsibility | Internal dependencies and boundary |
 | --- | --- | --- |

@@ -87,6 +87,19 @@ turn. An independently submitted human turn can continue after goal cancellation
 intent; the unchanged goal completes when that turn successfully settles valid
 output. Clients must not infer goal completion from the operation result alone.
 
+`formulateGoal({session_id, request: {goal_id, expected_current, start,
+max_continuations?, tail_messages?}}, requestID)` proposes a goal from a captured
+raw-history tail through ordinary durable admission. Omitted or zero
+`tail_messages` uses eight; explicit windows accept 2–100 messages. Use ordinary
+`wait`/`recover` for the caller-owned maintenance receipt. No conversation message
+is appended. Read its recorded model attempts, then
+`getGoalFormulation(sessionID, attemptID)` for a valid candidate and immutable
+`accepted`/`rejection` evidence. A failed activation retains provider billing;
+a crash after activation can leave an accepted goal and interrupted helper turn.
+The nullable goal `origin_formulation_attempt_id` links that decision. Retrying
+admission does not run the provider again, and later cancellation or child deletion
+does not rewrite candidate acceptance. Product UI adoption remains pending.
+
 Use `content.put` with `{session_id, reference_id, media_type, data_base64}` to
 upload up to 4 MiB. Generate and retain a unique reference ID before sending;
 retrying it with the same owner, bytes and media type returns the same reference.

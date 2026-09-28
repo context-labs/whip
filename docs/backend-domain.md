@@ -25,7 +25,9 @@ separate legacy runtime and SDK until their client cutover.
 | Accepted goal work | Ordinary input with immutable goal ID/revision provenance |
 | Goal selected for execution | Immutable goal ID/revision on the turn; text reads the goal row |
 | Goal completion intent | Successful authorized operation; the goal retains terminal turn/operation references |
-| Accepted input kind and payload | Input row (`prompt` or `compact`); turn kind is a read projection |
+| Goal formulation source | Immutable maintenance-input snapshot of the raw-history window and activation request |
+| Goal formulation result | Immutable attempt-linked candidate and rejection; accepted goals retain the origin attempt |
+| Accepted input kind and payload | Input row (`prompt`, `compact` or `goal_formulation`); turn kind is a read projection |
 | Request identity and payload digest | Receipt row |
 | Execution outcome | Turn row; input and receipt outcomes are derived |
 | Automatic report awaiting publication | Parent-owned completion slot with exact terminal outcome snapshot |
@@ -203,7 +205,7 @@ children and active turns retain their captured configurations.
 Every ordinary prompt turn, including human, mail and schedule work, captures the
 current armed goal ID/revision when eligible. A goal-owned input must match that
 exact revision; stale or disabled queued inputs are cancelled in a committed
-cleanup transaction. Compact turns capture no goal. The runner reads the immutable
+cleanup transaction. Maintenance turns capture no goal. The runner reads the immutable
 objective once and freezes it with that turn's instructions through correction,
 provider retries and compaction; helper requests do not inherit it.
 
@@ -239,8 +241,31 @@ changing selection. Current selection alone never implies the goal is armed.
 Both guest engines expose typed `goals.complete` through the normal operation
 dispatcher. Its success accepts an intent; clients observe the goal and terminal
 turn independently to determine whether completion actually committed. Aborting
-client observation does not cancel goal execution. Formulation from context and
-product-client adoption remain pending.
+client observation does not cancel goal execution. Product-client adoption remains
+pending.
+
+`goals.formulate` admits an ordinary durable maintenance input. Admission freezes
+an explicit raw-history tail (default eight messages, optional 2–100, at most
+4 MiB); the ordinary turn claim captures its main model configuration. The
+helper receives the source as inert JSON data, its fixed formulation instruction
+and the complete captured model selection. It performs no tool execution,
+content hydration, mail delivery, transcript write, output-contract correction,
+compaction or ordinary preview, and discards private provider continuation.
+
+Billing, a valid immutable candidate, activation CAS and optional initial goal
+input settle in one transaction. Semantic activation refusal preserves billing
+and the rejected candidate; a real SQL error rolls back all settlement for a
+SQL-only retry. Invalid output is billed without creating a candidate. Replaying
+settlement cannot activate an earlier rejection. A crash after successful
+activation preserves the goal/input even if the maintenance turn is interrupted.
+
+`goals.formulation` reads the candidate by owner and attempt ID. Its `accepted`
+flag describes that immutable activation decision, independently of current goal
+state and maintenance-turn outcome. The goal's nullable
+`origin_formulation_attempt_id` preserves the association. Candidate evidence and
+charge provenance survive child deletion; an old admission retry returns its
+receipt tombstone. The SDK uses its ordinary caller identity and recover/wait
+methods for formulation, without a separate job cache or provider invocation.
 
 ## Content boundary
 
@@ -277,7 +302,7 @@ must select a model/provider before creating a runnable session. API credentials
 use environment references resolved during request preparation. Subscription
 credentials belong to the independent host account manager and its private file.
 
-Current fresh host configuration is version 9; the SQLite schema is version 29.
+Current fresh host configuration is version 9; the SQLite schema is version 30.
 SQLite has an application identifier and schema version. Existing databases of
 another application/version are rejected, not imported. Reopening preserves the
 runtime identity and seeded revisions; separate databases receive distinct

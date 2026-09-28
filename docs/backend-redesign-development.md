@@ -2331,3 +2331,55 @@ pass all hosted jobs in runs
 [36480736937](https://github.com/context-labs/whip/actions/runs/36480736937) and
 [36481765530](https://github.com/context-labs/whip/actions/runs/36481765530).
 Phase 5 remains in progress; phases 6–7 remain pending.
+
+
+## Durable goal formulation and public candidate evidence
+
+Integrated store `3948c6d3f`, runner `b5fe702e3` and public API `fdb8348f9`
+from isolated releases `0b483350c`, `c97bf3b4c` and `6164c6d84`.
+A formulation request freezes a bounded raw-history window at admission and
+uses its ordinary turn's main configuration at claim. It shares the existing
+helper attempt/retry/SQL-settlement path, with no conversation message, engine
+cell, mail delivery, content hydration, output contract or private continuation.
+
+Billing, a valid candidate, conditional goal activation and optional ordinary
+initial input commit together. A savepoint preserves billed candidate evidence
+when activation is semantically refused; SQL failures roll back all settlement.
+Exact settlement replay never reactivates an earlier rejection. The goal retains
+an immutable origin attempt and candidate inspection reports original acceptance,
+independently of later cancellation, replacement, child deletion or an interrupted
+maintenance turn. Full tree deletion still removes its accounting evidence.
+Generated RPC and SDK APIs use ordinary caller-owned maintenance receipts and
+bounded owner/attempt candidate reads. Fresh schema30 replaces schema29; config9
+and development protocol major4 remain unchanged.
+
+The real SDK process scenario covers roots and children under both engine
+configurations using a local HTTP provider: dropped admission acknowledgements,
+exact replay versus changed-payload conflict, empty maintenance history, captured
+sampling, exact decimal allowances, one billed candidate, rejected activation,
+independent initial goal input, owner isolation, child deletion and SIGKILL
+while the provider is dispatched. Restart preserves uncertain accounting without
+creating a candidate or replaying the call. The full fixture passed separately
+in 23.599s and again inside the phase gate in 22.626s (formulation stage0.667s).
+
+The integration gate initially found one constructor call in the preceding
+helper-runtime tests that needed the new formulation store argument; that call
+was updated before the final checks. Focused race/shuffle tests passed across
+store8.164s, runner5.513s, runtime2.381s, RPC3.118s and protocol2.627s. Generated
+contract interchange/drift, SDK checks and `go build ./...` passed. Independent
+read-only review found no blocker in settlement replay, lifecycle, source
+ownership or continuation isolation.
+
+`task check:phase` passed: store race123.074s, runner13.868s, runtime140.880s,
+process111.140s, retained crash fixture2.277s and daemon regressions2.812s.
+`task check:analysis` reported zero lint findings and no reachable vulnerabilities.
+Logs are `/tmp/whip-goal-formulation-{phase,analysis,race,contract,sdk,fixture,build}.log`.
+Hosted validation remains pending. The backend goals/schedules acceptance item
+now has replacement evidence; broader Phase5, product clients and final cutover
+remain open.
+
+The retained-title audit also identified first-authored-text fallback naming,
+manual ownership, a single bounded helper request and catalog refresh obligations.
+The plan now records its proposed maintenance ownership and deliberate timing,
+recovery and adapter-ceiling changes. Automatic naming is still unimplemented;
+explicit tree metadata alone is not counted as replacing it.

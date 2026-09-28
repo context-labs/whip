@@ -226,8 +226,8 @@ func createGoal(ctx context.Context, tx *sql.Tx, owner session.SessionID, id ses
 	return nil
 }
 
-// The immutable goal is resolved by goal provenance during execution, not copied
-// into each input. This foundation intentionally does not yet augment Claim.
+// Claim captures the immutable goal through this input provenance; the objective
+// is not copied into each admitted input.
 func admitGoalInput(ctx context.Context, tx *sql.Tx, identity session.RequestIdentity, digest string, owner session.SessionID, ref session.GoalRef) (Admission, error) {
 	parts := []session.Part{{Type: "text", Text: "Work on the goal."}}
 	result, err := admitInput(ctx, tx, identity, digest, Submission{SessionID: owner, Source: session.GoalInput, Goal: &ref, Parts: parts})
