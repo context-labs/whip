@@ -1701,3 +1701,42 @@ combined passing repair, not reclassified as successes. No acceptance scenario
 was removed. The named-stage harness has independent hosted evidence at
 `72d22969a`. Phases 5–7 and their retained-feature/client/cutover criteria remain
 open.
+
+## API Responses and private continuation
+
+The explicit `openai-responses` host route uses the existing recorded-attempt
+path, including tool execution, content hydration, streaming, context rejection
+and truthful usage/cost settlement. Opaque output is immutable private message
+evidence, bounded and committed with the assistant message and model attempt.
+The selected ordinary context can replay it only under the same route,
+credential and model with matching visible parts. Compaction helpers and public
+history, inspection, attempts and operation results never receive private data.
+No provider conversation cache or subscription authentication was added.
+
+Focused tests cover completed-item fallback, malformed/incomplete accounting,
+invalid/oversized private output, scope mismatch, exact settlement retry,
+rollback, restart, ownership and private-byte-driven compaction. Actual-process
+SDK acceptance exercises both engines through initial execution, process
+restart and a live route change while retaining the same REPL. Every stage
+performs the two recorded model requests and checks guest/public privacy.
+
+An initial full `WHIP_SDK_RACE=1` fixture run failed in the QuickJS route-change
+cell with the existing 256 MiB worker RSS limit. Its failure evidence remains at
+`test-results/redesign/whip-v4-yU74V6` and the original `/tmp/whip-v4-yU74V6`.
+The saved initial/restart QuickJS images were both exactly 1,507,796 bytes;
+continuation lives only in the host/store. External RSS sampling on unchanged
+reruns observed roughly 210–244 MiB race workers versus 51–55 MiB shipping
+workers. This supports instrumentation overhead as the source of pressure,
+without proving that every allocation peak was observed. No process limit,
+assertion, route-change lifetime or race setting was changed. The unchanged
+isolated race scenario passed, then the complete race SDK fixture passed in
+112.403s (Responses stage 9.266s). A repeated memory failure requires a separate
+shared worker/harness investigation; a passing non-race run is not a substitute
+for the required race fixture.
+
+Full affected Go race suites passed (store 78.124s, runtime 83.946s), as did
+protocol schema/type drift checks, SDK unit tests, pinned lint and reachable
+vulnerability analysis. Later focused tests also cover whitespace-formatted
+empty terminal output, malformed status with independently valid accounting,
+and exact message ID/phase replay; these changes do not alter the successful
+SDK wire path. No generated public contract change is needed for private state.

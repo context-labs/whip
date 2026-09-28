@@ -320,6 +320,14 @@ func validDraft(draft session.MessageDraft) error {
 	if draft.Role != session.Assistant && draft.Role != session.Tool && draft.Role != session.System {
 		return fmt.Errorf("%w: user messages are created only by claiming input", session.ErrInvalid)
 	}
+	if draft.Continuation != nil {
+		if draft.Role != session.Assistant {
+			return fmt.Errorf("%w: only assistant messages can retain provider continuation", session.ErrInvalid)
+		}
+		if err := draft.Continuation.Validate(); err != nil {
+			return err
+		}
+	}
 	return session.ValidateMessage(draft.Role, draft.Parts)
 }
 
@@ -333,6 +341,13 @@ func appendMessage(ctx context.Context, tx *sql.Tx, turn session.Turn, draft ses
 	existing, err := scanMessage(tx.QueryRowContext(ctx, messageSelect+" WHERE m.id=?", draft.ID))
 	if err == nil {
 		if existing.TurnID != turn.ID || existing.Role != draft.Role || !reflect.DeepEqual(existing.Parts, draft.Parts) {
+			return session.Message{}, ErrConflict
+		}
+		continuation, err := readContinuation(ctx, tx, draft.ID)
+		if err != nil {
+			return session.Message{}, err
+		}
+		if !reflect.DeepEqual(continuation, draft.Continuation) {
 			return session.Message{}, ErrConflict
 		}
 		return existing, nil
@@ -353,9 +368,16 @@ func appendMessage(ctx context.Context, tx *sql.Tx, turn session.Turn, draft ses
 	if err != nil {
 		return session.Message{}, err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,turn_id,sequence,role,parts,created_at)
-  SELECT ?,?,?,COALESCE(MAX(sequence),0)+1,?,?,? FROM messages WHERE session_id=?`,
-		draft.ID, turn.SessionID, turn.ID, draft.Role, raw, now(), turn.SessionID); err != nil {
+	var continuation any
+	if draft.Continuation != nil {
+		continuation, err = encode(draft.Continuation)
+		if err != nil {
+			return session.Message{}, err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,turn_id,sequence,role,parts,model_continuation,created_at)
+  SELECT ?,?,?,COALESCE(MAX(sequence),0)+1,?,?,?,? FROM messages WHERE session_id=?`,
+		draft.ID, turn.SessionID, turn.ID, draft.Role, raw, continuation, now(), turn.SessionID); err != nil {
 		return session.Message{}, err
 	}
 	return scanMessage(tx.QueryRowContext(ctx, messageSelect+" WHERE m.id=?", draft.ID))

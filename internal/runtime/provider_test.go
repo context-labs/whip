@@ -17,8 +17,8 @@ func openHTTPTest(t *testing.T, handler http.HandlerFunc) (*Runtime, session.Ses
 	t.Helper()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	provider := model.OpenAI{Resolve: func(context.Context, session.ModelSelection) (model.ChatRoute, error) {
-		return model.ChatRoute{URL: server.URL, MaxOutputTokens: 100, TimeoutMillis: 3000, MaxAttempts: 3}, nil
+	provider := model.OpenAI{Resolve: func(context.Context, session.ModelSelection) (model.Route, error) {
+		return model.Route{URL: server.URL, MaxOutputTokens: 100, TimeoutMillis: 3000, MaxAttempts: 3}, nil
 	}}
 	r := openTest(t, t.TempDir(), provider)
 	s := createTest(t, r)

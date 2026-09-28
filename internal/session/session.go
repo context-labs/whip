@@ -322,9 +322,10 @@ type Message struct {
 // MessageDraft describes one completed transcript entry. Its stable ID makes a
 // persistence retry independent of repeating the model request or host effect.
 type MessageDraft struct {
-	ID    MessageID
-	Role  Role
-	Parts []Part
+	ID           MessageID
+	Role         Role
+	Parts        []Part
+	Continuation *ModelContinuation `json:"-"`
 }
 
 func ValidateText(value string, maxBytes int) error {

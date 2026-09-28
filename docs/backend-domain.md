@@ -188,15 +188,15 @@ reads the retired home/config. A new host config is valid but unconfigured: user
 must select a model/provider before creating a runnable session. Credentials are
 environment references resolved only when constructing a provider client.
 
-Current fresh host configuration is version 5; the SQLite schema is version 24.
+Current fresh host configuration is version 6; the SQLite schema is version 25.
 SQLite has an application identifier and schema version. Existing databases of
 another application/version are rejected, not imported. Reopening preserves the
 runtime identity and seeded revisions; separate databases receive distinct
 identities. Future versions of this fresh schema may have ordinary migrations.
 The store owns database transactions only, with no resource-manager construction.
 
-The new runtime implements the OpenAI-compatible chat-completions adapter and
-both Starlark and QuickJS subprocess engines. These are protocol/engine adapters,
+The new runtime implements the OpenAI-compatible Chat Completions and API
+Responses adapters and both Starlark and QuickJS subprocess engines. These are protocol/engine adapters,
 not a hardcoded commercial model or credentials. The remaining provider families
 and product integrations are still being ported.
 
@@ -212,6 +212,30 @@ trailing-slash normalization; custom paths, ports and lookalike hosts retain the
 generic encoding. The attempt retains the original selected effort and a digest
 of the actual encoded body, frozen before admission. These are locally tested
 wire contracts, not live-provider availability claims.
+
+Host routes select `openai-chat` or `openai-responses` explicitly. Responses uses
+`/responses`, `store: false`, encrypted reasoning inclusion, bounded text/function
+streaming, user images, and the same frozen output cap, credential resolution,
+attempt accounting and sanitized failure rules. A `response.completed` envelope
+with completed status is required; completed item events supply output if the
+terminal envelope omits it. Failed, incomplete or malformed output never becomes
+executable parts. Independently valid usage and cost still settle. Only complete,
+recognized HTTP context rejections permit the runner's recorded smaller-request
+replan; streams and transport failures never enable an automatic retry.
+
+Responses continuation is immutable private provider evidence on its assistant
+message, committed in the same transaction as the message and attempt. It is
+bounded to 1 MiB including its encoded envelope. A credential-keyed HMAC binds it
+to the resolved route and model without storing credentials; the adapter also
+re-decodes its visible parts before replay. Route, credential, model or visible
+part changes use the canonical visible transcript instead. There is no mutable
+provider conversation cache. Restart reads the selected messages' private values
+through an owner-scoped store query with a 4 MiB cumulative prefetch bound;
+sizes are checked before loading blobs. Private bytes count toward ordinary request and context pressure
+limits, so excess follows normal compaction. Compaction helpers receive only the
+canonical visible history and discard their own continuation. Public history,
+search, attempts, operations, RPC and guest context reads never include opaque
+provider state. Subscription authentication is a separate pending port.
 
 ## Verification and remaining scope
 

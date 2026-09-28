@@ -33,6 +33,10 @@ func (*flakyTranscript) History(context.Context, session.SessionID, int64, int) 
 	return nil, nil
 }
 
+func (*flakyTranscript) Continuations(context.Context, session.SessionID, []session.MessageID) (map[session.MessageID]session.ModelContinuation, error) {
+	return map[session.MessageID]session.ModelContinuation{}, nil
+}
+
 func (*flakyTranscript) ReserveModelAttempt(_ context.Context, p session.ModelAttemptSpec) (session.ModelAttempt, error) {
 	return session.ModelAttempt{ID: p.ID, State: session.AttemptReserved}, nil
 }

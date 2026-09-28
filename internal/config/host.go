@@ -20,7 +20,7 @@ import (
 
 const (
 	FileName = "host.json"
-	Version  = 5
+	Version  = 6
 )
 
 var environmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -150,7 +150,7 @@ func (h Host) Validate() error {
 		}
 		route, err := url.Parse(provider.BaseURL)
 		if err != nil || len(provider.BaseURL) > 4000 || route.Hostname() == "" || (route.Scheme != "https" && route.Scheme != "http") ||
-			route.User != nil || route.RawQuery != "" || route.Fragment != "" || provider.Kind != "openai-chat" {
+			route.User != nil || route.RawQuery != "" || route.Fragment != "" || (provider.Kind != "openai-chat" && provider.Kind != "openai-responses") {
 			return fmt.Errorf("%w: invalid provider route %q", session.ErrInvalid, name)
 		}
 		if provider.CredentialEnv != "" && !environmentName.MatchString(provider.CredentialEnv) {

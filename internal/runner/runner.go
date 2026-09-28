@@ -20,6 +20,7 @@ type Provider interface {
 }
 type Transcript interface {
 	History(context.Context, session.SessionID, int64, int) ([]session.Message, error)
+	Continuations(context.Context, session.SessionID, []session.MessageID) (map[session.MessageID]session.ModelContinuation, error)
 }
 
 // Mail presents durable steer revisions only at model-request boundaries.
@@ -168,7 +169,7 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 			_, validationErr := session.ValidateOutput(configuration.OutputSchema, completed.parts)
 			if validationErr == nil {
 				if folds == 0 && r.compactions != nil && prepared.ContextWindowTokens != nil && *prepared.ContextWindowTokens > 0 {
-					if err := r.appendTurnContext(&request, session.Assistant, completed.parts, &size); err != nil {
+					if err := r.appendCompletedContext(&request, completed, &size); err != nil {
 						return Failure(err), nil
 					}
 					if err := r.hydrate(ctx, &request); err != nil {
@@ -190,7 +191,7 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 			// The attempt and invalid authored message are already durable. Only
 			// the corrective notice is provisional context for the next recorded
 			// model call; no provider request or completed effect is replayed.
-			if err := r.appendTurnContext(&request, session.Assistant, completed.parts, &size); err != nil {
+			if err := r.appendCompletedContext(&request, completed, &size); err != nil {
 				return Failure(err), nil
 			}
 			correction = []session.Part{{Type: "text", Text: outputCorrection(validationErr)}}
@@ -205,7 +206,7 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 		if r.executor == nil {
 			return Failure(errors.New("code executor is unavailable")), nil
 		}
-		if err := r.appendTurnContext(&request, session.Assistant, completed.parts, &size); err != nil {
+		if err := r.appendCompletedContext(&request, completed, &size); err != nil {
 			return Failure(err), nil
 		}
 		for _, call := range calls {
@@ -354,6 +355,7 @@ type attemptOutcome struct {
 	failure      error
 	parts        []session.Part
 	messageID    session.MessageID
+	continuation *session.ModelContinuation
 }
 
 func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.Prepared, logicalID string, number int, target *compactionTarget) (attemptOutcome, error) {
@@ -408,6 +410,11 @@ func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.
 	if callErr == nil {
 		callErr = session.ValidateMessage(session.Assistant, response.Parts)
 	}
+	if callErr == nil && response.Continuation != nil {
+		if response.Continuation.Validate() != nil {
+			callErr = &model.CallError{Uncertain: true, Message: "provider returned invalid or oversized continuation"}
+		}
+	}
 	if callErr == nil && target != nil {
 		draft, callErr = target.response(id, response.Parts)
 	}
@@ -420,7 +427,7 @@ func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.
 		}
 		result.Failure = Failure(callErr).Failure
 	} else if target == nil {
-		message = &session.MessageDraft{ID: messageID, Role: session.Assistant, Parts: response.Parts}
+		message = &session.MessageDraft{ID: messageID, Role: session.Assistant, Parts: response.Parts, Continuation: response.Continuation}
 	}
 	if err := r.settleResult(ctx, id, result, message, target, draft); err != nil {
 		return attemptOutcome{}, fmt.Errorf("settle model attempt: %w", err)
@@ -441,6 +448,7 @@ func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.
 	if message != nil {
 		outcome.parts = message.Parts
 		outcome.messageID = message.ID
+		outcome.continuation = message.Continuation
 	}
 	return outcome, nil
 }
