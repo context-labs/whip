@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -21,6 +20,8 @@ type Compactions interface {
 	HistorySnapshot(context.Context, session.SessionID) (session.HistorySnapshot, error)
 	HistoryRange(context.Context, session.SessionID, int64, int64, int) ([]session.Message, error)
 	ContextTail(context.Context, session.SessionID, int64, int) (int64, error)
+	ContextPins(context.Context, session.SessionID, []session.MessageID) ([]session.Message, error)
+	ContextBoundaryPin(context.Context, session.SessionID, int64) (*session.MessageID, error)
 	SettleCompaction(context.Context, session.ModelAttemptID, session.ModelAttemptResult, *session.CompactionDraft) (session.CompactionSettlement, error)
 }
 
@@ -67,39 +68,133 @@ func (r *Runner) selection(ctx context.Context, owner session.SessionID) (contex
 		return result, errors.New("selected compaction does not match retained history")
 	}
 	result.base = &base
-	wanted := make(map[session.MessageID]bool, len(base.PinnedMessageIDs))
-	for _, id := range base.PinnedMessageIDs {
+	result.pins, err = r.contextPins(ctx, owner, base.PinnedMessageIDs, base.ThroughSequence)
+	if err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (r *Runner) contextPins(ctx context.Context, owner session.SessionID, ids []session.MessageID, through int64) ([]session.Message, error) {
+	pins, err := r.compactions.ContextPins(ctx, owner, ids)
+	if err != nil {
+		return nil, err
+	}
+	wanted := make(map[session.MessageID]bool, len(ids))
+	for _, id := range ids {
 		if wanted[id] {
-			return result, errors.New("selected compaction contains a duplicate pin")
+			return nil, errors.New("selected compaction contains a duplicate pin")
 		}
 		wanted[id] = true
 	}
-	for after := int64(0); len(wanted) > 0 && after < base.ThroughSequence; {
-		page, err := r.compactions.HistoryRange(ctx, owner, after, base.ThroughSequence, maxContextMessages)
-		if err != nil {
-			return result, err
+	var after int64
+	for _, pin := range pins {
+		if !wanted[pin.ID] || pin.SessionID != owner || pin.Role != session.User || pin.InputID == nil || pin.Sequence <= after || pin.Sequence > through {
+			return nil, errors.New("compaction pin does not identify exact covered input")
 		}
-		if len(page) == 0 {
-			return result, errors.New("selected compaction pins are missing from raw history")
-		}
-		for _, message := range page {
-			if message.Sequence <= after || message.Sequence > base.ThroughSequence {
-				return result, errors.New("history did not advance within its snapshot")
-			}
-			after = message.Sequence
-			if wanted[message.ID] {
-				if message.Role != session.User {
-					return result, errors.New("selected compaction pin is not a user message")
-				}
-				result.pins = append(result.pins, message)
-				delete(wanted, message.ID)
-			}
-		}
+		after = pin.Sequence
+		delete(wanted, pin.ID)
 	}
 	if len(wanted) != 0 {
-		return result, errors.New("selected compaction pins are missing from raw history")
+		return nil, errors.New("selected compaction pins are missing from raw history")
 	}
-	return result, nil
+	return pins, nil
+}
+
+// splitBoundary keeps the newest assistant exchange and every following raw
+// message. The retained call and all its results always remain together.
+func (r *Runner) splitBoundary(ctx context.Context, owner session.SessionID, selection contextSelection) (int64, error) {
+	after := selection.through()
+	var latestAssistant, latestMessage int64
+	pending := map[string]bool{}
+	var batchTurn session.TurnID
+	for after < selection.snapshot.ThroughSequence {
+		page, err := r.compactions.HistoryRange(ctx, owner, after, selection.snapshot.ThroughSequence, maxContextMessages)
+		if err != nil {
+			return 0, err
+		}
+		if len(page) == 0 {
+			return 0, errors.New("history ended before the split snapshot")
+		}
+		for _, message := range page {
+			if message.Sequence <= after || message.Sequence > selection.snapshot.ThroughSequence {
+				return 0, errors.New("split source did not advance within its snapshot")
+			}
+			after, latestMessage = message.Sequence, message.Sequence
+			if len(pending) > 0 && (message.TurnID != batchTurn || message.Role == session.Assistant) {
+				return 0, errors.New("split source has an incomplete tool exchange")
+			}
+			if message.Role == session.Assistant {
+				latestAssistant = message.Sequence
+			}
+			for _, part := range message.Parts {
+				if part.Call != nil {
+					if pending[part.Call.ID] {
+						return 0, errors.New("split source repeats an unsettled tool call")
+					}
+					pending[part.Call.ID], batchTurn = true, message.TurnID
+				}
+				if part.Result != nil {
+					if !pending[part.Result.CallID] {
+						return 0, errors.New("split source has an unpaired tool result")
+					}
+					delete(pending, part.Result.CallID)
+				}
+			}
+		}
+	}
+	if len(pending) != 0 {
+		return 0, errors.New("split source has an incomplete tool exchange")
+	}
+	if latestAssistant == 0 {
+		latestAssistant = latestMessage
+	}
+	boundary := latestAssistant - 1
+	if boundary <= selection.through() {
+		return 0, errors.New("model context cannot fit its indivisible recent exchange and opening input")
+	}
+	return boundary, nil
+}
+
+// A provider rejection permits one changed request, after its failed attempt
+// has settled. New coverage is required even when the local cap was not hit.
+func (r *Runner) replanContext(ctx context.Context, turn session.Turn, configuration session.Configuration, request *model.Request, folds *int, correction []session.Part) (int, error) {
+	selection, err := r.selection(ctx, turn.SessionID)
+	if err != nil {
+		return 0, err
+	}
+	before := selection.through()
+	boundary := before
+	for keep := 4; keep >= 1 && boundary <= before; keep-- {
+		boundary, err = r.compactions.ContextTail(ctx, turn.SessionID, selection.snapshot.ThroughSequence, keep)
+		if err != nil {
+			return 0, err
+		}
+	}
+	if boundary <= before {
+		boundary, err = r.splitBoundary(ctx, turn.SessionID, selection)
+		if err != nil {
+			return 0, err
+		}
+	}
+	selection, err = r.foldToBoundary(ctx, turn, configuration, selection, boundary, folds)
+	if err != nil {
+		return 0, err
+	}
+	if selection.through() <= before {
+		return 0, errors.New("context rejection replan made no coverage progress")
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	size, err := r.prepareContext(ctx, turn, configuration, request, folds, correction)
+	if err != nil {
+		return 0, err
+	}
+	if err := r.hydrate(ctx, request); err != nil {
+		return 0, err
+	}
+	return size, nil
 }
 
 // quoteSummary keeps derived text in a clearly labelled data message. It is
@@ -193,10 +288,21 @@ func (r *Runner) prepareContext(ctx context.Context, turn session.Turn, configur
 		if err == nil && correction != nil {
 			err = appendContext(request, session.System, correction, &size)
 		}
-		if !errors.Is(err, errContextLimit) || keep == 0 {
+		if !errors.Is(err, errContextLimit) {
 			return size, err
 		}
-		selection, err = r.foldHistory(ctx, turn, configuration, selection, keep, folds)
+		if keep < 0 {
+			return size, errContextLimit
+		}
+		if keep == 0 {
+			var boundary int64
+			boundary, err = r.splitBoundary(ctx, turn.SessionID, selection)
+			if err == nil {
+				selection, err = r.foldToBoundary(ctx, turn, configuration, selection, boundary, folds)
+			}
+		} else {
+			selection, err = r.foldHistory(ctx, turn, configuration, selection, keep, folds)
+		}
 		if err != nil {
 			return 0, err
 		}
@@ -215,12 +321,17 @@ func (r *Runner) compactTurn(ctx context.Context, turn session.Turn, configurati
 	if _, err := r.foldHistory(ctx, turn, configuration, selection, 4, &folds); err != nil {
 		return Failure(err), nil
 	}
+	request := model.Request{}
+	if _, err := r.prepareContext(ctx, turn, configuration, &request, &folds, nil); err != nil {
+		return Failure(err), nil
+	}
 	return Outcome{State: session.Succeeded}, nil
 }
 
 type compactionTarget struct {
 	draft       session.CompactionDraft
 	sourceBytes int
+	pinBytes    int
 	settled     session.CompactionSettlement
 }
 
@@ -242,7 +353,7 @@ func (t *compactionTarget) response(id session.ModelAttemptID, parts []session.P
 	if err != nil {
 		return nil, err
 	}
-	if len(projected) >= t.sourceBytes {
+	if len(projected)+t.pinBytes >= t.sourceBytes {
 		return nil, errors.New("compaction was ineffective: summary did not shorten the source")
 	}
 	return &draft, nil
@@ -278,6 +389,10 @@ func (r *Runner) foldHistory(ctx context.Context, turn session.Turn, configurati
 	if err != nil {
 		return selection, err
 	}
+	return r.foldToBoundary(ctx, turn, configuration, selection, boundary, folds)
+}
+
+func (r *Runner) foldToBoundary(ctx context.Context, turn session.Turn, configuration session.Configuration, selection contextSelection, boundary int64, folds *int) (contextSelection, error) {
 	for selection.through() < boundary {
 		if err := ctx.Err(); err != nil {
 			return selection, err
@@ -296,10 +411,30 @@ func (r *Runner) foldHistory(ctx context.Context, turn session.Turn, configurati
 		if err := r.hydrate(ctx, &request); err != nil {
 			return selection, err
 		}
-		target := &compactionTarget{draft: session.CompactionDraft{ExpectedRevision: selection.head.Revision, BaseID: selection.head.CompactionID, ThroughSequence: through}, sourceBytes: sourceBytes}
-		if selection.base != nil {
-			target.draft.PinnedMessageIDs = slices.Clone(selection.base.PinnedMessageIDs)
+		pin, err := r.compactions.ContextBoundaryPin(ctx, turn.SessionID, through)
+		if err != nil {
+			return selection, err
 		}
+		var pinIDs []session.MessageID
+		if pin != nil {
+			pinIDs = []session.MessageID{*pin}
+		}
+		pins, err := r.contextPins(ctx, turn.SessionID, pinIDs, through)
+		if err != nil {
+			return selection, err
+		}
+		pinBytes := 0
+		for _, message := range pins {
+			raw, err := json.Marshal(message.Parts)
+			if err != nil {
+				return selection, err
+			}
+			pinBytes += len(raw)
+		}
+		if sourceBytes <= pinBytes {
+			return selection, errors.New("compaction has no replaceable source beyond its required opening input")
+		}
+		target := &compactionTarget{draft: session.CompactionDraft{ExpectedRevision: selection.head.Revision, BaseID: selection.head.CompactionID, ThroughSequence: through, PinnedMessageIDs: pinIDs}, sourceBytes: sourceBytes, pinBytes: pinBytes}
 		*folds = *folds + 1
 		outcome, err := r.complete(ctx, turn, request, fmt.Sprintf("%s_compact_%d", turn.ID, *folds), target)
 		if err != nil {
@@ -313,6 +448,7 @@ func (r *Runner) foldHistory(ctx context.Context, turn session.Turn, configurati
 		}
 		selection.head = target.settled.Head
 		selection.base = target.settled.Compaction
+		selection.pins = pins
 	}
 	return selection, nil
 }
@@ -325,14 +461,7 @@ func (r *Runner) compactionPrefix(ctx context.Context, owner session.SessionID, 
 		return 0, 0, err
 	}
 	through, after := selection.through(), selection.through()
-	sourceBytes := 0
-	if selection.base != nil {
-		raw, err := json.Marshal(quoteSummary(selection.base))
-		if err != nil {
-			return 0, 0, err
-		}
-		sourceBytes = len(raw)
-	}
+	sourceBytes := size - len(request.Instructions)
 	var batch []session.Message
 	batchBytes := 0
 	pending := map[string]bool{}

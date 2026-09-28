@@ -17,18 +17,61 @@ import (
 
 type compactionLedger struct {
 	*outputLedger
-	raw        []session.Message
-	head       session.ContextHead
-	values     map[session.CompactionID]session.Compaction
-	drafts     map[session.ModelAttemptID]session.CompactionDraft
-	reserveErr error
-	settleErr  error
-	loseReply  bool
-	unselected bool
+	raw               []session.Message
+	head              session.ContextHead
+	values            map[session.CompactionID]session.Compaction
+	drafts            map[session.ModelAttemptID]session.CompactionDraft
+	reserveErr        error
+	settleErr         error
+	ordinarySettleErr error
+	loseReply         bool
+	unselected        bool
+	live              map[session.TurnID]bool
 }
 
 func newCompactionLedger(raw []session.Message) *compactionLedger {
-	return &compactionLedger{outputLedger: newOutputLedger(), raw: raw, head: session.ContextHead{SessionID: "owner"}, values: map[session.CompactionID]session.Compaction{}, drafts: map[session.ModelAttemptID]session.CompactionDraft{}}
+	return &compactionLedger{outputLedger: newOutputLedger(), raw: raw, head: session.ContextHead{SessionID: "owner"}, values: map[session.CompactionID]session.Compaction{}, drafts: map[session.ModelAttemptID]session.CompactionDraft{}, live: map[session.TurnID]bool{}}
+}
+
+func (s *compactionLedger) ContextPins(_ context.Context, owner session.SessionID, ids []session.MessageID) ([]session.Message, error) {
+	var result []session.Message
+	for _, message := range s.raw {
+		if slices.Contains(ids, message.ID) && message.SessionID == owner && message.InputID != nil && message.Role == session.User {
+			result = append(result, message)
+		}
+	}
+	if len(result) != len(ids) {
+		return nil, errors.New("missing exact input pin")
+	}
+	return result, nil
+}
+
+//nolint:nilnil // A fully covered terminal or mail-only turn requires no input pin.
+func (s *compactionLedger) ContextBoundaryPin(_ context.Context, _ session.SessionID, through int64) (*session.MessageID, error) {
+	var turn session.TurnID
+	for _, message := range s.raw {
+		if message.Sequence == through {
+			turn = message.TurnID
+		}
+	}
+	partial := s.live[turn]
+	var pin *session.MessageID
+	for _, message := range s.raw {
+		if message.TurnID != turn {
+			continue
+		}
+		if message.Sequence > through {
+			partial = true
+		}
+		if message.InputID != nil {
+			id := message.ID
+			pin = &id
+		}
+	}
+	if !partial {
+		return nil, nil
+	}
+	return pin, nil
 }
 
 func (s *compactionLedger) ReserveModelAttempt(ctx context.Context, spec session.ModelAttemptSpec) (session.ModelAttempt, error) {
@@ -39,6 +82,9 @@ func (s *compactionLedger) ReserveModelAttempt(ctx context.Context, spec session
 }
 
 func (s *compactionLedger) SettleModelAttempt(ctx context.Context, id session.ModelAttemptID, result session.ModelAttemptResult, draft *session.MessageDraft) (session.ModelAttempt, error) {
+	if s.ordinarySettleErr != nil {
+		return session.ModelAttempt{}, s.ordinarySettleErr
+	}
 	exists := false
 	if draft != nil {
 		_, exists = s.messages[draft.ID]
@@ -154,7 +200,11 @@ func compactionMessages(turns, each int) []session.Message {
 			if i%2 != 0 {
 				role = session.Assistant
 			}
-			messages = append(messages, session.Message{ID: session.MessageID(fmt.Sprintf("m%d", sequence)), SessionID: "owner", TurnID: session.TurnID(fmt.Sprintf("old%d", turn)), Sequence: sequence, Role: role, Parts: []session.Part{{Type: "text", Text: fmt.Sprintf("source %d with important exact context", sequence)}}})
+			message := session.Message{ID: session.MessageID(fmt.Sprintf("m%d", sequence)), SessionID: "owner", TurnID: session.TurnID(fmt.Sprintf("old%d", turn)), Sequence: sequence, Role: role, Parts: []session.Part{{Type: "text", Text: fmt.Sprintf("source %d with important exact context", sequence)}}}
+			if i == 0 {
+				message.InputID = new(session.InputID(fmt.Sprintf("input%d", turn)))
+			}
+			messages = append(messages, message)
 		}
 	}
 	return messages
@@ -226,7 +276,7 @@ func TestManualCompactionSettlesOnlyHelperAndRestoresSelectedContext(t *testing.
 	}
 }
 
-func TestCompactionNoFoldAndOversizedCurrentTurn(t *testing.T) {
+func TestCompactionNoFold(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
 		turns, each int
@@ -235,7 +285,6 @@ func TestCompactionNoFoldAndOversizedCurrentTurn(t *testing.T) {
 	}{
 		{"empty", 0, 0, session.CompactInput, session.Succeeded},
 		{"four retained", 4, 2, session.CompactInput, session.Succeeded},
-		{"one oversized current turn", 1, 101, session.PromptInput, session.Failed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ledger := newCompactionLedger(compactionMessages(tc.turns, tc.each))
@@ -322,7 +371,7 @@ func TestCompactionPreservesToolBatchesAcrossIncrementalFolds(t *testing.T) {
 		t.Fatal(err)
 	}
 	outcome, err := r.Run(t.Context(), session.Turn{ID: "batches", SessionID: "owner", Kind: session.CompactInput}, session.Configuration{})
-	if err != nil || outcome.State != session.Succeeded || !slices.Equal(boundaries, []int{98, 4}) {
+	if err != nil || outcome.State != session.Succeeded || !slices.Equal(boundaries, []int{98, 5}) {
 		t.Fatalf("outcome=%+v err=%v batches=%v", outcome, err, boundaries)
 	}
 	if len(ledger.values) != 2 || ledger.values[*ledger.head.CompactionID].ThroughSequence != 101 {
@@ -380,7 +429,7 @@ func TestCompactionFailureNeverRedispatchesOrPublishesTranscript(t *testing.T) {
 	}
 }
 
-func TestCompactionPreservesExactPinsAndRejectsMissingOnes(t *testing.T) {
+func TestCompactionRestoresExactPinsAndDropsCompletedOnes(t *testing.T) {
 	for _, missing := range []bool{false, true} {
 		ledger := newCompactionLedger(compactionMessages(6, 2))
 		pin := ledger.raw[0].ID
@@ -408,7 +457,7 @@ func TestCompactionPreservesExactPinsAndRejectsMissingOnes(t *testing.T) {
 			}
 			continue
 		}
-		if err != nil || outcome.State != session.Succeeded || calls != 1 || !slices.Equal(ledger.values[*ledger.head.CompactionID].PinnedMessageIDs, []session.MessageID{pin}) {
+		if err != nil || outcome.State != session.Succeeded || calls != 1 || len(ledger.values[*ledger.head.CompactionID].PinnedMessageIDs) != 0 {
 			t.Fatalf("pins changed: outcome=%+v err=%v head=%+v", outcome, err, ledger.head)
 		}
 	}
@@ -548,7 +597,7 @@ func TestCompactionRebuildsAfterDurableToolBatchOrOutputCorrection(t *testing.T)
 	}
 }
 
-func TestCompactionPinsCannotMakeGrowingSummaryEffective(t *testing.T) {
+func TestCompactionDropsOldPinsWhenMeasuringProjection(t *testing.T) {
 	ledger := newCompactionLedger(compactionMessages(6, 2))
 	ledger.raw[0].Parts[0].Text = strings.Repeat("important pin ", 1000)
 	base := session.Compaction{ID: "base", SessionID: "owner", ThroughSequence: 2, PinnedMessageIDs: []session.MessageID{ledger.raw[0].ID}, Text: "small base"}
@@ -562,8 +611,8 @@ func TestCompactionPinsCannotMakeGrowingSummaryEffective(t *testing.T) {
 		t.Fatal(err)
 	}
 	outcome, err := r.Run(t.Context(), session.Turn{ID: "growing", SessionID: "owner", Kind: session.CompactInput}, session.Configuration{})
-	if err != nil || outcome.State != session.Failed || ledger.head.Revision != 1 || len(ledger.values) != 1 || ledger.results[ledger.specs[0].ID].State != session.AttemptFailed {
-		t.Fatalf("growth selected under a retained pin: outcome=%+v err=%v head=%+v", outcome, err, ledger.head)
+	if err != nil || outcome.State != session.Succeeded || ledger.head.Revision != 2 || len(ledger.values) != 2 || len(ledger.values[*ledger.head.CompactionID].PinnedMessageIDs) != 0 {
+		t.Fatalf("completed pin did not release its projection budget: outcome=%+v err=%v head=%+v", outcome, err, ledger.head)
 	}
 }
 

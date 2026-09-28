@@ -138,7 +138,7 @@ func (s *Store) SettleCompaction(ctx context.Context, id session.ModelAttemptID,
 			return nil
 		}
 		if err := validateCompaction(ctx, tx, turn, *draft); err != nil {
-			if errors.Is(err, session.ErrInvalid) || errors.Is(err, ErrConflict) || errors.Is(err, ErrNotFound) {
+			if errors.Is(err, session.ErrInvalid) || errors.Is(err, ErrConflict) || errors.Is(err, ErrNotFound) || errors.Is(err, ErrLimit) {
 				result.Rejection = new(err.Error())
 				return nil
 			}
@@ -195,17 +195,21 @@ func validateCompaction(ctx context.Context, tx *sql.Tx, turn session.Turn, draf
 			return fmt.Errorf("%w: compaction must advance raw coverage", session.ErrInvalid)
 		}
 	}
-	var boundaryTurn session.TurnID
-	if err := tx.QueryRowContext(ctx, "SELECT turn_id FROM messages WHERE session_id=? AND sequence=?", turn.SessionID, draft.ThroughSequence).Scan(&boundaryTurn); err != nil {
-		return found(err)
+	boundaryTurn, requiredPin, err := contextBoundaryPin(ctx, tx, turn.SessionID, draft.ThroughSequence)
+	if err != nil {
+		return err
 	}
-	for _, pin := range draft.PinnedMessageIDs {
-		if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM messages WHERE id=? AND session_id=? AND role='user' AND sequence<=?)", pin, turn.SessionID, draft.ThroughSequence).Scan(&exists); err != nil {
-			return err
+	pins, err := readContextPins(ctx, tx, turn.SessionID, draft.PinnedMessageIDs)
+	if err != nil {
+		return err
+	}
+	for _, pin := range pins {
+		if pin.Sequence > draft.ThroughSequence {
+			return fmt.Errorf("%w: pin must identify an opening input message within coverage", session.ErrInvalid)
 		}
-		if !exists {
-			return fmt.Errorf("%w: pin must identify an owned user message within coverage", session.ErrInvalid)
-		}
+	}
+	if requiredPin != nil && !slices.Contains(draft.PinnedMessageIDs, *requiredPin) {
+		return fmt.Errorf("%w: partial prompt turn requires its exact opening input pin", session.ErrInvalid)
 	}
 	return completeCompactionBoundary(ctx, tx, boundaryTurn, draft.ThroughSequence)
 }

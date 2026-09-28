@@ -109,6 +109,7 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 		return Failure(err), nil
 	}
 	correctedOutput := false
+	replannedContext := false
 	var correction []session.Part
 	for round := 1; round <= 32; round++ {
 		if r.mail != nil {
@@ -136,7 +137,15 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 			return Outcome{}, err
 		}
 		if completed.failure != nil {
-			return Failure(completed.failure), nil //nolint:nilerr // Settled execution failure is a turn outcome, not an infrastructure error.
+			if completed.contextLimit && !replannedContext && r.compactions != nil && ctx.Err() == nil {
+				replannedContext = true
+				size, err = r.replanContext(ctx, turn, configuration, &request, &folds, correction)
+				if err != nil {
+					return Failure(fmt.Errorf("context rejection cannot be replanned: %w", err)), nil
+				}
+				continue
+			}
+			return Failure(completed.failure), nil
 		}
 		calls := []session.ToolCall{}
 		for _, part := range completed.parts {
@@ -282,7 +291,7 @@ func (r *Runner) complete(ctx context.Context, turn session.Turn, request model.
 			return attemptOutcome{}, ctx.Err()
 		}
 		failure, retry := errors.AsType[*model.CallError](callErr)
-		if number == limit || !retry || !failure.Retryable || failure.Uncertain {
+		if number == limit || !retry || !failure.Retryable || failure.Uncertain || failure.ContextLimit {
 			return outcome, nil
 		}
 		// Only an explicit retryable provider response permits another dispatch.
@@ -302,9 +311,10 @@ func (r *Runner) complete(ctx context.Context, turn session.Turn, request model.
 // Attempt execution can fail normally. A separate returned error means its
 // durable evidence could not be settled and execution must stop without retry.
 type attemptOutcome struct {
-	failure   error
-	parts     []session.Part
-	messageID session.MessageID
+	contextLimit bool
+	failure      error
+	parts        []session.Part
+	messageID    session.MessageID
 }
 
 func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.Prepared, logicalID string, number int, target *compactionTarget) (attemptOutcome, error) {
@@ -377,6 +387,9 @@ func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.
 		return attemptOutcome{}, fmt.Errorf("settle model attempt: %w", err)
 	}
 	outcome := attemptOutcome{failure: callErr}
+	if failure, ok := errors.AsType[*model.CallError](callErr); ok && target == nil && result.State == session.AttemptFailed {
+		outcome.contextLimit = failure.ContextLimit && !failure.Uncertain
+	}
 	if callErr == nil && target != nil && !target.settled.Selected {
 		outcome.failure = errors.New("compaction was not selected")
 		if target.settled.Rejection != nil {
