@@ -103,6 +103,7 @@ const (
 	PromptInput              InputKind = "prompt"
 	CompactInput             InputKind = "compact"
 	GoalFormulationInputKind InputKind = "goal_formulation"
+	AutomaticTitleInputKind  InputKind = "automatic_title"
 )
 
 type InputState string

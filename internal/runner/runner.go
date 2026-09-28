@@ -52,22 +52,22 @@ type Progress interface {
 }
 
 type Runner struct {
-	provider     Provider
-	transcript   Transcript
-	attempts     Attempts
-	content      ContentReader
-	executor     Executor
-	progress     Progress
-	mail         Mail
-	compactions  Compactions
-	formulations GoalFormulations
+	provider    Provider
+	transcript  Transcript
+	attempts    Attempts
+	content     ContentReader
+	executor    Executor
+	progress    Progress
+	mail        Mail
+	compactions Compactions
+	maintenance Maintenance
 }
 
-func New(provider Provider, transcript Transcript, attempts Attempts, content ContentReader, executor Executor, progress Progress, mail Mail, compactions Compactions, formulations GoalFormulations) (*Runner, error) {
+func New(provider Provider, transcript Transcript, attempts Attempts, content ContentReader, executor Executor, progress Progress, mail Mail, compactions Compactions, maintenance Maintenance) (*Runner, error) {
 	if provider == nil || transcript == nil || attempts == nil {
 		return nil, errors.New("runner requires provider, transcript and attempt ledger")
 	}
-	return &Runner{provider: provider, transcript: transcript, attempts: attempts, content: content, executor: executor, progress: progress, mail: mail, compactions: compactions, formulations: formulations}, nil
+	return &Runner{provider: provider, transcript: transcript, attempts: attempts, content: content, executor: executor, progress: progress, mail: mail, compactions: compactions, maintenance: maintenance}, nil
 }
 
 type Outcome struct {
@@ -93,6 +93,9 @@ func Failure(err error) Outcome {
 // Run persists completed output under a stable message ID. The caller settles
 // the turn separately; retrying that settlement must never call Run again.
 func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration session.Configuration) (Outcome, error) {
+	if turn.Kind == session.AutomaticTitleInputKind {
+		return r.automaticTitle(ctx, turn)
+	}
 	if turn.Kind == session.GoalFormulationInputKind {
 		return r.formulateGoal(ctx, turn, configuration)
 	}
@@ -287,7 +290,9 @@ func (r *Runner) settleResult(parent context.Context, id session.ModelAttemptID,
 		if target != nil && target.compaction != nil {
 			target.compaction.settled, err = r.compactions.SettleCompaction(ctx, id, result, draft.compaction)
 		} else if target != nil && target.formulation != nil {
-			*target.formulation, err = r.formulations.SettleGoalFormulation(ctx, id, result, draft.formulation)
+			*target.formulation, err = r.maintenance.SettleGoalFormulation(ctx, id, result, draft.formulation)
+		} else if target != nil && target.title != nil {
+			*target.title, err = r.maintenance.SettleAutomaticTitle(ctx, id, result, draft.title)
 		} else {
 			_, err = r.attempts.SettleModelAttempt(ctx, id, result, message)
 		}

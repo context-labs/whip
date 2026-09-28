@@ -100,6 +100,14 @@ func (s *Store) ReserveModelAttempt(ctx context.Context, p session.ModelAttemptS
 				return err
 			}
 		}
+		if (turn.Kind == session.AutomaticTitleInputKind) != (p.Request.Purpose == session.AutomaticTitlePurpose) {
+			return fmt.Errorf("%w: automatic naming requires its maintenance input", session.ErrInvalid)
+		}
+		if turn.Kind == session.AutomaticTitleInputKind {
+			if err := validateTitleAttempt(ctx, tx, turn, p); err != nil {
+				return err
+			}
+		}
 		if err := requireTurnPermit(ctx, tx, turn.ID); err != nil {
 			return err
 		}
@@ -301,7 +309,7 @@ func (s *Store) SettleModelAttempt(ctx context.Context, id session.ModelAttemptI
 }
 
 func settleAttempt(ctx context.Context, tx *sql.Tx, attempt session.ModelAttempt, outcome session.ModelAttemptResult, message *session.MessageDraft) (session.ModelAttempt, error) {
-	if (attempt.Request.Purpose == "compaction" || attempt.Request.Purpose == session.GoalFormulationPurpose || attempt.OperationID != nil) && message != nil {
+	if (attempt.Request.Purpose == "compaction" || attempt.Request.Purpose == session.GoalFormulationPurpose || attempt.Request.Purpose == session.AutomaticTitlePurpose || attempt.OperationID != nil) && message != nil {
 		return session.ModelAttempt{}, fmt.Errorf("%w: a helper response is not a transcript message", session.ErrInvalid)
 	}
 	var messageID *session.MessageID

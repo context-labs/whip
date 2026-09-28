@@ -62,6 +62,11 @@ func (s *Store) CreateTree(ctx context.Context, request CreateTree) (tree sessio
 		if err != nil {
 			return err
 		}
+		if request.Metadata.Title != nil {
+			if err := initializeTitle(ctx, tx, root, nil, "manual"); err != nil {
+				return err
+			}
+		}
 		for _, limit := range limits {
 			if _, err := setResource(ctx, tx, root.ID, 0, limit); err != nil {
 				return err
@@ -444,6 +449,17 @@ func (s *Store) UpdateTree(ctx context.Context, id session.TreeID, expected sess
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, "UPDATE session_trees SET metadata=?,revision=revision+1 WHERE id=?", raw, id); err != nil {
+			return err
+		}
+		var rootID session.SessionID
+		if err := tx.QueryRowContext(ctx, "SELECT id FROM sessions WHERE tree_id=? AND parent_id IS NULL", id).Scan(&rootID); err != nil {
+			return err
+		}
+		root, err := readSession(ctx, tx, rootID)
+		if err != nil {
+			return err
+		}
+		if err := initializeTitle(ctx, tx, root, nil, "manual"); err != nil {
 			return err
 		}
 		result, err = readTree(ctx, tx, id)

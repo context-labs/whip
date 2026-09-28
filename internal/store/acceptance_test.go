@@ -88,7 +88,11 @@ func TestTreeConfigurationAndDeletionRollback(t *testing.T) {
 	}
 	execTest(t, s, "DROP TRIGGER fail_delete")
 	title := "A new title"
-	if updated, err := s.UpdateTree(t.Context(), tree.ID, 1, session.TreeMetadata{Title: &title}); err != nil || updated.Revision != 2 {
+	tree, err = s.Tree(t.Context(), tree.ID) // Accepted authored text initialized its fallback.
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated, err := s.UpdateTree(t.Context(), tree.ID, tree.Revision, session.TreeMetadata{Title: &title}); err != nil || updated.Revision != tree.Revision+1 {
 		t.Fatal("metadata update", err)
 	}
 	if _, err := s.UpdateTree(t.Context(), tree.ID, 1, session.TreeMetadata{}); !errors.Is(err, ErrConflict) {

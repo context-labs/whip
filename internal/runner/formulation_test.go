@@ -138,7 +138,7 @@ func TestGoalFormulationFrozenSourceSamplingAndAtomicLostAck(t *testing.T) {
 		return prepared, err
 	})
 	preview := &helperPreview{}
-	r := &Runner{provider: provider, attempts: ledger, formulations: ledger, progress: preview, executor: forbiddenExecutor{}}
+	r := &Runner{provider: provider, attempts: ledger, maintenance: ledger, progress: preview, executor: forbiddenExecutor{}}
 	outcome, err := r.Run(ctx, claim.Turn, claim.Configuration)
 	if err != nil || outcome.State != session.Succeeded || calls != 1 || writes != 2 || preview.calls.Load() != 0 {
 		t.Fatalf("outcome=%+v calls=%d writes=%d previews=%d err=%v", outcome, calls, writes, preview.calls.Load(), err)
@@ -182,7 +182,7 @@ func TestGoalFormulationSemanticRejectionRetainsCandidate(t *testing.T) {
 		calls.Add(1)
 		return model.Response{Parts: []session.Part{{Type: "text", Text: "Build the requested exporter."}}}, nil
 	})
-	r := &Runner{provider: provider, attempts: ledger, formulations: ledger}
+	r := &Runner{provider: provider, attempts: ledger, maintenance: ledger}
 	outcome, err := r.Run(t.Context(), claim.Turn, claim.Configuration)
 	if err != nil || outcome.State != session.Failed || outcome.Failure == nil || calls.Load() != 1 {
 		t.Fatalf("activation rejection=%+v calls=%d err=%v", outcome, calls.Load(), err)
@@ -236,7 +236,7 @@ func TestGoalFormulationProviderOutcomesAndExplicitRetry(t *testing.T) {
 				}
 				return prepared, err
 			})
-			r := &Runner{provider: provider, attempts: ledger, formulations: ledger}
+			r := &Runner{provider: provider, attempts: ledger, maintenance: ledger}
 			outcome, err := r.Run(ctx, claim.Turn, claim.Configuration)
 			wantCalls, wantState := 1, session.AttemptFailed
 			if mode == "retry" {

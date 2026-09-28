@@ -119,7 +119,7 @@ func readAdmission(ctx context.Context, q querier, identity session.RequestIdent
 // Public admissions cannot occupy identities owned by internal durable work.
 // Recovery/inspection intentionally accepts these returned receipt identities.
 func validatePublicIdentity(identity session.RequestIdentity) error {
-	if identity.ClientID == "schedule" || identity.ClientID == "operation" || identity.ClientID == "goal" {
+	if identity.ClientID == "schedule" || identity.ClientID == "operation" || identity.ClientID == "goal" || identity.ClientID == titleClient {
 		return fmt.Errorf("%w: client identity is reserved for internal admissions", session.ErrInvalid)
 	}
 	return nil
@@ -242,6 +242,15 @@ func admitInput(ctx context.Context, tx *sql.Tx, identity session.RequestIdentit
 	if err := checkResources(ctx, tx, current.ID, session.ResourceQueuedInputs); err != nil {
 		return result, err
 	}
+	if request.Kind == session.PromptInput {
+		reason := "ineligible"
+		if request.Source == session.UserInput {
+			reason = "authored"
+		}
+		if err := initializeTitle(ctx, tx, current, &session.Input{ID: inputID, Parts: request.Parts}, reason); err != nil {
+			return result, err
+		}
+	}
 	result, err = readAdmission(ctx, tx, identity)
 	return result, err
 }
@@ -293,7 +302,14 @@ func (s *Store) Claim(ctx context.Context, id session.SessionID) (result Claim, 
 				return err
 			}
 			if !ready {
-				return ErrNoWork
+				title, err := admitTitle(ctx, tx, current)
+				if err != nil {
+					return err
+				}
+				if title == nil {
+					return ErrNoWork
+				}
+				inputID = title.ID
 			}
 		} else if err != nil {
 			return err
@@ -305,6 +321,24 @@ func (s *Store) Claim(ctx context.Context, id session.SessionID) (result Claim, 
 				return e
 			}
 			input = &value
+		}
+		if input == nil {
+			if err := initializeTitle(ctx, tx, current, nil, "ineligible"); err != nil {
+				return err
+			}
+		} else if input.Kind == session.AutomaticTitleInputKind {
+			decision, err := readTitleDecision(ctx, tx, current.TreeID)
+			if err != nil {
+				return err
+			}
+			current.ConfigRevision = decision.ConfigRevision
+			var raw string
+			if err := tx.QueryRowContext(ctx, "SELECT configuration FROM session_configurations WHERE session_id=? AND revision=?", current.ID, current.ConfigRevision).Scan(&raw); err != nil {
+				return err
+			}
+			if err := json.Unmarshal([]byte(raw), &current.Config); err != nil {
+				return err
+			}
 		}
 		goal, skip, err := claimGoal(ctx, tx, current, input)
 		if err != nil {
