@@ -142,7 +142,7 @@ func TestContentRegistrationRollbackIdentityAndSharedBodies(t *testing.T) {
 	if _, err := s.RegisterContent(t.Context(), contentReference(owner.ID, draft.ID, "different")); !errors.Is(err, ErrConflict) {
 		t.Fatal("reference identity changed", err)
 	}
-	if _, err := s.RegisterContent(t.Context(), contentReference(other.ID, "other-reference", "same bytes")); err != nil {
+	if _, err := s.RegisterContent(t.Context(), contentReference(other.ID, draft.ID, "same bytes")); err != nil {
 		t.Fatal(err)
 	}
 	if count(t, s, "content_bodies") != 1 || count(t, s, "content_references") != 2 {

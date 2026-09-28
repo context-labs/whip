@@ -357,7 +357,7 @@ func TestCompletionSettlementSurvivesPublicationPressure(t *testing.T) {
 				t.Fatalf("quota blocked turn: %+v %v", terminal, err)
 			}
 			if pressure == "content" {
-				execTest(t, s, "DELETE FROM content_references WHERE id='full_0'")
+				execTest(t, s, "DELETE FROM content_references WHERE owner_session_id=? AND reference_id='full_0'", parent.ID)
 			} else {
 				execTest(t, s, "UPDATE mail SET state='done' WHERE id='full_0'")
 			}

@@ -50,11 +50,10 @@ CREATE TABLE content_bodies (
 CREATE TRIGGER content_body_immutable BEFORE UPDATE ON content_bodies
  BEGIN SELECT RAISE(ABORT, 'content body is immutable'); END;
 CREATE TABLE content_references (
- id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+ reference_id TEXT NOT NULL, owner_session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
  digest TEXT NOT NULL REFERENCES content_bodies(digest), media_type TEXT NOT NULL,
- created_at INTEGER NOT NULL
+ created_at INTEGER NOT NULL, PRIMARY KEY(owner_session_id,reference_id)
 ) STRICT;
-CREATE INDEX content_owner ON content_references(session_id,id);
 CREATE INDEX content_digest ON content_references(digest);
 CREATE TRIGGER content_reference_immutable BEFORE UPDATE ON content_references
  BEGIN SELECT RAISE(ABORT, 'content reference is immutable'); END;
@@ -238,7 +237,7 @@ CREATE TRIGGER receipt_immutable BEFORE UPDATE ON receipts
 CREATE TABLE mail (
  id TEXT PRIMARY KEY, source_kind TEXT NOT NULL CHECK(source_kind IN ('session','state','completion')), source_id TEXT NOT NULL, recipient_id TEXT NOT NULL,
  initial_digest TEXT NOT NULL, revision INTEGER, state TEXT,
- created_at INTEGER NOT NULL, deleted_at INTEGER,
+ created_at INTEGER NOT NULL, deleted_at INTEGER, UNIQUE(id,recipient_id),
  CHECK((revision IS NULL) = (deleted_at IS NOT NULL)),
  CHECK((state IS NULL) = (deleted_at IS NOT NULL)),
  CHECK(revision IS NULL OR revision BETWEEN 1 AND 128),
@@ -248,13 +247,15 @@ CREATE TABLE mail (
 CREATE INDEX mail_by_recipient ON mail(recipient_id,id) WHERE deleted_at IS NULL;
 CREATE INDEX mail_source_rate ON mail(source_kind,source_id,created_at);
 CREATE TABLE mail_revisions (
- mail_id TEXT NOT NULL REFERENCES mail(id), revision INTEGER NOT NULL CHECK(revision BETWEEN 1 AND 128),
+ mail_id TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision BETWEEN 1 AND 128),
  delivery TEXT NOT NULL CHECK(delivery IN ('queued','steer','next_turn')),
  subject TEXT NOT NULL, body TEXT NOT NULL, available_at INTEGER NOT NULL, created_at INTEGER NOT NULL,
- evidence_ref TEXT REFERENCES content_references(id) DEFERRABLE INITIALLY DEFERRED,
- PRIMARY KEY(mail_id,revision)
+ evidence_ref TEXT, recipient_id TEXT NOT NULL,
+ PRIMARY KEY(mail_id,revision),
+ FOREIGN KEY(mail_id,recipient_id) REFERENCES mail(id,recipient_id),
+ FOREIGN KEY(recipient_id,evidence_ref) REFERENCES content_references(owner_session_id,reference_id) DEFERRABLE INITIALLY DEFERRED
 ) STRICT;
-CREATE INDEX mail_revision_evidence ON mail_revisions(evidence_ref) WHERE evidence_ref IS NOT NULL;
+CREATE INDEX mail_revision_evidence ON mail_revisions(recipient_id,evidence_ref) WHERE evidence_ref IS NOT NULL;
 CREATE TRIGGER mail_revision_immutable BEFORE UPDATE ON mail_revisions
  BEGIN SELECT RAISE(ABORT, 'mail revision is immutable'); END;
 CREATE TRIGGER mail_identity_immutable BEFORE UPDATE ON mail
