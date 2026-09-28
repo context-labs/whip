@@ -545,7 +545,7 @@ admission even if a child's older local cap is larger. Inspection returns all
 scopes so callers can see which allowance is exhausted. A local allowance is not
 reserved exclusively for that child.
 
-Fresh host configuration is version 3. Optional finite `resources` defaults and
+Fresh host configuration is version 4. Optional finite `resources` defaults and
 creation overrides resolve once into root rows at revision one: depth 8,
 127 descendants, 256 queued inputs, 64 active operations, 1,000 subscriptions,
 and 64 runnable descendants.
@@ -950,7 +950,7 @@ The parser supports the retained scalar/block-scalar subset, validates known
 fields, and preserves keys following block scalars. Complete composed base
 instructions, including framing and the execution guide, are bounded to 1 MiB.
 
-Fresh schema 21 retains one immutable manifest per captured turn. It records the
+Fresh schema 22 retains one immutable manifest per captured turn. It records the
 base instruction byte count/digest and ordered source kind, root-relative
 path, scope, nullable logical root ID, byte count and digest. `skill_metadata` digests cover consumed
 frontmatter, including disabled and duplicate entries that affected discovery.
@@ -1029,4 +1029,32 @@ size, offset and next offset. A changed file fails instead of mixing revisions.
 This authorizes skill files only; neighboring host files and scripts gain no
 authority. Catalog guidance names this tool and exposes no absolute host paths.
 
-Authorized ancestors and standing user instructions remain Phase 5 obligations.
+Standing user instructions use the explicitly configured host
+`standing_instructions_file` and the captured `standing_instructions` policy
+flag. Empty host configuration fails an enabled capture clearly; a configured
+source without standing authority is omitted without probing it. Authority is
+exactly `instructions.read` on resource `standing`, including the issuer chain;
+workspace and named skill grants cannot substitute. One-use approvals do not
+authorize automatic capture. No home-directory lookup, template seeding or file
+creation occurs during execution or inspection.
+
+An authorized read opens the configured parent root, then the single basename
+with descriptor-relative `openat` and kernel `O_NOFOLLOW`. Go's `os.Root.OpenFile`
+resolves final symlinks itself, so it cannot enforce this exact-file boundary.
+The reader rejects all final symlinks, missing files, nonregular files, incomplete
+or oversized reads, invalid UTF-8 and NUL. Complete input is bounded to 64 KiB
+before filtering. As in the retained `me.md` convention, each line is trimmed;
+blank lines and lines starting with `#` are omitted. The filtered rules join the
+turn's frozen instructions; the `standing_instructions` source audit hashes the
+full original file, including comments, even when no rules remain. It uses host
+scope, logical root ID `standing` and only the basename. This singleton identity
+belongs to `instructions.read`; an identically named skill root has separate
+`skills.read` authority.
+
+Configuration/file edits and revocation affect later turns; active turns retain
+their captured rules. Children copy the flag and can receive delegated standing
+authority. Restart preserves old audit and reads current rules on a new turn.
+Skill catalog inspection and maintenance compaction never load this file.
+Malformed authorized rules or audit failure stop before provider dispatch.
+
+Authorized ancestor sources remain an outstanding Phase 5 instruction obligation.

@@ -119,7 +119,7 @@ Each control requires its own capability grant.
 Reusable capacity lives in session resource scopes, separately from model budgets
 and tree metadata. `trees.create` and `client.spawn` accept an optional `resources`
 array, for example `[{kind: 'descendants', limit: '10'}]`. Fresh host configuration
-version 3 supplies root defaults; existing trees retain their persisted limits.
+version 4 supplies root defaults; existing trees retain their persisted limits.
 Root limits must be finite. Omitted child limits and `limit: null` inherit the
 ancestor bounds. Duplicate kinds are invalid.
 
@@ -451,3 +451,19 @@ UTF-8. Changing the file between pages fails its digest check. Reads use the
 current cell's captured policy and ordinary operation permissions; one-use
 approval does not turn into standing discovery authority. A host root grants
 no permission to neighboring files or executable scripts.
+
+
+Standing user instructions are opt-in through the captured instruction policy's
+`standing_instructions` flag. The host explicitly sets
+`standing_instructions_file`; the session needs a standing `instructions.read`
+grant with resource `standing`. No home-directory lookup or template creation
+occurs during execution. Disabled or ungranted files are not opened.
+
+The complete file must be at most 64 KiB, regular UTF-8 without NUL, and cannot be
+a final symlink. Trimmed blank lines and lines beginning with `#` are omitted
+from the captured rules. The manifest's `standing_instructions` source hashes
+the full raw file, including comments; it exposes only host scope, logical root
+ID `standing` and the basename. Active turns keep their captured rules while new
+turns refresh authorized sources, including after restart. Missing or malformed
+authorized files fail before provider dispatch. Catalog inspection and maintenance
+compaction do not read standing instructions.

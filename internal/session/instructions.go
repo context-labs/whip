@@ -73,8 +73,11 @@ func (m InstructionManifest) Validate() error {
 }
 
 func (s InstructionSource) Validate() error {
-	if s.Kind != "project_file" && s.Kind != "skill_metadata" && s.Kind != "invoked_skill" {
+	if s.Kind != "project_file" && s.Kind != "skill_metadata" && s.Kind != "invoked_skill" && s.Kind != "standing_instructions" {
 		return fmt.Errorf("%w: unknown instruction source kind or scope", ErrInvalid)
+	}
+	if s.Kind == "standing_instructions" && (s.Scope != "host" || s.RootID == nil || *s.RootID != "standing" || strings.ContainsRune(s.Path, '/')) {
+		return fmt.Errorf("%w: standing instruction source requires the standing host scope and a basename", ErrInvalid)
 	}
 	switch s.Scope {
 	case "workspace":
@@ -83,7 +86,7 @@ func (s InstructionSource) Validate() error {
 		}
 	case "host":
 		if s.RootID == nil || s.Kind == "project_file" {
-			return fmt.Errorf("%w: host instruction source requires a named skill root", ErrInvalid)
+			return fmt.Errorf("%w: host instruction source requires a named root", ErrInvalid)
 		}
 		if err := ValidateID(*s.RootID); err != nil {
 			return err

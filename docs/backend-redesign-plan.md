@@ -2,8 +2,10 @@
 
 Status: phases 0 and 1 complete and validated in PRs #197 and #199.
 Phases 2 and 3 are complete and validated in PRs #200 and #201.
-Phase 4 is complete with passing local gates in [PR #202](https://github.com/context-labs/whip/pull/202);
-phase 5 is in progress and phases 6–7 are pending. The authorized execution scope
+Phase 4 implementation in [PR #202](https://github.com/context-labs/whip/pull/202)
+passed its checks, but its completion is reopened: ordinary mail still lacks
+retained content-reference transfer. Phase 5 is in progress and phases 6–7 are
+pending. The authorized execution scope
 is all phases, including client adoption and final removal of the retired core.
 Written: 2026-09-27. Planning reference: `6f02507bf`.
 
@@ -549,10 +551,25 @@ Acceptance:
       the selected retry semantics at every depth.
 - [x] Mail delivery/acknowledgement is distinct from human inspection and input
       admission. Private and shared state isolation is tested.
+- [ ] Ordinary authored mail can carry authorized content references, including
+      evidence-only mail. Sharing recipient access and admitting the mail commit
+      atomically; retries, rejection, replacement, restart and sender deletion
+      preserve the intended ownership. Automatic completion evidence alone does
+      not replace this retained capability.
 - [x] Shared-state subscriptions atomically coalesce notifications with writes;
       subscription cursors and notification evidence survive restart.
 - [x] Parent-turn completion, child cancellation, subtree deletion and worker
       eviction release the intended resources without implicit data loss.
+
+Completion audit correction: the original seven acceptance bullets and retained
+feature guidance were rechecked after the completion claim. The missing ordinary
+mail evidence path is demonstrated by the retained
+`TestSiblingDigestPreservesUnicodeAndEvidenceAccess` and the feature map's
+message-with-evidence guarantee. The replacement `MailSend` currently contains
+only text and routing fields. Keep Phase 4 open until replacement coverage proves
+that path through the store, guest operations and generated SDK. Passing checks
+for the implemented subset do not close this obligation. See the detailed
+[audit correction](backend-redesign-development.md#phase-4-completion-audit-correction).
 
 ### Phase 5 — Port retained product capabilities
 
@@ -632,7 +649,9 @@ bodies now use the same catalog winners as read-only source inspection/completio
 bodies remain turn-local and never rewrite canonical input. Named host roots
 now use explicit registry IDs, captured root selection and standing grants;
 `skills.read` supplies bounded, digest-checked body pages through the operation
-ledger. Authorized ancestors and standing user instructions remain required; the
+ledger. Standing user instructions now use an explicit file and exact standing
+authority, with filtered turn-local text and immutable raw-source audit.
+Authorized ancestors remain required; the
 compaction acceptance item remains
 open until the retained instruction family is complete.
 Long-turn splitting now retains exact opening inputs and complete tool exchanges;

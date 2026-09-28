@@ -109,6 +109,9 @@
             "discover_skills": {
               "type": "boolean"
             },
+            "standing_instructions": {
+              "type": "boolean"
+            },
             "skill_roots": {
               "type": [
                 "null",
@@ -123,6 +126,7 @@
             "text",
             "project_files",
             "discover_skills",
+            "standing_instructions",
             "skill_roots"
           ],
           "additionalProperties": false

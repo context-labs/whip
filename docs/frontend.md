@@ -177,6 +177,14 @@ relative paths. Workspace names override host duplicates. Guest `skills.read`
 results are ordinary recorded operation evidence: bounded base64 byte pages with
 a full-file digest required for subsequent reads. A one-use approval enables only
 that call, not later discovery. Preserve this distinction in permission UI.
+`standing_instructions` selects an explicitly configured host file. Automatic
+reads need standing `instructions.read` on resource `standing`; unrelated read
+or one-use grants do not enable it. The audit source uses kind
+`standing_instructions`, host scope, root ID `standing` and a basename; its
+bytes/digest cover comments and blank lines omitted from model instructions.
+Disabled or ungranted sources are not probed. Never infer that skill inspection
+loaded this file or replace a historical audit by rereading it. There is no
+implicit HOME lookup or file creation; setup/editor flows must be explicit.
 Product clients continue to use the explicitly retained packages until their
 cutover. The package map below describes those retained clients.
 

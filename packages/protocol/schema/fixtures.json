@@ -7,7 +7,7 @@
           "client_id": "client",
           "request_id": "deleted"
         },
-        "digest": "521ae01aa129b3470a8f976eca334430605bdd01dd5be826d7c3b2e520721aaa",
+        "digest": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee",
         "input_id": null,
         "deleted_at": "2026-09-27T12:00:00.123456Z",
         "created_at": "2026-09-27T12:00:00.123456Z"
@@ -177,7 +177,7 @@
             "root_id": null,
             "path": ".agents/skills/my-skill/SKILL.md",
             "bytes": "40",
-            "sha256": "521ae01aa129b3470a8f976eca334430605bdd01dd5be826d7c3b2e520721aaa"
+            "sha256": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee"
           }
         }
       ],
@@ -190,7 +190,7 @@
     "value": {
       "manifest": {
         "bytes": "80000",
-        "sha256": "521ae01aa129b3470a8f976eca334430605bdd01dd5be826d7c3b2e520721aaa",
+        "sha256": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee",
         "sources": [
           {
             "kind": "invoked_skill",
@@ -198,7 +198,7 @@
             "root_id": null,
             "path": ".agents/skills/my-skill/SKILL.md",
             "bytes": "70000",
-            "sha256": "521ae01aa129b3470a8f976eca334430605bdd01dd5be826d7c3b2e520721aaa"
+            "sha256": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee"
           }
         ]
       }
@@ -210,7 +210,7 @@
     "value": {
       "manifest": {
         "bytes": "100",
-        "sha256": "521ae01aa129b3470a8f976eca334430605bdd01dd5be826d7c3b2e520721aaa",
+        "sha256": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee",
         "sources": [
           {
             "kind": "skill_metadata",
@@ -218,7 +218,27 @@
             "root_id": "team",
             "path": "review/SKILL.md",
             "bytes": "40",
-            "sha256": "521ae01aa129b3470a8f976eca334430605bdd01dd5be826d7c3b2e520721aaa"
+            "sha256": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee"
+          }
+        ]
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "InstructionManifestResult",
+    "value": {
+      "manifest": {
+        "bytes": "100",
+        "sha256": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee",
+        "sources": [
+          {
+            "kind": "standing_instructions",
+            "scope": "host",
+            "root_id": "standing",
+            "path": "me.md",
+            "bytes": "40",
+            "sha256": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee"
           }
         ]
       }
@@ -237,7 +257,7 @@
     "value": {
       "manifest": {
         "bytes": "40",
-        "sha256": "521ae01aa129b3470a8f976eca334430605bdd01dd5be826d7c3b2e520721aaa",
+        "sha256": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee",
         "sources": [
           {
             "kind": "project_file",
@@ -257,7 +277,7 @@
     "value": {
       "manifest": {
         "bytes": "20",
-        "sha256": "521ae01aa129b3470a8f976eca334430605bdd01dd5be826d7c3b2e520721aaa",
+        "sha256": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee",
         "sources": []
       }
     },
@@ -562,7 +582,7 @@
       "state": "succeeded",
       "result_message_id": "message_result",
       "checkpoint": {
-        "digest": "521ae01aa129b3470a8f976eca334430605bdd01dd5be826d7c3b2e520721aaa",
+        "digest": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee",
         "size": "123",
         "engine": "starlark",
         "metadata": {
@@ -617,7 +637,7 @@
             },
             "route": "https://provider.example/v1/chat/completions",
             "adapter": "openai-chat",
-            "request_digest": "521ae01aa129b3470a8f976eca334430605bdd01dd5be826d7c3b2e520721aaa",
+            "request_digest": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee",
             "prices": {
               "input": null,
               "output": null,
@@ -673,7 +693,7 @@
       "builtins": [
         {
           "id": "assistant",
-          "revision": "521ae01aa129b3470a8f976eca334430605bdd01dd5be826d7c3b2e520721aaa"
+          "revision": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee"
         }
       ]
     },
@@ -723,7 +743,7 @@
       "parent_id": null,
       "definition": {
         "id": "assistant",
-        "revision": "521ae01aa129b3470a8f976eca334430605bdd01dd5be826d7c3b2e520721aaa"
+        "revision": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee"
       },
       "config_revision": "9007199254740993",
       "configuration": {
@@ -743,6 +763,7 @@
             "AGENTS.md"
           ],
           "discover_skills": true,
+          "standing_instructions": false,
           "skill_roots": null
         },
         "tools": null,
@@ -764,7 +785,7 @@
       "parent_id": "session_root",
       "definition": {
         "id": "assistant",
-        "revision": "521ae01aa129b3470a8f976eca334430605bdd01dd5be826d7c3b2e520721aaa"
+        "revision": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee"
       },
       "config_revision": "9007199254740993",
       "configuration": {
@@ -784,6 +805,7 @@
             "AGENTS.md"
           ],
           "discover_skills": true,
+          "standing_instructions": false,
           "skill_roots": null
         },
         "tools": null,

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/context-labs/whip/internal/session"
@@ -19,7 +20,7 @@ import (
 
 const (
 	FileName = "host.json"
-	Version  = 3
+	Version  = 4
 )
 
 var environmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -74,6 +75,8 @@ func (m Model) Resolve() (Model, error) {
 }
 
 type Host struct {
+	// StandingInstructionsFile explicitly publishes one file; empty disables it.
+	StandingInstructionsFile string `json:"standing_instructions_file"`
 	// SkillRoots publishes explicit named directories; publication grants no authority.
 	SkillRoots map[string]string       `json:"skill_roots"`
 	Version    int                     `json:"version"`
@@ -92,6 +95,15 @@ func Default() Host {
 func (h Host) Validate() error {
 	if h.Version != Version {
 		return fmt.Errorf("%w: unsupported host version %d", session.ErrInvalid, h.Version)
+	}
+	if h.StandingInstructionsFile != "" {
+		if err := session.ValidateText(h.StandingInstructionsFile, 4096); err != nil {
+			return err
+		}
+		path := h.StandingInstructionsFile
+		if !utf8.ValidString(path) || !filepath.IsAbs(path) || filepath.Clean(path) != path || filepath.Base(path) == string(filepath.Separator) || strings.ContainsRune(filepath.Base(path), '\\') {
+			return fmt.Errorf("%w: standing instruction file must be a clean absolute path with a basename", session.ErrInvalid)
+		}
 	}
 	if len(h.SkillRoots) > session.MaxSkillRoots {
 		return fmt.Errorf("%w: too many host skill roots", session.ErrInvalid)
