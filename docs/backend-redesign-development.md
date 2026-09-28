@@ -1681,6 +1681,23 @@ this increment remains pending.
 
 The preceding named-scenario harness at `72d22969a` passed Linux, macOS, analysis
 and the aggregate gate in [run 36466900346](https://github.com/context-labs/whip/actions/runs/36466900346).
-That green result includes the authored-mail evidence repair. The final unified
-mail attachment increment at `1244d7cd2` has passed Linux and analysis; macOS is
-still running, so the Phase 4 completion audit remains open.
+That green result includes the authored-mail evidence repair.
+
+
+## Phase 4 audit closure
+
+The final unified mail attachment increment at `1244d7cd2` passed hosted Linux,
+macOS, analysis and the aggregate redesign gate in
+[run 36467683567](https://github.com/context-labs/whip/actions/runs/36467683567).
+Together with the local phase/analysis evidence recorded above, this closes the
+authored-mail evidence gap found by rechecking the original seven Phase 4
+criteria and retained feature guidance. Phase 4 is now complete through the
+stack of PRs #202, #213, #214 and #215; #202 alone did not satisfy the audited
+scope. The earlier completion claim was premature and remains recorded as such.
+
+The timeout failures at the preceding host-skills, standing-instruction and
+authored-mail revisions remain failed results. They are superseded by the
+combined passing repair, not reclassified as successes. No acceptance scenario
+was removed. The named-stage harness has independent hosted evidence at
+`72d22969a`. Phases 5–7 and their retained-feature/client/cutover criteria remain
+open.
