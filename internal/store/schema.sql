@@ -155,13 +155,42 @@ CREATE TRIGGER schedule_identity_immutable BEFORE UPDATE ON schedules
  OR (NEW.deleted_at IS NULL AND (NEW.first_due IS NOT OLD.first_due OR NEW.every_ns IS NOT OLD.every_ns OR NEW.parts IS NOT OLD.parts))
  BEGIN SELECT RAISE(ABORT, 'schedule identity is immutable'); END;
 
+-- Goal identities survive owner deletion for exact creation retries. Current is
+-- the latest ordinal, including terminal records; no separate selection head.
+CREATE TABLE goals (
+ ordinal INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
+ session_id TEXT NOT NULL, initial_digest TEXT NOT NULL,
+ text TEXT, max_continuations INTEGER NOT NULL CHECK(max_continuations>=0),
+ revision INTEGER NOT NULL CHECK(revision>0), state TEXT NOT NULL
+ CHECK(state IN ('armed','paused','completed','cancelled','superseded')),
+ continuations_used INTEGER NOT NULL CHECK(continuations_used BETWEEN 0 AND max_continuations),
+ stop_reason TEXT, created_at INTEGER NOT NULL, deleted_at INTEGER,
+ UNIQUE(id,session_id), CHECK((text IS NULL) = (deleted_at IS NOT NULL)),
+ CHECK(text IS NULL OR length(CAST(text AS BLOB))<=1048576),
+ CHECK(stop_reason IS NULL OR length(CAST(stop_reason AS BLOB))<=16384)
+) STRICT;
+CREATE INDEX goals_owner ON goals(session_id,ordinal DESC);
+CREATE UNIQUE INDEX one_open_goal ON goals(session_id)
+ WHERE deleted_at IS NULL AND state IN ('armed','paused');
+CREATE TRIGGER goal_identity_immutable BEFORE UPDATE ON goals
+ WHEN NEW.id IS NOT OLD.id OR NEW.ordinal IS NOT OLD.ordinal OR NEW.session_id IS NOT OLD.session_id
+ OR NEW.initial_digest IS NOT OLD.initial_digest OR NEW.created_at IS NOT OLD.created_at
+ OR NEW.max_continuations IS NOT OLD.max_continuations OR OLD.deleted_at IS NOT NULL
+ OR (NEW.deleted_at IS NULL AND (NEW.text IS NOT OLD.text OR NEW.revision<>OLD.revision+1
+ OR OLD.state NOT IN ('armed','paused') OR NEW.continuations_used<OLD.continuations_used))
+ BEGIN SELECT RAISE(ABORT, 'invalid goal change'); END;
+
 CREATE TABLE inputs (
  ordinal INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
- source TEXT NOT NULL CHECK(source IN ('user','agent','schedule')),
+ source TEXT NOT NULL CHECK(source IN ('user','agent','schedule','goal')),
  kind TEXT NOT NULL DEFAULT 'prompt' CHECK(kind IN ('prompt','compact')),
  parts TEXT NOT NULL CHECK(json_valid(parts)), turn_id TEXT UNIQUE, cancelled_at INTEGER, created_at INTEGER NOT NULL,
- schedule_id TEXT, scheduled_for TEXT,
+ schedule_id TEXT, scheduled_for TEXT, goal_id TEXT, goal_revision INTEGER,
+ CHECK((goal_id IS NOT NULL) = (source='goal')),
+ CHECK((goal_revision IS NULL) = (goal_id IS NULL)),
+ CHECK(goal_revision IS NULL OR (goal_revision>0 AND kind='prompt')),
+ FOREIGN KEY(goal_id,session_id) REFERENCES goals(id,session_id),
  CHECK((schedule_id IS NOT NULL) = (source='schedule')),
  CHECK((scheduled_for IS NULL) = (schedule_id IS NULL)),
  CHECK(scheduled_for IS NULL OR (length(scheduled_for)=30 AND kind='prompt')),
@@ -171,10 +200,12 @@ CREATE TABLE inputs (
  CHECK(turn_id IS NULL OR cancelled_at IS NULL), UNIQUE(id,turn_id,session_id),
  FOREIGN KEY(turn_id,session_id) REFERENCES turns(id,session_id) ON DELETE CASCADE
 ) STRICT;
+CREATE INDEX goal_inputs ON inputs(goal_id,ordinal DESC) WHERE goal_id IS NOT NULL;
 CREATE INDEX schedule_inputs ON inputs(schedule_id,ordinal DESC) WHERE schedule_id IS NOT NULL;
 CREATE INDEX queued_inputs ON inputs(session_id,ordinal) WHERE turn_id IS NULL AND cancelled_at IS NULL;
 CREATE TRIGGER input_immutable BEFORE UPDATE ON inputs
  WHEN NEW.id IS NOT OLD.id OR NEW.ordinal IS NOT OLD.ordinal OR NEW.session_id IS NOT OLD.session_id
+ OR NEW.goal_id IS NOT OLD.goal_id OR NEW.goal_revision IS NOT OLD.goal_revision
  OR NEW.schedule_id IS NOT OLD.schedule_id OR NEW.scheduled_for IS NOT OLD.scheduled_for
  OR NEW.source IS NOT OLD.source OR NEW.kind IS NOT OLD.kind OR NEW.parts IS NOT OLD.parts OR NEW.created_at IS NOT OLD.created_at
  OR OLD.turn_id IS NOT NULL OR OLD.cancelled_at IS NOT NULL
@@ -424,7 +455,7 @@ CREATE TABLE logical_writes (
  id TEXT PRIMARY KEY,
  tree_id TEXT NOT NULL REFERENCES session_trees(id) ON DELETE CASCADE,
  author_id TEXT NOT NULL,
- source_kind TEXT NOT NULL CHECK(source_kind IN ('mail','input','content','state','subscription','schedule')),
+ source_kind TEXT NOT NULL CHECK(source_kind IN ('mail','input','content','state','subscription','schedule','goal')),
  source_id TEXT NOT NULL, source_revision INTEGER NOT NULL CHECK(source_revision>=0),
  bytes INTEGER NOT NULL CHECK(bytes>=0), created_at INTEGER NOT NULL,
  UNIQUE(source_kind,source_id,source_revision)

@@ -84,6 +84,7 @@ func (r DefinitionRef) Validate() error {
 }
 
 type Configuration struct {
+	GoalsEnabled bool                       `json:"goals_enabled"`
 	ReportMode   ReportMode                 `json:"report_mode"`
 	Model        ModelSelection             `json:"model"`
 	Compaction   CompactionPolicy           `json:"compaction"`
@@ -98,6 +99,7 @@ type Configuration struct {
 // clears. A present Output policy with no schema clears structured output.
 // This avoids recursive merge rules and implicit inheritance of credentials.
 type ConfigPatch struct {
+	GoalsEnabled *bool                      `json:"goals_enabled"`
 	ReportMode   *ReportMode                `json:"report_mode"`
 	Model        *ModelSelection            `json:"model"`
 	Compaction   *CompactionPolicy          `json:"compaction"`
@@ -126,7 +128,7 @@ func Builtins() []DefinitionDocument {
 	return []DefinitionDocument{{
 		ID:   "assistant",
 		Name: "Assistant",
-		Defaults: ConfigPatch{Instructions: &Instructions{
+		Defaults: ConfigPatch{GoalsEnabled: new(true), Instructions: &Instructions{
 			Text:           "Help the user complete their task. Use only the operations made available to you.",
 			ProjectFiles:   []string{"AGENTS.md"},
 			DiscoverSkills: true,
@@ -166,6 +168,9 @@ func Resolve(base Configuration, definition DefinitionDocument, overrides Config
 	for _, patch := range []ConfigPatch{definition.Defaults, overrides} {
 		if err := patch.Validate(); err != nil {
 			return Configuration{}, err
+		}
+		if patch.GoalsEnabled != nil {
+			resolved.GoalsEnabled = *patch.GoalsEnabled
 		}
 		if patch.Model != nil {
 			resolved.Model = *patch.Model

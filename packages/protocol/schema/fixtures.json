@@ -7,7 +7,7 @@
           "client_id": "client",
           "request_id": "deleted"
         },
-        "digest": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37",
+        "digest": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a",
         "input_id": null,
         "deleted_at": "2026-09-27T12:00:00.123456Z",
         "created_at": "2026-09-27T12:00:00.123456Z"
@@ -88,6 +88,7 @@
   {
     "type": "Input",
     "value": {
+      "goal": null,
       "id": "scheduled_input",
       "session_id": "session_child",
       "source": "schedule",
@@ -111,6 +112,31 @@
   {
     "type": "Input",
     "value": {
+      "goal": {
+        "id": "goal_fixture",
+        "revision": "9007199254740993"
+      },
+      "id": "goal_input",
+      "session_id": "session_child",
+      "source": "goal",
+      "kind": "prompt",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Work on the goal."
+        }
+      ],
+      "state": "queued",
+      "turn_id": null,
+      "created_at": "2026-09-27T12:00:00.123456Z",
+      "schedule": null
+    },
+    "valid": true
+  },
+  {
+    "type": "Input",
+    "value": {
+      "goal": null,
       "id": "input_compact",
       "session_id": "session_child",
       "source": "user",
@@ -258,7 +284,7 @@
             "root_id": null,
             "path": ".agents/skills/my-skill/SKILL.md",
             "bytes": "40",
-            "sha256": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37"
+            "sha256": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a"
           }
         }
       ],
@@ -271,7 +297,7 @@
     "value": {
       "manifest": {
         "bytes": "80000",
-        "sha256": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37",
+        "sha256": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a",
         "sources": [
           {
             "kind": "invoked_skill",
@@ -279,7 +305,7 @@
             "root_id": null,
             "path": ".agents/skills/my-skill/SKILL.md",
             "bytes": "70000",
-            "sha256": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37"
+            "sha256": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a"
           }
         ]
       }
@@ -291,7 +317,7 @@
     "value": {
       "manifest": {
         "bytes": "100",
-        "sha256": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37",
+        "sha256": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a",
         "sources": [
           {
             "kind": "skill_metadata",
@@ -299,7 +325,7 @@
             "root_id": "team",
             "path": "review/SKILL.md",
             "bytes": "40",
-            "sha256": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37"
+            "sha256": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a"
           }
         ]
       }
@@ -311,7 +337,7 @@
     "value": {
       "manifest": {
         "bytes": "100",
-        "sha256": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37",
+        "sha256": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a",
         "sources": [
           {
             "kind": "standing_instructions",
@@ -319,7 +345,7 @@
             "root_id": "standing",
             "path": "me.md",
             "bytes": "40",
-            "sha256": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37"
+            "sha256": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a"
           }
         ]
       }
@@ -331,7 +357,7 @@
     "value": {
       "manifest": {
         "bytes": "100",
-        "sha256": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37",
+        "sha256": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a",
         "sources": [
           {
             "kind": "project_file",
@@ -339,7 +365,7 @@
             "root_id": "project",
             "path": "app/AGENTS.md",
             "bytes": "40",
-            "sha256": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37"
+            "sha256": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a"
           }
         ]
       }
@@ -358,7 +384,7 @@
     "value": {
       "manifest": {
         "bytes": "40",
-        "sha256": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37",
+        "sha256": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a",
         "sources": [
           {
             "kind": "project_file",
@@ -378,7 +404,7 @@
     "value": {
       "manifest": {
         "bytes": "20",
-        "sha256": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37",
+        "sha256": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a",
         "sources": []
       }
     },
@@ -721,7 +747,7 @@
       "state": "succeeded",
       "result_message_id": "message_result",
       "checkpoint": {
-        "digest": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37",
+        "digest": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a",
         "size": "123",
         "engine": "starlark",
         "metadata": {
@@ -776,7 +802,7 @@
             },
             "route": "https://provider.example/v1/chat/completions",
             "adapter": "openai-chat",
-            "request_digest": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37",
+            "request_digest": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a",
             "prices": {
               "input": null,
               "output": null,
@@ -832,7 +858,7 @@
       "builtins": [
         {
           "id": "assistant",
-          "revision": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37"
+          "revision": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a"
         }
       ]
     },
@@ -882,10 +908,11 @@
       "parent_id": null,
       "definition": {
         "id": "assistant",
-        "revision": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37"
+        "revision": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a"
       },
       "config_revision": "9007199254740993",
       "configuration": {
+        "goals_enabled": true,
         "compaction": {
           "model": null,
           "threshold_percent": 50
@@ -925,10 +952,11 @@
       "parent_id": "session_root",
       "definition": {
         "id": "assistant",
-        "revision": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37"
+        "revision": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a"
       },
       "config_revision": "9007199254740993",
       "configuration": {
+        "goals_enabled": true,
         "compaction": {
           "model": null,
           "threshold_percent": 50
@@ -1103,6 +1131,7 @@
           "model": null,
           "threshold_percent": 0
         },
+        "goals_enabled": false,
         "output": {
           "schema": null
         },

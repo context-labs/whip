@@ -32,6 +32,12 @@
         "defaults": {
           "type": "object",
           "properties": {
+            "goals_enabled": {
+              "type": [
+                "null",
+                "boolean"
+              ]
+            },
             "compaction": {
               "type": [
                 "null",
