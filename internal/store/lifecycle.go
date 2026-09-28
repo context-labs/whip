@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/context-labs/whip/internal/session"
@@ -47,7 +48,14 @@ func (s *Store) CancelInput(ctx context.Context, id session.InputID) (result ses
 	return
 }
 
-func (s *Store) SetLifecycle(ctx context.Context, id session.SessionID, lifecycle session.Lifecycle) (result session.Session, err error) {
+// LifecycleChange carries the committed session snapshot and the exact execution
+// whose cancellation was requested. It is a transaction result, not stored state.
+type LifecycleChange struct {
+	Session      session.Session
+	CancelTurnID *session.TurnID
+}
+
+func (s *Store) SetLifecycle(ctx context.Context, id session.SessionID, lifecycle session.Lifecycle) (result LifecycleChange, err error) {
 	if lifecycle != session.Active && lifecycle != session.Stopped {
 		return result, fmt.Errorf("%w: invalid lifecycle", session.ErrInvalid)
 	}
@@ -62,8 +70,15 @@ func (s *Store) SetLifecycle(ctx context.Context, id session.SessionID, lifecycl
 			if _, err := tx.ExecContext(ctx, "UPDATE turns SET state='cancelling' WHERE session_id=? AND state='running'", id); err != nil {
 				return err
 			}
+			var turn session.TurnID
+			err := tx.QueryRowContext(ctx, "SELECT id FROM turns WHERE session_id=? AND state='cancelling'", id).Scan(&turn)
+			if err == nil {
+				result.CancelTurnID = &turn
+			} else if !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
 		}
-		result, err = readSession(ctx, tx, id)
+		result.Session, err = readSession(ctx, tx, id)
 		return err
 	})
 	return

@@ -125,6 +125,9 @@ targets its turn. Stopping a session pauses admission/claims and requests
 cancellation of active execution while retaining queued input. Resuming permits
 claims after active execution has settled. Disconnecting a client changes none
 of these records.
+The stop transaction returns the exact cancelling turn identity as transient
+cleanup data. Runtime cancellation uses that identity; a delayed stop response
+cannot target a newer turn after reactivation. No duplicate lifecycle row is needed.
 
 Deletion is explicit and atomic for a subtree (or the entire tree when targeting
 its root). Active turns make deletion conflict until cancellation/cleanup has

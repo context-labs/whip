@@ -533,7 +533,7 @@ Acceptance:
 
 - [x] Child creation atomically persists identity/config/authority and its
       initial input before scheduling; restart retains accepted child work.
-- [ ] Root and child pass the same applicable turn, history, cancel and recovery
+- [x] Root and child pass the same applicable turn, history, cancel and recovery
       scenarios. No parallel child commit or transcript implementation exists.
 - [ ] Concurrent descendants cannot overspend shared reservations or widen
       authority. Unrelated sessions cannot alter each other's scoped state.

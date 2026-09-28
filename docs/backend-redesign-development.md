@@ -917,3 +917,24 @@ regressions 2.775 s. The preceding committed resource increment also passed host
 macOS/Linux and analysis in run `36440818797` at `fce5b5964`.
 Completion reports, cumulative write allowances and final uniform lifecycle
 acceptance still block Phase 4 completion; all Phase 5–7 obligations remain.
+
+## Phase 4 uniform lifecycle acceptance
+
+Root and child now run the same lifecycle tables. Controlled-provider tests cover
+queued cancellation, stopping active work without discarding queued input,
+reactivation before old cancellation settles, exact failure/history outcomes,
+recovery without replay, preserved queued work and deletion receipts. Store tests
+inject a cancellation-write failure and prove lifecycle/turn/permit rollback.
+
+These checks exposed a postcommit race: session stop selected a cancellation
+handle from the mutable active-session map after the transaction. A delayed result
+could cancel a newly started turn. The store now returns transient
+`LifecycleChange{Session, CancelTurnID}` captured in the same transaction; the
+runtime cancels only that turn. Public runtime/RPC signatures are unchanged.
+Deterministic root/child regressions delay both active and idle stop notifications
+until newer work is executing, then confirm it completes successfully.
+
+Focused lifecycle race/shuffle coverage, vet and scoped pinned lint passed. Full
+RPC race tests also passed. The store suite will be rerun with the next write
+allowance increment, since its concurrent projection changes affected the broader
+run. Completion reports and write allowances remain outstanding.
