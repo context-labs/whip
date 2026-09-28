@@ -62,9 +62,15 @@ func Fixtures() ([]Fixture, error) {
 		{"Admission", Admission{Receipt: Receipt{Identity: RequestIdentity{ClientID: "client", RequestID: "deleted"}, Digest: ref.Revision, CreatedAt: created.Format(time.RFC3339Nano), DeletedAt: new(created.Format(time.RFC3339Nano))}}},
 		{"CompactParams", CompactParams{Identity: RequestIdentity{ClientID: "client", RequestID: "compact"}, SessionID: child.ID}},
 		{"ScheduleAdmission", ScheduleAdmissionFromDomain(session.ScheduleAdmission{ID: "schedule_fixture", Schedule: &session.ScheduleMetadata{ID: "schedule_fixture", SessionID: "session_child", Expression: "@every 0.000000001s", FirstDue: created, NextDue: &created, CreatedAt: created, PartsBytes: 123, Latest: &session.ScheduleInput{ScheduleID: "schedule_fixture", ScheduledFor: created, InputID: "scheduled_input", ClientID: "schedule", RequestID: "slot_fixture"}}})},
+		{"FormulateGoalParams", FormulateGoalParams{Identity: RequestIdentity{ClientID: "client", RequestID: "formulate"}, SessionID: "session_child", Request: GoalFormulationRequest{GoalID: "goal_formulated"}}},
+		{"FormulateGoalParams", FormulateGoalParams{Identity: RequestIdentity{ClientID: "client", RequestID: "formulate_zero"}, SessionID: "session_child", Request: GoalFormulationRequest{GoalID: "goal_formulated", MaxContinuations: new(Counter(0)), TailMessages: 100, Start: true}}},
+		{"GoalFormulation", GoalFormulationFromDomain(session.GoalFormulation{InputID: "input_formulate", SessionID: "session_child", Request: session.GoalFormulationRequest{GoalID: "goal_formulated", MaxContinuations: new(int64(9007199254740993)), TailMessages: 8}, AfterSequence: 9007199254740993, ThroughSequence: 9007199254740994, TurnID: "turn_formulate", AttemptID: "attempt_formulate", Text: "Build the requested exporter.", CreatedAt: created})},
+		{"GoalFormulation", GoalFormulationFromDomain(session.GoalFormulation{InputID: "input_rejected", SessionID: "session_child", Request: session.GoalFormulationRequest{GoalID: "goal_rejected", Expected: &session.GoalRef{ID: "previous", Revision: 9007199254740993}, TailMessages: 2}, TurnID: "turn_rejected", AttemptID: "attempt_rejected", Text: "Retained candidate.", Rejection: new("conflicting revision"), CreatedAt: created})},
+		{"Input", Input{ID: "input_formulate", SessionID: child.ID, Source: "user", Kind: "goal_formulation", State: "queued", Parts: []Part{}, CreatedAt: created.Format(time.RFC3339Nano)}},
+		{"Turn", Turn{ID: "turn_formulate", SessionID: child.ID, Kind: "goal_formulation", ConfigRevision: 9007199254740993, State: "interrupted", StartedAt: created.Format(time.RFC3339Nano), FinishedAt: new(created.Format(time.RFC3339Nano))}},
 		{"CreateGoalParams", CreateGoalParams{SessionID: "session_child", GoalID: "goal_default", Spec: GoalRequest{Text: "Objective"}}},
 		{"CreateGoalParams", CreateGoalParams{SessionID: "session_child", GoalID: "goal_zero", ExpectedCurrent: &GoalRef{ID: "goal_default", Revision: 9007199254740993}, Spec: GoalRequest{Text: "Initial only", MaxContinuations: new(Counter(0))}, Start: true}},
-		{"Goal", GoalFromDomain(session.Goal{ID: "goal_fixture", Revision: 9007199254740993, SessionID: "session_child", Spec: session.GoalSpec{Text: "Objective", MaxContinuations: 9007199254740994}, State: session.GoalCompleted, ContinuationsUsed: 9007199254740993, CompletionTurnID: new(session.TurnID("turn_fixture")), CompletionOperationID: new(session.OperationID("operation_fixture")), CreatedAt: created})},
+		{"Goal", GoalFromDomain(session.Goal{ID: "goal_fixture", Revision: 9007199254740993, SessionID: "session_child", Spec: session.GoalSpec{Text: "Objective", MaxContinuations: 9007199254740994}, OriginFormulationAttemptID: new(session.ModelAttemptID("attempt_formulate")), State: session.GoalCompleted, ContinuationsUsed: 9007199254740993, CompletionTurnID: new(session.TurnID("turn_fixture")), CompletionOperationID: new(session.OperationID("operation_fixture")), CreatedAt: created})},
 		{"CurrentGoalResult", CurrentGoalResult{}},
 		{"GoalAdmission", GoalAdmission{ID: "goal_deleted", DeletedAt: new(created.Format(time.RFC3339Nano))}},
 		{"ResumeGoalParams", ResumeGoalParams{SessionID: "session_child", Identity: RequestIdentity{ClientID: "client", RequestID: "resume"}, Goal: GoalRef{ID: "goal_fixture", Revision: 9007199254740993}}},
@@ -154,6 +160,13 @@ func Fixtures() ([]Fixture, error) {
 		{`{"session_id":"session_child","expected_revision":"1","patch":{"model":{"provider":"p","name":"model","effort":"","temperature":"0"}}}`, false},
 	} {
 		result = append(result, Fixture{Type: "UpdateConfigurationParams", Value: json.RawMessage(test.raw), Valid: test.valid})
+	}
+	for _, raw := range []string{
+		`{"identity":{"client_id":"client","request_id":"formulate"},"session_id":"session_child","request":{"goal_id":"goal","expected_current":null,"start":false,"tail_messages":-1}}`,
+		`{"identity":{"client_id":"client","request_id":"formulate"},"session_id":"session_child","request":{"goal_id":"goal","expected_current":null,"start":false,"tail_messages":1}}`,
+		`{"identity":{"client_id":"client","request_id":"formulate"},"session_id":"session_child","request":{"goal_id":"goal","expected_current":null,"start":false,"tail_messages":101}}`,
+	} {
+		result = append(result, Fixture{Type: "FormulateGoalParams", Value: json.RawMessage(raw), Valid: false})
 	}
 	for _, raw := range []string{
 		`{"session_id":"session_child","after":9007199254740993,"limit":10}`,

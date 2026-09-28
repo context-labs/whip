@@ -174,7 +174,7 @@ func TestStructuredOutputCancellationBeforeCorrectionDispatch(t *testing.T) {
 	owner := configureOutput(t, r, createTest(t, r), `{"type":"integer"}`)
 	barrier := &outputSettlementBarrier{Store: r.store, committed: make(chan session.TurnID, 1), release: make(chan struct{}, 1)}
 	var err error
-	r.runner, err = runner.New(provider, r.store, barrier, r, r, r, r, r.store)
+	r.runner, err = runner.New(provider, r.store, barrier, r, r, r, r, r.store, r.store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +215,7 @@ func TestStructuredOutputSQLSettlementRetryDoesNotReplayProvider(t *testing.T) {
 	owner := configureOutput(t, r, createTest(t, r), `{"type":"integer"}`)
 	settlements := &observationSettlements{Store: r.store, failed: make(chan struct{}, 1)}
 	var err error
-	r.runner, err = runner.New(provider, r.store, settlements, r, r, r, r, r.store)
+	r.runner, err = runner.New(provider, r.store, settlements, r, r, r, r, r.store, r.store)
 	if err != nil {
 		t.Fatal(err)
 	}

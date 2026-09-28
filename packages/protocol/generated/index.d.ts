@@ -62,7 +62,7 @@ export interface Admission {
         id: string;
         session_id: string;
         source: "user" | "agent" | "schedule" | "goal";
-        kind: "compact";
+        kind: "compact" | "goal_formulation";
         /**
          * @maxItems 0
          */
@@ -83,7 +83,7 @@ export interface Admission {
     };
     id: string;
     session_id: string;
-    kind: "prompt" | "compact";
+    kind: "prompt" | "compact" | "goal_formulation";
     config_revision: string;
     state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
     failure: null | string;
@@ -492,6 +492,7 @@ export interface CurrentGoalResult {
     state: "armed" | "paused" | "completed" | "cancelled" | "superseded";
     continuations_used: string;
     stop_reason: null | string;
+    origin_formulation_attempt_id: null | string;
     completion_turn_id: null | string;
     completion_operation_id: null | string;
     created_at: string;
@@ -623,6 +624,23 @@ export interface DefinitionRef {
 export interface DeleteResult {
   deleted: boolean;
 }
+export interface FormulateGoalParams {
+  identity: {
+    client_id: string;
+    request_id: string;
+  };
+  session_id: string;
+  request: {
+    goal_id: string;
+    expected_current: null | {
+      id: string;
+      revision: string;
+    };
+    max_continuations?: null | string;
+    start: boolean;
+    tail_messages?: 0 | number;
+  };
+}
 export interface GetStateParams {
   session_id: string;
   scope: "session" | "tree";
@@ -639,6 +657,7 @@ export interface Goal {
   state: "armed" | "paused" | "completed" | "cancelled" | "superseded";
   continuations_used: string;
   stop_reason: null | string;
+  origin_formulation_attempt_id: null | string;
   completion_turn_id: null | string;
   completion_operation_id: null | string;
   created_at: string;
@@ -656,6 +675,7 @@ export interface GoalAdmission {
     state: "armed" | "paused" | "completed" | "cancelled" | "superseded";
     continuations_used: string;
     stop_reason: null | string;
+    origin_formulation_attempt_id: null | string;
     completion_turn_id: null | string;
     completion_operation_id: null | string;
     created_at: string;
@@ -724,7 +744,7 @@ export interface GoalAdmission {
           id: string;
           session_id: string;
           source: "user" | "agent" | "schedule" | "goal";
-          kind: "compact";
+          kind: "compact" | "goal_formulation";
           /**
            * @maxItems 0
            */
@@ -745,7 +765,7 @@ export interface GoalAdmission {
       };
       id: string;
       session_id: string;
-      kind: "prompt" | "compact";
+      kind: "prompt" | "compact" | "goal_formulation";
       config_revision: string;
       state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
       failure: null | string;
@@ -767,11 +787,38 @@ export interface GoalChange {
     state: "armed" | "paused" | "completed" | "cancelled" | "superseded";
     continuations_used: string;
     stop_reason: null | string;
+    origin_formulation_attempt_id: null | string;
     completion_turn_id: null | string;
     completion_operation_id: null | string;
     created_at: string;
   };
   cancel_turn_id: null | string;
+}
+export interface GoalFormulation {
+  input_id: string;
+  session_id: string;
+  request: {
+    goal_id: string;
+    expected_current: null | {
+      id: string;
+      revision: string;
+    };
+    max_continuations?: null | string;
+    start: boolean;
+    tail_messages?: 0 | number;
+  };
+  after_sequence: string;
+  through_sequence: string;
+  turn_id: string;
+  attempt_id: string;
+  text: string;
+  accepted: boolean;
+  rejection: null | string;
+  created_at: string;
+}
+export interface GoalFormulationParams {
+  session_id: string;
+  attempt_id: string;
 }
 export interface GoalParams {
   session_id: string;
@@ -1132,7 +1179,7 @@ export type Input =
       id: string;
       session_id: string;
       source: "user" | "agent" | "schedule" | "goal";
-      kind: "compact";
+      kind: "compact" | "goal_formulation";
       /**
        * @maxItems 0
        */
@@ -2561,7 +2608,7 @@ export interface SpawnSessionResult {
           id: string;
           session_id: string;
           source: "user" | "agent" | "schedule" | "goal";
-          kind: "compact";
+          kind: "compact" | "goal_formulation";
           /**
            * @maxItems 0
            */
@@ -2582,7 +2629,7 @@ export interface SpawnSessionResult {
       };
       id: string;
       session_id: string;
-      kind: "prompt" | "compact";
+      kind: "prompt" | "compact" | "goal_formulation";
       config_revision: string;
       state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
       failure: null | string;
@@ -2727,7 +2774,7 @@ export interface Turn {
   };
   id: string;
   session_id: string;
-  kind: "prompt" | "compact";
+  kind: "prompt" | "compact" | "goal_formulation";
   config_revision: string;
   state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
   failure: null | string;
@@ -2848,10 +2895,13 @@ export interface ContractTypes {
   DefinitionDocument: DefinitionDocument;
   DefinitionRef: DefinitionRef;
   DeleteResult: DeleteResult;
+  FormulateGoalParams: FormulateGoalParams;
   GetStateParams: GetStateParams;
   Goal: Goal;
   GoalAdmission: GoalAdmission;
   GoalChange: GoalChange;
+  GoalFormulation: GoalFormulation;
+  GoalFormulationParams: GoalFormulationParams;
   GoalParams: GoalParams;
   Grant: Grant;
   GrantParams: GrantParams;
@@ -2944,6 +2994,8 @@ export interface ContractTypes {
   WriteStateParams: WriteStateParams;
 }
 export interface Operations {
+  "goals.formulate": { params: FormulateGoalParams; result: Admission };
+  "goals.formulation": { params: GoalFormulationParams; result: GoalFormulation };
   "goals.create": { params: CreateGoalParams; result: GoalAdmission };
   "goals.current": { params: SessionParams; result: CurrentGoalResult };
   "goals.get": { params: GoalParams; result: Goal };

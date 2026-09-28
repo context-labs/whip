@@ -63,6 +63,13 @@
             "string"
           ]
         },
+        "origin_formulation_attempt_id": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
         "completion_turn_id": {
           "type": [
             "null",
@@ -89,6 +96,7 @@
         "state",
         "continuations_used",
         "stop_reason",
+        "origin_formulation_attempt_id",
         "completion_turn_id",
         "completion_operation_id",
         "created_at"
@@ -352,7 +360,8 @@
                 "kind": {
                   "type": "string",
                   "enum": [
-                    "compact"
+                    "compact",
+                    "goal_formulation"
                   ]
                 },
                 "parts": {
@@ -501,7 +510,8 @@
               "type": "string",
               "enum": [
                 "prompt",
-                "compact"
+                "compact",
+                "goal_formulation"
               ]
             },
             "config_revision": {

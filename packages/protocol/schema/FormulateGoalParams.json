@@ -1,0 +1,99 @@
+{
+  "type": "object",
+  "properties": {
+    "identity": {
+      "type": "object",
+      "properties": {
+        "client_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        }
+      },
+      "required": [
+        "client_id",
+        "request_id"
+      ],
+      "additionalProperties": false
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "request": {
+      "type": "object",
+      "properties": {
+        "goal_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "expected_current": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "revision": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,18})$",
+              "format": "counter"
+            }
+          },
+          "required": [
+            "id",
+            "revision"
+          ],
+          "additionalProperties": false
+        },
+        "max_continuations": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "start": {
+          "type": "boolean"
+        },
+        "tail_messages": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "enum": [
+                0
+              ]
+            },
+            {
+              "type": "integer",
+              "minimum": 2,
+              "maximum": 100
+            }
+          ]
+        }
+      },
+      "required": [
+        "goal_id",
+        "expected_current",
+        "start"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/FormulateGoalParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FormulateGoalParams",
+  "required": [
+    "identity",
+    "session_id",
+    "request"
+  ],
+  "additionalProperties": false
+}

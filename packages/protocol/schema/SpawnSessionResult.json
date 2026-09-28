@@ -572,7 +572,8 @@
                 "kind": {
                   "type": "string",
                   "enum": [
-                    "compact"
+                    "compact",
+                    "goal_formulation"
                   ]
                 },
                 "parts": {
@@ -721,7 +722,8 @@
               "type": "string",
               "enum": [
                 "prompt",
-                "compact"
+                "compact",
+                "goal_formulation"
               ]
             },
             "config_revision": {

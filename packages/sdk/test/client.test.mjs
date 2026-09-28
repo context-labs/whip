@@ -110,7 +110,7 @@ test('schedule retries retain caller identity and cursors retain exact nanosecon
 
 test('goals preserve stable creation IDs, exact allowances, and ordinary resume identities', async () => {
   const calls = [];
-  const goal = { id: 'goal', revision: '9007199254740993', session_id: 'session', spec: { text: 'objective', max_continuations: '9007199254740994' }, state: 'armed', continuations_used: '0', stop_reason: null, completion_turn_id: null, completion_operation_id: null, created_at: '2026-09-27T12:00:00Z' };
+  const goal = { id: 'goal', revision: '9007199254740993', session_id: 'session', spec: { text: 'objective', max_continuations: '9007199254740994' }, state: 'armed', continuations_used: '0', stop_reason: null, completion_turn_id: null, completion_operation_id: null, origin_formulation_attempt_id: null, created_at: '2026-09-27T12:00:00Z' };
   const client = await Client.connect(async request => {
     if (request.method === 'initialize') return success(request, initial);
     calls.push(request);
@@ -140,4 +140,41 @@ test('observation validators require a string reasoning preview', async () => {
     const client = await Client.connect(async request => success(request, request.method === 'initialize' ? initial : { epoch: 'boot', messages: [], preview }), { clientID: 'observer' });
     await assert.rejects(client.call('sessions.observe', { session_id: 'session', after: '0', limit: 100 }), TypeError);
   }
+});
+
+test('formulation preserves receipt identity and historical acceptance independently of maintenance outcome', async () => {
+  const calls = [];
+  const created = '2026-09-28T12:00:00Z';
+  const request = { goal_id: 'goal', expected_current: null, max_continuations: '9007199254740993', start: false };
+  const input = { id: 'input', session_id: 'session', source: 'user', kind: 'goal_formulation', parts: [], state: 'claimed', turn_id: 'turn', goal: null, schedule: null, created_at: created };
+  const turn = { id: 'turn', session_id: 'session', kind: 'goal_formulation', goal: null, config_revision: '1', state: 'interrupted', failure: 'runtime stopped', started_at: created, finished_at: created };
+  const admission = { receipt: { identity: { client_id: 'test', request_id: 'stable' }, digest: 'a'.repeat(64), input_id: 'input', deleted_at: null, created_at: created }, input, turn };
+  const candidate = { input_id: 'input', session_id: 'session', request: { ...request, tail_messages: 8 }, after_sequence: '9007199254740993', through_sequence: '9007199254740994', turn_id: 'turn', attempt_id: 'attempt', text: 'Accepted objective', accepted: true, rejection: null, created_at: created };
+  const client = await Client.connect(async message => {
+    if (message.method === 'initialize') return success(message, initial);
+    calls.push(message);
+    if (message.method === 'goals.formulation') return success(message, candidate);
+    return success(message, admission);
+  }, { clientID: 'test' });
+  const params = { session_id: 'session', request };
+  await client.formulateGoal(params, 'stable');
+  await client.formulateGoal(params, 'stable');
+  assert.deepEqual(calls[0].params, calls[1].params);
+  assert.deepEqual(calls[0].params, { ...params, identity: { client_id: 'test', request_id: 'stable' } });
+  assert.equal((await client.wait('stable')).turn.state, 'interrupted');
+  const evidence = await client.getGoalFormulation('session', 'attempt');
+  assert.equal(evidence.accepted, true);
+  assert.equal(evidence.request.start, false);
+  assert.equal(evidence.request.max_continuations, '9007199254740993');
+  assert.equal(evidence.through_sequence, '9007199254740994');
+  assert.deepEqual(calls.at(-1).params, { session_id: 'session', attempt_id: 'attempt' });
+  const before = calls.length;
+  for (const tail_messages of [1, -1, 101, '8']) {
+    await assert.rejects(client.formulateGoal({ ...params, request: { ...request, tail_messages } }, 'invalid'), TypeError);
+  }
+  await assert.rejects(client.formulateGoal({ ...params, request: { ...request, max_continuations: 0 } }, 'invalid'), TypeError);
+  await assert.rejects(client.formulateGoal({ ...params, request: { ...request, extra: true } }, 'invalid'), TypeError);
+  assert.equal(calls.length, before);
+  await client.formulateGoal({ ...params, request: { ...request, max_continuations: '0', tail_messages: 2 } }, 'zero');
+  assert.equal(calls.at(-1).params.request.max_continuations, '0');
 });
