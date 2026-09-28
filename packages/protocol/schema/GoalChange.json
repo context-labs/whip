@@ -1,0 +1,107 @@
+{
+  "type": "object",
+  "properties": {
+    "goal": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "revision": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "spec": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "max_continuations": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,18})$",
+              "format": "counter"
+            }
+          },
+          "required": [
+            "text",
+            "max_continuations"
+          ],
+          "additionalProperties": false
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "armed",
+            "paused",
+            "completed",
+            "cancelled",
+            "superseded"
+          ]
+        },
+        "continuations_used": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "stop_reason": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "completion_turn_id": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "completion_operation_id": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "created_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "session_id",
+        "spec",
+        "state",
+        "continuations_used",
+        "stop_reason",
+        "completion_turn_id",
+        "completion_operation_id",
+        "created_at"
+      ],
+      "additionalProperties": false
+    },
+    "cancel_turn_id": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/GoalChange",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GoalChange",
+  "required": [
+    "goal",
+    "cancel_turn_id"
+  ],
+  "additionalProperties": false
+}

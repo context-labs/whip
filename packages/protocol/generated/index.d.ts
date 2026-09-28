@@ -239,6 +239,19 @@ export interface ContextHistoryParams {
   through_sequence: string;
   limit: number;
 }
+export interface CreateGoalParams {
+  session_id: string;
+  goal_id: string;
+  expected_current: null | {
+    id: string;
+    revision: string;
+  };
+  spec: {
+    text: string;
+    max_continuations?: null | string;
+  };
+  start: boolean;
+}
 export interface CreateGrantParams {
   id: string;
   session_id: string;
@@ -459,6 +472,23 @@ export interface CreateTreeResult {
     created_at: string;
   };
 }
+export interface CurrentGoalResult {
+  goal: null | {
+    id: string;
+    revision: string;
+    session_id: string;
+    spec: {
+      text: string;
+      max_continuations: string;
+    };
+    state: "armed" | "paused" | "completed" | "cancelled" | "superseded";
+    continuations_used: string;
+    stop_reason: null | string;
+    completion_turn_id: null | string;
+    completion_operation_id: null | string;
+    created_at: string;
+  };
+}
 export interface Definition {
   ref: {
     id: string;
@@ -581,6 +611,155 @@ export interface GetStateParams {
   session_id: string;
   scope: "session" | "tree";
   key: string;
+}
+export interface Goal {
+  id: string;
+  revision: string;
+  session_id: string;
+  spec: {
+    text: string;
+    max_continuations: string;
+  };
+  state: "armed" | "paused" | "completed" | "cancelled" | "superseded";
+  continuations_used: string;
+  stop_reason: null | string;
+  completion_turn_id: null | string;
+  completion_operation_id: null | string;
+  created_at: string;
+}
+export interface GoalAdmission {
+  id: string;
+  goal: null | {
+    id: string;
+    revision: string;
+    session_id: string;
+    spec: {
+      text: string;
+      max_continuations: string;
+    };
+    state: "armed" | "paused" | "completed" | "cancelled" | "superseded";
+    continuations_used: string;
+    stop_reason: null | string;
+    completion_turn_id: null | string;
+    completion_operation_id: null | string;
+    created_at: string;
+  };
+  current: boolean;
+  initial: null | {
+    receipt: {
+      identity: {
+        client_id: string;
+        request_id: string;
+      };
+      digest: string;
+      input_id: null | string;
+      deleted_at: null | string;
+      created_at: string;
+    };
+    input:
+      | {
+          goal: null | {
+            id: string;
+            revision: string;
+          };
+          id: string;
+          session_id: string;
+          source: "user" | "agent" | "schedule" | "goal";
+          kind: "prompt";
+          /**
+           * @minItems 1
+           * @maxItems 128
+           */
+          parts: [
+            (
+              | {
+                  text: string;
+                  type: "text";
+                }
+              | {
+                  reference_id: string;
+                  type: "content";
+                }
+            ),
+            ...(
+              | {
+                  text: string;
+                  type: "text";
+                }
+              | {
+                  reference_id: string;
+                  type: "content";
+                }
+            )[]
+          ];
+          state: "queued" | "claimed" | "cancelled";
+          turn_id: null | string;
+          created_at: string;
+          schedule: null | {
+            schedule_id: string;
+            scheduled_for: string;
+          };
+        }
+      | {
+          goal: null | {
+            id: string;
+            revision: string;
+          };
+          id: string;
+          session_id: string;
+          source: "user" | "agent" | "schedule" | "goal";
+          kind: "compact";
+          /**
+           * @maxItems 0
+           */
+          parts: [];
+          state: "queued" | "claimed" | "cancelled";
+          turn_id: null | string;
+          created_at: string;
+          schedule: null | {
+            schedule_id: string;
+            scheduled_for: string;
+          };
+        }
+      | null;
+    turn: null | {
+      goal: null | {
+        id: string;
+        revision: string;
+      };
+      id: string;
+      session_id: string;
+      kind: "prompt" | "compact";
+      config_revision: string;
+      state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
+      failure: null | string;
+      started_at: string;
+      finished_at: null | string;
+    };
+  };
+  deleted_at: null | string;
+}
+export interface GoalChange {
+  goal: {
+    id: string;
+    revision: string;
+    session_id: string;
+    spec: {
+      text: string;
+      max_continuations: string;
+    };
+    state: "armed" | "paused" | "completed" | "cancelled" | "superseded";
+    continuations_used: string;
+    stop_reason: null | string;
+    completion_turn_id: null | string;
+    completion_operation_id: null | string;
+    created_at: string;
+  };
+  cancel_turn_id: null | string;
+}
+export interface GoalParams {
+  session_id: string;
+  goal_id: string;
 }
 export interface Grant {
   id: string;
@@ -1619,6 +1798,17 @@ export type Response = {
 } & {
   [k: string]: unknown;
 };
+export interface ResumeGoalParams {
+  identity: {
+    client_id: string;
+    request_id: string;
+  };
+  session_id: string;
+  goal: {
+    id: string;
+    revision: string;
+  };
+}
 export interface ScheduleAdmission {
   id: string;
   schedule: null | {
@@ -2607,15 +2797,21 @@ export interface ContractTypes {
   ContentReference: ContentReference;
   ContextHead: ContextHead;
   ContextHistoryParams: ContextHistoryParams;
+  CreateGoalParams: CreateGoalParams;
   CreateGrantParams: CreateGrantParams;
   CreateScheduleParams: CreateScheduleParams;
   CreateTreeParams: CreateTreeParams;
   CreateTreeResult: CreateTreeResult;
+  CurrentGoalResult: CurrentGoalResult;
   Definition: Definition;
   DefinitionDocument: DefinitionDocument;
   DefinitionRef: DefinitionRef;
   DeleteResult: DeleteResult;
   GetStateParams: GetStateParams;
+  Goal: Goal;
+  GoalAdmission: GoalAdmission;
+  GoalChange: GoalChange;
+  GoalParams: GoalParams;
   Grant: Grant;
   GrantParams: GrantParams;
   GrantsParams: GrantsParams;
@@ -2670,6 +2866,7 @@ export interface ContractTypes {
   ResourceUsage: ResourceUsage;
   ResourcesResult: ResourcesResult;
   Response: Response;
+  ResumeGoalParams: ResumeGoalParams;
   ScheduleAdmission: ScheduleAdmission;
   ScheduleParams: ScheduleParams;
   ScheduleResult: ScheduleResult;
@@ -2706,6 +2903,11 @@ export interface ContractTypes {
   WriteStateParams: WriteStateParams;
 }
 export interface Operations {
+  "goals.create": { params: CreateGoalParams; result: GoalAdmission };
+  "goals.current": { params: SessionParams; result: CurrentGoalResult };
+  "goals.get": { params: GoalParams; result: Goal };
+  "goals.resume": { params: ResumeGoalParams; result: Admission };
+  "goals.cancel": { params: GoalParams; result: GoalChange };
   "schedules.create": { params: CreateScheduleParams; result: ScheduleAdmission };
   "schedules.get": { params: ScheduleParams; result: ScheduleResult };
   "schedules.list": { params: ListSchedulesParams; result: SchedulesResult };

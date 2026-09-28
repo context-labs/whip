@@ -244,6 +244,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     });
     await stage('resources', () => resourceAcceptance(runtime, client, createParams, evidence));
     await stage('schedules', () => scheduleAcceptance(runtime, client, createParams, evidence));
+    await stage('goals', () => goalAcceptance(runtime, client, createParams, evidence));
     await stage('budgets', () => budgetAcceptance(client, createParams, evidence));
     await stage('logical write allowances', () => writeAllowanceAcceptance(runtime, client, createParams, evidence));
     await stage('mail', () => mailAcceptance(runtime, client, createParams, evidence));
@@ -2148,4 +2149,133 @@ async function subscriptionAdmissionAcceptance(runtime, client, createParams, ev
     await new Promise((resolve, reject) => proxy.close(error => error ? reject(error) : resolve()));
   }
   await runtime.start();
+}
+
+async function goalAcceptance(runtime, client, createParams, evidence) {
+  const receipt = identity => client.call('receipts.get', identity, deadline());
+  const finish = identity => until(() => receipt(identity), value => value.turn?.finished_at || value.input?.state === 'cancelled');
+  const paused = (owner, id) => until(() => client.getGoal(owner, id, deadline()), value => value.state === 'paused');
+  const { root: idle } = await client.call('trees.create', createParams, deadline());
+  assert.equal((await client.currentGoal(idle.id, deadline())).goal, null);
+  const defaults = await client.createGoal({ session_id: idle.id, expected_current: null, spec: { text: 'default allowance' }, start: false }, 'goal-default', deadline());
+  assert.equal(defaults.goal.spec.max_continuations, '100');
+  const replacement = await client.createGoal({ session_id: idle.id, expected_current: { id: defaults.id, revision: defaults.goal.revision }, spec: { text: 'exact allowance', max_continuations: '9007199254740993' }, start: false }, 'goal-exact', deadline());
+  assert.equal(replacement.goal.spec.max_continuations, '9007199254740993');
+  const old = await client.createGoal({ session_id: idle.id, expected_current: null, spec: { text: 'default allowance' }, start: false }, defaults.id, deadline());
+  assert.equal(old.current, false); assert.equal(old.goal.state, 'superseded'); assert.equal(old.initial, null);
+  await client.cancelGoal(idle.id, replacement.id, deadline());
+  const { root: disabled } = await client.call('trees.create', { ...createParams, overrides: { ...createParams.overrides, goals_enabled: false } }, deadline());
+  assert.equal(disabled.configuration.goals_enabled, false);
+  await assert.rejects(client.createGoal({ session_id: disabled.id, expected_current: null, spec: { text: 'disabled' }, start: false }, 'goal-disabled', deadline()), error => error.kind === 'INVALID');
+
+  // Saturate the worker so the lost acknowledgement is definitely for queued initial work.
+  await runtime.stop(); await runtime.start('1h');
+  const { root: blocker } = await client.call('trees.create', createParams, deadline());
+  await client.submit(blocker.id, [{ type: 'text', text: 'hold goal queue' }], 'goal-blocker', deadline());
+  await until(() => client.recover('goal-blocker', deadline()), value => value.turn?.state === 'running');
+  const { root: queued } = await client.call('trees.create', createParams, deadline());
+  const params = { session_id: queued.id, expected_current: null, spec: { text: 'accepted exactly once', max_continuations: '0' }, start: true };
+  let dropped;
+  const proxy = join(runtime.directory, 'goal-drop.sock');
+  const close = await dropAcknowledgement(proxy, runtime.info.socket, '', value => { dropped = value; }, response => response.result?.id === 'goal-lost-ack');
+  try {
+    const unreliable = await Client.connect(unixSocket(proxy), { clientID: client.clientID, expectedRuntimeID: client.runtimeID, ...deadline() });
+    await assert.rejects(unreliable.createGoal(params, 'goal-lost-ack', deadline()), DeliveryError);
+  } finally { await close(); }
+  assert.equal(dropped.initial.input.state, 'queued');
+  // The disabled queued goal is retired by Claim without a synthetic failed turn.
+  const { root: changing } = await client.call('trees.create', createParams, deadline());
+  const disabledQueued = await client.createGoal({ session_id: changing.id, expected_current: null, spec: { text: 'disable before claim' }, start: true }, 'goal-queued-disabled', deadline());
+  await client.call('sessions.configure', { session_id: changing.id, expected_revision: changing.config_revision, patch: { goals_enabled: false } }, deadline());
+  await runtime.stop('SIGKILL'); await runtime.start('0s');
+  const recovered = await client.createGoal(params, 'goal-lost-ack', deadline());
+  assert.equal(recovered.initial.input.id, dropped.initial.input.id);
+  const completed = await finish(recovered.initial.receipt.identity);
+  assert.equal(completed.turn.state, 'succeeded'); assert.equal(completed.input.source, 'goal');
+  assert.equal(completed.turn.goal.id, recovered.id);
+  const roundLimit = await paused(queued.id, recovered.id);
+  assert.equal(roundLimit.stop_reason, 'round_limit'); assert.equal(roundLimit.continuations_used, '0');
+  assert.equal((await client.call('turns.attempts', { turn_id: completed.turn.id, limit: 100 }, deadline())).items.length, 1);
+  const retired = await finish(disabledQueued.initial.receipt.identity);
+  assert.equal(retired.input.state, 'cancelled'); assert.equal(retired.turn, null);
+  assert.equal((await paused(changing.id, disabledQueued.id)).stop_reason, 'disabled');
+
+  // A dispatched initial attempt becomes uncertain on restart and never auto-replays.
+  await runtime.stop(); await runtime.start('1h');
+  const { root: interruptedOwner } = await client.call('trees.create', createParams, deadline());
+  const interruptedParams = { session_id: interruptedOwner.id, expected_current: null, spec: { text: 'requires explicit resume', max_continuations: '1' }, start: true };
+  const active = await client.createGoal(interruptedParams, 'goal-interrupted', deadline());
+  const running = await until(() => receipt(active.initial.receipt.identity), value => value.turn?.state === 'running');
+  await until(() => client.call('turns.attempts', { turn_id: running.turn.id, limit: 100 }, deadline()), value => value.items.some(item => item.state === 'dispatched'));
+  await runtime.stop('SIGKILL'); await runtime.start('0s');
+  const interrupted = await finish(active.initial.receipt.identity);
+  assert.equal(interrupted.turn.state, 'interrupted');
+  const stopped = await paused(interruptedOwner.id, active.id);
+  assert.equal(stopped.stop_reason, 'turn_interrupted'); assert.equal(stopped.continuations_used, '0');
+  const replay = await client.createGoal(interruptedParams, active.id, deadline());
+  assert.equal(replay.initial.input.id, active.initial.input.id); assert.equal(replay.goal.state, 'paused');
+  assert.equal((await client.call('sessions.history', { session_id: interruptedOwner.id, after: '0', limit: 100 }, deadline())).items.length, 1);
+  const resumeRef = { id: active.id, revision: stopped.revision };
+  const resumed = await client.resumeGoal(interruptedOwner.id, resumeRef, 'goal-resume', deadline());
+  assert.equal((await client.wait('goal-resume', deadline())).turn.state, 'succeeded');
+  const exhausted = await paused(interruptedOwner.id, active.id);
+  assert.equal(exhausted.continuations_used, '1'); assert.equal(exhausted.stop_reason, 'round_limit');
+  assert.equal((await client.resumeGoal(interruptedOwner.id, resumeRef, 'goal-resume', deadline())).input.id, resumed.input.id);
+  await assert.rejects(client.resumeGoal(interruptedOwner.id, { id: active.id, revision: exhausted.revision }, 'goal-exhausted', deadline()), error => error.kind === 'LIMIT');
+
+  const requests = [];
+  const finishedGoals = [];
+  const server = http.createServer(async (request, response) => {
+    let raw = ''; for await (const chunk of request) raw += chunk;
+    const body = JSON.parse(raw); requests.push(body);
+    const system = body.messages.find(item => item.role === 'system')?.content ?? '';
+    const encoded = system.split('Captured goal for this turn (JSON data):\n')[1]?.split('\n')[0];
+    const goal = encoded ? JSON.parse(encoded) : null;
+    let message = { role: 'assistant', content: 'progress' };
+    if (goal && goal.revision !== '1' && body.messages.at(-1).role !== 'tool') {
+      const args = { goal_id: goal.id, expected_revision: goal.revision, evidence: 'fixture verified result' };
+      const code = goal.spec.text.startsWith('starlark')
+        ? `print(goals.complete(goal_id=${JSON.stringify(args.goal_id)},expected_revision=${JSON.stringify(args.expected_revision)},evidence=${JSON.stringify(args.evidence)}))`
+        : `print(await goals.complete(${JSON.stringify(args)}));`;
+      message = { role: 'assistant', content: null, tool_calls: [{ id: 'goal-call', type: 'function', function: { name: 'execute', arguments: JSON.stringify({ code }) } }] };
+    }
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify({ choices: [{ message, finish_reason: message.tool_calls ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 20, completion_tokens: 5, cost: 0 } }));
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const path = join(runtime.directory, 'state', 'host.json');
+  await runtime.stop(); const previous = await readFile(path, 'utf8');
+  try {
+    const host = JSON.parse(previous);
+    host.providers.goals = { kind: 'openai-chat', base_url: `http://127.0.0.1:${server.address().port}/v1`, credential_env: '', models: { goals: { max_output_tokens: 500, timeout_millis: 10000, max_attempts: 1 } } };
+    await writeFile(path, JSON.stringify(host), { mode: 0o600 }); await runtime.start(null);
+    for (const engine of ['starlark', 'quickjs']) {
+      const { root } = await client.call('trees.create', { ...createParams, engine, overrides: { ...createParams.overrides, model: { provider: 'goals', name: 'goals', effort: '' } } }, deadline());
+      const grant = await client.call('grants.create', { id: `goal-grant-${engine}`, session_id: root.id, capability: 'goals.complete', resource: root.tree_id }, deadline());
+      const child = await client.spawn({ parent_id: root.id, parts: [{ type: 'text', text: 'initialize child' }], overrides: {}, grant_ids: [grant.id] }, `goal-child-${engine}`, deadline());
+      await client.wait(`goal-child-${engine}`, deadline());
+      for (const owner of [root, child.session]) {
+        const goalID = `goal-${owner.id}`;
+        await client.createGoal({ session_id: owner.id, expected_current: null, spec: { text: `${engine} complete with evidence`, max_continuations: '2' }, start: true }, goalID, deadline());
+        const final = await until(() => client.getGoal(owner.id, goalID, deadline()), value => value.state === 'completed');
+        assert.equal(final.continuations_used, '1'); assert.ok(final.completion_turn_id); assert.ok(final.completion_operation_id);
+        const operations = await client.call('turns.operations', { turn_id: final.completion_turn_id, limit: 100 }, deadline());
+        assert.equal(operations.items.length, 1); assert.equal(operations.items[0].state, 'succeeded');
+        assert.equal(operations.items[0].result.value.accepted, true);
+        const history = await client.call('sessions.history', { session_id: owner.id, after: '0', limit: 100 }, deadline());
+        assert.equal(history.items.filter(item => item.role === 'user' && item.parts[0]?.text === 'Work on the goal.').length, 2);
+        finishedGoals.push({ owner: owner.id, final, messages: history.items.length });
+        evidence.push({ goalsEngine: { engine, owner: owner.id, final, operations } });
+      }
+    }
+  } finally {
+    await runtime.stop(); await writeFile(path, previous, { mode: 0o600 });
+    server.closeAllConnections(); await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    if (!fixtureAbort.signal.aborted) await runtime.start();
+  }
+  for (const saved of finishedGoals) {
+    assert.deepEqual(await client.getGoal(saved.owner, saved.final.id, deadline()), saved.final);
+    assert.equal((await client.call('sessions.history', { session_id: saved.owner, after: '0', limit: 100 }, deadline())).items.length, saved.messages);
+  }
+  evidence.push({ goals: { defaults, old, recovered, completed, roundLimit, retired, interrupted, stopped, resumed, exhausted, requests: requests.length } });
 }

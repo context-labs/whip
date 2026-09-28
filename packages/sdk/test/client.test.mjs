@@ -101,3 +101,28 @@ test('schedule retries retain caller identity and cursors retain exact nanosecon
   await assert.rejects(client.call('schedules.list', { session_id: 'session', upcoming: true, cursor: { ...cursor, due: cursor.due.replace('789Z', '7891Z') }, limit: 1 }), TypeError);
   assert.equal(requests.length, 3);
 });
+
+test('goals preserve stable creation IDs, exact allowances, and ordinary resume identities', async () => {
+  const calls = [];
+  const goal = { id: 'goal', revision: '9007199254740993', session_id: 'session', spec: { text: 'objective', max_continuations: '9007199254740994' }, state: 'armed', continuations_used: '0', stop_reason: null, completion_turn_id: null, completion_operation_id: null, created_at: '2026-09-27T12:00:00Z' };
+  const client = await Client.connect(async request => {
+    if (request.method === 'initialize') return success(request, initial);
+    calls.push(request);
+    if (request.method === 'goals.create') return success(request, { id: goal.id, goal, current: true, initial: null, deleted_at: null });
+    if (request.method === 'goals.current') return success(request, { goal });
+    if (request.method === 'goals.get') return success(request, goal);
+    if (request.method === 'goals.cancel') return success(request, { goal: { ...goal, state: 'cancelled' }, cancel_turn_id: null });
+    return { jsonrpc: '2.0', id: request.id, error: { code: -32009, message: 'conflict', kind: 'CONFLICT' } };
+  }, { clientID: 'test' });
+  const params = { session_id: 'session', expected_current: null, spec: { text: 'objective', max_continuations: '9007199254740994' }, start: false };
+  assert.equal((await client.createGoal(params, 'goal')).goal.spec.max_continuations, '9007199254740994');
+  assert.deepEqual(calls[0].params, { ...params, goal_id: 'goal' });
+  assert.equal((await client.currentGoal('session')).goal.revision, '9007199254740993');
+  assert.equal((await client.getGoal('session', 'goal')).state, 'armed');
+  await assert.rejects(client.resumeGoal('session', { id: 'goal', revision: '9007199254740993' }, 'resume'), error => error.kind === 'CONFLICT');
+  assert.deepEqual(calls.at(-1).params.identity, { client_id: 'test', request_id: 'resume' });
+  assert.equal((await client.cancelGoal('session', 'goal')).goal.state, 'cancelled');
+  const before = calls.length;
+  await assert.rejects(client.createGoal({ ...params, spec: { text: 'objective', max_continuations: 0 } }, 'bad'), TypeError);
+  assert.equal(calls.length, before);
+});

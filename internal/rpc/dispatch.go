@@ -72,6 +72,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 		return dispatchState(ctx, r, method, raw)
 	case "mail.send", "mail.list", "mail.read":
 		return dispatchMail(ctx, r, method, raw)
+	case "goals.create", "goals.current", "goals.get", "goals.resume", "goals.cancel":
+		return dispatchGoal(ctx, r, method, raw)
 	case "schedules.create", "schedules.get", "schedules.list", "schedules.cancel":
 		return dispatchSchedule(ctx, r, method, raw)
 	case "resources.list", "resources.set":

@@ -20,6 +20,11 @@ type Operation struct {
 
 func Operations() []Operation {
 	return []Operation{
+		{"goals.create", reflect.TypeFor[CreateGoalParams](), reflect.TypeFor[GoalAdmission]()},
+		{"goals.current", reflect.TypeFor[SessionParams](), reflect.TypeFor[CurrentGoalResult]()},
+		{"goals.get", reflect.TypeFor[GoalParams](), reflect.TypeFor[Goal]()},
+		{"goals.resume", reflect.TypeFor[ResumeGoalParams](), reflect.TypeFor[Admission]()},
+		{"goals.cancel", reflect.TypeFor[GoalParams](), reflect.TypeFor[GoalChange]()},
 		{"schedules.create", reflect.TypeFor[CreateScheduleParams](), reflect.TypeFor[ScheduleAdmission]()},
 		{"schedules.get", reflect.TypeFor[ScheduleParams](), reflect.TypeFor[ScheduleResult]()},
 		{"schedules.list", reflect.TypeFor[ListSchedulesParams](), reflect.TypeFor[SchedulesResult]()},

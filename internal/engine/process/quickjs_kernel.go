@@ -169,7 +169,7 @@ func (kernel *Kernel) evalQuickJSLocked(ctx context.Context, cell Cell) (Result,
 
 func serializedHostOperation(module, operation string) bool {
 	switch module {
-	case "browser", "computer", "user", "permissions", "state", "messages", "schedules":
+	case "browser", "computer", "user", "permissions", "state", "messages", "schedules", "goals":
 		return true
 	case "agents":
 		return operation != "wait" && operation != "inspect" && operation != "list"

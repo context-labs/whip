@@ -53,6 +53,29 @@ export class Client {
     return this.call('schedules.create', { ...params, schedule_id: scheduleID }, options);
   }
 
+  /** Keep goalID and the exact creation payload after an uncertain acknowledgement. Current does not imply armed. */
+  createGoal(params: Omit<Operations['goals.create']['params'], 'goal_id'>, goalID: string, options: CallOptions = {}): Promise<Operations['goals.create']['result']> {
+    return this.call('goals.create', { ...params, goal_id: goalID }, options);
+  }
+
+  currentGoal(sessionID: string, options: CallOptions = {}): Promise<Operations['goals.current']['result']> {
+    return this.call('goals.current', { session_id: sessionID }, options);
+  }
+
+  getGoal(sessionID: string, goalID: string, options: CallOptions = {}): Promise<Operations['goals.get']['result']> {
+    return this.call('goals.get', { session_id: sessionID, goal_id: goalID }, options);
+  }
+
+  /** Resume uses an ordinary recoverable input identity; it does not reset the continuation allowance. */
+  resumeGoal(sessionID: string, goal: Operations['goals.resume']['params']['goal'], requestID: string, options: CallOptions = {}): Promise<Admission> {
+    return this.call('goals.resume', { session_id: sessionID, goal, identity: this.identity(requestID) }, options);
+  }
+
+  /** Requests cancellation of the exact goal-owned turn, if any. A captured human turn continues. */
+  cancelGoal(sessionID: string, goalID: string, options: CallOptions = {}): Promise<Operations['goals.cancel']['result']> {
+    return this.call('goals.cancel', { session_id: sessionID, goal_id: goalID }, options);
+  }
+
   /** Keep a globally unique mailID and the same payload when retrying an uncertain send. */
   sendMail(params: Omit<Operations['mail.send']['params'], 'mail_id'>, mailID: string, options: CallOptions = {}): Promise<Operations['mail.send']['result']> {
     return this.call('mail.send', { ...params, mail_id: mailID }, options);
