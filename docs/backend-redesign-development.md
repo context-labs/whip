@@ -2085,3 +2085,40 @@ This changes only the internal model request boundary. Model-helper operation
 provenance, dependency settlement, shared runner execution, bounded batches and
 public guest/SDK acceptance remain separate work. No new helper execution path
 or provider retry loop is introduced by this prerequisite.
+
+
+## Scheduler fairness acceptance without a latency assumption
+
+The goal-admission and goal-execution revisions failed hosted Linux acceptance
+in `TestTurnPermitsBlockedQueuePrefixDoesNotStarveUnrelatedWork`, at the existing
+five-second observation deadline. These are failed results in
+[run 36476869810](https://github.com/context-labs/whip/actions/runs/36476869810)
+and [run 36477264575](https://github.com/context-labs/whip/actions/runs/36477264575);
+their macOS and analysis jobs passed. The preceding subscription-host revision
+`96f5daef3` passed all jobs in
+[run 36476310155](https://github.com/context-labs/whip/actions/runs/36476310155).
+The audited Phase 4 revision's passing evidence remains separate from these
+later integration results.
+
+A single-CPU race/profile diagnostic of the unchanged failing test passed three
+times locally. That pass does not repair the hosted failure. Across the diagnostic,
+real scheduler claims consumed 6.14 seconds of sampled CPU, and database connection
+waits consumed 9.26 seconds of blocking time. The test repeatedly observed the
+same single-connection store while scanning 106 deliberately blocked claims.
+This supports removing the test's latency assumption; it does not establish a
+production starvation defect or prove the exact hosted timing cause.
+
+The revised test drives the real scheduler, SQLite claims and workers in bounded
+passes. The first page leaves unrelated work queued; the second executes it and
+wraps the cursor; the next sweep executes earlier work after its cap is raised.
+Blocked work remains queued. Workers are joined before inspection and teardown,
+with one overall cleanup deadline. Existing live-runtime concurrency, resumption,
+cancellation and nested-wait scenarios remain unchanged. No production code,
+resource cap or acceptance scenario was removed.
+
+`GOMAXPROCS=1 go test -race -shuffle=on -count=3 -run '^TestTurnPermits'
+./internal/runtime` passed in 29.890 seconds. Runtime vet and integrated analysis
+passed with zero lint issues and no reachable vulnerabilities. Logs are
+`/tmp/whip-scheduler-fairness-race.log` and
+`/tmp/whip-scheduler-fairness-analysis.log`. The integrated fast gate also passed
+(`/tmp/whip-scheduler-fairness-fast.log`); hosted validation of this repair is pending.
