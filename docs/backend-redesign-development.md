@@ -2568,7 +2568,8 @@ RPC13.725s and remaining package races, generated contracts and SDK checks.
 The v4 process fixture passed26.418s, retained fixture2.866s and daemon
 regressions2.771s. `task check:analysis` passed with zero lint findings and no
 reachable vulnerabilities. Logs are `/tmp/whip-managed-credentials-{phase,analysis}.log`.
-Hosted checks remain pending. No installed runtime was changed.
+Hosted Linux/macOS/analysis checks subsequently passed at `f1382213c` in
+run36495409570. No installed runtime was changed.
 
 
 ## Explicit API credential sources
@@ -2597,7 +2598,8 @@ config4.984s, command7.125s, model10.424s, RPC18.262s and other package races,
 generated contracts and SDK checks. The v4 process fixture passed25.333s,
 retained fixture2.620s and daemon regressions2.743s. Analysis found zero lint
 issues and no reachable vulnerabilities. Logs are
-`/tmp/whip-credential-sources-{phase,analysis}.log`. Hosted validation is pending.
+`/tmp/whip-credential-sources-{phase,analysis}.log`. Hosted Linux/macOS/analysis
+checks subsequently passed at `1dd685670` in run36495956816.
 Pasted/named-key publication, catalogs, readiness,
 route/default setup and product controls remain open; no real credentials or
 installed runtime were changed.
@@ -2643,3 +2645,49 @@ SDK checks. The integrated v4 fixture passed25.417s, retained fixture2.893s and
 daemon regressions2.725s. Analysis found zero lint issues and no reachable
 vulnerabilities. Hosted validation is pending; logs use `/tmp/whip-forks-{phase,analysis}.log` and
 `/tmp/whip-fork-public-{focused,race,fixture,contract,sdk,lint}.log`.
+
+
+## Host-owned Inference.net onboarding and cleanup
+
+Forking is published in draft [PR240](https://github.com/context-labs/whip/pull/240)
+at `3577b5848`, stacked on [PR239](https://github.com/context-labs/whip/pull/239).
+The next increment integrates account service `c5ad86354` as `d24947dff` and public
+RPC/SDK leaf `4f5c3ad6b` as `8641957d4`. Fresh schema33/config11 and development
+protocol4 are unchanged. The active gate now includes `internal/inferenceaccount`.
+
+The command owns one bounded account service borrowing the existing private
+manager and configuration authority. Device approval and explicit team/project
+selection use pinned control-plane HTTP with no redirects/cookie jar. Only
+singleton choices advance automatically. Project creation and rotation are
+explicit; remote uncertainty never authorizes automatic creation replay. Durable
+key publication precedes route setup/old-key archival, and known local failures
+retry their saved step. Management expiry remains independent of machine-key
+use. Newly approved account credentials cannot inherit a previous account's key.
+
+Fourteen generated RPC operations and SDK methods expose safe flow/status/cleanup
+projections. HostServices carries borrowed command-owned services; no new manager
+or session receipt owner was added. Setup preserves model defaults/custom routes.
+Logout revokes local authority before remote cleanup and returns each outcome
+separately. Cleanup retries use only prior saved authority; 64-entry/15-minute
+process retention and restart never imply remote success. No real account or
+installed runtime was changed.
+
+The core checkpoint passed races2.478s, repeat checks4.438s, vet/lint and Linux
+build. Public affected-package race/shuffle passed inferenceaccount2.003s,
+RPC12.374s, protocol3.567s, config4.658s and command4.352s. Architecture race
+passed1.520s; vet and pinned lint passed with zero findings. Generated contract
+interchange/CSP/drift checks and17 SDK tests passed. SDK process acceptance
+passed25.735s, including Inference account projections143ms with synthetic
+machine-only credentials, route conflicts, a lost logout acknowledgement and
+restart. Intercepted socket tests cover device-flow delivery loss, stable choices,
+cancellation, cleanup failure/retry and secret exclusion. Initial test corrections
+added bounded fixture shutdown, registered cleanup as its actual response root,
+kept long metadata bounds compatible with browser standalone validators, and
+included the new management-authorization error in the generated enum.
+Integrated phase/analysis gates passed: store race165.251s, runtime172.081s,
+process110.133s, config4.790s, inferenceaccount5.360s, RPC17.435s and all remaining
+active-package races, generated contracts and SDK checks. The v4 process fixture
+passed25.449s, retained fixture2.886s and daemon regressions2.745s. Analysis found
+zero lint issues and no reachable vulnerabilities. Hosted validation is pending.
+Logs use `/tmp/whip-inference-accounts-{phase,analysis}.log` and
+`/tmp/whip-inference-public-{race,boundaries,contract,sdk,fixture,lint}.log`.

@@ -197,6 +197,34 @@ and `ACCOUNT_LOGOUT` distinguish the required recovery. Public values contain
 no access/refresh/device secret; terminal flows clear the approval URL/code.
 Catalogs and product-client adoption remain pending.
 
+Inference.net has parallel host methods: `beginInferenceLogin`,
+`getInferenceLogin`, `listInferenceLogins`, `cancelInferenceLogin`,
+`selectInferenceTeam(flowID, teamID)`, `selectInferenceProject(flowID, projectID)`,
+`createInferenceProject(flowID, name)`, `retryInferenceLogin`, `rotateInferenceKey`,
+`inferenceAccountStatus`, `setupInferenceAccount`, `logoutInferenceAccount`,
+`listInferenceCleanup` and `retryInferenceCleanup`. Choices use the IDs exposed by
+that flow. Only singleton choices advance automatically; project creation and key
+rotation always need an explicit caller action. Recover lost begin/creation/rotation
+acknowledgements by reading flows, never by automatically repeating the mutation.
+Uncertain remote creation requires account inspection before another creation.
+
+Status separates `management_state`, `inference_state` and `route_state`. Expired
+management authorization does not invalidate a stored machine key. Local status
+is not a network/readiness test. Setup installs only the canonical managed gateway
+and leaves model defaults unchanged. Known persistence/setup failures can retry
+their saved step without minting another key. A newly approved account cannot
+inherit another account's key; a successful rotation saves the new key before
+attempting to archive the old key.
+
+Logout revokes local authority first and returns `local_failure`,
+`cleanup_failure` and retained cleanup outcomes separately. A successful local
+logout is not proof of remote key archival or session sign-out. Explicit cleanup
+retries use the old saved authorization, never a newly signed-in account. Flows
+and cleanup are bounded to 64 entries each, retained for up to 15 minutes in the
+current process. Restart/expiry loses that evidence; an empty cleanup list does
+not prove remote cleanup succeeded. All projections exclude private tokens/keys,
+and terminal flows clear the approval code and URL.
+
 Model selection accepts nullable `temperature` (0–2) and `top_p` (0–1), alongside
 `provider`, `name` and `effort`. Both values must be finite. Null or omission uses
 the provider default; explicit zero is preserved. A `sessions.configure` model
