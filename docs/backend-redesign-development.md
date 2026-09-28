@@ -2798,3 +2798,57 @@ passed. Analysis reported zero lint issues and no reachable vulnerabilities.
 Hosted validation is pending. Final logs are `/tmp/whip-title-{phase,analysis}-final.log`, and focused
 before/after evidence is `/tmp/whip-title-clock-{before,after}.log` and
 `/tmp/whip-workspace-close-{before,after}.log`.
+
+
+## Explicit provider setup, catalogs and live new-root defaults
+
+Automatic naming and the two integration repairs are published in draft
+[PR243](https://github.com/context-labs/whip/pull/243) at `d4aeddf2f`, stacked on
+[PR242](https://github.com/context-labs/whip/pull/242). This increment integrates
+provider core `7889491a7` as `53bfa7a71`, shared authority/admission `8b610d806`
+as `f6db6f706`, and public leaf `1e38fb2c2` as `ea1b03b5e`. Schema35/config12/
+development protocol4 remain unchanged. Active gates and architecture checks now
+include `providerhost`; the borrowed process capability leaf is checked explicitly.
+
+Eleven provider operations cover retained presets/bundled metadata, safe inventory,
+revisioned route/default/compaction changes, scoped catalog read/explicit refresh
+and honest readiness. Stable private key publication precedes configuration CAS;
+known local retries do not mint another key, and ambiguous orphans are retained.
+Catalog scope includes route and credential/account generation, rejects late old
+responses, retains same-scope failure evidence and clears on successful empty
+responses. Exact nullable prices, efforts, modalities and limits survive public
+projection. Uncatalogued explicit selection intentionally remains valid after
+cache loss, replacing legacy catalog-membership validation; this is configuration,
+not proof of inference readiness. No real provider/account was contacted.
+
+The runtime now creates one authority and the command borrows it. New roots read
+fresh host defaults/resources while retained session configurations remain
+unchanged. Fork retry/tombstone lookup precedes invalid current host declarations;
+new forks still validate current resources. Startup instruction registries retain
+their documented snapshot policy. Standalone validator generation now embeds a
+native Unicode code-point counter for Ajv's CommonJS string-length helper, checks
+it against the pinned helper (including unpaired surrogates) and rejects unresolved
+runtime imports. Strict-CSP execution remains required.
+
+Core focused races passed providerhost2.589s/config4.679s; parser refinement,
+vet/Linux build/pinned lint passed. Shared-authority focused runtime/default/fork
+checks passed0.606s, store fork1.483s and command1.827s. Public focused final races
+passed RPC21.930s, protocol2.606s, runtime12.502s and store14.408s; normal full
+RPC5.740s/protocol0.979s/command1.704s passed. Contract TypeScript,8 strict-CSP/
+Go interchange tests/drift and21 SDK tests passed; vet, Linux build, pinned lint0
+and diff checks passed. Production fixture32.329s covers lost save acknowledgement,
+private stable key publication, exact9007199254740993/zero/null prices, current
+new-root defaults, unchanged old sessions, invalid-host exact fork retry, failed
+catalog retention and successful-empty clearing. Boundary tests cover128routes
+near the host cap and1024models near2MiB, with oversized escaped results rejected
+without clearing cache. Parent reviewed core/public and authority boundaries.
+Integrated race/shuffle passed store189.008s/runtime190.952s/process113.889s,
+providerhost5.473s/config7.274s/RPC43.792s and all other active packages. Analysis
+reported zero lint issues and no reachable vulnerabilities. The full phase gate passed: production fixture27.737s, retained fixture2.224s
+and daemon regressions2.810s, plus generated contracts and SDK checks. Logs use
+`/tmp/whip-provider-{phase,analysis}.log`. Product provider/account UI and the other
+unresolved Phase5 families remain work; Phases6–7 are not complete.
+
+Hosted Linux, macOS, analysis and aggregate checks for PR242 at
+`7feeb41282777522f696fc6ad945db1ff11b0cfb` all passed in run36498599944.
+PR243 hosted analysis passed; platform jobs remain in progress at this checkpoint.

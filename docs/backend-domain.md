@@ -1508,7 +1508,7 @@ use `turns.instructions` for historical capture evidence.
 Host configuration explicitly maps at most 16 `skill_roots` IDs to absolute
 directories. Captured instruction policy selects an ordered, unique list of those
 IDs; an empty list selects none. Registry paths stay host-local, and unknown
-selected IDs fail clearly. Host configuration is fixed for the runtime lifetime;
+selected IDs fail clearly. The instruction-root registry uses its runtime startup snapshot;
 source files refresh for each capture. No HOME/environment discovery or implicit
 registry grants exist. A host catalog or explicit body requires standing
 `skills.read` authority for the exact named root, including the live issuer chain.
@@ -1738,3 +1738,53 @@ exact settlement retries never overwrite later metadata. Result `applied` descri
 the historical transaction, not current selection. Pending undispatched intent
 can survive restart; claimed/interrupted attempts never re-arm or auto-replay.
 Read-only decision/result calls do not create a receipt or wake work.
+
+
+## Host provider setup and catalogs
+
+The runtime creates the single `config.Authority` after acquiring the execution
+lock and bootstrapping the explicit directory. Command-owned account/provider
+services borrow it. Snapshot reads return current bounded file bytes and their
+exact hash, without another mutable declaration cache. New roots capture current
+host defaults/resources; existing resolved configurations do not change. Forks
+capture current destination resources only for new admissions: exact prior
+receipts resolve before a changed or invalid current host file is read. Startup
+instruction registries remain a separately scoped runtime snapshot.
+
+`providerhost.Service` owns bounded disposable catalog observations and borrows
+credential managers. Route creation/update/removal and default/compaction changes
+use explicit host revision CAS. Removing a selected default requires an atomic
+replacement or clear; referenced compaction routes must be changed explicitly.
+An uncatalogued explicit model selection remains valid on a configured route,
+including after cache expiry/restart. This deliberately removes legacy dependence
+on process-local catalog membership as configuration authority. Existing sessions
+never drift to another selected model automatically.
+
+Pasted credentials use a caller-stable key-publication ID and immutable private
+0600 files. Publication precedes route CAS. Same ID/bytes retry safely; different
+bytes conflict. Visible-but-unconfirmed publication is distinct from failure
+before publication and requires inspection/persistence retry, not reminting a key.
+At most256 files are retained; ambiguous orphan files are not automatically
+removed. Public status omits key bytes and credential command arguments. Keeping
+an existing credential is allowed only for unchanged endpoint/codec and without
+a conflicting pasted key.
+
+Catalog reads perform no discovery HTTP or credential command. Explicit refresh
+uses bounded HTTP with no cookie jar or redirects, captures the route and exact
+credential/account generation, and rejects stale completions. Failed discovery
+retains same-scope cached models with an explicit failure; successful empty
+responses clear them. Command-based scopes remain unverified until explicit
+refresh. Managed account, file and environment changes invalidate scope evidence.
+One authorized same-login subscription refresh can recover a401 without borrowing
+a later account. Status/readiness report configuration, credential, catalog and
+model evidence separately; inference remains `not_tested`.
+
+Presets cover the ten retained API providers plus ChatGPT subscription routing;
+they are setup templates over supported codecs. The bundled Models.dev snapshot
+is retained metadata, not proof of authentication, quota or current availability.
+Prices are exact nullable nano-USD per million tokens; null is unknown and zero
+is explicitly free. Limits/efforts/modalities remain bounded metadata. Discovery
+reads at most8MiB, a route retains at most1024 models/2MiB encoded model metadata,
+and the service retains at most8192 models/16MiB globally. Inventory is a compact
+projection within the bounded host declaration, and contains no executable
+credential command. There is no implicit network refresh or SDK retry loop.
