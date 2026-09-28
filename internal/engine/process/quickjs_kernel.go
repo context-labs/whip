@@ -152,7 +152,7 @@ func (kernel *Kernel) evalQuickJSLocked(ctx context.Context, cell Cell) (Result,
 				if response.ID != id || len(pending) != 0 {
 					return fail(errors.New("QuickJS result before owned host calls settled"))
 				}
-				result := Result{Termination: response.Termination, Value: response.Value, Output: response.Output, HasValue: response.HasValue, Metrics: map[string]uint64{"quickjs_jobs": response.Jobs, "guest_compute_ns": response.ComputeNanos, "host_wait_ns": response.HostWaitNanos}}
+				result := Result{Settled: true, Termination: response.Termination, Value: response.Value, Output: response.Output, HasValue: response.HasValue, Metrics: map[string]uint64{"quickjs_jobs": response.Jobs, "guest_compute_ns": response.ComputeNanos, "host_wait_ns": response.HostWaitNanos}}
 				if response.Error != "" {
 					if response.Termination != "" {
 						kernel.stop()

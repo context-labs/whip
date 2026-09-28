@@ -384,6 +384,9 @@ type ScratchReport struct {
 }
 
 type Result struct {
+	// Settled means a correlated final worker result was received, including a
+	// language error. It does not imply checkpoint persistence or undo effects.
+	Settled         bool              `json:"-"`
 	Termination     string            `json:"termination,omitempty"`
 	FormatVersion   int               `json:"format_version"`
 	ExecutionEngine string            `json:"execution_engine"`
@@ -635,7 +638,7 @@ func (kernel *Kernel) evalLocked(ctx context.Context, cell Cell) (Result, error)
 				kernel.stop()
 				return Result{}, errors.New("mismatched RLM evaluation result")
 			}
-			result := Result{Value: response.Value, Output: response.Output, Steps: response.Steps, HasValue: response.HasValue, Metrics: map[string]uint64{"starlark_steps": response.Steps}}
+			result := Result{Settled: true, Value: response.Value, Output: response.Output, Steps: response.Steps, HasValue: response.HasValue, Metrics: map[string]uint64{"starlark_steps": response.Steps}}
 			if response.Error != "" {
 				return result, errors.New(response.Error)
 			}
