@@ -16,6 +16,7 @@ import (
 	"github.com/context-labs/whip/internal/model"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/rpc"
+	"github.com/context-labs/whip/internal/runner"
 	"github.com/context-labs/whip/internal/runtime"
 )
 
@@ -44,15 +45,19 @@ func run(parent context.Context, args []string, out, diagnostics io.Writer) (err
 	if flags.NArg() != 0 || *directory == "" {
 		return errors.New("an explicit -directory is required; positional arguments are unsupported")
 	}
-	if !*scripted {
-		return errors.New("this phase requires -scripted; real provider support follows in phase 3")
+	if !*scripted && *delay != 0 {
+		return errors.New("-scripted-delay requires -scripted")
 	}
 	if *delay < 0 || *delay > time.Hour {
 		return errors.New("scripted delay must be between zero and one hour")
 	}
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
-	r, err := runtime.Open(ctx, *directory, model.Scripted{Delay: *delay}, runtime.Options{Workers: *workers})
+	var provider runner.Provider = configuredProvider(*directory)
+	if *scripted {
+		provider = model.Scripted{Delay: *delay}
+	}
+	r, err := runtime.Open(ctx, *directory, provider, runtime.Options{Workers: *workers})
 	if err != nil {
 		return err
 	}

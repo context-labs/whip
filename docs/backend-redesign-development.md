@@ -365,3 +365,55 @@ This increment passed `task check:phase`, targeted race checks and the v4 proces
 fixture with `WHIP_SDK_RACE=1`. `task check:analysis` reported zero new lint issues
 and no reachable vulnerabilities. These are local results, not a claim of
 completed Phase 3 acceptance or hosted validation for this increment.
+
+### OpenAI-compatible dispatch increment
+
+`whip-runtime -directory <private-directory>` now uses configured HTTP providers.
+`-scripted` remains an explicit fixture option. The command composes the provider
+with the runtime; scheduling does not import provider implementations or resolve
+credentials. HTTP requests, including retryable rejections, pass through the same
+attempt ledger as scripted execution.
+
+Edit the initialized `host.json` provider map with an API base URL and an optional
+credential environment reference. For example, these provider entries can be
+added while preserving the other initialized host fields:
+
+```json
+{
+  "example": {
+    "kind": "openai-chat",
+    "base_url": "https://provider.example/v1",
+    "credential_env": "WHIP_PROVIDER_KEY",
+    "models": {
+      "your-model": {
+        "max_output_tokens": 4096,
+        "timeout_millis": 120000,
+        "max_attempts": 3
+      }
+    }
+  }
+}
+```
+
+Select `{ "provider": "example", "name": "your-model", "effort": "" }` in a
+session override or host defaults. Missing model settings use the limits above;
+missing prices remain unknown. Optional `prices` fields use the ledger's
+nano-USD-per-million-token units, with independent input/output/reasoning/cache
+rates. Provider-reported USD charges are converted exactly to nano-USD, rounding
+up once. No price is inferred from a model name.
+
+Routes and credentials refresh when preparing a logical call. Its body, endpoint,
+limits and price snapshot remain fixed for its retries. The adapter performs one
+request; the runner permits at most five attempts, with cancellation-aware
+backoff, only following explicit retryable HTTP responses. Transport uncertainty,
+invalid completion bodies and persistence failures do not cause automatic
+redispatch. Redirects are rejected to preserve the recorded route and credential
+scope. Responses and encoded requests have explicit size limits.
+
+Local race tests cover HTTP retry accounting, unknown transport outcomes, slow
+provider cancellation, exact decimal charges, missing/malformed accounting,
+immutable prepared bodies and route refresh. The SDK process fixture also runs
+the command without `-scripted` against a local HTTP provider, observes a 429 and
+successful retry as distinct attempts, and verifies one committed response.
+This local fixture is not the required live-provider/engine smoke; that remains
+part of Phase 3 acceptance.

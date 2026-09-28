@@ -29,13 +29,15 @@ type Response struct {
 	Parts               []session.Part
 	Usage               session.ModelUsage
 	ReportedCostNanoUSD *int64
+	UsageNote           *string
 }
 
 // Prepared freezes the actual route, pricing and encoded request before durable
 // admission. Execute is one external attempt; it must not hide provider retries.
 type Prepared struct {
-	Snapshot session.ModelRequestSnapshot
-	Execute  func(context.Context) (Response, error)
+	Snapshot    session.ModelRequestSnapshot
+	Execute     func(context.Context) (Response, error)
+	MaxAttempts int
 }
 
 func (s Scripted) Prepare(_ context.Context, request Request) (Prepared, error) {

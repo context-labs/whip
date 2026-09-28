@@ -120,13 +120,52 @@ func (r *Runner) complete(ctx context.Context, turn session.Turn, request model.
 		return Failure(errors.New("provider returned no executable request")), nil
 	}
 	logicalID := string(turn.ID) + "_model_1"
-	id := session.ModelAttemptID(logicalID + "_try_1")
-	attempt, err := r.attempts.ReserveModelAttempt(ctx, session.ModelAttemptSpec{ID: id, TurnID: turn.ID, LogicalID: logicalID, Number: 1, Request: prepared.Snapshot})
+	limit := max(prepared.MaxAttempts, 1)
+	if limit > 5 {
+		return Failure(errors.New("provider attempt limit exceeds five")), nil
+	}
+	for number := 1; number <= limit; number++ {
+		outcome, err := r.attempt(ctx, turn, prepared, logicalID, number)
+		if err != nil {
+			return Outcome{}, err
+		}
+		callErr := outcome.failure
+		if callErr == nil {
+			return Outcome{State: session.Succeeded}, nil
+		}
+		if ctx.Err() != nil {
+			return Outcome{}, ctx.Err()
+		}
+		failure, retry := errors.AsType[*model.CallError](callErr)
+		if number == limit || !retry || !failure.Retryable || failure.Uncertain {
+			return Failure(callErr), nil
+		}
+		// Only an explicit retryable provider response permits another dispatch.
+		// Network uncertainty and settlement failures never automatically replay.
+		delay := min(max(time.Duration(number)*time.Second, failure.RetryAfter), time.Minute)
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return Outcome{}, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return Outcome{}, errors.New("model attempts exhausted without an outcome")
+}
+
+// Attempt execution can fail normally. A separate returned error means its
+// durable evidence could not be settled and execution must stop without retry.
+type attemptOutcome struct{ failure error }
+
+func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.Prepared, logicalID string, number int) (attemptOutcome, error) {
+	id := session.ModelAttemptID(fmt.Sprintf("%s_try_%d", logicalID, number))
+	attempt, err := r.attempts.ReserveModelAttempt(ctx, session.ModelAttemptSpec{ID: id, TurnID: turn.ID, LogicalID: logicalID, Number: number, Request: prepared.Snapshot})
 	if err != nil {
-		return Outcome{}, fmt.Errorf("reserve model attempt: %w", err)
+		return attemptOutcome{}, fmt.Errorf("reserve model attempt: %w", err)
 	}
 	if attempt.State != session.AttemptReserved {
-		return Outcome{}, errors.New("model attempt already dispatched; automatic replay prohibited")
+		return attemptOutcome{}, errors.New("model attempt already dispatched; automatic replay prohibited")
 	}
 	allowed, err := r.attempts.DispatchModelAttempt(ctx, id)
 	if err != nil || !allowed {
@@ -137,14 +176,14 @@ func (r *Runner) complete(ctx context.Context, turn session.Turn, request model.
 		// Ambiguous dispatch failures stay pending and fault settlement/recovery.
 		cancelled := session.ModelAttemptResult{State: session.AttemptCancelled}
 		if settleErr := r.settleAttempt(ctx, id, cancelled, nil); settleErr != nil {
-			return Outcome{}, errors.Join(err, settleErr)
+			return attemptOutcome{}, errors.Join(err, settleErr)
 		}
-		return Outcome{}, err
+		return attemptOutcome{}, err
 	}
 	callCtx, cancel := context.WithTimeout(ctx, time.Duration(prepared.Snapshot.TimeoutMillis)*time.Millisecond)
 	response, callErr := prepared.Execute(callCtx)
 	cancel()
-	result := session.ModelAttemptResult{State: session.AttemptSucceeded, Usage: response.Usage, ReportedCostNanoUSD: response.ReportedCostNanoUSD}
+	result := session.ModelAttemptResult{State: session.AttemptSucceeded, Usage: response.Usage, ReportedCostNanoUSD: response.ReportedCostNanoUSD, UsageNote: response.UsageNote}
 	if result.Usage.Validate() != nil {
 		result.Usage = session.ModelUsage{}
 		result.UsageNote = new("provider returned invalid usage; counts unavailable")
@@ -159,7 +198,9 @@ func (r *Runner) complete(ctx context.Context, turn session.Turn, request model.
 	}
 	if callErr != nil {
 		result.State = session.AttemptFailed
-		if ctx.Err() != nil || errors.Is(callErr, context.DeadlineExceeded) || errors.Is(callErr, context.Canceled) {
+		failure, typed := errors.AsType[*model.CallError](callErr)
+		uncertain := typed && failure.Uncertain
+		if uncertain || ctx.Err() != nil || errors.Is(callErr, context.DeadlineExceeded) || errors.Is(callErr, context.Canceled) {
 			result.State = session.AttemptUncertain
 		}
 		result.Failure = Failure(callErr).Failure
@@ -167,13 +208,7 @@ func (r *Runner) complete(ctx context.Context, turn session.Turn, request model.
 		message = &session.MessageDraft{ID: session.MessageID(string(turn.ID) + "_answer"), Role: session.Assistant, Parts: response.Parts}
 	}
 	if err := r.settleAttempt(ctx, id, result, message); err != nil {
-		return Outcome{}, fmt.Errorf("settle model attempt: %w", err)
+		return attemptOutcome{}, fmt.Errorf("settle model attempt: %w", err)
 	}
-	if callErr != nil {
-		if ctx.Err() != nil {
-			return Outcome{}, ctx.Err()
-		}
-		return Failure(callErr), nil
-	}
-	return Outcome{State: session.Succeeded}, nil
+	return attemptOutcome{failure: callErr}, nil
 }

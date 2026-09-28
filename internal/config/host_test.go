@@ -83,6 +83,26 @@ func TestCredentialsRemainHostReferences(t *testing.T) {
 	}
 }
 
+func TestProviderDispatchLimitsAndUnknownPrices(t *testing.T) {
+	settings, err := (Model{}).Resolve()
+	if err != nil || settings.MaxOutputTokens != 4096 || settings.TimeoutMillis != 120000 || settings.MaxAttempts != 3 || settings.Prices.Input != nil {
+		t.Fatalf("resolved defaults: %+v %v", settings, err)
+	}
+	for _, settings := range []Model{
+		{MaxOutputTokens: -1},
+		{MaxOutputTokens: 1000001},
+		{TimeoutMillis: -1},
+		{TimeoutMillis: 600001},
+		{MaxAttempts: -1},
+		{MaxAttempts: 6},
+		{Prices: session.ModelPrices{Input: new(int64(-1))}},
+	} {
+		if _, err := settings.Resolve(); err == nil {
+			t.Fatalf("accepted invalid dispatch configuration: %+v", settings)
+		}
+	}
+}
+
 func TestStrictConfigurationBoundary(t *testing.T) {
 	if _, err := Load(""); err == nil {
 		t.Fatal("empty directory implicitly loaded cwd")

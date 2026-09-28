@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import http from 'node:http';
 import net from 'node:net';
 import { basename, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -27,7 +28,9 @@ async function fixture() {
     try { await exit; } finally { clearTimeout(timeout); }
   };
   const start = async (delay = '60ms') => {
-    child = spawn(binary, ['-directory', join(directory, 'state'), '-scripted', '-workers', '1', '-scripted-delay', delay], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const args = ['-directory', join(directory, 'state'), '-workers', '1'];
+    if (delay !== null) args.push('-scripted', '-scripted-delay', delay);
+    child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     child.stderr.on('data', record);
     child.stdout.on('data', record);
     let buffer = '';
@@ -183,6 +186,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     const example = await exec(process.execPath, ['packages/sdk/examples/session.mjs', runtime.info.socket], { timeout: 20_000 });
     assert.equal(JSON.parse(example.stdout).completed.turn.state, 'succeeded');
     await assert.rejects(Client.connect(unixSocket(runtime.info.socket), { clientID: 'wrong', expectedRuntimeID: 'different', ...deadline() }), error => error instanceof RemoteError && error.kind === 'IDENTITY');
+    await providerAcceptance(runtime, client, createParams, evidence);
     passed = true;
   } finally {
     await proxyClose?.();
@@ -198,3 +202,62 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     }
   }
 });
+
+// Exercise the real HTTP adapter through the command, socket and SDK. This is
+// deterministic local coverage; the separate live-provider smoke remains required.
+async function providerAcceptance(runtime, client, createParams, evidence) {
+  const requests = [];
+  const server = http.createServer(async (request, response) => {
+    let body = '';
+    for await (const chunk of request) body += chunk;
+    requests.push({ path: request.url, body: JSON.parse(body) });
+    response.setHeader('content-type', 'application/json');
+    if (requests.length === 1) {
+      response.writeHead(429);
+      response.end(JSON.stringify({ error: 'retry this rejected attempt' }));
+      return;
+    }
+    response.end(JSON.stringify({
+      choices: [{ message: { role: 'assistant', content: 'HTTP adapter completed' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 10, completion_tokens: 3, cost: 0.000000001 },
+    }));
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    await runtime.stop();
+    const path = join(runtime.directory, 'state', 'host.json');
+    const host = JSON.parse(await readFile(path, 'utf8'));
+    host.providers.fixture = {
+      kind: 'openai-chat', base_url: `http://127.0.0.1:${server.address().port}/v1`, credential_env: '',
+      models: { 'fixture-model': { max_output_tokens: 123, timeout_millis: 2000, max_attempts: 2 } },
+    };
+    await writeFile(path, JSON.stringify(host), { mode: 0o600 });
+    await runtime.start(null);
+    const { root } = await client.call('trees.create', {
+      ...createParams, overrides: { model: { provider: 'fixture', name: 'fixture-model', effort: '' } },
+    }, deadline());
+    await client.submit(root.id, [{ type: 'text', text: 'HTTP provider round trip' }], 'http-provider', deadline());
+    const result = await client.wait('http-provider', deadline());
+    assert.equal(result.turn.state, 'succeeded');
+    const ledger = await client.call('turns.attempts', { turn_id: result.turn.id, limit: 100 }, deadline());
+    const history = await client.call('sessions.history', { session_id: root.id, after: '0', limit: 100 }, deadline());
+    assert.deepEqual(ledger.items.map(item => item.state), ['failed', 'succeeded']);
+    assert.deepEqual(ledger.items.map(item => item.cost_nano_usd), [null, '1']);
+    assert.equal(ledger.items[0].logical_id, ledger.items[1].logical_id);
+    assert.equal(ledger.items[0].request.request_digest, ledger.items[1].request.request_digest);
+    assert.equal(ledger.items[1].result.usage.input, '10');
+    assert.equal(ledger.items[1].result.usage.cached_input, null);
+    assert.equal(history.items.length, 2);
+    assert.equal(history.items[1].parts[0].text, 'HTTP adapter completed');
+    assert.equal(ledger.items[1].message_id, history.items[1].id);
+    assert.equal(requests.length, 2);
+    assert.deepEqual(requests[0], requests[1]);
+    assert.equal(requests[0].path, '/v1/chat/completions');
+    assert.equal(requests[0].body.max_completion_tokens, 123);
+    evidence.push({ httpProvider: { result, ledger, history, requests } });
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+}

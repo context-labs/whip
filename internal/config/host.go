@@ -24,10 +24,43 @@ const (
 var environmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 type Provider struct {
-	Kind          string `json:"kind"`
-	BaseURL       string `json:"base_url"`
-	CredentialEnv string `json:"credential_env"`
+	Kind          string           `json:"kind"`
+	BaseURL       string           `json:"base_url"`
+	CredentialEnv string           `json:"credential_env"`
+	Models        map[string]Model `json:"models,omitempty"`
 }
+
+// Model contains host-side dispatch limits and price evidence, not session
+// selection. Missing prices remain unknown. Zero limits select bounded defaults.
+type Model struct {
+	Prices          session.ModelPrices `json:"prices"`
+	MaxOutputTokens int64               `json:"max_output_tokens"`
+	TimeoutMillis   int64               `json:"timeout_millis"`
+	MaxAttempts     int                 `json:"max_attempts"`
+}
+
+func (m Model) Resolve() (Model, error) {
+	if m.MaxOutputTokens == 0 {
+		m.MaxOutputTokens = 4096
+	}
+	if m.TimeoutMillis == 0 {
+		m.TimeoutMillis = 120000
+	}
+	if m.MaxAttempts == 0 {
+		m.MaxAttempts = 3
+	}
+	if m.MaxOutputTokens < 1 || m.MaxOutputTokens > 1000000 {
+		return Model{}, fmt.Errorf("%w: output token limit must be 1–1000000", session.ErrInvalid)
+	}
+	if m.TimeoutMillis < 1 || m.TimeoutMillis > 600000 {
+		return Model{}, fmt.Errorf("%w: provider timeout must be 1–600000 milliseconds", session.ErrInvalid)
+	}
+	if m.MaxAttempts < 1 || m.MaxAttempts > 5 {
+		return Model{}, fmt.Errorf("%w: model attempts must be 1–5", session.ErrInvalid)
+	}
+	return m, m.Prices.Validate()
+}
+
 type Host struct {
 	Version   int                   `json:"version"`
 	Providers map[string]Provider   `json:"providers"`
@@ -60,12 +93,23 @@ func (h Host) Validate() error {
 			return err
 		}
 		route, err := url.Parse(provider.BaseURL)
-		if err != nil || route.Hostname() == "" || (route.Scheme != "https" && route.Scheme != "http") ||
+		if err != nil || len(provider.BaseURL) > 4000 || route.Hostname() == "" || (route.Scheme != "https" && route.Scheme != "http") ||
 			route.User != nil || route.RawQuery != "" || route.Fragment != "" || provider.Kind != "openai-chat" {
 			return fmt.Errorf("%w: invalid provider route %q", session.ErrInvalid, name)
 		}
 		if provider.CredentialEnv != "" && !environmentName.MatchString(provider.CredentialEnv) {
 			return fmt.Errorf("%w: invalid credential environment reference", session.ErrInvalid)
+		}
+		if len(provider.Models) > 1024 {
+			return fmt.Errorf("%w: too many configured provider models", session.ErrInvalid)
+		}
+		for modelName, settings := range provider.Models {
+			if err := session.ValidateText(modelName, 256); err != nil {
+				return err
+			}
+			if _, err := settings.Resolve(); err != nil {
+				return err
+			}
 		}
 	}
 	if h.Defaults.Model == (session.ModelSelection{}) {

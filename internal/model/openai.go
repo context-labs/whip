@@ -1,0 +1,222 @@
+package model
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/context-labs/whip/internal/session"
+)
+
+const maxResponseBytes = 4 << 20
+
+// ChatRoute is a resolved host route. Credentials are ephemeral and deliberately
+// excluded from the durable request snapshot. The URL is an API base URL.
+type ChatRoute struct {
+	URL             string
+	Credential      string
+	Prices          session.ModelPrices
+	MaxOutputTokens int64
+	TimeoutMillis   int64
+	MaxAttempts     int
+}
+
+// OpenAI implements non-streaming OpenAI-compatible chat completions. Retry
+// policy is enforced by the runner so every request has its own durable attempt.
+type OpenAI struct {
+	Resolve func(context.Context, session.ModelSelection) (ChatRoute, error)
+	Client  *http.Client
+}
+
+// CallError reports safe diagnostic and retry evidence without retaining a
+// provider body, request credentials or transport error text in persisted errors.
+type CallError struct {
+	StatusCode int
+	RetryAfter time.Duration
+	Retryable  bool
+	Uncertain  bool
+	Message    string
+}
+
+func (e *CallError) Error() string { return e.Message }
+
+func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) {
+	if p.Resolve == nil {
+		return Prepared{}, errors.New("model route resolver is required")
+	}
+	if err := request.Selection.Validate(); err != nil {
+		return Prepared{}, err
+	}
+	route, err := p.Resolve(ctx, request.Selection)
+	if err != nil {
+		return Prepared{}, err
+	}
+	if route.MaxAttempts < 1 || route.MaxAttempts > 5 {
+		return Prepared{}, fmt.Errorf("%w: invalid provider attempt limit", session.ErrInvalid)
+	}
+	if strings.ContainsAny(route.Credential, "\r\n\x00") {
+		return Prepared{}, errors.New("provider credential contains invalid header characters")
+	}
+	body, err := encodeChat(request, route.MaxOutputTokens)
+	if err != nil {
+		return Prepared{}, err
+	}
+	hash := sha256.Sum256(body)
+	snapshot := session.ModelRequestSnapshot{
+		Purpose: "turn", Model: request.Selection,
+		Route: strings.TrimRight(route.URL, "/") + "/chat/completions", Adapter: "openai-chat",
+		RequestDigest: hex.EncodeToString(hash[:]), Prices: route.Prices.Clone(),
+		MaxOutputTokens: route.MaxOutputTokens, TimeoutMillis: route.TimeoutMillis,
+	}
+	if err := snapshot.Validate(); err != nil {
+		return Prepared{}, err
+	}
+	// Copy the client policy: a redirect must never silently change the recorded
+	// route or forward credentials. Transport connections can still be shared.
+	client := http.Client{}
+	if p.Client != nil {
+		client = *p.Client
+	}
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return Prepared{
+		Snapshot: snapshot, MaxAttempts: route.MaxAttempts,
+		Execute: func(ctx context.Context) (Response, error) {
+			return executeChat(ctx, &client, snapshot.Route, route.Credential, body)
+		},
+	}, nil
+}
+
+type chatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+func encodeChat(request Request, maxTokens int64) ([]byte, error) {
+	messages := make([]chatMessage, 0, len(request.Messages)+1)
+	if request.Instructions != "" {
+		messages = append(messages, chatMessage{Role: "system", Content: request.Instructions})
+	}
+	for _, message := range request.Messages {
+		if err := session.ValidateParts(message.Parts); err != nil {
+			return nil, err
+		}
+		if message.Role != session.User && message.Role != session.Assistant && message.Role != session.System {
+			return nil, errors.New("model message role requires an unsupported encoding")
+		}
+		var text strings.Builder
+		for _, part := range message.Parts {
+			if part.Type != "text" {
+				return nil, errors.New("content references require authorized provider hydration")
+			}
+			text.WriteString(part.Text)
+		}
+		messages = append(messages, chatMessage{Role: string(message.Role), Content: text.String()})
+	}
+	if len(messages) == 0 {
+		return nil, errors.New("model request has no messages")
+	}
+	body, err := json.Marshal(struct {
+		Model               string        `json:"model"`
+		Messages            []chatMessage `json:"messages"`
+		MaxCompletionTokens int64         `json:"max_completion_tokens"`
+		ReasoningEffort     string        `json:"reasoning_effort,omitempty"`
+	}{Model: request.Selection.Name, Messages: messages, MaxCompletionTokens: maxTokens, ReasoningEffort: request.Selection.Effort})
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > 8<<20 {
+		return nil, errors.New("encoded model request exceeds size limit")
+	}
+	return body, nil
+}
+
+func executeChat(ctx context.Context, client *http.Client, url, credential string, body []byte) (Response, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return Response{}, errors.New("could not construct provider request")
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept", "application/json")
+	if credential != "" {
+		request.Header.Set("Authorization", "Bearer "+credential)
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		if ctx.Err() != nil {
+			return Response{}, ctx.Err()
+		}
+		return Response{}, &CallError{Uncertain: true, Message: "provider transport failed; outcome is unknown"}
+	}
+	defer func() {
+		// The read result determines completion; closing only releases resources.
+		_ = response.Body.Close()
+	}()
+	raw, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
+	if err != nil || len(raw) > maxResponseBytes {
+		if ctx.Err() != nil {
+			return Response{}, ctx.Err()
+		}
+		return Response{}, &CallError{Uncertain: true, Message: "provider response was incomplete or exceeded the size limit"}
+	}
+	var envelope struct {
+		Choices json.RawMessage `json:"choices"`
+		Usage   json.RawMessage `json:"usage"`
+	}
+	decodeErr := json.Unmarshal(raw, &envelope)
+	result := Response{}
+	if decodeErr == nil {
+		result.Usage, result.ReportedCostNanoUSD, result.UsageNote = decodeChatUsage(envelope.Usage)
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		retryable := response.StatusCode == http.StatusTooManyRequests || response.StatusCode == http.StatusInternalServerError || response.StatusCode == http.StatusBadGateway || response.StatusCode == http.StatusServiceUnavailable || response.StatusCode == http.StatusGatewayTimeout
+		return result, &CallError{
+			StatusCode: response.StatusCode, Retryable: retryable, RetryAfter: retryAfter(response.Header.Get("Retry-After")),
+			Message: fmt.Sprintf("provider returned HTTP %d", response.StatusCode),
+		}
+	}
+	var choices []struct {
+		Message struct {
+			Role      string          `json:"role"`
+			Content   *string         `json:"content"`
+			ToolCalls json.RawMessage `json:"tool_calls"`
+		} `json:"message"`
+		FinishReason string `json:"finish_reason"`
+	}
+	if decodeErr != nil || json.Unmarshal(envelope.Choices, &choices) != nil || len(choices) != 1 {
+		return result, &CallError{Uncertain: true, Message: "provider returned an invalid completion response"}
+	}
+	choice := choices[0]
+	if len(choice.Message.ToolCalls) > 0 && string(choice.Message.ToolCalls) != "null" && string(choice.Message.ToolCalls) != "[]" {
+		return result, &CallError{Message: "provider returned tool calls without a declared tool contract"}
+	}
+	if choice.Message.Role != "assistant" || choice.Message.Content == nil {
+		return result, &CallError{Message: "provider returned no assistant text"}
+	}
+	if choice.FinishReason != "stop" {
+		return result, &CallError{Message: "provider did not complete the response"}
+	}
+	result.Parts = []session.Part{{Type: "text", Text: *choice.Message.Content}}
+	if err := session.ValidateParts(result.Parts); err != nil {
+		return result, &CallError{Message: "provider returned invalid assistant content"}
+	}
+	return result, nil
+}
+
+func retryAfter(value string) time.Duration {
+	if seconds, err := strconv.ParseInt(value, 10, 64); err == nil && seconds > 0 {
+		return time.Duration(min(seconds, 60)) * time.Second
+	}
+	if date, err := http.ParseTime(value); err == nil {
+		return min(max(time.Until(date), 0), time.Minute)
+	}
+	return 0
+}

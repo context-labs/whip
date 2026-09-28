@@ -48,6 +48,19 @@ type ModelPrices struct {
 	CachedOutput *int64 `json:"cached_output"`
 }
 
+func (p ModelPrices) Clone() ModelPrices {
+	copyValue := func(value *int64) *int64 {
+		if value == nil {
+			return nil
+		}
+		return new(*value)
+	}
+	return ModelPrices{
+		Input: copyValue(p.Input), Output: copyValue(p.Output), Reasoning: copyValue(p.Reasoning),
+		CachedInput: copyValue(p.CachedInput), CachedOutput: copyValue(p.CachedOutput),
+	}
+}
+
 func (u ModelUsage) Validate() error {
 	for _, value := range []*int64{u.Input, u.Output, u.Reasoning, u.CachedInput, u.CachedOutput} {
 		if value != nil && *value < 0 {
