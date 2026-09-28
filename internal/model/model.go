@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -29,6 +30,9 @@ type Request struct {
 	Messages     []Message
 	Contents     map[string]Content
 	Tools        []Tool
+	// OutputTokenLimit optionally narrows the resolved host ceiling. It never
+	// widens authority; adapters that cannot enforce the bound reject it.
+	OutputTokenLimit *int64
 }
 
 type Tool struct {
@@ -90,6 +94,10 @@ func (s Scripted) Prepare(_ context.Context, request Request) (Prepared, error) 
 	if err := session.ValidateID(request.Purpose); err != nil {
 		return Prepared{}, err
 	}
+	outputLimit, err := effectiveOutputLimit(4096, request.OutputTokenLimit)
+	if err != nil {
+		return Prepared{}, err
+	}
 	raw, err := json.Marshal(request)
 	if err != nil {
 		return Prepared{}, err
@@ -103,7 +111,7 @@ func (s Scripted) Prepare(_ context.Context, request Request) (Prepared, error) 
 	zero := new(int64(0))
 	return Prepared{Snapshot: session.ModelRequestSnapshot{
 		Purpose: request.Purpose, Model: request.Selection, Route: "scripted://fixture", Adapter: "scripted", RequestDigest: hex.EncodeToString(hash[:]),
-		Prices: session.ModelPrices{Input: zero, Output: zero, Reasoning: zero, CachedInput: zero, CachedOutput: zero}, MaxOutputTokens: 4096, TimeoutMillis: 600000,
+		Prices: session.ModelPrices{Input: zero, Output: zero, Reasoning: zero, CachedInput: zero, CachedOutput: zero}, MaxOutputTokens: outputLimit, TimeoutMillis: 600000,
 		InputTokenBound: new(int64(0)), // Scripted execution bills no model input tokens.
 	}, Execute: func(ctx context.Context, emit func(Chunk)) (Response, error) {
 		response, err := s.Complete(ctx, request)
@@ -112,6 +120,21 @@ func (s Scripted) Prepare(_ context.Context, request Request) (Prepared, error) 
 		}
 		return response, err
 	}}, nil
+}
+
+// effectiveOutputLimit validates the host ceiling as well as the optional
+// caller bound, so narrowing cannot make an invalid host route appear valid.
+func effectiveOutputLimit(ceiling int64, requested *int64) (int64, error) {
+	if ceiling < 1 || ceiling > 1000000 {
+		return 0, fmt.Errorf("%w: invalid provider output token ceiling", session.ErrInvalid)
+	}
+	if requested == nil {
+		return ceiling, nil
+	}
+	if *requested < 1 || *requested > 1000000 {
+		return 0, fmt.Errorf("%w: requested output token limit must be 1–1000000", session.ErrInvalid)
+	}
+	return min(ceiling, *requested), nil
 }
 
 func emitResponse(response Response, emit func(Chunk)) {
@@ -131,6 +154,8 @@ func emitResponse(response Response, emit func(Chunk)) {
 
 // Scripted is a deterministic provider for disposable development and contract
 // fixtures. It is injected into the ordinary runner, not a second runtime path.
+// Its output reservation can be narrowed, but its deterministic acknowledgement
+// does not simulate tokenizer-based truncation or actual provider usage.
 type Scripted struct{ Delay time.Duration }
 
 func (s Scripted) Complete(ctx context.Context, request Request) (Response, error) {

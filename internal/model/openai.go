@@ -99,6 +99,15 @@ func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) 
 		inputBound = new(*route.ContextWindowTokens)
 		contextWindow = new(*route.ContextWindowTokens)
 	}
+
+	outputLimit, err := effectiveOutputLimit(route.MaxOutputTokens, request.OutputTokenLimit)
+	if err != nil {
+		return Prepared{}, err
+	}
+	if route.Kind == "openai-codex" && outputLimit < route.MaxOutputTokens {
+		return Prepared{}, fmt.Errorf("%w: ChatGPT subscription cannot enforce a requested limit below its natural output ceiling", session.ErrInvalid)
+	}
+	route.MaxOutputTokens = outputLimit
 	if strings.ContainsAny(route.Credential, "\r\n\x00") {
 		return Prepared{}, errors.New("provider credential contains invalid header characters")
 	}
