@@ -100,7 +100,7 @@ func TestWorkerMainParsesLimitsAndRunsProtocol(t *testing.T) {
 	if err := applySoftMemoryLimit(math.MaxInt64); err != nil {
 		t.Fatalf("valid soft memory limit: %v", err)
 	}
-	if err := WorkerMain([]string{"-steps", "bad"}, strings.NewReader(""), &bytes.Buffer{}); err == nil {
+	if err := WorkerMain([]string{"-steps", "bad"}, strings.NewReader(""), &bytes.Buffer{}, nil); err == nil {
 		t.Fatal("public worker entrypoint accepted an invalid flag")
 	}
 	var input bytes.Buffer
@@ -110,7 +110,7 @@ func TestWorkerMainParsesLimitsAndRunsProtocol(t *testing.T) {
 	var output bytes.Buffer
 	var memory uint64
 	args := []string{"-steps", "100", "-host-requests", "2", "-memory-bytes", "1048576", "-output-bytes", "1024", "-frame-bytes", "1048576"}
-	if err := workerMain(args, &input, &output, func(value uint64) error { memory = value; return nil }); err != nil {
+	if err := workerMain(args, &input, &output, func(value uint64) error { memory = value; return nil }, nil); err != nil {
 		t.Fatal(err)
 	}
 	result, err := readFrame(bufio.NewReader(&output), 1<<20)
@@ -118,13 +118,13 @@ func TestWorkerMainParsesLimitsAndRunsProtocol(t *testing.T) {
 		t.Fatalf("worker result = %+v, memory=%d, %v", result, memory, err)
 	}
 
-	if err := workerMain([]string{"-steps", "bad"}, strings.NewReader(""), &bytes.Buffer{}, func(uint64) error { return nil }); err == nil {
+	if err := workerMain([]string{"-steps", "bad"}, strings.NewReader(""), &bytes.Buffer{}, func(uint64) error { return nil }, nil); err == nil {
 		t.Fatal("invalid worker flag succeeded")
 	}
-	if err := workerMain([]string{"extra"}, strings.NewReader(""), &bytes.Buffer{}, func(uint64) error { return nil }); err == nil {
+	if err := workerMain([]string{"extra"}, strings.NewReader(""), &bytes.Buffer{}, func(uint64) error { return nil }, nil); err == nil {
 		t.Fatal("worker positional argument succeeded")
 	}
-	if err := workerMain(nil, strings.NewReader(""), &bytes.Buffer{}, func(uint64) error { return errors.New("limit failed") }); err == nil || !strings.Contains(err.Error(), "limit failed") {
+	if err := workerMain(nil, strings.NewReader(""), &bytes.Buffer{}, func(uint64) error { return errors.New("limit failed") }, nil); err == nil || !strings.Contains(err.Error(), "limit failed") {
 		t.Fatalf("memory limit error = %v", err)
 	}
 }

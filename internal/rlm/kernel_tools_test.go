@@ -41,7 +41,7 @@ func TestKernelInstallsOnlyDeclaredTools(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(kernel.Close)
-			result, err := kernel.Exec(t.Context(), tc.call)
+			result, err := kernel.Exec(t.Context(), Cell{Code: tc.call})
 			if err != nil {
 				t.Fatalf("declared tool failed: %v", err)
 			}
@@ -51,14 +51,14 @@ func TestKernelInstallsOnlyDeclaredTools(t *testing.T) {
 			if value, ok := result.Value.(map[string]any); !ok || value["ticket"] != "7" {
 				t.Fatalf("tool result = %#v", result.Value)
 			}
-			if _, err := kernel.Exec(t.Context(), tc.undeclared); err == nil || !strings.Contains(err.Error(), tc.missing) {
+			if _, err := kernel.Exec(t.Context(), Cell{Code: tc.undeclared}); err == nil || !strings.Contains(err.Error(), tc.missing) {
 				t.Fatalf("undeclared tool error = %v", err)
 			}
 			if len(calls) != 1 {
 				t.Fatalf("undeclared tool reached the host: %v", calls)
 			}
 			// Without tools the module is not installed, matching the prompt catalog.
-			if _, err := executable.Exec(t.Context(), tc.call); err == nil || !strings.Contains(err.Error(), tc.absent) {
+			if _, err := executable.Exec(t.Context(), Cell{Code: tc.call}); err == nil || !strings.Contains(err.Error(), tc.absent) {
 				t.Fatalf("tools module present without tools: %v", err)
 			}
 		})

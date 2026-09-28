@@ -43,7 +43,7 @@ func runQuickJSWorker(input io.Reader, output io.Writer, limits Limits, modules,
 	}
 	defer func() { _ = runtime.Close(ctx) }()
 	reader := bufio.NewReaderSize(input, min(limits.FrameBytes, 64<<10))
-	descriptor, _ := ResolveEngine(EngineQuickJS)
+	descriptor, _ := ResolveExecutionEngine(EngineQuickJS)
 	for {
 		request, err := readFrame(reader, limits.FrameBytes, true)
 		if errors.Is(err, io.EOF) {

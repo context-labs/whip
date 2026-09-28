@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"unicode/utf8"
 
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/tools"
@@ -36,7 +35,7 @@ func Tool(kernel *Kernel) tools.Tool {
 			if input.Code == "" {
 				return "", errors.New("code is required")
 			}
-			result, err := kernel.Exec(ctx, input.Code)
+			result, err := kernel.Exec(ctx, Cell{Code: input.Code, CallID: tools.ToolCallID(ctx), OnOutput: tools.OnUpdate(ctx)})
 			if result.ExecutionEngine == "" {
 				result.ExecutionEngine, result.Language = descriptor.ID, descriptor.Language
 			}
@@ -159,15 +158,4 @@ func boundedScratchSkips(items []SkippedName) ([]SkippedName, int) {
 		bytes += len(data)
 	}
 	return result, len(items) - len(result)
-}
-
-func noticeText(text string, limit int) string {
-	if len(text) <= limit {
-		return text
-	}
-	end := limit - 3
-	for end > 0 && !utf8.RuneStart(text[end]) {
-		end--
-	}
-	return text[:end] + "..."
 }

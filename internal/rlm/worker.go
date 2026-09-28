@@ -32,11 +32,11 @@ const (
 
 // WorkerMain runs the authority-free side of the RLM protocol. It is public
 // so the hidden whipcode entrypoint and subprocess tests use the identical path.
-func WorkerMain(args []string, input io.Reader, output io.Writer) error {
+func WorkerMain(args []string, input io.Reader, output io.Writer, describe func(EngineDescriptor) EngineDescriptor) error {
 	if raceEnabled {
-		return workerMain(args, input, output, applySoftMemoryLimit)
+		return workerMain(args, input, output, applySoftMemoryLimit, describe)
 	}
-	return workerMain(args, input, output, applyMemoryLimit)
+	return workerMain(args, input, output, applyMemoryLimit, describe)
 }
 
 func applySoftMemoryLimit(bytes uint64) error {
@@ -47,7 +47,7 @@ func applySoftMemoryLimit(bytes uint64) error {
 	return nil
 }
 
-func workerMain(args []string, input io.Reader, output io.Writer, limitMemory func(uint64) error) error {
+func workerMain(args []string, input io.Reader, output io.Writer, limitMemory func(uint64) error, describeEngine func(EngineDescriptor) EngineDescriptor) error {
 	fs := flag.NewFlagSet("_kernel", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	describe := fs.Bool("describe", false, "print bundled engine descriptor and exit")
@@ -74,11 +74,14 @@ func workerMain(args []string, input io.Reader, output io.Writer, limitMemory fu
 	if fs.NArg() != 0 || *wallNanos < 1 || *steps == 0 || *hostRequests < 1 || *memoryBytes == 0 || *memoryBytes > math.MaxInt64/4 || *outputBytes < 1 || *frameBytes < 1 {
 		return errors.New("invalid RLM worker limits")
 	}
-	descriptor, err := ResolveEngine(*engineID)
+	descriptor, err := ResolveExecutionEngine(*engineID)
 	if err != nil {
 		return err
 	}
 	if *describe {
+		if describeEngine != nil {
+			descriptor = describeEngine(descriptor)
+		}
 		return json.NewEncoder(output).Encode(descriptor)
 	}
 	if err := limitMemory(*memoryBytes); err != nil {
@@ -237,7 +240,7 @@ func (w *worker) run() error {
 		var result frame
 		switch request.Type {
 		case "hello":
-			descriptor, _ := ResolveEngine(EngineStarlark)
+			descriptor, _ := ResolveExecutionEngine(EngineStarlark)
 			if request.Engine != descriptor.ID || request.Build != descriptor.Build || request.ABI != descriptor.ABI || request.Profile != descriptor.Profile {
 				return errors.New("RLM engine handshake mismatch")
 			}

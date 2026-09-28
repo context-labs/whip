@@ -149,7 +149,7 @@ type cellOutcome struct {
 func execCell(ctx context.Context, node *AgentSession, code string) <-chan cellOutcome {
 	outcome := make(chan cellOutcome, 1)
 	go func() {
-		result, err := node.kernel.Exec(ctx, code)
+		result, err := node.kernel.Exec(ctx, rlm.Cell{Code: code})
 		outcome <- cellOutcome{result, err}
 	}()
 	return outcome

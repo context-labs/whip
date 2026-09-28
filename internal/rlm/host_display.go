@@ -1,6 +1,45 @@
 package rlm
 
-import "github.com/context-labs/whip/internal/llm"
+import (
+	"context"
+
+	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/tools"
+)
+
+// PresentedHostCall enriches an execution observation for retained clients.
+type PresentedHostCall struct {
+	HostCall
+	Display *llm.OperationDisplay
+}
+
+// PresentHostCalls snapshots bounded display fields before entering host code.
+func PresentHostCalls(started, completed func(PresentedHostCall)) HostObserver {
+	return func(call HostCall, arguments map[string]any) func(HostCall, any) {
+		presented := PresentedHostCall{HostCall: call, Display: hostDisplay(call.Module, call.Operation, arguments)}
+		if started != nil {
+			started(presented)
+		}
+		if completed == nil {
+			return nil
+		}
+		return func(call HostCall, result any) {
+			presented.HostCall = call
+			presented.Display = hostResultDisplay(presented, result)
+			completed(presented)
+		}
+	}
+}
+
+// ToolHost forwards retained dispatcher operation identities to the kernel.
+func ToolHost(host Host) Host {
+	if host == nil {
+		return nil
+	}
+	return HostFunc(func(ctx context.Context, module, operation string, arguments map[string]any) (any, error) {
+		return host.Call(tools.WithOperationObserver(ctx, func(id string) { ReportHostOperation(ctx, id) }), module, operation, arguments)
+	})
+}
 
 // Explicit identifying fields only. Bodies, prompts, code and arbitrary tool
 // arguments stay in their existing authorized content path.
@@ -32,7 +71,7 @@ func hostDisplay(module, operation string, arguments map[string]any) *llm.Operat
 	return display
 }
 
-func hostResultDisplay(call HostCall, result any) *llm.OperationDisplay {
+func hostResultDisplay(call PresentedHostCall, result any) *llm.OperationDisplay {
 	if call.Module != "agents" || call.Operation != "spawn" {
 		return call.Display
 	}

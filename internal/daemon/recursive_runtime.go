@@ -180,18 +180,18 @@ func (store scratchStore) Load(ctx context.Context) (string, rlm.SnapshotManifes
 	return snapshot, manifest, err
 }
 
-func (node *AgentSession) emitHostStart(call rlm.HostCall) {
-	node.hostSpanStart(call)
+func (node *AgentSession) emitHostStart(call rlm.PresentedHostCall) {
+	node.hostSpanStart(call.HostCall)
 	node.emitHostEvent("stream.cell.host.started", call)
 }
 
 // The existing kind remains completion-only for older clients.
-func (node *AgentSession) emitHostCall(call rlm.HostCall) {
-	node.hostSpanEnd(call)
+func (node *AgentSession) emitHostCall(call rlm.PresentedHostCall) {
+	node.hostSpanEnd(call.HostCall)
 	node.emitHostEvent("stream.cell.host", call)
 }
 
-func (node *AgentSession) emitHostEvent(kind string, call rlm.HostCall) {
+func (node *AgentSession) emitHostEvent(kind string, call rlm.PresentedHostCall) {
 	partID := node.recordHostPresentation(call)
 	emit := node.emit
 	if emit == nil {
@@ -245,8 +245,8 @@ func (runtime *RecursiveRuntime) newNode(value *agent.Agent, definition agentdef
 	}
 	host := &recursiveHost{session: node}
 	kernel, err := rlm.NewKernel(rlm.KernelOptions{
-		Engine: runtime.engine, Modules: definition.Modules, Tools: definition.ToolNames(), Checkpoints: checkpointStore{node: node}, Command: runtime.command, Limits: runtime.limits, Manager: runtime.kernels, Host: host, Scratch: scratchStore{node: node},
-		OnRestore: node.recordScratchRestore, OnHostStart: node.emitHostStart, OnHostCall: node.emitHostCall,
+		Engine: runtime.engine, Modules: definition.Modules, Tools: definition.ToolNames(), Checkpoints: checkpointStore{node: node}, Command: runtime.command, Limits: runtime.limits, Manager: runtime.kernels, Host: rlm.ToolHost(host), Scratch: scratchStore{node: node},
+		OnRestore: node.recordScratchRestore, ObserveHost: rlm.PresentHostCalls(node.emitHostStart, node.emitHostCall),
 	})
 	if err != nil {
 		return nil, err

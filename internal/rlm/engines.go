@@ -36,7 +36,7 @@ type EngineDescriptor struct {
 	Fidelity     string            `json:"fidelity"`
 }
 
-// Bundled engine guides and their digests are static for this process.
+// Execution descriptors depend only on bundled implementation and limits.
 var engineDescriptors = sync.OnceValue(func() []EngineDescriptor {
 	descriptors := []EngineDescriptor{
 		{ID: EngineStarlark, Language: "starlark", Label: "Starlark", Build: "starlark-6dd8f160a37f", ABI: "whip-host-v2", Profile: "settled-v1", Fidelity: "tagged-partial"},
@@ -53,14 +53,12 @@ var engineDescriptors = sync.OnceValue(func() []EngineDescriptor {
 		} else {
 			d.Limits["starlark_steps_per_cell"] = defaultSteps
 		}
-		guide, _ := RuntimeGuide(d.ID, ModuleNames(), nil, nil, "", nil)
-		digest := sha256.Sum256([]byte(guide))
-		d.GuideSHA256 = hex.EncodeToString(digest[:])
 	}
 	return descriptors
 })
 
-func Engines() []EngineDescriptor {
+// ExecutionEngines returns independent copies of bundled execution metadata.
+func ExecutionEngines() []EngineDescriptor {
 	descriptors := slices.Clone(engineDescriptors())
 	for i := range descriptors {
 		descriptors[i].Features = slices.Clone(descriptors[i].Features)
@@ -69,11 +67,12 @@ func Engines() []EngineDescriptor {
 	return descriptors
 }
 
-func ResolveEngine(id string) (EngineDescriptor, error) {
+// ResolveExecutionEngine resolves an engine without generating prompt guides.
+func ResolveExecutionEngine(id string) (EngineDescriptor, error) {
 	if id == "" {
 		id = EngineStarlark
 	}
-	for _, descriptor := range Engines() {
+	for _, descriptor := range ExecutionEngines() {
 		if descriptor.ID == id {
 			return descriptor, nil
 		}
@@ -81,6 +80,7 @@ func ResolveEngine(id string) (EngineDescriptor, error) {
 	return EngineDescriptor{}, fmt.Errorf("unsupported execution engine %q", id)
 }
 
+// Describe returns execution metadata with this kernel's configured limits.
 func (kernel *Kernel) Describe() EngineDescriptor {
 	descriptor := kernel.engine
 	descriptor.Limits = maps.Clone(descriptor.Limits)

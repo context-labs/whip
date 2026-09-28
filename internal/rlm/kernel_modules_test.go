@@ -45,13 +45,13 @@ func TestKernelInstallsOnlySelectedModules(t *testing.T) {
 		t.Run(tc.engine, func(t *testing.T) {
 			calls = nil
 			kernel := testModulesKernel(t, tc.engine, []string{"context", "files"}, host)
-			if _, err := kernel.Exec(t.Context(), tc.selected); err != nil {
+			if _, err := kernel.Exec(t.Context(), Cell{Code: tc.selected}); err != nil {
 				t.Fatalf("selected module failed: %v", err)
 			}
 			if len(calls) != 1 || calls[0] != "context.inspect" {
 				t.Fatalf("host calls = %v", calls)
 			}
-			if _, err := kernel.Exec(t.Context(), tc.unselected); err == nil || !strings.Contains(err.Error(), tc.missing) {
+			if _, err := kernel.Exec(t.Context(), Cell{Code: tc.unselected}); err == nil || !strings.Contains(err.Error(), tc.missing) {
 				t.Fatalf("unselected module error = %v", err)
 			}
 			if len(calls) != 1 {
@@ -62,7 +62,7 @@ func TestKernelInstallsOnlySelectedModules(t *testing.T) {
 			if tc.engine == EngineQuickJS {
 				local = `json.encode({a: 1})`
 			}
-			if _, err := kernel.Exec(t.Context(), local); err != nil {
+			if _, err := kernel.Exec(t.Context(), Cell{Code: local}); err != nil {
 				t.Fatalf("local library missing: %v", err)
 			}
 		})
@@ -75,7 +75,7 @@ func TestKernelInstallsEveryModuleByDefault(t *testing.T) {
 		return map[string]any{"module": module, "operation": operation}, nil
 	})
 	kernel := testModulesKernel(t, EngineStarlark, nil, host)
-	if _, err := kernel.Exec(t.Context(), `browser.run(command="x")`); err != nil {
+	if _, err := kernel.Exec(t.Context(), Cell{Code: `browser.run(command="x")`}); err != nil {
 		t.Fatalf("default kernel lost a module: %v", err)
 	}
 }

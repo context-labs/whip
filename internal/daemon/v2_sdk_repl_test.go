@@ -365,7 +365,7 @@ func (r *sdkFixtureRunner) scratchResult(ctx context.Context, started func()) (s
 		return "", err
 	}
 	defer kernel.Close()
-	if _, err := kernel.Exec(ctx, "saved = 42\nunsupported = files.read"); err != nil {
+	if _, err := kernel.Exec(ctx, rlm.Cell{Code: "saved = 42\nunsupported = files.read"}); err != nil {
 		return "", err
 	}
 	if err := kernel.Suspend(); err != nil {

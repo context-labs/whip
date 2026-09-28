@@ -31,7 +31,7 @@ func TestRecursiveRuntimeKernelWorker(t *testing.T) {
 	if separator < 0 {
 		return
 	}
-	if err := rlm.WorkerMain(os.Args[separator+1:], os.Stdin, os.Stdout); err != nil {
+	if err := rlm.WorkerMain(os.Args[separator+1:], os.Stdin, os.Stdout, rlm.DescribeEngine); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}

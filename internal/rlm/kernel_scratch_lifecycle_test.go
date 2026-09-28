@@ -58,7 +58,7 @@ func lifecycleKernel(t *testing.T, store ScratchStore) *Kernel {
 func TestScratchLoadFailureStopsWorkerAndRetries(t *testing.T) {
 	store := &failingScratch{}
 	kernel := lifecycleKernel(t, store)
-	if _, err := kernel.Exec(t.Context(), "saved = 42"); err != nil {
+	if _, err := kernel.Exec(t.Context(), Cell{Code: "saved = 42"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := kernel.Suspend(); err != nil {
@@ -74,7 +74,7 @@ func TestScratchLoadFailureStopsWorkerAndRetries(t *testing.T) {
 		}
 	}
 	store.loadErr = nil
-	result, err := kernel.Exec(t.Context(), "saved")
+	result, err := kernel.Exec(t.Context(), Cell{Code: "saved"})
 	if err != nil || result.Value != float64(42) || result.Restored == nil {
 		t.Fatalf("retry = %+v, %v", result, err)
 	}
@@ -83,12 +83,12 @@ func TestScratchLoadFailureStopsWorkerAndRetries(t *testing.T) {
 func TestScratchSaveFailureKeepsCellAndPreviousCheckpoint(t *testing.T) {
 	store := &failingScratch{}
 	kernel := lifecycleKernel(t, store)
-	if _, err := kernel.Exec(t.Context(), "saved = 1"); err != nil {
+	if _, err := kernel.Exec(t.Context(), Cell{Code: "saved = 1"}); err != nil {
 		t.Fatal(err)
 	}
 	before, _, _ := store.Load(t.Context())
 	store.saveErr = errors.New("temporary save failure")
-	result, err := kernel.Exec(t.Context(), "saved = 2\nsaved")
+	result, err := kernel.Exec(t.Context(), Cell{Code: "saved = 2\nsaved"})
 	if err != nil || result.Value != float64(2) || result.Scratch == nil || !strings.Contains(result.Scratch.Warning, "Do not replay") {
 		t.Fatalf("cell = %+v, %v", result, err)
 	}
@@ -97,13 +97,13 @@ func TestScratchSaveFailureKeepsCellAndPreviousCheckpoint(t *testing.T) {
 		t.Fatal("failed save replaced checkpoint")
 	}
 	store.saveErr = nil
-	if _, err := kernel.Exec(t.Context(), "saved"); err != nil {
+	if _, err := kernel.Exec(t.Context(), Cell{Code: "saved"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := kernel.Suspend(); err != nil {
 		t.Fatal(err)
 	}
-	result, err = kernel.Exec(t.Context(), "saved")
+	result, err = kernel.Exec(t.Context(), Cell{Code: "saved"})
 	if err != nil || result.Value != float64(2) {
 		t.Fatalf("saved retry = %+v, %v", result, err)
 	}
@@ -113,7 +113,7 @@ func TestScratchCorruptionNeverOverwritesCheckpoint(t *testing.T) {
 	store := &memoryScratch{program: "not a structured snapshot"}
 	kernel := lifecycleKernel(t, store)
 	for range 2 {
-		if _, err := kernel.Exec(t.Context(), "saved = 2"); err == nil {
+		if _, err := kernel.Exec(t.Context(), Cell{Code: "saved = 2"}); err == nil {
 			t.Fatal("corrupt restore accepted")
 		}
 		if kernel.Started() || kernel.manager.Active() != 0 {
@@ -128,18 +128,18 @@ func TestScratchCorruptionNeverOverwritesCheckpoint(t *testing.T) {
 func TestScratchManifestChangesAreCheckpointed(t *testing.T) {
 	store := &memoryScratch{}
 	kernel := lifecycleKernel(t, store)
-	if _, err := kernel.Exec(t.Context(), "saved = 2"); err != nil {
+	if _, err := kernel.Exec(t.Context(), Cell{Code: "saved = 2"}); err != nil {
 		t.Fatal(err)
 	}
 	count := store.count()
-	result, err := kernel.Exec(t.Context(), "unsupported = files.read")
+	result, err := kernel.Exec(t.Context(), Cell{Code: "unsupported = files.read"})
 	if err != nil || result.Scratch == nil || len(result.Scratch.Skipped) != 1 {
 		t.Fatalf("skip = %+v, %v", result, err)
 	}
 	if store.count() != count+1 {
 		t.Fatal("manifest-only change not saved")
 	}
-	result, err = kernel.Exec(t.Context(), "saved")
+	result, err = kernel.Exec(t.Context(), Cell{Code: "saved"})
 	if err != nil || result.Scratch != nil || store.count() != count+1 {
 		t.Fatalf("unchanged report repeated %+v %v", result, err)
 	}
@@ -201,12 +201,12 @@ func TestScratchOversizedFrameKeepsWorkerAndCheckpoint(t *testing.T) {
 	store := &memoryScratch{}
 	kernel := lifecycleKernel(t, store)
 	kernel.limits.FrameBytes = 4096
-	if _, err := kernel.Exec(t.Context(), "saved = 1"); err != nil {
+	if _, err := kernel.Exec(t.Context(), Cell{Code: "saved = 1"}); err != nil {
 		t.Fatal(err)
 	}
 	before, _, _ := store.Load(t.Context())
 	process := kernel.worker
-	result, err := kernel.Exec(t.Context(), "saved = '\\x00' * 4000\nlen(saved)")
+	result, err := kernel.Exec(t.Context(), Cell{Code: "saved = '\\x00' * 4000\nlen(saved)"})
 	if err != nil || result.Value != float64(4000) || result.Scratch == nil || result.Scratch.Warning == "" {
 		t.Fatalf("overflow = %+v %v", result, err)
 	}
@@ -217,7 +217,7 @@ func TestScratchOversizedFrameKeepsWorkerAndCheckpoint(t *testing.T) {
 	if before != after {
 		t.Fatal("overflow overwrote prior checkpoint")
 	}
-	result, err = kernel.Exec(t.Context(), "saved = 2\nsaved")
+	result, err = kernel.Exec(t.Context(), Cell{Code: "saved = 2\nsaved"})
 	if err != nil || result.Value != float64(2) || result.Scratch != nil {
 		t.Fatalf("retry = %+v %v", result, err)
 	}
@@ -231,7 +231,7 @@ func TestScratchMidTurnLoadFailureLeavesNoReplacementWorker(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer release()
-	if _, err := kernel.Exec(ctx, "saved = 42"); err != nil {
+	if _, err := kernel.Exec(ctx, Cell{Code: "saved = 42"}); err != nil {
 		t.Fatal(err)
 	}
 	// Simulate a process lost between cells in the same lease.
@@ -239,14 +239,14 @@ func TestScratchMidTurnLoadFailureLeavesNoReplacementWorker(t *testing.T) {
 	kernel.stop()
 	kernel.mu.Unlock()
 	store.loadErr = errors.New("offline")
-	if _, err := kernel.Exec(ctx, "saved"); err == nil {
+	if _, err := kernel.Exec(ctx, Cell{Code: "saved"}); err == nil {
 		t.Fatal("replacement load succeeded")
 	}
 	if kernel.Started() || kernel.manager.Active() != 0 {
 		t.Fatal("replacement worker leaked")
 	}
 	store.loadErr = nil
-	result, err := kernel.Exec(ctx, "saved")
+	result, err := kernel.Exec(ctx, Cell{Code: "saved"})
 	if err != nil || result.Value != float64(42) || result.Restored == nil {
 		t.Fatalf("replacement retry = %+v %v", result, err)
 	}
@@ -260,7 +260,7 @@ func TestScratchDeadProcessReplacementRetainsPoolReservation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer release()
-	if _, err := kernel.Exec(ctx, "saved = 42"); err != nil {
+	if _, err := kernel.Exec(ctx, Cell{Code: "saved = 42"}); err != nil {
 		t.Fatal(err)
 	}
 	kernel.mu.Lock()
@@ -281,7 +281,7 @@ func TestScratchDeadProcessReplacementRetainsPoolReservation(t *testing.T) {
 	if kernel.manager.Active() != 1 || !kernel.manager.running(kernel) {
 		t.Fatal("replacement escaped pool accounting")
 	}
-	result, err := kernel.Exec(ctx, "saved")
+	result, err := kernel.Exec(ctx, Cell{Code: "saved"})
 	if err != nil || result.Value != float64(42) {
 		t.Fatalf("replacement = %+v %v", result, err)
 	}
@@ -311,14 +311,14 @@ func TestScratchReplacementStaysPinnedUntilTurnRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer release()
-	if _, err := kernel.Exec(ctx, "saved = 41"); err != nil {
+	if _, err := kernel.Exec(ctx, Cell{Code: "saved = 41"}); err != nil {
 		t.Fatal(err)
 	}
 	kernel.mu.Lock()
 	kernel.stop()
 	kernel.mu.Unlock()
 	for _, code := range []string{"saved + 1", "saved + 1"} {
-		result, err := kernel.Exec(ctx, code)
+		result, err := kernel.Exec(ctx, Cell{Code: code})
 		if err != nil || result.Value != float64(42) {
 			t.Fatalf("replacement = %+v %v", result, err)
 		}
@@ -340,7 +340,7 @@ func TestScratchReplacementStaysPinnedUntilTurnRelease(t *testing.T) {
 	}
 	done()
 	// Reusing an ended lease context behaves as a single cell, never a new pin.
-	if _, err := kernel.Exec(ctx, "saved"); err != nil {
+	if _, err := kernel.Exec(ctx, Cell{Code: "saved"}); err != nil {
 		t.Fatal(err)
 	}
 	if kernel.manager.State(kernel) != KernelResident {
@@ -386,7 +386,7 @@ func TestScratchWhitespaceCheckpointIsNotAbsent(t *testing.T) {
 			store := &memoryScratch{program: snapshot, manifest: SnapshotManifest{Saved: []string{}}}
 			kernel := lifecycleKernel(t, store)
 			for range 2 {
-				if _, err := kernel.Exec(t.Context(), "saved = 2"); err == nil {
+				if _, err := kernel.Exec(t.Context(), Cell{Code: "saved = 2"}); err == nil {
 					t.Fatal("empty checkpoint accepted")
 				}
 				if kernel.Started() || kernel.manager.Active() != 0 {
@@ -404,7 +404,7 @@ func TestScratchWhitespaceCheckpointIsNotAbsent(t *testing.T) {
 	}
 	store := &memoryScratch{program: " \t"}
 	kernel := lifecycleKernel(t, store)
-	if _, err := kernel.Exec(t.Context(), "saved = 2"); err == nil {
+	if _, err := kernel.Exec(t.Context(), Cell{Code: "saved = 2"}); err == nil {
 		t.Fatal("whitespace without manifest accepted")
 	}
 }

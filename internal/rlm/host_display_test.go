@@ -13,7 +13,7 @@ func TestHostDisplayUsesOnlyTypedBoundedIdentities(t *testing.T) {
 	if display := hostDisplay("files", "patch", map[string]any{"path": strings.Repeat("a", 4097), "content": "do not display"}); display != nil {
 		t.Fatalf("invented a truncated file identity: %+v", display)
 	}
-	spawn := HostCall{Module: "agents", Operation: "spawn", Display: hostDisplay("agents", "spawn", map[string]any{"name": "Review", "prompt": "private task"})}
+	spawn := PresentedHostCall{Module: "agents", Operation: "spawn", Display: hostDisplay("agents", "spawn", map[string]any{"name": "Review", "prompt": "private task"})}
 	finished := hostResultDisplay(spawn, map[string]any{"id": "child", "content": "not a label"})
 	if finished.ChildID != "child" || finished.Label != "Review" || spawn.Display.ChildID != "" {
 		t.Fatalf("spawn identity or immutable start: %+v", finished)

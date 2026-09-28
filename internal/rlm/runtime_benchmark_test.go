@@ -62,14 +62,14 @@ func BenchmarkRuntimeWarmCell(b *testing.B) {
 					setup = "var counter=0"
 					code = workload.javascript
 				}
-				if _, err := kernel.Exec(b.Context(), setup); err != nil {
+				if _, err := kernel.Exec(b.Context(), Cell{Code: setup}); err != nil {
 					b.Fatal(err)
 				}
 				b.ResetTimer()
 				var result Result
 				for b.Loop() {
 					var err error
-					result, err = kernel.Exec(b.Context(), code)
+					result, err = kernel.Exec(b.Context(), Cell{Code: code})
 					if err != nil {
 						b.Fatal(err)
 					}
@@ -95,7 +95,7 @@ func BenchmarkRuntimeCheckpointRestore(b *testing.B) {
 			if engineID == EngineQuickJS {
 				setup = "var counter=1"
 			}
-			if _, err := kernel.Exec(b.Context(), setup); err != nil {
+			if _, err := kernel.Exec(b.Context(), Cell{Code: setup}); err != nil {
 				b.Fatal(err)
 			}
 			b.ResetTimer()
@@ -103,7 +103,7 @@ func BenchmarkRuntimeCheckpointRestore(b *testing.B) {
 				if err := kernel.Suspend(); err != nil {
 					b.Fatal(err)
 				}
-				if _, err := kernel.Exec(b.Context(), "counter+1"); err != nil {
+				if _, err := kernel.Exec(b.Context(), Cell{Code: "counter+1"}); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -120,7 +120,7 @@ func BenchmarkRuntimeColdStart(b *testing.B) {
 		b.Run(engineID, func(b *testing.B) {
 			for b.Loop() {
 				kernel := benchmarkKernel(b, engineID, nil, nil, 1)
-				if _, err := kernel.Exec(b.Context(), "6*7"); err != nil {
+				if _, err := kernel.Exec(b.Context(), Cell{Code: "6*7"}); err != nil {
 					b.Fatal(err)
 				}
 				b.StopTimer()

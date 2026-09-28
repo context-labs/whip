@@ -37,7 +37,7 @@ await browser.run({session:"legacy", code:"info()"});`},
 				return map[string]any{"tab_id": "tab", "attachment_id": "attachment", "document_revision": "doc-1"}, nil
 			})
 			kernel := testModulesKernel(t, tc.engine, []string{"browser", "agents"}, host)
-			if _, err := kernel.Exec(t.Context(), tc.code); err != nil {
+			if _, err := kernel.Exec(t.Context(), Cell{Code: tc.code}); err != nil {
 				t.Fatal(err)
 			}
 			want := []string{"browser.list_tabs", "browser.open", "browser.attach", "browser.run", "browser.allow_preview_port", "agents.spawn", "browser.detach", "browser.run"}

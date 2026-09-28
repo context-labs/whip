@@ -26,7 +26,7 @@ func TestRuntimeNumericContentArguments(t *testing.T) {
 			if engine == rlm.EngineQuickJS {
 				code = fmt.Sprintf(`var chunk = await context.read({handle:%q, offset:9001, length:3}); print(chunk.text, chunk.span.start, chunk.span.end); await context.history({limit:1});`, handle)
 			}
-			result, err := runtime.rootNode.kernel.Exec(t.Context(), code)
+			result, err := runtime.rootNode.kernel.Exec(t.Context(), rlm.Cell{Code: code})
 			if err != nil || result.Output != "bbb 9001 9004\n" {
 				t.Fatalf("numeric content arguments: output=%.120q err=%v", result.Output, err)
 			}

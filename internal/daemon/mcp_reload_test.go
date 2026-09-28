@@ -11,6 +11,7 @@ import (
 	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/mcp"
+	"github.com/context-labs/whip/internal/rlm"
 )
 
 func TestMCPReloadPreservesPermissionPolicyAndRetainedChildren(t *testing.T) {
@@ -107,7 +108,7 @@ func rejectMCPReloadCall(t *testing.T, store *session.Store, root *Session, node
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		_, err := node.kernel.Exec(ctx, `mcp.call(server="local", tool="mutate", arguments={})`)
+		_, err := node.kernel.Exec(ctx, rlm.Cell{Code: `mcp.call(server="local", tool="mutate", arguments={})`})
 		done <- err
 	}()
 	pending := waitMCPPermission(t, store, root)

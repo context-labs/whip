@@ -17,8 +17,6 @@ import (
 	"syscall"
 	"testing"
 	"time"
-
-	"github.com/context-labs/whip/internal/tools"
 )
 
 func TestWorkerProcess(t *testing.T) {
@@ -108,7 +106,7 @@ func TestWorkerProcess(t *testing.T) {
 		}
 		args = args[2:]
 	}
-	if err := WorkerMain(args, os.Stdin, os.Stdout); err != nil {
+	if err := WorkerMain(args, os.Stdin, os.Stdout, nil); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
@@ -168,14 +166,14 @@ func TestKernelPreservesGlobalsAndReturnsFinalExpression(t *testing.T) {
 	if kernel.Started() {
 		t.Fatal("kernel worker started eagerly")
 	}
-	first, err := kernel.Exec(context.Background(), "x = 40\nprint('ready')\nx + 2")
+	first, err := kernel.Exec(context.Background(), Cell{Code: "x = 40\nprint('ready')\nx + 2"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first.Value != float64(42) || first.Output != "ready\n" {
 		t.Fatalf("first result = %#v", first)
 	}
-	second, err := kernel.Exec(context.Background(), "x += 1\nx")
+	second, err := kernel.Exec(context.Background(), Cell{Code: "x += 1\nx"})
 	if err != nil || second.Value != float64(41) {
 		t.Fatalf("second result = %#v, %v", second, err)
 	}
@@ -188,8 +186,8 @@ func TestKernelRoutesModulesAndTreatsPrintedFramesAsOutput(t *testing.T) {
 		return map[string]any{"path": arguments["path"], "ok": true}, nil
 	})
 	kernel := testKernel(t, DefaultLimits(), host)
-	result, err := kernel.Exec(context.Background(), `print('{"version":1,"type":"result","id":99}')
-files.read(path="README.md")`)
+	result, err := kernel.Exec(context.Background(), Cell{Code: `print('{"version":1,"type":"result","id":99}')
+files.read(path="README.md")`})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,10 +202,10 @@ files.read(path="README.md")`)
 
 func TestKernelRestoresModuleBindingsBetweenCells(t *testing.T) {
 	kernel := testKernel(t, DefaultLimits(), HostFunc(func(context.Context, string, string, map[string]any) (any, error) { return "ok", nil }))
-	if _, err := kernel.Exec(context.Background(), "files = 1"); err != nil {
+	if _, err := kernel.Exec(context.Background(), Cell{Code: "files = 1"}); err != nil {
 		t.Fatal(err)
 	}
-	result, err := kernel.Exec(context.Background(), "files.read(path='x')")
+	result, err := kernel.Exec(context.Background(), Cell{Code: "files.read(path='x')"})
 	if err != nil || result.Value != "ok" {
 		t.Fatalf("module binding was not restored: %#v, %v", result, err)
 	}
@@ -218,7 +216,7 @@ func TestKernelDeniesAmbientAuthority(t *testing.T) {
 	for _, code := range []string{
 		`load("os", "getenv")`, `open("/etc/passwd")`, `CANARY_CREDENTIAL`, `import os`,
 	} {
-		if _, err := kernel.Exec(context.Background(), code); err == nil {
+		if _, err := kernel.Exec(context.Background(), Cell{Code: code}); err == nil {
 			t.Errorf("ambient expression unexpectedly succeeded: %s", code)
 		}
 	}
@@ -236,7 +234,7 @@ func TestKernelStripsDaemonEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(kernel.Close)
-	if _, err := kernel.Exec(context.Background(), "1"); err != nil {
+	if _, err := kernel.Exec(context.Background(), Cell{Code: "1"}); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(report)
@@ -253,7 +251,7 @@ func TestKernelEnforcesStepWallOutputHostAndFrameLimits(t *testing.T) {
 		limits := DefaultLimits()
 		limits.Steps = 1_000
 		kernel := testKernel(t, limits, nil)
-		if _, err := kernel.Exec(context.Background(), "while True:\n  pass"); err == nil || !strings.Contains(err.Error(), "too many steps") {
+		if _, err := kernel.Exec(context.Background(), Cell{Code: "while True:\n  pass"}); err == nil || !strings.Contains(err.Error(), "too many steps") {
 			t.Fatalf("step error = %v", err)
 		}
 	})
@@ -262,7 +260,7 @@ func TestKernelEnforcesStepWallOutputHostAndFrameLimits(t *testing.T) {
 		limits.Steps = ^uint64(0)
 		limits.Wall = 30 * time.Millisecond
 		kernel := testKernel(t, limits, nil)
-		if _, err := kernel.Exec(context.Background(), "while True:\n  pass"); err == nil || !strings.Contains(err.Error(), "deadline") {
+		if _, err := kernel.Exec(context.Background(), Cell{Code: "while True:\n  pass"}); err == nil || !strings.Contains(err.Error(), "deadline") {
 			t.Fatalf("wall error = %v", err)
 		}
 	})
@@ -274,7 +272,7 @@ func TestKernelEnforcesStepWallOutputHostAndFrameLimits(t *testing.T) {
 			return "ok", nil
 		})
 		kernel := testKernel(t, limits, slow)
-		if result, err := kernel.Exec(context.Background(), "files.read(path='a')"); err != nil || result.Value != "ok" {
+		if result, err := kernel.Exec(context.Background(), Cell{Code: "files.read(path='a')"}); err != nil || result.Value != "ok" {
 			t.Fatalf("slow host call tripped the cell clock: %+v err=%v", result, err)
 		}
 	})
@@ -287,7 +285,7 @@ func TestKernelEnforcesStepWallOutputHostAndFrameLimits(t *testing.T) {
 			return "ok", nil
 		})
 		kernel := testKernel(t, limits, slow)
-		if _, err := kernel.Exec(context.Background(), "files.read(path='a')\nwhile True:\n  pass"); err == nil || !strings.Contains(err.Error(), "Starlark compute exceeded") {
+		if _, err := kernel.Exec(context.Background(), Cell{Code: "files.read(path='a')\nwhile True:\n  pass"}); err == nil || !strings.Contains(err.Error(), "Starlark compute exceeded") {
 			t.Fatalf("compute after host call error = %v", err)
 		}
 	})
@@ -295,7 +293,7 @@ func TestKernelEnforcesStepWallOutputHostAndFrameLimits(t *testing.T) {
 		limits := DefaultLimits()
 		limits.OutputBytes = 32
 		kernel := testKernel(t, limits, nil)
-		if _, err := kernel.Exec(context.Background(), `print("x" * 100)`); err == nil || !strings.Contains(err.Error(), "output limit") {
+		if _, err := kernel.Exec(context.Background(), Cell{Code: `print("x" * 100)`}); err == nil || !strings.Contains(err.Error(), "output limit") {
 			t.Fatalf("output error = %v", err)
 		}
 	})
@@ -303,7 +301,7 @@ func TestKernelEnforcesStepWallOutputHostAndFrameLimits(t *testing.T) {
 		limits := DefaultLimits()
 		limits.HostRequests = 1
 		kernel := testKernel(t, limits, HostFunc(func(context.Context, string, string, map[string]any) (any, error) { return "ok", nil }))
-		if _, err := kernel.Exec(context.Background(), "files.read(path='a')\nfiles.read(path='b')"); err == nil || !strings.Contains(err.Error(), "host request limit") {
+		if _, err := kernel.Exec(context.Background(), Cell{Code: "files.read(path='a')\nfiles.read(path='b')"}); err == nil || !strings.Contains(err.Error(), "host request limit") {
 			t.Fatalf("host request error = %v", err)
 		}
 	})
@@ -311,7 +309,7 @@ func TestKernelEnforcesStepWallOutputHostAndFrameLimits(t *testing.T) {
 		limits := DefaultLimits()
 		limits.FrameBytes = 256
 		kernel := testKernel(t, limits, nil)
-		if _, err := kernel.Exec(context.Background(), strings.Repeat("x", 512)); !errors.Is(err, ErrFrameLimit) {
+		if _, err := kernel.Exec(context.Background(), Cell{Code: strings.Repeat("x", 512)}); !errors.Is(err, ErrFrameLimit) {
 			t.Fatalf("frame error = %v", err)
 		}
 	})
@@ -326,11 +324,11 @@ func TestKernelEnforcesStepWallOutputHostAndFrameLimits(t *testing.T) {
 		limits.Steps = ^uint64(0)
 		limits.Wall = 3 * time.Second
 		kernel := testKernel(t, limits, nil)
-		_, err := kernel.Exec(context.Background(), "items = []\nwhile True:\n  items.append('x' * 65536)")
+		_, err := kernel.Exec(context.Background(), Cell{Code: "items = []\nwhile True:\n  items.append('x' * 65536)"})
 		if err == nil {
 			t.Fatal("allocation pressure unexpectedly succeeded")
 		}
-		if _, restartErr := kernel.Exec(context.Background(), "1"); restartErr != nil {
+		if _, restartErr := kernel.Exec(context.Background(), Cell{Code: "1"}); restartErr != nil {
 			t.Fatalf("kernel did not restart after memory termination: %v (original %v)", restartErr, err)
 		}
 	})
@@ -350,16 +348,16 @@ func TestKernelReservationAndCrashRestart(t *testing.T) {
 		return kernel
 	}
 	first, second := newKernel(), newKernel()
-	if _, err := first.Exec(context.Background(), "x = 7"); err != nil {
+	if _, err := first.Exec(context.Background(), Cell{Code: "x = 7"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := second.Exec(context.Background(), "1"); err != nil {
+	if _, err := second.Exec(context.Background(), Cell{Code: "1"}); err != nil {
 		t.Fatalf("LRU replacement: %v", err)
 	}
 	if first.Started() || manager.State(first) != KernelCold {
 		t.Fatalf("first kernel was not suspended: started=%v state=%s", first.Started(), manager.State(first))
 	}
-	if _, err := first.Exec(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "undefined") {
+	if _, err := first.Exec(context.Background(), Cell{Code: "x"}); err == nil || !strings.Contains(err.Error(), "undefined") {
 		t.Fatalf("globals survived suspension: %v", err)
 	}
 
@@ -376,10 +374,10 @@ func TestKernelReservationAndCrashRestart(t *testing.T) {
 	if manager.Active() != 0 {
 		t.Fatal("crashed worker retained its daemon reservation")
 	}
-	if _, err := first.Exec(context.Background(), "x"); err == nil || !strings.Contains(err.Error(), "undefined") {
+	if _, err := first.Exec(context.Background(), Cell{Code: "x"}); err == nil || !strings.Contains(err.Error(), "undefined") {
 		t.Fatalf("globals survived worker restart: %v", err)
 	}
-	if _, err := second.Exec(context.Background(), "1"); err != nil {
+	if _, err := second.Exec(context.Background(), Cell{Code: "1"}); err != nil {
 		t.Fatalf("reservation after restart = %v", err)
 	}
 }
@@ -448,23 +446,23 @@ func TestKernelManagerEvictsIdleWorkersInLRUOrderAcrossRetainedSessions(t *testi
 	for index := range kernels {
 		kernels[index] = testManagedKernel(t, manager)
 	}
-	if _, err := kernels[0].Exec(t.Context(), "x = 1"); err != nil {
+	if _, err := kernels[0].Exec(t.Context(), Cell{Code: "x = 1"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := kernels[1].Exec(t.Context(), "x = 2"); err != nil {
+	if _, err := kernels[1].Exec(t.Context(), Cell{Code: "x = 2"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := kernels[0].Exec(t.Context(), "x += 1"); err != nil {
+	if _, err := kernels[0].Exec(t.Context(), Cell{Code: "x += 1"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := kernels[2].Exec(t.Context(), "x = 3"); err != nil {
+	if _, err := kernels[2].Exec(t.Context(), Cell{Code: "x = 3"}); err != nil {
 		t.Fatal(err)
 	}
 	if manager.State(kernels[1]) != KernelCold || manager.State(kernels[0]) != KernelResident {
 		t.Fatalf("LRU states first=%s second=%s", manager.State(kernels[0]), manager.State(kernels[1]))
 	}
 	for index := 3; index < len(kernels); index++ {
-		if _, err := kernels[index].Exec(t.Context(), fmt.Sprintf("x = %d", index)); err != nil {
+		if _, err := kernels[index].Exec(t.Context(), Cell{Code: fmt.Sprintf("x = %d", index)}); err != nil {
 			t.Fatalf("retained session %d: %v", index, err)
 		}
 		if manager.Active() > 2 {
@@ -532,10 +530,10 @@ func TestKernelTurnLeasePreservesScratchAndSuspendRejectsRunning(t *testing.T) {
 	if err := kernel.Suspend(); !errors.Is(err, ErrKernelRunning) {
 		t.Fatalf("suspend running kernel=%v", err)
 	}
-	if _, err := kernel.Exec(ctx, "scratch = 41"); err != nil {
+	if _, err := kernel.Exec(ctx, Cell{Code: "scratch = 41"}); err != nil {
 		t.Fatal(err)
 	}
-	result, err := kernel.Exec(ctx, "scratch + 1")
+	result, err := kernel.Exec(ctx, Cell{Code: "scratch + 1"})
 	if err != nil || result.Value != float64(42) {
 		t.Fatalf("same-turn scratch=%#v err=%v", result, err)
 	}
@@ -548,7 +546,7 @@ func TestKernelTurnLeasePreservesScratchAndSuspendRejectsRunning(t *testing.T) {
 		t.Fatalf("second lease start=%+v err=%v", start, err)
 	}
 	defer release()
-	if _, err := kernel.Exec(ctx, "scratch"); err == nil || !strings.Contains(err.Error(), "undefined") {
+	if _, err := kernel.Exec(ctx, Cell{Code: "scratch"}); err == nil || !strings.Contains(err.Error(), "undefined") {
 		t.Fatalf("scratch survived suspension: %v", err)
 	}
 }
@@ -567,7 +565,7 @@ func TestKernelDeadlineReapsProcessGroup(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(kernel.Close)
-	if _, err := kernel.Exec(context.Background(), "while True:\n  pass"); err == nil {
+	if _, err := kernel.Exec(context.Background(), Cell{Code: "while True:\n  pass"}); err == nil {
 		t.Fatal("infinite cell did not hit wall limit")
 	}
 	data, err := os.ReadFile(pidPath)
@@ -593,7 +591,7 @@ func TestKernelSerializesConcurrentCells(t *testing.T) {
 	var wait sync.WaitGroup
 	for range 4 {
 		wait.Go(func() {
-			if _, err := kernel.Exec(context.Background(), "value = 1"); err != nil {
+			if _, err := kernel.Exec(context.Background(), Cell{Code: "value = 1"}); err != nil {
 				t.Errorf("Exec: %v", err)
 			}
 		})
@@ -622,7 +620,7 @@ func TestKernelRejectsMalformedWorkerProtocol(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(kernel.Close)
-			if _, err := kernel.Exec(context.Background(), "1"); err == nil || !strings.Contains(err.Error(), test.want) {
+			if _, err := kernel.Exec(context.Background(), Cell{Code: "1"}); err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("protocol error = %v", err)
 			}
 		})
@@ -650,7 +648,7 @@ func TestKernelLifecycleAndDiagnosticsBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := kernel.Exec(context.Background(), "1"); err == nil {
+	if _, err := kernel.Exec(context.Background(), Cell{Code: "1"}); err == nil {
 		t.Fatal("missing worker executable succeeded")
 	}
 	if manager.Active() != 0 {
@@ -658,7 +656,7 @@ func TestKernelLifecycleAndDiagnosticsBoundaries(t *testing.T) {
 	}
 	kernel.Close()
 	kernel.Close()
-	if _, err := kernel.Exec(context.Background(), "1"); !errors.Is(err, ErrKernelClosed) {
+	if _, err := kernel.Exec(context.Background(), Cell{Code: "1"}); !errors.Is(err, ErrKernelClosed) {
 		t.Fatalf("closed kernel error = %v", err)
 	}
 
@@ -688,7 +686,7 @@ func TestKernelReportsWorkerExit(t *testing.T) {
 						t.Fatal(err)
 					}
 					t.Cleanup(kernel.Close)
-					_, err = kernel.Exec(t.Context(), "1")
+					_, err = kernel.Exec(t.Context(), Cell{Code: "1"})
 					if !errors.Is(err, io.EOF) || !strings.Contains(err.Error(), engine+" worker exited during "+phase) {
 						t.Fatalf("missing exit context or underlying EOF: %v", err)
 					}
@@ -728,7 +726,7 @@ func TestKernelDrainsFinalFramesAfterWorkerExit(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
 			var updates []string
-			ctx = tools.WithOnUpdate(ctx, func(output string) {
+			cell := Cell{Code: "42", OnOutput: func(output string) {
 				updates = append(updates, output)
 				if len(updates) == 1 {
 					// Exec holds kernel.mu here. Keep the reader backpressured until
@@ -738,8 +736,8 @@ func TestKernelDrainsFinalFramesAfterWorkerExit(t *testing.T) {
 					case <-ctx.Done():
 					}
 				}
-			})
-			result, err := kernel.Exec(ctx, "42")
+			}}
+			result, err := kernel.Exec(ctx, cell)
 			if err != nil || fmt.Sprint(result.Value) != "42" || result.Output != "first\nsecond\nthird" {
 				t.Fatalf("worker exit lost final result: %+v, %v", result, err)
 			}
@@ -871,13 +869,13 @@ func TestKernelScratchSurvivesSuspensionAndMidTurnRestart(t *testing.T) {
 	if err != nil || start.Restarted || start.Restore != nil {
 		t.Fatalf("first lease start=%+v err=%v", start, err)
 	}
-	if _, err := kernel.Exec(ctx, "scratch = 41\ndef bump(x):\n    return x + 1"); err != nil {
+	if _, err := kernel.Exec(ctx, Cell{Code: "scratch = 41\ndef bump(x):\n    return x + 1"}); err != nil {
 		t.Fatal(err)
 	}
 	if store.count() != 1 {
 		t.Fatalf("saves after first cell = %d", store.count())
 	}
-	if result, err := kernel.Exec(ctx, "bump(scratch)"); err != nil || result.Value != float64(42) || result.Restored != nil {
+	if result, err := kernel.Exec(ctx, Cell{Code: "bump(scratch)"}); err != nil || result.Value != float64(42) || result.Restored != nil {
 		t.Fatalf("same-turn cell = %+v err=%v", result, err)
 	}
 	if store.count() != 1 {
@@ -895,15 +893,15 @@ func TestKernelScratchSurvivesSuspensionAndMidTurnRestart(t *testing.T) {
 	if !slices.Equal(start.Restore.Restored, []string{"scratch", "bump"}) || len(start.Restore.Failed) != 0 {
 		t.Fatalf("restore report = %+v", start.Restore)
 	}
-	if result, err := kernel.Exec(ctx, "bump(scratch)"); err != nil || result.Value != float64(42) {
+	if result, err := kernel.Exec(ctx, Cell{Code: "bump(scratch)"}); err != nil || result.Value != float64(42) {
 		t.Fatalf("restored scratch = %+v err=%v", result, err)
 	}
 	// A cell that hits the wall clock kills the worker mid-turn; the next
 	// cell runs on a replacement that revived the scratch first.
-	if _, err := kernel.Exec(ctx, "while True:\n  pass"); err == nil {
+	if _, err := kernel.Exec(ctx, Cell{Code: "while True:\n  pass"}); err == nil {
 		t.Fatal("infinite cell did not hit the wall limit")
 	}
-	result, err := kernel.Exec(ctx, "bump(scratch)")
+	result, err := kernel.Exec(ctx, Cell{Code: "bump(scratch)"})
 	if err != nil || result.Value != float64(42) || result.Restored == nil || !slices.Contains(result.Restored.Restored, "scratch") {
 		t.Fatalf("mid-turn restore = %+v err=%v", result, err)
 	}
@@ -919,15 +917,19 @@ func TestKernelStreamsOutputAndReportsHostCalls(t *testing.T) {
 	host := HostFunc(func(context.Context, string, string, map[string]any) (any, error) { return "ok", nil })
 	kernel, err := NewKernel(KernelOptions{
 		Command: []string{executable, "-test.run=TestWorkerProcess", "--"}, Limits: DefaultLimits(), Host: host,
-		OnHostCall: func(call HostCall) { calls = append(calls, call) },
+		ObserveHost: func(HostCall, map[string]any) func(HostCall, any) {
+			return func(call HostCall, _ any) { calls = append(calls, call) }
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(kernel.Close)
 	var snapshots []string
-	ctx := tools.WithOnUpdate(tools.WithToolCallID(context.Background(), "call-1"), func(soFar string) { snapshots = append(snapshots, soFar) })
-	result, err := kernel.Exec(ctx, "print('first')\nfiles.write(path='a.txt', content='secret-body')\nprint('second')")
+	result, err := kernel.Exec(context.Background(), Cell{
+		Code:   "print('first')\nfiles.write(path='a.txt', content='secret-body')\nprint('second')",
+		CallID: "call-1", OnOutput: func(soFar string) { snapshots = append(snapshots, soFar) },
+	})
 	if err != nil || result.Output != "first\nsecond\n" {
 		t.Fatalf("result = %+v err=%v", result, err)
 	}
@@ -980,8 +982,10 @@ func TestHostInvocationsStartBeforeDispatchAndSettleOnCancellation(t *testing.T)
 	})
 	kernel, err := NewKernel(KernelOptions{
 		Command: []string{executable, "-test.run=TestWorkerProcess", "--"}, Limits: DefaultLimits(), Host: host,
-		OnHostStart: func(call HostCall) { starts <- call },
-		OnHostCall:  func(call HostCall) { ends <- call },
+		ObserveHost: func(call HostCall, _ map[string]any) func(HostCall, any) {
+			starts <- call
+			return func(call HostCall, _ any) { ends <- call }
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -989,7 +993,7 @@ func TestHostInvocationsStartBeforeDispatchAndSettleOnCancellation(t *testing.T)
 	t.Cleanup(kernel.Close)
 	done := make(chan error, 1)
 	go func() {
-		_, err := kernel.Exec(tools.WithToolCallID(ctx, "same-call"), "files.write(path='a', content='secret')")
+		_, err := kernel.Exec(ctx, Cell{Code: "files.write(path='a', content='secret')", CallID: "same-call"})
 		done <- err
 	}()
 	select {

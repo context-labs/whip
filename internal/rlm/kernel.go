@@ -18,9 +18,6 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
-
-	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/tools"
 )
 
 var (
@@ -340,20 +337,18 @@ type KernelOptions struct {
 	// OnRestore, when set, observes every completed restore (turn start or
 	// mid-turn). It runs while the kernel is locked, so it must return fast.
 	OnRestore func(context.Context, RestoreReport)
-	// OnHostStart observes an invocation immediately before entering the host.
-	// Both callbacks run while the kernel is locked and must return fast.
-	OnHostStart func(HostCall)
-	// OnHostCall observes completion, including host errors and cancellation.
-	OnHostCall func(HostCall)
+	// ObserveHost runs before host dispatch and may return a completion callback.
+	// Both callbacks run on the cell pump while the kernel is locked and must
+	// return fast. Arguments and results are borrowed, read-only callback inputs.
+	ObserveHost HostObserver
 }
 
 // HostCall describes one host module call made from inside a cell: which
-// model tool call it belongs to, what was called, a bounded argument summary
+// caller-supplied cell identity, what was called, a bounded argument summary
 // (never raw contents), how long it took, and the error text if it failed.
 type HostCall struct {
-	Display *llm.OperationDisplay
-	CallID  string
-	// InvocationID distinguishes repeated operations and repeated model call IDs
+	CallID string
+	// InvocationID distinguishes repeated operations and repeated cell call IDs
 	// for this kernel's lifetime. Clients also scope it to the agent and turn.
 	InvocationID string
 	// Status is empty at start, then completed, failed, or cancelled.
@@ -430,8 +425,7 @@ type Kernel struct {
 
 	scratch      ScratchStore
 	onRestore    func(context.Context, RestoreReport)
-	onHostStart  func(HostCall)
-	onHostCall   func(HostCall)
+	observeHost  HostObserver
 	snapshotHash [32]byte
 	skippedHash  [32]byte
 	needsRestore bool // a fresh process has not loaded the stored scratch yet
@@ -457,7 +451,7 @@ type workerProcess struct {
 }
 
 func NewKernel(options KernelOptions) (*Kernel, error) {
-	descriptor, err := ResolveEngine(options.Engine)
+	descriptor, err := ResolveExecutionEngine(options.Engine)
 	if err != nil {
 		return nil, err
 	}
@@ -488,11 +482,11 @@ func NewKernel(options KernelOptions) (*Kernel, error) {
 		engine: descriptor, checkpoints: options.Checkpoints, modules: append([]string(nil), options.Modules...), tools: append([]string(nil), options.Tools...),
 		command: command, limits: limits, manager: options.Manager, host: options.Host,
 		scratch: options.Scratch, onRestore: options.OnRestore,
-		onHostStart: options.OnHostStart, onHostCall: options.OnHostCall,
+		observeHost: options.ObserveHost,
 	}, nil
 }
 
-func (kernel *Kernel) Exec(ctx context.Context, code string) (Result, error) {
+func (kernel *Kernel) Exec(ctx context.Context, cell Cell) (Result, error) {
 	kernel.execMu.Lock()
 	defer kernel.execMu.Unlock()
 	pinned := false
@@ -535,7 +529,7 @@ func (kernel *Kernel) Exec(ctx context.Context, code string) (Result, error) {
 	} else if report != nil {
 		restored = report
 	}
-	result, err := kernel.evalLocked(ctx, code)
+	result, err := kernel.evalLocked(ctx, cell)
 	result.FormatVersion, result.ExecutionEngine, result.Language = 2, kernel.engine.ID, kernel.engine.Language
 	result.Restored = restored
 	result.Scratch = kernel.snapshotLocked(ctx)
@@ -544,13 +538,13 @@ func (kernel *Kernel) Exec(ctx context.Context, code string) (Result, error) {
 
 // evalLocked runs one cell on the resident worker, serving host requests
 // until the result frame arrives. The caller holds kernel.mu.
-func (kernel *Kernel) evalLocked(ctx context.Context, code string) (Result, error) {
+func (kernel *Kernel) evalLocked(ctx context.Context, cell Cell) (Result, error) {
 	if kernel.engine.ID == EngineQuickJS {
-		return kernel.evalQuickJSLocked(ctx, code)
+		return kernel.evalQuickJSLocked(ctx, cell)
 	}
 	kernel.nextID++
 	id := kernel.nextID
-	if err := writeFrame(kernel.worker.input, kernel.limits.FrameBytes, frame{Type: "eval", ID: id, Code: code}); err != nil {
+	if err := writeFrame(kernel.worker.input, kernel.limits.FrameBytes, frame{Type: "eval", ID: id, Code: cell.Code}); err != nil {
 		kernel.stop()
 		return Result{}, err
 	}
@@ -561,7 +555,7 @@ func (kernel *Kernel) evalLocked(ctx context.Context, code string) (Result, erro
 	budget := kernel.limits.Wall
 	var consumed time.Duration
 	var hostCalls uint64
-	onUpdate, callID := tools.OnUpdate(ctx), tools.ToolCallID(ctx)
+	onUpdate, callID := cell.OnOutput, cell.CallID
 	exhausted := func() (Result, error) {
 		kernel.stop()
 		return Result{}, fmt.Errorf("RLM cell deadline: %s of Starlark compute exceeded (time inside host calls is not counted)", budget)
@@ -601,22 +595,21 @@ func (kernel *Kernel) evalLocked(ctx context.Context, code string) (Result, erro
 				CallID: callID, InvocationID: fmt.Sprintf("%d:%d", id, hostCalls),
 				Module: response.Module, Operation: response.Operation,
 				Summary: hostCallSummary(response.Arguments),
-				Display: hostDisplay(response.Module, response.Operation, response.Arguments),
 			}
 			callStarted := time.Now()
-			if kernel.onHostStart != nil {
-				kernel.onHostStart(call)
+			var completed func(HostCall, any)
+			if kernel.observeHost != nil {
+				completed = kernel.observeHost(call, response.Arguments)
 			}
 			if kernel.host == nil {
 				callErr = errors.New("RLM host is not bound")
 			} else {
 				// The host runs synchronously on this goroutine, so the observer
 				// can write the admitted operation id straight onto the call.
-				callCtx := tools.WithOperationObserver(WithHostCall(ctx, call), func(id string) { call.OperationID = id })
+				callCtx := withHostOperationReporter(WithHostCall(ctx, call), func(id string) { call.OperationID = id })
 				value, callErr = kernel.host.Call(callCtx, response.Module, response.Operation, response.Arguments)
 			}
-			if kernel.onHostCall != nil {
-				call.Display = hostResultDisplay(call, value)
+			if completed != nil {
 				call.Duration = time.Since(callStarted)
 				call.Status = "completed"
 				if callErr != nil {
@@ -626,7 +619,7 @@ func (kernel *Kernel) evalLocked(ctx context.Context, code string) (Result, erro
 						call.Status = "cancelled"
 					}
 				}
-				kernel.onHostCall(call)
+				completed(call, value)
 			}
 			reply := frame{Type: "host_response", ID: response.ID, Value: value}
 			if callErr != nil {

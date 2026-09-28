@@ -294,7 +294,7 @@ func (runner *acceptanceRunner) Turn(ctx context.Context, input string, authored
 	}
 	defer runner.kernel.Close()
 	cell := fmt.Sprintf(`context.search(query=%q)`, acceptanceNeedle)
-	value, err := runner.kernel.Exec(ctx, cell)
+	value, err := runner.kernel.Exec(ctx, rlm.Cell{Code: cell})
 	if err != nil {
 		return "", err
 	}
@@ -402,7 +402,7 @@ func TestRuntimeAcceptanceKernelWorker(t *testing.T) {
 		}
 		args = args[2:]
 	}
-	if err := rlm.WorkerMain(args, os.Stdin, os.Stdout); err != nil {
+	if err := rlm.WorkerMain(args, os.Stdin, os.Stdout, rlm.DescribeEngine); err != nil {
 		t.Fatal(err)
 	}
 }

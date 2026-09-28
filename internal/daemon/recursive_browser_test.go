@@ -107,7 +107,7 @@ func TestRecursiveBrowserRoutesBothEnginesWithoutFallback(t *testing.T) {
 				if engine == rlm.EngineQuickJS {
 					code = tc.javascript
 				}
-				result, err := runtime.rootNode.kernel.Exec(t.Context(), "print("+code+")")
+				result, err := runtime.rootNode.kernel.Exec(t.Context(), rlm.Cell{Code: "print(" + code + ")"})
 				if err != nil || !strings.Contains(result.Output, "desktop resolver reached") {
 					t.Fatalf("%s did not route to desktop resolver: %+v %v", tc.op, result, err)
 				}
@@ -116,7 +116,7 @@ func TestRecursiveBrowserRoutesBothEnginesWithoutFallback(t *testing.T) {
 			if engine == rlm.EngineQuickJS {
 				code = `print(await browser.list_tabs())`
 			}
-			result, err := runtime.rootNode.kernel.Exec(t.Context(), code)
+			result, err := runtime.rootNode.kernel.Exec(t.Context(), rlm.Cell{Code: code})
 			if err != nil || !strings.Contains(result.Output, "desktop inventory reached") {
 				t.Fatalf("list_tabs did not route to desktop inventory: %+v %v", result, err)
 			}

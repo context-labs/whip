@@ -32,7 +32,7 @@ func TestRecursiveHostMCPRefreshDiscoversNewToolsWithoutExpandingChildren(t *tes
 			if engine == rlm.EngineQuickJS {
 				refresh, reconnect = `await mcp.refresh({})`, `await mcp.reconnect({server: "fresh"})`
 			}
-			result, err := runtime.rootNode.kernel.Exec(t.Context(), refresh)
+			result, err := runtime.rootNode.kernel.Exec(t.Context(), rlm.Cell{Code: refresh})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -64,7 +64,7 @@ func TestRecursiveHostMCPRefreshDiscoversNewToolsWithoutExpandingChildren(t *tes
 			if effects.Load() != 1 {
 				t.Fatalf("fresh tool effects=%d", effects.Load())
 			}
-			result, err = runtime.rootNode.kernel.Exec(t.Context(), reconnect)
+			result, err = runtime.rootNode.kernel.Exec(t.Context(), rlm.Cell{Code: reconnect})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -26,7 +26,7 @@ await mcp.reconnect({server: "local"});`},
 				return map[string]any{"status": "ready"}, nil
 			})
 			kernel := testModulesKernel(t, tc.engine, []string{"mcp"}, host)
-			if _, err := kernel.Exec(t.Context(), tc.code); err != nil {
+			if _, err := kernel.Exec(t.Context(), Cell{Code: tc.code}); err != nil {
 				t.Fatal(err)
 			}
 			if want := []string{"mcp.refresh", "mcp.reconnect"}; !reflect.DeepEqual(calls, want) {

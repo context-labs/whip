@@ -63,13 +63,13 @@ func TestPackagedRuntime(t *testing.T) {
 			if err := kernel.Start(); err != nil {
 				t.Fatal(err)
 			}
-			observed := observation{Descriptor: kernel.Describe(), StartupMillis: float64(time.Since(started).Microseconds()) / 1000}
+			observed := observation{Descriptor: DescribeEngine(kernel.Describe()), StartupMillis: float64(time.Since(started).Microseconds()) / 1000}
 			code := "answer = state.private_get(key='answer')\nprint('runtime-ready')\nanswer + 2"
 			if engine == EngineQuickJS {
 				code = `var answer = await state.private_get({key:"answer"}); print("runtime-ready"); answer + 2`
 			}
 			started = time.Now()
-			result, err := kernel.Exec(t.Context(), code)
+			result, err := kernel.Exec(t.Context(), Cell{Code: code})
 			observed.CellMillis = float64(time.Since(started).Microseconds()) / 1000
 			if err != nil || !result.HasValue || fmt.Sprint(result.Value) != "42" || result.Output != "runtime-ready\n" || calls.Load() != 1 {
 				t.Fatalf("execution: result=%+v calls=%d error=%v", result, calls.Load(), err)
@@ -84,26 +84,26 @@ func TestPackagedRuntime(t *testing.T) {
 			if engine == EngineQuickJS {
 				code = "answer += 2; answer"
 			}
-			result, err = kernel.Exec(t.Context(), code)
+			result, err = kernel.Exec(t.Context(), Cell{Code: code})
 			if err != nil || fmt.Sprint(result.Value) != "42" {
 				t.Fatalf("persistent state: %+v %v", result, err)
 			}
 			if err := kernel.Suspend(); err != nil {
 				t.Fatal(err)
 			}
-			result, err = kernel.Exec(t.Context(), "answer")
+			result, err = kernel.Exec(t.Context(), Cell{Code: "answer"})
 			if err != nil || fmt.Sprint(result.Value) != "42" || result.Restored == nil || calls.Load() != 1 {
 				t.Fatalf("checkpoint restore: %+v calls=%d error=%v", result, calls.Load(), err)
 			}
 			observed.Checks = []string{"execution", "output", "host-call", "persistent-state", "checkpoint-restore"}
 			if engine == EngineQuickJS {
 				ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
-				_, err := kernel.Exec(ctx, "answer = 99; for (;;) {}")
+				_, err := kernel.Exec(ctx, Cell{Code: "answer = 99; for (;;) {}"})
 				cancel()
 				if !errors.Is(err, context.DeadlineExceeded) {
 					t.Fatalf("cancellation: %v", err)
 				}
-				result, err = kernel.Exec(t.Context(), "answer")
+				result, err = kernel.Exec(t.Context(), Cell{Code: "answer"})
 				if err != nil || fmt.Sprint(result.Value) != "42" || result.Restored == nil {
 					t.Fatalf("recovery: %+v %v", result, err)
 				}

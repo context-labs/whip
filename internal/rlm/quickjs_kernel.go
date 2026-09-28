@@ -5,19 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"time"
-
-	"github.com/context-labs/whip/internal/tools"
 )
 
 type hostCompletion struct {
-	request frame
-	call    HostCall
-	value   any
-	err     error
+	request   frame
+	call      HostCall
+	value     any
+	err       error
+	completed func(HostCall, any)
 }
 
 func (kernel *Kernel) completeHost(completion hostCompletion) {
-	if kernel.onHostCall == nil {
+	if completion.completed == nil {
 		return
 	}
 	call := completion.call
@@ -29,15 +28,15 @@ func (kernel *Kernel) completeHost(completion hostCompletion) {
 			call.Status = "cancelled"
 		}
 	}
-	kernel.onHostCall(call)
+	completion.completed(call, completion.value)
 }
 
 // The pump owns callbacks and the writer. A single process reader continues to
 // receive output and independent requests while bounded host goroutines run.
-func (kernel *Kernel) evalQuickJSLocked(ctx context.Context, code string) (Result, error) {
+func (kernel *Kernel) evalQuickJSLocked(ctx context.Context, cell Cell) (Result, error) {
 	kernel.nextID++
 	id := kernel.nextID
-	if err := writeFrame(kernel.worker.input, kernel.limits.FrameBytes, frame{Type: "eval", ID: id, Code: code}); err != nil {
+	if err := writeFrame(kernel.worker.input, kernel.limits.FrameBytes, frame{Type: "eval", ID: id, Code: cell.Code}); err != nil {
 		kernel.stop()
 		return Result{}, err
 	}
@@ -63,7 +62,7 @@ func (kernel *Kernel) evalQuickJSLocked(ctx context.Context, code string) (Resul
 	defer ticker.Stop()
 	last := time.Now()
 	var compute time.Duration
-	onUpdate, callID := tools.OnUpdate(ctx), tools.ToolCallID(ctx)
+	onUpdate, callID := cell.OnOutput, cell.CallID
 	fail := func(err error) (Result, error) { kernel.stop(); return Result{}, err }
 	for {
 		now := time.Now()
@@ -116,13 +115,14 @@ func (kernel *Kernel) evalQuickJSLocked(ctx context.Context, code string) (Resul
 					return fail(err)
 				}
 				seen[response.ID], pending[response.ID] = true, true
-				call := HostCall{CallID: callID, InvocationID: fmt.Sprintf("%d:%d", id, response.ID), Module: response.Module, Operation: response.Operation, Summary: hostCallSummary(response.Arguments), Display: hostDisplay(response.Module, response.Operation, response.Arguments)}
-				if kernel.onHostStart != nil {
-					kernel.onHostStart(call)
+				call := HostCall{CallID: callID, InvocationID: fmt.Sprintf("%d:%d", id, response.ID), Module: response.Module, Operation: response.Operation, Summary: hostCallSummary(response.Arguments)}
+				var completedCall func(HostCall, any)
+				if kernel.observeHost != nil {
+					completedCall = kernel.observeHost(call, response.Arguments)
 				}
 				go func() {
 					start := time.Now()
-					out := hostCompletion{request: response, call: call}
+					out := hostCompletion{request: response, call: call, completed: completedCall}
 					select {
 					case admission <- struct{}{}:
 						defer func() { <-admission }()
@@ -141,11 +141,10 @@ func (kernel *Kernel) evalQuickJSLocked(ctx context.Context, code string) (Resul
 						if kernel.host == nil {
 							out.err = errors.New("RLM host is not bound")
 						} else {
-							callCtx := tools.WithOperationObserver(WithHostCall(ctx, call), func(id string) { out.call.OperationID = id })
+							callCtx := withHostOperationReporter(WithHostCall(ctx, call), func(id string) { out.call.OperationID = id })
 							out.value, out.err = kernel.host.Call(callCtx, response.Module, response.Operation, response.Arguments)
 						}
 					}
-					out.call.Display = hostResultDisplay(out.call, out.value)
 					out.call.Duration = time.Since(start)
 					completed <- out
 				}()

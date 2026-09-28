@@ -7,5 +7,5 @@ import (
 )
 
 func kernelCLI(args []string) error {
-	return rlm.WorkerMain(args, os.Stdin, os.Stdout)
+	return rlm.WorkerMain(args, os.Stdin, os.Stdout, rlm.DescribeEngine)
 }
