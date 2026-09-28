@@ -1083,23 +1083,6 @@ func TestResumeActiveOpensDurableRootsAndReportsFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	failingStore := openStore(t, filepath.Join(t.TempDir(), "failing.db"))
-	failingRootID := createRoot(t, failingStore)
-	if _, err := failingStore.AddSchedule(failingRootID, "@every 1h", "wake", time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	factoryErr := errors.New("factory failed")
-	failing, err := New(failingStore, func(context.Context, session.Meta, []llm.Message) (Components, error) {
-		return Components{}, factoryErr
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := failing.ResumeActive(context.Background()); !errors.Is(err, factoryErr) {
-		t.Fatalf("resume factory error = %v", err)
-	}
-	_ = failing.Close()
-
 	closedStore := openStore(t, filepath.Join(t.TempDir(), "closed-active.db"))
 	closed, err := New(closedStore, func(context.Context, session.Meta, []llm.Message) (Components, error) {
 		return Components{Runner: &fakeRunner{}}, nil

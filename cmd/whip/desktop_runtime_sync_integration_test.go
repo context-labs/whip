@@ -8,11 +8,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/session"
 )
 
 // TestDesktopCompiledUpdate exercises the actual exec/FD handoff, not a shell
@@ -65,11 +68,30 @@ func TestDesktopCompiledUpdate(t *testing.T) {
 		}
 		_ = os.RemoveAll(directory)
 	})
-	run(canonical, "daemon", "start")
 	paths, err := daemon.Paths(home)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Seed a scheduled session whose provider/model is no longer configured.
+	// It must survive both cold startup and replacement without blocking readiness.
+	store, err := session.Open(filepath.Join(paths.Home, "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	brokenID, err := store.Create(session.SessionKindAgent, directory, "removed-model", "removed-provider")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(brokenID, 0, []llm.Message{{Role: "user", Content: "preserved conversation"}}, "removed-model", "removed-provider"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddSchedule(brokenID, "@every 24h", "preserved wake", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	run(canonical, "daemon", "start")
 	connect := func(build string) *daemon.Client {
 		t.Helper()
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -125,6 +147,13 @@ func TestDesktopCompiledUpdate(t *testing.T) {
 	if snapshot, err := client.Snapshot(t.Context(), created.Output); err != nil || snapshot.RootID != created.Output {
 		t.Fatalf("session did not survive update: %+v, %v", snapshot, err)
 	}
+	if _, err := client.Snapshot(t.Context(), brokenID); err == nil || !strings.Contains(err.Error(), "unknown model") {
+		t.Fatalf("unresumable session lost its error: %v", err)
+	}
+	log, err := os.ReadFile(filepath.Join(home, "whip.log"))
+	if err != nil || strings.Count(string(log), "root="+strconv.Quote(brokenID)) < 2 {
+		t.Fatalf("missing session restore logs for cold startup and update: %v\n%s", err, log)
+	}
 	configAfter, _ := os.ReadFile(filepath.Join(home, "config.json"))
 	if string(configBefore) != string(configAfter) {
 		t.Fatal("update changed user configuration")
@@ -136,6 +165,16 @@ func TestDesktopCompiledUpdate(t *testing.T) {
 	}
 	if output := string(run(canonical, "update")); !strings.Contains(output, "Whip desktop") {
 		t.Fatalf("desktop-managed CLI used the standalone updater: %s", output)
+	}
+	_ = client.Close()
+	run(canonical, "daemon", "stop")
+	store, err = session.Open(filepath.Join(paths.Home, "sessions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+	if snapshot, err := store.SnapshotRoot(t.Context(), brokenID); err != nil || snapshot.Meta.Model != "removed-model" || snapshot.Meta.Provider != "removed-provider" || len(snapshot.Schedules) != 1 || len(snapshot.Messages) != 1 || snapshot.Messages[0].Content != "preserved conversation" {
+		t.Fatalf("unresumable session did not survive update: %+v, %v", snapshot, err)
 	}
 	t.Log("Verified: approval preserves old PID/bytes; approved replacement has new build/PID/hash; session/config survive; retry does not restart; CLI update defers to desktop")
 }

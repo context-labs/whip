@@ -3,9 +3,11 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/terminal"
@@ -150,17 +152,28 @@ func (d *Daemon) openResolved(rootID string) (*Session, error) {
 
 // ResumeActive reconstructs detached roots that own durable schedules or
 // subscriptions. It is called after the protocol server owns the process.
+// A root that cannot initialize remains available for a later Open retry;
+// only enumeration failure or shutdown prevents the host from starting.
 func (d *Daemon) ResumeActive(ctx context.Context) error {
 	rootIDs, err := d.store.ActiveRootIDs(ctx)
 	if err != nil {
 		return err
 	}
 	for _, rootID := range rootIDs {
-		if _, err := d.Open(rootID); err != nil {
+		if err := errors.Join(ctx.Err(), d.ctx.Err()); err != nil {
 			return err
 		}
+		_, openErr := d.Open(rootID)
+		if err := errors.Join(ctx.Err(), d.ctx.Err()); err != nil {
+			return err
+		}
+		if openErr != nil {
+			meta, metaErr := d.store.LoadMeta(rootID)
+			config.LogEvent("session.resume", fmt.Sprintf("root=%q model=%q provider=%q error=%q",
+				rootID, meta.Model, meta.Provider, errors.Join(openErr, metaErr)))
+		}
 	}
-	return nil
+	return errors.Join(ctx.Err(), d.ctx.Err())
 }
 
 // DeleteSession stops an opened root before removing its durable ownership

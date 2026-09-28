@@ -18,10 +18,89 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/session"
 )
+
+func TestServerServesWithUnresumableSessionAndRecoversAfterRepair(t *testing.T) {
+	providers := providerConnectionsFixture(t)
+	cfg := config.Default()
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	store := openStore(t, filepath.Join(t.TempDir(), "sessions.db"))
+	rootID := createRoot(t, store)
+	if err := store.Save(rootID, 0, []llm.Message{{Role: "user", Content: "saved conversation"}}, "model", "provider"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddSchedule(rootID, "@every 1h", "wake", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	value, err := New(store, func(_ context.Context, meta session.Meta, _ []llm.Message) (Components, error) {
+		current, err := config.Load()
+		if err != nil {
+			return Components{}, err
+		}
+		if _, _, _, err := current.Resolve(meta.Model, meta.Provider); err != nil {
+			return Components{}, err
+		}
+		return Components{Runner: &fakeRunner{}}, nil
+	}, providers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := NewServer(value, ServerOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	served := make(chan error, 1)
+	go func() { served <- server.Serve(listener) }()
+	t.Cleanup(func() {
+		_ = server.Close()
+		if err := <-served; err != nil {
+			t.Errorf("serve: %v", err)
+		}
+	})
+	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := NewClient(ctx, conn, InitializeParams{ProtocolMajor: ProtocolMajor, ClientID: "restore-client", ClientKind: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	listed, err := client.Query(ctx, protocol.QueryParams{Operation: "session.list", Payload: json.RawMessage(`{"limit":10}`)})
+	if err != nil || !strings.Contains(string(listed.Result), rootID) {
+		t.Fatalf("list failed session: %s, %v", listed.Result, err)
+	}
+	if _, err := client.ReadConfiguration(ctx); err != nil {
+		t.Fatalf("configuration unavailable: %v", err)
+	}
+	if _, err := client.ListProviders(ctx); err != nil {
+		t.Fatalf("provider settings unavailable: %v", err)
+	}
+	query := protocol.QueryParams{RootID: rootID, Operation: "session.model.get", Payload: json.RawMessage(`{}`)}
+	if _, err := client.Query(ctx, query); err == nil || !strings.Contains(err.Error(), "unknown model") {
+		t.Fatalf("broken session error = %v", err)
+	}
+	cfg.Models["model"] = config.Model{Providers: []string{"provider"}}
+	cfg.Providers["provider"] = config.Provider{BaseURL: "http://unused", Auth: "none"}
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Query(ctx, query); err != nil {
+		t.Fatalf("repaired session could not reopen: %v", err)
+	}
+}
 
 func TestProviderValidationIsEphemeralAndNeverCreatesACommand(t *testing.T) {
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
