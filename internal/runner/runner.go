@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -300,7 +301,11 @@ func (r *Runner) completePrepared(ctx context.Context, turn session.Turn, prepar
 	}
 	limit := max(prepared.MaxAttempts, 1)
 	var inputTokens *int64
+	refreshed := false
 	for number := 1; number <= limit; number++ {
+		if err := ctx.Err(); err != nil {
+			return attemptOutcome{}, err
+		}
 		outcome, err := r.attempt(ctx, turn, prepared, logicalID, number, target)
 		if err != nil {
 			return attemptOutcome{}, err
@@ -320,7 +325,25 @@ func (r *Runner) completePrepared(ctx context.Context, turn session.Turn, prepar
 			return attemptOutcome{}, ctx.Err()
 		}
 		failure, retry := errors.AsType[*model.CallError](callErr)
-		if number == limit || !retry || !failure.Retryable || failure.Uncertain || failure.ContextLimit {
+		if number == limit || !outcome.dispatched || !retry || failure.Uncertain || failure.ContextLimit {
+			return outcome, nil
+		}
+		if failure.AuthRejected {
+			if refreshed || failure.StatusCode != http.StatusUnauthorized || prepared.RefreshCredentials == nil {
+				return outcome, nil
+			}
+			refreshed = true
+			next, err := prepared.RefreshCredentials(ctx)
+			if err != nil {
+				return attemptOutcome{failure: err}, nil //nolint:nilerr // Refresh failure is a turn outcome after the rejected attempt settled.
+			}
+			if err := validatePrepared(next); err != nil {
+				return attemptOutcome{failure: err}, nil //nolint:nilerr // Invalid refreshed preparation cannot dispatch.
+			}
+			prepared = next
+			continue
+		}
+		if !failure.Retryable {
 			return outcome, nil
 		}
 		// Only an explicit retryable provider response permits another dispatch.
@@ -350,6 +373,7 @@ func validatePrepared(prepared model.Prepared) error {
 // Attempt execution can fail normally. A separate returned error means its
 // durable evidence could not be settled and execution must stop without retry.
 type attemptOutcome struct {
+	dispatched   bool
 	contextLimit bool
 	inputTokens  *int64
 	failure      error
@@ -366,6 +390,15 @@ func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.
 	}
 	if attempt.State != session.AttemptReserved {
 		return attemptOutcome{}, errors.New("model attempt already dispatched; automatic replay prohibited")
+	}
+	if prepared.BeforeDispatch != nil {
+		if err := prepared.BeforeDispatch(ctx); err != nil {
+			cancelled := session.ModelAttemptResult{State: session.AttemptCancelled, Failure: Failure(err).Failure}
+			if settleErr := r.settleResult(ctx, id, cancelled, nil, target, nil); settleErr != nil {
+				return attemptOutcome{}, errors.Join(err, settleErr)
+			}
+			return attemptOutcome{failure: err}, nil
+		}
 	}
 	allowed, err := r.attempts.DispatchModelAttempt(ctx, id)
 	if err != nil || !allowed {
@@ -432,7 +465,7 @@ func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.
 	if err := r.settleResult(ctx, id, result, message, target, draft); err != nil {
 		return attemptOutcome{}, fmt.Errorf("settle model attempt: %w", err)
 	}
-	outcome := attemptOutcome{failure: callErr}
+	outcome := attemptOutcome{failure: callErr, dispatched: true}
 	if target == nil && result.Usage.Input != nil {
 		outcome.inputTokens = new(*result.Usage.Input)
 	}

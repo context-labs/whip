@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/context-labs/whip/internal/openaiauth"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -42,6 +43,7 @@ type Route struct {
 type OpenAI struct {
 	Resolve func(context.Context, session.ModelSelection) (Route, error)
 	Client  *http.Client
+	Auth    SubscriptionAuth
 }
 
 // CallError reports safe diagnostic and retry evidence without retaining a
@@ -54,6 +56,8 @@ type CallError struct {
 	// ContextLimit is a confirmed rejection that may permit a smaller request,
 	// never an automatic retry of this prepared request.
 	ContextLimit bool
+	// AuthRejected confirms a completed HTTP 401, not stream or transport uncertainty.
+	AuthRejected bool
 	Message      string
 }
 
@@ -76,6 +80,11 @@ func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) 
 	if route.MaxAttempts < 1 || route.MaxAttempts > 5 {
 		return Prepared{}, fmt.Errorf("%w: invalid provider attempt limit", session.ErrInvalid)
 	}
+	if route.Kind == "openai-codex" {
+		if err := subscriptionRoute(&route, request.Selection.Name); err != nil {
+			return Prepared{}, err
+		}
+	}
 	var inputBound, contextWindow *int64
 	if route.ContextWindowTokens != nil {
 		if *route.ContextWindowTokens < 1 || *route.ContextWindowTokens > 1000000000 || route.MaxOutputTokens > *route.ContextWindowTokens {
@@ -94,6 +103,7 @@ func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) 
 	}
 	var body []byte
 	scope := ""
+	var captured openaiauth.CapturedCredentials
 	switch adapter {
 	case "openai-chat":
 		body, err = encodeChat(request, baseURL, route.MaxOutputTokens)
@@ -101,6 +111,13 @@ func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) 
 		path = "/responses"
 		scope = responseScope(baseURL+path, route.Credential, request.Selection.Name)
 		body, err = encodeResponses(request, scope, route.MaxOutputTokens)
+	case "openai-codex":
+		path = "/responses"
+		captured, err = p.captureSubscription(ctx)
+		if err == nil {
+			scope = subscriptionScope(baseURL+path, captured.Credentials.AccountID, request.Selection.Name)
+			body, err = encodeResponses(request, scope, 0)
+		}
 	default:
 		return Prepared{}, fmt.Errorf("%w: unsupported provider adapter", session.ErrInvalid)
 	}
@@ -129,11 +146,14 @@ func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) 
 		client = *p.Client
 	}
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	if adapter == "openai-codex" {
+		return prepareSubscription(p.Auth, captured, &client, snapshot, route.MaxAttempts, contextWindow, scope, body, allowedTools), nil
+	}
 	return Prepared{
 		Snapshot: snapshot, MaxAttempts: route.MaxAttempts, ContextWindowTokens: contextWindow,
 		Execute: func(ctx context.Context, emit func(Chunk)) (Response, error) {
 			if adapter == "openai-responses" {
-				return executeResponses(ctx, &client, snapshot.Route, route.Credential, scope, body, allowedTools, emit)
+				return executeResponses(ctx, &client, snapshot.Route, responseAuth{credential: route.Credential}, scope, body, allowedTools, emit)
 			}
 			return executeChat(ctx, &client, snapshot.Route, route.Credential, body, allowedTools, emit)
 		},
