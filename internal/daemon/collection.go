@@ -3,8 +3,8 @@ package daemon
 import (
 	"context"
 
-	"github.com/context-labs/whip/internal/protocol"
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/protocol"
+	"github.com/context-labs/whip/internal/legacy/session"
 )
 
 func (s *Server) rootCollection(ctx context.Context, params protocol.RootCollectionParams) (session.RootCollectionPage, error) {

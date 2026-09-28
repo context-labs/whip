@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/brandicon"
-	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 	"github.com/context-labs/whip/internal/mcp"
-	"github.com/context-labs/whip/internal/protocol"
 )
 
 // The import screen's host-level operations. They live beside the

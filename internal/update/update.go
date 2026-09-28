@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/buildinfo"
-	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/legacy/config"
 	"golang.org/x/mod/semver"
 )
 

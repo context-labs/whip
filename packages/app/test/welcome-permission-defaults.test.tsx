@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
-import type { RuntimeConfiguration } from '@whip/protocol';
+import type { RuntimeConfiguration } from '@whip/legacy-protocol';
 import type { WhipClient } from '@whip/sdk';
 import { welcomeDraftKey } from '../src/session-tabs';
 import { fixture } from './welcome-fixture';

@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/session"
 )
 
 // TestDesktopCompiledUpdate exercises the actual exec/FD handoff, not a shell

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/session"
 )
 
 func TestProtocolCodecRejectsInvalidAndOversizedValues(t *testing.T) {

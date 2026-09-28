@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/legacy/config"
 )
 
 func pickerInventoryFixture(t *testing.T) *ProviderService {

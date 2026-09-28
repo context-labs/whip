@@ -12,7 +12,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/session"
 )
 
 // liveChipModel is a daemon-backed model with one registered pasted image, so

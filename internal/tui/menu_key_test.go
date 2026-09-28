@@ -5,7 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 )
 
 func pressKey(m *model, kt rune) *model { return pressMsg(m, keyMsg(kt)) }

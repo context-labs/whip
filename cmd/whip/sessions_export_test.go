@@ -15,9 +15,9 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/legacy/protocol"
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/protocol"
-	"github.com/context-labs/whip/internal/session"
 )
 
 // fakeCaller answers content.read by slicing one buffer, the way the daemon

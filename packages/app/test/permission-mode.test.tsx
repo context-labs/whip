@@ -11,7 +11,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 import type { Session } from '@whip/sdk';
 import type { SessionView } from '@whip/sdk/state';
-import type { RootSnapshot } from '@whip/protocol';
+import type { RootSnapshot } from '@whip/legacy-protocol';
 import { ThemeProvider, UIProvider } from '@whip/ui';
 import { RuntimeContext } from '../src/context';
 import type { AppRuntime } from '../src/runtime';

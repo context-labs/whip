@@ -3,7 +3,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { createWhipClient, type RecoveryRecord } from '@whip/sdk';
 import * as SessionState from '@whip/sdk/state';
-import { manifest, type RootSnapshot } from '@whip/protocol';
+import { manifest, type RootSnapshot } from '@whip/legacy-protocol';
 import { conversationRows } from '@whip/app/presentation';
 import { MobileRuntime } from './runtime';
 import { SqliteMobileStorage, type Draft, type StorageDatabase } from './storage';

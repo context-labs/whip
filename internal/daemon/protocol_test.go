@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/protocoltransport"
-	"github.com/context-labs/whip/internal/session"
 )
 
 func TestResponseEnvelopeHasExactlyOneOutcomeOnBothTransports(t *testing.T) {

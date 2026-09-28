@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	sessionstore "github.com/context-labs/whip/internal/session"
+	sessionstore "github.com/context-labs/whip/internal/legacy/session"
 )
 
 func (s *Session) checkTurnTarget(ctx context.Context, agentID, turnID string) error {

@@ -1,4 +1,4 @@
-import type { Resolved } from '@whip/protocol';
+import type { Resolved } from '@whip/legacy-protocol';
 export function themeFromHost(value: Resolved, namespace: string) {
   const { on_primary, border_focus, diff_add, diff_del, ...colors } =
     value.colors;

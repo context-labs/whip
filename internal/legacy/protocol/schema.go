@@ -12,8 +12,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/session"
 	"github.com/google/jsonschema-go/jsonschema"
 )
 

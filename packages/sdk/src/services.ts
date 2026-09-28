@@ -1,4 +1,4 @@
-import { validate, type CommandResult, type ConfigurationUpdate, type HostAttentionParams, type HostDirectoryParams, type HostDirectoryPickParams, type MCPBrandIconsParams, type MCPImportApplyParams, type MCPImportCandidatesParams, type PermissionDecision, type PermissionDecisionResult, type ProviderCreateParams, type ProviderDisconnectParams, type ProviderKeySetup, type ProviderLoginBeginParams, type ProviderRemoveParams, type ProviderUpdateParams, type ProviderValidateParams } from '@whip/protocol';
+import { validate, type CommandResult, type ConfigurationUpdate, type HostAttentionParams, type HostDirectoryParams, type HostDirectoryPickParams, type MCPBrandIconsParams, type MCPImportApplyParams, type MCPImportCandidatesParams, type PermissionDecision, type PermissionDecisionResult, type ProviderCreateParams, type ProviderDisconnectParams, type ProviderKeySetup, type ProviderLoginBeginParams, type ProviderRemoveParams, type ProviderUpdateParams, type ProviderValidateParams } from '@whip/legacy-protocol';
 import type { CallOptions, WhipClient } from './client.js';
 import type { CommandOptions } from './command.js';
 import { WhipError } from './errors.js';

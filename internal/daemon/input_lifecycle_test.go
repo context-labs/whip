@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
+	sessionstore "github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	sessionstore "github.com/context-labs/whip/internal/session"
 )
 
 func TestLifecycleBoundaryReadFailurePreservesClaimForRetry(t *testing.T) {

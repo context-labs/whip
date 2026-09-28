@@ -8,7 +8,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 	"github.com/context-labs/whip/internal/tui/ui"
 )
 

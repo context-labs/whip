@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/context-labs/whip/internal/browser"
-	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 )
 
 func availableBrowserOffer(root string) protocol.BrowserProviderBindParams {

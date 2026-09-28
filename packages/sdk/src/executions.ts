@@ -1,4 +1,4 @@
-import type { ContentHandle, RootSnapshot, StreamEvent } from '@whip/protocol';
+import type { ContentHandle, RootSnapshot, StreamEvent } from '@whip/legacy-protocol';
 import type { DeepReadonly, HistoryView, SessionViewSnapshot } from './state.js';
 
 export interface ExecutionHostCall {

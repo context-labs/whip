@@ -16,8 +16,8 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 
 	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/mcp"
-	"github.com/context-labs/whip/internal/session"
 )
 
 const (

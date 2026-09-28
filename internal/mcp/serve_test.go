@@ -12,7 +12,7 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/context-labs/whip/internal/browser"
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/tools"
 )
 

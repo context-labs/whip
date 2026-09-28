@@ -15,7 +15,7 @@ import (
 	"github.com/context-labs/whip/internal/browser"
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/computer"
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/session"
 )
 
 type countingLedger struct {

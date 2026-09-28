@@ -13,7 +13,7 @@ import (
 
 func TestEveryLiteralEventProducerIsRegistered(t *testing.T) {
 	registry := EventPayloads()
-	for _, directory := range []string{"../daemon", "../session"} {
+	for _, directory := range []string{"../../daemon", "../session"} {
 		files, err := os.ReadDir(directory)
 		if err != nil {
 			t.Fatal(err)

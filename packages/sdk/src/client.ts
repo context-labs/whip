@@ -6,7 +6,7 @@ import {
   type HookInvokeParams, type ToolCancelParams, type ToolInvokeParams,
   type TerminalDetachedParams, type TerminalExitedParams, type TerminalOutputParams, type SessionTitleChangedParams,
   type BrowserInventoryRequest, type BrowserCommand, type BrowserCommandCancel, type BrowserProviderRevoked,
-} from '@whip/protocol';
+} from '@whip/legacy-protocol';
 import { CommandHandle, type CommandOptions, type RecoveryRecord, type RecoveryStorage, type CommandOutcome } from './command.js';
 import { ContentReference, upload, type ContentScope, type UploadOptions } from './content.js';
 import { Host, Permissions, Providers, Configuration, MCPImport } from './services.js';

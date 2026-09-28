@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useRef, useState } from 'react';
 import { UIProvider } from '@whip/ui';
 import type { WhipClient } from '@whip/sdk';
-import type { CompletionResult } from '@whip/protocol';
+import type { CompletionResult } from '@whip/legacy-protocol';
 import { useSkillCompletion } from '../src/use-skill-completion';
 
 type Scope = Parameters<typeof useSkillCompletion>[0]['scope'];

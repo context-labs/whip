@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { RootSnapshot } from '@whip/protocol';
+import type { RootSnapshot } from '@whip/legacy-protocol';
 import type { DeepReadonly, SessionView, SessionViewSnapshot } from '@whip/sdk/state';
 import { Alert, Collapsible, CopyButton } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';

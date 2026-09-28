@@ -7,8 +7,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/session"
 )
 
 // The budget notice rides on every request, so under a finite cap its bytes

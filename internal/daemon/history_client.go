@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/context-labs/whip/internal/protocol"
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/protocol"
+	"github.com/context-labs/whip/internal/legacy/session"
 )
 
 // HistoryPage reads a bounded raw transcript page without adding it to any

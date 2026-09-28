@@ -1,4 +1,4 @@
-import type { SubmitPayload } from '@whip/protocol';
+import type { SubmitPayload } from '@whip/legacy-protocol';
 import { boundedDesignText } from './browser-design-geometry';
 
 export type DesignContext = NonNullable<SubmitPayload['design_context']>;

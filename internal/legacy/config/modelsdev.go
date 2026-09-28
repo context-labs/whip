@@ -3,7 +3,7 @@ package config
 import (
 	"slices"
 
-	"github.com/context-labs/whip/internal/config/modelsdev"
+	"github.com/context-labs/whip/internal/legacy/config/modelsdev"
 )
 
 // ModelsDevProviderID maps Whip's stable IDs to the upstream catalog.

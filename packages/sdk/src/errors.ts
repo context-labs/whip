@@ -1,4 +1,4 @@
-import type { RPCError } from '@whip/protocol';
+import type { RPCError } from '@whip/legacy-protocol';
 
 /** Errors here describe client/protocol failures, never a guessed execution outcome. */
 export class WhipError extends Error {

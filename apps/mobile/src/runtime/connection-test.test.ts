@@ -1,6 +1,6 @@
 import './polyfills';
 import { WhipError } from '@whip/sdk';
-import { manifest } from '@whip/protocol';
+import { manifest } from '@whip/legacy-protocol';
 import { connectionIssue, testConnection } from './connection-test';
 
 const mockConnect = jest.fn();

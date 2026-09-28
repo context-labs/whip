@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/legacy/config"
 )
 
 // Auth is whip's Inference.net sign-in state, persisted to

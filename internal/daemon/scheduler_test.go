@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/schedule"
-	"github.com/context-labs/whip/internal/session"
 )
 
 func TestNextScheduleSlotEdges(t *testing.T) {

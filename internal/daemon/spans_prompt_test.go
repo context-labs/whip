@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/context-labs/whip/internal/agent"
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/session"
 )
 
 // A mid-turn fold leaves a trace a reader can follow: every model call span

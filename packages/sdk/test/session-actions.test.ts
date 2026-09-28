@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { SessionMetadata } from '@whip/protocol';
+import type { SessionMetadata } from '@whip/legacy-protocol';
 import type { RecoveryRecord } from '../src/command.js';
 import { WhipClient } from '../src/client.js';
 import { transportFixture } from './transport-fixture.js';

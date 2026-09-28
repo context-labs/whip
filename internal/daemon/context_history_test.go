@@ -12,9 +12,9 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	sessionstore "github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/rlm"
-	sessionstore "github.com/context-labs/whip/internal/session"
 )
 
 func historyCall(t *testing.T, host *recursiveHost, operation string, args map[string]any) map[string]any {

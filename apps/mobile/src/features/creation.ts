@@ -1,5 +1,5 @@
 import type { CommandOutcome } from '@whip/sdk';
-import type { ProviderCatalogsResult } from '@whip/protocol';
+import type { ProviderCatalogsResult } from '@whip/legacy-protocol';
 import type { CommandState, MobileRuntime } from '../runtime/runtime';
 import type { Draft } from '../runtime/storage';
 

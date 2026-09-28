@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 )
 
 // providerCall waits for a connection but never retries an issued mutation.

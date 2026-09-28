@@ -77,7 +77,7 @@ def renderer_smoke(endpoint, manifest):
 
 
 def create_session(socket_path, home):
-    major = json.loads((ROOT / 'packages/protocol/schema/manifest.json').read_text())['major']
+    major = json.loads((ROOT / 'packages/legacy-protocol/schema/manifest.json').read_text())['major']
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
         connection.settimeout(10)
         connection.connect(socket_path)

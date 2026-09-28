@@ -12,10 +12,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/openaiauth"
-	"github.com/context-labs/whip/internal/protocol"
 )
 
 func customProviderService(t *testing.T) *ProviderService {

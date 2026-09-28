@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { createServer, type Socket } from 'node:net';
 import path from 'node:path';
 import test, { type TestContext } from 'node:test';
-import { manifest } from '@whip/protocol';
+import { manifest } from '@whip/legacy-protocol';
 import { LocalRuntime, fileDigest } from '../src/runtime';
 
 const signal = () => new AbortController().signal;

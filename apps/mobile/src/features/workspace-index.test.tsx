@@ -1,6 +1,6 @@
 import { act, cleanup, render } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { HostAttentionResult } from '@whip/protocol';
+import type { HostAttentionResult } from '@whip/legacy-protocol';
 import { ReadLane } from '../runtime/read-lane';
 import { WorkspaceAttentionProvider, useWorkspaceAttention } from './workspace-index';
 let mockWorkspace: any; let mockState: any;

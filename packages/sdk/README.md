@@ -23,7 +23,7 @@ npm run acceptance
 npm run test:package
 ```
 
-`@whip/protocol` contains generated Go-derived wire types and standalone
+`@whip/legacy-protocol` contains generated Go-derived wire types and standalone
 validators. `@whip/sdk` is browser-safe; `/node` adds Unix sockets, `/state` adds
 optional synchronized views, and `/react` adds optional React subscriptions.
 Core and state do not import React or Node built-ins. React consumers supply

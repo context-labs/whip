@@ -10,7 +10,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/session"
 )
 
 // Every region rectangle answers hit() inside its corners and nowhere one

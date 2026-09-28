@@ -11,7 +11,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	sessionstore "github.com/context-labs/whip/internal/session"
+	sessionstore "github.com/context-labs/whip/internal/legacy/session"
 )
 
 func stateResult(value sessionstore.StateValue, err error) (any, error) {

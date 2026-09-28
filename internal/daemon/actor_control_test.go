@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/session"
 )
 
 func receiveActorValue[T any](t *testing.T, values <-chan T) T {

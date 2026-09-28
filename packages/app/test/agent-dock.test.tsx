@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { Profiler } from 'react';
-import type { RootSnapshot } from '@whip/protocol';
+import type { RootSnapshot } from '@whip/legacy-protocol';
 import type { SessionViewSnapshot } from '@whip/sdk/state';
 import { AgentDock, type AgentDockProps } from '../src/agent-dock';
 

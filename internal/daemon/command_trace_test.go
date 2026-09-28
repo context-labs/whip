@@ -10,9 +10,9 @@ import (
 	"testing"
 
 	"github.com/context-labs/whip/internal/agent"
+	"github.com/context-labs/whip/internal/legacy/protocol"
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/protocol"
-	"github.com/context-labs/whip/internal/session"
 )
 
 // A user command that calls the model outside a turn (/compact, goal from

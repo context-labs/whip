@@ -1,6 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query';
 import type { WhipClient } from '@whip/sdk';
-import type { HostAttentionResult } from '@whip/protocol';
+import type { HostAttentionResult } from '@whip/legacy-protocol';
 import type { AppNotification } from './platform';
 
 const rootsLimit = 256;

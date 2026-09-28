@@ -16,13 +16,13 @@ import (
 	"github.com/context-labs/whip/internal/browser"
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/computer"
-	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/legacy/protocol"
+	sessionstore "github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/lsp"
 	"github.com/context-labs/whip/internal/mcp"
-	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/schedule"
-	sessionstore "github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tools"
 )
 

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { ProviderConfiguration, ProviderCreateParams, ProviderUpdateParams } from '@whip/protocol';
+import type { ProviderConfiguration, ProviderCreateParams, ProviderUpdateParams } from '@whip/legacy-protocol';
 import { WhipClient } from '../src/client.js';
 import { decodeBase64 } from '../src/util.js';
 import { transportFixture } from './transport-fixture.js';

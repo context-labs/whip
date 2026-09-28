@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 )
 
 func renderRuntimeControl(operation, output string) (string, bool, error) {

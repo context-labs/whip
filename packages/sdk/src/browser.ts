@@ -1,4 +1,4 @@
-import { assertValid, type BrowserInventoryRequest, type BrowserInventoryResultParams, type BrowserCommand, type BrowserCommandCancel, type BrowserCommandResultParams, type BrowserProviderBindParams, type BrowserProviderBindResult, type BrowserProviderEventParams } from '@whip/protocol';
+import { assertValid, type BrowserInventoryRequest, type BrowserInventoryResultParams, type BrowserCommand, type BrowserCommandCancel, type BrowserCommandResultParams, type BrowserProviderBindParams, type BrowserProviderBindResult, type BrowserProviderEventParams } from '@whip/legacy-protocol';
 import type { CallOptions, WhipClient } from './client.js';
 import { RpcError, WhipError, asError } from './errors.js';
 import { upload } from './content.js';

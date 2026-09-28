@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/legacy/config"
 )
 
 func promptFixture(t *testing.T) PromptOptions {

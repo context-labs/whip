@@ -1,4 +1,4 @@
-import { assertValid, runtimeOperations, type CommandOperation, type CommandResult, type RuntimeOperations } from '@whip/protocol';
+import { assertValid, runtimeOperations, type CommandOperation, type CommandResult, type RuntimeOperations } from '@whip/legacy-protocol';
 import type { WhipClient, CallOptions } from './client.js';
 import { DeliveryUncertainError, RpcError, WhipError } from './errors.js';
 import { frozen, withSignal } from './util.js';

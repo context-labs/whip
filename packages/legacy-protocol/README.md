@@ -6,7 +6,7 @@ Use Node 24 and `npm ci`; regenerate with `npm run generate` and verify types,
 Go-produced interoperability fixtures, and drift with `npm run check`.
 
 ```ts
-import { assertValid, type SubscribeParams } from '@whip/protocol';
+import { assertValid, type SubscribeParams } from '@whip/legacy-protocol';
 
 const params: SubscribeParams = {
   root_id: 'root-id',
@@ -29,7 +29,7 @@ JSON payloads remain JSON. Permission decisions use ordinary unsigned payloads.
 Never persist provider credentials or terminal input in a client
 retry queue. A dropped connection does not cancel an accepted command.
 
-Generated files are checked in for consumers. Edit `internal/protocol` rather
+Generated files are checked in for consumers. Edit `internal/legacy/protocol` rather
 than these files, then regenerate. The daemon validates against the same Go
 schema builder before admitting operations. Snapshot and command result
 payloads must also be validated against the result type named in the registry.

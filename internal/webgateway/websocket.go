@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 	"github.com/context-labs/whip/internal/protocoltransport"
 	"github.com/gobwas/ws"
 )

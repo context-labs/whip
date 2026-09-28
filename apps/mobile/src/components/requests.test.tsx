@@ -1,5 +1,5 @@
 import { act, fireEvent, render } from '@testing-library/react-native';
-import type { LifecycleEvent, RootSnapshot } from '@whip/protocol';
+import type { LifecycleEvent, RootSnapshot } from '@whip/legacy-protocol';
 import type { SessionView } from '@whip/sdk/state';
 import { Requests, answerValues, encodeAnswers, questionDefinition, questionDraftKey, questionEntries, questionPayload, restoreAnswers, toggleAnswer } from './requests';
 import type { MobileRuntime } from '../runtime/runtime';

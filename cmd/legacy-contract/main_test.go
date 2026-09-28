@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 )
 
 func TestGeneratedContractChecksDriftWithoutMutation(t *testing.T) {

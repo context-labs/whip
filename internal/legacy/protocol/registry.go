@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"slices"
 
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/theme"
 )
 

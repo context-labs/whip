@@ -3,7 +3,7 @@ import { recallProviderReady, rememberProviderReady } from '../provider-readines
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { WhipClient } from '@whip/sdk';
-import type { ProviderList, ProviderLoginStatus } from '@whip/protocol';
+import type { ProviderList, ProviderLoginStatus } from '@whip/legacy-protocol';
 import { Alert, Badge, Button, Dialog, Field, Input, Menu, type MenuItem } from '@whip/ui';
 import { ChevronDown, ChevronUp, Plus } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';

@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/session"
 
+	"github.com/context-labs/whip/internal/legacy/protocol"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/protocol"
 )
 
 func validateActualEvent(t *testing.T, kind string, raw json.RawMessage) {

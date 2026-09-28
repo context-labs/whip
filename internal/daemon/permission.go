@@ -8,8 +8,8 @@ import (
 	"slices"
 
 	"github.com/context-labs/whip/internal/capability"
-	"github.com/context-labs/whip/internal/config"
-	sessionstore "github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/config"
+	sessionstore "github.com/context-labs/whip/internal/legacy/session"
 )
 
 // DecidePermissionCommand gives a client decision the same durable

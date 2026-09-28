@@ -4,8 +4,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/schedule"
-	"github.com/context-labs/whip/internal/session"
 )
 
 const schedulePollInterval = 5 * time.Second

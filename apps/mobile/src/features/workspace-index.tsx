@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type PropsWithChildren } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { HostAttentionResult, SessionCatalogPage } from '@whip/protocol';
+import type { HostAttentionResult, SessionCatalogPage } from '@whip/legacy-protocol';
 import { useWorkspace, useWorkspaceState } from '../runtime/workspace-context';
 import type { SavedHost } from '../runtime/runtime';
 

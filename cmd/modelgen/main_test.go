@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/config/modelsdev"
+	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/legacy/config/modelsdev"
 	"github.com/context-labs/whip/internal/openaiauth"
 )
 

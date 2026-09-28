@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/context-labs/whip/internal/agentdef"
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/session"
 )
 
 // agents.spawn(definition=...) selects a named child of the parent's

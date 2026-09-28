@@ -12,9 +12,9 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/context-labs/whip/internal/tui/ui"
 
-	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 )
 
 var errProviderReadinessUnavailable = errors.New("this execution host cannot report provider readiness; update Whip on the host and restart it, then reconnect")

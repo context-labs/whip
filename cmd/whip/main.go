@@ -10,7 +10,7 @@ import (
 	"github.com/context-labs/whip/internal/agentdef"
 	"github.com/context-labs/whip/internal/buildinfo"
 
-	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/legacy/config"
 	"github.com/context-labs/whip/internal/tui"
 	"github.com/context-labs/whip/internal/update"
 )

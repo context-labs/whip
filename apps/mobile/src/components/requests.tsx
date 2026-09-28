@@ -1,7 +1,7 @@
 import { useRef, useState, useSyncExternalStore } from 'react';
 import { ScrollView } from 'react-native';
 import type { DeepReadonly, SessionView } from '@whip/sdk/state';
-import type { LifecycleEvent, QuestionAnswerParams, RootSnapshot } from '@whip/protocol';
+import type { LifecycleEvent, QuestionAnswerParams, RootSnapshot } from '@whip/legacy-protocol';
 import { useRuntime, useRuntimeState } from '../runtime/context';
 import { Actions, Field, Label, Notice, RowButton, Stack } from './primitives';
 

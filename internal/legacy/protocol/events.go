@@ -3,7 +3,7 @@ package protocol
 import (
 	"reflect"
 
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/session"
 )
 
 // EventPayloads defines payload objects inside ordered root event envelopes.

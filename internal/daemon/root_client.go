@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/context-labs/whip/internal/protocol"
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/protocol"
+	"github.com/context-labs/whip/internal/legacy/session"
 )
 
 // RootClientState is the synchronization state of a reconnecting daemon

@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from '@tanstack/react-router';
 import { Dialog, ThemeProvider, UIProvider } from '@whip/ui';
 import userEvent from '@testing-library/user-event';
-import type { ProviderCatalogsResult } from '@whip/protocol';
+import type { ProviderCatalogsResult } from '@whip/legacy-protocol';
 import { useState, type ComponentProps } from 'react';
 import { modelOptions } from '../src/model-options';
 import { CatalogModelPicker, ModelPicker } from '../src/model-selection';

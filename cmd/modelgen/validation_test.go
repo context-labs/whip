@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/context-labs/whip/internal/config/modelsdev"
+	"github.com/context-labs/whip/internal/legacy/config/modelsdev"
 )
 
 func TestUpdateRejectsUnsafeMetadataWithoutReplacingArtifacts(t *testing.T) {

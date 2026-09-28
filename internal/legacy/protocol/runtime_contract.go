@@ -3,9 +3,9 @@ package protocol
 import (
 	"encoding/json"
 
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/mcp"
-	"github.com/context-labs/whip/internal/session"
 )
 
 type CreateSessionParams struct {

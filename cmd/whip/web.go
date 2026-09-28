@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 	"github.com/context-labs/whip/internal/webassets"
 	"github.com/context-labs/whip/internal/webgateway"
 )

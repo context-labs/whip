@@ -1,4 +1,4 @@
-import { manifest, type InitializeResult } from '@whip/protocol';
+import { manifest, type InitializeResult } from '@whip/legacy-protocol';
 import type { TransportFactory } from './transport.js';
 
 /** One request the client sent, as the scripted daemon saw it. */

@@ -10,9 +10,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/legacy/session"
 )
 
 func TestCodeFromPartialArgs(t *testing.T) {

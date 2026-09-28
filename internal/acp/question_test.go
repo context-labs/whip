@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/context-labs/whip/internal/protocol"
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/protocol"
+	"github.com/context-labs/whip/internal/legacy/session"
 )
 
 func TestQuestionAnswerPayloadConformsToProtocol(t *testing.T) {

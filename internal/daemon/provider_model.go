@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/openaiauth"
-	"github.com/context-labs/whip/internal/protocol"
 )
 
 var errNoCompatibleProviderModels = errors.New("no compatible chat models were found; refresh the catalog or configure a custom endpoint")

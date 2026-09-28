@@ -1,5 +1,5 @@
 {
-  "name": "@whip/protocol",
+  "name": "@whip/legacy-protocol",
   "version": "3.0.0",
   "private": true,
   "type": "module",
@@ -13,8 +13,8 @@
     }
   },
   "scripts": {
-    "generate": "go run ../../cmd/whip-contract -out schema && node scripts/generate.mjs",
-    "check:drift": "go run ../../cmd/whip-contract -out schema -check && node scripts/generate.mjs --check",
+    "generate": "go run ../../cmd/legacy-contract -out schema && node scripts/generate.mjs",
+    "check:drift": "go run ../../cmd/legacy-contract -out schema -check && node scripts/generate.mjs --check",
     "check": "tsc --noEmit && node --disallow-code-generation-from-strings --test scripts/interop.test.mjs && npm run check:drift"
   },
   "devDependencies": {

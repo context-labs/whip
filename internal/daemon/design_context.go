@@ -3,8 +3,8 @@ package daemon
 import (
 	"fmt"
 
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/session"
 )
 
 // Every resolved attachment appends exactly one part. Caller-provided indices

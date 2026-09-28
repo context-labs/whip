@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { app, BrowserWindow, ipcMain, type WebContents, type Session } from 'electron';
 import { DesktopTransports } from '../src/transport';
 import type { ConnectionProfile, ConnectionTarget } from '@whip/app/platform';
-import type { BrowserCommand } from '@whip/protocol';
+import type { BrowserCommand } from '@whip/legacy-protocol';
 import type { BrowserAgentIdentity, BrowserAgentPreview, BrowserAgentResult, BrowserAgentScope } from '@whip/app/desktop-bridge';
 import { SSHConnection } from '../src/ssh';
 import { BrowserManager } from '../src/browser-manager';

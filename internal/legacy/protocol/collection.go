@@ -1,6 +1,6 @@
 package protocol
 
-import "github.com/context-labs/whip/internal/session"
+import "github.com/context-labs/whip/internal/legacy/session"
 
 type RootCollectionParams struct {
 	RootID     string                    `json:"root_id"`

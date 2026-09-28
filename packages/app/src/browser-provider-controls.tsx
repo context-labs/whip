@@ -1,6 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { SessionCatalogPage } from '@whip/protocol';
+import type { SessionCatalogPage } from '@whip/legacy-protocol';
 import { Button, Checkbox, Dialog, Field, IconButton, Input, Select } from '@whip/ui';
 import { MessagesSquare } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';

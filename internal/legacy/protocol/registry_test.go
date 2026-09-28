@@ -27,7 +27,7 @@ func TestAutomaticTitlesNeedNoRuntimeOptIn(t *testing.T) {
 }
 
 func TestEveryRuntimeHandlerHasAContract(t *testing.T) {
-	source, err := parser.ParseFile(token.NewFileSet(), "../daemon/client_control.go", nil, 0)
+	source, err := parser.ParseFile(token.NewFileSet(), "../../daemon/client_control.go", nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

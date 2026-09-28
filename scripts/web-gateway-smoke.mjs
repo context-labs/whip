@@ -2,7 +2,7 @@
 // Add --browser for real Chromium bootstrap (installed Playwright browser required).
 // Every daemon uses a disposable home; no installed runtime is inspected or changed.
 import assert from 'node:assert/strict';
-import { manifest } from '@whip/protocol';
+import { manifest } from '@whip/legacy-protocol';
 import { execFile, spawn } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

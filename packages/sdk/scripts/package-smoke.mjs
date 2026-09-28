@@ -9,7 +9,7 @@ const execute = promisify(execFile);
 const directory = await mkdtemp(join(tmpdir(), 'whip-sdk-consumer-'));
 try {
   const archives = {};
-  for (const name of ['protocol', 'sdk']) {
+  for (const name of ['legacy-protocol', 'sdk']) {
     const { stdout } = await execute('npm', ['pack', '--json', '--pack-destination', directory], { cwd: join(repository, 'packages', name) });
     const [packed] = JSON.parse(stdout);
     archives[`@whip/${name}`] = 'file:' + join(directory, packed.filename);
@@ -21,7 +21,7 @@ try {
   await run('npm', ['install', '--ignore-scripts', '--package-lock=false', '--no-audit', '--no-fund'], { cwd: consumer });
   await writeFile(join(consumer, 'smoke.mjs'), `
 import assert from 'node:assert/strict';
-import * as protocol from '@whip/protocol';
+import * as protocol from '@whip/legacy-protocol';
 import { createWhipClient } from '@whip/sdk';
 import { unixSocket } from '@whip/sdk/node';
 import * as state from '@whip/sdk/state';

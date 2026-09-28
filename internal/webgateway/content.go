@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 )
 
 // Each transfer owns its initialized client. Closing it aborts incomplete uploads

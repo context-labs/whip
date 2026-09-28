@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
+	sessionstore "github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/rlm"
-	sessionstore "github.com/context-labs/whip/internal/session"
 )
 
 func (s *Session) AdmitAgent(ctx context.Context, admission sessionstore.AgentAdmission) error {

@@ -1,4 +1,4 @@
-import { assertValid, type ContentHandle, type SubmitPayload } from '@whip/protocol';
+import { assertValid, type ContentHandle, type SubmitPayload } from '@whip/legacy-protocol';
 import type { CallOptions, WhipClient } from './client.js';
 import { WhipError } from './errors.js';
 import { decodeBase64, encodeBase64, frozen } from './util.js';

@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { UIProvider } from '@whip/ui';
 import type { WhipClient, ConnectionSnapshot } from '@whip/sdk';
-import type { HostAttentionResult } from '@whip/protocol';
+import type { HostAttentionResult } from '@whip/legacy-protocol';
 import { Attention, DesktopAttention } from '../src/attention';
 import { AttentionNotifications, scanAttention, type AttentionScan } from '../src/attention-notifications';
 import { RuntimeContext } from '../src/context';

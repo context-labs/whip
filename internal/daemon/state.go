@@ -5,7 +5,7 @@ import (
 	"slices"
 
 	"github.com/context-labs/whip/internal/capability"
-	sessionstore "github.com/context-labs/whip/internal/session"
+	sessionstore "github.com/context-labs/whip/internal/legacy/session"
 )
 
 func (s *Session) mutateState(ctx context.Context, callerAgentID string, payload sessionstore.RuntimePayload, action func(context.Context, sessionstore.RuntimePayload) (sessionstore.StateValue, error)) (sessionstore.StateValue, error) {

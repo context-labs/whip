@@ -1,4 +1,4 @@
-import type { ProviderCatalogsResult } from '@whip/protocol';
+import type { ProviderCatalogsResult } from '@whip/legacy-protocol';
 
 export type CatalogModel = NonNullable<ProviderCatalogsResult['catalogs'][string]['models']>[number];
 

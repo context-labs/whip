@@ -4,7 +4,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, expect, it, vi } from 'vitest';
 import { UIProvider } from '@whip/ui';
 import type { WhipClient } from '@whip/sdk';
-import type { SessionSummariesResult } from '@whip/protocol';
+import type { SessionSummariesResult } from '@whip/legacy-protocol';
 import { AppRuntime } from '../src/runtime';
 import { RuntimeContext } from '../src/context';
 import { SessionTabStrip } from '../src/session-tab-strip';

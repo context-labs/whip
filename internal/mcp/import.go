@@ -11,7 +11,7 @@ import (
 
 	"golang.org/x/net/publicsuffix"
 
-	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/legacy/config"
 )
 
 // CandidateState says what the import screen (or `whipcode mcp import`) can do

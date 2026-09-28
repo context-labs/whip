@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 )
 
 type setupHost interface {

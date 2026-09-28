@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/context-labs/whip/internal/agentdef"
-	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 	"github.com/context-labs/whip/internal/tools"
 )
 

@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider, UIProvider } from '@whip/ui';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { WhipClient } from '@whip/sdk';
-import type { ConfigurationUpdate, RuntimeConfiguration } from '@whip/protocol';
+import type { ConfigurationUpdate, RuntimeConfiguration } from '@whip/legacy-protocol';
 import { RuntimeContext } from '../src/context';
 import type { AppRuntime } from '../src/runtime';
 import { SessionTabs } from '../src/session-tabs';

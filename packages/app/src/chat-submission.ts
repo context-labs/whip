@@ -1,4 +1,4 @@
-import type { SubmitPayload } from '@whip/protocol';
+import type { SubmitPayload } from '@whip/legacy-protocol';
 import type { Session } from '@whip/sdk';
 import type { CompositionAttachment } from './compositions';
 import type { AppRuntime, CommandNotice } from './runtime';

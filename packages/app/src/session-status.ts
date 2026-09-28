@@ -1,4 +1,4 @@
-import type { SessionSummariesResult } from '@whip/protocol';
+import type { SessionSummariesResult } from '@whip/legacy-protocol';
 
 export type SessionNavigationSummary = SessionSummariesResult['items'][number];
 

@@ -11,7 +11,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 )
 
 type operationManifest struct {
@@ -29,7 +29,7 @@ type manifest struct {
 }
 
 func main() {
-	out := flag.String("out", "packages/protocol/schema", "schema directory")
+	out := flag.String("out", "packages/legacy-protocol/schema", "schema directory")
 	check := flag.Bool("check", false, "fail if generated files differ without writing")
 	flag.Parse()
 	if err := generate(*out, *check); err != nil {

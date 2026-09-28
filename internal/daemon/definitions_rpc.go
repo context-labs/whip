@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/agentdef"
-	"github.com/context-labs/whip/internal/protocol"
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/protocol"
+	"github.com/context-labs/whip/internal/legacy/session"
 )
 
 // handleDefinitions serves the agent definition registry: register an authored

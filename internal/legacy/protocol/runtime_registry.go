@@ -3,7 +3,7 @@ package protocol
 import (
 	"reflect"
 
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/session"
 )
 
 func action[P, R any](name string, execution Execution, permission string, sensitive bool) Operation {

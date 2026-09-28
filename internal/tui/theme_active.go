@@ -7,7 +7,7 @@ import (
 
 	"github.com/charmbracelet/colorprofile"
 
-	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/legacy/config"
 	"github.com/context-labs/whip/internal/tui/theme"
 )
 

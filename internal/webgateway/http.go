@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"slices"
 
-	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/legacy/protocol"
 	"github.com/context-labs/whip/internal/webassets"
 )
 

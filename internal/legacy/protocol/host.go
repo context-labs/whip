@@ -1,6 +1,6 @@
 package protocol
 
-import "github.com/context-labs/whip/internal/session"
+import "github.com/context-labs/whip/internal/legacy/session"
 
 // SessionSummariesParams requests a small explicit working set. An empty set is
 // valid; root IDs must otherwise be distinct and at most 256 UTF-8 bytes each.

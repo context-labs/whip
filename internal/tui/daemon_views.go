@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/legacy/session"
 )
 
 func renderMCPStatus(raw string) (string, error) {

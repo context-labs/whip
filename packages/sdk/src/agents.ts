@@ -1,6 +1,6 @@
 import type {
   CreateSessionParams, DefinitionList, SubmitPayload, DefinitionParams, DefinitionRecord, DefinitionRegisterParams, DefinitionRegisterResult, HookInvokeParams, HookResultParams, ToolInvokeParams,
-} from '@whip/protocol';
+} from '@whip/legacy-protocol';
 import type { CallOptions, WhipClient } from './client.js';
 import type { CommandOptions } from './command.js';
 import { Session } from './session.js';

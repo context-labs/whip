@@ -15,9 +15,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/context-labs/whip/internal/legacy/protocol"
+	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/protocol"
-	"github.com/context-labs/whip/internal/session"
 )
 
 func inputAttachment(t *testing.T, node *AgentSession, agentID, kind, media string, data []byte) protocol.InputAttachment {
