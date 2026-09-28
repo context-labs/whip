@@ -17,13 +17,13 @@ const maxHistoryScanMessages = 100
 // HistorySnapshot reads one consistent raw boundary without executing work or
 // observing mail. Sequences are source coordinates, never compacted positions.
 func (s *Store) HistorySnapshot(ctx context.Context, owner session.SessionID) (result session.HistorySnapshot, err error) {
-	err = s.db.QueryRowContext(ctx, `SELECT s.id,COALESCE(MAX(m.sequence),0),COUNT(m.id)
-		FROM sessions s LEFT JOIN messages m ON m.session_id=s.id WHERE s.id=? GROUP BY s.id`, owner).
-		Scan(&result.SessionID, &result.ThroughSequence, &result.MessageCount)
+	err = s.db.QueryRowContext(ctx, `SELECT s.id,s.history_revision,COALESCE(MAX(m.sequence),0),COUNT(m.id)
+		FROM sessions s LEFT JOIN messages m ON m.session_id=s.id AND m.retired_revision IS NULL WHERE s.id=? GROUP BY s.id`, owner).
+		Scan(&result.SessionID, &result.Revision, &result.ThroughSequence, &result.MessageCount)
 	return result, found(err)
 }
 
-// ContextTail selects recent message-bearing turns without loading their bodies.
+// ContextTail selects recent message-bearing groups without loading their bodies.
 // Its boundary is a raw sequence and does not change a context selection.
 func (s *Store) ContextTail(ctx context.Context, owner session.SessionID, through int64, keepTurns int) (int64, error) {
 	if through < 0 || keepTurns < 1 || keepTurns > 4 {
@@ -33,10 +33,10 @@ func (s *Store) ContextTail(ctx context.Context, owner session.SessionID, throug
 	err := s.db.QueryRowContext(ctx, `WITH bounds AS (
 		SELECT id,(SELECT COALESCE(MAX(sequence),0) FROM messages WHERE session_id=s.id) AS maximum FROM sessions s WHERE id=?
 	), latest AS (
-		SELECT DISTINCT turn_id FROM messages WHERE session_id=? AND sequence<=? ORDER BY sequence DESC LIMIT ?
+		SELECT DISTINCT group_id FROM messages WHERE session_id=? AND retired_revision IS NULL AND sequence<=? ORDER BY sequence DESC LIMIT ?
 	)
-	SELECT maximum,COALESCE((SELECT MIN((SELECT MIN(sequence) FROM messages WHERE turn_id=latest.turn_id AND session_id=? AND sequence<=?))-1 FROM latest),0)
-	FROM bounds`, owner, owner, through, keepTurns, owner, through).Scan(&maximum, &after)
+	SELECT maximum,COALESCE((SELECT MIN((SELECT MIN(sequence) FROM messages WHERE group_id=latest.group_id AND retired_revision IS NULL AND sequence<=?))-1 FROM latest),0)
+	FROM bounds`, owner, owner, through, keepTurns, through).Scan(&maximum, &after)
 	if err != nil {
 		return 0, found(err)
 	}
@@ -49,10 +49,12 @@ func (s *Store) ContextTail(ctx context.Context, owner session.SessionID, throug
 // Ordinary metadata reads ask SQLite for byte lengths without loading payloads.
 // Mail parts are a deterministic projection of their immutable revision, so only
 // those bounded source bodies must be rendered to obtain an exact byte count.
+const historyProvenanceColumns = `COALESCE(m.group_id,''),COALESCE(m.opening_input,0),m.source_session_id,m.source_message_id,m.source_sequence,m.retired_by,m.retired_revision`
+
 const historyColumns = `COALESCE(m.id,''),COALESCE(m.turn_id,''),m.input_id,
 	COALESCE(m.sequence,0),COALESCE(m.role,''),COALESCE(length(CAST(COALESCE(m.parts,i.parts) AS BLOB)),0),
 	CASE WHEN ? THEN COALESCE(m.parts,i.parts) END,COALESCE(m.created_at,0),
-	m.mail_id,m.mail_revision,m.mail_presentation,r.subject,r.body,mail.source_kind,mail.source_id,r.evidence_ref`
+	m.mail_id,m.mail_revision,m.mail_presentation,r.subject,r.body,mail.source_kind,mail.source_id,r.evidence_ref,` + historyProvenanceColumns
 
 const historyJoins = ` LEFT JOIN inputs i ON i.id=m.input_id
 	LEFT JOIN mail_revisions r ON r.mail_id=m.mail_id AND r.revision=m.mail_revision
@@ -71,11 +73,18 @@ func scanHistory(row scanner) (value historyRecord, err error) {
 	var revision sql.NullInt64
 	var presentation, subject, body, sourceKind, sourceID sql.NullString
 	var evidence *string
+	var sourceOwner *session.SessionID
+	var sourceMessage *session.MessageID
+	var sourceSequence sql.NullInt64
 	err = row.Scan(&value.metadata.SessionID, &value.maximum, &value.metadata.ID, &value.metadata.TurnID, &value.metadata.InputID,
 		&value.metadata.Sequence, &value.metadata.Role, &value.metadata.PartsBytes, &raw, &value.created,
-		&mailID, &revision, &presentation, &subject, &body, &sourceKind, &sourceID, &evidence)
+		&mailID, &revision, &presentation, &subject, &body, &sourceKind, &sourceID, &evidence,
+		&value.metadata.GroupID, &value.metadata.OpeningInput, &sourceOwner, &sourceMessage, &sourceSequence, &value.metadata.RetiredBy, &value.metadata.RetiredRevision)
 	if err != nil {
 		return value, err
+	}
+	if sourceOwner != nil {
+		value.metadata.Source = &session.MessageSource{SessionID: *sourceOwner, MessageID: *sourceMessage, Sequence: sourceSequence.Int64}
 	}
 	if mailID != nil {
 		value.metadata.Mail = &session.MailRef{ID: *mailID, Revision: revision.Int64, Presentation: session.MailPresentation(presentation.String)}
@@ -98,7 +107,7 @@ func (s *Store) historyRows(ctx context.Context, owner session.SessionID, after,
 	return s.db.QueryContext(ctx, `WITH bounds AS (
 		SELECT id,(SELECT COALESCE(MAX(sequence),0) FROM messages WHERE session_id=s.id) AS maximum FROM sessions s WHERE id=?
 	) SELECT bounds.id,bounds.maximum,`+historyColumns+`
-	FROM bounds LEFT JOIN messages m ON m.session_id=bounds.id AND m.sequence>? AND m.sequence<=?`+historyJoins+`
+	FROM bounds LEFT JOIN messages m ON m.session_id=bounds.id AND m.retired_revision IS NULL AND m.sequence>? AND m.sequence<=?`+historyJoins+`
 	ORDER BY m.sequence LIMIT ?`, owner, bodies, after, through, limit)
 }
 
@@ -166,6 +175,8 @@ func (s *Store) HistoryRange(ctx context.Context, owner session.SessionID, after
 			break
 		}
 		message := session.Message{
+			GroupID: value.metadata.GroupID, OpeningInput: value.metadata.OpeningInput, Source: value.metadata.Source,
+			RetiredBy: value.metadata.RetiredBy, RetiredRevision: value.metadata.RetiredRevision,
 			ID: value.metadata.ID, SessionID: owner, TurnID: value.metadata.TurnID, InputID: value.metadata.InputID,
 			Mail: value.metadata.Mail, Sequence: value.metadata.Sequence, Role: value.metadata.Role, CreatedAt: timestamp(value.created),
 		}

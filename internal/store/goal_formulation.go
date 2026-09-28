@@ -60,7 +60,7 @@ func (s *Store) AdmitGoalFormulation(ctx context.Context, identity session.Reque
 		if err != nil {
 			return err
 		}
-		snapshot, err := encode(session.GoalFormulationInput{InputID: result.Input.ID, SessionID: owner, Request: resolved, AfterSequence: after, ThroughSequence: through})
+		snapshot, err := encode(session.GoalFormulationInput{InputID: result.Input.ID, SessionID: owner, HistoryRevision: current.HistoryRevision, Request: resolved, AfterSequence: after, ThroughSequence: through})
 		if err != nil {
 			return err
 		}
@@ -72,14 +72,14 @@ func (s *Store) AdmitGoalFormulation(ctx context.Context, identity session.Reque
 
 func formulationWindow(ctx context.Context, tx *sql.Tx, owner session.SessionID, limit int) (after, through int64, err error) {
 	err = tx.QueryRowContext(ctx, `SELECT COALESCE(MIN(sequence)-1,0),COALESCE(MAX(sequence),0) FROM
- (SELECT sequence FROM messages WHERE session_id=? ORDER BY sequence DESC LIMIT ?)`, owner, limit).Scan(&after, &through)
+ (SELECT sequence FROM messages WHERE session_id=? AND retired_revision IS NULL ORDER BY sequence DESC LIMIT ?)`, owner, limit).Scan(&after, &through)
 	if err != nil {
 		return
 	}
 	if through == 0 {
 		return 0, 0, fmt.Errorf("%w: goal formulation requires raw history", session.ErrInvalid)
 	}
-	rows, err := tx.QueryContext(ctx, messageSelect+" WHERE m.session_id=? AND m.sequence>? AND m.sequence<=? ORDER BY m.sequence", owner, after, through)
+	rows, err := tx.QueryContext(ctx, messageSelect+" WHERE m.session_id=? AND m.retired_revision IS NULL AND m.sequence>? AND m.sequence<=? ORDER BY m.sequence", owner, after, through)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -112,12 +112,31 @@ func readGoalFormulationInput(ctx context.Context, q querier, turn session.TurnI
 	return
 }
 
+func validateFormulationSource(ctx context.Context, q querier, value session.GoalFormulationInput) error {
+	var revision session.Revision
+	if err := q.QueryRowContext(ctx, "SELECT history_revision FROM sessions WHERE id=?", value.SessionID).Scan(&revision); err != nil {
+		return found(err)
+	}
+	if value.HistoryRevision != revision {
+		return fmt.Errorf("%w: formulation source history changed", ErrConflict)
+	}
+	return nil
+}
+
 func (s *Store) GoalFormulationInput(ctx context.Context, turn session.TurnID) (session.GoalFormulationInput, error) {
-	return readGoalFormulationInput(ctx, s.db, turn)
+	value, err := readGoalFormulationInput(ctx, s.db, turn)
+	if err == nil {
+		err = validateFormulationSource(ctx, s.db, value)
+	}
+	return value, err
 }
 
 func validateGoalFormulationAttempt(ctx context.Context, tx *sql.Tx, turn session.Turn, request session.ModelRequestSnapshot) error {
-	if _, err := readGoalFormulationInput(ctx, tx, turn.ID); err != nil {
+	input, err := readGoalFormulationInput(ctx, tx, turn.ID)
+	if err != nil {
+		return err
+	}
+	if err := validateFormulationSource(ctx, tx, input); err != nil {
 		return err
 	}
 	var raw string
@@ -250,6 +269,9 @@ func (s *Store) SettleGoalFormulation(ctx context.Context, id session.ModelAttem
 }
 
 func activateFormulatedGoal(ctx context.Context, tx *sql.Tx, attempt session.ModelAttempt, input session.GoalFormulationInput, spec session.GoalSpec) error {
+	if err := validateFormulationSource(ctx, tx, input); err != nil {
+		return err
+	}
 	turn, err := readTurn(ctx, tx, attempt.TurnID)
 	if err != nil {
 		return err

@@ -60,7 +60,7 @@ func (s *Store) Continuations(ctx context.Context, owner session.SessionID, ids 
 	}
 	defer func() { _ = tx.Rollback() }()
 	rows, err := tx.QueryContext(ctx, `SELECT id,COALESCE(length(CAST(model_continuation AS BLOB)),0) FROM messages
- WHERE session_id=? AND id IN (SELECT value FROM json_each(?))`, owner, identities)
+ WHERE session_id=? AND retired_revision IS NULL AND id IN (SELECT value FROM json_each(?))`, owner, identities)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +87,7 @@ func (s *Store) Continuations(ctx context.Context, owner session.SessionID, ids 
 		return nil, session.ErrContinuationLimit
 	}
 	rows, err = tx.QueryContext(ctx, `SELECT id,model_continuation FROM messages
- WHERE session_id=? AND id IN (SELECT value FROM json_each(?))`, owner, identities)
+ WHERE session_id=? AND retired_revision IS NULL AND id IN (SELECT value FROM json_each(?))`, owner, identities)
 	if err != nil {
 		return nil, err
 	}

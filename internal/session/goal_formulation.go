@@ -45,6 +45,7 @@ func (r GoalFormulationRequest) Resolve() (GoalFormulationRequest, error) {
 // GoalFormulationInput captures raw source coordinates at admission. The main
 // model is separately captured by the ordinary turn configuration at Claim.
 type GoalFormulationInput struct {
+	HistoryRevision Revision               `json:"history_revision,string"`
 	InputID         InputID                `json:"input_id"`
 	SessionID       SessionID              `json:"session_id"`
 	Request         GoalFormulationRequest `json:"request"`

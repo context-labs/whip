@@ -82,9 +82,9 @@ func readTurn(ctx context.Context, q querier, id session.TurnID) (result session
 	var goalID *session.GoalID
 	var goalRevision sql.NullInt64
 	var finished sql.NullInt64
-	err = q.QueryRowContext(ctx, `SELECT id,session_id,config_revision,state,failure,started_at,finished_at,
+	err = q.QueryRowContext(ctx, `SELECT id,session_id,config_revision,history_revision,state,failure,started_at,finished_at,
  COALESCE((SELECT kind FROM inputs WHERE turn_id=turns.id),'prompt'),goal_id,goal_revision FROM turns WHERE id=?`, id).
-		Scan(&result.ID, &result.SessionID, &result.ConfigRevision, &result.State, &result.Failure, &started, &finished, &result.Kind, &goalID, &goalRevision)
+		Scan(&result.ID, &result.SessionID, &result.ConfigRevision, &result.HistoryRevision, &result.State, &result.Failure, &started, &finished, &result.Kind, &goalID, &goalRevision)
 	if err != nil {
 		return result, found(err)
 	}
@@ -318,7 +318,7 @@ func (s *Store) Claim(ctx context.Context, id session.SessionID) (result Claim, 
 		}
 		turnID := session.TurnID(newID("turn"))
 		started := now()
-		if _, err := tx.ExecContext(ctx, "INSERT INTO turns (id,session_id,config_revision,state,started_at,goal_id,goal_revision) VALUES (?,?,?,'running',?,?,?)", turnID, id, current.ConfigRevision, started, goalID, goalRevision); err != nil {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO turns (id,session_id,config_revision,history_revision,state,started_at,goal_id,goal_revision) VALUES (?,?,?,?,'running',?,?,?)", turnID, id, current.ConfigRevision, current.HistoryRevision, started, goalID, goalRevision); err != nil {
 			return err
 		}
 		result.Turn, err = readTurn(ctx, tx, turnID)
@@ -327,6 +327,11 @@ func (s *Store) Claim(ctx context.Context, id session.SessionID) (result Claim, 
 		}
 		if err := acquireTurnPermit(ctx, tx, result.Turn); err != nil {
 			return err
+		}
+		if input == nil || input.Kind == session.PromptInput {
+			if _, err := tx.ExecContext(ctx, "INSERT INTO history_groups (id,session_id,turn_id,created_at) VALUES (?,?,?,?)", turnID, id, turnID, started); err != nil {
+				return err
+			}
 		}
 		if inputID != "" {
 			update, err := tx.ExecContext(ctx, "UPDATE inputs SET turn_id=? WHERE id=? AND turn_id IS NULL AND cancelled_at IS NULL", turnID, inputID)
@@ -347,9 +352,9 @@ func (s *Store) Claim(ctx context.Context, id session.SessionID) (result Claim, 
 			result.Input = &input
 			result.Turn.Kind = input.Kind
 			if input.Kind == session.PromptInput {
-				if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,turn_id,sequence,role,input_id,created_at)
-   SELECT ?,?,?,COALESCE(MAX(sequence),0)+1,'user',?,? FROM messages WHERE session_id=?`,
-					"message_"+string(inputID), id, turnID, inputID, started, id); err != nil {
+				if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,turn_id,group_id,opening_input,sequence,role,input_id,created_at)
+   SELECT ?,?,?,?,1,COALESCE(MAX(sequence),0)+1,'user',?,? FROM messages WHERE session_id=?`,
+					"message_"+string(inputID), id, turnID, turnID, inputID, started, id); err != nil {
 					return err
 				}
 			}
@@ -369,8 +374,8 @@ func (s *Store) Claim(ctx context.Context, id session.SessionID) (result Claim, 
 	return
 }
 
-const messageSelect = `SELECT m.id,m.session_id,m.turn_id,m.sequence,m.role,m.input_id,
- COALESCE(m.parts,i.parts),m.created_at,m.mail_id,m.mail_revision,m.mail_presentation,r.subject,r.body,mail.source_kind,mail.source_id,r.evidence_ref
+const messageSelect = `SELECT m.id,m.session_id,COALESCE(m.turn_id,''),m.sequence,m.role,m.input_id,
+ COALESCE(m.parts,i.parts),m.created_at,m.mail_id,m.mail_revision,m.mail_presentation,r.subject,r.body,mail.source_kind,mail.source_id,r.evidence_ref,` + historyProvenanceColumns + `
  FROM messages m LEFT JOIN inputs i ON i.id=m.input_id
  LEFT JOIN mail_revisions r ON r.mail_id=m.mail_id AND r.revision=m.mail_revision
  LEFT JOIN mail ON mail.id=m.mail_id`
@@ -382,11 +387,17 @@ func scanMessage(row scanner) (result session.Message, err error) {
 	var revision sql.NullInt64
 	var presentation, subject, body, sourceKind, sourceID sql.NullString
 	var evidence *string
-	err = row.Scan(&result.ID, &result.SessionID, &result.TurnID, &result.Sequence, &result.Role, &result.InputID, &raw, &created, &mailID, &revision, &presentation, &subject, &body, &sourceKind, &sourceID, &evidence)
+	var sourceOwner *session.SessionID
+	var sourceMessage *session.MessageID
+	var sourceSequence sql.NullInt64
+	err = row.Scan(&result.ID, &result.SessionID, &result.TurnID, &result.Sequence, &result.Role, &result.InputID, &raw, &created, &mailID, &revision, &presentation, &subject, &body, &sourceKind, &sourceID, &evidence, &result.GroupID, &result.OpeningInput, &sourceOwner, &sourceMessage, &sourceSequence, &result.RetiredBy, &result.RetiredRevision)
 	if err != nil {
 		return result, found(err)
 	}
 	result.CreatedAt = timestamp(created)
+	if sourceOwner != nil {
+		result.Source = &session.MessageSource{SessionID: *sourceOwner, MessageID: *sourceMessage, Sequence: sourceSequence.Int64}
+	}
 	if mailID != nil {
 		result.Mail = &session.MailRef{ID: *mailID, Revision: revision.Int64, Presentation: session.MailPresentation(presentation.String)}
 		result.Parts = mailParts(*result.Mail, session.MailSource{Kind: sourceKind.String, ID: sourceID.String}, subject.String, body.String, evidence)
@@ -458,9 +469,9 @@ func appendMessage(ctx context.Context, tx *sql.Tx, turn session.Turn, draft ses
 			return session.Message{}, err
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,turn_id,sequence,role,parts,model_continuation,created_at)
-  SELECT ?,?,?,COALESCE(MAX(sequence),0)+1,?,?,?,? FROM messages WHERE session_id=?`,
-		draft.ID, turn.SessionID, turn.ID, draft.Role, raw, continuation, now(), turn.SessionID); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,turn_id,group_id,sequence,role,parts,model_continuation,created_at)
+  SELECT ?,?,?,?,COALESCE(MAX(sequence),0)+1,?,?,?,? FROM messages WHERE session_id=?`,
+		draft.ID, turn.SessionID, turn.ID, turn.ID, draft.Role, raw, continuation, now(), turn.SessionID); err != nil {
 		return session.Message{}, err
 	}
 	return scanMessage(tx.QueryRowContext(ctx, messageSelect+" WHERE m.id=?", draft.ID))
@@ -485,7 +496,7 @@ func (s *Store) History(ctx context.Context, id session.SessionID, after int64, 
 	if after < 0 {
 		return nil, fmt.Errorf("%w: negative history cursor", session.ErrInvalid)
 	}
-	rows, err := s.db.QueryContext(ctx, messageSelect+" WHERE m.session_id=? AND m.sequence>? ORDER BY m.sequence LIMIT ?", id, after, limit)
+	rows, err := s.db.QueryContext(ctx, messageSelect+" WHERE m.session_id=? AND m.retired_revision IS NULL AND m.sequence>? ORDER BY m.sequence LIMIT ?", id, after, limit)
 	if err != nil {
 		return nil, err
 	}

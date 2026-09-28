@@ -96,8 +96,8 @@ func observeMailBoundary(ctx context.Context, tx *sql.Tx, turn session.Turn, ste
 			return nil, err
 		}
 		id := session.MessageID(newID("message"))
-		if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,turn_id,sequence,role,mail_id,mail_revision,mail_presentation,created_at)
- SELECT ?,?,?,COALESCE(MAX(sequence),0)+1,'user',?,?,'digest',? FROM messages WHERE session_id=?`, id, turn.SessionID, turn.ID, mail.ID, mail.Revision, now(), turn.SessionID); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,turn_id,group_id,sequence,role,mail_id,mail_revision,mail_presentation,created_at)
+ SELECT ?,?,?,?,COALESCE(MAX(sequence),0)+1,'user',?,?,'digest',? FROM messages WHERE session_id=?`, id, turn.SessionID, turn.ID, turn.ID, mail.ID, mail.Revision, now(), turn.SessionID); err != nil {
 			return nil, err
 		}
 		message, err := scanMessage(tx.QueryRowContext(ctx, messageSelect+" WHERE m.id=?", id))
