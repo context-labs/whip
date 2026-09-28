@@ -45,6 +45,7 @@ func (e *AccountingError) Unwrap() error { return e.Err }
 type helperTarget struct {
 	compaction       *compactionTarget
 	formulation      *session.GoalFormulationSettlement
+	title            *session.AutomaticTitleSettlement
 	operationID      session.OperationID
 	index            int
 	admissionRefused func(error) bool
@@ -55,10 +56,11 @@ type helperTarget struct {
 type helperDraft struct {
 	compaction  *session.CompactionDraft
 	formulation *session.GoalFormulationDraft
+	title       *session.AutomaticTitleDraft
 }
 
 func (t *helperTarget) stateless() bool {
-	return t != nil && t.compaction == nil && t.formulation == nil
+	return t != nil && t.compaction == nil && t.formulation == nil && t.title == nil
 }
 
 func (t *helperTarget) response(id session.ModelAttemptID, parts []session.Part) (helperDraft, error) {
@@ -78,6 +80,12 @@ func (t *helperTarget) response(id session.ModelAttemptID, parts []session.Part)
 			return helperDraft{}, err
 		}
 		return helperDraft{formulation: &session.GoalFormulationDraft{Text: text.String()}}, nil
+	}
+	if t.title != nil {
+		if err := session.ValidateAutomaticTitle(text.String()); err != nil {
+			return helperDraft{}, err
+		}
+		return helperDraft{title: &session.AutomaticTitleDraft{Text: text.String()}}, nil
 	}
 	t.text = text.String()
 	return helperDraft{}, nil

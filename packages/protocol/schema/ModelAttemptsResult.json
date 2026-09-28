@@ -46,6 +46,13 @@
             "properties": {
               "purpose": {
                 "type": "string",
+                "enum": [
+                  "turn",
+                  "compaction",
+                  "goal_formulation",
+                  "model_helper",
+                  "automatic_title"
+                ],
                 "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
               },
               "model": {

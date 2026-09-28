@@ -104,6 +104,8 @@ func Operations() []Operation {
 		{"trees.create", reflect.TypeFor[CreateTreeParams](), reflect.TypeFor[CreateTreeResult]()},
 		{"trees.get", reflect.TypeFor[TreeParams](), reflect.TypeFor[Tree]()},
 		{"trees.update", reflect.TypeFor[UpdateTreeParams](), reflect.TypeFor[Tree]()},
+		{"trees.title_decision", reflect.TypeFor[TreeParams](), reflect.TypeFor[AutomaticTitleDecision]()},
+		{"trees.title_result", reflect.TypeFor[AutomaticTitleResultParams](), reflect.TypeFor[AutomaticTitleResult]()},
 		{"sessions.get", reflect.TypeFor[SessionParams](), reflect.TypeFor[Session]()},
 		{"sessions.spawn", reflect.TypeFor[SpawnSessionParams](), reflect.TypeFor[SpawnSessionResult]()},
 		{"sessions.list", reflect.TypeFor[ListSessionsParams](), reflect.TypeFor[ListSessionsResult]()},
@@ -211,6 +213,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 			schema.Properties["items"].Types = nil
 			schema.Properties["items"].MaxItems = new(100)
 		}
+		automaticTitleSchema(schema, t)
 		if t == reflect.TypeFor[GoalFormulationRequest]() {
 			schema.Properties["tail_messages"] = &jsonschema.Schema{OneOf: []*jsonschema.Schema{
 				{Type: "integer", Enum: []any{0}},
@@ -239,7 +242,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 			prompt.Properties["kind"] = &jsonschema.Schema{Type: "string", Enum: []any{"prompt"}}
 			compact := schema.CloneSchemas()
 			compact.Type, compact.Types = "object", nil
-			compact.Properties["kind"] = &jsonschema.Schema{Type: "string", Enum: []any{"compact", "goal_formulation"}}
+			compact.Properties["kind"] = &jsonschema.Schema{Type: "string", Enum: []any{"compact", "goal_formulation", "automatic_title"}}
 			compact.Properties["parts"] = &jsonschema.Schema{Type: "array", MaxItems: new(0), Items: partSchema("text", "content")}
 			*schema = jsonschema.Schema{OneOf: []*jsonschema.Schema{prompt, compact}}
 			if nullable {

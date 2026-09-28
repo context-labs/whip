@@ -242,7 +242,7 @@
           "client_id": "client",
           "request_id": "deleted"
         },
-        "digest": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a",
+        "digest": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
         "input_id": null,
         "deleted_at": "2026-09-27T12:00:00.123456Z",
         "created_at": "2026-09-27T12:00:00.123456Z"
@@ -260,6 +260,113 @@
         "request_id": "compact"
       },
       "session_id": "session_child"
+    },
+    "valid": true
+  },
+  {
+    "type": "AutomaticTitleDecision",
+    "value": {
+      "tree_id": "tree_fixture",
+      "session_id": "session_root",
+      "input_id": "input_title",
+      "receipt_identity": {
+        "client_id": "automatic-title",
+        "request_id": "tree_fixture"
+      },
+      "config_revision": "9007199254740993",
+      "expected_revision": "9007199254740994",
+      "enabled": true,
+      "model": {
+        "provider": "fixture",
+        "name": "scripted",
+        "effort": ""
+      },
+      "source": "Authored source for one generated title.",
+      "reason": "eligible",
+      "created_at": "2026-09-27T12:00:00.123456Z"
+    },
+    "valid": true
+  },
+  {
+    "type": "AutomaticTitleDecision",
+    "value": {
+      "tree_id": "manual_tree",
+      "session_id": "manual_root",
+      "input_id": null,
+      "receipt_identity": null,
+      "config_revision": "1",
+      "expected_revision": "1",
+      "enabled": false,
+      "model": {
+        "provider": "fixture",
+        "name": "scripted",
+        "effort": ""
+      },
+      "source": "",
+      "reason": "manual",
+      "created_at": "2026-09-27T12:00:00.123456Z"
+    },
+    "valid": true
+  },
+  {
+    "type": "AutomaticTitleResultParams",
+    "value": {
+      "tree_id": "tree_fixture",
+      "attempt_id": "attempt_title"
+    },
+    "valid": true
+  },
+  {
+    "type": "AutomaticTitleResult",
+    "value": {
+      "tree_id": "tree_fixture",
+      "attempt_id": "attempt_title",
+      "text": "Generated title",
+      "applied": true,
+      "created_at": "2026-09-27T12:00:00.123456Z"
+    },
+    "valid": true
+  },
+  {
+    "type": "AutomaticTitleResult",
+    "value": {
+      "tree_id": "tree_fixture",
+      "attempt_id": "attempt_superseded",
+      "text": "Superseded candidate",
+      "applied": false,
+      "created_at": "2026-09-27T12:00:00.123456Z"
+    },
+    "valid": true
+  },
+  {
+    "type": "Input",
+    "value": {
+      "goal": null,
+      "id": "input_title",
+      "session_id": "session_root",
+      "source": "agent",
+      "kind": "automatic_title",
+      "parts": [],
+      "state": "claimed",
+      "turn_id": null,
+      "created_at": "2026-09-27T12:00:00.123456Z",
+      "schedule": null
+    },
+    "valid": true
+  },
+  {
+    "type": "Turn",
+    "value": {
+      "history_revision": "1",
+      "goal": null,
+      "id": "turn_title",
+      "session_id": "session_root",
+      "kind": "automatic_title",
+      "config_revision": "9007199254740993",
+      "state": "succeeded",
+      "failure": null,
+      "started_at": "2026-09-27T12:00:00.123456Z",
+      "finished_at": "2026-09-27T12:00:00.123456Z"
     },
     "valid": true
   },
@@ -683,7 +790,7 @@
     "value": {
       "id": "edit",
       "session_id": "session_child",
-      "digest": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a",
+      "digest": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
       "expected_revision": "9007199254740993",
       "revision": "9007199254740994",
       "observed_through": "9007199254740995",
@@ -840,7 +947,7 @@
             "root_id": null,
             "path": ".agents/skills/my-skill/SKILL.md",
             "bytes": "40",
-            "sha256": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a"
+            "sha256": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1"
           }
         }
       ],
@@ -853,7 +960,7 @@
     "value": {
       "manifest": {
         "bytes": "80000",
-        "sha256": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a",
+        "sha256": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
         "sources": [
           {
             "kind": "invoked_skill",
@@ -861,7 +968,7 @@
             "root_id": null,
             "path": ".agents/skills/my-skill/SKILL.md",
             "bytes": "70000",
-            "sha256": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a"
+            "sha256": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1"
           }
         ]
       }
@@ -873,7 +980,7 @@
     "value": {
       "manifest": {
         "bytes": "100",
-        "sha256": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a",
+        "sha256": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
         "sources": [
           {
             "kind": "skill_metadata",
@@ -881,7 +988,7 @@
             "root_id": "team",
             "path": "review/SKILL.md",
             "bytes": "40",
-            "sha256": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a"
+            "sha256": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1"
           }
         ]
       }
@@ -893,7 +1000,7 @@
     "value": {
       "manifest": {
         "bytes": "100",
-        "sha256": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a",
+        "sha256": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
         "sources": [
           {
             "kind": "standing_instructions",
@@ -901,7 +1008,7 @@
             "root_id": "standing",
             "path": "me.md",
             "bytes": "40",
-            "sha256": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a"
+            "sha256": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1"
           }
         ]
       }
@@ -913,7 +1020,7 @@
     "value": {
       "manifest": {
         "bytes": "100",
-        "sha256": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a",
+        "sha256": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
         "sources": [
           {
             "kind": "project_file",
@@ -921,7 +1028,7 @@
             "root_id": "project",
             "path": "app/AGENTS.md",
             "bytes": "40",
-            "sha256": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a"
+            "sha256": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1"
           }
         ]
       }
@@ -940,7 +1047,7 @@
     "value": {
       "manifest": {
         "bytes": "40",
-        "sha256": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a",
+        "sha256": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
         "sources": [
           {
             "kind": "project_file",
@@ -960,7 +1067,7 @@
     "value": {
       "manifest": {
         "bytes": "20",
-        "sha256": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a",
+        "sha256": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
         "sources": []
       }
     },
@@ -1326,7 +1433,7 @@
       "state": "succeeded",
       "result_message_id": "message_result",
       "checkpoint": {
-        "digest": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a",
+        "digest": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
         "size": "123",
         "engine": "starlark",
         "metadata": {
@@ -1385,7 +1492,7 @@
             },
             "route": "https://provider.example/v1/chat/completions",
             "adapter": "openai-chat",
-            "request_digest": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a",
+            "request_digest": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
             "prices": {
               "input": null,
               "output": null,
@@ -1446,7 +1553,68 @@
             },
             "route": "https://provider.example/v1/chat/completions",
             "adapter": "openai-chat",
-            "request_digest": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a",
+            "request_digest": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
+            "prices": {
+              "input": null,
+              "output": null,
+              "reasoning": null,
+              "cached_input": null,
+              "cached_output": null
+            },
+            "max_output_tokens": "4096",
+            "input_token_bound": null,
+            "timeout_millis": "30000"
+          },
+          "state": "succeeded",
+          "result": {
+            "state": "succeeded",
+            "usage": {
+              "input": null,
+              "output": null,
+              "reasoning": null,
+              "cached_input": null,
+              "cached_output": null
+            },
+            "reported_cost_nano_usd": "9007199254740993",
+            "failure": null,
+            "usage_note": null,
+            "elapsed_millis": null
+          },
+          "cost_nano_usd": "9007199254740993",
+          "cost_source": "provider",
+          "cost_note": null,
+          "message_id": null,
+          "created_at": "2026-09-27T12:00:00.123456Z",
+          "dispatched_at": "2026-09-27T12:00:00.123456Z",
+          "finished_at": "2026-09-27T12:00:00.123456Z"
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "type": "ModelAttemptsResult",
+    "value": {
+      "items": [
+        {
+          "id": "attempt_fixture",
+          "turn_id": "turn_fixture",
+          "logical_id": "call_fixture",
+          "number": 1,
+          "operation_id": null,
+          "batch_index": null,
+          "request": {
+            "purpose": "automatic_title",
+            "model": {
+              "provider": "fixture",
+              "name": "model",
+              "effort": "",
+              "temperature": 0,
+              "top_p": 0.9
+            },
+            "route": "https://provider.example/v1/chat/completions",
+            "adapter": "openai-chat",
+            "request_digest": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
             "prices": {
               "input": null,
               "output": null,
@@ -1502,7 +1670,7 @@
       "builtins": [
         {
           "id": "assistant",
-          "revision": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a"
+          "revision": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1"
         }
       ]
     },
@@ -1553,10 +1721,11 @@
       "parent_id": null,
       "definition": {
         "id": "assistant",
-        "revision": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a"
+        "revision": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1"
       },
       "config_revision": "9007199254740993",
       "configuration": {
+        "automatic_title": true,
         "goals_enabled": true,
         "compaction": {
           "model": null,
@@ -1598,10 +1767,11 @@
       "parent_id": "session_root",
       "definition": {
         "id": "assistant",
-        "revision": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a"
+        "revision": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1"
       },
       "config_revision": "9007199254740993",
       "configuration": {
+        "automatic_title": true,
         "goals_enabled": true,
         "compaction": {
           "model": null,
@@ -1794,6 +1964,7 @@
       "session_id": "session_child",
       "expected_revision": "9007199254740993",
       "patch": {
+        "automatic_title": false,
         "compaction": {
           "model": null,
           "threshold_percent": 0

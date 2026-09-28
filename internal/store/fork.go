@@ -93,6 +93,9 @@ func (s *Store) Fork(ctx context.Context, request session.ForkRequest, defaults 
  VALUES(?,?,?,?,?,?,?,?,?,?,?)`, request.ID, digest, source.ID, request.ExpectedHistoryRevision, request.ExpectedConfigRevision, request.ObservedThrough, request.KeepThrough, request.Title, treeID, root.ID, now()); err != nil {
 			return err
 		}
+		if err := initializeTitle(ctx, tx, root, nil, "fork"); err != nil {
+			return err
+		}
 		result, err = readFork(ctx, tx, request.ID)
 		return err
 	})

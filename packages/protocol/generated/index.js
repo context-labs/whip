@@ -415,6 +415,16 @@ export const manifest = {
       "result": "Tree"
     },
     {
+      "name": "trees.title_decision",
+      "params": "TreeParams",
+      "result": "AutomaticTitleDecision"
+    },
+    {
+      "name": "trees.title_result",
+      "params": "AutomaticTitleResultParams",
+      "result": "AutomaticTitleResult"
+    },
+    {
       "name": "sessions.get",
       "params": "SessionParams",
       "result": "Session"

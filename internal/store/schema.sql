@@ -207,7 +207,7 @@ CREATE TABLE inputs (
  ordinal INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
  source TEXT NOT NULL CHECK(source IN ('user','agent','schedule','goal')),
- kind TEXT NOT NULL DEFAULT 'prompt' CHECK(kind IN ('prompt','compact','goal_formulation')),
+ kind TEXT NOT NULL DEFAULT 'prompt' CHECK(kind IN ('prompt','compact','goal_formulation','automatic_title')),
  parts TEXT NOT NULL CHECK(json_valid(parts)), turn_id TEXT UNIQUE, cancelled_at INTEGER, created_at INTEGER NOT NULL,
  schedule_id TEXT, scheduled_for TEXT, goal_id TEXT, goal_revision INTEGER,
  CHECK((goal_id IS NOT NULL) = (source='goal')),
@@ -470,7 +470,7 @@ CREATE TABLE model_attempts (
  CHECK(state <> 'reserved' OR dispatched_at IS NULL),
  CHECK(state <> 'cancelled' OR dispatched_at IS NULL),
  CHECK(message_id IS NULL OR finished_at IS NOT NULL),
- CHECK(message_id IS NULL OR json_extract(request,'$.purpose') NOT IN ('compaction','model_helper','goal_formulation'))
+ CHECK(message_id IS NULL OR json_extract(request,'$.purpose') NOT IN ('compaction','model_helper','goal_formulation','automatic_title'))
 ) STRICT;
 CREATE INDEX attempts_by_turn ON model_attempts(turn_id,id);
 CREATE INDEX attempts_unfinished ON model_attempts(id) WHERE finished_at IS NULL;
@@ -676,3 +676,25 @@ CREATE INDEX goal_formulations_owner ON goal_formulations(session_id,attempt_id)
 CREATE INDEX goal_formulations_turn ON goal_formulations(turn_id);
 CREATE TRIGGER goal_formulation_immutable BEFORE UPDATE ON goal_formulations
  BEGIN SELECT RAISE(ABORT, 'formulation candidate is immutable'); END;
+
+CREATE TABLE automatic_title_decisions (
+ tree_id TEXT PRIMARY KEY REFERENCES session_trees(id) ON DELETE CASCADE,
+ session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+ config_revision INTEGER NOT NULL,
+ expected_revision INTEGER NOT NULL CHECK(expected_revision>0),
+ eligible INTEGER NOT NULL CHECK(eligible IN (0,1)),
+ snapshot TEXT NOT NULL CHECK(json_valid(snapshot) AND length(CAST(snapshot AS BLOB))<=4096),
+ created_at INTEGER NOT NULL,
+ FOREIGN KEY(session_id,config_revision) REFERENCES session_configurations(session_id,revision)
+) STRICT;
+CREATE TRIGGER automatic_title_decision_immutable BEFORE UPDATE ON automatic_title_decisions
+ BEGIN SELECT RAISE(ABORT, 'automatic title decision is immutable'); END;
+CREATE INDEX automatic_title_pending ON automatic_title_decisions(eligible,created_at,session_id);
+CREATE TABLE automatic_title_results (
+ attempt_id TEXT PRIMARY KEY REFERENCES model_attempts(id) ON DELETE CASCADE,
+ tree_id TEXT NOT NULL REFERENCES automatic_title_decisions(tree_id) ON DELETE CASCADE,
+ text TEXT NOT NULL CHECK(length(CAST(text AS BLOB)) BETWEEN 1 AND 320),
+ applied INTEGER NOT NULL CHECK(applied IN (0,1)), created_at INTEGER NOT NULL
+) STRICT;
+CREATE TRIGGER automatic_title_result_immutable BEFORE UPDATE ON automatic_title_results
+ BEGIN SELECT RAISE(ABORT, 'automatic title result is immutable'); END;

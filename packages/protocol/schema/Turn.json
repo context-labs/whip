@@ -41,7 +41,8 @@
       "enum": [
         "prompt",
         "compact",
-        "goal_formulation"
+        "goal_formulation",
+        "automatic_title"
       ]
     },
     "config_revision": {

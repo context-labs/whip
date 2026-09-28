@@ -55,6 +55,9 @@ func Fixtures() ([]Fixture, error) {
 	helper.Request.Purpose = "model_helper"
 	helper.OperationID, helper.BatchIndex = new(ID("operation_helper")), new(31)
 	helper.MessageID = nil
+	titleAttempt := attempt
+	titleAttempt.Request.Purpose = session.AutomaticTitlePurpose
+	titleAttempt.MessageID = nil
 	values := []struct {
 		name  string
 		value any
@@ -81,6 +84,13 @@ func Fixtures() ([]Fixture, error) {
 		{"OpenAIAccountStatus", OpenAIAccountStatus{AuthState: "stored", RouteState: "configured", AccountID: new("account"), Email: new("person@example.test"), Plan: new("pro"), ExpiresAt: new(AccountTimestamp("2500-01-02T03:04:05.123456789Z"))}},
 		{"Admission", Admission{Receipt: Receipt{Identity: RequestIdentity{ClientID: "client", RequestID: "deleted"}, Digest: ref.Revision, CreatedAt: created.Format(time.RFC3339Nano), DeletedAt: new(created.Format(time.RFC3339Nano))}}},
 		{"CompactParams", CompactParams{Identity: RequestIdentity{ClientID: "client", RequestID: "compact"}, SessionID: child.ID}},
+		{"AutomaticTitleDecision", AutomaticTitleDecisionFromDomain(session.AutomaticTitleDecision{TreeID: "tree_fixture", SessionID: "session_root", InputID: new(session.InputID("input_title")), ConfigRevision: 9007199254740993, ExpectedRevision: 9007199254740994, Enabled: true, Model: config.Model, Source: "Authored source for one generated title.", Reason: "eligible", CreatedAt: created})},
+		{"AutomaticTitleDecision", AutomaticTitleDecisionFromDomain(session.AutomaticTitleDecision{TreeID: "manual_tree", SessionID: "manual_root", ConfigRevision: 1, ExpectedRevision: 1, Model: config.Model, Reason: "manual", CreatedAt: created})},
+		{"AutomaticTitleResultParams", AutomaticTitleResultParams{TreeID: "tree_fixture", AttemptID: "attempt_title"}},
+		{"AutomaticTitleResult", AutomaticTitleResultFromDomain(session.AutomaticTitleResult{TreeID: "tree_fixture", AttemptID: "attempt_title", Text: "Generated title", Applied: true, CreatedAt: created})},
+		{"AutomaticTitleResult", AutomaticTitleResultFromDomain(session.AutomaticTitleResult{TreeID: "tree_fixture", AttemptID: "attempt_superseded", Text: "Superseded candidate", Applied: false, CreatedAt: created})},
+		{"Input", InputFromDomain(session.Input{ID: "input_title", SessionID: "session_root", Source: session.AgentInput, Kind: session.AutomaticTitleInputKind, State: session.Claimed, Parts: []session.Part{}, CreatedAt: created})},
+		{"Turn", TurnFromDomain(session.Turn{ID: "turn_title", SessionID: "session_root", Kind: session.AutomaticTitleInputKind, ConfigRevision: 9007199254740993, HistoryRevision: 1, State: session.Succeeded, StartedAt: created, FinishedAt: &created})},
 		{"ScheduleAdmission", ScheduleAdmissionFromDomain(session.ScheduleAdmission{ID: "schedule_fixture", Schedule: &session.ScheduleMetadata{ID: "schedule_fixture", SessionID: "session_child", Expression: "@every 0.000000001s", FirstDue: created, NextDue: &created, CreatedAt: created, PartsBytes: 123, Latest: &session.ScheduleInput{ScheduleID: "schedule_fixture", ScheduledFor: created, InputID: "scheduled_input", ClientID: "schedule", RequestID: "slot_fixture"}}})},
 		{"FormulateGoalParams", FormulateGoalParams{Identity: RequestIdentity{ClientID: "client", RequestID: "formulate"}, SessionID: "session_child", Request: GoalFormulationRequest{GoalID: "goal_formulated"}}},
 		{"FormulateGoalParams", FormulateGoalParams{Identity: RequestIdentity{ClientID: "client", RequestID: "formulate_zero"}, SessionID: "session_child", Request: GoalFormulationRequest{GoalID: "goal_formulated", MaxContinuations: new(Counter(0)), TailMessages: 100, Start: true}}},
@@ -151,6 +161,7 @@ func Fixtures() ([]Fixture, error) {
 		}},
 		{"ModelAttemptsResult", ModelAttemptsResult{Items: []ModelAttempt{attempt}}},
 		{"ModelAttemptsResult", ModelAttemptsResult{Items: []ModelAttempt{helper}}},
+		{"ModelAttemptsResult", ModelAttemptsResult{Items: []ModelAttempt{titleAttempt}}},
 		{"InitializeParams", InitializeParams{Major: Major, ExpectedRuntimeID: new(ID("runtime_fixture"))}},
 		{"InitializeResult", InitializeResult{Major: Major, Minor: Minor, RuntimeID: "runtime_fixture", Builtins: []DefinitionRef{{ID: ID(ref.ID), Revision: ref.Revision}}}},
 		{"Request", Request{JSONRPC: "2.0", ID: "call", Method: "initialize", Params: json.RawMessage(`{"major":4}`)}},
@@ -163,7 +174,7 @@ func Fixtures() ([]Fixture, error) {
 		{"Part", toolMessage.Parts[0]},
 		{"SpawnSessionParams", SpawnSessionParams{Identity: RequestIdentity{ClientID: "client", RequestID: "spawn"}, ParentID: root.ID, Parts: []Part{{Type: "text", Text: "Child work"}}, GrantIDs: []ID{}}},
 		{"SubmitParams", SubmitParams{Identity: RequestIdentity{ClientID: "client", RequestID: "request"}, SessionID: child.ID, Source: "user", Parts: []Part{{Type: "text", Text: "Run this."}}}},
-		{"UpdateConfigurationParams", UpdateConfigurationParams{SessionID: child.ID, ExpectedRevision: 9007199254740993, Patch: ConfigPatch{GoalsEnabled: new(false), Compaction: &CompactionPolicy{Model: nil, ThresholdPercent: 0}, ReportMode: new("inline"), Tools: map[string]ToolDeclaration{}, Output: &OutputPolicy{}}}},
+		{"UpdateConfigurationParams", UpdateConfigurationParams{SessionID: child.ID, ExpectedRevision: 9007199254740993, Patch: ConfigPatch{AutomaticTitle: new(false), GoalsEnabled: new(false), Compaction: &CompactionPolicy{Model: nil, ThresholdPercent: 0}, ReportMode: new("inline"), Tools: map[string]ToolDeclaration{}, Output: &OutputPolicy{}}}},
 		{"Turn", Turn{Goal: &GoalRef{ID: "goal_fixture", Revision: 9007199254740993}, ID: "turn_fixture", SessionID: child.ID, Kind: "prompt", HistoryRevision: 9007199254740993, ConfigRevision: 9007199254740993, State: "running", StartedAt: created.Format(time.RFC3339Nano)}},
 	}
 	result := make([]Fixture, 0, len(values)+8)

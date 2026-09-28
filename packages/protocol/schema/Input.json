@@ -199,7 +199,8 @@
           "type": "string",
           "enum": [
             "compact",
-            "goal_formulation"
+            "goal_formulation",
+            "automatic_title"
           ]
         },
         "parts": {

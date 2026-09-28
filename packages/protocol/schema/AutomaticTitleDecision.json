@@ -1,0 +1,126 @@
+{
+  "type": "object",
+  "properties": {
+    "tree_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "input_id": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "receipt_identity": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "client_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        }
+      },
+      "required": [
+        "client_id",
+        "request_id"
+      ],
+      "additionalProperties": false
+    },
+    "config_revision": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "expected_revision": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "model": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "name": {
+          "type": "string"
+        },
+        "effort": {
+          "type": "string"
+        },
+        "temperature": {
+          "type": [
+            "null",
+            "number"
+          ],
+          "minimum": 0,
+          "maximum": 2
+        },
+        "top_p": {
+          "type": [
+            "null",
+            "number"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "required": [
+        "provider",
+        "name",
+        "effort"
+      ],
+      "additionalProperties": false
+    },
+    "source": {
+      "type": "string",
+      "pattern": "^[\\s\\S]{0,300}$"
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "eligible",
+        "disabled",
+        "short",
+        "manual",
+        "ineligible",
+        "fork"
+      ]
+    },
+    "created_at": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/AutomaticTitleDecision",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AutomaticTitleDecision",
+  "required": [
+    "tree_id",
+    "session_id",
+    "input_id",
+    "receipt_identity",
+    "config_revision",
+    "expected_revision",
+    "enabled",
+    "model",
+    "source",
+    "reason",
+    "created_at"
+  ],
+  "additionalProperties": false
+}

@@ -142,6 +142,16 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 			value, err := r.Tree(ctx, session.TreeID(p.TreeID))
 			return protocol.TreeFromDomain(value), err
 		})
+	case "trees.title_decision":
+		return decode(raw, func(p protocol.TreeParams) (any, error) {
+			value, err := r.AutomaticTitleDecision(ctx, session.TreeID(p.TreeID))
+			return protocol.AutomaticTitleDecisionFromDomain(value), err
+		})
+	case "trees.title_result":
+		return decode(raw, func(p protocol.AutomaticTitleResultParams) (any, error) {
+			value, err := r.AutomaticTitleResult(ctx, session.TreeID(p.TreeID), session.ModelAttemptID(p.AttemptID))
+			return protocol.AutomaticTitleResultFromDomain(value), err
+		})
 	case "trees.update":
 		return decode(raw, func(p protocol.UpdateTreeParams) (any, error) {
 			value, err := r.UpdateTree(ctx, session.TreeID(p.TreeID), session.Revision(p.ExpectedRevision), session.TreeMetadata(p.Metadata))

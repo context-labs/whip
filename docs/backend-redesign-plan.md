@@ -382,7 +382,7 @@ Maintain one compact table here as families are addressed:
 | Provider execution | Preserve supported wire protocols and tool cycles; uncertain partial-stream regeneration is retired in favor of explicit no-replay accounting | Chat wire profiles, Responses/private continuation, subscription captures, idle-stall termination, captured sampling, reasoning previews and stateless helpers/batch implemented; live-provider smoke remains | 5 in progress |
 | Goals and schedules | Ordinary durable input admission; continuation/cursor state has one owner | Schedule store/runtime/guest/RPC/SDK and restart coverage implemented. Goal records, public controls, captured turns, atomic continuation and authorized completion settlement and durable formulation implemented; product-client adoption remains | 5 in progress |
 | Provider accounts and discovery | Host-owned credentials and setup flows, account-scoped catalogs, exact pricing and explicit defaults | ChatGPT manager, host-owned login flows, revisioned setup, public RPC/SDK and joined cancellation implemented; independent Inference.net credential manager and explicit gateway binding implemented. Explicit env/file/command/no-auth API sources and bounded Inference.net device/team/project/key flows with public RPC/SDK implemented. Pasted/named-key setup, catalogs, readiness and product clients remain | 5–6 in progress |
-| Conversation titles | Preserve explicit titles and automatic title generation without mixing helper output into history | Tree metadata supports explicit titles; retained automatic-title admission and model helper behavior still need replacement evidence | 5 pending |
+| Conversation titles | Preserve explicit titles and automatic title generation without mixing helper output into history | Immediate authored fallback, immutable decisions, captured maintenance helper and billed candidate/tree CAS implemented with RPC/SDK and both-engine crash evidence; integrated phase/analysis gates passed after queue-clock/process-shutdown repairs; hosted validation and product title observation remain | 5–6 in progress |
 | Fork/rewind/workspace | Revision/tail CAS, recoverable identities, scoped imports, empty REPL, separate uncertain workspace effects | Public rewind passes local and hosted gates; bounded fork core, imported runner context and RPC/SDK pass local phase/analysis gates and process acceptance. Fork hosted validation passed; separate workspace capture/restore/release pass integrated phase/analysis gates and process acceptance | 5 in progress |
 | Definition modules and executors | Captured declarations, connection-bound handlers, schema validation and child authority | Retained `daemon/definition_test.go`, `tools_test.go`, agents SDK/examples; replacement pending | 5 |
 | Required/optional hooks | Validated bounded rewrites and explicit disconnect/failure behavior | Retained `daemon/hooks_test.go`; replacement pending | 5 |
@@ -775,7 +775,7 @@ restart retains billing and does not replay the batch. Hosted validation of this
 integrated increment passed at `b2a5be867` in run `36483835552`.
 
 
-Automatic-title implementation decisions (work remains open):
+Automatic-title implementation decisions (backend/SDK implemented and locally validated; hosted validation and product adoption remain):
 
 - Preserve immediate fallback naming on the first accepted authored root text:
   normalize whitespace, cap at 64 runes, and use only authored text rather than

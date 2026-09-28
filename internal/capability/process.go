@@ -77,6 +77,24 @@ func (p *Process) Kill() error {
 	return err
 }
 
+// A child may fork while the first group signal is being delivered. Continue
+// killing that same owned group until the reaper confirms it has disappeared.
+// groupClosed prevents signaling its ID after ownership has ended. Transient
+// signal errors while a process exits do not defeat confirmed group disappearance.
+func (p *Process) stop() {
+	_ = p.Kill()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-p.groupDone:
+			return
+		case <-ticker.C:
+			_ = p.Kill()
+		}
+	}
+}
+
 func (p *Process) groupGone() bool {
 	p.groupMu.Lock()
 	defer p.groupMu.Unlock()
@@ -219,7 +237,7 @@ func (m *ProcessManager) wait(ctx context.Context, root *processRoot, p *Process
 	go func() {
 		select {
 		case <-ctx.Done():
-			_ = p.Kill()
+			p.stop()
 		case <-p.groupDone:
 		}
 	}()
@@ -280,7 +298,8 @@ func (m *ProcessManager) StopRoot(rootID string) error {
 	processes := activeProcesses(root)
 	stops := rootStops(root)
 	m.mu.Unlock()
-	err := errors.Join(runStops(stops), stopProcesses(processes))
+	err := runStops(stops)
+	stopProcesses(processes)
 	m.mu.Lock()
 	if m.roots[rootID] == root {
 		delete(m.roots, rootID)
@@ -305,7 +324,9 @@ func (m *ProcessManager) Close() error {
 		stops = append(stops, rootStops(root)...)
 	}
 	m.mu.Unlock()
-	return errors.Join(runStops(stops), stopProcesses(processes))
+	err := runStops(stops)
+	stopProcesses(processes)
+	return err
 }
 
 func rootStops(root *processRoot) []func() error {
@@ -342,17 +363,13 @@ func activeProcesses(root *processRoot) []*Process {
 	return processes
 }
 
-func stopProcesses(processes []*Process) error {
-	var errs []error
+func stopProcesses(processes []*Process) {
 	for _, process := range processes {
-		if err := process.Kill(); err != nil {
-			errs = append(errs, err)
-		}
+		_ = process.Kill()
 	}
 	for _, process := range processes {
-		<-process.groupDone
+		process.stop()
 	}
-	return errors.Join(errs...)
 }
 
 func snapshotEnvironment() map[string]string {

@@ -149,6 +149,9 @@ func (p ConfigPatch) Domain() (session.ConfigPatch, error) {
 
 func (p ConfigPatch) MarshalJSON() ([]byte, error) {
 	fields := map[string]any{}
+	if p.AutomaticTitle != nil {
+		fields["automatic_title"] = p.AutomaticTitle
+	}
 	if p.GoalsEnabled != nil {
 		fields["goals_enabled"] = p.GoalsEnabled
 	}

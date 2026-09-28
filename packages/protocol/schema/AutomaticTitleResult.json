@@ -1,0 +1,37 @@
+{
+  "type": "object",
+  "properties": {
+    "tree_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "attempt_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "text": {
+      "type": "string",
+      "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f\u2028\u2029]{1,80}$",
+      "not": {
+        "pattern": "^[\\s\\p{Z}]|[\\s\\p{Z}]$"
+      }
+    },
+    "applied": {
+      "type": "boolean"
+    },
+    "created_at": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/AutomaticTitleResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AutomaticTitleResult",
+  "required": [
+    "tree_id",
+    "attempt_id",
+    "text",
+    "applied",
+    "created_at"
+  ],
+  "additionalProperties": false
+}

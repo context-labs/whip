@@ -88,30 +88,32 @@ func (r DefinitionRef) Validate() error {
 }
 
 type Configuration struct {
-	GoalsEnabled bool                       `json:"goals_enabled"`
-	ReportMode   ReportMode                 `json:"report_mode"`
-	Model        ModelSelection             `json:"model"`
-	Compaction   CompactionPolicy           `json:"compaction"`
-	Instructions Instructions               `json:"instructions"`
-	Tools        map[string]ToolDeclaration `json:"tools"`
-	Children     map[string]DefinitionRef   `json:"children"`
-	Hooks        map[string]HookDeclaration `json:"hooks"`
-	OutputSchema json.RawMessage            `json:"output_schema"`
+	AutomaticTitle bool                       `json:"automatic_title"`
+	GoalsEnabled   bool                       `json:"goals_enabled"`
+	ReportMode     ReportMode                 `json:"report_mode"`
+	Model          ModelSelection             `json:"model"`
+	Compaction     CompactionPolicy           `json:"compaction"`
+	Instructions   Instructions               `json:"instructions"`
+	Tools          map[string]ToolDeclaration `json:"tools"`
+	Children       map[string]DefinitionRef   `json:"children"`
+	Hooks          map[string]HookDeclaration `json:"hooks"`
+	OutputSchema   json.RawMessage            `json:"output_schema"`
 }
 
 // ConfigPatch replaces whole fields. Nil inherits; an explicit empty collection
 // clears. A present Output policy with no schema clears structured output.
 // This avoids recursive merge rules and implicit inheritance of credentials.
 type ConfigPatch struct {
-	GoalsEnabled *bool                      `json:"goals_enabled"`
-	ReportMode   *ReportMode                `json:"report_mode"`
-	Model        *ModelSelection            `json:"model"`
-	Compaction   *CompactionPolicy          `json:"compaction"`
-	Instructions *Instructions              `json:"instructions"`
-	Tools        map[string]ToolDeclaration `json:"tools"`
-	Children     map[string]DefinitionRef   `json:"children"`
-	Hooks        map[string]HookDeclaration `json:"hooks"`
-	Output       *OutputPolicy              `json:"output"`
+	AutomaticTitle *bool                      `json:"automatic_title"`
+	GoalsEnabled   *bool                      `json:"goals_enabled"`
+	ReportMode     *ReportMode                `json:"report_mode"`
+	Model          *ModelSelection            `json:"model"`
+	Compaction     *CompactionPolicy          `json:"compaction"`
+	Instructions   *Instructions              `json:"instructions"`
+	Tools          map[string]ToolDeclaration `json:"tools"`
+	Children       map[string]DefinitionRef   `json:"children"`
+	Hooks          map[string]HookDeclaration `json:"hooks"`
+	Output         *OutputPolicy              `json:"output"`
 }
 
 type DefinitionDocument struct {
@@ -132,7 +134,7 @@ func Builtins() []DefinitionDocument {
 	return []DefinitionDocument{{
 		ID:   "assistant",
 		Name: "Assistant",
-		Defaults: ConfigPatch{GoalsEnabled: new(true), Instructions: &Instructions{
+		Defaults: ConfigPatch{AutomaticTitle: new(true), GoalsEnabled: new(true), Instructions: &Instructions{
 			Text:           "Help the user complete their task. Use only the operations made available to you.",
 			ProjectFiles:   []string{"AGENTS.md"},
 			DiscoverSkills: true,
@@ -176,6 +178,9 @@ func Resolve(base Configuration, definition DefinitionDocument, overrides Config
 		}
 		if patch.GoalsEnabled != nil {
 			resolved.GoalsEnabled = *patch.GoalsEnabled
+		}
+		if patch.AutomaticTitle != nil {
+			resolved.AutomaticTitle = *patch.AutomaticTitle
 		}
 		if patch.Model != nil {
 			resolved.Model = *patch.Model

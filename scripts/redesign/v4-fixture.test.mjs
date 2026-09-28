@@ -251,6 +251,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await stage('schedules', () => scheduleAcceptance(runtime, client, createParams, evidence));
     await stage('goals', () => goalAcceptance(runtime, client, createParams, evidence));
     await stage('goal formulation', () => goalFormulationAcceptance(runtime, client, createParams, evidence));
+    await stage('automatic titles', () => automaticTitleAcceptance(runtime, client, createParams, evidence));
     await stage('budgets', () => budgetAcceptance(client, createParams, evidence));
     await stage('logical write allowances', () => writeAllowanceAcceptance(runtime, client, createParams, evidence));
     await stage('mail', () => mailAcceptance(runtime, client, createParams, evidence));
@@ -2615,6 +2616,129 @@ async function goalFormulationAcceptance(runtime, client, createParams, evidence
   }
 }
 
+
+async function automaticTitleAcceptance(runtime, client, createParams, evidence) {
+  const requests = [];
+  const candidates = [];
+  const server = http.createServer(async (request, response) => {
+    let raw = ''; for await (const chunk of request) raw += chunk;
+    requests.push({ body: JSON.parse(raw), response });
+    // Both foreground and naming responses are held at a known dispatch point.
+    // Each case kills foreground work and explicitly releases only its helper.
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const path = join(runtime.directory, 'state', 'host.json');
+  await runtime.stop();
+  const previous = await readFile(path, 'utf8');
+  const history = owner => client.call('sessions.history', { session_id: owner, after: '0', limit: 100 }, deadline());
+  const receipt = async identity => {
+    try { return await client.call('receipts.get', identity, deadline()); }
+    catch (error) { if (error.kind === 'NOT_FOUND') return null; throw error; }
+  };
+  try {
+    const host = JSON.parse(previous);
+    host.providers.titles = {
+      kind: 'openai-chat', base_url: `http://127.0.0.1:${server.address().port}/v1`, credential_env: '',
+      models: Object.fromEntries(['conversation', 'captured-title', 'later-title'].map(name => [name, { max_output_tokens: 4096, timeout_millis: 30000, max_attempts: 3 }])),
+    };
+    await writeFile(path, JSON.stringify(host), { mode: 0o600 }); await runtime.start(null);
+    for (const engine of ['starlark', 'quickjs']) for (const manual of [false, true]) {
+      const key = `title-${engine}-${manual}`;
+      const source = `${key}   ${'🌍 bridge design '.repeat(30)}`;
+      const normalized = source.trim().replace(/\s+/gu, ' ');
+      const capturedSource = [...normalized].slice(0, 300).join('');
+      const fallback = [...normalized].slice(0, 64).join('');
+      const helperModel = { provider: 'titles', name: 'captured-title', effort: 'low', temperature: 0, top_p: 0.5 };
+      const { root, tree } = await client.call('trees.create', {
+        ...createParams, engine, metadata: { title: null, pinned: false, archived: false },
+        resources: [{ kind: 'queued_inputs', limit: '1' }],
+        overrides: {
+          automatic_title: true, report_mode: 'message', model: { provider: 'titles', name: 'conversation', effort: '' },
+          compaction: { model: helperModel, threshold_percent: 50 },
+          instructions: { text: 'Private conversation instructions must not enter the title helper.', project_root: null, project_files: [], discover_skills: false, standing_instructions: false, skill_roots: [] },
+        },
+      }, deadline());
+      await assert.rejects(client.getAutomaticTitleDecision(tree.id, deadline()), error => error.kind === 'NOT_FOUND');
+      const startCount = requests.length;
+      const submitted = await client.submit(root.id, [{ type: 'text', text: source }], key, deadline());
+      const duplicate = await client.submit(root.id, [{ type: 'text', text: source }], key, deadline());
+      assert.equal(duplicate.input.id, submitted.input.id, 'retry consumed another queue slot');
+      const decision = await client.getAutomaticTitleDecision(tree.id, deadline());
+      assert.equal(decision.source, capturedSource); assert.equal(decision.enabled, true);
+      assert.equal(decision.reason, 'eligible'); assert.equal(decision.input_id, submitted.input.id);
+      assert.deepEqual(decision.model, helperModel);
+      const named = await client.call('trees.get', { tree_id: tree.id }, deadline());
+      assert.equal(named.metadata.title, fallback); assert.equal(named.revision, decision.expected_revision);
+      await until(() => Promise.resolve(requests.slice(startCount)), values => values.some(value => value.body.model === 'conversation'));
+      const before = await history(root.id);
+      assert.equal(before.items.length, 1, 'blocked foreground unexpectedly replied');
+      const updated = await client.call('sessions.configure', {
+        session_id: root.id, expected_revision: root.config_revision,
+        patch: { automatic_title: false, compaction: { model: { ...helperModel, name: 'later-title' }, threshold_percent: 50 } },
+      }, deadline());
+      assert.equal(updated.configuration.automatic_title, false);
+      // Naming was never claimed: its immutable source/policy survives the crash.
+      await runtime.stop('SIGKILL'); await runtime.start(null);
+      assert.equal((await client.wait(key, deadline())).turn.state, 'interrupted');
+      const helper = await until(() => Promise.resolve(requests.slice(startCount).find(value => value.body.model === 'captured-title')), Boolean);
+      assert.deepEqual(await client.getAutomaticTitleDecision(tree.id, deadline()), decision);
+      assert.equal(helper.body.messages.length, 2); assert.equal(helper.body.messages[0].role, 'system');
+      assert.deepEqual(helper.body.messages[1], { role: 'user', content: capturedSource });
+      assert.ok(!helper.body.tools?.length); assert.ok(!JSON.stringify(helper.body).includes('Private conversation'));
+      assert.equal(helper.body.temperature, 0); assert.equal(helper.body.top_p, 0.5); assert.equal(helper.body.reasoning_effort, 'low');
+      assert.equal(helper.body.max_completion_tokens ?? helper.body.max_tokens, 4096);
+      const running = await until(() => receipt(decision.receipt_identity), value => value?.turn?.state === 'running');
+      assert.equal(running.input.kind, 'automatic_title'); assert.deepEqual(running.input.parts, []);
+      assert.equal(running.turn.kind, 'automatic_title'); assert.equal(running.turn.config_revision, decision.config_revision);
+      const ledger = await client.call('turns.attempts', { turn_id: running.turn.id, limit: 100 }, deadline());
+      assert.equal(ledger.items.length, 1);
+      const attempt = ledger.items[0];
+      assert.equal(attempt.request.purpose, 'automatic_title'); assert.equal(attempt.request.timeout_millis, '20000');
+      assert.equal(attempt.request.max_output_tokens, '4096');
+      await assert.rejects(client.getAutomaticTitleResult(tree.id, attempt.id, deadline()), error => error.kind === 'NOT_FOUND');
+      if (manual) {
+        await client.call('trees.update', { tree_id: tree.id, expected_revision: named.revision, metadata: { title: null, pinned: true, archived: false } }, deadline());
+      }
+      const generated = `Generated ${engine} title`;
+      helper.response.setHeader('content-type', 'application/json');
+      helper.response.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: generated }, finish_reason: 'stop' }], usage: { prompt_tokens: 7, completion_tokens: 3, cost: 0.0000012 } }));
+      const completed = await until(() => receipt(decision.receipt_identity), value => value?.turn?.finished_at);
+      assert.equal(completed.turn.state, 'succeeded');
+      const candidate = await client.getAutomaticTitleResult(tree.id, attempt.id, deadline());
+      assert.equal(candidate.text, generated); assert.equal(candidate.applied, !manual);
+      const settled = await client.call('turns.attempts', { turn_id: completed.turn.id, limit: 100 }, deadline());
+      assert.equal(settled.items.length, 1); assert.equal(settled.items[0].cost_nano_usd, '1200');
+      assert.equal(settled.items[0].message_id, null); assert.equal(settled.items[0].operation_id, null);
+      const selected = await client.call('trees.get', { tree_id: tree.id }, deadline());
+      assert.equal(selected.metadata.title, manual ? null : generated); assert.equal(selected.metadata.pinned, manual);
+      assert.deepEqual(await history(root.id), before, 'title maintenance changed conversation history');
+      assert.equal((await client.call('turns.instructions', { turn_id: completed.turn.id }, deadline())).manifest, null);
+      assert.equal((await client.call('turns.output', { turn_id: completed.turn.id }, deadline())).output, null);
+      assert.deepEqual((await client.call('turns.cells', { turn_id: completed.turn.id, limit: 100 }, deadline())).items ?? [], []);
+      await assert.rejects(client.getAutomaticTitleResult('foreign-tree', attempt.id, deadline()), error => error.kind === 'NOT_FOUND');
+      assert.equal(requests.length, startCount + 2, 'captured naming caused an extra provider attempt');
+      candidates.push({ tree: tree.id, root: root.id, attempt: attempt.id, decision, candidate, settled });
+    }
+    const callCount = requests.length;
+    await runtime.stop('SIGKILL'); await runtime.start(null);
+    for (const value of candidates) {
+      assert.deepEqual(await client.getAutomaticTitleDecision(value.tree, deadline()), value.decision);
+      assert.deepEqual(await client.getAutomaticTitleResult(value.tree, value.attempt, deadline()), value.candidate);
+      const completed = await receipt(value.decision.receipt_identity);
+      assert.equal(completed.turn.state, 'succeeded');
+      const selected = await client.call('trees.get', { tree_id: value.tree }, deadline());
+      await client.call('trees.update', { tree_id: value.tree, expected_revision: selected.revision, metadata: { title: 'Later manual title', pinned: false, archived: false } }, deadline());
+      assert.deepEqual(await client.getAutomaticTitleResult(value.tree, value.attempt, deadline()), value.candidate);
+      assert.equal((await client.call('trees.get', { tree_id: value.tree }, deadline())).metadata.title, 'Later manual title');
+    }
+    assert.equal(requests.length, callCount, 'restart or evidence reads replayed title work');
+    evidence.push({ automaticTitles: candidates.map(({ root, attempt, decision, candidate, settled }) => ({ root, attempt, decision, candidate, settled })), providerCalls: callCount });
+  } finally {
+    await runtime.stop(); await writeFile(path, previous, { mode: 0o600 });
+    server.closeAllConnections(); await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    if (!fixtureAbort.signal.aborted) await runtime.start();
+  }
+}
 
 async function contentOwnerAcceptance(runtime, client, createParams, evidence) {
   const referenceID = 'same-opaque-handle';

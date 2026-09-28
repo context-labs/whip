@@ -25,6 +25,10 @@ func (s *Store) QueuedSessions(ctx context.Context, after QueueCursor, limit int
  SELECT m.recipient_id,min(r.available_at) FROM mail m JOIN mail_revisions r ON r.mail_id=m.id AND r.revision=m.revision
  WHERE m.state='pending' AND m.deleted_at IS NULL AND r.delivery<>'next_turn' AND r.available_at<=? AND `+mailRetryAllowed+`
  GROUP BY m.recipient_id
+ UNION ALL
+ SELECT d.session_id,d.created_at FROM automatic_title_decisions d JOIN session_trees tree ON tree.id=d.tree_id
+ WHERE d.eligible=1 AND tree.revision=d.expected_revision
+ AND NOT EXISTS(SELECT 1 FROM receipts r WHERE r.client_id='automatic-title' AND r.request_id=d.tree_id)
  ), candidates AS (
  SELECT ready.session_id,min(ready.admitted_at) AS ready_at FROM ready JOIN sessions s ON s.id=ready.session_id WHERE s.lifecycle='active'
  AND NOT EXISTS(SELECT 1 FROM turns t WHERE t.session_id=s.id AND t.state IN ('running','cancelling'))

@@ -20,10 +20,10 @@ type GoalFormulations interface {
 }
 
 func (r *Runner) formulateGoal(ctx context.Context, turn session.Turn, configuration session.Configuration) (Outcome, error) {
-	if r.formulations == nil {
+	if r.maintenance == nil {
 		return Failure(errors.New("goal formulation storage is unavailable")), nil
 	}
-	input, err := r.formulations.GoalFormulationInput(ctx, turn.ID)
+	input, err := r.maintenance.GoalFormulationInput(ctx, turn.ID)
 	if err != nil {
 		return Outcome{}, err
 	}
@@ -33,7 +33,7 @@ func (r *Runner) formulateGoal(ctx context.Context, turn session.Turn, configura
 	if _, err := input.Request.Resolve(); err != nil {
 		return Failure(err), nil
 	}
-	messages, err := r.formulations.HistoryRange(ctx, turn.SessionID, input.AfterSequence, input.ThroughSequence, input.Request.TailMessages)
+	messages, err := r.maintenance.HistoryRange(ctx, turn.SessionID, input.AfterSequence, input.ThroughSequence, input.Request.TailMessages)
 	if err != nil {
 		return Outcome{}, err
 	}
