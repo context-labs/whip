@@ -19,6 +19,7 @@ type Message struct {
 	Parts []session.Part
 }
 type Request struct {
+	Purpose      string
 	SessionID    session.SessionID
 	TurnID       session.TurnID
 	Selection    session.ModelSelection
@@ -71,6 +72,12 @@ type Prepared struct {
 }
 
 func (s Scripted) Prepare(_ context.Context, request Request) (Prepared, error) {
+	if request.Purpose == "" {
+		request.Purpose = "turn"
+	}
+	if err := session.ValidateID(request.Purpose); err != nil {
+		return Prepared{}, err
+	}
 	raw, err := json.Marshal(request)
 	if err != nil {
 		return Prepared{}, err
@@ -83,7 +90,7 @@ func (s Scripted) Prepare(_ context.Context, request Request) (Prepared, error) 
 	hash := sha256.Sum256(raw)
 	zero := new(int64(0))
 	return Prepared{Snapshot: session.ModelRequestSnapshot{
-		Purpose: "turn", Model: request.Selection, Route: "scripted://fixture", Adapter: "scripted", RequestDigest: hex.EncodeToString(hash[:]),
+		Purpose: request.Purpose, Model: request.Selection, Route: "scripted://fixture", Adapter: "scripted", RequestDigest: hex.EncodeToString(hash[:]),
 		Prices: session.ModelPrices{Input: zero, Output: zero, Reasoning: zero, CachedInput: zero, CachedOutput: zero}, MaxOutputTokens: 4096, TimeoutMillis: 600000,
 		InputTokenBound: new(int64(0)), // Scripted execution bills no model input tokens.
 	}, Execute: func(ctx context.Context, emit func(Chunk)) (Response, error) {

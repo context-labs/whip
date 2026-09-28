@@ -19,13 +19,15 @@ separate legacy runtime and SDK until their client cutover.
 | Session identity, immutable parent/tree, definition origin, lifecycle | Session row |
 | Effective configuration | Immutable configuration revision selected by the session |
 | Configuration used by execution | Turn's pinned configuration revision |
-| Accepted payload | Input row |
+| Accepted input kind and payload | Input row (`prompt` or `compact`); turn kind is a read projection |
 | Request identity and payload digest | Receipt row |
 | Execution outcome | Turn row; input and receipt outcomes are derived |
 | Automatic report awaiting publication | Parent-owned completion slot with exact terminal outcome snapshot |
 | Published completion report | Immutable parent-owned content plus canonical revisioned mail |
 | User transcript payload | Reference to the accepted input; no second body copy |
 | Assistant/tool transcript payload | Message row |
+| Derived context summary and exact raw coverage | Immutable compaction row, linked to its accounted model attempt |
+| Selected context summary | One revisioned context-head row per session |
 | Provider dispatch, usage, price snapshot and cost | Model-attempt row, linked to its completed message |
 | Code dispatch, outcome and exact REPL boundary | Cell row, linked to its assistant call and tool-result message |
 | Checkpoint compatibility metadata and body reference | Immutable terminal cell checkpoint |
@@ -83,8 +85,9 @@ overrides. Working directories are absolute and fixed for a session's lifetime.
    A receipt and input commit together. Equal retries return the same receipt;
    changed payload reuse conflicts. Queues are bounded. No worker starts here.
 2. **Claim:** an eligible queued input or due mail starts a new turn; the
-   current config revision is captured. An input-backed user transcript entry
-   references its input, and mail entries reference immutable mail revisions. One transaction and a partial unique index enforce one active turn
+   current config revision is captured. A prompt-backed user transcript entry
+   references its input, and mail entries reference immutable mail revisions.
+   Compact inputs create neither kind of transcript entry and consume no mail. One transaction and a partial unique index enforce one active turn
    per session. Independent store connections must obey the same invariant.
    Each turn claims at most one input; mail-only turns claim none. Input batching
    is not implicit. FIFO input order comes from the insertion ordinal.
@@ -824,3 +827,52 @@ attempts may retry within the active turn; retrying database settlement never
 redispatches the model or host effect. Restart interrupts active work and does not
 replay an entire turn. The failed-parent mail retry barrier also applies to
 completion mail.
+
+
+## Raw history and selected model context
+
+History remains the immutable record of authored messages and presented mail.
+`context.snapshot` captures its greatest sequence and message count in one read.
+`context.list` and `context.search` use that fixed boundary; later appends cannot
+enter the same scan. Metadata pages contain at most 100 records. Literal,
+case-sensitive search scans at most 100 messages or 4 MiB of serialized parts
+per call and returns at most one match per message. Follow `next_after` even when
+there are no matches. Search does not load referenced content bodies.
+`context.read` returns at most 64 KiB of exact serialized-parts bytes. Mail parts
+are rendered from the immutable revision originally presented. These reads do
+not present or acknowledge mail. The trusted client names the owner; guest
+`context.inspect/read/search` always uses the actual executing session, with
+ordinary scoped operation and grant checks.
+
+Manual `sessions.compact` admits a `compact` input with empty parts. Receipt,
+queue capacity, claim, captured configuration, cancellation and turn settlement
+are the ordinary mechanisms. Maintenance does not execute cells, validate final
+output contracts, acknowledge mail, or create child completion reports. Its
+success cannot clear a failed prompt's mail retry barrier or erase an existing
+pending child report. A compact input with no eligible older history succeeds
+without calling a model.
+
+Compactions are immutable derived text, bounded to 64 KiB. Each records its
+attempt, base summary, expected context revision, exact covered raw sequence and
+pinned message IDs. One context head selects a summary. The runner quotes that
+summary as untrusted conversation data, adds pinned raw messages and the raw tail,
+and keeps the resulting request in execution memory. It never rewrites transcript
+rows or promotes a summary to system instructions. Helper responses have purpose
+`compaction`, ordinary attempt accounting and no assistant message or reply preview.
+Attempt settlement, usable summary evidence and conditional head selection commit
+in one transaction. Stale selection or cancellation retains completed evidence
+without selecting it. Repeating settlement after undo cannot select it again.
+
+`context.select` permits idle-session undo to an ancestor summary or no summary,
+with the expected head revision. It does not delete summary evidence, restore
+REPL checkpoints, change files or admit execution. Reads expose summaries through
+`context.compactions` metadata pages and `context.compaction` text.
+
+The current policy retains four recent message-bearing turns for manual
+compaction. Before an ordinary model request would exceed 100 messages or 4 MiB,
+automatic compaction progressively retains four through one recent whole turns.
+Both paths fold older history in bounded batches without splitting assistant calls
+from their tool results, require a shorter replacement and exact forward coverage,
+and allow at most 16 folds per turn. One oversized most-recent turn currently
+fails explicitly. Splitting that turn with an exact opening-input pin, reactive
+provider context-limit handling, and token-aware policy remain Phase 5 work.

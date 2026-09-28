@@ -16,6 +16,7 @@ import (
 type Submission struct {
 	SessionID session.SessionID
 	Source    session.InputSource
+	Kind      session.InputKind
 	Parts     []session.Part
 }
 
@@ -44,8 +45,8 @@ func readInput(ctx context.Context, q querier, id session.InputID) (result sessi
 	var raw string
 	var created int64
 	var cancelled sql.NullInt64
-	err = q.QueryRowContext(ctx, "SELECT id,session_id,source,parts,turn_id,cancelled_at,created_at FROM inputs WHERE id=?", id).
-		Scan(&result.ID, &result.SessionID, &result.Source, &raw, &result.TurnID, &cancelled, &created)
+	err = q.QueryRowContext(ctx, "SELECT id,session_id,source,kind,parts,turn_id,cancelled_at,created_at FROM inputs WHERE id=?", id).
+		Scan(&result.ID, &result.SessionID, &result.Source, &result.Kind, &raw, &result.TurnID, &cancelled, &created)
 	if err != nil {
 		return result, found(err)
 	}
@@ -63,8 +64,9 @@ func readInput(ctx context.Context, q querier, id session.InputID) (result sessi
 func readTurn(ctx context.Context, q querier, id session.TurnID) (result session.Turn, err error) {
 	var started int64
 	var finished sql.NullInt64
-	err = q.QueryRowContext(ctx, "SELECT id,session_id,config_revision,state,failure,started_at,finished_at FROM turns WHERE id=?", id).
-		Scan(&result.ID, &result.SessionID, &result.ConfigRevision, &result.State, &result.Failure, &started, &finished)
+	err = q.QueryRowContext(ctx, `SELECT id,session_id,config_revision,state,failure,started_at,finished_at,
+ COALESCE((SELECT kind FROM inputs WHERE turn_id=turns.id),'prompt') FROM turns WHERE id=?`, id).
+		Scan(&result.ID, &result.SessionID, &result.ConfigRevision, &result.State, &result.Failure, &started, &finished, &result.Kind)
 	if err != nil {
 		return result, found(err)
 	}
@@ -102,8 +104,21 @@ func (s *Store) Admit(ctx context.Context, identity session.RequestIdentity, req
 	if request.Source != session.UserInput && request.Source != session.AgentInput && request.Source != session.ScheduledInput {
 		return result, fmt.Errorf("%w: invalid input source", session.ErrInvalid)
 	}
-	if err := session.ValidateInputParts(request.Parts); err != nil {
-		return result, err
+	if request.Kind == "" {
+		request.Kind = session.PromptInput
+	}
+	switch request.Kind {
+	case session.PromptInput:
+		if err := session.ValidateInputParts(request.Parts); err != nil {
+			return result, err
+		}
+	case session.CompactInput:
+		if len(request.Parts) != 0 {
+			return result, fmt.Errorf("%w: compact input cannot contain prompt parts", session.ErrInvalid)
+		}
+		request.Parts = []session.Part{}
+	default:
+		return result, fmt.Errorf("%w: unknown input kind", session.ErrInvalid)
 	}
 	digest, err := requestDigest("submit", request)
 	if err != nil {
@@ -140,6 +155,9 @@ func requestDigest(kind string, request any) (string, error) {
 }
 
 func admitInput(ctx context.Context, tx *sql.Tx, identity session.RequestIdentity, digest string, request Submission) (result Admission, err error) {
+	if request.Kind == "" {
+		request.Kind = session.PromptInput
+	}
 	current, err := readSession(ctx, tx, request.SessionID)
 	if err != nil {
 		return result, err
@@ -156,7 +174,7 @@ func admitInput(ctx context.Context, tx *sql.Tx, identity session.RequestIdentit
 	}
 	inputID := session.InputID(newID("input"))
 	created := now()
-	if _, err := tx.ExecContext(ctx, "INSERT INTO inputs (id,session_id,source,parts,created_at) VALUES (?,?,?,?,?)", inputID, current.ID, request.Source, parts, created); err != nil {
+	if _, err := tx.ExecContext(ctx, "INSERT INTO inputs (id,session_id,source,kind,parts,created_at) VALUES (?,?,?,?,?,?)", inputID, current.ID, request.Source, request.Kind, parts, created); err != nil {
 		return result, err
 	}
 	if _, err := tx.ExecContext(ctx, "INSERT INTO receipts VALUES (?,?,?,?,NULL,?)", identity.ClientID, identity.RequestID, digest, inputID, created); err != nil {
@@ -242,20 +260,25 @@ func (s *Store) Claim(ctx context.Context, id session.SessionID) (result Claim, 
 			if affected != 1 {
 				return ErrConflict
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,turn_id,sequence,role,input_id,created_at)
-   SELECT ?,?,?,COALESCE(MAX(sequence),0)+1,'user',?,? FROM messages WHERE session_id=?`,
-				"message_"+string(inputID), id, turnID, inputID, started, id); err != nil {
-				return err
-			}
 			input, err := readInput(ctx, tx, inputID)
 			if err != nil {
 				return err
 			}
 			result.Input = &input
+			result.Turn.Kind = input.Kind
+			if input.Kind == session.PromptInput {
+				if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,turn_id,sequence,role,input_id,created_at)
+   SELECT ?,?,?,COALESCE(MAX(sequence),0)+1,'user',?,? FROM messages WHERE session_id=?`,
+					"message_"+string(inputID), id, turnID, inputID, started, id); err != nil {
+					return err
+				}
+			}
 		}
 
-		if _, err := observeMailBoundary(ctx, tx, result.Turn, false); err != nil {
-			return err
+		if result.Turn.Kind != session.CompactInput {
+			if _, err := observeMailBoundary(ctx, tx, result.Turn, false); err != nil {
+				return err
+			}
 		}
 		result.Configuration = current.Config
 		return nil
@@ -300,6 +323,9 @@ func validDraft(draft session.MessageDraft) error {
 }
 
 func appendMessage(ctx context.Context, tx *sql.Tx, turn session.Turn, draft session.MessageDraft) (session.Message, error) {
+	if turn.Kind == session.CompactInput {
+		return session.Message{}, fmt.Errorf("%w: compaction cannot author transcript messages", session.ErrInvalid)
+	}
 	if err := validDraft(draft); err != nil {
 		return session.Message{}, err
 	}
@@ -423,7 +449,7 @@ func (s *Store) Finish(ctx context.Context, id session.TurnID, state session.Tur
 			} else if err := reconcileCalls(ctx, tx, current, "turn ended"); err != nil {
 				return err
 			}
-			if state == session.Succeeded {
+			if state == session.Succeeded && current.Kind != session.CompactInput {
 				if err := acknowledgeMail(ctx, tx, id); err != nil {
 					return err
 				}

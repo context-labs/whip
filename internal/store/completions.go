@@ -30,6 +30,9 @@ func reserveCompletion(ctx context.Context, tx *sql.Tx, parent, child session.Se
 // captureCompletion only runs on a newly terminal turn. Terminal retries must
 // not recreate a report already published (or replace a newer pending report).
 func captureCompletion(ctx context.Context, tx *sql.Tx, turn session.Turn) error {
+	if turn.Kind == session.CompactInput {
+		return nil
+	}
 	var parent session.SessionID
 	err := tx.QueryRowContext(ctx, "SELECT parent_id FROM completion_slots WHERE child_id=?", turn.SessionID).Scan(&parent)
 	if errors.Is(err, sql.ErrNoRows) {

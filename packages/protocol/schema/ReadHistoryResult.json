@@ -1,0 +1,115 @@
+{
+  "type": "object",
+  "properties": {
+    "message": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "turn_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "input_id": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "mail": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "revision": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,18})$",
+              "format": "counter"
+            },
+            "presentation": {
+              "type": "string",
+              "enum": [
+                "digest",
+                "body"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "revision",
+            "presentation"
+          ],
+          "additionalProperties": false
+        },
+        "sequence": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "system",
+            "user",
+            "assistant",
+            "tool"
+          ]
+        },
+        "parts_bytes": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        }
+      },
+      "required": [
+        "id",
+        "session_id",
+        "turn_id",
+        "input_id",
+        "mail",
+        "sequence",
+        "role",
+        "parts_bytes"
+      ],
+      "additionalProperties": false
+    },
+    "offset": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "next_offset": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "data_base64": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ReadHistoryResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ReadHistoryResult",
+  "required": [
+    "message",
+    "offset",
+    "next_offset",
+    "data_base64"
+  ],
+  "additionalProperties": false
+}

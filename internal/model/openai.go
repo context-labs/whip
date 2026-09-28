@@ -56,6 +56,9 @@ type CallError struct {
 func (e *CallError) Error() string { return e.Message }
 
 func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) {
+	if request.Purpose == "" {
+		request.Purpose = "turn"
+	}
 	if p.Resolve == nil {
 		return Prepared{}, errors.New("model route resolver is required")
 	}
@@ -89,7 +92,7 @@ func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) 
 	}
 	hash := sha256.Sum256(body)
 	snapshot := session.ModelRequestSnapshot{
-		Purpose: "turn", Model: request.Selection,
+		Purpose: request.Purpose, Model: request.Selection,
 		Route: strings.TrimRight(route.URL, "/") + "/chat/completions", Adapter: "openai-chat",
 		RequestDigest: hex.EncodeToString(hash[:]), Prices: route.Prices.Clone(),
 		MaxOutputTokens: route.MaxOutputTokens, TimeoutMillis: route.TimeoutMillis,

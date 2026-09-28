@@ -1,101 +1,216 @@
 {
-  "type": "object",
-  "properties": {
-    "id": {
-      "type": "string",
-      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
-    },
-    "session_id": {
-      "type": "string",
-      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
-    },
-    "source": {
-      "type": "string",
-      "enum": [
-        "user",
-        "agent",
-        "schedule"
-      ]
-    },
-    "parts": {
-      "type": "array",
-      "items": {
-        "oneOf": [
-          {
-            "type": "object",
-            "properties": {
-              "text": {
-                "type": "string",
-                "pattern": "^[\\s\\S]+$"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "text"
-                ]
-              }
-            },
-            "required": [
-              "type",
-              "text"
-            ],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "reference_id": {
-                "type": "string",
-                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
-              },
-              "type": {
-                "type": "string",
-                "enum": [
-                  "content"
-                ]
-              }
-            },
-            "required": [
-              "type",
-              "reference_id"
-            ],
-            "additionalProperties": false
-          }
-        ]
-      },
-      "minItems": 1,
-      "maxItems": 128
-    },
-    "state": {
-      "type": "string",
-      "enum": [
-        "queued",
-        "claimed",
-        "cancelled"
-      ]
-    },
-    "turn_id": {
-      "type": [
-        "null",
-        "string"
-      ],
-      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
-    },
-    "created_at": {
-      "type": "string"
-    }
-  },
   "$id": "https://whip.dev/protocol/v4/Input",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Input",
-  "required": [
-    "id",
-    "session_id",
-    "source",
-    "parts",
-    "state",
-    "turn_id",
-    "created_at"
-  ],
-  "additionalProperties": false
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "user",
+            "agent",
+            "schedule"
+          ]
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "prompt"
+          ]
+        },
+        "parts": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "pattern": "^[\\s\\S]+$"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "text"
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "text"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "reference_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "content"
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "reference_id"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 128
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "queued",
+            "claimed",
+            "cancelled"
+          ]
+        },
+        "turn_id": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "created_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "session_id",
+        "source",
+        "kind",
+        "parts",
+        "state",
+        "turn_id",
+        "created_at"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "user",
+            "agent",
+            "schedule"
+          ]
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "compact"
+          ]
+        },
+        "parts": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "pattern": "^[\\s\\S]+$"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "text"
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "text"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "reference_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "content"
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "reference_id"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "maxItems": 0
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "queued",
+            "claimed",
+            "cancelled"
+          ]
+        },
+        "turn_id": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "created_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "session_id",
+        "source",
+        "kind",
+        "parts",
+        "state",
+        "turn_id",
+        "created_at"
+      ],
+      "additionalProperties": false
+    }
+  ]
 }

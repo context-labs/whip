@@ -1,0 +1,28 @@
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "through_sequence": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "message_count": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/HistorySnapshot",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HistorySnapshot",
+  "required": [
+    "session_id",
+    "through_sequence",
+    "message_count"
+  ],
+  "additionalProperties": false
+}

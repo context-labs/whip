@@ -15,20 +15,22 @@ import (
 //nolint:nilnil // A terminal turn without a successful output contract has no structured output.
 func (s *Store) TurnOutput(ctx context.Context, id session.TurnID) (*session.StructuredOutput, error) {
 	var state session.TurnState
+	var kind session.InputKind
 	var configuration string
 	var messageID, rawParts sql.NullString
-	err := s.db.QueryRowContext(ctx, `SELECT t.state,c.configuration,m.id,m.parts
+	err := s.db.QueryRowContext(ctx, `SELECT t.state,COALESCE(i.kind,'prompt'),c.configuration,m.id,m.parts
 		FROM turns t
+		LEFT JOIN inputs i ON i.turn_id=t.id
 		JOIN session_configurations c ON c.session_id=t.session_id AND c.revision=t.config_revision
 		LEFT JOIN messages m ON m.id=(SELECT id FROM messages WHERE turn_id=t.id AND role='assistant' ORDER BY sequence DESC LIMIT 1)
-		WHERE t.id=?`, id).Scan(&state, &configuration, &messageID, &rawParts)
+		WHERE t.id=?`, id).Scan(&state, &kind, &configuration, &messageID, &rawParts)
 	if err != nil {
 		return nil, found(err)
 	}
 	if !state.Terminal() {
 		return nil, ErrBusy
 	}
-	if state != session.Succeeded {
+	if state != session.Succeeded || kind == session.CompactInput {
 		return nil, nil
 	}
 	var config session.Configuration

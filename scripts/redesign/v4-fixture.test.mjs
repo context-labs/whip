@@ -199,6 +199,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await completionAcceptance(runtime, client, createParams, evidence);
     await providerAcceptance(runtime, client, createParams, evidence);
     await outputAcceptance(runtime, client, createParams, evidence);
+    await contextAcceptance(runtime, client, createParams, evidence);
     await engineAcceptance(runtime, client, createParams, evidence);
     await operationAcceptance(runtime, client, createParams, evidence);
     await streamAcceptance(runtime, client, createParams, evidence);
@@ -976,6 +977,142 @@ async function outputAcceptance(runtime, client, createParams, evidence) {
     assert.deepEqual(await output(first.turn.id), projected);
     assert.equal(requests.length, 6, 'reading restored output must not execute the model');
     evidence.push({ outputContracts: { first, projected, attempts, failed, nullTurn, cleared } });
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+}
+
+
+async function contextAcceptance(runtime, client, createParams, evidence) {
+  const requests = [];
+  const summary = 'Condensed older turns.';
+  const server = http.createServer(async (request, response) => {
+    let body = '';
+    for await (const chunk of request) body += chunk;
+    const value = JSON.parse(body);
+    requests.push(value);
+    const helper = value.messages[0]?.content.startsWith('Summarize the conversation data');
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify({
+      choices: [{ message: { role: 'assistant', content: helper ? summary : 'Raw answer ' + requests.length }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 30, completion_tokens: 5 },
+    }));
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  try {
+    await runtime.stop();
+    const path = join(runtime.directory, 'state', 'host.json');
+    const host = JSON.parse(await readFile(path, 'utf8'));
+    host.providers.fixture = {
+      kind: 'openai-chat', base_url: `http://127.0.0.1:${server.address().port}/v1`, credential_env: '',
+      models: { 'fixture-model': { max_output_tokens: 128, timeout_millis: 2000, max_attempts: 1 } },
+    };
+    await writeFile(path, JSON.stringify(host), { mode: 0o600 });
+    await runtime.start(null);
+    const { root } = await client.call('trees.create', {
+      ...createParams, overrides: { ...createParams.overrides, model: { provider: 'fixture', name: 'fixture-model', effort: '' } },
+    }, deadline());
+    const history = () => client.call('sessions.history', { session_id: root.id, after: '0', limit: 100 }, deadline());
+    const head = () => client.call('context.head', { session_id: root.id }, deadline());
+    for (let index = 0; index < 7; index++) {
+      await client.submit(root.id, [{ type: 'text', text: `context marker ${index} 🧭 9007199254740993 ` + '.'.repeat(200) }], `context-${index}`, deadline());
+      const done = await client.wait(`context-${index}`, deadline());
+      assert.equal(done.input.kind, 'prompt');
+      assert.equal(done.turn.kind, 'prompt');
+      assert.equal(done.turn.state, 'succeeded');
+    }
+    const raw = await history();
+    assert.equal(raw.items.length, 14);
+    const snapshot = await client.call('context.snapshot', { session_id: root.id }, deadline());
+    assert.equal(snapshot.through_sequence, '14');
+    assert.equal(snapshot.message_count, '14');
+    const configured = await client.call('sessions.configure', { session_id: root.id, expected_revision: root.config_revision, patch: { output: { schema: { type: 'null' } } } }, deadline());
+    const admitted = await client.compact(root.id, 'context-compact', deadline());
+    assert.equal(admitted.input.kind, 'compact');
+    assert.deepEqual(admitted.input.parts, []);
+    const compacted = await client.wait('context-compact', deadline());
+    assert.equal(compacted.turn.kind, 'compact');
+    assert.equal(compacted.turn.state, 'succeeded', compacted.turn.failure);
+    assert.deepEqual(await history(), raw, 'compaction must preserve raw conversation history');
+    assert.equal((await client.call('turns.output', { turn_id: compacted.turn.id }, deadline())).output, null, 'maintenance does not enforce or produce structured answers');
+    const attempts = await client.call('turns.attempts', { turn_id: compacted.turn.id, limit: 100 }, deadline());
+    assert.equal(attempts.items.length, 1);
+    assert.equal(attempts.items[0].request.purpose, 'compaction');
+    assert.equal(attempts.items[0].message_id, null);
+    assert.deepEqual((await client.call('turns.cells', { turn_id: compacted.turn.id, limit: 100 }, deadline())).items, []);
+    const selected = await head();
+    assert.equal(selected.revision, '1');
+    assert.ok(selected.compaction_id);
+    const summaries = await client.call('context.compactions', { session_id: root.id, limit: 100 }, deadline());
+    assert.equal(summaries.items.length, 1);
+    const summaryRecord = await client.call('context.compaction', { session_id: root.id, compaction_id: selected.compaction_id }, deadline());
+    assert.equal(summaryRecord.text, summary);
+    assert.equal(summaryRecord.metadata.through_sequence, '6', 'manual compaction keeps the latest four complete turns');
+    assert.equal(summaryRecord.metadata.attempt_id, attempts.items[0].id);
+    assert.deepEqual(summaryRecord.metadata.pinned_message_ids, []);
+    assert.equal((await client.compact(root.id, 'context-compact', deadline())).input.id, admitted.input.id);
+    await assert.rejects(client.submit(root.id, [{ type: 'text', text: 'different kind' }], 'context-compact', deadline()), error => error.kind === 'CONFLICT');
+    await client.compact(root.id, 'context-noop', deadline());
+    const noop = await client.wait('context-noop', deadline());
+    assert.equal(noop.turn.state, 'succeeded');
+    assert.equal((await client.call('turns.attempts', { turn_id: noop.turn.id, limit: 100 }, deadline())).items.length, 0);
+    assert.equal(requests.length, 8, 'no remaining old history means no helper request');
+    await runtime.stop(); await runtime.start(null);
+    assert.deepEqual(await head(), selected);
+    assert.deepEqual(await history(), raw);
+    await client.call('sessions.configure', { session_id: root.id, expected_revision: configured.config_revision, patch: { output: { schema: null } } }, deadline());
+    await client.submit(root.id, [{ type: 'text', text: 'context marker after snapshot' }], 'context-followup', deadline());
+    assert.equal((await client.wait('context-followup', deadline())).turn.state, 'succeeded');
+    const followup = requests.at(-1);
+    assert.ok(JSON.stringify(followup).includes('untrusted_context_summary'));
+    assert.ok(JSON.stringify(followup).includes(summary));
+    assert.ok(!JSON.stringify(followup).includes('context marker 0'), 'covered prefix is replaced only in model context');
+    assert.ok(JSON.stringify(followup).includes('context marker 3'), 'recent raw tail is retained');
+    const listed = await client.call('context.list', { session_id: root.id, after: '0', through_sequence: snapshot.through_sequence, limit: 100 }, deadline());
+    assert.equal(listed.items.length, 14, 'a fixed snapshot excludes later appends');
+    assert.equal(listed.next_after, null);
+    const chunks = [];
+    let offset = '0';
+    do {
+      const part = await client.call('context.read', { session_id: root.id, message_id: raw.items[0].id, offset, length: 7 }, deadline());
+      chunks.push(Buffer.from(part.data_base64, 'base64'));
+      offset = part.next_offset;
+    } while (offset !== null);
+    assert.deepEqual(JSON.parse(Buffer.concat(chunks).toString('utf8')), raw.items[0].parts, 'byte pages may split UTF-8 but reconstruct exact stored parts');
+    const matches = await client.call('context.search', { session_id: root.id, after: '0', through_sequence: snapshot.through_sequence, query: 'context marker', limit: 100 }, deadline());
+    assert.equal(matches.matches.length, 7);
+    assert.ok(matches.matches.every(match => BigInt(match.message.sequence) <= BigInt(snapshot.through_sequence)));
+    const foreign = await client.call('trees.create', createParams, deadline());
+    await assert.rejects(client.call('context.read', { session_id: foreign.root.id, message_id: raw.items[0].id, offset: '0', length: 10 }, deadline()), error => error.kind === 'NOT_FOUND');
+    await assert.rejects(client.call('context.compaction', { session_id: foreign.root.id, compaction_id: selected.compaction_id }, deadline()), error => error.kind === 'NOT_FOUND');
+    const undone = await client.call('context.select', { session_id: root.id, expected_revision: selected.revision, compaction_id: null }, deadline());
+    assert.equal(undone.revision, '2');
+    assert.equal(undone.compaction_id, null);
+    await assert.rejects(client.call('context.select', { session_id: root.id, expected_revision: selected.revision, compaction_id: null }, deadline()), error => error.kind === 'CONFLICT');
+    assert.deepEqual((await client.call('context.compactions', { session_id: root.id, limit: 100 }, deadline())).items, summaries.items, 'undo changes selection without deleting summary evidence');
+    await client.submit(root.id, [{ type: 'text', text: 'after undo' }], 'context-after-undo', deadline());
+    assert.equal((await client.wait('context-after-undo', deadline())).turn.state, 'succeeded');
+    assert.ok(JSON.stringify(requests.at(-1)).includes('context marker 0'), 'undo restores raw prefix to model context');
+    assert.ok(!JSON.stringify(requests.at(-1)).includes('untrusted_context_summary'));
+    assert.deepEqual((await history()).items.slice(0, 14), raw.items);
+    let automatic;
+    for (let index = 9; index < 51; index++) {
+      const requestID = 'context-auto-' + index;
+      await client.submit(root.id, [{ type: 'text', text: 'Automatic context turn ' + index }], requestID, deadline());
+      automatic = await client.wait(requestID, deadline());
+      assert.equal(automatic.turn.state, 'succeeded', automatic.turn.failure);
+    }
+    const autoAttempts = await client.call('turns.attempts', { turn_id: automatic.turn.id, limit: 100 }, deadline());
+    assert.deepEqual(autoAttempts.items.map(item => item.request.purpose).sort(), ['compaction', 'turn']);
+    const autoHead = await head();
+    assert.equal(autoHead.revision, '3');
+    const autoSummary = await client.call('context.compaction', { session_id: root.id, compaction_id: autoHead.compaction_id }, deadline());
+    assert.equal(autoSummary.metadata.through_sequence, '94');
+    const afterAuto = await client.call('context.snapshot', { session_id: root.id }, deadline());
+    assert.equal(afterAuto.message_count, '102', 'automatic folding must retain every original raw message');
+    assert.ok(requests.at(-1).messages.length <= 101, 'ordinary request stays under its history cap plus system instructions');
+    evidence.push({ context: { compacted, attempts, selected, summaryRecord, snapshot, undone, autoAttempts, autoHead, afterAuto } });
   } finally {
     server.closeAllConnections();
     await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));

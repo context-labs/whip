@@ -56,8 +56,8 @@ and [real process acceptance](../../scripts/redesign/v4-fixture.test.mjs). Produ
 
 The v4 transcript now includes assistant `tool_call` parts with a stable call ID,
 name and JSON arguments, followed by `tool_result` parts in tool messages. A
-result includes its call ID, output string and error flag. Inputs accept only
-text/content parts. Completed calls and results survive interrupted turns; an
+result includes its call ID, output string and error flag. Prompt inputs accept only
+text/content parts; compact inputs have empty parts. Completed calls and results survive interrupted turns; an
 unfinished provider request is recorded as uncertain. The runtime executes both
 Starlark and QuickJS through the same durable code loop and restores committed
 REPL checkpoints across restart. Model changes apply to the next turn and retain
@@ -318,3 +318,39 @@ or a successful turn without a contract returns `output: null`. A validated JSON
 preserve exact numbers; consumers choose how to parse them. Updating or clearing
 the session's contract does not change prior turns. Clear with
 `patch: { output: { schema: null } }` in `sessions.configure`.
+
+
+`client.compact(sessionID, requestID)` admits a maintenance input. Preserve the
+identity and use `recover`/`wait` and ordinary cancellation exactly as for
+`submit`. Its input and turn have `kind: 'compact'`; ordinary work has
+`kind: 'prompt'`. A completed compact turn has no authored conversation reply,
+structured output, cell, mail acknowledgement or child completion report.
+
+```ts
+const requestID = crypto.randomUUID(); // Persist before admission if recovery is needed.
+await client.compact(sessionID, requestID);
+const compacted = await client.wait(requestID); // Inspect compacted.turn.state.
+const head = await client.call('context.head', { session_id: sessionID });
+const summaries = await client.call('context.compactions', {
+  session_id: sessionID, limit: 20,
+});
+// While idle, undo the selection without deleting its immutable evidence:
+await client.call('context.select', {
+  session_id: sessionID, expected_revision: head.revision, compaction_id: null,
+});
+```
+
+A summary is derived context, not an assistant message. Read a selected summary
+with `context.compaction` and its owner/compaction IDs. Undo accepts only a current
+ancestor or null and uses a revision check. A conflict requires rereading the
+head; busy requires waiting for the active turn. Undo does not restore files or
+REPL state. Compaction is bounded and can fail; inspect the turn outcome.
+
+Use `context.snapshot`, then `context.list` or `context.search` with its exact
+`through_sequence` and `after: '0'`. Continue from `next_after` until null, even
+if a search page has no matches. Search is literal and case-sensitive, with a
+256-byte query limit. `context.read` accepts `message_id`, `offset` and a
+`length` of at most 65536; assemble its base64 byte pages before decoding UTF-8
+or JSON. These APIs inspect retained raw history regardless of the current
+summary selection. They do not admit execution or acknowledge mail. Guest
+`context.inspect/read/search` uses the same bounded own-history semantics.

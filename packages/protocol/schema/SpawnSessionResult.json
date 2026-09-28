@@ -279,105 +279,220 @@
           "additionalProperties": false
         },
         "input": {
-          "type": [
-            "null",
-            "object"
-          ],
-          "properties": {
-            "id": {
-              "type": "string",
-              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
-            },
-            "session_id": {
-              "type": "string",
-              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
-            },
-            "source": {
-              "type": "string",
-              "enum": [
-                "user",
-                "agent",
-                "schedule"
-              ]
-            },
-            "parts": {
-              "type": "array",
-              "items": {
-                "oneOf": [
-                  {
-                    "type": "object",
-                    "properties": {
-                      "text": {
-                        "type": "string",
-                        "pattern": "^[\\s\\S]+$"
-                      },
-                      "type": {
-                        "type": "string",
-                        "enum": [
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                },
+                "session_id": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                },
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "user",
+                    "agent",
+                    "schedule"
+                  ]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "prompt"
+                  ]
+                },
+                "parts": {
+                  "type": "array",
+                  "items": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "text": {
+                            "type": "string",
+                            "pattern": "^[\\s\\S]+$"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "text"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "type",
                           "text"
-                        ]
-                      }
-                    },
-                    "required": [
-                      "type",
-                      "text"
-                    ],
-                    "additionalProperties": false
-                  },
-                  {
-                    "type": "object",
-                    "properties": {
-                      "reference_id": {
-                        "type": "string",
-                        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                        ],
+                        "additionalProperties": false
                       },
-                      "type": {
-                        "type": "string",
-                        "enum": [
-                          "content"
-                        ]
+                      {
+                        "type": "object",
+                        "properties": {
+                          "reference_id": {
+                            "type": "string",
+                            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "content"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "reference_id"
+                        ],
+                        "additionalProperties": false
                       }
-                    },
-                    "required": [
-                      "type",
-                      "reference_id"
-                    ],
-                    "additionalProperties": false
-                  }
-                ]
+                    ]
+                  },
+                  "minItems": 1,
+                  "maxItems": 128
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "queued",
+                    "claimed",
+                    "cancelled"
+                  ]
+                },
+                "turn_id": {
+                  "type": [
+                    "null",
+                    "string"
+                  ],
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                },
+                "created_at": {
+                  "type": "string"
+                }
               },
-              "minItems": 1,
-              "maxItems": 128
-            },
-            "state": {
-              "type": "string",
-              "enum": [
-                "queued",
-                "claimed",
-                "cancelled"
-              ]
-            },
-            "turn_id": {
-              "type": [
-                "null",
-                "string"
+              "required": [
+                "id",
+                "session_id",
+                "source",
+                "kind",
+                "parts",
+                "state",
+                "turn_id",
+                "created_at"
               ],
-              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              "additionalProperties": false
             },
-            "created_at": {
-              "type": "string"
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                },
+                "session_id": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                },
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "user",
+                    "agent",
+                    "schedule"
+                  ]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "compact"
+                  ]
+                },
+                "parts": {
+                  "type": "array",
+                  "items": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "text": {
+                            "type": "string",
+                            "pattern": "^[\\s\\S]+$"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "text"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "text"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "reference_id": {
+                            "type": "string",
+                            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "content"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "reference_id"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "maxItems": 0
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "queued",
+                    "claimed",
+                    "cancelled"
+                  ]
+                },
+                "turn_id": {
+                  "type": [
+                    "null",
+                    "string"
+                  ],
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                },
+                "created_at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "session_id",
+                "source",
+                "kind",
+                "parts",
+                "state",
+                "turn_id",
+                "created_at"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
             }
-          },
-          "required": [
-            "id",
-            "session_id",
-            "source",
-            "parts",
-            "state",
-            "turn_id",
-            "created_at"
-          ],
-          "additionalProperties": false
+          ]
         },
         "turn": {
           "type": [
@@ -392,6 +507,13 @@
             "session_id": {
               "type": "string",
               "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "prompt",
+                "compact"
+              ]
             },
             "config_revision": {
               "type": "string",
@@ -428,6 +550,7 @@
           "required": [
             "id",
             "session_id",
+            "kind",
             "config_revision",
             "state",
             "failure",

@@ -59,13 +59,13 @@ func ModelAttemptFromDomain(value session.ModelAttempt) ModelAttempt {
 
 func TurnFromDomain(value session.Turn) Turn {
 	return Turn{
-		ID: ID(value.ID), SessionID: ID(value.SessionID), ConfigRevision: Counter(value.ConfigRevision), State: string(value.State),
+		ID: ID(value.ID), SessionID: ID(value.SessionID), Kind: string(value.Kind), ConfigRevision: Counter(value.ConfigRevision), State: string(value.State),
 		Failure: value.Failure, StartedAt: value.StartedAt.Format(time.RFC3339Nano), FinishedAt: timeString(value.FinishedAt),
 	}
 }
 
 func InputFromDomain(value session.Input) Input {
-	result := Input{ID: ID(value.ID), SessionID: ID(value.SessionID), Source: string(value.Source), State: string(value.State), CreatedAt: value.CreatedAt.Format(time.RFC3339Nano)}
+	result := Input{ID: ID(value.ID), SessionID: ID(value.SessionID), Source: string(value.Source), Kind: string(value.Kind), State: string(value.State), CreatedAt: value.CreatedAt.Format(time.RFC3339Nano)}
 	if value.TurnID != nil {
 		id := ID(*value.TurnID)
 		result.TurnID = &id

@@ -157,7 +157,7 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 		preferResumption: true,
 	}
 	r.tools = tool.NewDispatcher(database, database, r)
-	r.runner, err = runner.New(provider, database, database, r, r, r, r)
+	r.runner, err = runner.New(provider, database, database, r, r, r, r, database)
 	if err != nil {
 		return nil, err
 	}

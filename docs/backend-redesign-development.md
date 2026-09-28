@@ -1115,3 +1115,60 @@ restart fixture 6.914 s, retained fixture 2.684 s and required daemon regression
 2.836 s. `task check:analysis` reports zero issues and no reachable vulnerabilities;
 the final test-fixture changes also pass scoped pinned lint. Module tidy/verify
 passed. Phase 5 remains in progress; context and compaction are next.
+
+The output-contract revision `a4922d174` also passed hosted Linux, macOS and
+analysis in [run 36449731324](https://github.com/context-labs/whip/actions/runs/36449731324).
+
+## Phase 5 context and compaction foundation
+
+Fresh schema 16 adds immutable compactions and one revisioned context head.
+Input kind owns the distinction between prompt work and maintenance; turn kind
+is a projection from the accepted input. Manual `sessions.compact` uses ordinary
+receipts, queue capacity, permits, captured configuration and cancellation.
+Maintenance produces no transcript message, cell, reply preview, structured
+answer, mail acknowledgement or child report. Store guards preserve an earlier
+failed prompt's mail retry barrier and a child's already pending completion.
+
+The runner assembles a request from selected summary, pinned raw messages and
+raw tail. Summary text remains quoted untrusted data. Helpers use the same
+reserve/dispatch/accounting path as ordinary responses and atomically settle
+summary evidence and conditional selection. Lost SQL acknowledgement retries
+never redispatch a provider. Stale or cancelling work cannot replace the context
+head, and replay cannot reselect a summary after undo. Idle revision-checked
+undo retains evidence and changes no files, checkpoints or messages.
+
+Before omissions, both guest engines and the SDK gain fixed-snapshot raw-history
+metadata, literal bounded search and exact byte reads. Guests can only inspect
+their own session, through normal grant-backed operations. Tests cover mail
+revision fidelity without delivery acknowledgement, owner isolation, no-match
+search progress, UTF-8 byte boundaries and numbers above JavaScript's safe range.
+Runtime exposes only the client-facing history methods; the runner's full-message
+range and recent-tail queries stay on its direct store interface.
+
+Manual compaction keeps four recent message-bearing turns. Ordinary requests
+compact older history before their 100-message/4 MiB limit, progressively keeping
+four through one recent whole turns. Helper batches preserve all results of an
+assistant call, have bounded bytes/messages and a shared 16-fold limit per turn.
+Effectiveness compares the actual replacement summary encoding against replaced
+source bytes, excluding pins that remain present. Corrections and later tool
+boundaries rebuild through the same selection path without replaying effects.
+
+The SDK process fixture compacts seven turns, checks ordinary accounting without
+an assistant message, restarts, reads the same selection and raw history, undoes
+selection and restores the raw prefix to model context. It also drives 51 prompt
+turns: the final turn records helper and ordinary attempts, covers exactly raw
+sequence 94, and retains all 102 authored messages. A receipt tombstone regression
+caught and fixed null matching both input-kind schema variants; generated Go/TS
+contract fixtures now include that case.
+
+Single oversized turns and an indivisible oversized tool exchange still fail
+explicitly. Exact opening-input pinning for split turns, typed provider
+context-limit recovery, proactive token policy and dynamic instructions remain
+required work. This increment does not complete the retained compaction family
+or change the scope of Phases 5–7.
+
+The coherent `task check:phase` passed: store race 65.417 s, runtime race 69.247 s,
+runner race 2.286 s, both engine suites, generated Go/TS contract drift and
+interop, SDK checks, the new process fixture 8.529 s, retained reference fixture
+2.291 s and required daemon regressions 2.766 s. `task check:analysis` reports
+zero lint issues and no reachable vulnerabilities.

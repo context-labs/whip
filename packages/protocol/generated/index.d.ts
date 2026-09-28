@@ -10,43 +10,60 @@ export interface Admission {
     deleted_at: null | string;
     created_at: string;
   };
-  input: null | {
-    id: string;
-    session_id: string;
-    source: "user" | "agent" | "schedule";
-    /**
-     * @minItems 1
-     * @maxItems 128
-     */
-    parts: [
-      (
-        | {
-            text: string;
-            type: "text";
-          }
-        | {
-            reference_id: string;
-            type: "content";
-          }
-      ),
-      ...(
-        | {
-            text: string;
-            type: "text";
-          }
-        | {
-            reference_id: string;
-            type: "content";
-          }
-      )[]
-    ];
-    state: "queued" | "claimed" | "cancelled";
-    turn_id: null | string;
-    created_at: string;
-  };
+  input:
+    | {
+        id: string;
+        session_id: string;
+        source: "user" | "agent" | "schedule";
+        kind: "prompt";
+        /**
+         * @minItems 1
+         * @maxItems 128
+         */
+        parts: [
+          (
+            | {
+                text: string;
+                type: "text";
+              }
+            | {
+                reference_id: string;
+                type: "content";
+              }
+          ),
+          ...(
+            | {
+                text: string;
+                type: "text";
+              }
+            | {
+                reference_id: string;
+                type: "content";
+              }
+          )[]
+        ];
+        state: "queued" | "claimed" | "cancelled";
+        turn_id: null | string;
+        created_at: string;
+      }
+    | {
+        id: string;
+        session_id: string;
+        source: "user" | "agent" | "schedule";
+        kind: "compact";
+        /**
+         * @maxItems 0
+         */
+        parts: [];
+        state: "queued" | "claimed" | "cancelled";
+        turn_id: null | string;
+        created_at: string;
+      }
+    | null;
   turn: null | {
     id: string;
     session_id: string;
+    kind: "prompt" | "compact";
     config_revision: string;
     state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
     failure: null | string;
@@ -136,6 +153,53 @@ export interface CellsResult {
         finished_at: null | string;
       }[];
 }
+export interface CompactParams {
+  identity: {
+    client_id: string;
+    request_id: string;
+  };
+  session_id: string;
+}
+export interface CompactionParams {
+  session_id: string;
+  compaction_id: string;
+}
+export interface CompactionResult {
+  metadata: {
+    id: string;
+    session_id: string;
+    turn_id: string;
+    attempt_id: string;
+    base_id: null | string;
+    expected_revision: string;
+    through_sequence: string;
+    pinned_message_ids: null | string[];
+    text_bytes: string;
+    created_at: string;
+  };
+  text: string;
+}
+export interface CompactionsParams {
+  session_id: string;
+  after?: null | string;
+  limit: number;
+}
+export interface CompactionsResult {
+  items:
+    | null
+    | {
+        id: string;
+        session_id: string;
+        turn_id: string;
+        attempt_id: string;
+        base_id: null | string;
+        expected_revision: string;
+        through_sequence: string;
+        pinned_message_ids: null | string[];
+        text_bytes: string;
+        created_at: string;
+      }[];
+}
 export interface ContentReference {
   id: string;
   session_id: string;
@@ -143,6 +207,17 @@ export interface ContentReference {
   size: string;
   media_type: string;
   created_at: string;
+}
+export interface ContextHead {
+  session_id: string;
+  revision: string;
+  compaction_id: null | string;
+}
+export interface ContextHistoryParams {
+  session_id: string;
+  after: string;
+  through_sequence: string;
+  limit: number;
 }
 export interface CreateGrantParams {
   id: string;
@@ -398,6 +473,26 @@ export interface GrantsResult {
         revoked_at: null | string;
       }[];
 }
+export interface HistoryMetadataResult {
+  items:
+    | null
+    | {
+        id: string;
+        session_id: string;
+        turn_id: string;
+        input_id: null | string;
+        mail: null | {
+          id: string;
+          revision: string;
+          presentation: "digest" | "body";
+        };
+        sequence: string;
+        role: "system" | "user" | "assistant" | "tool";
+        parts_bytes: string;
+      }[];
+  through_sequence: string;
+  next_after: null | string;
+}
 export interface HistoryParams {
   session_id: string;
   after: string;
@@ -577,6 +672,11 @@ export interface HistoryResult {
           }
       )[];
 }
+export interface HistorySnapshot {
+  session_id: string;
+  through_sequence: string;
+  message_count: string;
+}
 export interface HostOperation {
   id: string;
   session_id: string;
@@ -644,40 +744,55 @@ export interface InitializeResult {
         revision: string;
       }[];
 }
-export interface Input {
-  id: string;
-  session_id: string;
-  source: "user" | "agent" | "schedule";
-  /**
-   * @minItems 1
-   * @maxItems 128
-   */
-  parts: [
-    (
-      | {
-          text: string;
-          type: "text";
-        }
-      | {
-          reference_id: string;
-          type: "content";
-        }
-    ),
-    ...(
-      | {
-          text: string;
-          type: "text";
-        }
-      | {
-          reference_id: string;
-          type: "content";
-        }
-    )[]
-  ];
-  state: "queued" | "claimed" | "cancelled";
-  turn_id: null | string;
-  created_at: string;
-}
+export type Input =
+  | {
+      id: string;
+      session_id: string;
+      source: "user" | "agent" | "schedule";
+      kind: "prompt";
+      /**
+       * @minItems 1
+       * @maxItems 128
+       */
+      parts: [
+        (
+          | {
+              text: string;
+              type: "text";
+            }
+          | {
+              reference_id: string;
+              type: "content";
+            }
+        ),
+        ...(
+          | {
+              text: string;
+              type: "text";
+            }
+          | {
+              reference_id: string;
+              type: "content";
+            }
+        )[]
+      ];
+      state: "queued" | "claimed" | "cancelled";
+      turn_id: null | string;
+      created_at: string;
+    }
+  | {
+      id: string;
+      session_id: string;
+      source: "user" | "agent" | "schedule";
+      kind: "compact";
+      /**
+       * @maxItems 0
+       */
+      parts: [];
+      state: "queued" | "claimed" | "cancelled";
+      turn_id: null | string;
+      created_at: string;
+    };
 export interface InputParams {
   input_id: string;
 }
@@ -1143,6 +1258,31 @@ export interface ReadContentResult {
   };
   data_base64: string;
 }
+export interface ReadHistoryParams {
+  session_id: string;
+  message_id: string;
+  offset: string;
+  length: number;
+}
+export interface ReadHistoryResult {
+  message: {
+    id: string;
+    session_id: string;
+    turn_id: string;
+    input_id: null | string;
+    mail: null | {
+      id: string;
+      revision: string;
+      presentation: "digest" | "body";
+    };
+    sequence: string;
+    role: "system" | "user" | "assistant" | "tool";
+    parts_bytes: string;
+  };
+  offset: string;
+  next_offset: null | string;
+  data_base64: string;
+}
 export interface ReadMailParams {
   session_id: string;
   mail_id: string;
@@ -1242,6 +1382,47 @@ export type Response = {
 } & {
   [k: string]: unknown;
 };
+export interface SearchHistoryParams {
+  session_id: string;
+  after: string;
+  through_sequence: string;
+  query: string;
+  limit: number;
+}
+export interface SearchHistoryResult {
+  matches:
+    | null
+    | {
+        message: {
+          id: string;
+          session_id: string;
+          turn_id: string;
+          input_id: null | string;
+          mail: null | {
+            id: string;
+            revision: string;
+            presentation: "digest" | "body";
+          };
+          sequence: string;
+          role: "system" | "user" | "assistant" | "tool";
+          parts_bytes: string;
+        };
+        part_index: number;
+        field: "text" | "arguments" | "output";
+        offset: string;
+        snippet: string;
+        truncated: boolean;
+      }[];
+  through_sequence: string;
+  next_after: null | string;
+  scanned_messages: string;
+  scanned_bytes: string;
+}
+export interface SelectCompactionParams {
+  session_id: string;
+  expected_revision: string;
+  compaction_id: null | string;
+}
 export interface SendMailParams {
   mail_id: string;
   sender_id: string;
@@ -1667,43 +1848,60 @@ export interface SpawnSessionResult {
       deleted_at: null | string;
       created_at: string;
     };
-    input: null | {
-      id: string;
-      session_id: string;
-      source: "user" | "agent" | "schedule";
-      /**
-       * @minItems 1
-       * @maxItems 128
-       */
-      parts: [
-        (
-          | {
-              text: string;
-              type: "text";
-            }
-          | {
-              reference_id: string;
-              type: "content";
-            }
-        ),
-        ...(
-          | {
-              text: string;
-              type: "text";
-            }
-          | {
-              reference_id: string;
-              type: "content";
-            }
-        )[]
-      ];
-      state: "queued" | "claimed" | "cancelled";
-      turn_id: null | string;
-      created_at: string;
-    };
+    input:
+      | {
+          id: string;
+          session_id: string;
+          source: "user" | "agent" | "schedule";
+          kind: "prompt";
+          /**
+           * @minItems 1
+           * @maxItems 128
+           */
+          parts: [
+            (
+              | {
+                  text: string;
+                  type: "text";
+                }
+              | {
+                  reference_id: string;
+                  type: "content";
+                }
+            ),
+            ...(
+              | {
+                  text: string;
+                  type: "text";
+                }
+              | {
+                  reference_id: string;
+                  type: "content";
+                }
+            )[]
+          ];
+          state: "queued" | "claimed" | "cancelled";
+          turn_id: null | string;
+          created_at: string;
+        }
+      | {
+          id: string;
+          session_id: string;
+          source: "user" | "agent" | "schedule";
+          kind: "compact";
+          /**
+           * @maxItems 0
+           */
+          parts: [];
+          state: "queued" | "claimed" | "cancelled";
+          turn_id: null | string;
+          created_at: string;
+        }
+      | null;
     turn: null | {
       id: string;
       session_id: string;
+      kind: "prompt" | "compact";
       config_revision: string;
       state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
       failure: null | string;
@@ -1844,6 +2042,7 @@ export interface TreeParams {
 export interface Turn {
   id: string;
   session_id: string;
+  kind: "prompt" | "compact";
   config_revision: string;
   state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
   failure: null | string;
@@ -1930,7 +2129,14 @@ export interface ContractTypes {
   CellParams: CellParams;
   CellsParams: CellsParams;
   CellsResult: CellsResult;
+  CompactParams: CompactParams;
+  CompactionParams: CompactionParams;
+  CompactionResult: CompactionResult;
+  CompactionsParams: CompactionsParams;
+  CompactionsResult: CompactionsResult;
   ContentReference: ContentReference;
+  ContextHead: ContextHead;
+  ContextHistoryParams: ContextHistoryParams;
   CreateGrantParams: CreateGrantParams;
   CreateTreeParams: CreateTreeParams;
   CreateTreeResult: CreateTreeResult;
@@ -1943,8 +2149,10 @@ export interface ContractTypes {
   GrantParams: GrantParams;
   GrantsParams: GrantsParams;
   GrantsResult: GrantsResult;
+  HistoryMetadataResult: HistoryMetadataResult;
   HistoryParams: HistoryParams;
   HistoryResult: HistoryResult;
+  HistorySnapshot: HistorySnapshot;
   HostOperation: HostOperation;
   HostOperationParams: HostOperationParams;
   HostOperationsParams: HostOperationsParams;
@@ -1975,6 +2183,8 @@ export interface ContractTypes {
   ReadCompletionResult: ReadCompletionResult;
   ReadContentParams: ReadContentParams;
   ReadContentResult: ReadContentResult;
+  ReadHistoryParams: ReadHistoryParams;
+  ReadHistoryResult: ReadHistoryResult;
   ReadMailParams: ReadMailParams;
   ReadMailResult: ReadMailResult;
   ReadStateParams: ReadStateParams;
@@ -1985,6 +2195,9 @@ export interface ContractTypes {
   ResourceUsage: ResourceUsage;
   ResourcesResult: ResourcesResult;
   Response: Response;
+  SearchHistoryParams: SearchHistoryParams;
+  SearchHistoryResult: SearchHistoryResult;
+  SelectCompactionParams: SelectCompactionParams;
   SendMailParams: SendMailParams;
   Session: Session;
   SessionObservation: SessionObservation;
@@ -2014,6 +2227,15 @@ export interface ContractTypes {
   WriteStateParams: WriteStateParams;
 }
 export interface Operations {
+  "sessions.compact": { params: CompactParams; result: Admission };
+  "context.head": { params: SessionParams; result: ContextHead };
+  "context.compaction": { params: CompactionParams; result: CompactionResult };
+  "context.compactions": { params: CompactionsParams; result: CompactionsResult };
+  "context.select": { params: SelectCompactionParams; result: ContextHead };
+  "context.snapshot": { params: SessionParams; result: HistorySnapshot };
+  "context.list": { params: ContextHistoryParams; result: HistoryMetadataResult };
+  "context.read": { params: ReadHistoryParams; result: ReadHistoryResult };
+  "context.search": { params: SearchHistoryParams; result: SearchHistoryResult };
   "turns.output": { params: TurnParams; result: TurnOutputResult };
   "completions.list": { params: ListCompletionsParams; result: ListCompletionsResult };
   "completions.read": { params: ReadCompletionParams; result: ReadCompletionResult };
