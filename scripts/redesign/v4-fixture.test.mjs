@@ -192,6 +192,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await assert.rejects(Client.connect(unixSocket(runtime.info.socket), { clientID: 'wrong', expectedRuntimeID: 'different', ...deadline() }), error => error instanceof RemoteError && error.kind === 'IDENTITY');
     await budgetAcceptance(client, createParams, evidence);
     await mailAcceptance(runtime, client, createParams, evidence);
+    await stateAcceptance(runtime, client, createParams, evidence);
     await providerAcceptance(runtime, client, createParams, evidence);
     await engineAcceptance(runtime, client, createParams, evidence);
     await operationAcceptance(runtime, client, createParams, evidence);
@@ -651,4 +652,42 @@ async function mailAcceptance(runtime, client, createParams, evidence) {
   assert.equal(deleted.mail, null);
   assert.ok(deleted.deleted_at);
   evidence.push({ mail: { admission, inbox, completed, history, dropped, retried, delivered, after, deleted } });
+}
+
+async function stateAcceptance(runtime, client, createParams, evidence) {
+  const { root } = await client.call('trees.create', createParams, deadline());
+  const encode = raw => Buffer.from(raw).toString('base64');
+  const params = { session_id: root.id, scope: 'session', key: 'exact', expected_revision: '0', data_base64: encode('[9007199254740993]') };
+  let dropped;
+  const proxyPath = join(runtime.directory, 'state-drop.sock');
+  const close = await dropAcknowledgement(proxyPath, runtime.info.socket, 'state-first', value => { dropped = value; }, response => response.result?.id === 'state-first');
+  try {
+    const unreliable = await Client.connect(unixSocket(proxyPath), { clientID: client.clientID, expectedRuntimeID: client.runtimeID, ...deadline() });
+    await assert.rejects(unreliable.writeState(params, 'state-first', deadline()), DeliveryError);
+  } finally { await close(); }
+  const first = await client.writeState(params, 'state-first', deadline());
+  assert.deepEqual(first, dropped);
+  const append = { ...params, expected_revision: first.revision, data_base64: encode('[2]') };
+  const second = await client.appendState(append, 'state-second', deadline());
+  assert.equal(second.revision, '2');
+  assert.deepEqual(await client.appendState(append, 'state-second', deadline()), second);
+  assert.deepEqual(await client.writeState(params, 'state-first', deadline()), first);
+  await assert.rejects(client.writeState(params, 'state-stale', deadline()), error => error.kind === 'CONFLICT');
+  await assert.rejects(client.writeState({ ...params, data_base64: encode('null') }, 'state-first', deadline()), error => error.kind === 'CONFLICT');
+  const read = (id, offset = '0', length = 65536) => client.call('state.read', { session_id: root.id, version_id: id, offset, length }, deadline());
+  assert.equal(Buffer.from((await read(first.id)).data_base64, 'base64').toString(), '[9007199254740993]');
+  assert.equal(Buffer.from((await read(second.id)).data_base64, 'base64').toString(), '[9007199254740993,2]');
+  const raw = JSON.stringify('🌏'.repeat(20000));
+  const large = await client.writeState({ ...params, key: 'large', data_base64: encode(raw) }, 'state-large', deadline());
+  const prefix = await read(large.id, '0', 65536);
+  const suffix = await read(large.id, '65536', 65536);
+  assert.equal(Buffer.concat([Buffer.from(prefix.data_base64, 'base64'), Buffer.from(suffix.data_base64, 'base64')]).toString(), raw);
+  const history = await client.call('state.history', { session_id: root.id, scope: 'session', key: 'exact', after: '1', limit: 1 }, deadline());
+  assert.deepEqual(history.items, [second]);
+  assert.deepEqual((await client.call('sessions.history', { session_id: root.id, after: '0', limit: 100 }, deadline())).items, []);
+  await runtime.stop(); await runtime.start('0');
+  assert.equal((await read(large.id)).version.digest, large.digest);
+  await client.call('sessions.delete', { session_id: root.id }, deadline());
+  await assert.rejects(client.writeState(params, 'state-first', deadline()), error => error.kind === 'NOT_FOUND');
+  evidence.push({ state: { first, second, large, history } });
 }

@@ -1,0 +1,43 @@
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "scope": {
+      "type": "string",
+      "enum": [
+        "session",
+        "tree"
+      ]
+    },
+    "version_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "key": {
+      "type": "string"
+    },
+    "expected_revision": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "data_base64": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/WriteStateParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "WriteStateParams",
+  "required": [
+    "session_id",
+    "scope",
+    "version_id",
+    "key",
+    "expected_revision",
+    "data_base64"
+  ],
+  "additionalProperties": false
+}

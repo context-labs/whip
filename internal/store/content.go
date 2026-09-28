@@ -123,12 +123,13 @@ func shareChildContent(ctx context.Context, tx *sql.Tx, parent, child session.Se
 // upload can race the gap between publishing a file and registering its reference.
 func (s *Store) ContentReferenced(ctx context.Context, digest string) (bool, error) {
 	var referenced bool
-	err := s.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM content_references WHERE digest=?) OR EXISTS(SELECT 1 FROM cells WHERE json_extract(checkpoint,'$.digest')=?)", digest, digest).Scan(&referenced)
+	err := s.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM content_references WHERE digest=?) OR EXISTS(SELECT 1 FROM cells WHERE json_extract(checkpoint,'$.digest')=?) OR EXISTS(SELECT 1 FROM state_versions WHERE digest=?)", digest, digest, digest).Scan(&referenced)
 	return referenced, err
 }
 
 func (s *Store) PruneUnusedContent(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM content_bodies
- WHERE NOT EXISTS(SELECT 1 FROM content_references r WHERE r.digest=content_bodies.digest)`)
+ WHERE NOT EXISTS(SELECT 1 FROM content_references r WHERE r.digest=content_bodies.digest)
+ AND NOT EXISTS(SELECT 1 FROM state_versions v WHERE v.digest=content_bodies.digest)`)
 	return err
 }

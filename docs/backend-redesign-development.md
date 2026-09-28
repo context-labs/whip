@@ -713,3 +713,37 @@ outcomes, verifies any retained checkpoint through the real restore loader,
 and still rejects checkpoints on uncertain cells, late approval and filesystem
 effects. Ten repeated race runs across both engines pass in 51.004 s. This changes
 only the test; production execution and checkpoint semantics are unchanged.
+
+The mail head `545bddca8` passed the complete
+[Linux/macOS hosted gate](https://github.com/context-labs/whip/actions/runs/36434576654).
+
+## Phase 4 state increment
+
+Fresh schema 9 introduces one immutable state-version table, with session-private
+or tree-shared visibility. Immutable JSON lives in content files; SQL owns version
+identity, revision comparison, visibility and retention. There is no second head
+or current-value cache. A shared version survives its author's deletion; private
+versions follow their owner. Reads verify authorized handles before content
+access, and bounded range reads hash the same bytes they return.
+
+The runtime, both REPL engines, generated v4 contract and SDK expose revision-
+checked writes/appends and bounded inspection/history. Guest operations commit
+permission, mutation and settlement together; stored operation results contain
+metadata, never another copy of the state body. Lost acknowledgements return the
+original immutable version. Read-only client inspection does not admit turns.
+
+`task check:phase` passed, including active build/vet/race, the complete process
+suite (96.578 s), generated contracts, SDK checks, both process fixtures and the
+required retained regressions (2.868 s). State runtime coverage includes a real
+64 MiB value across restart and deletion/collection; the runtime race suite took
+57.053 s. Separate race tests cover concurrent CAS across two database handles,
+atomic rollback, exact old-version read retries, scoped access and revoked
+authority, plus aggregate private/shared byte and version limits. Both engines
+preserve large integers through actual write/append/get/history helpers.
+
+The race-enabled SDK fixture passed in 20.788 s, including a dropped state-write
+acknowledgement, stale revisions, immutable old reads, chunked Unicode reads and
+restart. Pinned analysis reports zero lint issues and no reachable vulnerabilities.
+A ten-second state JSON fuzz run passed. Subscriptions/coalesced notifications,
+ancestor resource limits, report/retry policies and remaining subtree lifecycle
+acceptance remain open in Phase 4.

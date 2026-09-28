@@ -367,6 +367,7 @@ Maintain one compact table here as families are addressed:
 | Execution and crash recovery | Explicit interruption, durable completed evidence, no uncertain-effect replay | `store/cells_test.go`, `runtime/engine_test.go`, SDK process-kill fixture | 3 complete |
 | Accounting | Every dispatched attempt recorded; settlement retry does not redispatch | `store/attempts_test.go`, `runtime/provider_test.go`, `runtime/observation_test.go`; ancestor accounting in `store/budgets_test.go` | 3 complete; model limits implemented in 4 |
 | Recursion and authority | Uniform session behavior, scoped grants, shared limits | `runtime/recursion_test.go`, `store/delegation_test.go`, `store/budgets_test.go`; coordination/resource limits remain | 4 in progress |
+| Mail and explicit state | Revisioned delivery distinct from inspection; private/shared isolation; immutable history and CAS | `store/mail_test.go`, `runtime/mail_test.go`, `store/state*_test.go`, `runtime/state_test.go`, RPC/SDK fixtures; subscriptions remain pending | 4 in progress |
 | Context and checkpointing | Raw history retained; checkpoint boundary and fidelity explicit | Both engines pass `runtime/engine_test.go`; compaction remains pending | 3 complete; 5 pending |
 | Integrations and product features | Preserve capability outcomes; inspect existing regression scenarios | Pending | 5 |
 | All client surfaces | Correct submission, observation, recovery and resource cleanup | New SDK/socket fixture passes; product clients remain on the retained implementation | 2 complete; 6 pending |
@@ -536,8 +537,10 @@ Acceptance:
       parent waits do not deadlock children. Queued work remains durable.
 - [ ] Retry and report behavior is explicit policy; failed/uncertain work follows
       the selected retry semantics at every depth.
-- [ ] Mail delivery/acknowledgement is distinct from human inspection and input
+- [x] Mail delivery/acknowledgement is distinct from human inspection and input
       admission. Private and shared state isolation is tested.
+- [ ] Shared-state subscriptions atomically coalesce notifications with writes;
+      subscription cursors and notification evidence survive restart.
 - [ ] Parent-turn completion, child cancellation, subtree deletion and worker
       eviction release the intended resources without implicit data loss.
 

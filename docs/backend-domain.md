@@ -509,3 +509,57 @@ has at most 128 revisions and a turn at most 1024 observed revisions. Exhaustion
 returns an explicit limit error; no body, revision or observation is silently
 dropped. General resource policies and report/state coalescing remain subsequent
 Phase 4 work.
+
+## Explicit state and immutable values
+
+Session state is private to its session; tree state is shared by members of that
+one tree. Both use the same `state_versions` table. Each immutable row identifies
+its owner, key, revision, author and content digest. The latest revision is the
+head, derived from those rows; no mutable head cache or second current-value table
+exists. The content store owns immutable JSON bytes. VM globals, conversation
+history, ordinary content references and explicit state remain separate domains.
+
+Every write compares an explicit expected revision: zero creates a key, a
+positive value replaces that exact head. Appends concatenate two JSON strings or
+two arrays against the same comparison. A failed comparison leaves metadata and
+history unchanged. A caller retains a globally unique version ID and the exact
+payload to recover a lost acknowledgement. Retrying an old successful write
+returns its original version even when newer versions exist. Deleted private
+owners cannot retry writes or read handles. State versions have no retry tombstone:
+owner deletion returns not-found, and session IDs are never recreated by a write.
+
+A version ID is an authorized handle. The digest alone grants no read authority,
+and a state handle does not become an ordinary conversation-content reference.
+Private versions are collected when their session is deleted. Shared versions
+and history survive their author's deletion and are collected with their tree.
+Startup collection under exclusive runtime ownership removes orphan publications;
+normal execution never races file publication against collection.
+
+State supports valid UTF-8 JSON to 64 MiB, nesting to 100 containers, and no
+unpaired Unicode escapes. Numeric lexemes are retained without conversion to
+float64. JSON storage accepts arbitrary numeric lexemes; a language adapter may
+reject a number it cannot represent. Each tree retains at most 1024 versions and
+1 GiB of logical version bytes, including private and shared history. Content
+file deduplication does not reduce that logical budget. Limits reject writes;
+no old version is silently evicted. Broader ancestor resource policies remain
+Phase 4 work.
+
+Guest `state.get` returns version metadata plus inline JSON only up to 64 KiB.
+Larger values return metadata without an inline `value`; a stored JSON null is
+still an explicit value. `state.read` returns at most 64 KiB of base64 bytes from
+an authorized immutable version. Ranges can split UTF-8 characters and are not
+partial JSON values. The file is hashed in the same read that captures the range,
+with bounded memory; corruption anywhere in the file prevents returning bytes.
+List and history queries page metadata only. Client reads always return encoded
+bytes, preserving exact numbers across JavaScript transports. Each client write
+or append carries at most 4 MiB of JSON, and a value can grow to 64 MiB through
+revision-checked appends without creating an oversized protocol frame.
+
+Guest state helpers use the ordinary scoped operation ledger. The runtime
+publishes validated immutable bytes before SQL. The transaction rechecks
+permission, compares the expected revision, inserts the version and settles the
+operation together. The ledger retains metadata and digests, never a second copy
+of the state body. Read operations retain the exact observed version and hydrate
+its body after the transaction. Unreferenced files from rejected or interrupted
+writes are collectible. State subscriptions and coalesced notifications are the
+next coordination increment; direct state writes do not currently start turns.

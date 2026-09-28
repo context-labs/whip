@@ -151,3 +151,37 @@ delivery state. `queued` and `steer` mail can start idle execution; `next_turn`
 waits for another trigger. Transcript messages identify mail provenance with
 `mail.id`, exact decimal-string `mail.revision`, and `mail.presentation`; their
 `input_id` is null. Other messages have `mail: null`.
+
+Explicit state uses `scope: 'session'` for private values or `scope: 'tree'` for
+shared values. Every write supplies an expected revision and stable version ID:
+
+```ts
+const versionID = crypto.randomUUID(); // Retain with this exact payload.
+const params = {
+  session_id: sessionID,
+  scope: 'session' as const,
+  key: 'results',
+  expected_revision: '0', // Create. Use the current revision to replace.
+  data_base64: Buffer.from('[9007199254740993]', 'utf8').toString('base64'),
+};
+const version = await client.writeState(params, versionID);
+const chunk = await client.call('state.read', {
+  session_id: sessionID, version_id: version.id, offset: '0', length: 65536,
+});
+const exactJSON = Buffer.from(chunk.data_base64, 'base64').toString('utf8');
+```
+
+The Node encoding above is an example; the SDK core has no Node dependency.
+Encoded JSON preserves numeric lexemes; `JSON.parse` may lose integer precision,
+so choose a decoder appropriate to the value. Reads return at most 64 KiB of bytes;
+assemble chunks before decoding UTF-8/JSON. Each write/append payload is at most
+4 MiB, with a final value limit of 64 MiB. `client.appendState` concatenates strings
+or arrays against the same explicit revision. `state.get`, `state.list` and
+`state.history` return metadata; list cursors are keys and history cursors are
+exact revision strings. Reads and writes do not currently admit execution.
+
+Keep IDs and exact payloads when recovering uncertain writes. Identical retries
+return the original immutable version, not the latest head. Stale revisions and
+changed payloads conflict. Deleting a private owner makes retries not-found;
+shared versions survive their author's deletion until the tree is deleted.
+State handles never authorize ordinary content reads or access to another tree.

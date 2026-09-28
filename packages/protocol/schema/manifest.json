@@ -3,6 +3,36 @@
   "minor": 0,
   "operations": [
     {
+      "name": "state.get",
+      "params": "GetStateParams",
+      "result": "StateVersion"
+    },
+    {
+      "name": "state.write",
+      "params": "WriteStateParams",
+      "result": "StateVersion"
+    },
+    {
+      "name": "state.append",
+      "params": "WriteStateParams",
+      "result": "StateVersion"
+    },
+    {
+      "name": "state.read",
+      "params": "ReadStateParams",
+      "result": "ReadStateResult"
+    },
+    {
+      "name": "state.list",
+      "params": "ListStateParams",
+      "result": "StateVersionsResult"
+    },
+    {
+      "name": "state.history",
+      "params": "StateHistoryParams",
+      "result": "StateVersionsResult"
+    },
+    {
       "name": "mail.send",
       "params": "SendMailParams",
       "result": "MailAdmission"

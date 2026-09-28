@@ -45,7 +45,7 @@ CREATE TRIGGER configuration_immutable BEFORE UPDATE ON session_configurations
 
 CREATE TABLE content_bodies (
  digest TEXT PRIMARY KEY CHECK(length(digest)=64 AND digest NOT GLOB '*[^0-9a-f]*'),
- size INTEGER NOT NULL CHECK(size BETWEEN 0 AND 4194304)
+ size INTEGER NOT NULL CHECK(size BETWEEN 0 AND 67108864)
 ) STRICT;
 CREATE TRIGGER content_body_immutable BEFORE UPDATE ON content_bodies
  BEGIN SELECT RAISE(ABORT, 'content body is immutable'); END;
@@ -289,3 +289,17 @@ CREATE TABLE attempt_budget_ancestors (
 CREATE INDEX budget_attempts_by_session ON attempt_budget_ancestors(session_id,attempt_id);
 CREATE TRIGGER attempt_budget_ancestors_immutable BEFORE UPDATE ON attempt_budget_ancestors
  BEGIN SELECT RAISE(ABORT, 'attempt budget ancestry is immutable'); END;
+
+-- Explicit application state is immutable JSON content, separate from VM images.
+-- Shared values outlive their author; private values follow their owning session.
+CREATE TABLE state_versions (
+ id TEXT PRIMARY KEY, tree_id TEXT NOT NULL REFERENCES session_trees(id) ON DELETE CASCADE,
+ session_id TEXT, key TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision>0),
+ author_id TEXT NOT NULL, digest TEXT NOT NULL REFERENCES content_bodies(digest), created_at INTEGER NOT NULL,
+ FOREIGN KEY(session_id,tree_id) REFERENCES sessions(id,tree_id) ON DELETE CASCADE
+) STRICT;
+CREATE UNIQUE INDEX private_state_versions ON state_versions(session_id,key,revision) WHERE session_id IS NOT NULL;
+CREATE UNIQUE INDEX shared_state_versions ON state_versions(tree_id,key,revision) WHERE session_id IS NULL;
+CREATE INDEX state_body_references ON state_versions(digest);
+CREATE TRIGGER state_version_immutable BEFORE UPDATE ON state_versions
+ BEGIN SELECT RAISE(ABORT, 'state version is immutable'); END;

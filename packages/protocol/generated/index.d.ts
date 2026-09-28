@@ -348,6 +348,11 @@ export interface DefinitionRef {
 export interface DeleteResult {
   deleted: boolean;
 }
+export interface GetStateParams {
+  session_id: string;
+  scope: "session" | "tree";
+  key: string;
+}
 export interface Grant {
   id: string;
   session_id: string;
@@ -745,6 +750,12 @@ export interface ListSessionsResult {
         created_at: string;
       }[];
 }
+export interface ListStateParams {
+  session_id: string;
+  scope: "session" | "tree";
+  after?: null | string;
+  limit: number;
+}
 export interface MailAdmission {
   mail_id: string;
   mail: null | {
@@ -1083,6 +1094,27 @@ export interface ReadMailResult {
     revised_at: string;
   };
   body: string;
+}
+export interface ReadStateParams {
+  session_id: string;
+  version_id: string;
+  offset: string;
+  length: number;
+}
+export interface ReadStateResult {
+  version: {
+    id: string;
+    tree_id: string;
+    session_id: null | string;
+    key: string;
+    revision: string;
+    author_id: string;
+    digest: string;
+    size: string;
+    created_at: string;
+  };
+  offset: string;
+  data_base64: string;
 }
 export interface Request {
   jsonrpc: "2.0";
@@ -1560,6 +1592,39 @@ export interface SpawnSessionResult {
     };
   };
 }
+export interface StateHistoryParams {
+  session_id: string;
+  scope: "session" | "tree";
+  key: string;
+  after: string;
+  limit: number;
+}
+export interface StateVersion {
+  id: string;
+  tree_id: string;
+  session_id: null | string;
+  key: string;
+  revision: string;
+  author_id: string;
+  digest: string;
+  size: string;
+  created_at: string;
+}
+export interface StateVersionsResult {
+  items:
+    | null
+    | {
+        id: string;
+        tree_id: string;
+        session_id: null | string;
+        key: string;
+        revision: string;
+        author_id: string;
+        digest: string;
+        size: string;
+        created_at: string;
+      }[];
+}
 export interface SubmitParams {
   identity: {
     client_id: string;
@@ -1685,6 +1750,14 @@ export interface UpdateTreeParams {
     pinned: boolean;
   };
 }
+export interface WriteStateParams {
+  session_id: string;
+  scope: "session" | "tree";
+  version_id: string;
+  key: string;
+  expected_revision: string;
+  data_base64: string;
+}
 
 export interface ContractTypes {
   Admission: Admission;
@@ -1702,6 +1775,7 @@ export interface ContractTypes {
   DefinitionDocument: DefinitionDocument;
   DefinitionRef: DefinitionRef;
   DeleteResult: DeleteResult;
+  GetStateParams: GetStateParams;
   Grant: Grant;
   GrantParams: GrantParams;
   GrantsParams: GrantsParams;
@@ -1721,6 +1795,7 @@ export interface ContractTypes {
   ListMailResult: ListMailResult;
   ListSessionsParams: ListSessionsParams;
   ListSessionsResult: ListSessionsResult;
+  ListStateParams: ListStateParams;
   MailAdmission: MailAdmission;
   Message: Message;
   ModelAttemptsParams: ModelAttemptsParams;
@@ -1735,6 +1810,8 @@ export interface ContractTypes {
   ReadContentResult: ReadContentResult;
   ReadMailParams: ReadMailParams;
   ReadMailResult: ReadMailResult;
+  ReadStateParams: ReadStateParams;
+  ReadStateResult: ReadStateResult;
   Request: Request;
   RequestIdentity: RequestIdentity;
   ResolvePermissionParams: ResolvePermissionParams;
@@ -1746,6 +1823,9 @@ export interface ContractTypes {
   SetBudgetParams: SetBudgetParams;
   SpawnSessionParams: SpawnSessionParams;
   SpawnSessionResult: SpawnSessionResult;
+  StateHistoryParams: StateHistoryParams;
+  StateVersion: StateVersion;
+  StateVersionsResult: StateVersionsResult;
   SubmitParams: SubmitParams;
   ToolCall: ToolCall;
   ToolResult: ToolResult;
@@ -1755,8 +1835,15 @@ export interface ContractTypes {
   TurnParams: TurnParams;
   UpdateConfigurationParams: UpdateConfigurationParams;
   UpdateTreeParams: UpdateTreeParams;
+  WriteStateParams: WriteStateParams;
 }
 export interface Operations {
+  "state.get": { params: GetStateParams; result: StateVersion };
+  "state.write": { params: WriteStateParams; result: StateVersion };
+  "state.append": { params: WriteStateParams; result: StateVersion };
+  "state.read": { params: ReadStateParams; result: ReadStateResult };
+  "state.list": { params: ListStateParams; result: StateVersionsResult };
+  "state.history": { params: StateHistoryParams; result: StateVersionsResult };
   "mail.send": { params: SendMailParams; result: MailAdmission };
   "mail.list": { params: ListMailParams; result: ListMailResult };
   "mail.read": { params: ReadMailParams; result: ReadMailResult };

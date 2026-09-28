@@ -48,6 +48,16 @@ export class Client {
     return this.call('mail.send', { ...params, mail_id: mailID }, options);
   }
 
+  /** Retain versionID and the exact encoded JSON payload when a write acknowledgement is lost. */
+  writeState(params: Omit<Operations['state.write']['params'], 'version_id'>, versionID: string, options: CallOptions = {}): Promise<Operations['state.write']['result']> {
+    return this.call('state.write', { ...params, version_id: versionID }, options);
+  }
+
+  /** Appends strings or arrays against an explicit revision; conflicts never overwrite another writer. */
+  appendState(params: Omit<Operations['state.append']['params'], 'version_id'>, versionID: string, options: CallOptions = {}): Promise<Operations['state.append']['result']> {
+    return this.call('state.append', { ...params, version_id: versionID }, options);
+  }
+
   recover(requestID: string, options: CallOptions = {}): Promise<Admission> {
     return this.call('receipts.get', this.identity(requestID), options);
   }
