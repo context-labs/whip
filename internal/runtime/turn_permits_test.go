@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -119,21 +120,50 @@ func TestTurnPermitsBlockedQueuePrefixDoesNotStarveUnrelatedWork(t *testing.T) {
 	}
 	unrelated := createTest(t, r)
 	submitTest(t, r, unrelated.ID, "unrelated")
-	if err := r.Start(t.Context()); err != nil {
-		t.Fatal(err)
+	// Assert fairness within bounded scheduler passes. Wall-clock polling also
+	// measures the cost of deliberately rejected claims under race instrumentation.
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	var workers sync.WaitGroup
+	r.cancel = cancel
+	t.Cleanup(func() { cancel(); workers.Wait() })
+	step := func() {
+		t.Helper()
+		if err := r.schedule(ctx, &workers); err != nil {
+			t.Fatal(err)
+		}
+		workers.Wait()
+		if err := r.Err(); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if result := waitTest(t, r, "unrelated", terminal); result.Turn.State != session.Succeeded {
-		t.Fatalf("blocked prefix starved later work: %+v runtime=%v", result, r.Err())
+	admission := func(key string) store.Admission {
+		t.Helper()
+		value, err := r.Admission(ctx, session.RequestIdentity{ClientID: "test", RequestID: key})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	step()
+	if value := admission("unrelated"); value.Turn != nil || value.Input.State != session.Queued || r.queueCursor == (store.QueueCursor{}) {
+		t.Fatalf("first bounded page did not retain its cursor: %+v cursor=%+v", value, r.queueCursor)
+	}
+	step()
+	if result := admission("unrelated"); result.Turn == nil || result.Turn.State != session.Succeeded {
+		t.Fatalf("blocked prefix starved the second page: %+v", result)
+	}
+	if r.queueCursor != (store.QueueCursor{}) {
+		t.Fatalf("completed sweep did not wrap its cursor: %+v", r.queueCursor)
 	}
 	for _, key := range []string{"blocked-0", "blocked-104"} {
-		value, err := r.Admission(t.Context(), session.RequestIdentity{ClientID: "test", RequestID: key})
-		if err != nil || value.Turn != nil || value.Input.State != session.Queued {
-			t.Fatalf("blocked input changed: %+v %v", value, err)
+		if value := admission(key); value.Turn != nil || value.Input.State != session.Queued {
+			t.Fatalf("blocked input changed: %+v", value)
 		}
 	}
 	runnableLimit(t, r, oldest.ID, 1)
-	if result := waitTest(t, r, "oldest", terminal); result.Turn.State != session.Succeeded {
-		t.Fatalf("cursor never revisited newly eligible earlier work: %+v", result)
+	step()
+	if result := admission("oldest"); result.Turn == nil || result.Turn.State != session.Succeeded {
+		t.Fatalf("next sweep did not revisit newly eligible earlier work: %+v", result)
 	}
 }
 
