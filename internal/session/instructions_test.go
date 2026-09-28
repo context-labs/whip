@@ -287,3 +287,69 @@ func TestStandingInstructionPolicyCaptureAndClear(t *testing.T) {
 		t.Fatalf("standing selection missing from captured JSON: %s %v", raw, err)
 	}
 }
+
+func TestProjectInstructionPolicyCloneInheritanceAndClear(t *testing.T) {
+	base := Configuration{Model: ModelSelection{Provider: "test", Name: "test"}, Instructions: Instructions{ProjectRoot: new("team")}}
+	captured, err := Resolve(base, DefinitionDocument{}, ConfigPatch{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := Resolve(captured, DefinitionDocument{}, ConfigPatch{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clone := captured.Clone()
+	*clone.Instructions.ProjectRoot = "clone_mutation"
+	*base.Instructions.ProjectRoot = "base_mutation"
+	*captured.Instructions.ProjectRoot = "parent_mutation"
+	if *child.Instructions.ProjectRoot != "team" {
+		t.Fatal("project selection aliases inherited or cloned policy")
+	}
+	for _, document := range []DefinitionDocument{{}, {Defaults: ConfigPatch{Instructions: &Instructions{ProjectRoot: new("definition")}}}} {
+		cleared, err := Resolve(child, document, ConfigPatch{Instructions: &Instructions{}})
+		if err != nil || cleared.Instructions.ProjectRoot != nil {
+			t.Fatalf("whole-field replacement retained project: %+v %v", cleared.Instructions, err)
+		}
+		raw, err := json.Marshal(cleared.Instructions)
+		if err != nil || !strings.Contains(string(raw), `"project_root":null`) {
+			t.Fatalf("cleared project is not explicit null: %s %v", raw, err)
+		}
+	}
+	for _, id := range []string{"", "../team", "bad/root", "bad root", strings.Repeat("a", 129)} {
+		if err := (ConfigPatch{Instructions: &Instructions{ProjectRoot: new(id)}}).Validate(); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("invalid project ID %q accepted: %v", id, err)
+		}
+	}
+}
+
+func TestProjectInstructionSourceIdentityAndBounds(t *testing.T) {
+	for _, kind := range []string{"project_file", "skill_metadata", "invoked_skill"} {
+		source := InstructionSource{Kind: kind, Scope: "project", RootID: new("team"), Path: "nested/AGENTS.md", Bytes: MaxInstructionSourceBytes, SHA256: strings.Repeat("ab", 32)}
+		if kind == "invoked_skill" {
+			source.Bytes = MaxInvokedSkillBytes
+		}
+		if err := source.Validate(); err != nil {
+			t.Fatal(err)
+		}
+		for name, mutate := range map[string]func(*InstructionSource){
+			"missing ID": func(s *InstructionSource) { s.RootID = nil },
+			"invalid ID": func(s *InstructionSource) { s.RootID = new("../team") },
+			"empty ID":   func(s *InstructionSource) { s.RootID = new("") },
+			"standing is host only": func(s *InstructionSource) {
+				s.Kind = "standing_instructions"
+				s.RootID = new("standing")
+				s.Path = "me.md"
+			},
+			"traversal": func(s *InstructionSource) { s.Path = "../AGENTS.md" },
+			"overflow":  func(s *InstructionSource) { s.Bytes++ },
+		} {
+			t.Run(kind+"/"+name, func(t *testing.T) {
+				bad := source
+				mutate(&bad)
+				if err := bad.Validate(); !errors.Is(err, ErrInvalid) {
+					t.Fatalf("invalid project source accepted: %+v %v", bad, err)
+				}
+			})
+		}
+	}
+}

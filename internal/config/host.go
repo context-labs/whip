@@ -20,7 +20,7 @@ import (
 
 const (
 	FileName = "host.json"
-	Version  = 4
+	Version  = 5
 )
 
 var environmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -75,6 +75,8 @@ func (m Model) Resolve() (Model, error) {
 }
 
 type Host struct {
+	// ProjectRoots publishes named project directories without granting authority.
+	ProjectRoots map[string]string `json:"project_roots"`
 	// StandingInstructionsFile explicitly publishes one file; empty disables it.
 	StandingInstructionsFile string `json:"standing_instructions_file"`
 	// SkillRoots publishes explicit named directories; publication grants no authority.
@@ -89,7 +91,7 @@ type Host struct {
 // Default is intentionally unconfigured. Model/provider selection is required
 // before resolving a runnable session; initialization invents no credentials.
 func Default() Host {
-	return Host{Version: Version, SkillRoots: map[string]string{}, Providers: map[string]Provider{}, Engine: session.Starlark, Resources: session.DefaultResourceLimits()}
+	return Host{Version: Version, ProjectRoots: map[string]string{}, SkillRoots: map[string]string{}, Providers: map[string]Provider{}, Engine: session.Starlark, Resources: session.DefaultResourceLimits()}
 }
 
 func (h Host) Validate() error {
@@ -103,6 +105,20 @@ func (h Host) Validate() error {
 		path := h.StandingInstructionsFile
 		if !utf8.ValidString(path) || !filepath.IsAbs(path) || filepath.Clean(path) != path || filepath.Base(path) == string(filepath.Separator) || strings.ContainsRune(filepath.Base(path), '\\') {
 			return fmt.Errorf("%w: standing instruction file must be a clean absolute path with a basename", session.ErrInvalid)
+		}
+	}
+	if len(h.ProjectRoots) > session.MaxProjectRoots {
+		return fmt.Errorf("%w: too many host project roots", session.ErrInvalid)
+	}
+	for id, path := range h.ProjectRoots {
+		if err := session.ValidateID(id); err != nil {
+			return err
+		}
+		if err := session.ValidateText(path, 4096); err != nil {
+			return err
+		}
+		if !utf8.ValidString(path) || !filepath.IsAbs(path) || filepath.Clean(path) != path {
+			return fmt.Errorf("%w: host project root must be a clean absolute path", session.ErrInvalid)
 		}
 	}
 	if len(h.SkillRoots) > session.MaxSkillRoots {

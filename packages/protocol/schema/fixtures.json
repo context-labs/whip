@@ -7,7 +7,7 @@
           "client_id": "client",
           "request_id": "deleted"
         },
-        "digest": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee",
+        "digest": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37",
         "input_id": null,
         "deleted_at": "2026-09-27T12:00:00.123456Z",
         "created_at": "2026-09-27T12:00:00.123456Z"
@@ -177,7 +177,7 @@
             "root_id": null,
             "path": ".agents/skills/my-skill/SKILL.md",
             "bytes": "40",
-            "sha256": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee"
+            "sha256": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37"
           }
         }
       ],
@@ -190,7 +190,7 @@
     "value": {
       "manifest": {
         "bytes": "80000",
-        "sha256": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee",
+        "sha256": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37",
         "sources": [
           {
             "kind": "invoked_skill",
@@ -198,7 +198,7 @@
             "root_id": null,
             "path": ".agents/skills/my-skill/SKILL.md",
             "bytes": "70000",
-            "sha256": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee"
+            "sha256": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37"
           }
         ]
       }
@@ -210,7 +210,7 @@
     "value": {
       "manifest": {
         "bytes": "100",
-        "sha256": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee",
+        "sha256": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37",
         "sources": [
           {
             "kind": "skill_metadata",
@@ -218,7 +218,7 @@
             "root_id": "team",
             "path": "review/SKILL.md",
             "bytes": "40",
-            "sha256": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee"
+            "sha256": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37"
           }
         ]
       }
@@ -230,7 +230,7 @@
     "value": {
       "manifest": {
         "bytes": "100",
-        "sha256": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee",
+        "sha256": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37",
         "sources": [
           {
             "kind": "standing_instructions",
@@ -238,7 +238,27 @@
             "root_id": "standing",
             "path": "me.md",
             "bytes": "40",
-            "sha256": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee"
+            "sha256": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37"
+          }
+        ]
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "InstructionManifestResult",
+    "value": {
+      "manifest": {
+        "bytes": "100",
+        "sha256": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37",
+        "sources": [
+          {
+            "kind": "project_file",
+            "scope": "project",
+            "root_id": "project",
+            "path": "app/AGENTS.md",
+            "bytes": "40",
+            "sha256": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37"
           }
         ]
       }
@@ -257,7 +277,7 @@
     "value": {
       "manifest": {
         "bytes": "40",
-        "sha256": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee",
+        "sha256": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37",
         "sources": [
           {
             "kind": "project_file",
@@ -277,7 +297,7 @@
     "value": {
       "manifest": {
         "bytes": "20",
-        "sha256": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee",
+        "sha256": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37",
         "sources": []
       }
     },
@@ -620,7 +640,7 @@
       "state": "succeeded",
       "result_message_id": "message_result",
       "checkpoint": {
-        "digest": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee",
+        "digest": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37",
         "size": "123",
         "engine": "starlark",
         "metadata": {
@@ -675,7 +695,7 @@
             },
             "route": "https://provider.example/v1/chat/completions",
             "adapter": "openai-chat",
-            "request_digest": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee",
+            "request_digest": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37",
             "prices": {
               "input": null,
               "output": null,
@@ -731,7 +751,7 @@
       "builtins": [
         {
           "id": "assistant",
-          "revision": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee"
+          "revision": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37"
         }
       ]
     },
@@ -781,7 +801,7 @@
       "parent_id": null,
       "definition": {
         "id": "assistant",
-        "revision": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee"
+        "revision": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37"
       },
       "config_revision": "9007199254740993",
       "configuration": {
@@ -796,6 +816,7 @@
           "effort": ""
         },
         "instructions": {
+          "project_root": null,
           "text": "Help the user complete their task. Use only the operations made available to you.",
           "project_files": [
             "AGENTS.md"
@@ -823,7 +844,7 @@
       "parent_id": "session_root",
       "definition": {
         "id": "assistant",
-        "revision": "323be0dedf22c450d19facd2b686ec229f3beedd4d6c9dc921cfd9aaea665cee"
+        "revision": "434939ae8c22fbb81c4708cc5e475a0e930265a3cd3581b599140f0432627d37"
       },
       "config_revision": "9007199254740993",
       "configuration": {
@@ -838,6 +859,7 @@
           "effort": ""
         },
         "instructions": {
+          "project_root": null,
           "text": "Help the user complete their task. Use only the operations made available to you.",
           "project_files": [
             "AGENTS.md"

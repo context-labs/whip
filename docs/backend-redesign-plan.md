@@ -372,10 +372,10 @@ Maintain one compact table here as families are addressed:
 | Admission and client recovery | Stable request identity; accepted work survives lost acknowledgement | `scripts/redesign/v4-fixture.test.mjs`: lost acknowledgement, identical retry, SIGKILL and queue recovery | 2 complete |
 | Execution and crash recovery | Explicit interruption, durable completed evidence, no uncertain-effect replay | `store/cells_test.go`, `runtime/engine_test.go`, SDK process-kill fixture | 3 complete |
 | Accounting | Every dispatched attempt recorded; settlement retry does not redispatch | `store/attempts_test.go`, `runtime/provider_test.go`, `runtime/observation_test.go`; ancestor accounting in `store/budgets_test.go` | 3 complete; model limits implemented in 4 |
-| Recursion and authority | Uniform session behavior, scoped grants, shared limits | `runtime/recursion_test.go`, `store/delegation_test.go`, `store/budgets_test.go`, `store/resources_test.go`, child-control, turn-permit, root/child lifecycle, completion-report and detached-child cleanup suites | 4 recursion criteria verified; overall phase reopened |
+| Recursion and authority | Uniform session behavior, scoped grants, shared limits | `runtime/recursion_test.go`, `store/delegation_test.go`, `store/budgets_test.go`, `store/resources_test.go`, child-control, turn-permit, root/child lifecycle, completion-report and detached-child cleanup suites | 4 complete after retained-capability audit and repair |
 | Reusable capacity | Shared subtree admission and lifecycle release; old per-target queue semantics intentionally replaced with ancestor aggregation | `store/resources_test.go`, `runtime/resources_test.go`, `rpc/resources_test.go`, turn-permit race tests, both-engine recursion and SDK restart fixture; counters derived rather than repaired | 4 implemented |
 | Cumulative write allowances | Explicit logical actions consume permanent ancestor allowance; initial child input now charged consistently with follow-up input | `store/logical_writes_test.go`, `runtime/state_allowances_test.go`, SDK cap/retry/restart/deletion fixture; accounting and derived notifications remain exempt | 4 implemented |
-| Mail and explicit state | Revisioned delivery distinct from inspection; private/shared isolation; immutable history and CAS | `store/mail_test.go`, `runtime/mail_test.go`, `store/state*_test.go`, `runtime/state_test.go`, RPC/SDK fixtures; `store/state_subscriptions_test.go` covers atomic coalescing, cursor/notification rollback and recipient deferral; `store/mail_evidence_test.go`, `runtime/mail_evidence_test.go` and SDK cover the reopened evidence-sharing obligation | 4 repair locally validated; hosted checks pending |
+| Mail and explicit state | Revisioned delivery distinct from inspection; private/shared isolation; immutable history and CAS | `store/mail_test.go`, `runtime/mail_test.go`, `store/state*_test.go`, `runtime/state_test.go`, RPC/SDK fixtures; `store/state_subscriptions_test.go` covers atomic coalescing, cursor/notification rollback and recipient deferral; `store/mail_evidence_test.go`, `runtime/mail_evidence_test.go` and SDK cover the audited evidence-sharing obligation | 4 complete; repair passes local and hosted Linux/macOS gates |
 | Context and checkpointing | Raw history retained; checkpoint boundary and fidelity explicit | Both engines pass `runtime/engine_test.go`; initial durable compaction and raw-history access implemented, advanced context policy pending | 3 complete; 5 pending |
 | Provider execution | Preserve supported wire protocols and tool cycles; uncertain partial-stream regeneration is retired in favor of explicit no-replay accounting | Chat wire profiles implemented; Responses/continuation, subscription generation guards, captured sampling and stateless helpers/batch remain | 5 in progress |
 | Integrations and product features | Preserve capability outcomes; inspect existing regression scenarios | Pending | 5 |
@@ -552,7 +552,7 @@ Acceptance:
       the selected retry semantics at every depth.
 - [x] Mail delivery/acknowledgement is distinct from human inspection and input
       admission. Private and shared state isolation is tested.
-- [ ] Ordinary authored mail can carry authorized content references, including
+- [x] Ordinary authored mail can carry authorized content references, including
       evidence-only mail. Sharing recipient access and admitting the mail commit
       atomically; retries, rejection, replacement, restart and sender deletion
       preserve the intended ownership. Automatic completion evidence alone does
@@ -570,9 +570,13 @@ message-with-evidence guarantee. The original replacement `MailSend` contained o
 The repair in [PR #213](https://github.com/context-labs/whip/pull/213) adds atomic
 recipient-owned references, evidence-only messages and
 replacement coverage through the store, both guest engines and generated SDK.
-Local phase and analysis gates pass. Keep Phase 4 open until hosted validation
-of the repair succeeds; passing checks for the earlier subset did not close
-this obligation. See the detailed
+Automatic reports now use the same mail attachment metadata through
+[PR #215](https://github.com/context-labs/whip/pull/215). The integrated repair at
+`1244d7cd2` passes local phase/analysis gates and hosted Linux, macOS, analysis and
+the aggregate gate in [run 36467683567](https://github.com/context-labs/whip/actions/runs/36467683567).
+Phase 4 is complete with that repair; the earlier completion claim was premature.
+The SDK fixture timeout repair retains all scenarios with separate deadlines and
+failure diagnostics. See the detailed
 [audit correction](backend-redesign-development.md#phase-4-completion-audit-correction).
 
 ### Phase 5 — Port retained product capabilities
@@ -655,9 +659,11 @@ now use explicit registry IDs, captured root selection and standing grants;
 `skills.read` supplies bounded, digest-checked body pages through the operation
 ledger. Standing user instructions now use an explicit file and exact standing
 authority, with filtered turn-local text and immutable raw-source audit.
-Authorized ancestors remain required; the
-compaction acceptance item remains
-open until the retained instruction family is complete.
+Authorized ancestor project rules and skills now use explicit named boundaries,
+captured selection, exact instruction grants and verified descriptor-confined
+membership. Both engines and SDK process acceptance cover aliases, inherited and
+restricted child sources, guest reads, refresh and restart. Broader Phase 5
+acceptance, including fork/rewind, remains open.
 Long-turn splitting now retains exact opening inputs and complete tool exchanges;
 one confirmed provider context rejection can trigger a recorded smaller request
 after accounting settles. Indivisible oversized exchanges still fail explicitly. Chat now preserves the pinned provider wire profiles, including off-effort omission

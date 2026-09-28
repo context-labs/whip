@@ -2,8 +2,11 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -230,5 +233,57 @@ func TestResourceDefaultsResolveFromFreshHost(t *testing.T) {
 	host.Version = 1
 	if err := Save(directory, host); err == nil {
 		t.Fatal("accepted old host version")
+	}
+}
+
+func TestHostProjectRootsExplicitPublicationAndBounds(t *testing.T) {
+	directory := t.TempDir()
+	host := Default()
+	host.ProjectRoots["missing"] = filepath.Join(directory, "not-created")
+	host.ProjectRoots["file"] = filepath.Join(directory, "regular-file")
+	if err := os.WriteFile(host.ProjectRoots["file"], []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	host.Defaults.Instructions.ProjectRoot = new("missing")
+	if err := Save(directory, host); err != nil {
+		t.Fatal("registry validation must not inspect the filesystem", err)
+	}
+	loaded, err := Load(directory)
+	if err != nil || loaded.Version != 5 || !reflect.DeepEqual(loaded.ProjectRoots, host.ProjectRoots) || loaded.Defaults.Instructions.ProjectRoot == nil || *loaded.Defaults.Instructions.ProjectRoot != "missing" {
+		t.Fatalf("project publication round trip=%+v %v", loaded, err)
+	}
+	loaded.ProjectRoots["missing"] = "/changed"
+	*loaded.Defaults.Instructions.ProjectRoot = "changed"
+	again, err := Load(directory)
+	if err != nil || !reflect.DeepEqual(again.ProjectRoots, host.ProjectRoots) || *again.Defaults.Instructions.ProjectRoot != "missing" {
+		t.Fatal("loaded project policy aliases caller", err)
+	}
+	for _, path := range []string{"", "relative", "/a/../project", "/a//project", "/a/", "/bad\x00path", "/bad\xffpath", "/" + strings.Repeat("a", 4096)} {
+		host.ProjectRoots = map[string]string{"team": path}
+		if err := host.Validate(); !errors.Is(err, session.ErrInvalid) {
+			t.Fatalf("invalid project directory %q accepted: %v", path, err)
+		}
+	}
+	for _, id := range []string{"", "../root", "bad root", strings.Repeat("a", 129)} {
+		host.ProjectRoots = map[string]string{id: "/project"}
+		if err := host.Validate(); !errors.Is(err, session.ErrInvalid) {
+			t.Fatalf("invalid project ID %q accepted: %v", id, err)
+		}
+	}
+	host.ProjectRoots = make(map[string]string, session.MaxProjectRoots)
+	for i := range session.MaxProjectRoots {
+		host.ProjectRoots[fmt.Sprintf("root_%d", i)] = "/個人/project"
+	}
+	if err := host.Validate(); err != nil {
+		t.Fatal("exact project registry bound rejected", err)
+	}
+	host.ProjectRoots["extra"] = "/project"
+	if err := host.Validate(); !errors.Is(err, session.ErrInvalid) {
+		t.Fatalf("oversized project registry accepted: %v", err)
+	}
+	host = Default()
+	host.Version = 4
+	if err := host.Validate(); !errors.Is(err, session.ErrInvalid) {
+		t.Fatalf("previous host format accepted: %v", err)
 	}
 }

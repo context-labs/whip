@@ -21,6 +21,7 @@ type ModelSelection struct {
 }
 
 type Instructions struct {
+	ProjectRoot          *string  `json:"project_root"`
 	StandingInstructions bool     `json:"standing_instructions"`
 	SkillRoots           []string `json:"skill_roots"`
 	Text                 string   `json:"text"`
@@ -136,6 +137,9 @@ func Builtins() []DefinitionDocument {
 func (c Configuration) Clone() Configuration {
 	if c.Compaction.Model != nil {
 		c.Compaction.Model = new(*c.Compaction.Model)
+	}
+	if c.Instructions.ProjectRoot != nil {
+		c.Instructions.ProjectRoot = new(*c.Instructions.ProjectRoot)
 	}
 	c.Instructions.ProjectFiles = slices.Clone(c.Instructions.ProjectFiles)
 	c.Instructions.SkillRoots = slices.Clone(c.Instructions.SkillRoots)

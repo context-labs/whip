@@ -79,6 +79,7 @@ type ModelSelection struct {
 	Effort   string `json:"effort"`
 }
 type Instructions struct {
+	ProjectRoot          *string  `json:"project_root"`
 	Text                 string   `json:"text"`
 	ProjectFiles         []string `json:"project_files"`
 	DiscoverSkills       bool     `json:"discover_skills"`

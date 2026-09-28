@@ -18,6 +18,7 @@ const (
 	MaxInvokedSkillBytes      = 256 << 10
 	MaxInstructionSources     = 1152
 	MaxSkillRoots             = 16
+	MaxProjectRoots           = 16
 )
 
 // InstructionSource identifies an exact file read while composing a turn's
@@ -84,6 +85,13 @@ func (s InstructionSource) Validate() error {
 		if s.RootID != nil {
 			return fmt.Errorf("%w: workspace instruction source cannot name a host root", ErrInvalid)
 		}
+	case "project":
+		if s.RootID == nil {
+			return fmt.Errorf("%w: project instruction source requires a named root", ErrInvalid)
+		}
+		if err := ValidateID(*s.RootID); err != nil {
+			return err
+		}
 	case "host":
 		if s.RootID == nil || s.Kind == "project_file" {
 			return fmt.Errorf("%w: host instruction source requires a named root", ErrInvalid)
@@ -108,6 +116,11 @@ func (s InstructionSource) Validate() error {
 }
 
 func (p Instructions) Validate() error {
+	if p.ProjectRoot != nil {
+		if err := ValidateID(*p.ProjectRoot); err != nil {
+			return err
+		}
+	}
 	if len(p.Text) > MaxInstructionBytes || !utf8.ValidString(p.Text) || strings.ContainsRune(p.Text, 0) || len(p.ProjectFiles) > 32 {
 		return fmt.Errorf("%w: instruction policy exceeds bounds or contains invalid text", ErrInvalid)
 	}

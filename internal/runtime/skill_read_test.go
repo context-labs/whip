@@ -58,6 +58,12 @@ func writeHostSkill(t *testing.T, root, directory, text string) string {
 }
 
 func skillInvocation(owner session.Session, cell session.Cell, id string, args map[string]any) tool.Invocation {
+	if _, exists := args["scope"]; !exists {
+		args["scope"] = "workspace"
+		if args["root_id"] != nil {
+			args["scope"] = "host"
+		}
+	}
 	return tool.Invocation{SessionID: owner.ID, CellID: cell.ID, RequestID: id, Module: "skills", Name: "read", Arguments: args}
 }
 

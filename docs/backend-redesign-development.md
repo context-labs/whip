@@ -1638,3 +1638,66 @@ regeneration will not be restored: the new accounting contract forbids automatic
 replay after uncertainty. Idle-stall detection can terminate uncertain work but
 cannot itself authorize another dispatch. Each confirmed authentication retry
 must likewise be a separately recorded attempt.
+
+
+## Phase 5 authorized ancestor instructions
+
+Host `project_roots` publishes named boundaries. A session copies the nullable
+`instructions.project_root` selection; the exact `instructions.read` grant for
+`project:<id>` separately admits membership metadata and instruction sources.
+Neither host publication nor copied selection grants access. This authority
+includes the verified boundary-to-cwd chain without an additional workspace
+`files.read` grant. Workspace, project, standing-file and host-skill authorities
+remain distinct. Denied or unrelated project sources fall back only to an
+independently authorized workspace source.
+
+The runtime opens an authorized boundary, verifies canonical membership against
+boundary/cwd file identities, and reads through its confined directory descriptor.
+Stable symlink aliases work; escaped sources and changed identities fail. One
+bounded directory chain replaces a separate cwd scan. Rules follow directory
+and configured filename order; discovery, explicit invocation, human inspection
+and scoped guest reads share the same skill winners. Audit metadata records
+project scope and boundary-relative paths. Source bytes remain turn-local;
+there is no additional persistent content cache or filesystem snapshot claim.
+Fresh config 5 and schema 24 capture the new policy and provenance.
+
+The isolated implementation passed domain, storage, reader and both-engine race
+tests, vet, generated-contract/SDK checks, and the real-process SDK fixture.
+Integration review found that a combined rule/skill manifest could exceed the
+reader's source limit even though storage still rejected it before model dispatch.
+A three-line guard now rejects that combined overflow in `Load`. Its real-filesystem
+regression first reproduced the issue, then proved exact 1,152-source success and
+1,153-source failure for both discovery and explicit-invocation-only paths.
+
+Integrated `WHIP_SDK_RACE=1 task check:phase` passed: store 77.644s, runtime
+90.692s, process engine 102.703s, v4 SDK fixture 109.501s, retained process fixture
+4.267s and selected retained daemon regressions 2.647s. The project SDK stage
+took 7.008s and covered both engines, aliases, source refresh, captured policy,
+restricted/delegated children, issuer revocation and restart. Analysis passed with
+zero lint issues and no reachable vulnerabilities. The later combined-source
+guard passed the integrated instruction race suite in 4.577s and isolated pinned
+lint; it was not credited to the earlier-started full gate. Hosted validation of
+this increment remains pending.
+
+The preceding named-scenario harness at `72d22969a` passed Linux, macOS, analysis
+and the aggregate gate in [run 36466900346](https://github.com/context-labs/whip/actions/runs/36466900346).
+That green result includes the authored-mail evidence repair.
+
+
+## Phase 4 audit closure
+
+The final unified mail attachment increment at `1244d7cd2` passed hosted Linux,
+macOS, analysis and the aggregate redesign gate in
+[run 36467683567](https://github.com/context-labs/whip/actions/runs/36467683567).
+Together with the local phase/analysis evidence recorded above, this closes the
+authored-mail evidence gap found by rechecking the original seven Phase 4
+criteria and retained feature guidance. Phase 4 is now complete through the
+stack of PRs #202, #213, #214 and #215; #202 alone did not satisfy the audited
+scope. The earlier completion claim was premature and remains recorded as such.
+
+The timeout failures at the preceding host-skills, standing-instruction and
+authored-mail revisions remain failed results. They are superseded by the
+combined passing repair, not reclassified as successes. No acceptance scenario
+was removed. The named-stage harness has independent hosted evidence at
+`72d22969a`. Phases 5–7 and their retained-feature/client/cutover criteria remain
+open.

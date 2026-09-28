@@ -31,7 +31,8 @@
                 "type": "string",
                 "enum": [
                   "workspace",
-                  "host"
+                  "host",
+                  "project"
                 ]
               },
               "root_id": {
