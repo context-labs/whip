@@ -20,17 +20,19 @@ func longExchange(mailOnly bool) []session.Message {
 	raw := compactionMessages(1, 246)
 	for i := range raw {
 		raw[i].TurnID = "current"
+		raw[i].GroupID = "current"
 		if mailOnly {
 			raw[i].InputID = nil
+			raw[i].OpeningInput = false
 		}
 	}
-	raw = append(raw, session.Message{ID: "latest_mail", SessionID: "owner", TurnID: "current", Sequence: 247, Role: session.User, Parts: []session.Part{{Type: "text", Text: "mail is not the opening input"}}})
-	raw = append(raw, session.Message{ID: "latest_calls", SessionID: "owner", TurnID: "current", Sequence: 248, Role: session.Assistant, Parts: []session.Part{
+	raw = append(raw, session.Message{ID: "latest_mail", SessionID: "owner", GroupID: "current", TurnID: "current", Sequence: 247, Role: session.User, Parts: []session.Part{{Type: "text", Text: "mail is not the opening input"}}})
+	raw = append(raw, session.Message{ID: "latest_calls", SessionID: "owner", GroupID: "current", TurnID: "current", Sequence: 248, Role: session.Assistant, Parts: []session.Part{
 		{Type: "tool_call", Call: &session.ToolCall{ID: "first", Name: "execute", Arguments: json.RawMessage(`{}`)}},
 		{Type: "tool_call", Call: &session.ToolCall{ID: "second", Name: "execute", Arguments: json.RawMessage(`{}`)}},
 	}})
 	for i, id := range []string{"first", "second"} {
-		raw = append(raw, session.Message{ID: session.MessageID("latest_" + id), SessionID: "owner", TurnID: "current", Sequence: int64(249 + i), Role: session.Tool, Parts: []session.Part{{Type: "tool_result", Result: &session.ToolResult{CallID: id, Output: "exact durable result"}}}})
+		raw = append(raw, session.Message{ID: session.MessageID("latest_" + id), SessionID: "owner", GroupID: "current", TurnID: "current", Sequence: int64(249 + i), Role: session.Tool, Parts: []session.Part{{Type: "tool_result", Result: &session.ToolResult{CallID: id, Output: "exact durable result"}}}})
 	}
 	return raw
 }

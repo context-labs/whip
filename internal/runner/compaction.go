@@ -91,7 +91,7 @@ func (r *Runner) contextPins(ctx context.Context, owner session.SessionID, ids [
 	}
 	var after int64
 	for _, pin := range pins {
-		if !wanted[pin.ID] || pin.SessionID != owner || pin.Role != session.User || pin.InputID == nil || pin.Sequence <= after || pin.Sequence > through {
+		if !wanted[pin.ID] || pin.SessionID != owner || pin.Role != session.User || !pin.OpeningInput || pin.Sequence <= after || pin.Sequence > through {
 			return nil, errors.New("compaction pin does not identify exact covered input")
 		}
 		after = pin.Sequence
@@ -109,7 +109,7 @@ func (r *Runner) splitBoundary(ctx context.Context, owner session.SessionID, sel
 	after := selection.through()
 	var latestAssistant, latestMessage int64
 	pending := map[string]bool{}
-	var batchTurn session.TurnID
+	var batchGroup session.HistoryGroupID
 	for after < selection.snapshot.ThroughSequence {
 		page, err := r.compactions.HistoryRange(ctx, owner, after, selection.snapshot.ThroughSequence, maxContextMessages)
 		if err != nil {
@@ -123,7 +123,7 @@ func (r *Runner) splitBoundary(ctx context.Context, owner session.SessionID, sel
 				return 0, errors.New("split source did not advance within its snapshot")
 			}
 			after, latestMessage = message.Sequence, message.Sequence
-			if len(pending) > 0 && (message.TurnID != batchTurn || message.Role == session.Assistant) {
+			if len(pending) > 0 && (message.GroupID != batchGroup || message.Role == session.Assistant) {
 				return 0, errors.New("split source has an incomplete tool exchange")
 			}
 			if message.Role == session.Assistant {
@@ -134,7 +134,7 @@ func (r *Runner) splitBoundary(ctx context.Context, owner session.SessionID, sel
 					if pending[part.Call.ID] {
 						return 0, errors.New("split source repeats an unsettled tool call")
 					}
-					pending[part.Call.ID], batchTurn = true, message.TurnID
+					pending[part.Call.ID], batchGroup = true, message.GroupID
 				}
 				if part.Result != nil {
 					if !pending[part.Result.CallID] {
@@ -456,7 +456,7 @@ func (r *Runner) compactionPrefix(ctx context.Context, owner session.SessionID, 
 	var batch []session.Message
 	batchBytes := 0
 	pending := map[string]bool{}
-	var batchTurn session.TurnID
+	var batchGroup session.HistoryGroupID
 	for after < boundary {
 		messages, err := r.compactions.HistoryRange(ctx, owner, after, boundary, maxContextMessages)
 		if err != nil {
@@ -470,7 +470,7 @@ func (r *Runner) compactionPrefix(ctx context.Context, owner session.SessionID, 
 				return 0, 0, errors.New("compaction source did not advance within its boundary")
 			}
 			after = message.Sequence
-			if len(pending) > 0 && message.TurnID != batchTurn {
+			if len(pending) > 0 && message.GroupID != batchGroup {
 				return 0, 0, errors.New("compaction source has an incomplete tool batch")
 			}
 			for _, part := range message.Parts {
@@ -479,7 +479,7 @@ func (r *Runner) compactionPrefix(ctx context.Context, owner session.SessionID, 
 						return 0, 0, errors.New("compaction source repeats an unsettled tool call")
 					}
 					pending[part.Call.ID] = true
-					batchTurn = message.TurnID
+					batchGroup = message.GroupID
 				}
 				if part.Result != nil {
 					if !pending[part.Result.CallID] {
