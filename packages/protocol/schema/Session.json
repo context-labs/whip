@@ -42,6 +42,9 @@
     "configuration": {
       "type": "object",
       "properties": {
+        "goals_enabled": {
+          "type": "boolean"
+        },
         "compaction": {
           "type": "object",
           "properties": {
@@ -241,6 +244,7 @@
         "output_schema": true
       },
       "required": [
+        "goals_enabled",
         "compaction",
         "report_mode",
         "model",

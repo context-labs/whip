@@ -1949,3 +1949,35 @@ and schedules revision `b3dec1e3d` passed all hosted checks in
 [run 36474139342](https://github.com/context-labs/whip/actions/runs/36474139342).
 The subscription core run remains pending. Phase 4's audited closure is unchanged;
 Phases 5–7 remain open.
+
+
+## Durable goal records and atomic admission
+
+The goal foundation is integrated as `6e0b2160c` from isolated commit
+`415908388`. One row owns immutable objective/allowance and revisioned lifecycle;
+current selection derives from latest creation, including terminal goals.
+Creation, replacement, queued-input cancellation, logical charges and optional
+first input commit together. Resume uses ordinary receipts without resetting
+usage. Cancellation identifies only goal-owned work. Owner deletion retains
+identity tombstones while clearing text. The generated input projection carries
+exact goal ID/revision provenance, and explicit false eligibility overrides
+survive configuration resolution.
+
+Tests exercise independent database-handle CAS, exact retries after later
+changes/deletion, fault injection at every write, queue/write/byte rollback,
+root/child isolation, captured configuration and decimal revisions above 2^53.
+The isolated slice passed focused and full scoped race tests, fast/analysis,
+contract regeneration and SDK checks. After integration, the complete
+`WHIP_SDK_RACE=1 task check:phase` passed: store race 101.233s, runtime 104.835s,
+process engine 105.830s, v4 production SDK fixture 15.462s, retained crash fixture
+4.286s, and retained daemon acceptance. `task check:analysis` reported zero lint
+issues and no reachable vulnerabilities. Regeneration produced no drift. Logs
+are `/tmp/whip-goal-admission-phase.log` and
+`/tmp/whip-goal-admission-analysis.log`.
+
+Fresh config is 8, schema 27 and protocol development major 4. There is no public
+goal command in this foundation. Turn capture, continuation, completion,
+formulation and client services remain required, and the combined goals/schedules
+acceptance criterion stays open. Hosted validation of this increment is pending.
+The plan now also records researched fork/rewind/workspace ownership and explicit
+restore semantics; those design entries are not implementation claims.

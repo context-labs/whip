@@ -104,6 +104,7 @@ type CompactionPolicy struct {
 	ThresholdPercent int             `json:"threshold_percent" min:"0" max:"100"`
 }
 type Configuration struct {
+	GoalsEnabled bool                       `json:"goals_enabled"`
 	Compaction   CompactionPolicy           `json:"compaction"`
 	ReportMode   string                     `json:"report_mode" enum:"notice,inline,message"`
 	Model        ModelSelection             `json:"model"`
@@ -114,6 +115,7 @@ type Configuration struct {
 	OutputSchema json.RawMessage            `json:"output_schema"`
 }
 type ConfigPatch struct {
+	GoalsEnabled *bool                      `json:"goals_enabled,omitempty"`
 	Compaction   *CompactionPolicy          `json:"compaction,omitempty"`
 	ReportMode   *string                    `json:"report_mode,omitempty" enum:"notice,inline,message"`
 	Model        *ModelSelection            `json:"model,omitempty"`
@@ -184,10 +186,15 @@ type Receipt struct {
 	DeletedAt *string         `json:"deleted_at"`
 	CreatedAt string          `json:"created_at"`
 }
+type GoalRef struct {
+	ID       ID      `json:"id"`
+	Revision Counter `json:"revision"`
+}
 type Input struct {
+	Goal      *GoalRef            `json:"goal"`
 	ID        ID                  `json:"id"`
 	SessionID ID                  `json:"session_id"`
-	Source    string              `json:"source" enum:"user,agent,schedule"`
+	Source    string              `json:"source" enum:"user,agent,schedule,goal"`
 	Kind      string              `json:"kind" enum:"prompt,compact"`
 	Parts     []Part              `json:"parts"`
 	State     string              `json:"state" enum:"queued,claimed,cancelled"`

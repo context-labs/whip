@@ -66,6 +66,9 @@ func TurnFromDomain(value session.Turn) Turn {
 
 func InputFromDomain(value session.Input) Input {
 	result := Input{ID: ID(value.ID), SessionID: ID(value.SessionID), Source: string(value.Source), Kind: string(value.Kind), State: string(value.State), CreatedAt: value.CreatedAt.Format(time.RFC3339Nano)}
+	if value.Goal != nil {
+		result.Goal = &GoalRef{ID: ID(value.Goal.ID), Revision: Counter(value.Goal.Revision)}
+	}
 	if value.Schedule != nil {
 		result.Schedule = &ScheduleOccurrence{ScheduleID: ID(value.Schedule.ScheduleID), ScheduledFor: scheduleTime(value.Schedule.ScheduledFor)}
 	}
@@ -133,6 +136,9 @@ func (p ConfigPatch) Domain() (session.ConfigPatch, error) {
 
 func (p ConfigPatch) MarshalJSON() ([]byte, error) {
 	fields := map[string]any{}
+	if p.GoalsEnabled != nil {
+		fields["goals_enabled"] = p.GoalsEnabled
+	}
 	if p.Compaction != nil {
 		fields["compaction"] = p.Compaction
 	}

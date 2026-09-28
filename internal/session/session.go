@@ -91,6 +91,7 @@ const (
 	UserInput      InputSource = "user"
 	AgentInput     InputSource = "agent"
 	ScheduledInput InputSource = "schedule"
+	GoalInput      InputSource = "goal"
 )
 
 // InputKind distinguishes conversation work from context maintenance. Source
@@ -113,6 +114,7 @@ const (
 // Input owns the accepted payload. Its execution outcome is the linked Turn;
 // terminal turn states are never copied onto input or receipt rows.
 type Input struct {
+	Goal      *GoalRef
 	Schedule  *ScheduleOccurrence
 	ID        InputID
 	SessionID SessionID

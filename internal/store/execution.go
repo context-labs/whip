@@ -16,6 +16,7 @@ import (
 )
 
 type Submission struct {
+	Goal      *session.GoalRef
 	SessionID session.SessionID
 	Source    session.InputSource
 	Kind      session.InputKind
@@ -48,11 +49,15 @@ func readInput(ctx context.Context, q querier, id session.InputID) (result sessi
 	var raw string
 	var created int64
 	var cancelled sql.NullInt64
-	var scheduleID, slot sql.NullString
-	err = q.QueryRowContext(ctx, "SELECT id,session_id,source,kind,parts,turn_id,cancelled_at,created_at,schedule_id,scheduled_for FROM inputs WHERE id=?", id).
-		Scan(&result.ID, &result.SessionID, &result.Source, &result.Kind, &raw, &result.TurnID, &cancelled, &created, &scheduleID, &slot)
+	var scheduleID, slot, goalID sql.NullString
+	var goalRevision sql.NullInt64
+	err = q.QueryRowContext(ctx, "SELECT id,session_id,source,kind,parts,turn_id,cancelled_at,created_at,schedule_id,scheduled_for,goal_id,goal_revision FROM inputs WHERE id=?", id).
+		Scan(&result.ID, &result.SessionID, &result.Source, &result.Kind, &raw, &result.TurnID, &cancelled, &created, &scheduleID, &slot, &goalID, &goalRevision)
 	if err != nil {
 		return result, found(err)
+	}
+	if goalID.Valid {
+		result.Goal = &session.GoalRef{ID: session.GoalID(goalID.String), Revision: goalRevision.Int64}
 	}
 	if scheduleID.Valid {
 		due, parseErr := time.Parse(time.RFC3339Nano, slot.String)
@@ -109,7 +114,7 @@ func readAdmission(ctx context.Context, q querier, identity session.RequestIdent
 // Public admissions cannot occupy identities owned by internal durable work.
 // Recovery/inspection intentionally accepts these returned receipt identities.
 func validatePublicIdentity(identity session.RequestIdentity) error {
-	if identity.ClientID == "schedule" || identity.ClientID == "operation" {
+	if identity.ClientID == "schedule" || identity.ClientID == "operation" || identity.ClientID == "goal" {
 		return fmt.Errorf("%w: client identity is reserved for internal admissions", session.ErrInvalid)
 	}
 	return nil
@@ -124,7 +129,7 @@ func (s *Store) Admit(ctx context.Context, identity session.RequestIdentity, req
 			return result, err
 		}
 	}
-	if (request.Source != session.UserInput && request.Source != session.AgentInput) || request.Schedule != nil {
+	if (request.Source != session.UserInput && request.Source != session.AgentInput) || request.Schedule != nil || request.Goal != nil {
 		return result, fmt.Errorf("%w: invalid input source", session.ErrInvalid)
 	}
 	if request.Kind == "" {
@@ -209,9 +214,21 @@ func admitInput(ctx context.Context, tx *sql.Tx, identity session.RequestIdentit
 	} else if request.Schedule != nil {
 		return result, session.ErrInvalid
 	}
+	var goalID, goalRevision any
+	if request.Source == session.GoalInput {
+		if request.Goal == nil || request.Kind != session.PromptInput {
+			return result, session.ErrInvalid
+		}
+		if err := request.Goal.Validate(); err != nil {
+			return result, err
+		}
+		goalID, goalRevision = request.Goal.ID, request.Goal.Revision
+	} else if request.Goal != nil {
+		return result, session.ErrInvalid
+	}
 	inputID := session.InputID(newID("input"))
 	created := now()
-	if _, err := tx.ExecContext(ctx, "INSERT INTO inputs (id,session_id,source,kind,parts,created_at,schedule_id,scheduled_for) VALUES (?,?,?,?,?,?,?,?)", inputID, current.ID, request.Source, request.Kind, parts, created, scheduleID, slot); err != nil {
+	if _, err := tx.ExecContext(ctx, "INSERT INTO inputs (id,session_id,source,kind,parts,created_at,schedule_id,scheduled_for,goal_id,goal_revision) VALUES (?,?,?,?,?,?,?,?,?,?)", inputID, current.ID, request.Source, request.Kind, parts, created, scheduleID, slot, goalID, goalRevision); err != nil {
 		return result, err
 	}
 	if _, err := tx.ExecContext(ctx, "INSERT INTO receipts VALUES (?,?,?,?,NULL,?)", identity.ClientID, identity.RequestID, digest, inputID, created); err != nil {

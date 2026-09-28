@@ -20,7 +20,7 @@ import (
 
 const (
 	FileName = "host.json"
-	Version  = 7
+	Version  = 8
 )
 
 var environmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)

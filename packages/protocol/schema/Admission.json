@@ -57,6 +57,28 @@
         {
           "type": "object",
           "properties": {
+            "goal": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                },
+                "revision": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]{0,18})$",
+                  "format": "counter"
+                }
+              },
+              "required": [
+                "id",
+                "revision"
+              ],
+              "additionalProperties": false
+            },
             "id": {
               "type": "string",
               "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
@@ -70,7 +92,8 @@
               "enum": [
                 "user",
                 "agent",
-                "schedule"
+                "schedule",
+                "goal"
               ]
             },
             "kind": {
@@ -168,6 +191,7 @@
             }
           },
           "required": [
+            "goal",
             "id",
             "session_id",
             "source",
@@ -183,6 +207,28 @@
         {
           "type": "object",
           "properties": {
+            "goal": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                },
+                "revision": {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]{0,18})$",
+                  "format": "counter"
+                }
+              },
+              "required": [
+                "id",
+                "revision"
+              ],
+              "additionalProperties": false
+            },
             "id": {
               "type": "string",
               "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
@@ -196,7 +242,8 @@
               "enum": [
                 "user",
                 "agent",
-                "schedule"
+                "schedule",
+                "goal"
               ]
             },
             "kind": {
@@ -293,6 +340,7 @@
             }
           },
           "required": [
+            "goal",
             "id",
             "session_id",
             "source",

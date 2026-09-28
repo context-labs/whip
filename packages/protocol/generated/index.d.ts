@@ -12,9 +12,13 @@ export interface Admission {
   };
   input:
     | {
+        goal: null | {
+          id: string;
+          revision: string;
+        };
         id: string;
         session_id: string;
-        source: "user" | "agent" | "schedule";
+        source: "user" | "agent" | "schedule" | "goal";
         kind: "prompt";
         /**
          * @minItems 1
@@ -51,9 +55,13 @@ export interface Admission {
         };
       }
     | {
+        goal: null | {
+          id: string;
+          revision: string;
+        };
         id: string;
         session_id: string;
-        source: "user" | "agent" | "schedule";
+        source: "user" | "agent" | "schedule" | "goal";
         kind: "compact";
         /**
          * @maxItems 0
@@ -326,6 +334,7 @@ export interface CreateTreeParams {
     revision: string;
   };
   overrides: {
+    goals_enabled?: null | boolean;
     compaction?: null | {
       model: null | {
         provider: string;
@@ -396,6 +405,7 @@ export interface CreateTreeResult {
     };
     config_revision: string;
     configuration: {
+      goals_enabled: boolean;
       compaction: {
         model: null | {
           provider: string;
@@ -454,6 +464,7 @@ export interface Definition {
     id: string;
     name: string;
     defaults: {
+      goals_enabled?: null | boolean;
       compaction?: null | {
         model: null | {
           provider: string;
@@ -507,6 +518,7 @@ export interface DefinitionDocument {
   id: string;
   name: string;
   defaults: {
+    goals_enabled?: null | boolean;
     compaction?: null | {
       model: null | {
         provider: string;
@@ -871,9 +883,13 @@ export interface InitializeResult {
 }
 export type Input =
   | {
+      goal: null | {
+        id: string;
+        revision: string;
+      };
       id: string;
       session_id: string;
-      source: "user" | "agent" | "schedule";
+      source: "user" | "agent" | "schedule" | "goal";
       kind: "prompt";
       /**
        * @minItems 1
@@ -910,9 +926,13 @@ export type Input =
       };
     }
   | {
+      goal: null | {
+        id: string;
+        revision: string;
+      };
       id: string;
       session_id: string;
-      source: "user" | "agent" | "schedule";
+      source: "user" | "agent" | "schedule" | "goal";
       kind: "compact";
       /**
        * @maxItems 0
@@ -1027,6 +1047,7 @@ export interface ListSessionsResult {
         };
         config_revision: string;
         configuration: {
+          goals_enabled: boolean;
           compaction: {
             model: null | {
               provider: string;
@@ -1802,6 +1823,7 @@ export interface Session {
   };
   config_revision: string;
   configuration: {
+    goals_enabled: boolean;
     compaction: {
       model: null | {
         provider: string;
@@ -2084,6 +2106,7 @@ export interface SpawnSessionParams {
     revision: string;
   };
   overrides: {
+    goals_enabled?: null | boolean;
     compaction?: null | {
       model: null | {
         provider: string;
@@ -2195,6 +2218,7 @@ export interface SpawnSessionResult {
     };
     config_revision: string;
     configuration: {
+      goals_enabled: boolean;
       compaction: {
         model: null | {
           provider: string;
@@ -2256,9 +2280,13 @@ export interface SpawnSessionResult {
     };
     input:
       | {
+          goal: null | {
+            id: string;
+            revision: string;
+          };
           id: string;
           session_id: string;
-          source: "user" | "agent" | "schedule";
+          source: "user" | "agent" | "schedule" | "goal";
           kind: "prompt";
           /**
            * @minItems 1
@@ -2295,9 +2323,13 @@ export interface SpawnSessionResult {
           };
         }
       | {
+          goal: null | {
+            id: string;
+            revision: string;
+          };
           id: string;
           session_id: string;
-          source: "user" | "agent" | "schedule";
+          source: "user" | "agent" | "schedule" | "goal";
           kind: "compact";
           /**
            * @maxItems 0
@@ -2481,6 +2513,7 @@ export interface UpdateConfigurationParams {
   session_id: string;
   expected_revision: string;
   patch: {
+    goals_enabled?: null | boolean;
     compaction?: null | {
       model: null | {
         provider: string;
