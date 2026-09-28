@@ -237,7 +237,16 @@ async function providerAcceptance(runtime, client, createParams, evidence) {
     const { root } = await client.call('trees.create', {
       ...createParams, overrides: { model: { provider: 'fixture', name: 'fixture-model', effort: '' } },
     }, deadline());
-    await client.submit(root.id, [{ type: 'text', text: 'HTTP provider round trip' }], 'http-provider', deadline());
+    const image = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7S8AAAAASUVORK5CYII=';
+    const upload = { session_id: root.id, reference_id: 'sdk-image', media_type: 'image/png', data_base64: image };
+    const reference = await client.call('content.put', upload, deadline());
+    assert.deepEqual(await client.call('content.put', upload, deadline()), reference);
+    const read = await client.call('content.read', { session_id: root.id, reference_id: reference.id }, deadline());
+    assert.equal(read.data_base64, image);
+    const { root: foreign } = await client.call('trees.create', createParams, deadline());
+    await assert.rejects(client.call('content.read', { session_id: foreign.id, reference_id: reference.id }, deadline()), error => error instanceof RemoteError && error.kind === 'NOT_FOUND');
+    await assert.rejects(client.submit(foreign.id, [{ type: 'content', reference_id: reference.id }], 'foreign-content', deadline()), error => error instanceof RemoteError && error.kind === 'NOT_FOUND');
+    await client.submit(root.id, [{ type: 'text', text: 'HTTP provider round trip' }, { type: 'content', reference_id: reference.id }], 'http-provider', deadline());
     const result = await client.wait('http-provider', deadline());
     assert.equal(result.turn.state, 'succeeded');
     const ledger = await client.call('turns.attempts', { turn_id: result.turn.id, limit: 100 }, deadline());
@@ -249,12 +258,14 @@ async function providerAcceptance(runtime, client, createParams, evidence) {
     assert.equal(ledger.items[1].result.usage.input, '10');
     assert.equal(ledger.items[1].result.usage.cached_input, null);
     assert.equal(history.items.length, 2);
+    assert.deepEqual(history.items[0].parts[1], { type: 'content', reference_id: reference.id });
     assert.equal(history.items[1].parts[0].text, 'HTTP adapter completed');
     assert.equal(ledger.items[1].message_id, history.items[1].id);
     assert.equal(requests.length, 2);
     assert.deepEqual(requests[0], requests[1]);
     assert.equal(requests[0].path, '/v1/chat/completions');
     assert.equal(requests[0].body.max_completion_tokens, 123);
+    assert.equal(requests[0].body.messages.at(-1).content[1].image_url.url, 'data:image/png;base64,' + image);
     evidence.push({ httpProvider: { result, ledger, history, requests } });
   } finally {
     server.closeAllConnections();

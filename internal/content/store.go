@@ -2,6 +2,7 @@
 package content
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"syscall"
 )
 
@@ -174,7 +176,7 @@ func (s *Store) Orphans(referenced map[string]struct{}) ([]Body, error) {
 }
 
 func (s *Store) verify(want Body) (bool, error) {
-	f, err := os.Open(s.path(want.Digest))
+	f, err := openRegular(s.path(want.Digest))
 	if os.IsNotExist(err) {
 		return false, nil
 	}
@@ -182,8 +184,15 @@ func (s *Store) verify(want Body) (bool, error) {
 		return false, err
 	}
 	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return false, err
+	}
+	if info.Size() != want.Size {
+		return false, errContentMismatch
+	}
 	h := sha256.New()
-	n, err := io.Copy(h, f)
+	n, err := io.Copy(h, io.LimitReader(f, want.Size+1))
 	if err != nil {
 		return false, err
 	}
@@ -191,6 +200,105 @@ func (s *Store) verify(want Body) (bool, error) {
 		return false, fmt.Errorf("%w: %s", errContentMismatch, want.Digest)
 	}
 	return true, nil
+}
+
+func openRegular(path string) (*os.File, error) {
+	// Nonblocking prevents a replaced FIFO from hanging before its type is
+	// checked; NOFOLLOW prevents a digest name from becoming a file capability.
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0) //nolint:gosec // Store-owned digest path, never a caller-supplied filesystem path.
+	if err != nil {
+		return nil, err
+	}
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		_ = f.Close()
+		if err != nil {
+			return nil, err
+		}
+		return nil, errors.New("content body is not a regular file")
+	}
+	return f, nil
+}
+
+// ReadVerified reads a complete bounded body and checks its digest. The caller
+// must resolve an authorized reference before requesting these immutable bytes.
+func (s *Store) ReadVerified(body Body, maxBytes int64) ([]byte, error) {
+	if !validDigest(body.Digest) || body.Size < 0 || body.Size > maxBytes || maxBytes > 64<<20 {
+		return nil, errors.New("invalid or oversized content body")
+	}
+	f, err := openRegular(s.path(body.Digest))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if info.Size() != body.Size {
+		return nil, errContentMismatch
+	}
+	data, err := io.ReadAll(io.LimitReader(f, body.Size+1))
+	if err != nil {
+		return nil, err
+	}
+	digest := sha256.Sum256(data)
+	if int64(len(data)) != body.Size || hex.EncodeToString(digest[:]) != body.Digest {
+		return nil, errContentMismatch
+	}
+	return data, nil
+}
+
+// Collect removes unreferenced bodies in bounded directory batches. Only call
+// before serving, under exclusive runtime ownership; uploads publish before SQL.
+func (s *Store) Collect(ctx context.Context, referenced func(context.Context, string) (bool, error)) error {
+	dir, err := os.Open(s.dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = dir.Close() }()
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		entries, err := dir.ReadDir(100)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return err
+		}
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), ".publish-") {
+				info, err := entry.Info()
+				if err != nil {
+					return err
+				}
+				// A killed publisher cannot run its deferred temporary-file cleanup.
+				// DirEntry.Info describes the link itself, so special files stay untouched.
+				if info.Mode().IsRegular() {
+					if err := os.Remove(filepath.Join(s.dir, entry.Name())); err != nil {
+						return err
+					}
+				}
+				continue
+			}
+			if !validDigest(entry.Name()) {
+				continue
+			}
+			keep, err := referenced(ctx, entry.Name())
+			if err != nil {
+				return err
+			}
+			if keep {
+				continue
+			}
+			// Remove the directory entry itself, never follow a symlink or recurse.
+			if err := os.Remove(s.path(entry.Name())); err != nil {
+				return err
+			}
+		}
+		if errors.Is(err, io.EOF) {
+			return syncDir(s.dir)
+		}
+	}
 }
 
 func (s *Store) path(digest string) string { return filepath.Join(s.dir, digest) }

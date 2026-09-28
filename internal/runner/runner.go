@@ -26,17 +26,21 @@ type Attempts interface {
 	DispatchModelAttempt(context.Context, session.ModelAttemptID) (bool, error)
 	SettleModelAttempt(context.Context, session.ModelAttemptID, session.ModelAttemptResult, *session.MessageDraft) (session.ModelAttempt, error)
 }
+type ContentReader interface {
+	ReadContent(context.Context, session.SessionID, string, int64) (session.ContentReference, []byte, error)
+}
 type Runner struct {
 	provider   Provider
 	transcript Transcript
 	attempts   Attempts
+	content    ContentReader
 }
 
-func New(provider Provider, transcript Transcript, attempts Attempts) (*Runner, error) {
+func New(provider Provider, transcript Transcript, attempts Attempts, content ContentReader) (*Runner, error) {
 	if provider == nil || transcript == nil || attempts == nil {
 		return nil, errors.New("runner requires provider, transcript and attempt ledger")
 	}
-	return &Runner{provider: provider, transcript: transcript, attempts: attempts}, nil
+	return &Runner{provider: provider, transcript: transcript, attempts: attempts, content: content}, nil
 }
 
 type Outcome struct {
@@ -88,7 +92,38 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 			after = message.Sequence
 		}
 	}
+	if err := r.hydrate(ctx, &request); err != nil {
+		return Failure(err), nil
+	}
 	return r.complete(ctx, turn, request)
+}
+
+func (r *Runner) hydrate(ctx context.Context, request *model.Request) error {
+	request.Contents = map[string]model.Content{}
+	remaining := int64(session.MaxContentBytes)
+	for _, message := range request.Messages {
+		for _, part := range message.Parts {
+			if part.Type != "content" {
+				continue
+			}
+			if _, exists := request.Contents[part.ReferenceID]; exists {
+				continue
+			}
+			if r.content == nil {
+				return errors.New("content reader is unavailable")
+			}
+			reference, data, err := r.content.ReadContent(ctx, request.SessionID, part.ReferenceID, remaining)
+			if err != nil {
+				return fmt.Errorf("hydrate model content: %w", err)
+			}
+			if int64(len(data)) > remaining {
+				return errors.New("hydrated content exceeds context limit")
+			}
+			remaining -= int64(len(data))
+			request.Contents[part.ReferenceID] = model.Content{MediaType: reference.MediaType, Data: data}
+		}
+	}
+	return nil
 }
 
 func (r *Runner) settleAttempt(parent context.Context, id session.ModelAttemptID, result session.ModelAttemptResult, message *session.MessageDraft) error {

@@ -90,6 +90,16 @@ export const manifest = {
       "result": "Admission"
     },
     {
+      "name": "content.put",
+      "params": "PutContentParams",
+      "result": "ContentReference"
+    },
+    {
+      "name": "content.read",
+      "params": "ReadContentParams",
+      "result": "ReadContentResult"
+    },
+    {
       "name": "definitions.register",
       "params": "DefinitionDocument",
       "result": "Definition"

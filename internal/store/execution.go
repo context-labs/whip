@@ -130,6 +130,9 @@ func (s *Store) Admit(ctx context.Context, identity session.RequestIdentity, req
 		if current.Lifecycle != session.Active {
 			return ErrStopped
 		}
+		if err := validateContentReferences(ctx, tx, current.ID, request.Parts); err != nil {
+			return err
+		}
 		tree, err := readTree(ctx, tx, current.TreeID)
 		if err != nil {
 			return err
@@ -276,6 +279,9 @@ func appendMessage(ctx context.Context, tx *sql.Tx, turn session.Turn, draft ses
 	}
 	if turn.State.Terminal() {
 		return session.Message{}, ErrConflict
+	}
+	if err := validateContentReferences(ctx, tx, turn.SessionID, draft.Parts); err != nil {
+		return session.Message{}, err
 	}
 	raw, err := encode(draft.Parts)
 	if err != nil {

@@ -21,6 +21,9 @@ separate legacy runtime and SDK until their client cutover.
 | User transcript payload | Reference to the accepted input; no second body copy |
 | Assistant/tool transcript payload | Message row |
 | Provider dispatch, usage, price snapshot and cost | Model-attempt row, linked to its completed message |
+| Content digest and size | Immutable content-body metadata row |
+| Session access and declared media type | Immutable content-reference row |
+| Content bytes | Durable immutable blob file, verified when read |
 | Provider endpoint and credential reference | Explicit host configuration file |
 | Resolved credential, worker, interpreter, process or client | Execution memory; never session rows |
 
@@ -46,12 +49,13 @@ then explicit overrides. Patches replace whole fields. Nil inherits; an empty
 collection clears. An explicit output policy with a null schema clears a
 structured output contract. Resolution owns deep copies of all collections and
 schemas. Dynamic project files and skill discovery are policies, not frozen
-contents; the runner refreshes them at turn start and records request evidence.
+contents. Refreshing those declared sources is part of the retained context
+behavior being ported; current execution uses the captured instruction text.
 
 Configuration updates compare the expected revision and append a new immutable
 revision. A running turn retains its captured revision; the next claim captures
 the current one. Changing model selection never rewrites history, topology or
-checkpoints. Host route changes affect future dispatch through the named route;
+checkpoints. Host route changes affect future dispatch through the named route.
 Each prepared request records its actual route/pricing snapshot on the model attempt.
 When spawning without a new definition, the child copies the parent's current
 effective configuration before applying overrides. It does not reapply the
@@ -119,6 +123,33 @@ Resume after the last returned session ID, definition ID/revision, or transcript
 sequence. An empty page means the end; a short page can reflect the byte budget.
 Messages and configuration documents are bounded at admission. SQL timestamps
 use integer UTC microseconds, avoiding mixed-precision textual ordering.
+
+## Content boundary
+
+`content.put` publishes bytes durably before registering body metadata and a
+session reference. A caller-supplied reference ID makes upload retries idempotent;
+changing its owner, bytes or media type conflicts. The body table owns digest and
+size once, while references own session access and media interpretation. A digest
+alone never authorizes reading. The trusted client can select a session; runner
+hydration always uses the actual executing session's identity.
+
+Input admission and completed-message insertion validate every reference in the
+same SQL transaction as their write. Missing and foreign references produce the
+same not-found outcome, without leaving an input, receipt or output. Existing
+admission/message retries preserve their original idempotency behavior.
+
+Bodies and reads are limited to 4 MiB. Each session may retain 1,024 references
+and 64 MiB of referenced bytes (including repeated references to one body).
+Provider context hydration is bounded in aggregate and checks file size/digest;
+encoding also counts repeated occurrences. Text and supported images become
+temporary provider payloads, while durable messages retain only reference IDs.
+Special files and symlinks cannot substitute for a body during verified reads.
+
+Session deletion removes references transactionally. Shared bytes remain available
+to surviving owners. Physical orphan collection runs only during exclusive
+startup, before uploads or requests can run, in bounded directory batches. This
+also collects files left by successful publication followed by failed SQL.
+No live deletion can race the gap between publication and registration.
 
 ## Host and schema boundary
 

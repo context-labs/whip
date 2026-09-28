@@ -37,6 +37,8 @@ func Operations() []Operation {
 		{"turns.cancel", reflect.TypeFor[TurnParams](), reflect.TypeFor[Turn]()},
 		{"inputs.cancel", reflect.TypeFor[InputParams](), reflect.TypeFor[Input]()},
 		{"receipts.get", reflect.TypeFor[RequestIdentity](), reflect.TypeFor[Admission]()},
+		{"content.put", reflect.TypeFor[PutContentParams](), reflect.TypeFor[ContentReference]()},
+		{"content.read", reflect.TypeFor[ReadContentParams](), reflect.TypeFor[ReadContentResult]()},
 		{"definitions.register", reflect.TypeFor[DefinitionDocument](), reflect.TypeFor[Definition]()},
 		{"definitions.get", reflect.TypeFor[DefinitionRef](), reflect.TypeFor[Definition]()},
 	}

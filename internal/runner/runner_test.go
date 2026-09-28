@@ -61,7 +61,7 @@ func TestCompletedResponseWriteRetryDoesNotRedispatch(t *testing.T) {
 		calls++
 		cancel()
 		return model.Response{Parts: []session.Part{{Type: "text", Text: "already completed"}}}, nil
-	}), transcript, transcript)
+	}), transcript, transcript, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestMalformedUsageDoesNotEraseCompletedOutput(t *testing.T) {
 	transcript := &flakyTranscript{}
 	r, err := New(providerFunc(func(context.Context, model.Request) (model.Response, error) {
 		return model.Response{Parts: []session.Part{{Type: "text", Text: "completed"}}, Usage: session.ModelUsage{Input: new(int64(-1))}}, nil
-	}), transcript, transcript)
+	}), transcript, transcript, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

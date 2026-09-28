@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/context-labs/whip/internal/session"
 )
@@ -97,11 +99,27 @@ func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) 
 
 type chatMessage struct {
 	Role    string `json:"role"`
-	Content string `json:"content"`
+	Content any    `json:"content"`
+}
+
+type chatPart struct {
+	Type     string     `json:"type"`
+	Text     string     `json:"text,omitempty"`
+	ImageURL *chatImage `json:"image_url,omitempty"`
+}
+type chatImage struct {
+	URL string `json:"url"`
 }
 
 func encodeChat(request Request, maxTokens int64) ([]byte, error) {
+	if len(request.Messages) > 100 {
+		return nil, errors.New("model message count exceeds limit")
+	}
 	messages := make([]chatMessage, 0, len(request.Messages)+1)
+	remaining := session.MaxContentBytes - len(request.Instructions)
+	if remaining < 0 {
+		return nil, errors.New("provider instructions exceed context limit")
+	}
 	if request.Instructions != "" {
 		messages = append(messages, chatMessage{Role: "system", Content: request.Instructions})
 	}
@@ -112,14 +130,50 @@ func encodeChat(request Request, maxTokens int64) ([]byte, error) {
 		if message.Role != session.User && message.Role != session.Assistant && message.Role != session.System {
 			return nil, errors.New("model message role requires an unsupported encoding")
 		}
+		parts := make([]chatPart, 0, len(message.Parts))
 		var text strings.Builder
+		hasImage := false
 		for _, part := range message.Parts {
-			if part.Type != "text" {
-				return nil, errors.New("content references require authorized provider hydration")
+			if part.Type == "text" {
+				remaining -= len(part.Text)
+				if remaining < 0 {
+					return nil, errors.New("provider context exceeds content limit")
+				}
+				text.WriteString(part.Text)
+				parts = append(parts, chatPart{Type: "text", Text: part.Text})
+				continue
 			}
-			text.WriteString(part.Text)
+			content, ok := request.Contents[part.ReferenceID]
+			if !ok {
+				return nil, errors.New("content reference was not authorized and hydrated")
+			}
+			// Count each occurrence, including repeats of a reference, before
+			// base64 allocation. A small cache cannot permit an enormous wire body.
+			remaining -= len(content.Data)
+			if remaining < 0 {
+				return nil, errors.New("provider context exceeds content limit")
+			}
+			switch content.MediaType {
+			case "text/plain":
+				if !utf8.Valid(content.Data) {
+					return nil, errors.New("text content is not valid UTF-8")
+				}
+				text.Write(content.Data)
+				parts = append(parts, chatPart{Type: "text", Text: string(content.Data)})
+			case "image/png", "image/jpeg", "image/webp", "image/gif":
+				hasImage = true
+				parts = append(parts, chatPart{Type: "image_url", ImageURL: &chatImage{
+					URL: "data:" + content.MediaType + ";base64," + base64.StdEncoding.EncodeToString(content.Data),
+				}})
+			default:
+				return nil, errors.New("content media type is unsupported by the chat provider")
+			}
 		}
-		messages = append(messages, chatMessage{Role: string(message.Role), Content: text.String()})
+		var encoded any = text.String()
+		if hasImage {
+			encoded = parts
+		}
+		messages = append(messages, chatMessage{Role: string(message.Role), Content: encoded})
 	}
 	if len(messages) == 0 {
 		return nil, errors.New("model request has no messages")

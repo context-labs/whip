@@ -34,6 +34,22 @@ Aborting the wait only stops observation; `inputs.cancel` or `turns.cancel`
 explicitly cancels execution. History uses bounded pages and exact decimal-string
 cursors. The client keeps no transcript cache or second execution state machine.
 
+`turns.attempts` reads bounded provider accounting with exact decimal counters.
+Retries have separate attempt IDs, a shared logical-call ID, and a link to the
+completed response. Unknown usage/cost is `null`, independently of known zero.
+
+Use `content.put` with `{session_id, reference_id, media_type, data_base64}` to
+upload up to 4 MiB. Generate and retain a unique reference ID before sending;
+retrying it with the same owner, bytes and media type returns the same reference.
+Submit `{type: 'content', reference_id}` parts alongside text. `content.read`
+takes the owning session and reference IDs and returns verified `data_base64`.
+References are session-scoped; a digest is not an access token. The runtime
+hydrates authorized bytes for the provider while history keeps the reference.
+Each session is limited to 1,024 references and 64 MiB of referenced bytes.
+
+For configured HTTP providers, omit `-scripted` and use the host configuration
+described in [the development guide](../../docs/backend-redesign-development.md#openai-compatible-dispatch-increment).
+
 See [the runnable example](examples/session.mjs), [Go client](../../internal/client/client.go),
 and [real process acceptance](../../scripts/redesign/v4-fixture.test.mjs). Streaming,
 effect authority, engines and product-client adoption follow in later phases.

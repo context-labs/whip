@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/content"
 	"github.com/context-labs/whip/internal/runner"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/store"
@@ -36,6 +37,7 @@ type completion struct {
 }
 type Runtime struct {
 	store           *store.Store
+	content         *content.Store
 	runner          *runner.Runner
 	owner           *owner
 	directory       string
@@ -109,15 +111,27 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 			err = errors.Join(err, database.Close())
 		}
 	}()
-	loop, err := runner.New(provider, database, database)
+	bodies, err := content.New(directory)
 	if err != nil {
 		return nil, err
 	}
-	return &Runtime{
-		store: database, runner: loop, owner: lock, directory: directory, host: host, options: options,
+	if err := bodies.Collect(ctx, database.ContentReferenced); err != nil {
+		return nil, err
+	}
+	if err := database.PruneUnusedContent(ctx); err != nil {
+		return nil, err
+	}
+	r := &Runtime{
+		store: database, content: bodies, owner: lock, directory: directory, host: host, options: options,
 		wake: make(chan struct{}, 1), done: make(chan struct{}), active: map[session.SessionID]execution{},
-	}, nil
+	}
+	r.runner, err = runner.New(provider, database, database, r)
+	if err != nil {
+		return nil, err
+	}
+	return r, nil
 }
+
 func (r *Runtime) Identity() session.RuntimeID { return r.store.Identity() }
 func (r *Runtime) SocketPath() string          { return filepath.Join(r.directory, "runtime.sock") }
 func (r *Runtime) Done() <-chan struct{}       { return r.done }

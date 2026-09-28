@@ -224,3 +224,16 @@ func TestChatAccountingPresenceAndMalformedFields(t *testing.T) {
 		})
 	}
 }
+
+func TestRepeatedContentCannotExceedProviderEncodingBudget(t *testing.T) {
+	request := chatRequest()
+	request.Contents = map[string]Content{"image": {MediaType: "image/png", Data: make([]byte, 3<<20)}}
+	request.Messages[0].Parts = []session.Part{{Type: "content", ReferenceID: "image"}, {Type: "content", ReferenceID: "image"}}
+	if _, err := chatProvider("https://provider.example").Prepare(t.Context(), request); err == nil {
+		t.Fatal("repeated reference exceeded aggregate encoding budget")
+	}
+	request.Messages[0].Parts = []session.Part{{Type: "content", ReferenceID: "unresolved"}}
+	if _, err := chatProvider("https://provider.example").Prepare(t.Context(), request); err == nil {
+		t.Fatal("provider encoded an unauthorized reference")
+	}
+}

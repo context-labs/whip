@@ -1,5 +1,30 @@
 [
   {
+    "type": "PutContentParams",
+    "value": {
+      "session_id": "session_child",
+      "reference_id": "content_fixture",
+      "media_type": "text/plain",
+      "data_base64": "aGVsbG8="
+    },
+    "valid": true
+  },
+  {
+    "type": "ReadContentResult",
+    "value": {
+      "reference": {
+        "id": "content_fixture",
+        "session_id": "session_child",
+        "digest": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+        "size": "5",
+        "media_type": "text/plain",
+        "created_at": "2026-09-27T12:00:00.123456Z"
+      },
+      "data_base64": "aGVsbG8="
+    },
+    "valid": true
+  },
+  {
     "type": "ModelAttemptsResult",
     "value": {
       "items": [

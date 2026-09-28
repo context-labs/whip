@@ -4,6 +4,7 @@ package rpc
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,6 +43,23 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 		return nil, ErrMethod
 	}
 	switch method {
+	case "content.put":
+		return decode(raw, func(p protocol.PutContentParams) (any, error) {
+			if len(p.DataBase64) > base64.StdEncoding.EncodedLen(session.MaxContentBytes) {
+				return nil, fmt.Errorf("%w: content exceeds 4 MiB", session.ErrInvalid)
+			}
+			data, err := base64.StdEncoding.Strict().DecodeString(p.DataBase64)
+			if err != nil {
+				return nil, fmt.Errorf("%w: invalid content encoding", session.ErrInvalid)
+			}
+			value, err := r.PutContent(ctx, session.SessionID(p.SessionID), string(p.ReferenceID), p.MediaType, data)
+			return protocol.ContentReferenceFromDomain(value), err
+		})
+	case "content.read":
+		return decode(raw, func(p protocol.ReadContentParams) (any, error) {
+			value, data, err := r.ReadContent(ctx, session.SessionID(p.SessionID), string(p.ReferenceID), session.MaxContentBytes)
+			return protocol.ReadContentResult{Reference: protocol.ContentReferenceFromDomain(value), DataBase64: base64.StdEncoding.EncodeToString(data)}, err
+		})
 	case "initialize":
 		return decode(raw, func(p protocol.InitializeParams) (any, error) {
 			if p.ExpectedRuntimeID != nil && string(*p.ExpectedRuntimeID) != string(r.Identity()) {

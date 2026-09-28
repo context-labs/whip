@@ -24,7 +24,7 @@ production gates on `main` and `development` remain unchanged.
 
 | Command | Purpose |
 | --- | --- |
-| `task check:fast` | Active Go package formatting and all their tests; no npm install needed |
+| `task check:fast` | Active Go formatting, core tests and process-package build; no npm install needed |
 | `task check:change` | Fast gate, active builds/vet/race tests, generated contracts, SDK/examples, real-runtime fixture |
 | `task check:phase` | Change gate plus selected admission/recovery/accounting integration regressions |
 | `task check:analysis` | New lint findings since the frozen baseline, plus reachable vulnerability checks on the active packages |
@@ -39,8 +39,9 @@ configuration choice, not a prerequisite for CI.
 
 ## Active scope
 
-`REDESIGN_PACKAGES` in [Taskfile.yaml](../Taskfile.yaml) is the single Go package
-list for fast, build, vet, race and analysis checks:
+`REDESIGN_PACKAGES` in [Taskfile.yaml](../Taskfile.yaml) lists the fast Go checks.
+`REDESIGN_INTEGRATION_PACKAGES` adds the extracted subprocess implementation;
+their union, `REDESIGN_ALL_PACKAGES`, is used by build, vet, race and analysis:
 
 - `internal/content`: retained immutable content and access primitives.
 - `internal/session`: pure durable values, pinned definitions and configuration resolution.
@@ -49,6 +50,8 @@ list for fast, build, vet, race and analysis checks:
 - `internal/protocol`: independent v4 DTOs, schemas and interchange fixtures.
 - `internal/model`, `internal/runner`: injected provider adapter and ordinary execution loop.
 - `internal/runtime`: exclusive ownership, scheduling, cancellation and cleanup.
+- `internal/engine`, `internal/engine/quickjs`: guest execution contract and bundled QuickJS implementation.
+- `internal/engine/process`: isolated workers, process limits and checkpoint transport; full tests run at the change/CI boundary.
 - `internal/rpc`, `internal/client`: v4 transport mapping and initial Go client.
 - `cmd/whip-contract`: deterministic v4 generation and fixture validation.
 - `cmd/whip-runtime`: explicit-directory new runtime entry point.
@@ -57,6 +60,11 @@ All tests in these packages are active. Add new domain/store/runtime packages as
 they land. Remove old packages only when their retained guarantees have been
 replaced or their retirement is recorded. `go test -run` cannot hide test files
 that fail to compile.
+
+The process package's full race suite takes about 85 seconds locally, exercising
+resource exhaustion, cancellation and worker lifecycle. It remains required by
+`check:change`, `check:phase` and CI. `check:fast` checks its formatting and build
+without running this subprocess stress suite on each local edit.
 
 The phase gate separately names four existing daemon regressions: admission
 before provider construction, queued child input across restart, settlement
@@ -417,3 +425,34 @@ the command without `-scripted` against a local HTTP provider, observes a 429 an
 successful retry as distinct attempts, and verifies one committed response.
 This local fixture is not the required live-provider/engine smoke; that remains
 part of Phase 3 acceptance.
+
+Hosted validation passed for provider revision
+`acd97035f4fa21e1ed2efdb234def9f116ed239f` in
+[run 36373024664](https://github.com/context-labs/whip/actions/runs/36373024664):
+Linux, macOS, analysis and the required aggregate all succeeded. The preceding
+ledger revision `952546ee7e485da94261f7c164f0bbaac7a6f74b` passed
+[run 36372449220](https://github.com/context-labs/whip/actions/runs/36372449220).
+
+### Authorized content increment
+
+Fresh schema version 3 adds content-body metadata and session-scoped references.
+The runtime publishes immutable files before committing references, validates
+references inside input/message transactions, and hydrates bounded verified
+bytes for provider encoding. Startup collection removes unreferenced files while
+preserving shared bodies. The exact ownership, quotas and collection boundary
+are documented in [the domain contract](backend-domain.md#content-boundary).
+
+The v4 SDK fixture now uploads an image, retries its upload identity, reads it,
+rejects access/admission from another session, and sends it through the actual
+HTTP adapter. It checks that history retains the reference and the provider sees
+the image payload. Local race checks additionally cover SQL rollback, shared
+quotas across independent connections, corrupt bodies rejected before dispatch,
+complete reads beyond 64 KiB, special-file rejection and startup orphan cleanup.
+The real-provider/engine smoke and other Phase 3 acceptance remain pending.
+
+The combined content and subprocess-extraction change passed `task check:phase`
+and `task check:analysis` locally. The phase gate includes both SDK process
+fixtures, generated contract checks, race/shuffle coverage for the new core and
+isolated engine, and the four retained admission/accounting regressions. Static
+analysis reported zero issues and no reachable vulnerabilities. The v4 fixture
+also passed separately with `WHIP_SDK_RACE=1`.

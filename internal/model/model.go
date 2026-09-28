@@ -24,6 +24,14 @@ type Request struct {
 	Selection    session.ModelSelection
 	Instructions string
 	Messages     []Message
+	Contents     map[string]Content
+}
+
+// Content is a bounded, authorized request projection. Durable messages keep
+// only references; these bytes live only while preparing a provider request.
+type Content struct {
+	MediaType string
+	Data      []byte
 }
 type Response struct {
 	Parts               []session.Part

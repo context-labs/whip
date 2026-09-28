@@ -54,6 +54,14 @@ export interface Admission {
     finished_at: null | string;
   };
 }
+export interface ContentReference {
+  id: string;
+  session_id: string;
+  digest: string;
+  size: string;
+  media_type: string;
+  created_at: string;
+}
 export interface CreateTreeParams {
   metadata: {
     title: null | string;
@@ -474,11 +482,32 @@ export interface ModelAttemptsResult {
         finished_at: null | string;
       }[];
 }
+export interface PutContentParams {
+  session_id: string;
+  reference_id: string;
+  media_type: string;
+  data_base64: string;
+}
 export interface RPCError {
   code: number;
   message: string;
   kind:
     "INVALID" | "NOT_FOUND" | "CONFLICT" | "BUSY" | "LIMIT" | "STOPPED" | "CLOSED" | "IDENTITY" | "METHOD" | "INTERNAL";
+}
+export interface ReadContentParams {
+  session_id: string;
+  reference_id: string;
+}
+export interface ReadContentResult {
+  reference: {
+    id: string;
+    session_id: string;
+    digest: string;
+    size: string;
+    media_type: string;
+    created_at: string;
+  };
+  data_base64: string;
 }
 export interface Request {
   jsonrpc: "2.0";
@@ -720,6 +749,7 @@ export interface UpdateTreeParams {
 
 export interface ContractTypes {
   Admission: Admission;
+  ContentReference: ContentReference;
   CreateTreeParams: CreateTreeParams;
   CreateTreeResult: CreateTreeResult;
   Definition: Definition;
@@ -737,7 +767,10 @@ export interface ContractTypes {
   ListSessionsResult: ListSessionsResult;
   ModelAttemptsParams: ModelAttemptsParams;
   ModelAttemptsResult: ModelAttemptsResult;
+  PutContentParams: PutContentParams;
   RPCError: RPCError;
+  ReadContentParams: ReadContentParams;
+  ReadContentResult: ReadContentResult;
   Request: Request;
   RequestIdentity: RequestIdentity;
   Response: Response;
@@ -770,6 +803,8 @@ export interface Operations {
   "turns.cancel": { params: TurnParams; result: Turn };
   "inputs.cancel": { params: InputParams; result: Input };
   "receipts.get": { params: RequestIdentity; result: Admission };
+  "content.put": { params: PutContentParams; result: ContentReference };
+  "content.read": { params: ReadContentParams; result: ReadContentResult };
   "definitions.register": { params: DefinitionDocument; result: Definition };
   "definitions.get": { params: DefinitionRef; result: Definition };
 }

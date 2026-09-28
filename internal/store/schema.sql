@@ -43,6 +43,22 @@ CREATE TABLE session_configurations (
 CREATE TRIGGER configuration_immutable BEFORE UPDATE ON session_configurations
  BEGIN SELECT RAISE(ABORT, 'configuration revision is immutable'); END;
 
+CREATE TABLE content_bodies (
+ digest TEXT PRIMARY KEY CHECK(length(digest)=64 AND digest NOT GLOB '*[^0-9a-f]*'),
+ size INTEGER NOT NULL CHECK(size BETWEEN 0 AND 4194304)
+) STRICT;
+CREATE TRIGGER content_body_immutable BEFORE UPDATE ON content_bodies
+ BEGIN SELECT RAISE(ABORT, 'content body is immutable'); END;
+CREATE TABLE content_references (
+ id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+ digest TEXT NOT NULL REFERENCES content_bodies(digest), media_type TEXT NOT NULL,
+ created_at INTEGER NOT NULL
+) STRICT;
+CREATE INDEX content_owner ON content_references(session_id,id);
+CREATE INDEX content_digest ON content_references(digest);
+CREATE TRIGGER content_reference_immutable BEFORE UPDATE ON content_references
+ BEGIN SELECT RAISE(ABORT, 'content reference is immutable'); END;
+
 CREATE TABLE turns (
  id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
  config_revision INTEGER NOT NULL, state TEXT NOT NULL
