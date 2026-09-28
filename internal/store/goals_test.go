@@ -404,9 +404,14 @@ func TestGoalBusyAndResumeCapacityKeepGoalUnchanged(t *testing.T) {
 	if _, err := s.ResumeGoal(t.Context(), session.RequestIdentity{ClientID: "c", RequestID: "r"}, owner.ID, goal.Goal.GoalRef); !errors.Is(err, ErrBusy) {
 		t.Fatal(err)
 	}
-	if _, err := s.Finish(t.Context(), active.Turn.ID, session.Succeeded, nil, nil); err != nil {
+	if _, err := s.Finish(t.Context(), active.Turn.ID, session.Failed, new("failed"), nil); err != nil {
 		t.Fatal(err)
 	}
+	paused, err := s.Goal(t.Context(), owner.ID, goal.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	goal.Goal = &paused
 	resourceLimit(t, s, owner.ID, session.ResourceQueuedInputs, 0)
 	if _, err := s.ResumeGoal(t.Context(), session.RequestIdentity{ClientID: "c", RequestID: "r"}, owner.ID, goal.Goal.GoalRef); !errors.Is(err, ErrLimit) {
 		t.Fatal(err)

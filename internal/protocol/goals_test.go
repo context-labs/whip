@@ -36,3 +36,17 @@ func TestGoalEligibilityFalsePatchAndInputProvenance(t *testing.T) {
 		t.Fatal(value)
 	}
 }
+
+func TestTurnRetainsExactCapturedGoal(t *testing.T) {
+	value := TurnFromDomain(session.Turn{ID: "turn", SessionID: "owner", Kind: session.PromptInput, State: session.Running, ConfigRevision: 1, Goal: &session.GoalRef{ID: "goal", Revision: 9007199254740993}, StartedAt: time.Now()})
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Validate("Turn", raw); err != nil {
+		t.Fatal(err)
+	}
+	if value.Goal == nil || value.Goal.Revision != 9007199254740993 {
+		t.Fatal(value)
+	}
+}

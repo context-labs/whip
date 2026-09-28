@@ -166,6 +166,7 @@ func (s TurnState) CanTransitionTo(next TurnState) bool {
 }
 
 type Turn struct {
+	Goal      *GoalRef
 	ID        TurnID
 	SessionID SessionID
 	// Kind is derived from the accepted input. Mail-only turns are prompt turns.

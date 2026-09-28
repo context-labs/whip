@@ -1144,6 +1144,10 @@
   {
     "type": "Turn",
     "value": {
+      "goal": {
+        "id": "goal_fixture",
+        "revision": "9007199254740993"
+      },
       "id": "turn_fixture",
       "session_id": "session_child",
       "kind": "prompt",

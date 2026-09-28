@@ -79,12 +79,17 @@ func readInput(ctx context.Context, q querier, id session.InputID) (result sessi
 
 func readTurn(ctx context.Context, q querier, id session.TurnID) (result session.Turn, err error) {
 	var started int64
+	var goalID *session.GoalID
+	var goalRevision sql.NullInt64
 	var finished sql.NullInt64
 	err = q.QueryRowContext(ctx, `SELECT id,session_id,config_revision,state,failure,started_at,finished_at,
- COALESCE((SELECT kind FROM inputs WHERE turn_id=turns.id),'prompt') FROM turns WHERE id=?`, id).
-		Scan(&result.ID, &result.SessionID, &result.ConfigRevision, &result.State, &result.Failure, &started, &finished, &result.Kind)
+ COALESCE((SELECT kind FROM inputs WHERE turn_id=turns.id),'prompt'),goal_id,goal_revision FROM turns WHERE id=?`, id).
+		Scan(&result.ID, &result.SessionID, &result.ConfigRevision, &result.State, &result.Failure, &started, &finished, &result.Kind, &goalID, &goalRevision)
 	if err != nil {
 		return result, found(err)
+	}
+	if goalID != nil {
+		result.Goal = &session.GoalRef{ID: *goalID, Revision: goalRevision.Int64}
 	}
 	result.StartedAt = timestamp(started)
 	result.FinishedAt = optionalTime(finished)
@@ -262,6 +267,7 @@ type Claim struct {
 }
 
 func (s *Store) Claim(ctx context.Context, id session.SessionID) (result Claim, err error) {
+	skipped := false
 	err = s.write(ctx, func(tx *sql.Tx) error {
 		current, err := readSession(ctx, tx, id)
 		if err != nil {
@@ -290,9 +296,29 @@ func (s *Store) Claim(ctx context.Context, id session.SessionID) (result Claim, 
 		} else if err != nil {
 			return err
 		}
+		var input *session.Input
+		if inputID != "" {
+			value, e := readInput(ctx, tx, inputID)
+			if e != nil {
+				return e
+			}
+			input = &value
+		}
+		goal, skip, err := claimGoal(ctx, tx, current, input)
+		if err != nil {
+			return err
+		}
+		if skip {
+			skipped = true
+			return nil
+		}
+		var goalID, goalRevision any
+		if goal != nil {
+			goalID, goalRevision = goal.ID, goal.Revision
+		}
 		turnID := session.TurnID(newID("turn"))
 		started := now()
-		if _, err := tx.ExecContext(ctx, "INSERT INTO turns VALUES (?,?,?,'running',NULL,?,NULL)", turnID, id, current.ConfigRevision, started); err != nil {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO turns (id,session_id,config_revision,state,started_at,goal_id,goal_revision) VALUES (?,?,?,'running',?,?,?)", turnID, id, current.ConfigRevision, started, goalID, goalRevision); err != nil {
 			return err
 		}
 		result.Turn, err = readTurn(ctx, tx, turnID)
@@ -337,6 +363,9 @@ func (s *Store) Claim(ctx context.Context, id session.SessionID) (result Claim, 
 		result.Configuration = current.Config
 		return nil
 	})
+	if err == nil && skipped {
+		err = ErrNoWork
+	}
 	return
 }
 
@@ -540,7 +569,9 @@ func (s *Store) Finish(ctx context.Context, id session.TurnID, state session.Tur
 		}
 		result, err = readTurn(ctx, tx, id)
 		if err == nil && !current.State.Terminal() {
-			err = captureCompletion(ctx, tx, result)
+			if err = finishGoal(ctx, tx, result); err == nil {
+				err = captureCompletion(ctx, tx, result)
+			}
 		}
 		return err
 	})

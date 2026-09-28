@@ -227,3 +227,7 @@ func TestOutputUnconfiguredOrClearedDoesNotAddPolicy(t *testing.T) {
 		t.Fatal("correction notice is not bounded UTF-8")
 	}
 }
+
+func (*outputLedger) TurnGoal(context.Context, session.TurnID) (*session.GoalContext, error) {
+	return nil, errors.New("goal context not configured")
+}

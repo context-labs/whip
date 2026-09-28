@@ -203,14 +203,15 @@ type Input struct {
 	Schedule  *ScheduleOccurrence `json:"schedule"`
 }
 type Turn struct {
-	ID             ID      `json:"id"`
-	SessionID      ID      `json:"session_id"`
-	Kind           string  `json:"kind" enum:"prompt,compact"`
-	ConfigRevision Counter `json:"config_revision"`
-	State          string  `json:"state" enum:"running,cancelling,succeeded,failed,cancelled,interrupted"`
-	Failure        *string `json:"failure"`
-	StartedAt      string  `json:"started_at"`
-	FinishedAt     *string `json:"finished_at"`
+	Goal           *GoalRef `json:"goal"`
+	ID             ID       `json:"id"`
+	SessionID      ID       `json:"session_id"`
+	Kind           string   `json:"kind" enum:"prompt,compact"`
+	ConfigRevision Counter  `json:"config_revision"`
+	State          string   `json:"state" enum:"running,cancelling,succeeded,failed,cancelled,interrupted"`
+	Failure        *string  `json:"failure"`
+	StartedAt      string   `json:"started_at"`
+	FinishedAt     *string  `json:"finished_at"`
 }
 type Message struct {
 	ID        ID       `json:"id"`

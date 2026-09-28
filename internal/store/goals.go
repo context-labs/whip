@@ -26,11 +26,11 @@ type GoalChange struct {
 	CancelTurnID *session.TurnID
 }
 
-const goalSelect = `SELECT id,revision,session_id,text,max_continuations,state,continuations_used,stop_reason,created_at FROM goals`
+const goalSelect = `SELECT id,revision,session_id,text,max_continuations,state,continuations_used,stop_reason,created_at,completion_turn_id,completion_operation_id FROM goals`
 
 func scanGoal(row scanner) (value session.Goal, err error) {
 	var created int64
-	err = row.Scan(&value.ID, &value.Revision, &value.SessionID, &value.Spec.Text, &value.Spec.MaxContinuations, &value.State, &value.ContinuationsUsed, &value.StopReason, &created)
+	err = row.Scan(&value.ID, &value.Revision, &value.SessionID, &value.Spec.Text, &value.Spec.MaxContinuations, &value.State, &value.ContinuationsUsed, &value.StopReason, &created, &value.CompletionTurnID, &value.CompletionOperationID)
 	if err != nil {
 		return value, found(err)
 	}
@@ -273,7 +273,7 @@ func (s *Store) ResumeGoal(ctx context.Context, identity session.RequestIdentity
 			return ErrConflict
 		}
 		var outstanding, started bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM inputs i LEFT JOIN turns t ON t.id=i.turn_id WHERE i.goal_id=? AND ((i.turn_id IS NULL AND i.cancelled_at IS NULL) OR t.state IN ('running','cancelling'))),EXISTS(SELECT 1 FROM inputs WHERE goal_id=?)`, ref.ID, ref.ID).Scan(&outstanding, &started); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM inputs i LEFT JOIN turns t ON t.id=i.turn_id WHERE i.goal_id=? AND ((i.turn_id IS NULL AND i.cancelled_at IS NULL) OR t.state IN ('running','cancelling'))),(EXISTS(SELECT 1 FROM inputs WHERE goal_id=?) OR EXISTS(SELECT 1 FROM turns WHERE goal_id=?))`, ref.ID, ref.ID, ref.ID).Scan(&outstanding, &started); err != nil {
 			return err
 		}
 		if outstanding {

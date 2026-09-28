@@ -20,6 +20,7 @@ type Provider interface {
 	Prepare(context.Context, model.Request) (model.Prepared, error)
 }
 type Transcript interface {
+	TurnGoal(context.Context, session.TurnID) (*session.GoalContext, error)
 	History(context.Context, session.SessionID, int64, int) ([]session.Message, error)
 	Continuations(context.Context, session.SessionID, []session.MessageID) (map[session.MessageID]session.ModelContinuation, error)
 }
@@ -104,6 +105,9 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 		request.Tools = []model.Tool{{Name: "execute", Description: "Execute a code cell in this session’s persistent, isolated REPL. Host operations require separate authority.", InputSchema: json.RawMessage(`{"type":"object","properties":{"code":{"type":"string"}},"required":["code"],"additionalProperties":false}`)}}
 	}
 	request.Instructions += outputInstructions(configuration.OutputSchema)
+	if err := r.addGoalContext(ctx, turn, &request); err != nil {
+		return Failure(err), nil
+	}
 	folds := 0
 	size, err := r.prepareContext(ctx, turn, configuration, &request, &folds, nil)
 	if err != nil {

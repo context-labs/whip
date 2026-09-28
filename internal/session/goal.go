@@ -68,6 +68,8 @@ func (s GoalState) Open() bool { return s == GoalArmed || s == GoalPaused }
 // Goal owns an immutable objective and allowance. Current selection is derived
 // from creation order, including terminal goals; revision never selects a goal.
 type Goal struct {
+	CompletionTurnID      *TurnID      `json:"completion_turn_id"`
+	CompletionOperationID *OperationID `json:"completion_operation_id"`
 	GoalRef
 	SessionID         SessionID `json:"session_id"`
 	Spec              GoalSpec  `json:"spec"`
@@ -75,4 +77,29 @@ type Goal struct {
 	ContinuationsUsed int64     `json:"continuations_used,string"`
 	StopReason        *string   `json:"stop_reason"`
 	CreatedAt         time.Time `json:"created_at"`
+}
+
+// GoalContext is read from a turn's immutable goal reference. It contains no live
+// goal state or authority and is never inherited by stateless model helpers.
+type GoalContext struct {
+	GoalRef
+	Spec GoalSpec `json:"spec"`
+}
+
+// GoalCompletion records an authorized intent. Only successful turn settlement
+// can apply it to the still-current goal.
+type GoalCompletion struct {
+	GoalID           GoalID `json:"goal_id"`
+	ExpectedRevision int64  `json:"expected_revision,string"`
+	Evidence         string `json:"evidence"`
+}
+
+func (g GoalCompletion) Validate() error {
+	if err := (GoalRef{ID: g.GoalID, Revision: g.ExpectedRevision}).Validate(); err != nil {
+		return err
+	}
+	if !utf8.ValidString(g.Evidence) {
+		return fmt.Errorf("%w: evidence must be UTF-8", ErrInvalid)
+	}
+	return ValidateText(g.Evidence, 16384)
 }
