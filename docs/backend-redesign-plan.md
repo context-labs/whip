@@ -690,6 +690,13 @@ and SDK acceptance/outcome distinction. These decisions deliberately replace
 legacy in-memory round resets and automatic rearming after failure; they are not
 claims that goal support is already implemented.
 
+The goal-record foundation now implements immutable specifications, revisioned
+lifecycle, exact create/resume retries, current selection, atomic ordinary-input
+admission and deletion tombstones. Fresh config is 8 and schema 27. Generated
+input projections preserve goal provenance and exact decimal revisions. The
+public goal API is intentionally not exposed before execution is complete;
+turn capture, continuation, typed completion and formulation remain open.
+
 Stateless model-helper implementation decisions (work remains open):
 
 - Preserve `models.call(prompt, max_tokens)` and ordered
@@ -735,6 +742,61 @@ Deliver helper accounting/join/fatal boundaries, then single-call execution,
 then bounded batch orchestration and both-engine SDK acceptance. Retain tests
 for caught host failures, exact attempt/HTTP counts, ancestor overages, output
 preservation, reversed completion order, cancellation, restart and large content.
+
+
+Fork, rewind and workspace implementation decisions (work remains open):
+
+- Make content handles unique within their owner using `(owner_session_id,
+  reference_id)`. Fork can copy existing handles into a new owner while storing
+  body bytes once. Qualify registration retries, logical-write identities and
+  mail-evidence foreign keys accordingly; a digest never grants access. This
+  preserves handles embedded in opaque text without aliases or string rewriting.
+- Give every transcript message an immutable history-group identity and explicit
+  opening-input marker. Native groups use their turn identity; imported groups
+  retain immutable source provenance without fabricated turns, inputs, attempts
+  or spending. Shared group boundaries drive context tails and compaction pins.
+- Keep one current history. A session owns a history revision; messages retain
+  immutable bodies and write-once retirement metadata. Rewind records an
+  immutable edit, advances the revision and hides the suffix from current
+  history/context/search. Exact evidence reads remain possible. Message sequence
+  numbers never repeat, including after retirement and new work.
+- Rewind compares both expected history revision and observed through-sequence:
+  revision alone cannot detect an unseen newly completed turn. Require a stopped
+  owner with no active turn or queued input for the initial implementation.
+  Query boundaries and revisions together. Exact edit retries resolve before
+  later CAS/lifecycle checks. Do not rewind mail, goals, state, budgets or effects.
+- Rewind explicitly resets the REPL. Capture history revision on turns and tag
+  cached kernels/checkpoint selection with it, so a crash between the SQL edit
+  and cache disposal cannot restore the retired state. Fork begins with an empty
+  REPL. Neither operation replays code or claims VM time travel.
+- Fork atomically creates a new tree/root from an explicitly selected terminal
+  history-group boundary, history revision and configuration revision. Copy
+  history, pinned configuration/definition/engine, authorized content and scoped
+  private continuation, subject to destination bounds. Exact fork identity/digest
+  retries and deletion tombstones prevent duplicates. Copy no children, grants,
+  schedules, mail, state, operations, checkpoints or spending. Workspace directory
+  reuse does not create a Git worktree. Do not clone an armed goal or authority;
+  retaining goal text as a new paused goal or origin metadata needs an explicit
+  product decision in the implementation slice.
+- Preserve selected compaction summaries and pins wholly covered by the fork
+  boundary with immutable source provenance, without fake model charges. Rewind
+  clears incompatible selection while retaining old summary evidence and prevents
+  later selection of summaries that cover retired history.
+- Keep workspace restore separate from conversation rewind. The retained Git
+  checkout is a tracked-path overlay, not an exact rollback: it does not restore
+  untracked files, remove all later files or preserve staging. Expose those
+  semantics truthfully until an explicit stronger restore is implemented. Use
+  opaque snapshot identities bound to worktree/scope, retain pins until release,
+  and claim restore durably before Git executes. Interrupted or partially failed
+  restores are uncertain and never automatically replayed. A workspace writer
+  lock does not freeze external editors. Retire the old compound restore-then-SQL
+  rewind because external effects and database edits cannot commit atomically.
+
+Deliver content ownership, then history groups/revisions and REPL invalidation,
+then fork imports, then separate workspace operations. Acceptance includes
+source deletion/double forks, opaque handles, exact retries, concurrent stale
+history edits, compaction pins, non-reused sequences, restart/reset boundaries,
+and tracked/untracked/deleted/staged file behavior and partial restore failures.
 
 Acceptance:
 

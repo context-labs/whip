@@ -21,6 +21,8 @@ separate legacy runtime and SDK until their client cutover.
 | Configuration used by execution | Turn's pinned configuration revision |
 | Captured instruction source paths, byte counts and digests | One immutable instruction manifest per ordinary turn in SQLite; full composed text lives only in that turn's execution memory |
 | Schedule template and next occurrence | One schedule row; immutable admitted occurrences belong to ordinary inputs |
+| Goal objective, allowance, revision and state | One goal row; current selection derives from its owner's latest creation ordinal |
+| Accepted goal work | Ordinary input with immutable goal ID/revision provenance |
 | Accepted input kind and payload | Input row (`prompt` or `compact`); turn kind is a read projection |
 | Request identity and payload digest | Receipt row |
 | Execution outcome | Turn row; input and receipt outcomes are derived |
@@ -155,6 +157,39 @@ sequence. An empty page means the end; a short page can reflect the byte budget.
 Messages and configuration documents are bounded at admission. SQL timestamps
 use integer UTC microseconds, avoiding mixed-precision textual ordering.
 
+## Goal records and admission
+
+A goal row owns immutable text and continuation allowance, plus revision, state
+and consumed continuations. The latest creation ordinal is current even after
+completion or cancellation; no second selection pointer exists. At most one goal
+per session is armed or paused. Replacing text creates a new goal ID and requires
+the expected current ID/revision (or null if no goal has existed). Exact ID/digest
+retries return the original admission before checking later lifecycle or state,
+so replay cannot reselect an old goal.
+
+Creation atomically replaces any open goal, cancels its unclaimed inputs, charges
+the objective text and optionally admits the first ordinary prompt. Failure at
+any write or capacity check rolls everything back. Goal inputs retain only their
+provenance and a fixed instruction; they do not duplicate the objective text.
+The internal `goal` receipt namespace cannot be submitted by public callers.
+A missing continuation allowance means 100; explicit zero is supported.
+
+Resume uses an ordinary caller request identity and expected goal revision. It
+admits one prompt and advances the revision without resetting consumed allowance.
+Busy, stopped, ineligible or exhausted goals refuse new admission. Cancellation
+addresses a stable goal ID, cancels unclaimed goal inputs and returns only the
+exact active goal-owned turn for runtime cancellation; a separate human turn
+remains independently owned. Session deletion clears objective text but retains
+an identity tombstone so an old creation retry cannot recreate work.
+
+`goals_enabled` is copied configuration, not authority. Assistant definitions
+enable eligibility by default; an explicit false override remains false. Existing
+children and active turns retain their captured configurations. This first
+increment implements the internal records and admission boundary only. Turn goal
+capture, automatic continuation, typed completion, formulation, public commands
+and SDK services remain pending; no public command starts partially implemented
+goal execution.
+
 ## Content boundary
 
 `content.put` publishes bytes durably before registering body metadata and a
@@ -189,7 +224,7 @@ reads the retired home/config. A new host config is valid but unconfigured: user
 must select a model/provider before creating a runnable session. Credentials are
 environment references resolved only when constructing a provider client.
 
-Current fresh host configuration is version 7; the SQLite schema is version 26.
+Current fresh host configuration is version 8; the SQLite schema is version 27.
 SQLite has an application identifier and schema version. Existing databases of
 another application/version are rejected, not imported. Reopening preserves the
 runtime identity and seeded revisions; separate databases receive distinct
