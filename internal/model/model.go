@@ -69,6 +69,9 @@ type Prepared struct {
 	Snapshot    session.ModelRequestSnapshot
 	Execute     func(context.Context, func(Chunk)) (Response, error)
 	MaxAttempts int
+	// ContextWindowTokens is optional host policy for context planning, not a
+	// measured request size or the durable input reservation bound.
+	ContextWindowTokens *int64
 }
 
 func (s Scripted) Prepare(_ context.Context, request Request) (Prepared, error) {

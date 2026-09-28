@@ -123,6 +123,11 @@ func (h Host) Validate() error {
 			}
 		}
 	}
+	if h.Defaults.Compaction.Model != nil {
+		if _, ok := h.Providers[h.Defaults.Compaction.Model.Provider]; !ok {
+			return fmt.Errorf("%w: compaction provider route is absent", session.ErrInvalid)
+		}
+	}
 	if h.Defaults.Model == (session.ModelSelection{}) {
 		// Validate declarations while permitting the deliberate unconfigured state.
 		value := h.Defaults.Clone()

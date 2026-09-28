@@ -13,6 +13,24 @@ const (
 	MaxCompactionPins  = 32
 )
 
+// CompactionPolicy selects the helper route and proactive context threshold.
+// A nil model uses the turn's captured conversation model. Threshold zero asks
+// Resolve to capture the default of 50 percent; explicit values are 1 to 100.
+type CompactionPolicy struct {
+	Model            *ModelSelection `json:"model"`
+	ThresholdPercent int             `json:"threshold_percent"`
+}
+
+func (p CompactionPolicy) Validate() error {
+	if p.ThresholdPercent < 0 || p.ThresholdPercent > 100 {
+		return fmt.Errorf("%w: compaction threshold must be 1–100 percent or zero for the default", ErrInvalid)
+	}
+	if p.Model != nil {
+		return p.Model.Validate()
+	}
+	return nil
+}
+
 // ContextHead selects a derived summary without modifying raw history. An
 // existing session with no selection history has revision zero and a nil ID.
 type ContextHead struct {

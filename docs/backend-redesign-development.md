@@ -1233,3 +1233,50 @@ clean. The recovery increment rebased onto that fix without conflicts; the real
 SDK acceptance passed again (11.927 s) and final whole-scope analysis remained
 clean. Updated hosted gates are pending; prior failed macOS evidence is not
 reported as a pass.
+
+## Phase 5 captured compaction policy
+
+Fresh schema 18 captures one compaction policy with each session configuration
+and turn: a helper model or conversation-model fallback, plus a 1–100% threshold
+whose explicit zero reset resolves to 50%. Host defaults, definitions, session
+patches and parent-to-child copies share whole-field resolution. Active turns
+keep their old policy; reopening storage never re-resolves it. Every compaction
+trigger uses that helper route, with no fallback for an invalid explicit route.
+
+The runner checks proactive pressure before ordinary requests and after a final
+reply if no fold has occurred. The current turn's validated ordinary input count
+is authoritative when known, including zero; otherwise a bounded saturating
+request estimate is used. Later request growth is estimated. Helper usage,
+child usage and reservation bounds do not measure occupancy. Fold or route/window
+changes invalidate measurements. No cross-turn usage cache is introduced, so
+warm and restarted turns behave alike. Unknown windows disable only proactive
+checks. An estimate cannot itself reject a request as too large.
+
+No replaceable source, including a prefix too small to beat the smallest quoted
+summary envelope, skips proactive helper dispatch. Later material is rechecked.
+A useful fold whose estimated floor still exceeds the threshold stalls further
+proactive helpers for the rest of that turn, while local and confirmed-rejection
+paths remain available. A failed post-final helper preserves the durable answer
+and records a failed turn. Explicit retry attempts can preserve an earlier
+validated ordinary input observation without altering their separate ledgers.
+
+The SDK HTTP fixture changes A/50% to B/75% while the sixth ordinary request is
+blocked. Its 60,000/100,000 usage folds under the captured A/50% policy, and the
+next maintenance turn uses B. Helper usage of 90,000 is billed independently
+without triggering another fold. Reset/restart restores conversation-model
+fallback, and a missing explicit helper route fails without a provider request.
+The initial pricing assertion exposed incomplete fixture usage details; reporting
+explicit zero category counts permits the expected exact cost of 270,010 nano-USD.
+Production unknown-cost semantics were preserved.
+
+`task check:phase` passed: store race 69.381 s, runtime race 71.533 s, runner race
+2.485 s, both engines, generated contract/SDK checks, new SDK acceptance 11.572 s,
+retained process acceptance 3.782 s and required daemon regressions 2.786 s.
+`task check:analysis` reports zero lint issues and no reachable vulnerabilities.
+Independent review and focused runner race/shuffle tests also passed.
+
+The branch filter previously omitted PRs whose base was a context-named redesign
+branch. Foundation commit `da6b1f807` broadens it to every `codex/backend-redesign-*`
+base, preserving the exact integration branch. `actionlint` passed. This restores
+hosted checks for the stack; it does not substitute for their eventual results.
+Dynamic instruction refresh and the remaining Phase 5–7 obligations stay open.

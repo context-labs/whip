@@ -75,12 +75,13 @@ func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) 
 	if route.MaxAttempts < 1 || route.MaxAttempts > 5 {
 		return Prepared{}, fmt.Errorf("%w: invalid provider attempt limit", session.ErrInvalid)
 	}
-	var inputBound *int64
+	var inputBound, contextWindow *int64
 	if route.ContextWindowTokens != nil {
 		if *route.ContextWindowTokens < 1 || *route.ContextWindowTokens > 1000000000 || route.MaxOutputTokens > *route.ContextWindowTokens {
 			return Prepared{}, fmt.Errorf("%w: context window must be 1–1000000000 tokens and at least the output limit", session.ErrInvalid)
 		}
 		inputBound = new(*route.ContextWindowTokens)
+		contextWindow = new(*route.ContextWindowTokens)
 	}
 	if strings.ContainsAny(route.Credential, "\r\n\x00") {
 		return Prepared{}, errors.New("provider credential contains invalid header characters")
@@ -112,7 +113,7 @@ func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) 
 	}
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return Prepared{
-		Snapshot: snapshot, MaxAttempts: route.MaxAttempts,
+		Snapshot: snapshot, MaxAttempts: route.MaxAttempts, ContextWindowTokens: contextWindow,
 		Execute: func(ctx context.Context, emit func(Chunk)) (Response, error) {
 			return executeChat(ctx, &client, snapshot.Route, route.Credential, body, allowedTools, emit)
 		},

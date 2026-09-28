@@ -146,6 +146,13 @@ idle revision-checked undo without changing history, files or REPL state.
 boundary and bounded exact byte reads. Follow search continuation even for empty
 match pages; concatenate bytes before decoding. Never replace client transcript
 history with a summary or acknowledge mail merely by inspecting it.
+Compaction settings are one revisioned configuration field. Send the complete
+`compaction` object when editing it: `model: null` uses the conversation model,
+and `threshold_percent: 0` captures the default 50 percent. Effective settings
+always expose 1–100. An active turn retains its captured policy; editing settings
+changes the next turn. Summary helpers have ordinary attempt billing but no
+conversation reply. Preserve a raw final answer even if a subsequent helper
+fails and the turn reports failure.
 Product clients continue to use the explicitly retained packages until their
 cutover. The package map below describes those retained clients.
 

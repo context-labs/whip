@@ -245,6 +245,14 @@ export interface CreateTreeParams {
     revision: string;
   };
   overrides: {
+    compaction?: null | {
+      model: null | {
+        provider: string;
+        name: string;
+        effort: string;
+      };
+      threshold_percent: number;
+    };
     report_mode?: null | ("notice" | "inline" | "message");
     model?: null | {
       provider: string;
@@ -304,6 +312,14 @@ export interface CreateTreeResult {
     };
     config_revision: string;
     configuration: {
+      compaction: {
+        model: null | {
+          provider: string;
+          name: string;
+          effort: string;
+        };
+        threshold_percent: number;
+      };
       report_mode: "notice" | "inline" | "message";
       model: {
         provider: string;
@@ -351,6 +367,14 @@ export interface Definition {
     id: string;
     name: string;
     defaults: {
+      compaction?: null | {
+        model: null | {
+          provider: string;
+          name: string;
+          effort: string;
+        };
+        threshold_percent: number;
+      };
       report_mode?: null | ("notice" | "inline" | "message");
       model?: null | {
         provider: string;
@@ -393,6 +417,14 @@ export interface DefinitionDocument {
   id: string;
   name: string;
   defaults: {
+    compaction?: null | {
+      model: null | {
+        provider: string;
+        name: string;
+        effort: string;
+      };
+      threshold_percent: number;
+    };
     report_mode?: null | ("notice" | "inline" | "message");
     model?: null | {
       provider: string;
@@ -866,6 +898,14 @@ export interface ListSessionsResult {
         };
         config_revision: string;
         configuration: {
+          compaction: {
+            model: null | {
+              provider: string;
+              name: string;
+              effort: string;
+            };
+            threshold_percent: number;
+          };
           report_mode: "notice" | "inline" | "message";
           model: {
             provider: string;
@@ -1442,6 +1482,14 @@ export interface Session {
   };
   config_revision: string;
   configuration: {
+    compaction: {
+      model: null | {
+        provider: string;
+        name: string;
+        effort: string;
+      };
+      threshold_percent: number;
+    };
     report_mode: "notice" | "inline" | "message";
     model: {
       provider: string;
@@ -1706,6 +1754,14 @@ export interface SpawnSessionParams {
     revision: string;
   };
   overrides: {
+    compaction?: null | {
+      model: null | {
+        provider: string;
+        name: string;
+        effort: string;
+      };
+      threshold_percent: number;
+    };
     report_mode?: null | ("notice" | "inline" | "message");
     model?: null | {
       provider: string;
@@ -1800,6 +1856,14 @@ export interface SpawnSessionResult {
     };
     config_revision: string;
     configuration: {
+      compaction: {
+        model: null | {
+          provider: string;
+          name: string;
+          effort: string;
+        };
+        threshold_percent: number;
+      };
       report_mode: "notice" | "inline" | "message";
       model: {
         provider: string;
@@ -2067,6 +2131,14 @@ export interface UpdateConfigurationParams {
   session_id: string;
   expected_revision: string;
   patch: {
+    compaction?: null | {
+      model: null | {
+        provider: string;
+        name: string;
+        effort: string;
+      };
+      threshold_percent: number;
+    };
     report_mode?: null | ("notice" | "inline" | "message");
     model?: null | {
       provider: string;

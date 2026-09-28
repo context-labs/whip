@@ -160,6 +160,9 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 				child.MaxItems = new(128)
 			}
 		}
+		if t == reflect.TypeFor[Configuration]() {
+			schema.Properties["compaction"].Properties["threshold_percent"].Minimum = new(1.0)
+		}
 		if t == reflect.TypeFor[Input]() || t == reflect.TypeFor[SubmitParams]() || t == reflect.TypeFor[SpawnSessionParams]() {
 			schema.Properties["parts"].Items = partSchema("text", "content")
 		}
