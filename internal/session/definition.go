@@ -83,6 +83,7 @@ func (r DefinitionRef) Validate() error {
 type Configuration struct {
 	ReportMode   ReportMode                 `json:"report_mode"`
 	Model        ModelSelection             `json:"model"`
+	Compaction   CompactionPolicy           `json:"compaction"`
 	Instructions Instructions               `json:"instructions"`
 	Tools        map[string]ToolDeclaration `json:"tools"`
 	Children     map[string]DefinitionRef   `json:"children"`
@@ -96,6 +97,7 @@ type Configuration struct {
 type ConfigPatch struct {
 	ReportMode   *ReportMode                `json:"report_mode"`
 	Model        *ModelSelection            `json:"model"`
+	Compaction   *CompactionPolicy          `json:"compaction"`
 	Instructions *Instructions              `json:"instructions"`
 	Tools        map[string]ToolDeclaration `json:"tools"`
 	Children     map[string]DefinitionRef   `json:"children"`
@@ -130,6 +132,9 @@ func Builtins() []DefinitionDocument {
 }
 
 func (c Configuration) Clone() Configuration {
+	if c.Compaction.Model != nil {
+		c.Compaction.Model = new(*c.Compaction.Model)
+	}
 	c.Instructions.ProjectFiles = slices.Clone(c.Instructions.ProjectFiles)
 	c.Tools = maps.Clone(c.Tools)
 	for name, tool := range c.Tools {
@@ -158,6 +163,9 @@ func Resolve(base Configuration, definition DefinitionDocument, overrides Config
 		if patch.Model != nil {
 			resolved.Model = *patch.Model
 		}
+		if patch.Compaction != nil {
+			resolved.Compaction = *patch.Compaction
+		}
 		if patch.ReportMode != nil {
 			resolved.ReportMode = *patch.ReportMode
 		}
@@ -179,6 +187,9 @@ func Resolve(base Configuration, definition DefinitionDocument, overrides Config
 	}
 	if resolved.ReportMode == "" {
 		resolved.ReportMode = ReportNotice
+	}
+	if resolved.Compaction.ThresholdPercent == 0 {
+		resolved.Compaction.ThresholdPercent = 50
 	}
 	if err := resolved.Validate(); err != nil {
 		return Configuration{}, err
@@ -210,12 +221,17 @@ func (c Configuration) Validate() error {
 		return err
 	}
 	return (ConfigPatch{
-		Instructions: &c.Instructions, Tools: c.Tools, Children: c.Children,
+		Compaction: &c.Compaction, Instructions: &c.Instructions, Tools: c.Tools, Children: c.Children,
 		Hooks: c.Hooks, Output: &OutputPolicy{Schema: c.OutputSchema},
 	}).Validate()
 }
 
 func (p ConfigPatch) Validate() error {
+	if p.Compaction != nil {
+		if err := p.Compaction.Validate(); err != nil {
+			return err
+		}
+	}
 	if p.ReportMode != nil {
 		if err := p.ReportMode.Validate(); err != nil {
 			return err

@@ -363,3 +363,29 @@ oversized-context fallback. Raw message sequence numbers remain unchanged.
 A confirmed structured provider context-limit rejection can cause one helper
 and a new ordinary model round after its failed attempt is recorded. This does
 not replay cells or the whole turn; uncertain transport failures still stop.
+
+Set compaction policy through the ordinary revisioned configuration API:
+
+```ts
+await client.call('sessions.configure', {
+  session_id: session.id,
+  expected_revision: session.config_revision,
+  patch: {
+    compaction: {
+      model: { provider: 'my-provider', name: 'summary-model', effort: '' },
+      threshold_percent: 50,
+    },
+  },
+});
+```
+
+The whole policy is replaced, and active turns retain their prior snapshot.
+`{ model: null, threshold_percent: 0 }` resets it to the conversation model and
+the 50% default. Effective configuration always reports 1–100. All helpers use
+the selected route and ordinary accounting; invalid explicit routes fail.
+Proactive compaction requires a configured provider context window and uses
+this turn's reported usage or a current-request estimate. It does not reuse a
+previous turn's occupancy or count helper usage as conversation occupancy.
+Unknown windows still permit manual, local-bound and confirmed-rejection folds.
+A failed helper after a final answer fails the turn without removing that answer
+from raw history; inspect both the turn outcome and attempt evidence.

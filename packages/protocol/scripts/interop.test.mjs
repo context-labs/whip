@@ -53,3 +53,18 @@ test('validated output retains exact JSON bytes and distinguishes JSON null', ()
   assert.equal(Buffer.from(outputs[1].data_base64, 'base64').toString(), '{"count":9007199254740993}');
   assert.equal(Buffer.from(outputs[2].data_base64, 'base64').toString(), 'null');
 });
+
+
+test('compaction policy distinguishes an explicit reset from captured defaults', () => {
+  const update = structuredClone(fixtures.find(f => f.type === 'UpdateConfigurationParams').value);
+  assert.deepEqual(update.patch.compaction, { model: null, threshold_percent: 0 });
+  assert.equal(validate('UpdateConfigurationParams', update), true);
+  for (const threshold of [-1, 101, 0.5, '50']) {
+    update.patch.compaction.threshold_percent = threshold;
+    assert.equal(validate('UpdateConfigurationParams', update), false);
+  }
+  const session = structuredClone(fixtures.find(f => f.type === 'Session').value);
+  assert.deepEqual(session.configuration.compaction, { model: null, threshold_percent: 50 });
+  session.configuration.compaction.threshold_percent = 0;
+  assert.equal(validate('Session', session), false, 'effective configuration contains resolved defaults');
+});

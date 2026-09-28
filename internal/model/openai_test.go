@@ -71,7 +71,7 @@ func TestPreparedChatFreezesWireBodyAndAccountingEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if unbounded.Snapshot.InputTokenBound != nil || unbounded.Snapshot.RequestDigest != prepared.Snapshot.RequestDigest || unbounded.Snapshot.MaxOutputTokens != prepared.Snapshot.MaxOutputTokens {
+	if unbounded.Snapshot.InputTokenBound != nil || unbounded.ContextWindowTokens != nil || unbounded.Snapshot.RequestDigest != prepared.Snapshot.RequestDigest || unbounded.Snapshot.MaxOutputTokens != prepared.Snapshot.MaxOutputTokens {
 		t.Fatal("host accounting bound changed the wire request or missing bound became known")
 	}
 	response, err := prepared.Execute(t.Context(), nil)
@@ -81,6 +81,13 @@ func TestPreparedChatFreezesWireBodyAndAccountingEvidence(t *testing.T) {
 	hash := sha256.Sum256(received)
 	if prepared.Snapshot.RequestDigest != hex.EncodeToString(hash[:]) || *prepared.Snapshot.Prices.Input != 123 || prepared.Snapshot.InputTokenBound == nil || *prepared.Snapshot.InputTokenBound != 1000 {
 		t.Fatal("prepared body, prices or input bound were not frozen")
+	}
+	if prepared.ContextWindowTokens == nil || *prepared.ContextWindowTokens != 1000 {
+		t.Fatal("prepared context window was not frozen")
+	}
+	*prepared.ContextWindowTokens = 500
+	if *prepared.Snapshot.InputTokenBound != 1000 || window != 9000 {
+		t.Fatal("ephemeral planning metadata aliases the reservation or host policy")
 	}
 	var body struct {
 		Model    string        `json:"model"`

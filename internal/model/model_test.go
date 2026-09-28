@@ -21,6 +21,9 @@ func TestScriptedAccountingBoundDoesNotInventUsage(t *testing.T) {
 	if prepared.Snapshot.InputTokenBound == nil || *prepared.Snapshot.InputTokenBound != 0 || response.Usage != (session.ModelUsage{}) {
 		t.Fatalf("scripted bound invented usage: %+v %+v", prepared.Snapshot, response)
 	}
+	if prepared.ContextWindowTokens != nil {
+		t.Fatalf("scripted reservation bound invented a context window: %d", *prepared.ContextWindowTokens)
+	}
 	cost, err := prepared.Snapshot.Prices.Cost(response.Usage)
 	if err != nil || cost == nil || *cost != 0 {
 		t.Fatalf("scripted cost is not known free: %v %v", cost, err)

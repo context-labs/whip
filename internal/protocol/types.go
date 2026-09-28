@@ -96,7 +96,12 @@ type HookDeclaration struct {
 type OutputPolicy struct {
 	Schema json.RawMessage `json:"schema"`
 }
+type CompactionPolicy struct {
+	Model            *ModelSelection `json:"model"`
+	ThresholdPercent int             `json:"threshold_percent" min:"0" max:"100"`
+}
 type Configuration struct {
+	Compaction   CompactionPolicy           `json:"compaction"`
 	ReportMode   string                     `json:"report_mode" enum:"notice,inline,message"`
 	Model        ModelSelection             `json:"model"`
 	Instructions Instructions               `json:"instructions"`
@@ -106,6 +111,7 @@ type Configuration struct {
 	OutputSchema json.RawMessage            `json:"output_schema"`
 }
 type ConfigPatch struct {
+	Compaction   *CompactionPolicy          `json:"compaction,omitempty"`
 	ReportMode   *string                    `json:"report_mode,omitempty" enum:"notice,inline,message"`
 	Model        *ModelSelection            `json:"model,omitempty"`
 	Instructions *Instructions              `json:"instructions,omitempty"`

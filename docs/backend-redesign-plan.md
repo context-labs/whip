@@ -623,8 +623,10 @@ Acceptance:
 Implementation progress: final-output contracts and the first context increment
 are implemented. Manual compaction, revisioned summary selection/undo, bounded
 own-history access, ordinary request reconstruction and automatic whole-turn
-folding have replacement evidence. The compaction acceptance item remains open:
-token-aware policy and dynamic instruction refresh are still required.
+folding have replacement evidence. Captured helper routes and proactive thresholds
+now use per-turn ordinary usage or a bounded request estimate, with no mutable
+cross-turn usage cache. The compaction acceptance item remains open: dynamic
+instruction refresh is still required.
 Long-turn splitting now retains exact opening inputs and complete tool exchanges;
 one confirmed provider context rejection can trigger a recorded smaller request
 after accounting settles. Indivisible oversized exchanges still fail explicitly. This progress does not retire retained capabilities or narrow

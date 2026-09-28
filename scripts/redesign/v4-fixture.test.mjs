@@ -201,6 +201,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await outputAcceptance(runtime, client, createParams, evidence);
     await contextAcceptance(runtime, client, createParams, evidence);
     await contextRecoveryAcceptance(runtime, client, createParams, evidence);
+    await contextPolicyAcceptance(runtime, client, createParams, evidence);
     await engineAcceptance(runtime, client, createParams, evidence);
     await operationAcceptance(runtime, client, createParams, evidence);
     await streamAcceptance(runtime, client, createParams, evidence);
@@ -1223,6 +1224,113 @@ async function contextRecoveryAcceptance(runtime, client, createParams, evidence
       evidence.push({ contextRecovery: { engine, completed, selected, summary, retried, attempts, twice, twiceAttempts, uncertain, unknown } });
     }
   } finally {
+    server.closeAllConnections();
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+}
+
+async function contextPolicyAcceptance(runtime, client, createParams, evidence) {
+  const requests = [];
+  let ordinaryCount = 0;
+  const blocked = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  const server = http.createServer(async (request, response) => {
+    let raw = '';
+    for await (const chunk of request) raw += chunk;
+    const body = JSON.parse(raw);
+    const helper = body.messages[0]?.content.startsWith('Summarize the conversation data');
+    requests.push({ helper, body });
+    const ordinary = helper ? 0 : ++ordinaryCount;
+    if (ordinary === 6) { blocked.resolve(); await release.promise; }
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify({
+      choices: [{ message: { role: 'assistant', content: helper ? 'Earlier tasks completed.' : `Policy answer ${ordinary}.` }, finish_reason: 'stop' }],
+      usage: {
+        prompt_tokens: helper ? 90_000 : ordinary === 6 ? 60_000 : 10, completion_tokens: 2,
+        prompt_tokens_details: { cached_tokens: 0 }, completion_tokens_details: { reasoning_tokens: 0, cached_tokens: 0 },
+      },
+    }));
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  try {
+    await runtime.stop();
+    const path = join(runtime.directory, 'state', 'host.json');
+    const host = JSON.parse(await readFile(path, 'utf8'));
+    host.providers.policy = {
+      kind: 'openai-chat', base_url: `http://127.0.0.1:${server.address().port}/v1`, credential_env: '',
+      models: Object.fromEntries(['conversation', 'helper-a', 'helper-b'].map(name => [name, {
+        context_window_tokens: 100_000, max_output_tokens: 128, timeout_millis: 5000, max_attempts: 1,
+        prices: { input: 3_000_000, output: 5_000_000 },
+      }])),
+    };
+    await writeFile(path, JSON.stringify(host), { mode: 0o600 });
+    await runtime.start(null);
+    const model = name => ({ provider: 'policy', name, effort: '' });
+    const { root } = await client.call('trees.create', {
+      ...createParams, overrides: { model: model('conversation'), compaction: { model: model('helper-a'), threshold_percent: 50 } },
+    }, deadline());
+    const submit = async index => {
+      const id = 'context-policy-' + index;
+      await client.submit(root.id, [{ type: 'text', text: `Policy task ${index}. ` + 'Useful history. '.repeat(20) }], id, deadline());
+      const done = await client.wait(id, deadline());
+      assert.equal(done.turn.state, 'succeeded', done.turn.failure);
+      return done;
+    };
+    for (let index = 1; index <= 5; index++) await submit(index);
+    const waiting = submit(6);
+    await Promise.race([blocked.promise, new Promise((_, reject) => {
+      const timer = setTimeout(() => reject(new Error('Policy request did not block')), 10_000);
+      timer.unref();
+      blocked.promise.then(() => clearTimeout(timer));
+    })]);
+    const configured = await client.call('sessions.configure', {
+      session_id: root.id, expected_revision: root.config_revision,
+      patch: { compaction: { model: model('helper-b'), threshold_percent: 75 } },
+    }, deadline());
+    release.resolve();
+    const completed = await waiting;
+    const attempts = await client.call('turns.attempts', { turn_id: completed.turn.id, limit: 100 }, deadline());
+    assert.deepEqual(attempts.items.map(item => item.request.purpose).sort(), ['compaction', 'turn']);
+    const helper = attempts.items.find(item => item.request.purpose === 'compaction');
+    assert.equal(helper.request.model.name, 'helper-a', 'active turn retains its old helper and 50% threshold');
+    assert.equal(helper.result.usage.input, '90000');
+    assert.equal(helper.cost_nano_usd, '270010', 'helper uses its own accounted pricing');
+    assert.equal(helper.message_id, null);
+    assert.equal(requests.filter(item => item.helper).length, 1, 'helper usage never triggers another fold');
+    const selected = await client.call('context.head', { session_id: root.id }, deadline());
+    assert.equal(selected.revision, '1');
+    assert.equal((await client.call('context.snapshot', { session_id: root.id }, deadline())).message_count, '12');
+    await submit(7);
+    assert.equal(requests.filter(item => item.helper).length, 1, 'new turns start without a stale occupancy cache');
+    await client.compact(root.id, 'context-policy-helper-b', deadline());
+    const next = await client.wait('context-policy-helper-b', deadline());
+    assert.equal(next.turn.state, 'succeeded', next.turn.failure);
+    assert.equal(requests.at(-1).body.model, 'helper-b', 'next turn captures the updated helper');
+    const reset = await client.call('sessions.configure', {
+      session_id: root.id, expected_revision: configured.config_revision,
+      patch: { compaction: { model: null, threshold_percent: 0 } },
+    }, deadline());
+    assert.deepEqual(reset.configuration.compaction, { model: null, threshold_percent: 50 });
+    await runtime.stop(); await runtime.start(null);
+    await submit(8);
+    await client.compact(root.id, 'context-policy-default', deadline());
+    const fallback = await client.wait('context-policy-default', deadline());
+    assert.equal(fallback.turn.state, 'succeeded', fallback.turn.failure);
+    assert.equal(requests.at(-1).helper, true);
+    assert.equal(requests.at(-1).body.model, 'conversation', 'explicit reset survives restart and uses the conversation route');
+    await submit(9);
+    await client.call('sessions.configure', {
+      session_id: root.id, expected_revision: reset.config_revision,
+      patch: { compaction: { model: { provider: 'missing', name: 'missing', effort: '' }, threshold_percent: 50 } },
+    }, deadline());
+    const count = requests.length;
+    await client.compact(root.id, 'context-policy-bad-route', deadline());
+    const failed = await client.wait('context-policy-bad-route', deadline());
+    assert.equal(failed.turn.state, 'failed');
+    assert.equal(requests.length, count, 'an explicit invalid helper cannot silently fall back');
+    evidence.push({ contextPolicy: { completed, attempts, selected, configured, next, reset, fallback, failed } });
+  } finally {
+    release.resolve();
     server.closeAllConnections();
     await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   }

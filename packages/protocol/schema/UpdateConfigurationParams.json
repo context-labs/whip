@@ -13,6 +13,48 @@
     "patch": {
       "type": "object",
       "properties": {
+        "compaction": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "model": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "provider": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "effort": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "provider",
+                "name",
+                "effort"
+              ],
+              "additionalProperties": false
+            },
+            "threshold_percent": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            }
+          },
+          "required": [
+            "model",
+            "threshold_percent"
+          ],
+          "additionalProperties": false
+        },
         "report_mode": {
           "type": [
             "null",

@@ -108,6 +108,7 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 	if err := r.hydrate(ctx, &request); err != nil {
 		return Failure(err), nil
 	}
+	pressure := contextPressure{}
 	correctedOutput := false
 	replannedContext := false
 	var correction []session.Part
@@ -132,7 +133,11 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 				return Failure(err), nil
 			}
 		}
-		completed, err := r.complete(ctx, turn, request, fmt.Sprintf("%s_model_%d", turn.ID, round), nil)
+		prepared, err := r.prepareOrdinary(ctx, turn, configuration, &request, &size, &folds, correction, &pressure)
+		if err != nil {
+			return Failure(err), nil
+		}
+		completed, err := r.completePrepared(ctx, turn, prepared, fmt.Sprintf("%s_model_%d", turn.ID, round), nil)
 		if err != nil {
 			return Outcome{}, err
 		}
@@ -147,6 +152,7 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 			}
 			return Failure(completed.failure), nil
 		}
+		pressure.observe(completed.inputTokens, model.EstimateInputTokens(request))
 		calls := []session.ToolCall{}
 		for _, part := range completed.parts {
 			if part.Call != nil {
@@ -159,6 +165,17 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 		if len(calls) == 0 {
 			_, validationErr := session.ValidateOutput(configuration.OutputSchema, completed.parts)
 			if validationErr == nil {
+				if folds == 0 && r.compactions != nil && prepared.ContextWindowTokens != nil && *prepared.ContextWindowTokens > 0 {
+					if err := r.appendTurnContext(&request, session.Assistant, completed.parts, &size); err != nil {
+						return Failure(err), nil
+					}
+					if err := r.hydrate(ctx, &request); err != nil {
+						return Failure(err), nil
+					}
+					if _, err := r.proactiveContext(ctx, turn, configuration, &request, &size, &folds, correction, &pressure, prepared); err != nil {
+						return Failure(err), nil
+					}
+				}
 				return Outcome{State: session.Succeeded}, nil
 			}
 			if err := ctx.Err(); err != nil {
@@ -271,17 +288,26 @@ func (r *Runner) complete(ctx context.Context, turn session.Turn, request model.
 	if err != nil {
 		return attemptOutcome{failure: err}, nil //nolint:nilerr // Preparation failure is a turn outcome; no dispatched evidence needs settlement.
 	}
-	if prepared.Execute == nil {
-		return attemptOutcome{failure: errors.New("provider returned no executable request")}, nil
+	return r.completePrepared(ctx, turn, prepared, logicalID, target)
+}
+
+func (r *Runner) completePrepared(ctx context.Context, turn session.Turn, prepared model.Prepared, logicalID string, target *compactionTarget) (attemptOutcome, error) {
+	if err := validatePrepared(prepared); err != nil {
+		return attemptOutcome{failure: err}, nil //nolint:nilerr // Invalid preparation is a turn outcome; nothing was dispatched.
 	}
 	limit := max(prepared.MaxAttempts, 1)
-	if limit > 5 {
-		return attemptOutcome{failure: errors.New("provider attempt limit exceeds five")}, nil
-	}
+	var inputTokens *int64
 	for number := 1; number <= limit; number++ {
 		outcome, err := r.attempt(ctx, turn, prepared, logicalID, number, target)
 		if err != nil {
 			return attemptOutcome{}, err
+		}
+		if outcome.inputTokens != nil {
+			inputTokens = outcome.inputTokens
+		} else {
+			// A confirmed retry uses the same frozen request. Missing later
+			// usage does not invalidate an earlier settled input observation.
+			outcome.inputTokens = inputTokens
 		}
 		callErr := outcome.failure
 		if callErr == nil {
@@ -308,10 +334,21 @@ func (r *Runner) complete(ctx context.Context, turn session.Turn, request model.
 	return attemptOutcome{}, errors.New("model attempts exhausted without an outcome")
 }
 
+func validatePrepared(prepared model.Prepared) error {
+	if prepared.Execute == nil {
+		return errors.New("provider returned no executable request")
+	}
+	if prepared.MaxAttempts > 5 {
+		return errors.New("provider attempt limit exceeds five")
+	}
+	return nil
+}
+
 // Attempt execution can fail normally. A separate returned error means its
 // durable evidence could not be settled and execution must stop without retry.
 type attemptOutcome struct {
 	contextLimit bool
+	inputTokens  *int64
 	failure      error
 	parts        []session.Part
 	messageID    session.MessageID
@@ -387,6 +424,9 @@ func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.
 		return attemptOutcome{}, fmt.Errorf("settle model attempt: %w", err)
 	}
 	outcome := attemptOutcome{failure: callErr}
+	if target == nil && result.Usage.Input != nil {
+		outcome.inputTokens = new(*result.Usage.Input)
+	}
 	if failure, ok := errors.AsType[*model.CallError](callErr); ok && target == nil && result.State == session.AttemptFailed {
 		outcome.contextLimit = failure.ContextLimit && !failure.Uncertain
 	}

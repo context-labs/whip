@@ -890,5 +890,31 @@ Its rejected attempt must settle before compaction makes forward coverage
 progress and a fresh model round begins. Generic errors, provider message text,
 partial streams, transport uncertainty and settlement failures do not authorize
 replay. The helper cannot recursively replan itself. Output-correction state
-survives reconstruction, and completed cells are never repeated. Token-aware
-proactive policy and dynamic instructions remain Phase 5 work.
+survives reconstruction, and completed cells are never repeated.
+
+`configuration.compaction` captures one whole policy: an optional helper model
+and a threshold of 1–100 percent. A patch with threshold zero resolves to the
+default of 50 percent; a null model uses the captured conversation model. An
+explicit helper route is used by manual, local-bound, proactive and reactive
+folds, and an invalid route fails without fallback. Configuration updates affect
+the next turn; children copy the resolved parent policy. Fresh schema 18 requires
+this captured policy rather than re-resolving defaults when storage is reopened.
+
+Proactive checks run before ordinary model requests and after a successful final
+reply when that turn has not folded yet. They require a host-declared context
+window. Within a turn, the latest validated ordinary input-token count measures
+occupancy, with a saturating estimate of subsequent request growth. Known zero
+differs from unknown usage. Until that turn reports usage, the runner estimates
+the current instructions, messages, tools and referenced content. Warm and
+restarted turns follow the same rule; no cross-turn usage cache is maintained.
+Helper/child usage and admission reservation bounds never measure occupancy.
+Changing the prepared route/window or folding invalidates the observation.
+
+A heuristic alone cannot reject a request as overflowing. No replaceable source
+means no helper dispatch; a later complete exchange can make folding useful.
+After a useful fold, an estimated floor still above threshold suppresses further
+proactive folds for that turn. Hard local bounds and one confirmed provider
+rejection still apply. Unknown windows disable only proactive checks. Helpers
+retain their own actual route/pricing and accounting; a failed post-final helper
+fails the turn while preserving its already committed raw answer. Dynamic
+instruction refresh remains Phase 5 work.
