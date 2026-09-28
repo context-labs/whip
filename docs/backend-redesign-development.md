@@ -747,3 +747,37 @@ restart. Pinned analysis reports zero lint issues and no reachable vulnerabiliti
 A ten-second state JSON fuzz run passed. Subscriptions/coalesced notifications,
 ancestor resource limits, report/retry policies and remaining subtree lifecycle
 acceptance remain open in Phase 4.
+
+## Phase 4 subscription increment
+
+Fresh schema 10 gives mail explicit provenance (`session` sender or `state`
+subscription) and retains owner-scoped state subscriptions. Subscription creation
+atomically closes the snapshot gap. Shared writes commit values, cursors and
+coalesced revisioned notifications together. Own writes only advance cursors;
+recipient deferral survives coalescing. Cancellation retains earlier mail as
+evidence. The ordinary scheduler discovers due notifications across restart.
+
+Store tests cover initial catch-up, identity/cancel retry, foreign ownership,
+restart, author changes, exact presented revisions, notification/operation
+settlement rollback, and mailbox-limit backpressure rolling back all cursors and
+the value. Both engine tests execute the real subscribe/list/unsubscribe helpers.
+The race-enabled SDK process fixture passed in 22.233 s, exercising notification
+coalescing across restart, typed provenance, delivery, own-write suppression and
+cancellation without resurrection. Targeted store race tests passed in 4.093 s;
+pinned analysis reports zero lint issues and no reachable vulnerabilities.
+
+The full local subscription phase gate passed: active build/vet/race, complete
+process suite (97.116 s), generated contracts/SDK checks, new and retained process
+fixtures, and retained regressions (2.839 s). The runtime race suite took 59.216 s.
+A subsequent targeted race check covers a coalesced revision from a different
+author while preserving the subscription's source identity.
+
+The preceding state head `33ca2c099` passed hosted analysis but failed both
+[platform race jobs](https://github.com/context-labs/whip/actions/runs/36436781996)
+at the new QuickJS state test's five-second observer deadline. Existing full-engine
+helpers use a thirty-second integration deadline; these two new state helper
+tests now use that same bound. Production timeouts and all exact-value, revision,
+cell-result and subscription assertions are unchanged.
+Five repeated race runs of both state workflows across both engines, using the
+hosted shuffle seed, passed in 32.883 s with the corrected integration deadline.
+Final pinned analysis again passed with zero issues and no reachable vulnerabilities.

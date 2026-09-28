@@ -193,6 +193,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await budgetAcceptance(client, createParams, evidence);
     await mailAcceptance(runtime, client, createParams, evidence);
     await stateAcceptance(runtime, client, createParams, evidence);
+    await stateSubscriptionAcceptance(runtime, client, createParams, evidence);
     await providerAcceptance(runtime, client, createParams, evidence);
     await engineAcceptance(runtime, client, createParams, evidence);
     await operationAcceptance(runtime, client, createParams, evidence);
@@ -690,4 +691,40 @@ async function stateAcceptance(runtime, client, createParams, evidence) {
   await client.call('sessions.delete', { session_id: root.id }, deadline());
   await assert.rejects(client.writeState(params, 'state-first', deadline()), error => error.kind === 'NOT_FOUND');
   evidence.push({ state: { first, second, large, history } });
+}
+
+async function stateSubscriptionAcceptance(runtime, client, createParams, evidence) {
+  const { root } = await client.call('trees.create', createParams, deadline());
+  const { session: author } = await client.spawn({ parent_id: root.id, overrides: {}, parts: [{ type: 'text', text: 'state author' }], grant_ids: [] }, 'state-notifications-child', deadline());
+  await client.wait('state-notifications-child', deadline());
+  const params = { session_id: root.id, key: 'topic', after: '0', delivery: 'next_turn' };
+  const subscription = await client.subscribeState(params, 'state-watch', deadline());
+  const write = (revision, sessionID = author.id) => client.writeState({ session_id: sessionID, scope: 'tree', key: 'topic', expected_revision: String(revision - 1), data_base64: Buffer.from(String(revision)).toString('base64') }, 'notified-state-' + revision, deadline());
+  await write(1);
+  await runtime.stop(); await runtime.start('0');
+  const second = await write(2);
+  const inbox = await client.call('mail.list', { session_id: root.id, state: 'pending', limit: 100 }, deadline());
+  assert.equal(inbox.items.length, 1);
+  assert.deepEqual(inbox.items[0].source, { kind: 'state', id: subscription.id });
+  assert.equal(inbox.items[0].revision, '2');
+  const read = await client.call('mail.read', { session_id: root.id, mail_id: inbox.items[0].id }, deadline());
+  assert.equal(JSON.parse(read.body).version_id, second.id);
+  assert.equal((await client.subscribeState(params, subscription.id, deadline())).cursor, '2');
+  await client.submit(root.id, [{ type: 'text', text: 'handle state changes' }], 'state-handle', deadline());
+  await client.wait('state-handle', deadline());
+  assert.equal((await client.call('mail.read', { session_id: root.id, mail_id: read.mail.id }, deadline())).mail.state, 'delivered');
+  await write(3);
+  await write(4, root.id);
+  const next = await client.call('mail.list', { session_id: root.id, state: 'pending', limit: 100 }, deadline());
+  assert.equal(next.items.length, 1);
+  assert.notEqual(next.items[0].id, read.mail.id);
+  assert.equal(next.items[0].revision, '1', 'own write must advance the cursor without notifying itself');
+  assert.equal((await client.call('state.subscriptions', { session_id: root.id, limit: 100 }, deadline())).items[0].cursor, '4');
+  const cancelled = await client.call('state.unsubscribe', { session_id: root.id, subscription_id: subscription.id }, deadline());
+  assert.ok(cancelled.cancelled_at);
+  await write(5);
+  assert.equal((await client.call('mail.read', { session_id: root.id, mail_id: next.items[0].id }, deadline())).mail.revision, '1');
+  assert.ok((await client.subscribeState(params, subscription.id, deadline())).cancelled_at, 'retry must not resurrect a cancelled subscription');
+  await client.call('sessions.delete', { session_id: root.id }, deadline());
+  evidence.push({ stateSubscriptions: { subscription, second, inbox, next, cancelled } });
 }

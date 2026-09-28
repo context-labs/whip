@@ -178,10 +178,38 @@ assemble chunks before decoding UTF-8/JSON. Each write/append payload is at most
 4 MiB, with a final value limit of 64 MiB. `client.appendState` concatenates strings
 or arrays against the same explicit revision. `state.get`, `state.list` and
 `state.history` return metadata; list cursors are keys and history cursors are
-exact revision strings. Reads and writes do not currently admit execution.
+exact revision strings. Reads never admit execution. Shared writes can create notifications for explicit
+subscribers; private writes do not.
 
 Keep IDs and exact payloads when recovering uncertain writes. Identical retries
 return the original immutable version, not the latest head. Stale revisions and
 changed payloads conflict. Deleting a private owner makes retries not-found;
 shared versions survive their author's deletion until the tree is deleted.
 State handles never authorize ordinary content reads or access to another tree.
+
+
+Mail metadata uses `source: { kind: 'session' | 'state', id }`. For ordinary mail,
+`id` is the sender session; for a state notification it is the subscription ID.
+The send request still specifies `sender_id`. Its API cannot impersonate a state
+notification. A notification body identifies an immutable `version_id`, `key`,
+`revision` and `author_id`; read the value through `state.read` with that handle.
+
+```ts
+const subscription = await client.subscribeState({
+  session_id: sessionID, key: 'results', after: observedRevision,
+  delivery: 'queued',
+}, crypto.randomUUID()); // Retain this ID and payload before sending.
+const subscriptions = await client.call('state.subscriptions', {
+  session_id: sessionID, limit: 100,
+});
+await client.call('state.unsubscribe', {
+  session_id: sessionID, subscription_id: subscription.id,
+});
+```
+
+Creation catches up atomically from `after`; subsequent writes coalesce pending
+notifications. The cursor tracks enqueued/own revisions, not agent processing.
+Own writes advance it without self-notification. Cancellation stops future mail
+and retains existing notifications. A cancelled creation retry stays cancelled.
+If a notification cannot fit the bounded mailbox, the whole state write fails
+with a resource-limit error; no state change commits without its notifications.

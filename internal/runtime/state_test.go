@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/context-labs/whip/internal/model"
 	"github.com/context-labs/whip/internal/session"
@@ -137,7 +138,7 @@ print('state-ok');`
 			if _, err := r.Admit(t.Context(), session.RequestIdentity{ClientID: "test", RequestID: "state"}, store.Submission{SessionID: owner.ID, Source: session.UserInput, Parts: []session.Part{{Type: "text", Text: "state"}}}); err != nil {
 				t.Fatal(err)
 			}
-			result := waitTest(t, r, "state", terminal)
+			result := waitTestWithin(t, r, "state", terminal, 30*time.Second)
 			cells, err := r.Cells(t.Context(), result.Turn.ID, "", 100)
 			if err != nil || len(cells) != 1 || cells[0].State != session.CellSucceeded {
 				t.Fatalf("state cell=%+v %v", cells, err)
@@ -149,6 +150,51 @@ print('state-ok');`
 			_, data, err := r.ReadState(t.Context(), owner.ID, value.ID)
 			if err != nil || string(data) != `[9007199254740993,-2,true]` {
 				t.Fatalf("exact state %s %v", data, err)
+			}
+		})
+	}
+}
+
+func TestBothEnginesStateSubscriptionHelpersUseScopedOperations(t *testing.T) {
+	for _, engine := range []session.Engine{session.Starlark, session.QuickJS} {
+		t.Run(string(engine), func(t *testing.T) {
+			code := `watch=state.subscribe(key="topic",after="0",delivery="next_turn")
+items=state.subscriptions()
+if len(items["items"]) != 1:
+    fail("missing subscription")
+state.unsubscribe(id=watch["id"])
+print("unsubscribed")`
+			if engine == session.QuickJS {
+				code = `var watch=await state.subscribe({key:'topic',after:'0',delivery:'next_turn'}); var items=await state.subscriptions({}); if(items.items.length!==1) throw Error('missing subscription'); await state.unsubscribe({id:watch.id}); print('unsubscribed');`
+			}
+			calls := 0
+			r := openMailRuntime(t, t.TempDir(), providerFunc(func(_ context.Context, _ model.Request) (model.Response, error) {
+				calls++
+				if calls == 1 {
+					return model.Response{Parts: []session.Part{mailCode("subscribe", code)}}, nil
+				}
+				return model.Response{Parts: []session.Part{{Type: "text", Text: "done"}}}, nil
+			}))
+			owner := createEngineSession(t, r, engine)
+			for _, name := range []string{"subscribe", "subscriptions", "unsubscribe"} {
+				if _, err := r.CreateGrant(t.Context(), session.Grant{ID: session.GrantID("state_" + name), SessionID: owner.ID, Capability: "state." + name, Resource: string(owner.TreeID)}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := r.Start(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := r.Admit(t.Context(), session.RequestIdentity{ClientID: "test", RequestID: "subscription"}, store.Submission{SessionID: owner.ID, Source: session.UserInput, Parts: []session.Part{{Type: "text", Text: "subscribe"}}}); err != nil {
+				t.Fatal(err)
+			}
+			result := waitTestWithin(t, r, "subscription", terminal, 30*time.Second)
+			cells, err := r.Cells(t.Context(), result.Turn.ID, "", 100)
+			if err != nil || len(cells) != 1 || cells[0].State != session.CellSucceeded {
+				t.Fatalf("subscription helpers failed: %+v %v", cells, err)
+			}
+			subscriptions, err := r.StateSubscriptions(t.Context(), owner.ID, "", 100)
+			if err != nil || len(subscriptions) != 1 || subscriptions[0].CancelledAt == nil {
+				t.Fatalf("subscription cancellation %+v %v", subscriptions, err)
 			}
 		})
 	}

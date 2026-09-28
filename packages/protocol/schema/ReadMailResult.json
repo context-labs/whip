@@ -13,9 +13,26 @@
           "pattern": "^(0|[1-9][0-9]{0,18})$",
           "format": "counter"
         },
-        "sender_id": {
-          "type": "string",
-          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        "source": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "session",
+                "state"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ],
+          "additionalProperties": false
         },
         "recipient_id": {
           "type": "string",
@@ -58,7 +75,7 @@
       "required": [
         "id",
         "revision",
-        "sender_id",
+        "source",
         "recipient_id",
         "delivery",
         "subject",

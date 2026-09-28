@@ -128,7 +128,14 @@ func writeState(ctx context.Context, tx *sql.Tx, request session.StateWrite) (se
 	if _, err := tx.ExecContext(ctx, "INSERT INTO state_versions VALUES (?,?,?,?,?,?,?,?)", request.ID, tree, owner, request.Key, current.Revision+1, request.SessionID, request.Digest, now()); err != nil {
 		return session.StateValue{}, err
 	}
-	return scanState(tx.QueryRowContext(ctx, stateSelect+" WHERE v.id=?", request.ID))
+	value, err := scanState(tx.QueryRowContext(ctx, stateSelect+" WHERE v.id=?", request.ID))
+	if err != nil {
+		return value, err
+	}
+	if request.Scope == session.TreeState {
+		err = notifyState(ctx, tx, value)
+	}
+	return value, err
 }
 
 func (s *Store) StateHistory(ctx context.Context, actor session.SessionID, scope session.StateScope, key string, after int64, limit int) (result []session.StateValue, err error) {

@@ -38,7 +38,11 @@ func (r *Runtime) WriteState(ctx context.Context, actor session.SessionID, scope
 		return session.StateValue{}, err
 	}
 	request.Digest, request.Size = body.Digest, body.Size
-	return r.store.WriteState(ctx, request)
+	value, err := r.store.WriteState(ctx, request)
+	if err == nil && scope == session.TreeState {
+		r.Wake()
+	}
+	return value, err
 }
 
 // ReadStateRange returns bounded bytes, not a partial JSON value. Transports
@@ -94,5 +98,9 @@ func (r *Runtime) AppendState(ctx context.Context, actor session.SessionID, scop
 		return session.StateValue{}, err
 	}
 	request.ID = id
-	return r.store.WriteState(ctx, request)
+	value, err := r.store.WriteState(ctx, request)
+	if err == nil && scope == session.TreeState {
+		r.Wake()
+	}
+	return value, err
 }

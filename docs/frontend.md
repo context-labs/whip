@@ -107,7 +107,10 @@ entry with `mail` provenance references an immutable mail revision and has no
 `input_id`; clients must preserve that distinction in views and recovery records.
 Explicit state uses immutable version handles and revision-checked writes.
 Client state reads return bounded base64 JSON bytes, preserving exact numbers;
-list/history calls return metadata. Reconstruct requested values in bounded
+list/history calls return metadata. Mail provenance distinguishes a session sender
+from a state subscription. Subscriptions start from an explicit observed revision
+and deliver ordinary revisioned mail; their cursor does not acknowledge handling.
+Reconstruct requested values in bounded
 consumer scope rather than introducing a second authoritative state cache.
 Product clients continue to use the explicitly retained packages until their
 cutover. The package map below describes those retained clients.

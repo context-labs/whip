@@ -58,6 +58,11 @@ export class Client {
     return this.call('state.append', { ...params, version_id: versionID }, options);
   }
 
+  /** Subscribes from an observed revision; creation atomically catches up with the current head. */
+  subscribeState(params: Omit<Operations['state.subscribe']['params'], 'subscription_id'>, subscriptionID: string, options: CallOptions = {}): Promise<Operations['state.subscribe']['result']> {
+    return this.call('state.subscribe', { ...params, subscription_id: subscriptionID }, options);
+  }
+
   recover(requestID: string, options: CallOptions = {}): Promise<Admission> {
     return this.call('receipts.get', this.identity(requestID), options);
   }

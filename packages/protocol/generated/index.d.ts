@@ -684,7 +684,10 @@ export interface ListMailResult {
     | {
         id: string;
         revision: string;
-        sender_id: string;
+        source: {
+          kind: "session" | "state";
+          id: string;
+        };
         recipient_id: string;
         delivery: "queued" | "steer" | "next_turn";
         subject: string;
@@ -761,7 +764,10 @@ export interface MailAdmission {
   mail: null | {
     id: string;
     revision: string;
-    sender_id: string;
+    source: {
+      kind: "session" | "state";
+      id: string;
+    };
     recipient_id: string;
     delivery: "queued" | "steer" | "next_turn";
     subject: string;
@@ -1083,7 +1089,10 @@ export interface ReadMailResult {
   mail: {
     id: string;
     revision: string;
-    sender_id: string;
+    source: {
+      kind: "session" | "state";
+      id: string;
+    };
     recipient_id: string;
     delivery: "queued" | "steer" | "next_turn";
     subject: string;
@@ -1599,6 +1608,35 @@ export interface StateHistoryParams {
   after: string;
   limit: number;
 }
+export interface StateSubscription {
+  id: string;
+  tree_id: string;
+  session_id: string;
+  key: string;
+  delivery: "queued" | "steer" | "next_turn";
+  cursor: string;
+  cancelled_at: null | string;
+  created_at: string;
+}
+export interface StateSubscriptionsParams {
+  session_id: string;
+  after?: null | string;
+  limit: number;
+}
+export interface StateSubscriptionsResult {
+  items:
+    | null
+    | {
+        id: string;
+        tree_id: string;
+        session_id: string;
+        key: string;
+        delivery: "queued" | "steer" | "next_turn";
+        cursor: string;
+        cancelled_at: null | string;
+        created_at: string;
+      }[];
+}
 export interface StateVersion {
   id: string;
   tree_id: string;
@@ -1659,6 +1697,13 @@ export interface SubmitParams {
     )[]
   ];
 }
+export interface SubscribeStateParams {
+  subscription_id: string;
+  session_id: string;
+  key: string;
+  after: string;
+  delivery: "queued" | "steer" | "next_turn";
+}
 export interface ToolCall {
   arguments: {
     [k: string]: unknown;
@@ -1701,6 +1746,10 @@ export interface Turn {
 }
 export interface TurnParams {
   turn_id: string;
+}
+export interface UnsubscribeStateParams {
+  session_id: string;
+  subscription_id: string;
 }
 export interface UpdateConfigurationParams {
   session_id: string;
@@ -1824,20 +1873,28 @@ export interface ContractTypes {
   SpawnSessionParams: SpawnSessionParams;
   SpawnSessionResult: SpawnSessionResult;
   StateHistoryParams: StateHistoryParams;
+  StateSubscription: StateSubscription;
+  StateSubscriptionsParams: StateSubscriptionsParams;
+  StateSubscriptionsResult: StateSubscriptionsResult;
   StateVersion: StateVersion;
   StateVersionsResult: StateVersionsResult;
   SubmitParams: SubmitParams;
+  SubscribeStateParams: SubscribeStateParams;
   ToolCall: ToolCall;
   ToolResult: ToolResult;
   Tree: Tree;
   TreeParams: TreeParams;
   Turn: Turn;
   TurnParams: TurnParams;
+  UnsubscribeStateParams: UnsubscribeStateParams;
   UpdateConfigurationParams: UpdateConfigurationParams;
   UpdateTreeParams: UpdateTreeParams;
   WriteStateParams: WriteStateParams;
 }
 export interface Operations {
+  "state.subscribe": { params: SubscribeStateParams; result: StateSubscription };
+  "state.subscriptions": { params: StateSubscriptionsParams; result: StateSubscriptionsResult };
+  "state.unsubscribe": { params: UnsubscribeStateParams; result: StateSubscription };
   "state.get": { params: GetStateParams; result: StateVersion };
   "state.write": { params: WriteStateParams; result: StateVersion };
   "state.append": { params: WriteStateParams; result: StateVersion };

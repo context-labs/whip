@@ -15,18 +15,23 @@ type MailRef struct {
 
 // MailMetadata is a bounded inbox entry. Reading the body is an explicit,
 // read-only operation; clients never acknowledge delivery by inspecting it.
+type MailSource struct {
+	Kind string `json:"kind" enum:"session,state"`
+	ID   ID     `json:"id"`
+}
+
 type MailMetadata struct {
-	ID          ID      `json:"id"`
-	Revision    Counter `json:"revision"`
-	SenderID    ID      `json:"sender_id"`
-	RecipientID ID      `json:"recipient_id"`
-	Delivery    string  `json:"delivery" enum:"queued,steer,next_turn"`
-	Subject     string  `json:"subject"`
-	BodyBytes   Counter `json:"body_bytes"`
-	State       string  `json:"state" enum:"pending,delivered,done"`
-	AvailableAt string  `json:"available_at"`
-	CreatedAt   string  `json:"created_at"`
-	RevisedAt   string  `json:"revised_at"`
+	ID          ID         `json:"id"`
+	Revision    Counter    `json:"revision"`
+	Source      MailSource `json:"source"`
+	RecipientID ID         `json:"recipient_id"`
+	Delivery    string     `json:"delivery" enum:"queued,steer,next_turn"`
+	Subject     string     `json:"subject"`
+	BodyBytes   Counter    `json:"body_bytes"`
+	State       string     `json:"state" enum:"pending,delivered,done"`
+	AvailableAt string     `json:"available_at"`
+	CreatedAt   string     `json:"created_at"`
+	RevisedAt   string     `json:"revised_at"`
 }
 
 type MailAdmission struct {
@@ -80,7 +85,7 @@ func (p SendMailParams) Domain() (session.MailSpec, error) {
 
 func MailMetadataFromDomain(value session.MailMetadata) MailMetadata {
 	return MailMetadata{
-		ID: ID(value.ID), Revision: Counter(value.Revision), SenderID: ID(value.SenderID), RecipientID: ID(value.RecipientID),
+		ID: ID(value.ID), Revision: Counter(value.Revision), Source: MailSource{Kind: value.Source.Kind, ID: ID(value.Source.ID)}, RecipientID: ID(value.RecipientID),
 		Delivery: string(value.Delivery), Subject: value.Subject, BodyBytes: Counter(value.BodyBytes), State: string(value.State),
 		AvailableAt: value.AvailableAt.Format(time.RFC3339Nano), CreatedAt: value.CreatedAt.Format(time.RFC3339Nano), RevisedAt: value.RevisedAt.Format(time.RFC3339Nano),
 	}

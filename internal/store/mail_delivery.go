@@ -22,7 +22,7 @@ func mailReady(ctx context.Context, q querier, owner session.SessionID) (bool, e
 	return ready, err
 }
 
-func mailParts(reference session.MailRef, sender session.SessionID, subject, body string) []session.Part {
+func mailParts(reference session.MailRef, source session.MailSource, subject, body string) []session.Part {
 	if reference.Presentation == session.MailDigest {
 		original := body
 		if len(body) > 2048 {
@@ -39,7 +39,7 @@ func mailParts(reference session.MailRef, sender session.SessionID, subject, bod
 			body += "…"
 		}
 	}
-	return []session.Part{{Type: "text", Text: fmt.Sprintf("[Mail %s revision %d from %s]\nSubject: %s\n%s", reference.ID, reference.Revision, sender, subject, body)}}
+	return []session.Part{{Type: "text", Text: fmt.Sprintf("[Mail %s revision %d from %s %s]\nSubject: %s\n%s", reference.ID, reference.Revision, source.Kind, source.ID, subject, body)}}
 }
 
 func observeMail(ctx context.Context, tx *sql.Tx, turn session.TurnID, receipt session.MailReceipt, presented bool) error {

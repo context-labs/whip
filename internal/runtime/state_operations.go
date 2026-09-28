@@ -14,6 +14,12 @@ import (
 func (r *Runtime) prepareState(ctx context.Context, current session.Session, call tool.Invocation) (tool.Prepared, error) {
 	var request any
 	switch call.Name {
+	case "subscribe":
+		request = &session.StateSubscribe{Delivery: session.MailQueued}
+	case "subscriptions":
+		request = &session.StateSubscriptionList{Limit: 20}
+	case "unsubscribe":
+		request = &session.StateSubscriptionID{}
 	case "get":
 		request = &session.StateKey{}
 	case "read":
@@ -47,6 +53,9 @@ func (r *Runtime) prepareState(ctx context.Context, current session.Session, cal
 			result, err := r.store.ApplyStateOperation(ctx, id)
 			if err != nil {
 				return nil, err
+			}
+			if call.Name == "write" || call.Name == "append" || call.Name == "subscribe" {
+				r.Wake()
 			}
 			if call.Name != "get" && call.Name != "read" {
 				return result, nil

@@ -40,9 +40,14 @@ type MailRef struct {
 	Presentation MailPresentation `json:"presentation"`
 }
 
+type MailSource struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+}
+
 type MailMetadata struct {
 	MailReceipt
-	SenderID    SessionID    `json:"sender_id"`
+	Source      MailSource   `json:"source"`
 	RecipientID SessionID    `json:"recipient_id"`
 	Delivery    MailDelivery `json:"delivery"`
 	Subject     string       `json:"subject"`

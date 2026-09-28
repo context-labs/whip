@@ -5,6 +5,21 @@ export const manifest = {
   "minor": 0,
   "operations": [
     {
+      "name": "state.subscribe",
+      "params": "SubscribeStateParams",
+      "result": "StateSubscription"
+    },
+    {
+      "name": "state.subscriptions",
+      "params": "StateSubscriptionsParams",
+      "result": "StateSubscriptionsResult"
+    },
+    {
+      "name": "state.unsubscribe",
+      "params": "UnsubscribeStateParams",
+      "result": "StateSubscription"
+    },
+    {
       "name": "state.get",
       "params": "GetStateParams",
       "result": "StateVersion"

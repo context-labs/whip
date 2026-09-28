@@ -468,8 +468,12 @@ Mail is retained inter-session communication, separate from accepted input.
 A caller supplies a stable mail ID; its original typed payload digest makes an
 identical send retry idempotent. A deleted recipient leaves a mail tombstone,
 so retrying an uncertain send cannot resurrect deleted work. Sender deletion
-leaves surviving recipients' mail intact. Senders and recipients must be in the
-same tree and be self, parent, child or siblings.
+leaves surviving recipients' mail intact. For session-authored mail, senders and
+recipients must be in the same tree and be self, parent, child or siblings.
+Mail metadata has an explicit source: `session` plus sender ID, or `state` plus
+subscription ID. Clients and agents cannot forge runtime notification provenance
+through the send API. Runtime-authored notifications use their own scoped source
+identity and can reach any subscriber in the same tree.
 
 A mail identity owns its current revision and handling state. Immutable revisions
 own delivery class, availability, subject and body. Transcript entries reference
@@ -504,10 +508,10 @@ successful agent presentation by acknowledging mail through an inspection API.
 Mail bodies are limited to 16 KiB and subjects to 256 bytes. A digest presents at
 most 20 items, each with at most 2 KiB and 20 body lines. Per recipient, storage
 allows 1024 retained mail identities, 256 pending items and 20 unfinished items
-from one sender. Each sender can create 30 identities in ten seconds. A mail ID
+from one source. Each source can create 30 identities in ten seconds. A mail ID
 has at most 128 revisions and a turn at most 1024 observed revisions. Exhaustion
 returns an explicit limit error; no body, revision or observation is silently
-dropped. General resource policies and report/state coalescing remain subsequent
+dropped. General resource policies and report coalescing remain subsequent
 Phase 4 work.
 
 ## Explicit state and immutable values
@@ -561,5 +565,41 @@ permission, compares the expected revision, inserts the version and settles the
 operation together. The ledger retains metadata and digests, never a second copy
 of the state body. Read operations retain the exact observed version and hydrate
 its body after the transaction. Unreferenced files from rejected or interrupted
-writes are collectible. State subscriptions and coalesced notifications are the
-next coordination increment; direct state writes do not currently start turns.
+writes are collectible. Shared state writes notify only explicit subscribers through ordinary mail;
+private state writes never create notifications.
+
+
+## State subscriptions
+
+A subscription belongs to one session and one shared key. Creation supplies a
+stable ID and an `after` revision. The transaction reads the current head and
+notifies the subscriber if it has advanced, closing the gap between a client's
+snapshot and subscription. A future cursor conflicts. There is one active
+subscription per session/key, and at most 1000 retained subscriptions per tree.
+Creation retries return the same subscription; retrying a cancelled subscription
+cannot reactivate it. List queries are bounded and owner-scoped.
+
+A shared write inserts its version, advances each subscription cursor and
+creates or replaces its pending mail notification in one transaction. The cursor
+means enqueued or authored revision, not successful agent processing. Own writes
+advance the cursor without notifying that same session. A pending notification
+is coalesced by adding an immutable mail revision; the state version's ID, key,
+revision and author form its small JSON body. The value itself remains in the
+state content store. A recipient's deferred availability time survives coalescing.
+Presented revisions remain immutable, so a successful turn that saw an old
+revision cannot acknowledge its newer replacement.
+
+Notification admission obeys ordinary mail capacity limits, including the
+128-revision limit on a pending identity. If any recipient lacks capacity, the
+entire write, every cursor update and all notifications roll back. This is
+explicit backpressure, not silent notification loss. After a notification is
+delivered, a later change creates a new mail identity. Stopped recipients retain
+pending mail; normal lifecycle and failure barriers govern when it can run.
+
+Cancellation stops future notifications and preserves already committed mail as
+handling evidence. Deleting a subscriber deletes its subscriptions and applies
+ordinary recipient-mail deletion. Restart needs no callback or in-memory watcher:
+SQL retains subscriptions and mail, and scheduler reconciliation finds due work.
+Guest subscription admission/cancellation and operation outcomes share the same
+transaction as their generated notifications. No separate subscription runner
+or wakeup queue exists.

@@ -14,7 +14,10 @@
       "mail": {
         "id": "mail_fixture",
         "revision": "128",
-        "sender_id": "session_root",
+        "source": {
+          "kind": "session",
+          "id": "session_root"
+        },
         "recipient_id": "session_child",
         "delivery": "next_turn",
         "subject": "Subject",

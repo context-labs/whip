@@ -20,7 +20,7 @@ func (s *Store) ApplyStateOperation(ctx context.Context, id session.OperationID)
 			return err
 		}
 		switch operation.Capability {
-		case "state.get", "state.read", "state.write", "state.append", "state.list", "state.history":
+		case "state.get", "state.read", "state.write", "state.append", "state.list", "state.history", "state.subscribe", "state.subscriptions", "state.unsubscribe":
 		default:
 			return ErrConflict
 		}
@@ -59,6 +59,29 @@ func (s *Store) ApplyStateOperation(ctx context.Context, id session.OperationID)
 
 func applyStateOperation(ctx context.Context, tx *sql.Tx, operation session.Operation) (any, error) {
 	switch operation.Capability {
+	case "state.subscribe":
+		var request session.StateSubscribe
+		if err := json.Unmarshal(operation.Arguments, &request); err != nil {
+			return nil, err
+		}
+		if err := request.Validate(); err != nil {
+			return nil, err
+		}
+		id := fmt.Sprintf("subscription_%x", sha256.Sum256([]byte(operation.ID)))
+		return subscribeState(ctx, tx, operation.SessionID, id, request)
+	case "state.subscriptions":
+		var request session.StateSubscriptionList
+		if err := json.Unmarshal(operation.Arguments, &request); err != nil {
+			return nil, err
+		}
+		values, err := listStateSubscriptions(ctx, tx, operation.SessionID, request.After, request.Limit)
+		return session.StateSubscriptionItems{Items: values}, err
+	case "state.unsubscribe":
+		var request session.StateSubscriptionID
+		if err := json.Unmarshal(operation.Arguments, &request); err != nil {
+			return nil, err
+		}
+		return unsubscribeState(ctx, tx, operation.SessionID, request.ID)
 	case "state.write", "state.append":
 		var request session.StateWrite
 		if err := json.Unmarshal(operation.Arguments, &request); err != nil {

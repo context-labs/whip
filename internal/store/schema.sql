@@ -105,7 +105,7 @@ CREATE TRIGGER receipt_immutable BEFORE UPDATE ON receipts
  BEGIN SELECT RAISE(ABORT, 'receipt may only become a deletion marker'); END;
 -- Mail identity survives recipient deletion solely as a send-retry tombstone.
 CREATE TABLE mail (
- id TEXT PRIMARY KEY, sender_id TEXT NOT NULL, recipient_id TEXT NOT NULL,
+ id TEXT PRIMARY KEY, source_kind TEXT NOT NULL CHECK(source_kind IN ('session','state')), source_id TEXT NOT NULL, recipient_id TEXT NOT NULL,
  initial_digest TEXT NOT NULL, revision INTEGER, state TEXT,
  created_at INTEGER NOT NULL, deleted_at INTEGER,
  CHECK((revision IS NULL) = (deleted_at IS NOT NULL)),
@@ -115,7 +115,7 @@ CREATE TABLE mail (
  FOREIGN KEY(id,revision) REFERENCES mail_revisions(mail_id,revision) DEFERRABLE INITIALLY DEFERRED
 ) STRICT;
 CREATE INDEX mail_by_recipient ON mail(recipient_id,id) WHERE deleted_at IS NULL;
-CREATE INDEX mail_sender_rate ON mail(sender_id,created_at);
+CREATE INDEX mail_source_rate ON mail(source_kind,source_id,created_at);
 CREATE TABLE mail_revisions (
  mail_id TEXT NOT NULL REFERENCES mail(id), revision INTEGER NOT NULL CHECK(revision BETWEEN 1 AND 128),
  delivery TEXT NOT NULL CHECK(delivery IN ('queued','steer','next_turn')),
@@ -125,7 +125,7 @@ CREATE TABLE mail_revisions (
 CREATE TRIGGER mail_revision_immutable BEFORE UPDATE ON mail_revisions
  BEGIN SELECT RAISE(ABORT, 'mail revision is immutable'); END;
 CREATE TRIGGER mail_identity_immutable BEFORE UPDATE ON mail
- WHEN NEW.id IS NOT OLD.id OR NEW.sender_id IS NOT OLD.sender_id OR NEW.recipient_id IS NOT OLD.recipient_id
+ WHEN NEW.id IS NOT OLD.id OR NEW.source_kind IS NOT OLD.source_kind OR NEW.source_id IS NOT OLD.source_id OR NEW.recipient_id IS NOT OLD.recipient_id
  OR NEW.initial_digest IS NOT OLD.initial_digest OR NEW.created_at IS NOT OLD.created_at OR OLD.deleted_at IS NOT NULL
  OR (NEW.deleted_at IS NULL AND NEW.revision NOT IN (OLD.revision,OLD.revision+1))
  BEGIN SELECT RAISE(ABORT, 'invalid mail identity transition'); END;
@@ -303,3 +303,18 @@ CREATE UNIQUE INDEX shared_state_versions ON state_versions(tree_id,key,revision
 CREATE INDEX state_body_references ON state_versions(digest);
 CREATE TRIGGER state_version_immutable BEFORE UPDATE ON state_versions
  BEGIN SELECT RAISE(ABORT, 'state version is immutable'); END;
+
+CREATE TABLE state_subscriptions (
+ id TEXT PRIMARY KEY, tree_id TEXT NOT NULL REFERENCES session_trees(id) ON DELETE CASCADE,
+ session_id TEXT NOT NULL, key TEXT NOT NULL, delivery TEXT NOT NULL CHECK(delivery IN ('queued','steer','next_turn')),
+ initial_digest TEXT NOT NULL, cursor INTEGER NOT NULL CHECK(cursor>=0),
+ created_at INTEGER NOT NULL, cancelled_at INTEGER,
+ FOREIGN KEY(session_id,tree_id) REFERENCES sessions(id,tree_id) ON DELETE CASCADE
+) STRICT;
+CREATE UNIQUE INDEX active_state_subscriptions ON state_subscriptions(session_id,key) WHERE cancelled_at IS NULL;
+CREATE INDEX subscribed_state_keys ON state_subscriptions(tree_id,key) WHERE cancelled_at IS NULL;
+CREATE TRIGGER state_subscription_transition BEFORE UPDATE ON state_subscriptions
+ WHEN NEW.id IS NOT OLD.id OR NEW.tree_id IS NOT OLD.tree_id OR NEW.session_id IS NOT OLD.session_id
+ OR NEW.key IS NOT OLD.key OR NEW.delivery IS NOT OLD.delivery OR NEW.initial_digest IS NOT OLD.initial_digest
+ OR NEW.created_at IS NOT OLD.created_at OR NEW.cursor<OLD.cursor OR OLD.cancelled_at IS NOT NULL
+ BEGIN SELECT RAISE(ABORT,'invalid state subscription transition'); END;

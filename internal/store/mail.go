@@ -10,22 +10,22 @@ import (
 	"github.com/context-labs/whip/internal/session"
 )
 
-const mailSelect = `SELECT m.id,r.revision,m.sender_id,m.recipient_id,r.delivery,r.subject,length(CAST(r.body AS BLOB)),m.state,r.available_at,m.created_at,r.created_at,r.body
+const mailSelect = `SELECT m.id,r.revision,m.source_kind,m.source_id,m.recipient_id,r.delivery,r.subject,length(CAST(r.body AS BLOB)),m.state,r.available_at,m.created_at,r.created_at,r.body
  FROM mail m JOIN mail_revisions r ON r.mail_id=m.id`
 
-const mailMetadataSelect = `SELECT m.id,r.revision,m.sender_id,m.recipient_id,r.delivery,r.subject,length(CAST(r.body AS BLOB)),m.state,r.available_at,m.created_at,r.created_at
+const mailMetadataSelect = `SELECT m.id,r.revision,m.source_kind,m.source_id,m.recipient_id,r.delivery,r.subject,length(CAST(r.body AS BLOB)),m.state,r.available_at,m.created_at,r.created_at
  FROM mail m JOIN mail_revisions r ON r.mail_id=m.id`
 
 func scanMailMetadata(row scanner) (result session.MailMetadata, err error) {
 	var available, created, revised int64
-	err = row.Scan(&result.ID, &result.Revision, &result.SenderID, &result.RecipientID, &result.Delivery, &result.Subject, &result.BodyBytes, &result.State, &available, &created, &revised)
+	err = row.Scan(&result.ID, &result.Revision, &result.Source.Kind, &result.Source.ID, &result.RecipientID, &result.Delivery, &result.Subject, &result.BodyBytes, &result.State, &available, &created, &revised)
 	result.AvailableAt, result.CreatedAt, result.RevisedAt = timestamp(available), timestamp(created), timestamp(revised)
 	return result, found(err)
 }
 
 func scanMail(row scanner) (result session.Mail, err error) {
 	var available, created, revised int64
-	err = row.Scan(&result.ID, &result.Revision, &result.SenderID, &result.RecipientID, &result.Delivery, &result.Subject, &result.BodyBytes, &result.State, &available, &created, &revised, &result.Body)
+	err = row.Scan(&result.ID, &result.Revision, &result.Source.Kind, &result.Source.ID, &result.RecipientID, &result.Delivery, &result.Subject, &result.BodyBytes, &result.State, &available, &created, &revised, &result.Body)
 	result.AvailableAt, result.CreatedAt, result.RevisedAt = timestamp(available), timestamp(created), timestamp(revised)
 	return result, found(err)
 }
@@ -96,10 +96,10 @@ func mailMembers(ctx context.Context, q querier, senderID, recipientID session.S
 	return nil
 }
 
-func mailCapacity(ctx context.Context, q querier, spec session.MailSpec, newIdentity bool) error {
+func mailCapacity(ctx context.Context, q querier, source session.MailSource, recipient session.SessionID, id session.MailID, newIdentity bool) error {
 	var count, pending, backlog int
-	err := q.QueryRowContext(ctx, `SELECT count(*),COALESCE(sum(state='pending'),0),COALESCE(sum(sender_id=? AND state<>'done'),0)
- FROM mail WHERE recipient_id=? AND deleted_at IS NULL AND id<>?`, spec.SenderID, spec.RecipientID, spec.ID).Scan(&count, &pending, &backlog)
+	err := q.QueryRowContext(ctx, `SELECT count(*),COALESCE(sum(state='pending'),0),COALESCE(sum(source_kind=? AND source_id=? AND state<>'done'),0)
+ FROM mail WHERE recipient_id=? AND deleted_at IS NULL AND id<>?`, source.Kind, source.ID, recipient, id).Scan(&count, &pending, &backlog)
 	if err != nil {
 		return err
 	}
@@ -108,7 +108,7 @@ func mailCapacity(ctx context.Context, q querier, spec session.MailSpec, newIden
 	}
 	if newIdentity {
 		var recent int
-		if err := q.QueryRowContext(ctx, "SELECT count(*) FROM mail WHERE sender_id=? AND created_at>?", spec.SenderID, now()-int64(10*time.Second/time.Microsecond)).Scan(&recent); err != nil {
+		if err := q.QueryRowContext(ctx, "SELECT count(*) FROM mail WHERE source_kind=? AND source_id=? AND created_at>?", source.Kind, source.ID, now()-int64(10*time.Second/time.Microsecond)).Scan(&recent); err != nil {
 			return err
 		}
 		if recent >= 30 {
@@ -153,11 +153,11 @@ func sendMail(ctx context.Context, tx *sql.Tx, spec session.MailSpec) (session.M
 	if err := mailMembers(ctx, tx, spec.SenderID, spec.RecipientID); err != nil {
 		return result, err
 	}
-	if err := mailCapacity(ctx, tx, spec, true); err != nil {
+	if err := mailCapacity(ctx, tx, session.MailSource{Kind: "session", ID: string(spec.SenderID)}, spec.RecipientID, spec.ID, true); err != nil {
 		return result, err
 	}
 	created := now()
-	if _, err := tx.ExecContext(ctx, "INSERT INTO mail VALUES (?,?,?,?,1,'pending',?,NULL)", spec.ID, spec.SenderID, spec.RecipientID, digest, created); err != nil {
+	if _, err := tx.ExecContext(ctx, "INSERT INTO mail VALUES (?,'session',?,?,?,1,'pending',?,NULL)", spec.ID, spec.SenderID, spec.RecipientID, digest, created); err != nil {
 		return result, err
 	}
 	if err := insertMailRevision(ctx, tx, spec, 1, created); err != nil {
@@ -186,7 +186,7 @@ func (s *Store) ReplaceMail(ctx context.Context, spec session.MailSpec, expected
 		if err != nil {
 			return err
 		}
-		if current.State != session.MailPending || current.Revision != expectedRevision || current.SenderID != spec.SenderID {
+		if current.State != session.MailPending || current.Revision != expectedRevision || current.Source != (session.MailSource{Kind: "session", ID: string(spec.SenderID)}) {
 			return ErrConflict
 		}
 		if err := mailMembers(ctx, tx, spec.SenderID, spec.RecipientID); err != nil {
@@ -202,7 +202,7 @@ func replaceMail(ctx context.Context, tx *sql.Tx, spec session.MailSpec, current
 	if current.Revision >= session.MaxMailRevisions {
 		return session.Mail{}, ErrLimit
 	}
-	if err := mailCapacity(ctx, tx, spec, false); err != nil {
+	if err := mailCapacity(ctx, tx, current.Source, spec.RecipientID, spec.ID, false); err != nil {
 		return session.Mail{}, err
 	}
 	if err := insertMailRevision(ctx, tx, spec, current.Revision+1, now()); err != nil {
