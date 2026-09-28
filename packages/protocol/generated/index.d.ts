@@ -899,6 +899,7 @@ export interface ListMailResult {
         delivery: "queued" | "steer" | "next_turn";
         subject: string;
         body_bytes: string;
+        evidence_ref: null | string;
         state: "pending" | "delivered" | "done";
         available_at: string;
         created_at: string;
@@ -1015,6 +1016,7 @@ export interface MailAdmission {
     delivery: "queued" | "steer" | "next_turn";
     subject: string;
     body_bytes: string;
+    evidence_ref: null | string;
     state: "pending" | "delivered" | "done";
     available_at: string;
     created_at: string;
@@ -1391,6 +1393,7 @@ export interface ReadMailResult {
     delivery: "queued" | "steer" | "next_turn";
     subject: string;
     body_bytes: string;
+    evidence_ref: null | string;
     state: "pending" | "delivered" | "done";
     available_at: string;
     created_at: string;
@@ -1522,6 +1525,7 @@ export interface SendMailParams {
   delivery: "queued" | "steer" | "next_turn";
   subject: string;
   body: string;
+  evidence_ref?: null | string;
   available_at?: null | string;
 }
 export interface Session {

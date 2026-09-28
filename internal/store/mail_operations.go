@@ -137,7 +137,7 @@ func applyMailOperation(ctx context.Context, tx *sql.Tx, operation session.Opera
 		if current.State == session.MailDone {
 			return nil, nil, ErrConflict
 		}
-		spec := session.MailSpec{ID: current.ID, RecipientID: current.RecipientID, Subject: current.Subject, Body: current.Body, Delivery: current.Delivery, AvailableAt: &request.AvailableAt}
+		spec := session.MailSpec{ID: current.ID, RecipientID: current.RecipientID, Subject: current.Subject, Body: current.Body, EvidenceRef: current.EvidenceRef, Delivery: current.Delivery, AvailableAt: &request.AvailableAt}
 		next, err := replaceMail(ctx, tx, spec, current)
 		if err != nil {
 			return nil, nil, err

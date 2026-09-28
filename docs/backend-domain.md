@@ -618,11 +618,30 @@ through the send API. Runtime-authored notifications use their own scoped source
 identity and can reach any subscriber in the same tree.
 
 A mail identity owns its current revision and handling state. Immutable revisions
-own delivery class, availability, subject and body. Transcript entries reference
+own delivery class, availability, subject, body and an optional recipient-owned
+`evidence_ref`. Transcript entries reference
 the exact presented revision, so replacing pending mail cannot rewrite history.
 A listing contains metadata and body size; an explicit read returns the body.
 Human list/read operations do not start work, establish agent observations or
 acknowledge delivery.
+
+Authored mail may supply one sender-owned content reference as `evidence_ref`.
+At admission, the store checks that ownership and creates a recipient-owned
+reference to the same immutable body, in the same transaction as the mail,
+revision, logical-write charge and guest-operation settlement. Self-mail reuses
+the existing owned reference. Neither a digest nor a foreign reference grants
+access. The body may be empty only when evidence is present. Sharing consumes
+recipient retained-content capacity but does not upload or charge the body again.
+
+Metadata, reads and transcript digests identify the recipient's reference. Model
+context contains only its bounded identifier, never automatically hydrated bytes;
+the agent uses authorized `artifacts.read` to read them. The send identity hashes
+the original caller payload, so an exact retry returns the same recipient alias,
+including after sender deletion and restart. Replacing pending mail may attach
+new evidence, while older revisions keep their exact references; deferral carries
+the same reference without sharing or charging it again. Deleting a sender does
+not remove recipient references. Recipient deletion releases its mail and owned
+references together.
 
 The scheduler derives readiness directly from due mail and queued inputs.
 `queued` mail waits for an idle session, `steer` can also be presented at the next
@@ -950,7 +969,7 @@ The parser supports the retained scalar/block-scalar subset, validates known
 fields, and preserves keys following block scalars. Complete composed base
 instructions, including framing and the execution guide, are bounded to 1 MiB.
 
-Fresh schema 22 retains one immutable manifest per captured turn. It records the
+Fresh schema 23 retains one immutable manifest per captured turn. It records the
 base instruction byte count/digest and ordered source kind, root-relative
 path, scope, nullable logical root ID, byte count and digest. `skill_metadata` digests cover consumed
 frontmatter, including disabled and duplicate entries that affected discovery.

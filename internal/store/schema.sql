@@ -171,8 +171,10 @@ CREATE TABLE mail_revisions (
  mail_id TEXT NOT NULL REFERENCES mail(id), revision INTEGER NOT NULL CHECK(revision BETWEEN 1 AND 128),
  delivery TEXT NOT NULL CHECK(delivery IN ('queued','steer','next_turn')),
  subject TEXT NOT NULL, body TEXT NOT NULL, available_at INTEGER NOT NULL, created_at INTEGER NOT NULL,
+ evidence_ref TEXT REFERENCES content_references(id) DEFERRABLE INITIALLY DEFERRED,
  PRIMARY KEY(mail_id,revision)
 ) STRICT;
+CREATE INDEX mail_revision_evidence ON mail_revisions(evidence_ref) WHERE evidence_ref IS NOT NULL;
 CREATE TRIGGER mail_revision_immutable BEFORE UPDATE ON mail_revisions
  BEGIN SELECT RAISE(ABORT, 'mail revision is immutable'); END;
 CREATE TRIGGER mail_identity_immutable BEFORE UPDATE ON mail

@@ -28,6 +28,7 @@ type MailMetadata struct {
 	Delivery    string     `json:"delivery" enum:"queued,steer,next_turn"`
 	Subject     string     `json:"subject"`
 	BodyBytes   Counter    `json:"body_bytes"`
+	EvidenceRef *ID        `json:"evidence_ref"`
 	State       string     `json:"state" enum:"pending,delivered,done"`
 	AvailableAt string     `json:"available_at"`
 	CreatedAt   string     `json:"created_at"`
@@ -47,6 +48,7 @@ type SendMailParams struct {
 	Delivery    string  `json:"delivery" enum:"queued,steer,next_turn"`
 	Subject     string  `json:"subject"`
 	Body        string  `json:"body"`
+	EvidenceRef *ID     `json:"evidence_ref,omitempty"`
 	AvailableAt *string `json:"available_at,omitempty"`
 }
 
@@ -73,6 +75,9 @@ type ReadMailResult struct {
 
 func (p SendMailParams) Domain() (session.MailSpec, error) {
 	value := session.MailSpec{ID: session.MailID(p.MailID), SenderID: session.SessionID(p.SenderID), RecipientID: session.SessionID(p.RecipientID), Delivery: session.MailDelivery(p.Delivery), Subject: p.Subject, Body: p.Body}
+	if p.EvidenceRef != nil {
+		value.EvidenceRef = new(string(*p.EvidenceRef))
+	}
 	if p.AvailableAt != nil {
 		parsed, err := time.Parse(time.RFC3339Nano, *p.AvailableAt)
 		if err != nil {
@@ -84,11 +89,15 @@ func (p SendMailParams) Domain() (session.MailSpec, error) {
 }
 
 func MailMetadataFromDomain(value session.MailMetadata) MailMetadata {
-	return MailMetadata{
+	result := MailMetadata{
 		ID: ID(value.ID), Revision: Counter(value.Revision), Source: MailSource{Kind: value.Source.Kind, ID: ID(value.Source.ID)}, RecipientID: ID(value.RecipientID),
 		Delivery: string(value.Delivery), Subject: value.Subject, BodyBytes: Counter(value.BodyBytes), State: string(value.State),
 		AvailableAt: value.AvailableAt.Format(time.RFC3339Nano), CreatedAt: value.CreatedAt.Format(time.RFC3339Nano), RevisedAt: value.RevisedAt.Format(time.RFC3339Nano),
 	}
+	if value.EvidenceRef != nil {
+		result.EvidenceRef = new(ID(*value.EvidenceRef))
+	}
+	return result
 }
 
 func MailAdmissionFromDomain(value session.MailAdmission) MailAdmission {

@@ -1503,3 +1503,43 @@ retention capacity. Legacy `active_children` excluded stopped children. The
 existing resource tests deliberately assert the new behavior. These decisions
 are documented implementation choices, not evidence of separate user approval;
 they must remain visible in final scope reconciliation and client migration.
+
+
+## Phase 4 authored-mail evidence repair
+
+The missing retained capability identified above is now implemented. Optional
+`MailSend.evidence_ref` names a sender-owned reference; each immutable mail
+revision retains a recipient-owned reference to the same immutable body. Sharing,
+mail admission, revision creation, logical-write charging and guest-operation
+settlement commit together. The new reference has the recipient's ownership and
+limits without copying bytes or charging another content write. A digest or a
+foreign reference is never authority. Fresh schema 23 adds the nullable, deferred
+foreign key and its partial index. Evidence-only mail accepts an empty body.
+
+Idempotence hashes the original sender request before reference translation.
+Lost acknowledgements, restart and sender deletion therefore return the original
+recipient alias without creating another alias. Replacement produces another
+immutable revision; deferral preserves its existing recipient alias. Presentation
+uses the exact retained revision and appends a bounded reference locator after
+text truncation. It does not hydrate attachment bytes into model context.
+Human inspection still does not acknowledge delivery.
+
+Replacement evidence covers direct relatives and self, ownership rejection,
+quota/transaction/operation-settlement rollback, immutable old revisions,
+replacement, deferral, restart, both deletion directions and stable retries.
+Actual Starlark and QuickJS guests send evidence-only mail and read exact paged
+UTF-8 bytes after sender deletion and restart; a sibling with the reference ID
+and an artifacts capability still cannot read it. Generated protocol fixtures
+and the SDK acceptance exercise lost acknowledgements, owner isolation, human
+inspection, restart, lazy presentation and stable reference identity.
+
+Local validation: `task check:phase` passed (store race/shuffle 79.915s, runtime
+87.630s, process engine 101.734s, v4 SDK fixture 13.346s and selected retained
+daemon regressions 2.656s). `task check:analysis` passed with zero lint issues and
+no reachable vulnerabilities. The partial foreign-key index was added during
+the gate and checked with SQLite query planning and focused affected tests;
+the only later test edit was formatting. Phase 4 remains open pending hosted
+validation of the repair. A preceding host-skills macOS job hit the SDK fixture's
+aggregate 180-second timeout; that job is failed evidence, not a passing phase
+gate. A separate harness increment is adding named scenario budgets and retained
+timeout diagnostics without removing acceptance scenarios.

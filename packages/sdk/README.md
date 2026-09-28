@@ -199,6 +199,19 @@ waits for another trigger. Transcript messages identify mail provenance with
 `mail.id`, exact decimal-string `mail.revision`, and `mail.presentation`; their
 `input_id` is null. Other messages have `mail: null`.
 
+An optional `evidence_ref` attaches content already owned by the sender. The body
+may be empty when evidence is present. Admission creates a recipient-owned
+reference to the same immutable bytes, returned in `sent.mail.evidence_ref` and
+mail list/read metadata. Read it with `content.read` using the recipient session
+ID; a sender's reference or a content digest does not authorize recipient access.
+Guest agents use scoped `artifacts.read` for bounded pages. Mail presentation
+contains only the reference, so evidence does not automatically fill model context.
+
+Retry with the original sender reference and payload. Successful retries retain
+the same recipient reference even after sender deletion or runtime restart.
+Recipient content limits can reject the entire send; no partial mail or shared
+reference remains. Sharing references does not upload or charge the body again.
+
 Explicit state uses `scope: 'session'` for private values or `scope: 'tree'` for
 shared values. Every write supplies an expected revision and stable version ID:
 

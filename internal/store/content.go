@@ -110,12 +110,8 @@ func shareChildContent(ctx context.Context, tx *sql.Tx, parent, child session.Se
 		}
 		id, exists := shared[part.ReferenceID]
 		if !exists {
-			reference, err := readContent(ctx, tx, parent, part.ReferenceID)
+			reference, err := shareContent(ctx, tx, parent, child, part.ReferenceID)
 			if err != nil {
-				return nil, err
-			}
-			reference.ID, reference.SessionID = newID("content"), child
-			if _, err := registerContent(ctx, tx, reference); err != nil {
 				return nil, err
 			}
 			id = reference.ID
@@ -124,6 +120,17 @@ func shareChildContent(ctx context.Context, tx *sql.Tx, parent, child session.Se
 		result[i].ReferenceID = id
 	}
 	return result, nil
+}
+
+// Sharing transfers access to the same immutable body without charging another
+// logical write. Recipient reference-count and retained-byte limits still apply.
+func shareContent(ctx context.Context, tx *sql.Tx, sender, recipient session.SessionID, id string) (session.ContentReference, error) {
+	reference, err := readContent(ctx, tx, sender, id)
+	if err != nil || sender == recipient {
+		return reference, err
+	}
+	reference.ID, reference.SessionID = newID("content"), recipient
+	return registerContent(ctx, tx, reference)
 }
 
 // ContentReferenced is used only by exclusive startup collection, before any

@@ -10,22 +10,22 @@ import (
 	"github.com/context-labs/whip/internal/session"
 )
 
-const mailSelect = `SELECT m.id,r.revision,m.source_kind,m.source_id,m.recipient_id,r.delivery,r.subject,length(CAST(r.body AS BLOB)),m.state,r.available_at,m.created_at,r.created_at,r.body
+const mailSelect = `SELECT m.id,r.revision,m.source_kind,m.source_id,m.recipient_id,r.delivery,r.subject,length(CAST(r.body AS BLOB)),m.state,r.available_at,m.created_at,r.created_at,r.evidence_ref,r.body
  FROM mail m JOIN mail_revisions r ON r.mail_id=m.id`
 
-const mailMetadataSelect = `SELECT m.id,r.revision,m.source_kind,m.source_id,m.recipient_id,r.delivery,r.subject,length(CAST(r.body AS BLOB)),m.state,r.available_at,m.created_at,r.created_at
+const mailMetadataSelect = `SELECT m.id,r.revision,m.source_kind,m.source_id,m.recipient_id,r.delivery,r.subject,length(CAST(r.body AS BLOB)),m.state,r.available_at,m.created_at,r.created_at,r.evidence_ref
  FROM mail m JOIN mail_revisions r ON r.mail_id=m.id`
 
 func scanMailMetadata(row scanner) (result session.MailMetadata, err error) {
 	var available, created, revised int64
-	err = row.Scan(&result.ID, &result.Revision, &result.Source.Kind, &result.Source.ID, &result.RecipientID, &result.Delivery, &result.Subject, &result.BodyBytes, &result.State, &available, &created, &revised)
+	err = row.Scan(&result.ID, &result.Revision, &result.Source.Kind, &result.Source.ID, &result.RecipientID, &result.Delivery, &result.Subject, &result.BodyBytes, &result.State, &available, &created, &revised, &result.EvidenceRef)
 	result.AvailableAt, result.CreatedAt, result.RevisedAt = timestamp(available), timestamp(created), timestamp(revised)
 	return result, found(err)
 }
 
 func scanMail(row scanner) (result session.Mail, err error) {
 	var available, created, revised int64
-	err = row.Scan(&result.ID, &result.Revision, &result.Source.Kind, &result.Source.ID, &result.RecipientID, &result.Delivery, &result.Subject, &result.BodyBytes, &result.State, &available, &created, &revised, &result.Body)
+	err = row.Scan(&result.ID, &result.Revision, &result.Source.Kind, &result.Source.ID, &result.RecipientID, &result.Delivery, &result.Subject, &result.BodyBytes, &result.State, &available, &created, &revised, &result.EvidenceRef, &result.Body)
 	result.AvailableAt, result.CreatedAt, result.RevisedAt = timestamp(available), timestamp(created), timestamp(revised)
 	return result, found(err)
 }
@@ -156,6 +156,9 @@ func sendMail(ctx context.Context, tx *sql.Tx, spec session.MailSpec) (session.M
 	if err := mailCapacity(ctx, tx, session.MailSource{Kind: "session", ID: string(spec.SenderID)}, spec.RecipientID, spec.ID, true); err != nil {
 		return result, err
 	}
+	if err := shareMailEvidence(ctx, tx, &spec); err != nil {
+		return result, err
+	}
 	created := now()
 	if _, err := tx.ExecContext(ctx, "INSERT INTO mail VALUES (?,'session',?,?,?,1,'pending',?,NULL)", spec.ID, spec.SenderID, spec.RecipientID, digest, created); err != nil {
 		return result, err
@@ -176,7 +179,7 @@ func insertMailRevision(ctx context.Context, tx *sql.Tx, spec session.MailSpec, 
 	if spec.AvailableAt != nil {
 		available = spec.AvailableAt.UTC().UnixMicro()
 	}
-	_, err := tx.ExecContext(ctx, "INSERT INTO mail_revisions VALUES (?,?,?,?,?,?,?)", spec.ID, revision, spec.Delivery, spec.Subject, spec.Body, available, created)
+	_, err := tx.ExecContext(ctx, "INSERT INTO mail_revisions (mail_id,revision,delivery,subject,body,available_at,created_at,evidence_ref) VALUES (?,?,?,?,?,?,?,?)", spec.ID, revision, spec.Delivery, spec.Subject, spec.Body, available, created, spec.EvidenceRef)
 	return err
 }
 
@@ -193,6 +196,9 @@ func (s *Store) ReplaceMail(ctx context.Context, spec session.MailSpec, expected
 			return ErrConflict
 		}
 		if err := mailMembers(ctx, tx, spec.SenderID, spec.RecipientID); err != nil {
+			return err
+		}
+		if err := shareMailEvidence(ctx, tx, &spec); err != nil {
 			return err
 		}
 		result, err = replaceMail(ctx, tx, spec, current)
@@ -218,4 +224,18 @@ func replaceMail(ctx context.Context, tx *sql.Tx, spec session.MailSpec, current
 		return session.Mail{}, err
 	}
 	return readMail(ctx, tx, spec.RecipientID, spec.ID)
+}
+
+// Only authored admission transfers access. Revision-only changes such as
+// deferral already carry the recipient's immutable reference.
+func shareMailEvidence(ctx context.Context, tx *sql.Tx, spec *session.MailSpec) error {
+	if spec.EvidenceRef == nil {
+		return nil
+	}
+	reference, err := shareContent(ctx, tx, spec.SenderID, spec.RecipientID, *spec.EvidenceRef)
+	if err != nil {
+		return err
+	}
+	spec.EvidenceRef = &reference.ID
+	return nil
 }

@@ -24,7 +24,7 @@ func mailReady(ctx context.Context, q querier, owner session.SessionID) (bool, e
 	return ready, err
 }
 
-func mailParts(reference session.MailRef, source session.MailSource, subject, body string) []session.Part {
+func mailParts(reference session.MailRef, source session.MailSource, subject, body string, evidence *string) []session.Part {
 	if reference.Presentation == session.MailDigest {
 		original := body
 		if len(body) > 2048 {
@@ -40,6 +40,9 @@ func mailParts(reference session.MailRef, source session.MailSource, subject, bo
 		if body != original {
 			body += "…"
 		}
+	}
+	if evidence != nil {
+		body += "\nEvidence reference: " + *evidence + " (read with artifacts.read)"
 	}
 	return []session.Part{{Type: "text", Text: fmt.Sprintf("[Mail %s revision %d from %s %s]\nSubject: %s\n%s", reference.ID, reference.Revision, source.Kind, source.ID, subject, body)}}
 }
