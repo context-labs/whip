@@ -166,7 +166,7 @@ func TestMailFailureBarrierAppliesAtEveryDepthAndSurvivesReopen(t *testing.T) {
 				t.Fatal(err)
 			}
 			s = openTest(t, path)
-			ready, err := s.QueuedSessions(t.Context(), 100)
+			ready, err := s.QueuedSessions(t.Context(), QueueCursor{}, 100)
 			if err != nil || len(ready) != 0 {
 				t.Fatalf("retry barrier bypassed: %v %v", ready, err)
 			}

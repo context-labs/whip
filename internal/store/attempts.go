@@ -76,6 +76,9 @@ func (s *Store) ReserveModelAttempt(ctx context.Context, p session.ModelAttemptS
 		if turn.State != session.Running {
 			return ErrStopped
 		}
+		if err := requireTurnPermit(ctx, tx, turn.ID); err != nil {
+			return err
+		}
 		var count int
 		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM model_attempts WHERE turn_id=?", p.TurnID).Scan(&count); err != nil {
 			return err
@@ -125,6 +128,9 @@ func (s *Store) DispatchModelAttempt(ctx context.Context, id session.ModelAttemp
 		}
 		if turn.State != session.Running {
 			return ErrStopped
+		}
+		if err := requireTurnPermit(ctx, tx, turn.ID); err != nil {
+			return err
 		}
 		_, err = tx.ExecContext(ctx, "UPDATE model_attempts SET state='dispatched',dispatched_at=? WHERE id=?", now(), id)
 		if err == nil {

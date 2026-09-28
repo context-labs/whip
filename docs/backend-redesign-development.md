@@ -847,19 +847,73 @@ completed effects. The existing per-owner retention bounds remain separate.
 
 Subtree concurrency is a distinct retained control: the old regression runs four
 host workers with a subtree child-turn allowance of one and keeps the second
-child queued. Host-wide worker counts alone do not preserve it. Add scoped
-runnable permits, with release/reacquisition around parent waits, instead of
-counting every unfinished SQL turn and deadlocking recursive waits. The new
+child queued. Host-wide worker counts alone do not preserve it. The scoped
+permit increment below now covers this with release/reacquisition around parent
+waits, rather than counting unfinished turns and deadlocking recursive waits. The new
 `active_operations` resource intentionally describes the host-operation domain;
 model concurrency needs explicit coverage in those scheduling permits and later
 helper-call admission. Schedule/subscription combined admission is revisited
 with the Phase 5 schedule implementation.
 
-The guest recursion surface also still needs ordinary submit, bounded result
-inspection/listing and scoped stop/delete operations. Completion reporting must
+The guest recursion surface now includes ordinary submit, bounded result
+inspection/listing and scoped stop/delete operations, covered below. Completion reporting must
 retain idle-parent wakeup and exact result access. The old completion notifier
 sent after turn settlement and ignored failures; copying that ordering would
 lose reports. Conversely, checking an inbox quota while finishing a completed
 effect can prevent terminal settlement. The replacement needs bounded reserved
 report delivery ownership and independently recoverable delivery. These are
 remaining obligations, not implemented claims.
+
+## Phase 4 scoped execution and guest controls
+
+Fresh schema 12 adds `turn_permits`, one authorization row per executing turn.
+`runnable_descendants` counts these rows only for proper descendants, with every
+ancestor enforced. Its finite root default is 64. Turn outcome remains in `turns`;
+a parent can stay running while it yields execution permission. Claim acquires
+before consuming input or writing history. Yield rejects unfinished model, cell
+or host work. Resumption uses the same turn and input, while finish/recovery
+release permission atomically. New provider, cell and host dispatch boundaries
+enforce the permit. No second mutable usage counter or background repair exists.
+
+The runtime owns physical worker slots separately. It reserves a slot before SQL
+acquisition without holding its mutex, releases a parent's permit at the committed
+cell boundary, and reacquires both before continuing. A bounded in-memory queue
+cursor scans past blocked scopes and wraps to earlier work. It is advisory, not
+another persisted queue. Resumption cancellation releases any unused acquisition.
+Cap changes wake scheduling.
+
+Guest submit, inspect, list, stop and delete use the existing operation transaction.
+Submit restricts mutation to direct children and atomically shares authorized
+content with the queued input. Inspect returns the exact requested input's outcome
+and bounded UTF-8 text pages with stable terminal message identity. List reveals
+only relative metadata. Stop retains queued work and marks active turns cancelling;
+its postcommit cleanup cannot cancel a later turn after reactivation. Delete uses
+ordinary subtree deletion and rejects active work. Successful retries survive
+target deletion. No child-specific transcript or execution loop was introduced.
+
+The store permit suite tests two independent handles competing for one ancestor
+slot, rollback of rejected claims, proper-ancestor semantics, safe-yield guards,
+admission/dispatch after yield, revision/cancellation races and recovery. Runtime
+tests cover four host workers under a one-slot subtree cap, more than 100 blocked
+queue entries, revisiting an earlier newly eligible scope, blocked resumptions
+with cap increases/cancellation/deadlines, and recursive waits with one worker.
+The legacy capacity test fake now waits during provider preparation, before any
+attempt is admitted; yielding inside an unfinished provider attempt is intentionally
+invalid. Actual Starlark and QuickJS tests verify the committed-cell wait boundary.
+
+Child-control tests cover descendant authority, rejected sibling/ancestor mutation,
+foreign content references, SQL rollback, concurrent retries, exact-input outcome
+paging, retained queues, post-stop reactivation and both actual engines. The SDK
+process fixture validates the new generated resource kind, queued retention at
+zero capacity, progress after a cap increase and released usage after restart.
+
+Focused race runs passed for store permits (3.669 s), runtime permits/capacity
+(12.362 s), and RPC/child-control integration. Two independent concurrency reviews
+found no correctness blockers. Pinned analysis reports zero lint issues and no
+reachable vulnerabilities. The full local phase gate passed: store race coverage
+35.705 s, runtime 83.255 s, process engines 97.788 s, generated contracts and SDK,
+the new SDK restart fixture 5.118 s, retained fixture 2.267 s, and required daemon
+regressions 2.775 s. The preceding committed resource increment also passed hosted
+macOS/Linux and analysis in run `36440818797` at `fce5b5964`.
+Completion reports, cumulative write allowances and final uniform lifecycle
+acceptance still block Phase 4 completion; all Phase 5–7 obligations remain.

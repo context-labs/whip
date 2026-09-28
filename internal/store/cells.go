@@ -100,6 +100,9 @@ func (s *Store) BeginCell(ctx context.Context, spec session.CellSpec) (result se
 		if turn.State != session.Running {
 			return ErrConflict
 		}
+		if err := requireTurnPermit(ctx, tx, turn.ID); err != nil {
+			return err
+		}
 		message, pending, err := pendingCalls(ctx, tx, turn.ID)
 		if err != nil {
 			return err

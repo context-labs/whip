@@ -5,11 +5,12 @@ import "fmt"
 type ResourceKind string
 
 const (
-	ResourceDepth            ResourceKind = "depth"
-	ResourceDescendants      ResourceKind = "descendants"
-	ResourceQueuedInputs     ResourceKind = "queued_inputs"
-	ResourceActiveOperations ResourceKind = "active_operations"
-	ResourceSubscriptions    ResourceKind = "subscriptions"
+	ResourceDepth               ResourceKind = "depth"
+	ResourceRunnableDescendants ResourceKind = "runnable_descendants"
+	ResourceDescendants         ResourceKind = "descendants"
+	ResourceQueuedInputs        ResourceKind = "queued_inputs"
+	ResourceActiveOperations    ResourceKind = "active_operations"
+	ResourceSubscriptions       ResourceKind = "subscriptions"
 	// MaxSessionDepth bounds ancestry traversal, including delegated authority.
 	MaxSessionDepth = 128
 )
@@ -32,7 +33,7 @@ type ResourceUsage struct {
 }
 
 func ResourceKinds() []ResourceKind {
-	return []ResourceKind{ResourceDepth, ResourceDescendants, ResourceQueuedInputs, ResourceActiveOperations, ResourceSubscriptions}
+	return []ResourceKind{ResourceDepth, ResourceDescendants, ResourceQueuedInputs, ResourceActiveOperations, ResourceSubscriptions, ResourceRunnableDescendants}
 }
 
 func DefaultResourceLimits() []ResourceLimit {
@@ -42,12 +43,13 @@ func DefaultResourceLimits() []ResourceLimit {
 		{ResourceQueuedInputs, new(int64(256))},
 		{ResourceActiveOperations, new(int64(64))},
 		{ResourceSubscriptions, new(int64(1000))},
+		{ResourceRunnableDescendants, new(int64(64))},
 	}
 }
 
 func (limit ResourceLimit) Validate() error {
 	switch limit.Kind {
-	case ResourceDepth, ResourceDescendants, ResourceQueuedInputs, ResourceActiveOperations, ResourceSubscriptions:
+	case ResourceDepth, ResourceDescendants, ResourceQueuedInputs, ResourceActiveOperations, ResourceSubscriptions, ResourceRunnableDescendants:
 	default:
 		return fmt.Errorf("%w: unsupported resource kind", ErrInvalid)
 	}

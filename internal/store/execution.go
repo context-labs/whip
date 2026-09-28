@@ -223,6 +223,13 @@ func (s *Store) Claim(ctx context.Context, id session.SessionID) (result Claim, 
 		if _, err := tx.ExecContext(ctx, "INSERT INTO turns VALUES (?,?,?,'running',NULL,?,NULL)", turnID, id, current.ConfigRevision, started); err != nil {
 			return err
 		}
+		result.Turn, err = readTurn(ctx, tx, turnID)
+		if err != nil {
+			return err
+		}
+		if err := acquireTurnPermit(ctx, tx, result.Turn); err != nil {
+			return err
+		}
 		if inputID != "" {
 			update, err := tx.ExecContext(ctx, "UPDATE inputs SET turn_id=? WHERE id=? AND turn_id IS NULL AND cancelled_at IS NULL", turnID, inputID)
 			if err != nil {
@@ -247,10 +254,6 @@ func (s *Store) Claim(ctx context.Context, id session.SessionID) (result Claim, 
 			result.Input = &input
 		}
 
-		result.Turn, err = readTurn(ctx, tx, turnID)
-		if err != nil {
-			return err
-		}
 		if _, err := observeMailBoundary(ctx, tx, result.Turn, false); err != nil {
 			return err
 		}
@@ -396,14 +399,11 @@ func (s *Store) Finish(ctx context.Context, id session.TurnID, state session.Tur
 		} else if !current.State.CanTransitionTo(state) {
 			return ErrConflict
 		}
-		var pending int
-		if err := tx.QueryRowContext(ctx, `SELECT
- (SELECT count(*) FROM model_attempts WHERE turn_id=? AND finished_at IS NULL) +
- (SELECT count(*) FROM cells WHERE turn_id=? AND state='running') +
- (SELECT count(*) FROM operations o JOIN cells c ON c.id=o.cell_id WHERE c.turn_id=? AND o.finished_at IS NULL)`, id, id, id).Scan(&pending); err != nil {
+		pending, err := unfinishedExecution(ctx, tx, id)
+		if err != nil {
 			return err
 		}
-		if pending != 0 {
+		if pending {
 			return ErrBusy
 		}
 		for _, draft := range messages {
@@ -427,6 +427,9 @@ func (s *Store) Finish(ctx context.Context, id session.TurnID, state session.Tur
 				if err := acknowledgeMail(ctx, tx, id); err != nil {
 					return err
 				}
+			}
+			if _, err := tx.ExecContext(ctx, "DELETE FROM turn_permits WHERE turn_id=?", id); err != nil {
+				return err
 			}
 			if _, err := tx.ExecContext(ctx, "UPDATE turns SET state=?,failure=?,finished_at=? WHERE id=?", state, failure, now(), id); err != nil {
 				return err

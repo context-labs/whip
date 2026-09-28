@@ -29,12 +29,12 @@ func TestResourcesRPCEnforcesAncestorCapacityAndRevision(t *testing.T) {
 	spawn := protocol.SpawnSessionParams{Identity: protocol.RequestIdentity{ClientID: "resources", RequestID: "child"}, ParentID: root, Parts: []protocol.Part{{Type: "text", Text: "queued"}}, Resources: []protocol.ResourceLimit{{Kind: "descendants", Limit: new(protocol.Counter(0))}, {Kind: "queued_inputs", Limit: new(protocol.Counter(2))}}}
 	child := call[protocol.SpawnSessionResult](t, c, "sessions.spawn", spawn)
 	page := call[protocol.ResourcesResult](t, c, "resources.list", protocol.SessionParams{SessionID: child.Session.ID})
-	if len(page.Items) != 10 {
+	if len(page.Items) != 12 {
 		t.Fatalf("missing ancestor or child resource scopes: %+v", page)
 	}
 	for i, item := range page.Items {
 		owner := child.Session.ID
-		if i >= 5 {
+		if i >= 6 {
 			owner = root
 		}
 		if item.SessionID != owner {

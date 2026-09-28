@@ -115,6 +115,10 @@ func (r *Runtime) DeleteSubtree(ctx context.Context, id session.SessionID) error
 	if err := r.store.DeleteSubtree(ctx, id); err != nil {
 		return err
 	}
+	return r.cleanupDeletedKernels(ctx)
+}
+
+func (r *Runtime) cleanupDeletedKernels(ctx context.Context) error {
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	// SQL rejects active subtrees, so deleted sessions cannot still be executing.

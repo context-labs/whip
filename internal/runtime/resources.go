@@ -13,5 +13,9 @@ func (r *Runtime) Resources(ctx context.Context, id session.SessionID) ([]sessio
 }
 
 func (r *Runtime) SetResource(ctx context.Context, id session.SessionID, revision int64, limit session.ResourceLimit) (session.ResourceUsage, error) {
-	return r.store.SetResource(ctx, id, revision, limit)
+	result, err := r.store.SetResource(ctx, id, revision, limit)
+	if err == nil {
+		r.Wake()
+	}
+	return result, err
 }

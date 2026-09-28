@@ -734,12 +734,12 @@ async function stateSubscriptionAcceptance(runtime, client, createParams, eviden
 async function resourceAcceptance(runtime, client, createParams, evidence) {
   const { root } = await client.call('trees.create', {
     ...createParams,
-    resources: [{ kind: 'descendants', limit: '1' }],
+    resources: [{ kind: 'descendants', limit: '1' }, { kind: 'runnable_descendants', limit: '0' }],
   }, deadline());
   const list = sessionID => client.call('resources.list', { session_id: sessionID }, deadline());
   const scope = (page, owner, kind) => page.items.find(item => item.session_id === owner && item.kind === kind);
   const rootResources = await list(root.id);
-  assert.equal(rootResources.items.length, 5);
+  assert.equal(rootResources.items.length, 6);
   assert.equal(scope(rootResources, root.id, 'descendants').limit, '1');
   const spawnParams = {
     parent_id: root.id, parts: [{ type: 'text', text: 'resource child' }], overrides: {}, grant_ids: [],
@@ -748,7 +748,7 @@ async function resourceAcceptance(runtime, client, createParams, evidence) {
   const child = await client.spawn(spawnParams, 'resource-child', deadline());
   const childResources = await list(child.session.id);
   assert.deepEqual(childResources.items.map(item => item.session_id), [
-    ...Array(5).fill(child.session.id), ...Array(5).fill(root.id),
+    ...Array(6).fill(child.session.id), ...Array(6).fill(root.id),
   ]);
   assert.equal(scope(childResources, root.id, 'descendants').used, '1');
   await assert.rejects(client.spawn(spawnParams, 'resource-rejected', deadline()), error => error instanceof RemoteError && error.kind === 'LIMIT');
@@ -768,6 +768,14 @@ async function resourceAcceptance(runtime, client, createParams, evidence) {
     resource: { kind: 'active_operations', limit: '9007199254740993' },
   }, deadline());
   assert.equal(exact.limit, '9007199254740993');
+  const queued = await client.recover('resource-child', deadline());
+  assert.equal(queued.input.state, 'queued');
+  assert.equal(queued.turn, null);
+  const runnable = scope(rootResources, root.id, 'runnable_descendants');
+  const resumed = await client.call('resources.set', {
+    session_id: root.id, expected_revision: runnable.revision,
+    resource: { kind: 'runnable_descendants', limit: '1' },
+  }, deadline());
   await client.wait('resource-child', deadline());
   await runtime.stop(); await runtime.start('0');
   const reopened = await list(child.session.id);
@@ -775,10 +783,12 @@ async function resourceAcceptance(runtime, client, createParams, evidence) {
   assert.equal(scope(reopened, root.id, 'active_operations').revision, exact.revision);
   assert.equal(scope(reopened, child.session.id, 'descendants').limit, null);
   assert.equal(scope(reopened, child.session.id, 'descendants').revision, cleared.revision);
+  assert.equal(scope(reopened, root.id, 'runnable_descendants').limit, resumed.limit);
+  assert.equal(scope(reopened, root.id, 'runnable_descendants').used, '0');
   await client.call('sessions.delete', { session_id: child.session.id }, deadline());
   const released = await list(root.id);
   assert.equal(scope(released, root.id, 'descendants').used, '0');
   const replacement = await client.spawn(spawnParams, 'resource-rejected', deadline());
   assert.equal((await client.wait('resource-rejected', deadline())).turn.state, 'succeeded');
-  evidence.push({ resourceRoot: root.id, rootResources, childResources, cleared, exact, reopened, released, replacement });
+  evidence.push({ resourceRoot: root.id, rootResources, childResources, cleared, exact, queued, resumed, reopened, released, replacement });
 }

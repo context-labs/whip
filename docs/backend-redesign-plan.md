@@ -369,8 +369,8 @@ Maintain one compact table here as families are addressed:
 | Admission and client recovery | Stable request identity; accepted work survives lost acknowledgement | `scripts/redesign/v4-fixture.test.mjs`: lost acknowledgement, identical retry, SIGKILL and queue recovery | 2 complete |
 | Execution and crash recovery | Explicit interruption, durable completed evidence, no uncertain-effect replay | `store/cells_test.go`, `runtime/engine_test.go`, SDK process-kill fixture | 3 complete |
 | Accounting | Every dispatched attempt recorded; settlement retry does not redispatch | `store/attempts_test.go`, `runtime/provider_test.go`, `runtime/observation_test.go`; ancestor accounting in `store/budgets_test.go` | 3 complete; model limits implemented in 4 |
-| Recursion and authority | Uniform session behavior, scoped grants, shared limits | `runtime/recursion_test.go`, `store/delegation_test.go`, `store/budgets_test.go`, `store/resources_test.go`; uniform lifecycle, report/retry and scoped concurrency and cumulative write allowances remain | 4 in progress |
-| Reusable capacity | Shared subtree admission and lifecycle release; old per-target queue semantics intentionally replaced with ancestor aggregation | `store/resources_test.go`, `runtime/resources_test.go`, `rpc/resources_test.go`, both-engine recursion and SDK restart fixture; counters derived rather than repaired | 4 count/depth limits complete; scoped concurrency/write allowances pending |
+| Recursion and authority | Uniform session behavior, scoped grants, shared limits | `runtime/recursion_test.go`, `store/delegation_test.go`, `store/budgets_test.go`, `store/resources_test.go`, child-control and turn-permit suites; final lifecycle acceptance, report/retry and cumulative write allowances remain | 4 in progress |
+| Reusable capacity | Shared subtree admission and lifecycle release; old per-target queue semantics intentionally replaced with ancestor aggregation | `store/resources_test.go`, `runtime/resources_test.go`, `rpc/resources_test.go`, turn-permit race tests, both-engine recursion and SDK restart fixture; counters derived rather than repaired | 4 count/depth/scoped concurrency implemented; write allowances pending |
 | Mail and explicit state | Revisioned delivery distinct from inspection; private/shared isolation; immutable history and CAS | `store/mail_test.go`, `runtime/mail_test.go`, `store/state*_test.go`, `runtime/state_test.go`, RPC/SDK fixtures; `store/state_subscriptions_test.go` covers atomic coalescing, cursor/notification rollback and recipient deferral | 4 in progress |
 | Context and checkpointing | Raw history retained; checkpoint boundary and fidelity explicit | Both engines pass `runtime/engine_test.go`; compaction remains pending | 3 complete; 5 pending |
 | Integrations and product features | Preserve capability outcomes; inspect existing regression scenarios | Pending | 5 |
@@ -537,10 +537,9 @@ Acceptance:
       scenarios. No parallel child commit or transcript implementation exists.
 - [ ] Concurrent descendants cannot overspend shared reservations or widen
       authority. Unrelated sessions cannot alter each other's scoped state.
-- [x] Reusable depth, descendant, input queue, host-operation and subscription
+- [x] Reusable depth, descendant, input queue, host-operation, subscription and runnable descendant
       capacities share revisioned ancestor-enforced limits; usage derives from
-      canonical rows. Cumulative logical-write limits and scoped runnable child-turn capacity
-      remain outstanding.
+      canonical rows. Cumulative logical-write limits remain outstanding.
 - [x] Saturated worker/kernel capacity still permits required child progress;
       parent waits do not deadlock children. Queued work remains durable.
 - [ ] Retry and report behavior is explicit policy; failed/uncertain work follows

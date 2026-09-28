@@ -107,7 +107,13 @@ In a REPL, `agents.spawn` accepts a prompt and returns `session_id`/`input_id`.
 `agents.wait_after_cell` accepts descendant input IDs and immediately returns a
 registration. Finish the cell to begin the wait; the runtime then releases worker
 and kernel capacity until those inputs finish. Same-cell blocking `agents.wait`
-is unavailable in the new runtime. Both operations use tree-ID grant resources.
+is unavailable in the new runtime. These operations use tree-ID grant resources.
+`agents.submit` queues another input to a direct child. Use `agents.inspect` with
+that exact input ID for outcome and paged text; `next_offset`, `total_bytes` and
+`offset` are decimal strings. Verify `message_id` when paging unfinished output.
+`agents.list` exposes bounded relative metadata. `agents.stop` retains queued
+work while stopping a descendant subtree; `agents.delete` requires it to be idle.
+Each control requires its own capability grant.
 
 
 Reusable capacity lives in session resource scopes, separately from model budgets
@@ -131,9 +137,14 @@ The listing includes all applicable scopes, nearest first. Each scope exposes
 `session_id`, `kind`, `revision`, nullable `limit`, and `used`, with exact decimal
 strings for numbers. Revision `'0'` means no local record; clearing a child cap
 still advances its revision. Kinds are `depth`, `descendants`, `queued_inputs`,
-`active_operations`, and `subscriptions`. Usage is derived from live owning rows
+`active_operations`, `subscriptions`, and `runnable_descendants`. Usage is derived from live owning rows
 across each subtree. Claiming or cancelling queued input, settling operations,
 unsubscribing, and deleting children release the corresponding capacity.
+Runnable capacity counts execution permissions of proper descendants, excluding
+the owner. Waiting parents release permission at a settled cell boundary and
+reacquire it before resuming. A zero cap keeps children queued while allowing the
+owner itself to run; raising it wakes scheduling. Host worker slots remain a
+separate physical limit. A running turn can be waiting without consuming either.
 Depth counts edges and descendants excludes the owner. Stale updates conflict;
 a finite limit below current usage is rejected. `LIMIT` admission failures create
 no work, so a caller can explicitly retry after capacity becomes available.

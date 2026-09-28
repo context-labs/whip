@@ -79,6 +79,21 @@ CREATE TRIGGER turn_transition BEFORE UPDATE ON turns
  OR NEW.state='running'
  BEGIN SELECT RAISE(ABORT, 'invalid turn transition'); END;
 
+-- Execution permission is separate from turn outcome: waiting turns retain
+-- their input and history without consuming runnable descendant capacity.
+CREATE TABLE turn_permits (
+ turn_id TEXT PRIMARY KEY REFERENCES turns(id) ON DELETE CASCADE
+) STRICT;
+CREATE TRIGGER permit_active BEFORE INSERT ON turn_permits
+ WHEN NOT EXISTS(SELECT 1 FROM turns t JOIN sessions s ON s.id=t.session_id
+ WHERE t.id=NEW.turn_id AND t.state='running' AND s.lifecycle='active')
+ BEGIN SELECT RAISE(ABORT, 'permit requires an active running turn'); END;
+CREATE TRIGGER permit_immutable BEFORE UPDATE ON turn_permits
+ BEGIN SELECT RAISE(ABORT, 'turn permit identity is immutable'); END;
+CREATE TRIGGER terminal_turn_no_permit BEFORE UPDATE ON turns
+ WHEN NEW.finished_at IS NOT NULL AND EXISTS(SELECT 1 FROM turn_permits WHERE turn_id=NEW.id)
+ BEGIN SELECT RAISE(ABORT, 'terminal turn must release execution permit'); END;
+
 CREATE TABLE inputs (
  ordinal INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -275,7 +290,7 @@ CREATE TRIGGER attempt_transition BEFORE UPDATE ON model_attempts
 -- Reusable capacity derives usage from its owning rows and their lifecycle.
 CREATE TABLE resource_limits (
  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
- kind TEXT NOT NULL CHECK(kind IN ('depth','descendants','queued_inputs','active_operations','subscriptions')),
+ kind TEXT NOT NULL CHECK(kind IN ('depth','descendants','queued_inputs','active_operations','subscriptions','runnable_descendants')),
  revision INTEGER NOT NULL CHECK(revision>0),
  limit_value INTEGER CHECK(limit_value IS NULL OR limit_value>=0),
  PRIMARY KEY(session_id,kind)

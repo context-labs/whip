@@ -21,7 +21,7 @@ import (
 
 const (
 	applicationID = 0x57504834
-	schemaVersion = 11
+	schemaVersion = 12
 )
 
 // MaxPageBytes bounds hydrated collection responses as well as their row count.

@@ -22,6 +22,12 @@ func (r *Runtime) PrepareCoordination(ctx context.Context, current session.Sessi
 	if call.Module == "mail" {
 		return r.prepareMail(current, call)
 	}
+	if call.Module == "agents" {
+		switch call.Name {
+		case "submit", "inspect", "list", "stop", "delete":
+			return r.prepareChildControl(current, call)
+		}
+	}
 	if call.Module == "agents" && call.Name == "wait_after_cell" {
 		var request store.ChildWait
 		if err := decodeArguments(call.Arguments, &request); err != nil {

@@ -13,6 +13,7 @@ separate legacy runtime and SDK until their client cutover.
 | Definition defaults and declarations | Immutable definition revision document |
 | Tree metadata and common engine | Tree row |
 | Reusable subtree capacity limits | Revisioned resource-limit rows; usage derived from live owning records |
+| Scoped execution permission | One SQL permit per executing turn; released at a settled wait boundary or terminal settlement |
 | Permanent model spending limits | Revisioned budget-limit rows; usage derived from immutable attempts |
 | Session identity, immutable parent/tree, definition origin, lifecycle | Session row |
 | Effective configuration | Immutable configuration revision selected by the session |
@@ -406,9 +407,38 @@ successful operation rows are the durable registrations; there is no duplicate
 wait registry/table. Restart interrupts the parent turn rather than inventing a
 suspended interpreter continuation; queued child work survives independently.
 
-The runtime separately owns active turn cancellation handles and runnable worker
-permits. A boundary wait releases the runnable permit; FIFO resumptions alternate
-with new queued work and reacquire a permit before model execution resumes.
+`agents.submit(session_id, parts)` admits another input to a direct child, sharing
+only content references already authorized to the caller. Input, receipt and
+operation success commit together. `agents.inspect(session_id, input_id, offset)`
+reads that exact descendant input's outcome, never another turn's answer. Text is
+paged at UTF-8 boundaries with a 16 KiB maximum, decimal-string offsets and total
+bytes, message identity, truncation and omitted-part metadata. When inspecting an
+unfinished turn, check the returned message identity before combining pages;
+terminal output is stable. `agents.list(relation, after, limit)` returns bounded
+parent, child or sibling identity/lifecycle metadata, without their configuration
+or transcript. Each operation requires its own tree-scoped capability.
+
+`agents.stop(session_id)` stops a proper descendant subtree, retaining queued
+input and requesting cancellation of active turns in the same transaction. Only
+after commit does the runtime cancel their workers; replay only services turns
+already marked cancelling, so it cannot stop subsequently restarted work.
+`agents.delete(session_id)` shares the ordinary subtree deletion transaction and
+rejects active or cancelling work. Successful operation retries return their
+original result even after the target disappears. Kernel cleanup follows commit.
+
+The runtime separately owns active turn cancellation handles and physical worker
+slots. SQL `turn_permits` authorize execution under every ancestor's
+`runnable_descendants` limit. A running turn can wait without a permit; outcome and
+execution permission have different lifetimes. Claim acquires permission before
+consuming queued input. A boundary wait releases it only after all attempts, cells
+and host operations settle, then frees the worker slot. Resumption reacquires
+both before any new model or code execution. New attempts, cells and host-operation
+dispatch require that permission. Finish and restart recovery release it atomically.
+
+Resumptions alternate with fresh work. A blocked resumption does not hide later
+waiters, and a bounded cursor pages past blocked queued sessions and wraps back to
+earlier work. Physical slots are reserved before SQL acquisition without holding
+the scheduler mutex; cancellation after acquisition releases unused permission.
 `MaxActiveTurns` defaults to 1,024 and is limited to `Workers..1024`; at most
 `MaxActiveTurns - Workers` turns may wait, preserving admission capacity for
 progress. Limit exhaustion is explicit. One worker and one kernel slot can
@@ -472,7 +502,7 @@ Resource limits belong to sessions, not the tree metadata or model accounting.
 ancestor, nearest first. Each entry identifies its scope, revision, nullable local
 limit, and current usage. A child's absent row has revision zero and no local cap;
 ancestor caps still apply. The response is bounded by the absolute 128-edge ancestry
-limit and the five supported kinds. It is a single database snapshot, not a cache.
+limit and the six supported kinds. It is a single database snapshot, not a cache.
 
 | Kind | Usage within the owner's subtree | Capacity becomes available when |
 | --- | --- | --- |
@@ -481,6 +511,7 @@ limit and the five supported kinds. It is a single database snapshot, not a cach
 | `queued_inputs` | Unclaimed, uncancelled inputs, including the owner's | Inputs are claimed, cancelled while queued, or deleted |
 | `active_operations` | Unsettled host operations, including permission waiters | Operations reach any terminal outcome |
 | `subscriptions` | Active shared-state subscriptions | Subscriptions are cancelled or their owner is deleted |
+| `runnable_descendants` | Execution permits held by proper descendants; excludes the owner | A settled parent wait yields, or a turn finishes/is recovered |
 
 All applicable ancestor scopes are checked inside the same immediate transaction
 that admits work. Siblings share their parent's allowance. In particular, queue
@@ -506,19 +537,20 @@ reserved exclusively for that child.
 
 Fresh host configuration is version 2. Optional finite `resources` defaults and
 creation overrides resolve once into root rows at revision one: depth 8,
-127 descendants, 256 queued inputs, 64 active operations, and 1,000 subscriptions.
+127 descendants, 256 queued inputs, 64 active operations, 1,000 subscriptions,
+and 64 runnable descendants.
 Root limits cannot be null. Partial creation/configuration lists inherit the
 remaining built-in defaults; duplicate kinds are rejected. Limits use decimal
 strings, including host JSON and guest child-spawn arguments. Host edits never
 change existing root limits. `TreePolicy` and its duplicate JSON column no longer
-exist; this disposable database uses schema 11 and rejects previous schemas.
+exist; this disposable database uses schema 12 and rejects previous schemas.
 The absolute depth ceiling remains 128 for bounded hierarchy and grant traversal.
 
 Capacity reuse never replenishes permanent model spend. Deleting a child releases
 its retained resources while its immutable model attempts remain charged to live
 ancestors. Per-value, retained-history and byte safety bounds remain at their
-owning boundaries. Configurable cumulative logical-write allowances and scoped runnable execution
-capacity are still Phase 4 work; these five kinds do not claim to cover them.
+owning boundaries. Configurable cumulative logical-write allowances are still
+Phase 4 work; reusable capacities do not claim to cover them.
 The legacy byte/record allowance charged selected accepted writes, including
 state and mail, without refund on deletion. It was not a quota over all database
 rows or retained bytes. Model accounting and required execution settlement must

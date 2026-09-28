@@ -73,17 +73,18 @@ func (s *Store) Operation(ctx context.Context, id session.OperationID) (session.
 
 func operationLive(ctx context.Context, q querier, cellID session.CellID) error {
 	var cell session.CellState
+	var turnID session.TurnID
 	var turn session.TurnState
 	var lifecycle session.Lifecycle
-	err := q.QueryRowContext(ctx, `SELECT c.state,t.state,s.lifecycle FROM cells c
- JOIN turns t ON t.id=c.turn_id JOIN sessions s ON s.id=t.session_id WHERE c.id=?`, cellID).Scan(&cell, &turn, &lifecycle)
+	err := q.QueryRowContext(ctx, `SELECT c.state,t.state,s.lifecycle,t.id FROM cells c
+ JOIN turns t ON t.id=c.turn_id JOIN sessions s ON s.id=t.session_id WHERE c.id=?`, cellID).Scan(&cell, &turn, &lifecycle, &turnID)
 	if err != nil {
 		return found(err)
 	}
 	if cell != session.CellRunning || turn != session.Running || lifecycle != session.Active {
 		return ErrStopped
 	}
-	return nil
+	return requireTurnPermit(ctx, q, turnID)
 }
 
 // AdmitOperation records immutable intent and either an exact standing grant or

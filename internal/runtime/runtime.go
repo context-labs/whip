@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -59,6 +60,7 @@ type Runtime struct {
 	runnable         int
 	waiting          int
 	resumptions      []*workerResumption
+	queueCursor      store.QueueCursor // owned only by the scheduling goroutine
 	preferResumption bool
 	started, closed  bool
 	cancel           context.CancelFunc
@@ -252,53 +254,64 @@ func (r *Runtime) run(ctx context.Context) {
 func (r *Runtime) schedule(ctx context.Context, workers *sync.WaitGroup) error {
 	r.mu.Lock()
 	available := r.options.Workers - r.runnable
+	resumes := slices.Clone(r.resumptions)
 	r.mu.Unlock()
 	if available == 0 {
 		return nil
 	}
-	pending, err := r.store.QueuedSessions(ctx, r.options.Workers)
+	const pageSize = 100
+	pending, err := r.store.QueuedSessions(ctx, r.queueCursor, pageSize)
 	if err != nil {
 		return err
 	}
-	for index := 0; ; {
+	index, resumeIndex := 0, 0
+	defer func() {
+		if index == len(pending) && len(pending) < pageSize {
+			r.queueCursor = store.QueueCursor{}
+		}
+	}()
+	for {
 		r.mu.Lock()
 		if r.closed || ctx.Err() != nil || r.runnable >= r.options.Workers {
 			r.mu.Unlock()
 			return ctx.Err()
 		}
-		for index < len(pending) && r.active[pending[index]] != nil {
+		for index < len(pending) && r.active[pending[index].SessionID] != nil {
+			r.queueCursor = pending[index]
 			index++
 		}
-		fresh := index < len(pending) && len(r.active) < r.options.MaxActiveTurns
-		if len(r.resumptions) > 0 && (r.preferResumption || !fresh) {
-			resume := r.resumptions[0]
-			r.resumptions[0] = nil
-			r.resumptions = r.resumptions[1:]
-			resume.owner.worker = true
-			r.runnable++
-			r.preferResumption = false
-			close(resume.ready)
-			r.mu.Unlock()
-			continue
+		for resumeIndex < len(resumes) && !slices.Contains(r.resumptions, resumes[resumeIndex]) {
+			resumeIndex++
 		}
-		if !fresh {
+		fresh := index < len(pending) && len(r.active) < r.options.MaxActiveTurns
+		resuming := resumeIndex < len(resumes)
+		if !fresh && !resuming {
 			r.mu.Unlock()
 			return nil
 		}
-		id := pending[index]
-		index++
-		// Reserve before SQL, without holding the scheduler mutex over I/O.
-		// Resumptions cannot take this permit while Claim is in flight.
+		// Reserve the host slot before SQL without holding the scheduler mutex.
+		// Each blocked resumption/candidate is examined at most once this pass.
 		r.runnable++
-		r.preferResumption = true
+		if resuming && (r.preferResumption || !fresh) {
+			resume := resumes[resumeIndex]
+			resumeIndex++
+			r.mu.Unlock()
+			if err := r.resumeWorker(ctx, resume); err != nil {
+				return err
+			}
+			continue
+		}
+		candidate := pending[index]
+		index++
+		r.queueCursor = candidate
 		r.mu.Unlock()
-		claim, err := r.store.Claim(ctx, id)
+		claim, err := r.store.Claim(ctx, candidate.SessionID)
 		if err != nil {
 			r.mu.Lock()
 			r.runnable--
 			r.mu.Unlock()
 		}
-		if errors.Is(err, store.ErrBusy) || errors.Is(err, store.ErrNoWork) || errors.Is(err, store.ErrStopped) || errors.Is(err, store.ErrNotFound) {
+		if errors.Is(err, store.ErrBusy) || errors.Is(err, store.ErrNoWork) || errors.Is(err, store.ErrStopped) || errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrLimit) {
 			continue
 		}
 		if err != nil {
@@ -307,12 +320,13 @@ func (r *Runtime) schedule(ctx context.Context, workers *sync.WaitGroup) error {
 		workerCtx, cancel := context.WithCancel(ctx)
 		active := &execution{turn: claim.Turn.ID, cancel: cancel, worker: true}
 		r.mu.Lock()
-		r.active[id] = active
+		r.active[candidate.SessionID] = active
+		r.preferResumption = true
 		r.mu.Unlock()
 		workers.Go(func() {
 			defer cancel()
 			err := r.execute(workerCtx, claim)
-			r.finishExecution(id, active, err, ctx.Err() != nil)
+			r.finishExecution(candidate.SessionID, active, err, ctx.Err() != nil)
 		})
 	}
 }

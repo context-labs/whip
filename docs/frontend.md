@@ -105,6 +105,10 @@ inputs share ancestor capacity across siblings. Keep resource revisions for
 explicit compare-and-set edits; counters are exact decimal strings. Tree metadata
 contains no duplicate limit policy. Host defaults are captured into new root
 records and never silently change an existing conversation's limits.
+`runnable_descendants` counts execution permissions of proper descendants, excluding
+the scope owner. A turn stays running while a parent waits without permission;
+unfinished-turn counts do not represent runnable usage. Raising the scoped limit
+wakes scheduling, and a zero limit keeps child input queued.
 Child creation in v4 is a durable `client.spawn` request: its receipt covers the
 child, initial input and delegated authority together. Keep its identity and exact
 payload for recovery just as for submissions.

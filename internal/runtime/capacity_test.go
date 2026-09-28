@@ -13,7 +13,21 @@ import (
 	"github.com/context-labs/whip/internal/store"
 )
 
-func capacityRuntime(t *testing.T, provider providerFunc, maxActive int) *Runtime {
+// Scheduling barriers run before durable model admission. Yielding from a live
+// provider attempt would release execution authority while work was unfinished.
+type capacityProvider func(context.Context, model.Request) (model.Response, error)
+
+func (p capacityProvider) Prepare(ctx context.Context, request model.Request) (model.Prepared, error) {
+	response, err := p(ctx, request)
+	if err != nil {
+		return model.Prepared{}, err
+	}
+	prepared, err := (model.Scripted{}).Prepare(ctx, request)
+	prepared.Execute = func(context.Context, func(model.Chunk)) (model.Response, error) { return response, nil }
+	return prepared, err
+}
+
+func capacityRuntime(t *testing.T, provider capacityProvider, maxActive int) *Runtime {
 	t.Helper()
 	directory := t.TempDir()
 	if err := os.Chmod(directory, 0o700); err != nil {
@@ -80,7 +94,7 @@ func TestWorkerCapacityYieldPreservesOwnershipAndAlternatesAdmission(t *testing.
 	waitFailure := errors.New("wait completed with a domain error")
 	var r *Runtime
 	var parentID, childID session.SessionID
-	r = capacityRuntime(t, providerFunc(func(ctx context.Context, request model.Request) (model.Response, error) {
+	r = capacityRuntime(t, capacityProvider(func(ctx context.Context, request model.Request) (model.Response, error) {
 		switch request.SessionID {
 		case parentID:
 			err := r.withReleasedWorker(ctx, request.TurnID, func(ctx context.Context) error {
@@ -174,7 +188,7 @@ func TestWorkerCapacityCancellationDuringWaitAndResumption(t *testing.T) {
 			returned := make(chan error, 1)
 			var r *Runtime
 			var parentID session.SessionID
-			r = capacityRuntime(t, providerFunc(func(ctx context.Context, request model.Request) (model.Response, error) {
+			r = capacityRuntime(t, capacityProvider(func(ctx context.Context, request model.Request) (model.Response, error) {
 				if request.SessionID == parentID {
 					err := r.withReleasedWorker(ctx, request.TurnID, func(ctx context.Context) error {
 						close(waiting)
@@ -227,7 +241,7 @@ func TestWorkerCapacityBoundLeavesRunnableProgress(t *testing.T) {
 	results := make(chan error, 2)
 	var r *Runtime
 	var parentID session.SessionID
-	r = capacityRuntime(t, providerFunc(func(ctx context.Context, request model.Request) (model.Response, error) {
+	r = capacityRuntime(t, capacityProvider(func(ctx context.Context, request model.Request) (model.Response, error) {
 		if request.SessionID == parentID {
 			err := r.withReleasedWorker(ctx, request.TurnID, func(ctx context.Context) error {
 				results <- r.withReleasedWorker(ctx, request.TurnID, func(context.Context) error {
@@ -272,7 +286,7 @@ func TestWorkerCapacityCloseJoinsMoreWaitersThanWorkers(t *testing.T) {
 	const waiters = 4
 	started := make(chan struct{}, waiters)
 	var r *Runtime
-	r = capacityRuntime(t, providerFunc(func(ctx context.Context, request model.Request) (model.Response, error) {
+	r = capacityRuntime(t, capacityProvider(func(ctx context.Context, request model.Request) (model.Response, error) {
 		err := r.withReleasedWorker(ctx, request.TurnID, func(ctx context.Context) error {
 			started <- struct{}{}
 			<-ctx.Done()

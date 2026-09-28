@@ -149,7 +149,8 @@ export interface CreateTreeParams {
   resources?:
     | null
     | {
-        kind: "depth" | "descendants" | "queued_inputs" | "active_operations" | "subscriptions";
+        kind:
+          "depth" | "descendants" | "queued_inputs" | "active_operations" | "subscriptions" | "runnable_descendants";
         limit: null | string;
       }[];
   definition: {
@@ -1137,7 +1138,7 @@ export interface ResolvePermissionParams {
 }
 export interface ResourceUsage {
   session_id: string;
-  kind: "depth" | "descendants" | "queued_inputs" | "active_operations" | "subscriptions";
+  kind: "depth" | "descendants" | "queued_inputs" | "active_operations" | "subscriptions" | "runnable_descendants";
   revision: string;
   limit: null | string;
   used: string;
@@ -1147,7 +1148,8 @@ export interface ResourcesResult {
     | null
     | {
         session_id: string;
-        kind: "depth" | "descendants" | "queued_inputs" | "active_operations" | "subscriptions";
+        kind:
+          "depth" | "descendants" | "queued_inputs" | "active_operations" | "subscriptions" | "runnable_descendants";
         revision: string;
         limit: null | string;
         used: string;
@@ -1436,7 +1438,7 @@ export interface SetResourceParams {
   session_id: string;
   expected_revision: string;
   resource: {
-    kind: "depth" | "descendants" | "queued_inputs" | "active_operations" | "subscriptions";
+    kind: "depth" | "descendants" | "queued_inputs" | "active_operations" | "subscriptions" | "runnable_descendants";
     limit: null | string;
   };
 }
@@ -1522,7 +1524,8 @@ export interface SpawnSessionParams {
   resources?:
     | null
     | {
-        kind: "depth" | "descendants" | "queued_inputs" | "active_operations" | "subscriptions";
+        kind:
+          "depth" | "descendants" | "queued_inputs" | "active_operations" | "subscriptions" | "runnable_descendants";
         limit: null | string;
       }[];
 }

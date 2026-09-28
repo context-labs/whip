@@ -2,8 +2,10 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/store"
@@ -12,13 +14,15 @@ import (
 type workerResumption struct {
 	owner *execution
 	ready chan struct{}
+	done  <-chan struct{}
+	err   error
 }
 
 // withReleasedWorker retains turn ownership while a committed cell's parent
 // waits for other sessions. The caller must have released its kernel lease and
 // pass the turn's execution context; this cannot run inside a live code cell.
-// Returning the wait's result owns a worker permit again. Cancellation or runtime
-// closure returns without one, so the caller must unwind instead of continuing.
+// Returning the wait's result owns a worker permit again. Cancellation, closure or
+// refused resumption returns without one; execution must unwind in those cases.
 func (r *Runtime) withReleasedWorker(ctx context.Context, turnID session.TurnID, wait func(context.Context) error) (result error) {
 	if wait == nil {
 		return fmt.Errorf("%w: worker release requires a wait function", session.ErrInvalid)
@@ -52,11 +56,9 @@ func (r *Runtime) withReleasedWorker(ctx context.Context, turnID session.TurnID,
 		r.mu.Unlock()
 		return fmt.Errorf("%w: runtime waiting-turn capacity exhausted", store.ErrLimit)
 	}
-	owner.worker, owner.waiting = false, true
-	r.runnable--
+	owner.waiting = true
 	r.waiting++
 	r.mu.Unlock()
-	r.Wake()
 	var resume *workerResumption
 	defer func() {
 		r.mu.Lock()
@@ -77,11 +79,24 @@ func (r *Runtime) withReleasedWorker(ctx context.Context, turnID session.TurnID,
 		r.mu.Unlock()
 		r.Wake()
 	}()
+	// Keep the physical worker until SQL confirms all dispatched work has settled
+	// and its execution permission has been released. Never yield during I/O.
+	if err := r.store.YieldTurn(ctx, turnID); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	owner.worker = false
+	r.runnable--
+	r.mu.Unlock()
+	r.Wake()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	waitErr := wait(ctx)
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	resume = &workerResumption{owner: owner, ready: make(chan struct{})}
+	resume = &workerResumption{owner: owner, ready: make(chan struct{}), done: ctx.Done()}
 	r.mu.Lock()
 	if r.closed {
 		r.mu.Unlock()
@@ -97,8 +112,56 @@ func (r *Runtime) withReleasedWorker(ctx context.Context, turnID session.TurnID,
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		if resume.err != nil {
+			return resume.err
+		}
 		return waitErr
 	}
+}
+
+// resumeWorker owns a provisional host slot while SQL acquires scoped permission.
+// A blocked waiter stays in FIFO order, while this pass can try unrelated work.
+func (r *Runtime) resumeWorker(ctx context.Context, resume *workerResumption) error {
+	err := r.store.ResumeTurn(ctx, resume.owner.turn)
+	r.mu.Lock()
+	index := slices.Index(r.resumptions, resume)
+	cancelled := false
+	select {
+	case <-resume.done:
+		cancelled = true
+	default:
+	}
+	if err == nil && index >= 0 && !cancelled && !r.closed && ctx.Err() == nil {
+		r.resumptions = slices.Delete(r.resumptions, index, index+1)
+		resume.owner.worker = true
+		r.preferResumption = false
+		close(resume.ready)
+		r.mu.Unlock()
+		return nil
+	}
+	r.runnable--
+	if index >= 0 && (!errors.Is(err, store.ErrLimit) || cancelled || r.closed || ctx.Err() != nil) {
+		r.resumptions = slices.Delete(r.resumptions, index, index+1)
+		resume.err = err
+		if cancelled || ctx.Err() != nil {
+			resume.err = context.Canceled
+		} else if r.closed {
+			resume.err = ErrClosed
+		}
+		close(resume.ready)
+	}
+	r.mu.Unlock()
+	if err == nil {
+		// Cancellation can remove the waiter while acquisition commits. It cannot
+		// receive execution; release that unused permission without its context.
+		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		err = r.store.YieldTurn(cleanup, resume.owner.turn)
+	}
+	if errors.Is(err, store.ErrLimit) || errors.Is(err, store.ErrStopped) || errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	return err
 }
 
 // finishExecution cannot block on the scheduler during shutdown. The runtime

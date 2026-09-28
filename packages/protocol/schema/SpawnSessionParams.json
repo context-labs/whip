@@ -310,7 +310,8 @@
               "descendants",
               "queued_inputs",
               "active_operations",
-              "subscriptions"
+              "subscriptions",
+              "runnable_descendants"
             ]
           },
           "limit": {
