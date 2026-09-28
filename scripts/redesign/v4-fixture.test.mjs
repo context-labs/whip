@@ -253,6 +253,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await stage('state subscriptions', () => stateSubscriptionAcceptance(runtime, client, createParams, evidence));
     await stage('completion reports', () => completionAcceptance(runtime, client, createParams, evidence));
     await stage('HTTP provider', () => providerAcceptance(runtime, client, createParams, evidence));
+    await stage('stateless model helpers', () => modelHelpersAcceptance(runtime, client, createParams, evidence));
     await stage('Responses provider', () => responsesAcceptance(runtime, client, createParams, evidence));
     await stage('subscription admission', () => subscriptionAdmissionAcceptance(runtime, client, createParams, evidence));
     await stage('output contracts', () => outputAcceptance(runtime, client, createParams, evidence));
@@ -355,6 +356,163 @@ async function providerAcceptance(runtime, client, createParams, evidence) {
     assert.equal(requests[0].body.top_p, 0.75);
     assert.equal(requests[0].body.messages.at(-1).content[1].image_url.url, 'data:image/png;base64,' + image);
     evidence.push({ httpProvider: { result, ledger, history, requests } });
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+}
+
+async function modelHelpersAcceptance(runtime, client, createParams, evidence) {
+  const requests = [];
+  const counts = new Map();
+  const blocked = new Set();
+  const large = '界🙂"\\\n'.repeat(4000);
+  const server = http.createServer(async (request, response) => {
+    let raw = '';
+    for await (const chunk of request) raw += chunk;
+    const body = JSON.parse(raw);
+    requests.push(body);
+    const prompt = body.messages.findLast(item => item.role === 'user').content;
+    let message;
+    let cost = 0;
+    if (prompt.startsWith('helper:')) {
+      const kind = prompt.split(':')[1];
+      const count = (counts.get(prompt) ?? 0) + 1;
+      counts.set(prompt, count);
+      if (kind === 'block') { blocked.add(prompt); return; }
+      if (kind === 'failure' || (kind === 'retry' && count === 1)) {
+        response.writeHead(kind === 'failure' ? 400 : 429, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ error: 'confirmed helper rejection' }));
+        return;
+      }
+      message = { role: 'assistant', content: kind === 'large' ? large : kind };
+      cost = 0.000000001;
+    } else if (body.messages.at(-1).role === 'tool') {
+      message = { role: 'assistant', content: 'helper cell settled' };
+    } else {
+      const prompts = prompt.endsWith(':crash')
+        ? [`helper:small:${prompt}`, `helper:block:${prompt}`]
+        : [`helper:retry:${prompt}`, `helper:failure:${prompt}`, `helper:large:${prompt}`];
+      let code;
+      if (body.model === 'starlark') {
+        code = prompt.endsWith(':crash')
+          ? `models.batch(prompts=${JSON.stringify(prompts)}, max_tokens=19)`
+          : `single=models.call(prompt=${JSON.stringify('helper:small:' + prompt)}, max_tokens=17)\nitems=models.batch(prompts=${JSON.stringify(prompts)}, max_tokens=19)\nprint(single["text"])\nprint(items[0]["text"])`;
+      } else {
+        code = prompt.endsWith(':crash')
+          ? `await models.batch({prompts:${JSON.stringify(prompts)},max_tokens:19});`
+          : `var single=await models.call({prompt:${JSON.stringify('helper:small:' + prompt)},max_tokens:17});var items=await models.batch({prompts:${JSON.stringify(prompts)},max_tokens:19});print(single.text);print(items[0].text);`;
+      }
+      message = { role: 'assistant', content: null, tool_calls: [{ id: 'helpers', type: 'function', function: { name: 'execute', arguments: JSON.stringify({ code }) } }] };
+    }
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify({ choices: [{ message, finish_reason: message.tool_calls ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 2, completion_tokens: 1, cost } }));
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    await runtime.stop();
+    const path = join(runtime.directory, 'state', 'host.json');
+    const host = JSON.parse(await readFile(path, 'utf8'));
+    host.providers.helpers = {
+      kind: 'openai-chat', base_url: `http://127.0.0.1:${server.address().port}/v1`, credential_env: '',
+      models: Object.fromEntries(['starlark', 'quickjs'].map(engine => [engine, { max_output_tokens: 500, timeout_millis: 30000, max_attempts: 2 }])),
+    };
+    await writeFile(path, JSON.stringify(host), { mode: 0o600 });
+    await runtime.start(null);
+    for (const engine of ['starlark', 'quickjs']) {
+      const { root } = await client.call('trees.create', {
+        ...createParams, engine, overrides: { report_mode: 'message', model: { provider: 'helpers', name: engine, effort: 'low', temperature: 0, top_p: 0.5 } },
+      }, deadline());
+      for (const capability of ['models.call', 'models.batch']) {
+        await client.call('grants.create', { id: `${engine}-${capability}`, session_id: root.id, capability, resource: root.tree_id }, deadline());
+      }
+      let rootReference;
+      for (const depth of ['root', 'child']) {
+        const requestID = `${engine}:helpers-${depth}`;
+        let owner = root;
+        if (depth === 'child') {
+          const child = await client.spawn({ parent_id: root.id, overrides: {}, parts: [{ type: 'text', text: requestID }], grant_ids: null }, requestID, deadline());
+          owner = child.session;
+        } else {
+          await client.submit(owner.id, [{ type: 'text', text: requestID }], requestID, deadline());
+        }
+        const done = await client.wait(requestID, deadline());
+        assert.equal(done.turn.state, 'succeeded', JSON.stringify(done.turn));
+        const operations = await client.call('turns.operations', { turn_id: done.turn.id, limit: 100 }, deadline());
+        assert.equal(operations.items.length, 2);
+        const single = operations.items.find(item => item.capability === 'models.call');
+        const batch = operations.items.find(item => item.capability === 'models.batch');
+        assert.equal(single.state, 'succeeded');
+        assert.equal(single.result.value.text, 'small');
+        assert.equal(single.result.value.content_ref, null);
+        assert.equal(batch.state, 'succeeded');
+        const values = batch.result.value;
+        assert.equal(values.length, 3);
+        assert.equal(values[0].text, 'retry');
+        assert.equal(values[0].failure, null);
+        assert.ok(values[1].failure);
+        assert.equal(values[2].failure, null);
+        assert.equal(values[2].truncated, true);
+        assert.equal(values[2].bytes, String(Buffer.byteLength(large)));
+        const ledger = await client.call('turns.attempts', { turn_id: done.turn.id, limit: 100 }, deadline());
+        const helpers = ledger.items.filter(item => item.request.purpose === 'model_helper');
+        assert.equal(helpers.length, 5);
+        assert.ok(helpers.every(item => item.message_id === null));
+        assert.equal(helpers.filter(item => item.operation_id === single.id && item.batch_index === 0).length, 1);
+        assert.deepEqual(helpers.filter(item => item.operation_id === batch.id && item.batch_index === 0).map(item => item.state).sort(), ['failed', 'succeeded']);
+        for (const [index, value] of values.entries()) {
+          if (value.failure) continue;
+          const attempt = helpers.find(item => item.id === value.attempt_id);
+          assert.equal(attempt.operation_id, batch.id);
+          assert.equal(attempt.batch_index, index);
+          assert.equal(attempt.cost_nano_usd, '1');
+        }
+        const reference = values[2].content_ref;
+        const read = await client.call('content.read', { session_id: owner.id, reference_id: reference }, deadline());
+        assert.equal(Buffer.from(read.data_base64, 'base64').toString('utf8'), large);
+        const history = await client.call('sessions.history', { session_id: owner.id, after: '0', limit: 100 }, deadline());
+        assert.deepEqual(history.items.map(item => item.role), ['user', 'assistant', 'tool', 'assistant']);
+        assert.ok(!JSON.stringify(history).includes(JSON.stringify(large).slice(1, -1)));
+        if (depth === 'root') rootReference = reference;
+        else {
+          await assert.rejects(client.call('content.read', { session_id: root.id, reference_id: reference }, deadline()), error => error.kind === 'NOT_FOUND');
+          await client.call('sessions.delete', { session_id: owner.id }, deadline());
+          await assert.rejects(client.call('content.read', { session_id: owner.id, reference_id: reference }, deadline()), error => error.kind === 'NOT_FOUND');
+        }
+        evidence.push({ modelHelpers: { engine, depth, done, operations, ledger } });
+      }
+      const crashID = `${engine}:crash`;
+      await client.submit(root.id, [{ type: 'text', text: crashID }], crashID, deadline());
+      const active = await until(() => client.recover(crashID, deadline()), value => value.turn?.state === 'running');
+      await until(async () => blocked.has(`helper:block:${crashID}`), Boolean);
+      await until(() => client.call('turns.attempts', { turn_id: active.turn.id, limit: 100 }, deadline()), page => page.items.some(item => item.request.purpose === 'model_helper' && item.batch_index === 0 && item.state === 'succeeded'));
+      const before = requests.length;
+      await runtime.stop('SIGKILL');
+      await runtime.start(null);
+      assert.equal((await client.wait(crashID, deadline())).turn.state, 'interrupted');
+      const recovered = await client.call('turns.attempts', { turn_id: active.turn.id, limit: 100 }, deadline());
+      const partial = recovered.items.filter(item => item.request.purpose === 'model_helper').sort((a, b) => a.batch_index - b.batch_index);
+      assert.deepEqual(partial.map(item => item.state), ['succeeded', 'uncertain']);
+      assert.deepEqual(partial.map(item => item.cost_nano_usd), ['1', null]);
+      const operations = await client.call('turns.operations', { turn_id: active.turn.id, limit: 100 }, deadline());
+      assert.equal(operations.items[0].state, 'uncertain');
+      assert.equal(requests.length, before, 'restart replayed an unfinished batch');
+      const retained = await client.call('content.read', { session_id: root.id, reference_id: rootReference }, deadline());
+      assert.equal(Buffer.from(retained.data_base64, 'base64').toString('utf8'), large);
+      evidence.push({ modelHelpersRecovery: { engine, recovered, operations } });
+    }
+    const helpers = requests.filter(body => body.messages[0]?.content?.startsWith('helper:'));
+    assert.ok(helpers.length > 0);
+    for (const body of helpers) {
+      assert.equal(body.messages.length, 1);
+      assert.equal(body.messages[0].role, 'user');
+      assert.ok(!body.tools?.length);
+      assert.equal(body.temperature, 0);
+      assert.equal(body.top_p, 0.5);
+      assert.equal(body.reasoning_effort, 'low');
+      assert.ok([17, 19].includes(body.max_completion_tokens));
+    }
   } finally {
     server.closeAllConnections();
     await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));

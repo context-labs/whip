@@ -2285,3 +2285,49 @@ The provider inventory confirmed that all retained inference protocols have
 adapters. Remaining provider scope is account lifecycle (including Inference.net),
 credential sources, presets, account-scoped catalogs/pricing, readiness/defaults,
 client adoption and a separate live-provider smoke. Phases 5–7 remain open.
+
+
+## Stateless model helpers through durable operations
+
+Integrated runner `3fa2a4828`, owner-scoped content publication `19294e6bf`,
+public attempt provenance `65ee1e514` and runtime binding `07c6d2392`.
+`models.call` and ordered `models.batch` use the common prepared-attempt, retry
+and SQL-only settlement path. Each helper captures the active turn's complete
+model selection, including effort and sampling, and receives one prompt without
+conversation history, tools, instructions or private continuation. Batches admit
+1–32 items with four concurrent requests. Cancellation drains started work;
+unresolved accounting errors cross the fatal host boundary even if guest code
+tries to catch them.
+
+Successful large output becomes immutable session-owned content after billing
+settles. Bounded UTF-8 previews and encoded-size checks keep a maximum batch
+inside the operation limit. Publication or registration failure reports unavailable
+output without losing its charge or sending the provider another request.
+Attempt projections expose nullable operation and batch-item provenance.
+
+Both engines have runtime coverage for captured configuration, strict arguments,
+one-use permission, ordering, retries, budget refusal, escaped maximum batches,
+content access/isolation/restart/deletion, cancellation and SQL/blob failures.
+The SDK process scenario runs roots and inherited children through a real local
+HTTP adapter. SIGKILL after one batch item settles retains its known charge,
+marks dispatched unfinished work uncertain and sends no replacement requests
+on restart. A runner regression also mutates the caller's sampling pointers
+after the first worker starts and verifies later items keep the captured values.
+
+Integrated `task check:phase` passed: store race116.070s, runner11.418s,
+runtime139.458s, process111.221s, full v4 SDK fixture21.531s, retained crash
+fixture3.735s and selected daemon regressions2.780s. Separate focused runner/runtime
+race checks, generated contract interchange/drift and SDK tests passed.
+`task check:analysis` reported zero lint findings and no reachable vulnerabilities.
+Logs are `/tmp/whip-stateless-models-{phase,analysis,fixture,contract,sdk,runtime}.log`.
+Fresh config9/schema29/protocol development major4 are unchanged. Hosted
+validation of this helper increment remains pending.
+
+The preceding helper ledger (`0aea348d9`), reasoning observations (`f837af58d`),
+fatal boundary (`b6cd1728a`) and captured sampling (`3894a8fe3`) revisions now
+pass all hosted jobs in runs
+[36479828700](https://github.com/context-labs/whip/actions/runs/36479828700),
+[36480074108](https://github.com/context-labs/whip/actions/runs/36480074108),
+[36480736937](https://github.com/context-labs/whip/actions/runs/36480736937) and
+[36481765530](https://github.com/context-labs/whip/actions/runs/36481765530).
+Phase 5 remains in progress; phases 6–7 remain pending.

@@ -47,6 +47,12 @@ func ModelAttemptFromDomain(value session.ModelAttempt) ModelAttempt {
 		id := ID(*value.MessageID)
 		result.MessageID = &id
 	}
+	if value.OperationID != nil {
+		result.OperationID = new(ID(*value.OperationID))
+	}
+	if value.BatchIndex != nil {
+		result.BatchIndex = new(*value.BatchIndex)
+	}
 	if value.Result != nil {
 		u := value.Result.Usage
 		result.Result = &ModelAttemptResult{

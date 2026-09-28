@@ -108,6 +108,12 @@ updates replace the entire model selection, and active turns keep their captured
 values. A model picker must send the intended full selection rather than keep a
 second per-route sampling cache. Chat routes support these preferences; API
 Responses and subscription routes reject explicit sampling before dispatch.
+Stateless helper attempts link to their host operation and zero-based batch item.
+Use `operation_id` and `batch_index` to group retries; helper attempts never add
+assistant messages. Operation results hold ordered bounded output, with scoped
+content references for large text. A settled charge may survive an interrupted
+operation whose aggregate output is unavailable; keep that distinction visible
+and never retry automatically to reconstruct a missing response.
 Reusable limits are session-scoped `resources.list/set` records, separate from
 permanent model budgets. Inspect all returned ancestor scopes before displaying
 available subtree capacity: a child's null local limit means inheritance. Queued

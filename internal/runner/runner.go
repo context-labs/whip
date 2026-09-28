@@ -271,7 +271,7 @@ func (r *Runner) hydrate(ctx context.Context, request *model.Request) error {
 	return nil
 }
 
-func (r *Runner) settleAttempt(parent context.Context, id session.ModelAttemptID, result session.ModelAttemptResult, message *session.MessageDraft) error {
+func (r *Runner) settleResult(parent context.Context, id session.ModelAttemptID, result session.ModelAttemptResult, message *session.MessageDraft, target *helperTarget, draft *session.CompactionDraft) error {
 	// A completed response survives observer cancellation. Retry only the write,
 	// using its stable identity; never send a second provider request.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), 5*time.Second)
@@ -279,7 +279,15 @@ func (r *Runner) settleAttempt(parent context.Context, id session.ModelAttemptID
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		_, err := r.attempts.SettleModelAttempt(ctx, id, result, message)
+		var err error
+		if target != nil && target.compaction != nil {
+			target.compaction.settled, err = r.compactions.SettleCompaction(ctx, id, result, draft)
+		} else {
+			_, err = r.attempts.SettleModelAttempt(ctx, id, result, message)
+		}
+		if err == nil && target != nil {
+			target.attemptID = id
+		}
 		if err == nil || errors.Is(err, session.ErrInvalid) {
 			return err
 		}
@@ -291,7 +299,7 @@ func (r *Runner) settleAttempt(parent context.Context, id session.ModelAttemptID
 	}
 }
 
-func (r *Runner) complete(ctx context.Context, turn session.Turn, request model.Request, logicalID string, target *compactionTarget) (attemptOutcome, error) {
+func (r *Runner) complete(ctx context.Context, turn session.Turn, request model.Request, logicalID string, target *helperTarget) (attemptOutcome, error) {
 	prepared, err := r.provider.Prepare(ctx, request)
 	if err != nil {
 		return attemptOutcome{failure: err}, nil //nolint:nilerr // Preparation failure is a turn outcome; no dispatched evidence needs settlement.
@@ -299,7 +307,7 @@ func (r *Runner) complete(ctx context.Context, turn session.Turn, request model.
 	return r.completePrepared(ctx, turn, prepared, logicalID, target)
 }
 
-func (r *Runner) completePrepared(ctx context.Context, turn session.Turn, prepared model.Prepared, logicalID string, target *compactionTarget) (attemptOutcome, error) {
+func (r *Runner) completePrepared(ctx context.Context, turn session.Turn, prepared model.Prepared, logicalID string, target *helperTarget) (attemptOutcome, error) {
 	if err := validatePrepared(prepared); err != nil {
 		return attemptOutcome{failure: err}, nil //nolint:nilerr // Invalid preparation is a turn outcome; nothing was dispatched.
 	}
@@ -386,20 +394,27 @@ type attemptOutcome struct {
 	continuation *session.ModelContinuation
 }
 
-func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.Prepared, logicalID string, number int, target *compactionTarget) (attemptOutcome, error) {
+func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.Prepared, logicalID string, number int, target *helperTarget) (attemptOutcome, error) {
 	id := session.ModelAttemptID(fmt.Sprintf("%s_try_%d", logicalID, number))
-	attempt, err := r.attempts.ReserveModelAttempt(ctx, session.ModelAttemptSpec{ID: id, TurnID: turn.ID, LogicalID: logicalID, Number: number, Request: prepared.Snapshot})
+	spec := session.ModelAttemptSpec{ID: id, TurnID: turn.ID, LogicalID: logicalID, Number: number, Request: prepared.Snapshot}
+	if target != nil && target.compaction == nil {
+		spec.OperationID, spec.BatchIndex = &target.operationID, &target.index
+	}
+	attempt, err := r.attempts.ReserveModelAttempt(ctx, spec)
 	if err != nil {
-		return attemptOutcome{}, fmt.Errorf("reserve model attempt: %w", err)
+		if target.refused(err) {
+			return attemptOutcome{failure: err}, nil
+		}
+		return attemptOutcome{}, accountingError(target, fmt.Errorf("reserve model attempt: %w", err))
 	}
 	if attempt.State != session.AttemptReserved {
-		return attemptOutcome{}, errors.New("model attempt already dispatched; automatic replay prohibited")
+		return attemptOutcome{}, accountingError(target, errors.New("model attempt already dispatched; automatic replay prohibited"))
 	}
 	if prepared.BeforeDispatch != nil {
 		if err := prepared.BeforeDispatch(ctx); err != nil {
 			cancelled := session.ModelAttemptResult{State: session.AttemptCancelled, Failure: Failure(err).Failure}
 			if settleErr := r.settleResult(ctx, id, cancelled, nil, target, nil); settleErr != nil {
-				return attemptOutcome{}, errors.Join(err, settleErr)
+				return attemptOutcome{}, accountingError(target, errors.Join(err, settleErr))
 			}
 			return attemptOutcome{failure: err}, nil
 		}
@@ -413,9 +428,12 @@ func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.
 		// Ambiguous dispatch failures stay pending and fault settlement/recovery.
 		cancelled := session.ModelAttemptResult{State: session.AttemptCancelled}
 		if settleErr := r.settleResult(ctx, id, cancelled, nil, target, nil); settleErr != nil {
-			return attemptOutcome{}, errors.Join(err, settleErr)
+			return attemptOutcome{}, accountingError(target, errors.Join(err, settleErr))
 		}
-		return attemptOutcome{}, err
+		if target.refused(err) {
+			return attemptOutcome{failure: err}, nil
+		}
+		return attemptOutcome{}, accountingError(target, err)
 	}
 	messageID := session.MessageID(logicalID + "_answer")
 	var emit func(model.Chunk)
@@ -447,7 +465,7 @@ func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.
 	if callErr == nil {
 		callErr = session.ValidateMessage(session.Assistant, response.Parts)
 	}
-	if callErr == nil && response.Continuation != nil {
+	if callErr == nil && (target == nil || target.compaction != nil) && response.Continuation != nil {
 		if response.Continuation.Validate() != nil {
 			callErr = &model.CallError{Uncertain: true, Message: "provider returned invalid or oversized continuation"}
 		}
@@ -467,7 +485,7 @@ func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.
 		message = &session.MessageDraft{ID: messageID, Role: session.Assistant, Parts: response.Parts, Continuation: response.Continuation}
 	}
 	if err := r.settleResult(ctx, id, result, message, target, draft); err != nil {
-		return attemptOutcome{}, fmt.Errorf("settle model attempt: %w", err)
+		return attemptOutcome{}, accountingError(target, fmt.Errorf("settle model attempt: %w", err))
 	}
 	outcome := attemptOutcome{failure: callErr, dispatched: true}
 	if target == nil && result.Usage.Input != nil {
@@ -476,10 +494,10 @@ func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.
 	if failure, ok := errors.AsType[*model.CallError](callErr); ok && target == nil && result.State == session.AttemptFailed {
 		outcome.contextLimit = failure.ContextLimit && !failure.Uncertain
 	}
-	if callErr == nil && target != nil && !target.settled.Selected {
+	if callErr == nil && target != nil && target.compaction != nil && !target.compaction.settled.Selected {
 		outcome.failure = errors.New("compaction was not selected")
-		if target.settled.Rejection != nil {
-			outcome.failure = errors.New(*target.settled.Rejection)
+		if target.compaction.settled.Rejection != nil {
+			outcome.failure = errors.New(*target.compaction.settled.Rejection)
 		}
 	}
 	if message != nil {

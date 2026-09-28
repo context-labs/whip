@@ -368,8 +368,7 @@ invalid even when a caller supplies a smaller bound. Subscription requests below
 the natural ceiling fail before credential capture because that wire protocol
 cannot enforce them. Equal or wider bounds retain the natural reservation and
 omit a wire cap. The scripted fixture records the narrowed reservation but does
-not simulate tokenization or truncate its deterministic acknowledgement. Public
-stateless helper execution remains pending.
+not simulate tokenization or truncate its deterministic acknowledgement.
 
 The stateless-helper ledger records paired `operation_id` and `batch_index`
 provenance on attempts with purpose `model_helper`. The logical call identity
@@ -392,8 +391,30 @@ Dispatch also rechecks current ancestor budget exposure after reservation,
 counting that reservation once. A sibling settling above its reservation, or
 revealing unbounded exposure, can prevent a later dispatch. Already dispatched
 requests retain their actual output and charges even if they exceed the estimate.
-Public attempt provenance projections, runner helper execution, bounded batch
-orchestration and guest acceptance remain pending.
+The public attempt projection includes nullable `operation_id` and `batch_index`,
+with a zero-based index for each helper item and no assistant-message association.
+The common runner executes at most four items concurrently in a batch of 1–32
+prompts. It uses the active turn's captured model, effort and sampling, one user
+prompt per item, and no session instructions, transcript, tools, output contract,
+compaction, private continuation or ordinary reply preview. Requested token caps
+use the same provider preparation and reservation path as ordinary calls.
+
+Guest `models.call` returns one item; `models.batch` returns the ordered array.
+Each item has nullable `attempt_id`, `failure` and `content_ref`, a `text` value,
+`truncated` and decimal-string `bytes`. Small text is inline. Output above 8 KiB,
+or requiring too much JSON escaping, is retained as immutable owner-scoped content
+with a bounded UTF-8 preview. Each encoded item is at most 15 KiB so even a full
+batch fits the ordinary operation-result limit. Automatic evidence consumes
+content capacity, not another user logical-write allowance. If publication fails
+after billing, the item reports output unavailable and keeps the charge; no
+provider execution is repeated to recover text.
+
+Confirmed semantic admission refusals and settled provider failures stay in their
+item positions. Cancellation stops new items and joins all started work.
+Unresolved accounting failures remain typed fatal errors even when joined with
+cancellation; guest exception handling cannot keep the cell running. The runtime
+classifies only error chains whose every leaf is a known semantic refusal. A
+joined rollback or other persistence failure must never become a normal refusal.
 
 Provider attempts also have an idle deadline: two minutes for Chat and five
 minutes for API Responses or subscription requests. Response headers and positive

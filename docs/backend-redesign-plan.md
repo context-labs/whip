@@ -379,8 +379,10 @@ Maintain one compact table here as families are addressed:
 | Cumulative write allowances | Explicit logical actions consume permanent ancestor allowance; initial child input now charged consistently with follow-up input | `store/logical_writes_test.go`, `runtime/state_allowances_test.go`, SDK cap/retry/restart/deletion fixture; accounting and derived notifications remain exempt | 4 implemented |
 | Mail and explicit state | Revisioned delivery distinct from inspection; private/shared isolation; immutable history and CAS | `store/mail_test.go`, `runtime/mail_test.go`, `store/state*_test.go`, `runtime/state_test.go`, RPC/SDK fixtures; `store/state_subscriptions_test.go` covers atomic coalescing, cursor/notification rollback and recipient deferral; `store/mail_evidence_test.go`, `runtime/mail_evidence_test.go` and SDK cover the audited evidence-sharing obligation | 4 complete; repair passes local and hosted Linux/macOS gates |
 | Context and checkpointing | Raw history retained; checkpoint boundary and fidelity explicit | Both engines pass `runtime/engine_test.go`; durable compaction, raw-history access, captured helper routing, proactive thresholds and bounded context-rejection recovery implemented; fork/rewind remains pending | 3 complete; 5 in progress |
-| Provider execution | Preserve supported wire protocols and tool cycles; uncertain partial-stream regeneration is retired in favor of explicit no-replay accounting | Chat wire profiles, Responses/private continuation, subscription captures, idle-stall termination, captured sampling and reasoning previews implemented; stateless helpers/batch remain | 5 in progress |
-| Goals and schedules | Ordinary durable input admission; continuation/cursor state has one owner | Schedule store/runtime/guest/RPC/SDK and restart coverage implemented. Goal records, captured turns, atomic continuation and authorized completion settlement implemented internally; public controls and formulation remain | 5 in progress |
+| Provider execution | Preserve supported wire protocols and tool cycles; uncertain partial-stream regeneration is retired in favor of explicit no-replay accounting | Chat wire profiles, Responses/private continuation, subscription captures, idle-stall termination, captured sampling, reasoning previews and stateless helpers/batch implemented; live-provider smoke remains | 5 in progress |
+| Goals and schedules | Ordinary durable input admission; continuation/cursor state has one owner | Schedule store/runtime/guest/RPC/SDK and restart coverage implemented. Goal records, public controls, captured turns, atomic continuation and authorized completion settlement implemented; formulation remains | 5 in progress |
+| Provider accounts and discovery | Host-owned credentials and setup flows, account-scoped catalogs, exact pricing and explicit defaults | Subscription credential manager implemented; public onboarding, API credential sources, Inference.net team/project/key lifecycle, catalogs and readiness remain | 5–6 pending |
+| Conversation titles | Preserve explicit titles and automatic title generation without mixing helper output into history | Tree metadata supports explicit titles; retained automatic-title admission and model helper behavior still need replacement evidence | 5 pending |
 | Integrations and product features | Preserve capability outcomes; inspect existing regression scenarios | Pending | 5 |
 | All client surfaces | Correct submission, observation, recovery and resource cleanup | New SDK/socket fixture passes; product clients remain on the retained implementation | 2 complete; 6 pending |
 | Old schemas/protocol/scratch compatibility | Retired by fresh-start scope | Delete with corresponding implementation | 1 through 7 |
@@ -701,7 +703,7 @@ creation, inspection, resume, cancellation and authorized completion intents.
 Both-engine and process acceptance cover the controls. Formulation from context
 and product-client adoption remain open.
 
-Stateless model-helper implementation decisions (work remains open):
+Stateless model-helper implementation decisions:
 
 - Preserve `models.call(prompt, max_tokens)` and ordered
   `models.batch(prompts, max_tokens)` as scoped host operations. The retained
@@ -742,20 +744,22 @@ Stateless model-helper implementation decisions (work remains open):
   Strict arguments, bounded fan-out and existing safe retry limits deliberately
   replace legacy lax parsing, unbounded batches and uncertain-response replay.
 
-Deliver helper accounting/join/fatal boundaries, then single-call execution,
-then bounded batch orchestration and both-engine SDK acceptance. Retain tests
-for caught host failures, exact attempt/HTTP counts, ancestor overages, output
-preservation, reversed completion order, cancellation, restart and large content.
-
-The helper ledger foundation now records operation/item provenance, validates
+The helper ledger records operation/item provenance, validates
 the admitted helper scope and output cap, joins attempt settlement before
 operation/cell settlement, and preserves permanent charges after child deletion.
 Dispatch rechecks ancestor exposure after sibling settlement. A typed fatal host
 boundary now prevents guest exception handling from continuing after unresolved
 accepted-operation persistence failures, while preserving recovery evidence and
-joining outstanding host calls. The public projection and shared runner
-call/batch execution remain open; these foundations do not make guest model
-helpers available yet.
+joining outstanding host calls. Shared runner call/batch execution and generated
+public attempt provenance are now connected to both guest engines. The runtime
+captures the calling cell's turn configuration, bounds encoded results and
+registers large output as owner-scoped content without another logical-write
+charge. Replacement tests cover caught host failures, exact attempt/HTTP counts,
+ancestor overages, reversed completion order, cancellation, restart, content
+ownership and publication failure. Real SDK/process acceptance covers roots and
+children, retries, positional failures and a SIGKILL after one batch item settles;
+restart retains billing and does not replay the batch. Hosted validation of this
+integrated increment remains pending.
 
 
 Fork, rewind and workspace implementation decisions (work remains open):
@@ -868,7 +872,7 @@ stalls now terminate as uncertain without replay, preserving known accounting.
 Reasoning deltas now flow through the existing bounded runtime/RPC/SDK preview,
 share its byte budget and disappear at the attempt boundary without persistence
 or replay into context. Public account onboarding remains Phase 6 work. Stateless
-model helpers remain required. Captured sampling belongs to the complete model
+model helpers now use that same recorded-attempt path. Captured sampling belongs to the complete model
 selection, including explicit zero and provider-default null values. Existing
 per-route sampling fallback is retired: host defaults, definitions and overrides
 resolve once into revisioned session configuration. Compaction and future helpers
