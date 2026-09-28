@@ -65,8 +65,8 @@ then explicit overrides. Patches replace whole fields. Nil inherits; an empty
 collection clears. An explicit output policy with a null schema clears a
 structured output contract. Resolution owns deep copies of all collections and
 schemas. Dynamic project files and skill discovery are policies, not frozen
-contents. Refreshing those declared sources is part of the retained context
-behavior being ported; current execution uses the captured instruction text.
+contents. An ordinary turn refreshes authorized workspace sources once and
+freezes the resulting instruction text for its execution.
 
 Configuration updates compare the expected revision and append a new immutable
 revision. A running turn retains its captured revision; the next claim captures
@@ -923,7 +923,7 @@ fails the turn while preserving its already committed raw answer.
 
 An ordinary turn resolves instructions once from its pinned configuration. The
 runtime composes configured text, authorized project files, project skill
-metadata and the execution guide. The runner reuses this text through cells,
+metadata, explicitly invoked skill bodies and the execution guide. The runner reuses this text through cells,
 output correction, compaction and confirmed-rejection recovery. Later file or
 configuration edits affect the next turn. Maintenance compaction does not read
 external instruction sources.
@@ -934,7 +934,8 @@ workspace, including an unrevoked issuer chain. A short database transaction
 admits the read; descriptor-confined filesystem I/O follows outside it. One-use
 approvals cannot authorize capture. No grant omits project sources without
 probing them. Revocation prevents later admission; it cannot retract bytes
-already captured. Source-free policies perform no source filesystem reads.
+already captured. Policies with no filesystem sources and inputs without skill
+references perform no source filesystem reads.
 
 Reads use an `os.Root`, reject escaping symlinks and nonregular files, and avoid
 blocking on substituted FIFOs. Project files must be complete UTF-8 without NUL,
@@ -942,15 +943,18 @@ at most 64 KiB; size changes and short reads fail. Missing optional files are
 omitted, while present broken sources fail before provider dispatch. Skill
 discovery scans immediate directories under `.agents/skills`, with at most 8,192
 entries and 1,024 skills. Each frontmatter block is bounded to 64 KiB, and only
-metadata enters the catalog. Disabled skills remain absent from that catalog.
+metadata enters the catalog. The last sorted path wins for each exact name;
+rendering, explicit selection and inspection share that winner set. Disabled
+skills remain absent from the automatic model catalog but can be invoked explicitly.
 The parser supports the retained scalar/block-scalar subset, validates known
 fields, and preserves keys following block scalars. Complete composed base
 instructions, including framing and the execution guide, are bounded to 1 MiB.
 
-Fresh schema 19 adds one immutable manifest per captured turn. It records the
+Fresh schema 20 retains one immutable manifest per captured turn. It records the
 base instruction byte count/digest and ordered source kind, workspace-relative
-path, scope, byte count and digest. Skill digests cover consumed frontmatter,
-including hidden entries that affected discovery, never deferred bodies.
+path, scope, byte count and digest. `skill_metadata` digests cover consumed
+frontmatter, including disabled and duplicate entries that affected discovery.
+`invoked_skill` digests separately cover complete selected files.
 `turns.instructions` reads this metadata without reopening files. Null means the
 turn has no capture, including maintenance or a failed capture; missing turns
 return not-found. An identical store retry is harmless; different metadata cannot
@@ -959,6 +963,39 @@ replace a capture. A failed audit write prevents provider dispatch.
 Manifests do not reconstruct changed files or authorize later reads. The output
 contract guide is separately derived from the pinned configuration, and each
 actual provider request has its own digest. No full instruction body or mutable
-session-level source cache is stored. Authorized ancestor/global sources,
-standing user instructions, explicit skill expansion and skill inspection remain
-Phase 5 obligations.
+session-level source cache is stored.
+
+Explicit whitespace-separated `$name` tokens are resolved only from the newly
+claimed canonical input's direct text parts, in first-reference order. Selection
+is case-sensitive, trims trailing punctuation and deduplicates names. Unknown
+names stay literal. Mail, historical inputs, tool results and attachment bodies
+do not invoke skills. `discover_skills: false` suppresses automatic catalog
+rendering; explicit references and human inspection can still discover authorized
+skills. No read authority means no file probes or selection. A selected body
+requires another current standing grant check before its descriptor-confined read;
+losing authority after selection fails capture. The complete file is bounded to
+256 KiB, must be UTF-8 without NUL, and its frontmatter must match the selected
+metadata exactly. Body-only edits are read fresh at this admission point. All
+sources together retain the 1,152-entry manifest and 1 MiB composition limits;
+overflow fails before provider dispatch rather than dropping evidence.
+
+Invoked bodies are current-turn instructions. Unlike legacy expansion, they are
+not copied into durable user text or automatically carried into later turns.
+Canonical input retains the literal `$name`; a later explicit invocation reads
+current content. Active requests, including retries and compaction, reuse the
+frozen body. Immutable metadata records what was read without duplicating bodies
+in SQLite or claiming they can be reconstructed after edits.
+
+`skills.list` supplies one live, read-only metadata API for completion and source
+inspection. It reads current copied policy and standing authority in a database
+snapshot, then reads files outside the transaction. It requires no runnable turn,
+permit or kernel and works for idle or stopped sessions. It neither claims input,
+creates permission decisions nor acknowledges mail. Results include disabled
+winners and source metadata, never bodies or absolute host paths. Pages contain
+at most 100 entries in name order, accept a case-sensitive prefix and exclusive
+`after` name, and return `next_after` only when another match exists. Each page is
+a fresh view; mutable catalog pagination is not a historical snapshot. Clients
+use `turns.instructions` for historical capture evidence.
+
+Authorized ancestor/global sources and standing user instructions remain Phase 5
+obligations.

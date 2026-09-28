@@ -627,9 +627,11 @@ folding have replacement evidence. Captured helper routes and proactive threshol
 now use per-turn ordinary usage or a bounded request estimate, with no mutable
 cross-turn usage cache. Workspace rules and project skill metadata now refresh
 once per ordinary turn with standing read authority, immutable source audit and
-frozen instructions across retries/corrections. Authorized ancestor/global
-sources, standing user instructions, explicit skill expansion and source
-inspection/completion remain required; the compaction acceptance item remains
+frozen instructions across retries/corrections. Explicit current-input skill
+bodies now use the same catalog winners as read-only source inspection/completion;
+bodies remain turn-local and never rewrite canonical input. Authorized
+ancestor/global sources and standing user instructions remain required; the
+compaction acceptance item remains
 open until the retained instruction family is complete.
 Long-turn splitting now retains exact opening inputs and complete tool exchanges;
 one confirmed provider context rejection can trigger a recorded smaller request

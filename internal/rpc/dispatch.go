@@ -50,6 +50,15 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 			value, err := r.TurnOutput(ctx, session.TurnID(p.TurnID))
 			return protocol.TurnOutputFromDomain(value), err
 		})
+	case "skills.list":
+		return decode(raw, func(p protocol.ListSkillsParams) (any, error) {
+			values, next, err := r.Skills(ctx, session.SessionID(p.SessionID), p.Prefix, p.After, p.Limit)
+			result := protocol.ListSkillsResult{Items: []protocol.SkillMetadata{}, NextAfter: next}
+			for _, value := range values {
+				result.Items = append(result.Items, protocol.SkillMetadata{Name: value.Name, Description: value.Description, Disabled: value.Disabled, Source: protocol.InstructionSourceFromDomain(value.Source)})
+			}
+			return result, err
+		})
 	case "turns.instructions":
 		return decode(raw, func(p protocol.TurnParams) (any, error) {
 			value, err := r.InstructionManifest(ctx, session.TurnID(p.TurnID))

@@ -60,6 +60,11 @@ export const manifest = {
       "result": "InstructionManifestResult"
     },
     {
+      "name": "skills.list",
+      "params": "ListSkillsParams",
+      "result": "ListSkillsResult"
+    },
+    {
       "name": "completions.list",
       "params": "ListCompletionsParams",
       "result": "ListCompletionsResult"

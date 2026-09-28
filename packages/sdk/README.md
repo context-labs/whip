@@ -407,3 +407,29 @@ turn before provider dispatch. Maintenance compaction does not refresh sources.
 Manifests survive restart, retain no file bodies, and cannot reconstruct changed
 files or authorize later reads. An empty source list differs from a null manifest.
 The original submitted input and raw conversation history remain unchanged.
+
+
+List current skill metadata for completion or source inspection:
+
+```ts
+const page = await client.call('skills.list', {
+  session_id: sessionID, prefix: 'review', limit: 50,
+});
+// page.items: name, description, disabled, source (relative path/size/digest).
+// Fetch another fresh page with after: page.next_after when non-null.
+await client.submit(sessionID, [{ type: 'text', text: 'Use $review for this change.' }], requestID);
+```
+
+The catalog includes disabled skills, which remain explicitly invocable but are
+excluded from automatic model discovery. Duplicate names share one deterministic
+winner across listing and invocation. Inspection requires standing workspace read
+authority, works for idle/stopped sessions, and neither submits work nor reads
+bodies. Pages are live metadata, not immutable history. Automatic discovery can be
+disabled without disabling this API or explicit invocation.
+
+An explicit reference reads the selected complete file after another authority
+check. The body is frozen for that turn and audited as `invoked_skill`; it never
+replaces the literal submitted input. Future turns do not re-expand references in
+old history. Bodies are at most 256 KiB and share the 1 MiB composed instruction
+and 1,152-source manifest bounds. Invalid, changed-identity or unauthorized
+selected sources fail capture before provider dispatch.

@@ -1314,3 +1314,46 @@ lint issues and no reachable vulnerabilities. Parent foundation commit
 `da6b1f807` also passed all hosted checks, including macOS and Linux. Explicit
 skill bodies, shared live catalog inspection, authorized ancestor/global sources
 and the remaining Phase 5–7 obligations remain open.
+
+## Phase 5 explicit skills and live catalog
+
+Fresh schema 20 accepts complete `invoked_skill` sources, bounded to 256 KiB,
+while project files and skill frontmatter retain their 64 KiB source bounds.
+One catalog resolves each exact name using the last sorted source path, and the
+same winners drive model discovery, current-input invocation and `skills.list`.
+Audit retains all consumed metadata, including disabled entries and duplicate
+losers. Disabled winners remain explicitly invocable. Overall composition and
+manifest bounds still fail explicitly rather than dropping sources.
+
+Only the newly claimed canonical input's direct text parts supply explicit
+references. Each selected body receives a new standing-grant check, confined
+complete-file read and exact frontmatter identity check. Its full digest joins
+the immutable turn audit before provider dispatch. Input stays literal, active
+requests reuse the captured body, and later turns never re-expand old references.
+This deliberately replaces legacy expansion into durable user text.
+
+The read-only catalog API uses a current policy/authority snapshot, needs no
+turn or permit, and works for idle and stopped sessions. Name cursors and
+case-sensitive prefixes page at most 100 live winner records, with disabled
+status and relative source metadata. Inspection neither reads bodies nor claims
+input, starts a kernel, creates permissions or acknowledges mail. Tests verify
+that a concurrent writer cannot mix policy and authority revisions.
+
+Focused race/shuffle tests passed for session/store (1.217 s/4.547 s), reader
+(2.701 s) and runtime (1.996 s). Independent integration review found no defects.
+The first SDK run used stale generated operation metadata and rejected
+`skills.list`; regeneration fixed that setup error. Static analysis found one
+test-formatting issue, which was corrected. No production behavior was loosened
+to make those checks pass.
+
+Final `task check:phase` passed: store race 72.909 s, runtime race 74.839 s, runner
+race 2.679 s, instruction race 3.135 s, skills race 3.375 s, both engines, generated
+contract/SDK checks, SDK process acceptance 11.806 s, retained process acceptance
+2.233 s and required daemon regressions 3.429 s. The process scenario covers a
+70 KiB disabled skill, repeated references, exact body hash/size, file edits and
+revocation during a blocked request, frozen follow-up requests, child/restart
+refresh, unchanged canonical input and paged inspection with discovery disabled.
+`task check:analysis` reports zero lint issues and no reachable vulnerabilities.
+Hosted recovery and compaction-policy PRs also passed Linux, macOS and analysis.
+Named host roots, standing user instructions, authorized ancestors and the
+remaining Phase 5–7 obligations remain open.

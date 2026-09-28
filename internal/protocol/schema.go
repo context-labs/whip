@@ -31,6 +31,7 @@ func Operations() []Operation {
 		{"context.search", reflect.TypeFor[SearchHistoryParams](), reflect.TypeFor[SearchHistoryResult]()},
 		{"turns.output", reflect.TypeFor[TurnParams](), reflect.TypeFor[TurnOutputResult]()},
 		{"turns.instructions", reflect.TypeFor[TurnParams](), reflect.TypeFor[InstructionManifestResult]()},
+		{"skills.list", reflect.TypeFor[ListSkillsParams](), reflect.TypeFor[ListSkillsResult]()},
 		{"completions.list", reflect.TypeFor[ListCompletionsParams](), reflect.TypeFor[ListCompletionsResult]()},
 		{"completions.read", reflect.TypeFor[ReadCompletionParams](), reflect.TypeFor[ReadCompletionResult]()},
 		{"state.subscribe", reflect.TypeFor[SubscribeStateParams](), reflect.TypeFor[StateSubscription]()},
@@ -163,6 +164,11 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 		}
 		if t == reflect.TypeFor[Configuration]() {
 			schema.Properties["compaction"].Properties["threshold_percent"].Minimum = new(1.0)
+		}
+		if t == reflect.TypeFor[ListSkillsResult]() {
+			schema.Properties["items"].Type = "array"
+			schema.Properties["items"].Types = nil
+			schema.Properties["items"].MaxItems = new(100)
 		}
 		if t == reflect.TypeFor[InstructionManifest]() {
 			schema.Properties["sources"].Type = "array"

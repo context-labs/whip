@@ -5,9 +5,67 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/context-labs/whip/internal/session"
 )
+
+// TurnInput returns the exact canonical input claimed by this turn. Mail-only
+// turns return nil; missing turns return ErrNotFound. Inspection never expands
+// skill references or rewrites the accepted input or transcript.
+func (s *Store) TurnInput(ctx context.Context, id session.TurnID) (*session.Input, error) {
+	var inputID *session.InputID
+	var result session.Input
+	var raw string
+	var created int64
+	err := s.db.QueryRowContext(ctx, `SELECT i.id,COALESCE(i.session_id,''),COALESCE(i.source,''),
+ COALESCE(i.kind,''),COALESCE(i.parts,'null'),i.turn_id,COALESCE(i.created_at,0)
+ FROM turns t LEFT JOIN inputs i ON i.turn_id=t.id WHERE t.id=?`, id).
+		Scan(&inputID, &result.SessionID, &result.Source, &result.Kind, &raw, &result.TurnID, &created)
+	if err != nil {
+		return nil, found(err)
+	}
+	if inputID == nil {
+		return nil, nil //nolint:nilnil // Mail-only turns have no canonical input.
+	}
+	result.ID, result.State, result.CreatedAt = *inputID, session.Claimed, timestamp(created)
+	if err := json.Unmarshal([]byte(raw), &result.Parts); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// SessionInstructions inspects current copied policy and standing workspace
+// authority in one read-only snapshot. Stopped sessions and stopped issuers keep
+// valid grants until revoked; inspection neither starts work nor requires a permit.
+func (s *Store) SessionInstructions(ctx context.Context, id session.SessionID) (_ session.Instructions, _ *session.Grant, err error) {
+	// ReadOnly selects a deferred BEGIN with the pinned SQLite driver, avoiding
+	// the writer reservation used by ordinary store execution transactions.
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return session.Instructions{}, nil, err
+	}
+	defer func() {
+		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+			err = errors.Join(err, fmt.Errorf("rollback instruction inspection: %w", rollbackErr))
+		}
+	}()
+	owner, err := readSession(ctx, tx, id)
+	if err != nil {
+		return session.Instructions{}, nil, err
+	}
+	var result *session.Grant
+	grant, err := matchingGrant(ctx, tx, owner.ID, "files.read", owner.WorkingDirectory)
+	if err == nil {
+		result = &grant
+	} else if !errors.Is(err, ErrNotFound) {
+		return session.Instructions{}, nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return session.Instructions{}, nil, err
+	}
+	return owner.Config.Instructions, result, nil
+}
 
 // InstructionReadGrant admits a turn's workspace instruction reads against one
 // transactional authority snapshot. It never consumes one-use approval. Reads

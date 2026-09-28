@@ -15,6 +15,7 @@ import (
 const (
 	MaxInstructionBytes       = 1 << 20
 	MaxInstructionSourceBytes = 64 << 10
+	MaxInvokedSkillBytes      = 256 << 10
 	MaxInstructionSources     = 1152
 )
 
@@ -65,11 +66,15 @@ func (m InstructionManifest) Validate() error {
 }
 
 func (s InstructionSource) Validate() error {
-	if (s.Kind != "project_file" && s.Kind != "skill_metadata") || s.Scope != "workspace" {
+	if (s.Kind != "project_file" && s.Kind != "skill_metadata" && s.Kind != "invoked_skill") || s.Scope != "workspace" {
 		return fmt.Errorf("%w: unknown instruction source kind or scope", ErrInvalid)
 	}
-	if s.Bytes < 0 || s.Bytes > MaxInstructionSourceBytes {
-		return fmt.Errorf("%w: instruction source exceeds 64 KiB", ErrInvalid)
+	limit := int64(MaxInstructionSourceBytes)
+	if s.Kind == "invoked_skill" {
+		limit = MaxInvokedSkillBytes
+	}
+	if s.Bytes < 0 || s.Bytes > limit {
+		return fmt.Errorf("%w: instruction source exceeds its %d-byte limit", ErrInvalid, limit)
 	}
 	if err := instructionPath(s.Path); err != nil {
 		return err
