@@ -741,3 +741,20 @@ creation retry tombstone. See the [domain contract](../../docs/backend-domain.md
 The client identities `schedule` and `operation` are reserved for internal
 admission. Public submissions and child creation reject them; inspecting their
 returned receipt identities with `receipts.get` remains supported.
+
+
+## Automatic titles
+
+`configuration.automatic_title` controls the helper for future initialization;
+an explicit `false` patch is preserved. First authored root text still supplies
+a bounded immediate fallback. Explicit titles and manual clears take precedence.
+The selected value remains `trees.get` metadata; ordinary metadata revision
+changes, including pin/archive, prevent a late helper from replacing it.
+
+`getAutomaticTitleDecision(treeID)` reads immutable source/policy/model evidence.
+For eligible decisions, `receipt_identity` addresses the ordinary maintenance
+receipt once admitted; it may not exist yet. `getAutomaticTitleResult(treeID,
+attemptID)` reads candidate text and historical `applied` evidence. Neither method
+starts work, automatically retries inference or caches a second title. Inspect
+attempt usage through existing turn methods. Generated naming creates no
+conversation message, and interrupted dispatched work is never replayed.

@@ -1695,6 +1695,8 @@ identities. Replacement/movement or unexpected pin identity fails closed. A Git
 writer lock coordinates these runtime actions across processes, without claiming
 to freeze external writers. Subprocess groups have bounded output and deadlines,
 are cancelled and joined during shutdown, and ignore inherited Git environment.
+Shutdown and context cancellation repeat group signals until the owned group
+disappears, covering descendants forked during initial signal delivery.
 RPC disconnection after a durable claim does not cancel or repeat the action.
 Postclaim failures and restart recovery retain uncertainty, never automatic replay.
 An explicit new release may finish cleanup when an uncertain earlier release has
@@ -1705,3 +1707,34 @@ workspace calls, 100 metadata items per page, 256 KiB per subprocess output stre
 and bounded 30-second preflight/workflow stages. Historical action receipts stay
 durable rather than being evicted to allow identity reuse. Read calls do not run
 Git. The runtime closes and joins workspace work before closing its store.
+
+
+## Automatic root titles
+
+Tree metadata owns the selected title. `automatic_title_decisions` stores one
+immutable initialization decision; `automatic_title_results` stores attempt-linked
+candidate/application evidence. Neither is another mutable title or job queue.
+The first accepted authored root text supplies a whitespace-normalized 64-rune
+fallback and at most300 runes of helper source. Attachment-only input leaves this
+opportunity open. Children, forks and nonhuman initialization do not initiate it.
+Explicit naming or a manual clear owns the decision permanently, including
+same-value writes. Disabled helper policy still permits the immediate fallback;
+source shorter than20 runes needs no helper.
+
+Eligible intent captures the exact configuration revision, policy and complete
+compaction-model override or main selection. At a free session boundary it admits
+one ordinary maintenance input under the reserved `automatic-title` identity.
+Human inputs and mail take precedence; queue capacity one cannot make fallback
+naming reject foreground admission. The shared runner performs at most one
+provider attempt with a 20-second deadline and the actual captured route output
+ceiling. It does not read transcript, expand instructions or attachments, run
+tools, use private continuation, or append conversation/output/preview messages.
+
+Attempt settlement atomically records billing and a valid single-line candidate
+of at most80 runes, then applies it only if the whole-tree metadata revision still
+matches and the turn can apply it. Manual title, pin or archive changes supersede
+a late candidate. Invalid candidates and superseded valid candidates remain billed;
+exact settlement retries never overwrite later metadata. Result `applied` describes
+the historical transaction, not current selection. Pending undispatched intent
+can survive restart; claimed/interrupted attempts never re-arm or auto-replay.
+Read-only decision/result calls do not create a receipt or wake work.

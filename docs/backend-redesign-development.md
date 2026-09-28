@@ -2689,7 +2689,8 @@ Integrated phase/analysis gates passed: store race165.251s, runtime172.081s,
 process110.133s, config4.790s, inferenceaccount5.360s, RPC17.435s and all remaining
 active-package races, generated contracts and SDK checks. The v4 process fixture
 passed25.449s, retained fixture2.886s and daemon regressions2.745s. Analysis found
-zero lint issues and no reachable vulnerabilities. Hosted validation is pending.
+zero lint issues and no reachable vulnerabilities. Hosted Linux/macOS/analysis/
+aggregate checks subsequently passed at `11443df57` in run36497852698.
 Logs use `/tmp/whip-inference-accounts-{phase,analysis}.log` and
 `/tmp/whip-inference-public-{race,boundaries,contract,sdk,fixture,lint}.log`.
 
@@ -2736,3 +2737,64 @@ races, generated contracts and SDK checks. The production fixture passed26.587s
 reported zero lint issues and no reachable vulnerabilities. Hosted validation is
 pending. Logs use `/tmp/whip-workspace-{phase,analysis}.log`. Product-client adoption, automatic titles
 and the other unresolved Phase5 families remain work; Phases6–7 are not complete.
+
+
+## Durable automatic root naming
+
+Workspace controls are published in draft
+[PR242](https://github.com/context-labs/whip/pull/242) at `7feeb4128`, stacked on
+[PR241](https://github.com/context-labs/whip/pull/241). Automatic titles integrate
+core `dbfae79cb` as `ae1cf21de` and public leaf `ef695851e` as `302e58761`.
+Fresh storage/configuration advance to schema35/config12; protocol major4 remains.
+Integration preserved workspace claims and tables, all account projections and
+all production fixture stages; generated validators were regenerated from Go.
+
+Initialization atomically records one decision and the immediate authored-text
+fallback. Manual same-value/clear edits permanently own naming, while attachment-
+only roots remain eligible. The captured helper uses an ordinary independent
+maintenance input and shared accounting, one attempt/20-second deadline, and
+no transcript/instruction/tool/continuation/output side effects. Human admission
+still succeeds at queue capacity one. Billing, validated candidate and whole-tree
+metadata CAS settle together; manual edits can supersede application without
+losing charges. Pending intent survives restart; attempted naming never replays.
+Generated RPC/SDK expose policy and immutable decision/result evidence, keeping
+selected naming solely in tree metadata.
+
+Core full race/shuffle passed session5.625s/store174.069s/runner16.656s/
+runtime168.659s/config2.996s, plus focused checks, build/vet and pinned lint.
+Public focused races passed protocol3.003s/RPC11.757s; focused domain/store title
+checks passed0.239s/0.737s. Generated interchange/CSP/drift,18 SDK tests,
+build/vet/lint and full production fixture26.5s passed. Its title stage453ms
+uses both engines, queue capacity one, lost admission acknowledgement, a
+foreground SIGKILL before naming, captured source/selection/sampling, late manual
+clear, exact1200-nano billing and no history contamination or replay. Parent
+reviewed both checkpoints. Integrated phase/analysis gates passed after the
+repairs documented below; the first run remains recorded as failed. Logs use `/tmp/whip-title-{phase,analysis}.log`. Off-page title observation and
+product-client adoption remain Phase6 work.
+
+
+The first integrated title phase run failed the existing workspace shutdown
+regression after30 seconds; its other active-package races passed (store228.913s,
+runtime228.662s, process119.935s). A focused12-run reproduction failed twice and
+showed a sleeping descendant left in the owned process group. The first group
+signal can race a fork; shutdown previously waited until the command deadline
+sent another signal. Shared process shutdown/cancellation now repeat the group
+signal until its reaper confirms disappearance, with no signal after group
+ownership ends. Confirmed disappearance wins over transient Darwin signal errors
+while a child exits. Twenty workspace repetitions passed4.354s;20 root-isolation/
+concurrent-fork cancellation repetitions passed1.547s. The earlier first repair's
+transient EPERM failures remain recorded in `/tmp/whip-capability-race.log` and
+`/tmp/whip-process-close-isolation.log`. `internal/capability` joins active gates.
+
+Parent review also reproduced a title queue ordering defect: decision SQL time
+used nanoseconds while ordinary admission uses microseconds. Persisting the
+shared unit restores admission-order traversal; the regression checks paging
+from pending title intent to a later independent input. Final focused title/queue
+races passed store8.764s/runtime2.784s. The final phase/analysis gates passed with both repairs in `50ed5f20f`: store
+race199.722s, runtime196.032s, process116.750s, capability31.639s, workspace11.796s,
+RPC23.545s and all other active-package races, generated contracts and SDK checks.
+Production fixture27.186s, retained fixture4.339s and daemon regressions2.706s
+passed. Analysis reported zero lint issues and no reachable vulnerabilities.
+Hosted validation is pending. Final logs are `/tmp/whip-title-{phase,analysis}-final.log`, and focused
+before/after evidence is `/tmp/whip-title-clock-{before,after}.log` and
+`/tmp/whip-workspace-close-{before,after}.log`.
