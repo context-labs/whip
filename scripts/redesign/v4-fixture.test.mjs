@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import http from 'node:http';
@@ -202,6 +203,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await contextAcceptance(runtime, client, createParams, evidence);
     await contextRecoveryAcceptance(runtime, client, createParams, evidence);
     await contextPolicyAcceptance(runtime, client, createParams, evidence);
+    await instructionAcceptance(runtime, client, createParams, evidence);
     await engineAcceptance(runtime, client, createParams, evidence);
     await operationAcceptance(runtime, client, createParams, evidence);
     await streamAcceptance(runtime, client, createParams, evidence);
@@ -1329,6 +1331,116 @@ async function contextPolicyAcceptance(runtime, client, createParams, evidence) 
     assert.equal(failed.turn.state, 'failed');
     assert.equal(requests.length, count, 'an explicit invalid helper cannot silently fall back');
     evidence.push({ contextPolicy: { completed, attempts, selected, configured, next, reset, fallback, failed } });
+  } finally {
+    release.resolve();
+    server.closeAllConnections();
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+}
+
+async function instructionAcceptance(runtime, client, createParams, evidence) {
+  const requests = [];
+  const release = Promise.withResolvers();
+  const server = http.createServer(async (request, response) => {
+    let raw = '';
+    for await (const chunk of request) raw += chunk;
+    const body = JSON.parse(raw);
+    requests.push(body);
+    const first = requests.length === 1;
+    if (first) await release.promise;
+    response.setHeader('content-type', 'application/json');
+    const message = first
+      ? { role: 'assistant', content: null, tool_calls: [{ id: 'instruction-cell', type: 'function', function: { name: 'execute', arguments: JSON.stringify({ code: 'console.log(42)' }) } }] }
+      : { role: 'assistant', content: 'Instruction capture completed.' };
+    response.end(JSON.stringify({ choices: [{ message, finish_reason: first ? 'tool_calls' : 'stop' }] }));
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  try {
+    const workspace = join(runtime.directory, 'instructions');
+    const visible = join(workspace, '.agents', 'skills', 'visible', 'SKILL.md');
+    const hidden = join(workspace, '.agents', 'skills', 'hidden', 'SKILL.md');
+    await mkdir(join(workspace, '.agents', 'skills', 'visible'), { recursive: true });
+    await mkdir(join(workspace, '.agents', 'skills', 'hidden'), { recursive: true });
+    const metadata = '---\nname: visible\ndescription: Visible skill metadata.\n---\n';
+    await writeFile(visible, metadata + 'SKILL_BODY_MUST_STAY_DEFERRED', { mode: 0o600 });
+    await writeFile(hidden, '---\nname: hidden\ndescription: >-\n  Hidden skill metadata.\ndisable-model-invocation: true\n---\nHIDDEN_BODY', { mode: 0o600 });
+    await writeFile(join(workspace, 'AGENTS.md'), 'PROJECT_INSTRUCTIONS_BEFORE', { mode: 0o600 });
+    await runtime.stop();
+    const path = join(runtime.directory, 'state', 'host.json');
+    const host = JSON.parse(await readFile(path, 'utf8'));
+    host.providers.instructions = {
+      kind: 'openai-chat', base_url: `http://127.0.0.1:${server.address().port}/v1`, credential_env: '',
+      models: { instructions: { max_output_tokens: 128, timeout_millis: 5000, max_attempts: 1 } },
+    };
+    await writeFile(path, JSON.stringify(host), { mode: 0o600 });
+    await runtime.start(null);
+    const policy = { text: 'CONFIGURED_INSTRUCTIONS_BEFORE', project_files: ['AGENTS.md'], discover_skills: true };
+    const { root } = await client.call('trees.create', {
+      ...createParams, engine: 'quickjs', working_directory: workspace,
+      overrides: { ...createParams.overrides, model: { provider: 'instructions', name: 'instructions', effort: '' }, instructions: policy },
+    }, deadline());
+    const grant = await client.call('grants.create', { id: 'instruction-read-before', session_id: root.id, capability: 'files.read', resource: workspace }, deadline());
+    await client.submit(root.id, [{ type: 'text', text: 'original instruction input' }], 'instructions-before', deadline());
+    await until(async () => requests.length, count => count === 1);
+    const active = await client.recover('instructions-before', deadline());
+    const captured = await client.call('turns.instructions', { turn_id: active.turn.id }, deadline());
+    const instructions = requests[0].messages[0].content;
+    assert.ok(instructions.includes('PROJECT_INSTRUCTIONS_BEFORE'));
+    assert.ok(instructions.includes('Visible skill metadata.'));
+    assert.ok(!instructions.includes('Hidden skill metadata.'));
+    assert.ok(!instructions.includes('SKILL_BODY_MUST_STAY_DEFERRED'));
+    assert.ok(!instructions.includes('HIDDEN_BODY'));
+    assert.equal(captured.manifest.sha256, createHash('sha256').update(instructions).digest('hex'));
+    assert.equal(captured.manifest.bytes, String(Buffer.byteLength(instructions)));
+    assert.equal(captured.manifest.sources.length, 3, 'audit includes hidden metadata that affected discovery');
+    const skill = captured.manifest.sources.find(source => source.path === '.agents/skills/visible/SKILL.md');
+    assert.equal(skill.bytes, String(Buffer.byteLength(metadata)));
+    assert.equal(skill.sha256, createHash('sha256').update(metadata).digest('hex'));
+    await writeFile(join(workspace, 'AGENTS.md'), 'PROJECT_INSTRUCTIONS_AFTER', { mode: 0o600 });
+    policy.text = 'CONFIGURED_INSTRUCTIONS_AFTER';
+    await client.call('sessions.configure', { session_id: root.id, expected_revision: root.config_revision, patch: { instructions: policy } }, deadline());
+    await client.call('grants.revoke', { grant_id: grant.id }, deadline());
+    release.resolve();
+    const completed = await client.wait('instructions-before', deadline());
+    assert.equal(completed.turn.state, 'succeeded', completed.turn.failure);
+    assert.equal(requests[1].messages[0].content, instructions, 'file/configuration changes and revocation cannot change a captured turn');
+    assert.equal((await client.call('turns.cells', { turn_id: completed.turn.id, limit: 100 }, deadline())).items.length, 1);
+    await writeFile(visible, Buffer.from([0xff]));
+    await client.submit(root.id, [{ type: 'text', text: 'denied optional sources' }], 'instructions-denied', deadline());
+    const denied = await client.wait('instructions-denied', deadline());
+    assert.equal(denied.turn.state, 'succeeded', denied.turn.failure);
+    assert.ok(requests.at(-1).messages[0].content.includes(policy.text));
+    assert.ok(!requests.at(-1).messages[0].content.includes('PROJECT_INSTRUCTIONS_AFTER'));
+    assert.deepEqual((await client.call('turns.instructions', { turn_id: denied.turn.id }, deadline())).manifest.sources, []);
+    await writeFile(visible, metadata + 'SKILL_BODY_MUST_STAY_DEFERRED', { mode: 0o600 });
+    await client.call('grants.create', { id: 'instruction-read-after', session_id: root.id, capability: 'files.read', resource: workspace }, deadline());
+    const spawned = await client.spawn({ parent_id: root.id, overrides: {}, parts: [{ type: 'text', text: 'child instructions' }], grant_ids: null }, 'instructions-child', deadline());
+    const childDone = await client.wait('instructions-child', deadline());
+    assert.equal(childDone.turn.state, 'succeeded', childDone.turn.failure);
+    assert.ok(requests.at(-1).messages[0].content.includes('PROJECT_INSTRUCTIONS_AFTER'));
+    await runtime.stop();
+    await writeFile(join(workspace, 'AGENTS.md'), 'PROJECT_INSTRUCTIONS_RESTARTED', { mode: 0o600 });
+    await runtime.start(null);
+    assert.deepEqual(await client.call('turns.instructions', { turn_id: completed.turn.id }, deadline()), captured);
+    await client.submit(spawned.session.id, [{ type: 'text', text: 'refresh after restart' }], 'instructions-restart', deadline());
+    const restarted = await client.wait('instructions-restart', deadline());
+    assert.equal(restarted.turn.state, 'succeeded', restarted.turn.failure);
+    assert.ok(requests.at(-1).messages[0].content.includes('PROJECT_INSTRUCTIONS_RESTARTED'));
+    await writeFile(join(workspace, 'AGENTS.md'), Buffer.from([0xff]));
+    const count = requests.length;
+    await client.submit(spawned.session.id, [{ type: 'text', text: 'broken applicable source' }], 'instructions-broken', deadline());
+    const failed = await client.wait('instructions-broken', deadline());
+    assert.equal(failed.turn.state, 'failed');
+    assert.equal(requests.length, count, 'applicable source failure must precede provider dispatch');
+    assert.deepEqual((await client.call('turns.attempts', { turn_id: failed.turn.id, limit: 100 }, deadline())).items, []);
+    assert.equal((await client.call('turns.instructions', { turn_id: failed.turn.id }, deadline())).manifest, null);
+    await client.compact(spawned.session.id, 'instructions-maintenance', deadline());
+    const maintenance = await client.wait('instructions-maintenance', deadline());
+    assert.equal(maintenance.turn.state, 'succeeded', maintenance.turn.failure);
+    assert.equal((await client.call('turns.instructions', { turn_id: maintenance.turn.id }, deadline())).manifest, null);
+    const history = await client.call('sessions.history', { session_id: root.id, after: '0', limit: 100 }, deadline());
+    assert.equal(history.items[0].parts[0].text, 'original instruction input', 'dynamic files never rewrite canonical input');
+    evidence.push({ instructions: { completed, captured, denied, childDone, restarted, failed, maintenance } });
   } finally {
     release.resolve();
     server.closeAllConnections();

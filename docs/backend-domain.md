@@ -19,6 +19,7 @@ separate legacy runtime and SDK until their client cutover.
 | Session identity, immutable parent/tree, definition origin, lifecycle | Session row |
 | Effective configuration | Immutable configuration revision selected by the session |
 | Configuration used by execution | Turn's pinned configuration revision |
+| Captured instruction source paths, byte counts and digests | One immutable instruction manifest per ordinary turn in SQLite; full composed text lives only in that turn's execution memory |
 | Accepted input kind and payload | Input row (`prompt` or `compact`); turn kind is a read projection |
 | Request identity and payload digest | Receipt row |
 | Execution outcome | Turn row; input and receipt outcomes are derived |
@@ -916,5 +917,48 @@ After a useful fold, an estimated floor still above threshold suppresses further
 proactive folds for that turn. Hard local bounds and one confirmed provider
 rejection still apply. Unknown windows disable only proactive checks. Helpers
 retain their own actual route/pricing and accounting; a failed post-final helper
-fails the turn while preserving its already committed raw answer. Dynamic
-instruction refresh remains Phase 5 work.
+fails the turn while preserving its already committed raw answer.
+
+## Instruction capture
+
+An ordinary turn resolves instructions once from its pinned configuration. The
+runtime composes configured text, authorized project files, project skill
+metadata and the execution guide. The runner reuses this text through cells,
+output correction, compaction and confirmed-rejection recovery. Later file or
+configuration edits affect the next turn. Maintenance compaction does not read
+external instruction sources.
+
+Project files are unique, canonical workspace-relative paths, with at most 32
+entries. Automatic reads require a standing `files.read` grant for the exact
+workspace, including an unrevoked issuer chain. A short database transaction
+admits the read; descriptor-confined filesystem I/O follows outside it. One-use
+approvals cannot authorize capture. No grant omits project sources without
+probing them. Revocation prevents later admission; it cannot retract bytes
+already captured. Source-free policies perform no source filesystem reads.
+
+Reads use an `os.Root`, reject escaping symlinks and nonregular files, and avoid
+blocking on substituted FIFOs. Project files must be complete UTF-8 without NUL,
+at most 64 KiB; size changes and short reads fail. Missing optional files are
+omitted, while present broken sources fail before provider dispatch. Skill
+discovery scans immediate directories under `.agents/skills`, with at most 8,192
+entries and 1,024 skills. Each frontmatter block is bounded to 64 KiB, and only
+metadata enters the catalog. Disabled skills remain absent from that catalog.
+The parser supports the retained scalar/block-scalar subset, validates known
+fields, and preserves keys following block scalars. Complete composed base
+instructions, including framing and the execution guide, are bounded to 1 MiB.
+
+Fresh schema 19 adds one immutable manifest per captured turn. It records the
+base instruction byte count/digest and ordered source kind, workspace-relative
+path, scope, byte count and digest. Skill digests cover consumed frontmatter,
+including hidden entries that affected discovery, never deferred bodies.
+`turns.instructions` reads this metadata without reopening files. Null means the
+turn has no capture, including maintenance or a failed capture; missing turns
+return not-found. An identical store retry is harmless; different metadata cannot
+replace a capture. A failed audit write prevents provider dispatch.
+
+Manifests do not reconstruct changed files or authorize later reads. The output
+contract guide is separately derived from the pinned configuration, and each
+actual provider request has its own digest. No full instruction body or mutable
+session-level source cache is stored. Authorized ancestor/global sources,
+standing user instructions, explicit skill expansion and skill inspection remain
+Phase 5 obligations.

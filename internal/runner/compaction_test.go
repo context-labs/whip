@@ -219,7 +219,7 @@ func (p *compactionPreview) BeginPreview(session.Turn, session.ModelAttemptID, s
 
 type forbiddenExecutor struct{}
 
-func (forbiddenExecutor) Instructions(context.Context, session.SessionID) (string, error) {
+func (forbiddenExecutor) Instructions(context.Context, session.Turn, session.Instructions) (string, error) {
 	return "", errors.New("manual compaction loaded executor instructions")
 }
 
@@ -532,8 +532,8 @@ type compactionExecutor struct {
 	calls  int
 }
 
-func (*compactionExecutor) Instructions(context.Context, session.SessionID) (string, error) {
-	return "execute code", nil
+func (*compactionExecutor) Instructions(_ context.Context, _ session.Turn, policy session.Instructions) (string, error) {
+	return policy.Text + "\nexecute code", nil
 }
 
 func (e *compactionExecutor) Execute(_ context.Context, turn session.Turn, _ session.MessageID, call session.ToolCall) (session.ToolResult, error) {

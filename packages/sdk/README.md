@@ -389,3 +389,21 @@ previous turn's occupancy or count helper usage as conversation occupancy.
 Unknown windows still permit manual, local-bound and confirmed-rejection folds.
 A failed helper after a final answer fails the turn without removing that answer
 from raw history; inspect both the turn outcome and attempt evidence.
+
+Inspect the instructions captured by a turn without rereading mutable files:
+
+```ts
+const { manifest } = await client.call('turns.instructions', { turn_id: turnID });
+// manifest is null if that turn never captured instructions.
+// Otherwise inspect its bytes, sha256 and ordered sources (paths/sizes/digests).
+```
+
+An ordinary turn captures authorized workspace project files and project skill
+metadata once. A standing `files.read` grant is required for automatic project
+reads; one-use file approvals do not enable discovery. File/configuration edits
+affect the next turn. Revocation prevents later captures but cannot retract bytes
+already captured. A malformed applicable source or failed audit write fails the
+turn before provider dispatch. Maintenance compaction does not refresh sources.
+Manifests survive restart, retain no file bodies, and cannot reconstruct changed
+files or authorize later reads. An empty source list differs from a null manifest.
+The original submitted input and raw conversation history remain unchanged.

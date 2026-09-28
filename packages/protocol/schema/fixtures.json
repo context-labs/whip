@@ -146,6 +146,43 @@
     "valid": true
   },
   {
+    "type": "InstructionManifestResult",
+    "value": {
+      "manifest": null
+    },
+    "valid": true
+  },
+  {
+    "type": "InstructionManifestResult",
+    "value": {
+      "manifest": {
+        "bytes": "40",
+        "sha256": "39e9523d0c5ea852e868d4fe03a5e18e06bb3110bf2baf038de23259739fe773",
+        "sources": [
+          {
+            "kind": "project_file",
+            "scope": "workspace",
+            "path": "AGENTS.md",
+            "bytes": "5",
+            "sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+          }
+        ]
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "InstructionManifestResult",
+    "value": {
+      "manifest": {
+        "bytes": "20",
+        "sha256": "39e9523d0c5ea852e868d4fe03a5e18e06bb3110bf2baf038de23259739fe773",
+        "sources": []
+      }
+    },
+    "valid": true
+  },
+  {
     "type": "TurnOutputResult",
     "value": {
       "output": {

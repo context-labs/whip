@@ -1,0 +1,77 @@
+{
+  "type": "object",
+  "properties": {
+    "manifest": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "bytes": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "project_file",
+                  "skill_metadata"
+                ]
+              },
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "workspace"
+                ]
+              },
+              "path": {
+                "type": "string"
+              },
+              "bytes": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            },
+            "required": [
+              "kind",
+              "scope",
+              "path",
+              "bytes",
+              "sha256"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 1152
+        }
+      },
+      "required": [
+        "bytes",
+        "sha256",
+        "sources"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/InstructionManifestResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "InstructionManifestResult",
+  "required": [
+    "manifest"
+  ],
+  "additionalProperties": false
+}

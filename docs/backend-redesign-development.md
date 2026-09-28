@@ -49,6 +49,7 @@ their union, `REDESIGN_ALL_PACKAGES`, is used by build, vet, race and analysis:
 - `internal/config`: explicit fresh host files and credential references.
 - `internal/protocol`: independent v4 DTOs, schemas and interchange fixtures.
 - `internal/model`, `internal/runner`: injected provider adapter and ordinary execution loop.
+- `internal/instruction`, `internal/skills`: confined instruction-source capture and retained skill metadata parsing; full suites run in the active gate.
 - `internal/runtime`: exclusive ownership, scheduling, cancellation and cleanup.
 - `internal/engine`, `internal/engine/quickjs`: guest execution contract and bundled QuickJS implementation.
 - `internal/engine/process`: isolated workers, process limits and checkpoint transport; full tests run at the change/CI boundary.
@@ -1280,3 +1281,36 @@ branch. Foundation commit `da6b1f807` broadens it to every `codex/backend-redesi
 base, preserving the exact integration branch. `actionlint` passed. This restores
 hosted checks for the stack; it does not substitute for their eventual results.
 Dynamic instruction refresh and the remaining Phase 5–7 obligations stay open.
+
+## Phase 5 workspace instruction capture
+
+Fresh schema 19 stores one immutable metadata-only instruction manifest per
+ordinary turn. The captured policy resolves literal text, authorized workspace
+project files and project skill metadata once before provider dispatch. Confined
+file descriptors, bounded reads and source validation prevent ambient filesystem
+access; standing read authority is checked before capture. Later file/config
+edits and grant revocation do not rewrite a running turn. New turns and retained
+children refresh sources, including after restart. Maintenance compaction skips
+external instruction reads. Skill bodies remain deferred.
+
+The generated `turns.instructions` contract exposes ordered source paths, sizes
+and SHA-256 digests without reopening files or persisting instruction bodies.
+Audit insertion failure and malformed applicable sources stop before any model
+attempt. The real QuickJS/HTTP SDK fixture checks blocked-request edits and
+revocation, frozen follow-up requests, child inheritance, restart, source hashes,
+malformed-source failure and maintenance isolation. Reader tests cover confinement,
+symlink retargeting, nonregular files, truncation/growth and all read bounds.
+
+The first full gate caught an outdated architecture allowlist and an unchecked
+directory close. Both were corrected; the boundary test now explicitly includes
+the instruction and skill packages. Independent review found no further issues
+in capture, authority or restart behavior.
+
+Final `task check:phase` passed: store race 74.272 s, runtime race 75.343 s, runner
+race 2.447 s, instruction race 4.155 s, skills race 3.071 s, both engines, generated
+contract/SDK checks, SDK process acceptance 12.192 s, retained process acceptance
+4.125 s and required daemon regressions 2.816 s. `task check:analysis` reports zero
+lint issues and no reachable vulnerabilities. Parent foundation commit
+`da6b1f807` also passed all hosted checks, including macOS and Linux. Explicit
+skill bodies, shared live catalog inspection, authorized ancestor/global sources
+and the remaining Phase 5–7 obligations remain open.

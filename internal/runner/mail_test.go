@@ -19,8 +19,8 @@ func (f mailFunc) ObserveSteers(ctx context.Context, turn session.TurnID) ([]ses
 
 type mailExecutor struct{ events *[]string }
 
-func (mailExecutor) Instructions(context.Context, session.SessionID) (string, error) {
-	return "execution instructions", nil
+func (mailExecutor) Instructions(_ context.Context, _ session.Turn, policy session.Instructions) (string, error) {
+	return policy.Text + "\nexecution instructions", nil
 }
 
 func (e mailExecutor) Execute(_ context.Context, _ session.Turn, _ session.MessageID, call session.ToolCall) (session.ToolResult, error) {

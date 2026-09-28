@@ -121,9 +121,7 @@ func TestBlockScalarDescriptions(t *testing.T) {
 		}
 	}
 
-	// A key following a block scalar is out of scope for the hand parser;
-	// pinned so a future real-YAML swap knows the contract changed.
-	if _, ok := byName["after-block"]; !ok {
-		t.Fatalf("after-block not scanned: %+v", byName)
+	if skill, ok := byName["after-block"]; !ok || !skill.DisableModelInvocation {
+		t.Fatalf("key following a block scalar was lost: %+v", byName)
 	}
 }

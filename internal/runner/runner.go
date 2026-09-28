@@ -36,7 +36,9 @@ type ContentReader interface {
 	ReadContent(context.Context, session.SessionID, string, int64) (session.ContentReference, []byte, error)
 }
 type Executor interface {
-	Instructions(context.Context, session.SessionID) (string, error)
+	// Instructions resolves the complete base instructions once from this turn's
+	// captured policy. Later model requests reuse the returned text.
+	Instructions(context.Context, session.Turn, session.Instructions) (string, error)
 	Execute(context.Context, session.Turn, session.MessageID, session.ToolCall) (session.ToolResult, error)
 }
 
@@ -92,11 +94,11 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 	}
 	request := model.Request{SessionID: turn.SessionID, TurnID: turn.ID, Selection: configuration.Model, Instructions: configuration.Instructions.Text}
 	if r.executor != nil {
-		instructions, err := r.executor.Instructions(ctx, turn.SessionID)
+		instructions, err := r.executor.Instructions(ctx, turn, configuration.Instructions)
 		if err != nil {
 			return Failure(err), nil
 		}
-		request.Instructions += "\n" + instructions
+		request.Instructions = instructions
 		request.Tools = []model.Tool{{Name: "execute", Description: "Execute a code cell in this session’s persistent, isolated REPL. Host operations require separate authority.", InputSchema: json.RawMessage(`{"type":"object","properties":{"code":{"type":"string"}},"required":["code"],"additionalProperties":false}`)}}
 	}
 	request.Instructions += outputInstructions(configuration.OutputSchema)

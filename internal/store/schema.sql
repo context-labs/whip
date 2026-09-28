@@ -79,6 +79,13 @@ CREATE TRIGGER turn_transition BEFORE UPDATE ON turns
  OR NEW.state='running'
  BEGIN SELECT RAISE(ABORT, 'invalid turn transition'); END;
 
+CREATE TABLE turn_instruction_manifests (
+ turn_id TEXT PRIMARY KEY REFERENCES turns(id) ON DELETE CASCADE,
+ manifest TEXT NOT NULL CHECK(json_valid(manifest) AND length(CAST(manifest AS BLOB)) <= 1048576)
+) STRICT;
+CREATE TRIGGER instruction_manifest_immutable BEFORE UPDATE ON turn_instruction_manifests
+ BEGIN SELECT RAISE(ABORT, 'instruction manifest is immutable'); END;
+
 -- A live child reserves one parent-owned completion slot. Source IDs deliberately
 -- have no cascading foreign key: pending evidence survives source deletion.
 CREATE TABLE completion_slots (
