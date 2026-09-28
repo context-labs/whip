@@ -29,14 +29,15 @@ type Manager struct {
 	storage    *storage
 	credential Credentials
 	generation uint64
+	loaded     bool
 	pending    bool
 	deleting   bool
 	closed     bool
 	closeErr   error
 }
 
-// New anchors an owned directory, validates the record, and synchronizes the
-// directory before authorizing surviving bytes from an earlier process.
+// New anchors an owned directory. Loading is deferred until the first account
+// operation, so unrelated providers never read this private credential record.
 func New(ctx context.Context, directory string) (*Manager, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -45,24 +46,38 @@ func New(ctx context.Context, directory string) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	credential, err := disk.read()
-	if err == nil {
-		err = disk.syncDirectory(disk.directory)
-	}
-	if err == nil {
-		err = ctx.Err()
-	}
-	if err != nil {
+	if err := ctx.Err(); err != nil {
 		_ = disk.directory.Close()
-		return nil, errors.Join(ErrStorage, safeContext(err))
+		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	return &Manager{ctx: ctx, cancel: cancel, storage: disk, credential: credential}, nil
+	return &Manager{ctx: ctx, cancel: cancel, storage: disk}, nil
 }
 
-// Snapshot never repairs storage or refreshes credentials. A pending publication
-// returns the replacement plus ErrStoragePending; pending logout returns an empty
-// record plus that error. Returned expiry pointers are independently owned.
+// load requires mu. Surviving bytes or absence cannot authorize a request until
+// directory durability is confirmed. A failed read/confirmation is retryable.
+func (m *Manager) load(ctx context.Context) error {
+	if m.loaded {
+		return nil
+	}
+	credential, err := m.storage.read()
+	if err == nil {
+		err = m.storage.syncDirectory(m.storage.directory)
+	}
+	if err == nil {
+		err = m.active(ctx)
+	}
+	if err != nil {
+		return errors.Join(ErrStorage, safeContext(err))
+	}
+	m.credential, m.loaded = credential, true
+	return nil
+}
+
+// Snapshot confirms directory durability on first load, without retrying pending
+// publication/logout or refreshing credentials. Pending publication returns the
+// replacement plus ErrStoragePending; pending logout returns an empty record
+// plus that error. Returned expiry pointers are independently owned.
 func (m *Manager) Snapshot() (Credentials, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -74,6 +89,9 @@ func (m *Manager) Snapshot() (Credentials, error) {
 	}
 	if m.pending {
 		return m.credential.clone(), ErrStoragePending
+	}
+	if err := m.load(context.Background()); err != nil {
+		return Credentials{}, err
 	}
 	return m.credential.clone(), nil
 }
@@ -106,6 +124,9 @@ func (m *Manager) Install(ctx context.Context, expected uint64, credential Crede
 	if m.generation == math.MaxUint64 {
 		return ErrChanged
 	}
+	if err := m.load(ctx); err != nil {
+		return err
+	}
 	published, err := m.storage.save(credential, func() error { return m.active(ctx) })
 	if !published {
 		return err
@@ -129,6 +150,9 @@ func (m *Manager) Capture(ctx context.Context) (CapturedMachineKey, error) {
 	}
 	if m.deleting {
 		return CapturedMachineKey{}, ErrStoragePending
+	}
+	if err := m.load(ctx); err != nil {
+		return CapturedMachineKey{}, err
 	}
 	if m.pending {
 		if _, err := m.storage.save(m.credential, func() error { return m.active(ctx) }); err != nil {
@@ -175,6 +199,9 @@ func (m *Manager) Logout() (Credentials, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := m.active(context.Background()); err != nil {
+		return Credentials{}, err
+	}
+	if err := m.load(context.Background()); err != nil {
 		return Credentials{}, err
 	}
 	prior := m.credential.clone()

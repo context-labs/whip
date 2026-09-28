@@ -10,12 +10,14 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
 	"github.com/context-labs/whip/internal/account"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/engine/process"
+	"github.com/context-labs/whip/internal/inferenceauth"
 	"github.com/context-labs/whip/internal/model"
 	"github.com/context-labs/whip/internal/openaiauth"
 	"github.com/context-labs/whip/internal/protocol"
@@ -64,9 +66,14 @@ func run(parent context.Context, args []string, out, diagnostics io.Writer) (err
 	}
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
+	*directory, err = filepath.Abs(*directory)
+	if err != nil {
+		return err
+	}
 	auth := openaiauth.New(ctx, *directory)
 	defer auth.Close() // Registered before runtime.Close: owned refreshes join last.
-	var provider runner.Provider = configuredProvider(*directory, auth)
+	configured := configuredProvider(*directory, auth, nil)
+	var provider runner.Provider = &configured
 	if *scripted {
 		provider = model.Scripted{Delay: *delay}
 	}
@@ -74,7 +81,20 @@ func run(parent context.Context, args []string, out, diagnostics io.Writer) (err
 	if err != nil {
 		return err
 	}
-	defer func() { err = errors.Join(err, r.Close()) }()
+	var inference *inferenceauth.Manager
+	defer func() {
+		err = errors.Join(err, r.Close())
+		if inference != nil {
+			err = errors.Join(err, inference.Close())
+		}
+	}()
+	// Runtime.Open has acquired exclusive ownership and created the directory;
+	// no provider runs before Start. The command owns this sole credential manager.
+	inference, err = inferenceauth.New(ctx, *directory)
+	if err != nil {
+		return err
+	}
+	configured.InferenceAuth = inference
 	authority, err := config.NewAuthority(*directory)
 	if err != nil {
 		return err

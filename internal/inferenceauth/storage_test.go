@@ -55,6 +55,11 @@ func TestStrictBoundedRecord(t *testing.T) {
 				t.Fatal(err)
 			}
 			manager, err := New(t.Context(), directory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer manager.Close()
+			_, err = manager.Snapshot()
 			if test.valid {
 				if err != nil {
 					t.Fatal(err)
@@ -62,7 +67,7 @@ func TestStrictBoundedRecord(t *testing.T) {
 				if err := manager.Close(); err != nil {
 					t.Fatal(err)
 				}
-			} else if !errors.Is(err, ErrStorage) || manager != nil {
+			} else if !errors.Is(err, ErrStorage) {
 				t.Fatalf("invalid private record accepted: %v", err)
 			}
 			if err != nil && (strings.Contains(err.Error(), directory) || strings.Contains(err.Error(), "private-value")) {
@@ -172,7 +177,12 @@ func TestUnsafeCredentialFilesAndDirectories(t *testing.T) {
 					root += "/"
 				}
 			}
-			if manager, err := New(t.Context(), root); !errors.Is(err, ErrStorage) || manager != nil {
+			manager, err := New(t.Context(), root)
+			if err == nil {
+				defer manager.Close()
+				_, err = manager.Snapshot()
+			}
+			if !errors.Is(err, ErrStorage) {
 				t.Fatalf("unsafe storage accepted: %v", err)
 			}
 		})

@@ -47,7 +47,7 @@ func TestConfiguredSubscriptionNaturalBoundsAndLazyCredentials(t *testing.T) {
 	if err := manager.Install(t.Context(), manager.Generation(), credentials); err != nil {
 		t.Fatal(err)
 	}
-	provider := configuredProvider(directory, manager)
+	provider := configuredProvider(directory, manager, nil)
 	request := model.Request{Selection: session.ModelSelection{Provider: "subscription", Name: "gpt-6-astra"}, Messages: []model.Message{{Role: session.User, Parts: []session.Part{{Type: "text", Text: "hello"}}}}}
 	calls := 0
 	provider.Client = &http.Client{Transport: subscriptionTransport(func(r *http.Request) (*http.Response, error) {
@@ -76,7 +76,7 @@ func TestConfiguredSubscriptionNaturalBoundsAndLazyCredentials(t *testing.T) {
 	}
 	unread := openaiauth.New(t.Context(), directory)
 	t.Cleanup(unread.Close)
-	provider = configuredProvider(directory, unread)
+	provider = configuredProvider(directory, unread, nil)
 	for _, tc := range []struct {
 		name, model string
 		settings    config.Model

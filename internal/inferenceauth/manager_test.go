@@ -452,6 +452,9 @@ func TestCancellationDoesNotChangeCredentials(t *testing.T) {
 func TestCloseWaitsForPublishedOutcome(t *testing.T) {
 	t.Parallel()
 	manager, directory := managerFixture(t)
+	if _, err := manager.Snapshot(); err != nil {
+		t.Fatal(err)
+	}
 	entered, release := make(chan struct{}), make(chan struct{})
 	unblock := sync.OnceFunc(func() { close(release) })
 	defer unblock()
