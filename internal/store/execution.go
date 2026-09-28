@@ -354,6 +354,13 @@ func (s *Store) Finish(ctx context.Context, id session.TurnID, state session.Tur
 		} else if !current.State.CanTransitionTo(state) {
 			return ErrConflict
 		}
+		var pending int
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM model_attempts WHERE turn_id=? AND finished_at IS NULL", id).Scan(&pending); err != nil {
+			return err
+		}
+		if pending != 0 {
+			return ErrBusy
+		}
 		for _, draft := range messages {
 			if _, err := appendMessage(ctx, tx, current, draft); err != nil {
 				return err

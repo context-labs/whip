@@ -18,8 +18,10 @@ import (
 
 type providerFunc func(context.Context, model.Request) (model.Response, error)
 
-func (f providerFunc) Complete(ctx context.Context, r model.Request) (model.Response, error) {
-	return f(ctx, r)
+func (f providerFunc) Prepare(ctx context.Context, request model.Request) (model.Prepared, error) {
+	prepared, err := (model.Scripted{}).Prepare(ctx, request)
+	prepared.Execute = func(ctx context.Context) (model.Response, error) { return f(ctx, request) }
+	return prepared, err
 }
 
 func openTest(t *testing.T, path string, p runner.Provider) *Runtime {

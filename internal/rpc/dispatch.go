@@ -179,6 +179,22 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 			value, err := r.Turn(ctx, session.TurnID(p.TurnID))
 			return protocol.TurnFromDomain(value), err
 		})
+	case "turns.attempts":
+		return decode(raw, func(p protocol.ModelAttemptsParams) (any, error) {
+			var after session.ModelAttemptID
+			if p.After != nil {
+				after = session.ModelAttemptID(*p.After)
+			}
+			values, err := r.ModelAttempts(ctx, session.TurnID(p.TurnID), after, p.Limit)
+			if err != nil {
+				return nil, err
+			}
+			result := protocol.ModelAttemptsResult{Items: []protocol.ModelAttempt{}}
+			for _, value := range values {
+				result.Items = append(result.Items, protocol.ModelAttemptFromDomain(value))
+			}
+			return result, nil
+		})
 	case "turns.cancel":
 		return decode(raw, func(p protocol.TurnParams) (any, error) {
 			value, err := r.CancelTurn(ctx, session.TurnID(p.TurnID))

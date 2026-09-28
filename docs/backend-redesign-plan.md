@@ -1,8 +1,8 @@
 # Whip backend redesign and delivery plan
 
 Status: phases 0 and 1 complete and validated in PRs #197 and #199.
-Phase 2 is implemented in PR #200 and passes local gates; hosted validation is
-running. Phases 3–7 are pending.
+Phase 2 is complete and validated in PR #200. Phase 3 is in progress;
+Phases 4–7 are pending.
 Written: 2026-09-27. Planning reference: `6f02507bf`.
 
 Execution baseline: `e3fed9c91918d9c36766dd47d878c1b5466238d1`. Commands,
@@ -407,8 +407,8 @@ complete with a passing check or recorded manual evidence.
 | --- | --- | --- | --- |
 | 0 | Baseline, feedback gates and fixture foundation | None | Complete; [evidence](backend-redesign-development.md#baseline-and-phase-0-evidence) |
 | 1 | Domain contract, ownership, fresh storage/config | 0 | Pending |
-| 2 | Working database → runtime → protocol → SDK slice | 1 | Implemented; hosted gate pending |
-| 3 | One provider, one engine, execution and recovery | 2 | Pending |
+| 2 | Working database → runtime → protocol → SDK slice | 1 | Complete |
+| 3 | One provider, one engine, execution and recovery | 2 | In progress |
 | 4 | Recursion and shared coordination | 3 | Pending |
 | 5 | Remaining engines, integrations and product behavior | 4 | Pending |
 | 6 | Complete client adoption and product validation | Starts at 2; finishes after 5 | Pending |

@@ -1,5 +1,60 @@
 [
   {
+    "type": "ModelAttemptsResult",
+    "value": {
+      "items": [
+        {
+          "id": "attempt_fixture",
+          "turn_id": "turn_fixture",
+          "logical_id": "call_fixture",
+          "number": 1,
+          "request": {
+            "purpose": "turn",
+            "model": {
+              "provider": "fixture",
+              "name": "model",
+              "effort": ""
+            },
+            "route": "https://provider.example/v1/chat/completions",
+            "adapter": "openai-chat",
+            "request_digest": "8633cd0f58dfadf137ca203af9b760904da4fcf8de8a079a47542c051d38d1cb",
+            "prices": {
+              "input": null,
+              "output": null,
+              "reasoning": null,
+              "cached_input": null,
+              "cached_output": null
+            },
+            "max_output_tokens": "4096",
+            "timeout_millis": "30000"
+          },
+          "state": "succeeded",
+          "result": {
+            "state": "succeeded",
+            "usage": {
+              "input": null,
+              "output": null,
+              "reasoning": null,
+              "cached_input": null,
+              "cached_output": null
+            },
+            "reported_cost_nano_usd": "9007199254740993",
+            "failure": null,
+            "usage_note": null
+          },
+          "cost_nano_usd": "9007199254740993",
+          "cost_source": "provider",
+          "cost_note": null,
+          "message_id": "message_fixture",
+          "created_at": "2026-09-27T12:00:00.123456Z",
+          "dispatched_at": "2026-09-27T12:00:00.123456Z",
+          "finished_at": "2026-09-27T12:00:00.123456Z"
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
     "type": "InitializeParams",
     "value": {
       "major": 4,

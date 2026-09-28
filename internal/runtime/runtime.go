@@ -109,7 +109,7 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 			err = errors.Join(err, database.Close())
 		}
 	}()
-	loop, err := runner.New(provider, database)
+	loop, err := runner.New(provider, database, database)
 	if err != nil {
 		return nil, err
 	}

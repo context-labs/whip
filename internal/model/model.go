@@ -4,6 +4,9 @@ package model
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"slices"
 	"time"
@@ -22,7 +25,31 @@ type Request struct {
 	Instructions string
 	Messages     []Message
 }
-type Response struct{ Parts []session.Part }
+type Response struct {
+	Parts               []session.Part
+	Usage               session.ModelUsage
+	ReportedCostNanoUSD *int64
+}
+
+// Prepared freezes the actual route, pricing and encoded request before durable
+// admission. Execute is one external attempt; it must not hide provider retries.
+type Prepared struct {
+	Snapshot session.ModelRequestSnapshot
+	Execute  func(context.Context) (Response, error)
+}
+
+func (s Scripted) Prepare(_ context.Context, request Request) (Prepared, error) {
+	raw, err := json.Marshal(request)
+	if err != nil {
+		return Prepared{}, err
+	}
+	hash := sha256.Sum256(raw)
+	zero := new(int64(0))
+	return Prepared{Snapshot: session.ModelRequestSnapshot{
+		Purpose: "turn", Model: request.Selection, Route: "scripted://fixture", Adapter: "scripted", RequestDigest: hex.EncodeToString(hash[:]),
+		Prices: session.ModelPrices{Input: zero, Output: zero, Reasoning: zero, CachedInput: zero, CachedOutput: zero}, MaxOutputTokens: 4096, TimeoutMillis: 600000,
+	}, Execute: func(ctx context.Context) (Response, error) { return s.Complete(ctx, request) }}, nil
+}
 
 // Scripted is a deterministic provider for disposable development and contract
 // fixtures. It is injected into the ordinary runner, not a second runtime path.

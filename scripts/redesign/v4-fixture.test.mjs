@@ -121,9 +121,15 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await assert.rejects(client.submit(root.id, [{ type: 'text', text: 'different' }], 'lost-ack', deadline()), error => error instanceof RemoteError && error.kind === 'CONFLICT');
     const complete = await client.wait('lost-ack', deadline());
     assert.equal(complete.turn.state, 'succeeded');
+    const ledger = await client.call('turns.attempts', { turn_id: complete.turn.id, limit: 100 }, deadline());
+    assert.equal(ledger.items.length, 1);
+    assert.equal(ledger.items[0].state, 'succeeded');
+    assert.equal(ledger.items[0].cost_nano_usd, '0');
+    assert.equal(ledger.items[0].result.usage.input, null, 'scripted provider does not invent token usage');
     const firstHistory = await page();
     assert.deepEqual(firstHistory.items.map(message => message.role), ['user', 'assistant']);
     assert.equal(firstHistory.items[1].parts[0].text, 'ack: durable hello');
+    assert.equal(ledger.items[0].message_id, firstHistory.items[1].id);
     evidence.push({ dropped, complete, firstHistory });
 
     await Promise.all(Array.from({ length: 6 }, (_, index) => client.submit(root.id, [{ type: 'text', text: 'parallel-' + index }], 'parallel-' + index, deadline())));
@@ -151,6 +157,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await runtime.stop(); await runtime.start('1h');
     await client.submit(root.id, [{ type: 'text', text: 'interrupted' }], 'claimed-before-kill', deadline());
     const claimed = await until(() => client.recover('claimed-before-kill', deadline()), value => value.turn?.state === 'running');
+    await until(() => client.call('turns.attempts', { turn_id: claimed.turn.id, limit: 100 }, deadline()), value => value.items.some(attempt => attempt.state === 'dispatched'));
     const queued = await client.submit(root.id, [{ type: 'text', text: 'survives queue' }], 'queued-before-kill', deadline());
     assert.equal(queued.input.state, 'queued'); assert.equal(queued.turn, null);
     const cancelled = await client.submit(root.id, [{ type: 'text', text: 'cancel me' }], 'cancel-queue', deadline());
@@ -161,6 +168,9 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     assert.notEqual(runtime.pid, pid); assert.equal(runtime.info.runtime_id, client.runtimeID);
     const interrupted = await client.wait('claimed-before-kill', deadline());
     assert.equal(interrupted.turn.state, 'interrupted'); assert.equal(interrupted.turn.id, claimed.turn.id);
+    const interruptedLedger = await client.call('turns.attempts', { turn_id: interrupted.turn.id, limit: 100 }, deadline());
+    assert.equal(interruptedLedger.items.length, 1);
+    assert.equal(interruptedLedger.items[0].state, 'uncertain');
     const resumed = await client.wait('queued-before-kill', deadline());
     assert.equal(resumed.input.id, queued.input.id); assert.equal(resumed.turn.state, 'succeeded');
     const afterCrash = await page();

@@ -320,3 +320,48 @@ Phase 2 intentionally does not claim engine execution, real-provider integration
 model accounting, effect permissions, checkpointing, or product UI adoption.
 The first five belong to Phase 3; uniform recursion and retained integrations
 follow in Phases 4–5. The overall execution objective remains through Phase 5.
+
+
+Hosted Phase 2 validation completed successfully on final revision
+`0da66231c1af5a7c7e320900e28666223d148672` in
+[run 36371312906](https://github.com/context-labs/whip/actions/runs/36371312906):
+Linux, macOS, analysis and the required aggregate all passed. Phase 2 is complete.
+
+## Phase 3 progress: model-attempt ledger
+
+The first Phase 3 increment isolates the existing independent engine package at
+`internal/engine` and introduces model-attempt admission, exclusive dispatch,
+atomic outcome/message settlement, and restart uncertainty. The runner now uses
+this ledger; the scripted provider exercises the same accounting boundary as
+future real providers. `turns.attempts` exposes bounded durable inspection through
+both clients and generated v4 validators.
+
+Storage version 2 adds the ledger to fresh databases. Earlier disposable redesign
+schema versions are rejected without mutation; this is not an old-data importer.
+Usage count presence remains explicit. Price snapshots use nano-USD per million
+tokens; resulting cost uses nano-USD with one final upward rounding. Missing usage
+or rates produce unknown cost unless the evidence proves the cost (including an
+explicitly free route). Overflow preserves the response and usage with unknown
+cost and a diagnostic note. Credentials never enter dispatch snapshots.
+
+Reserved attempts may become cancelled with known zero cost because they were
+not dispatched. Dispatched attempts settle with success/failure evidence or
+uncertainty; cancellation and crash cannot relabel them as never dispatched.
+Recovery updates attempts and turns in one transaction, processing bounded
+batches. A turn cannot finish while its attempts remain unsettled. A committed
+model outcome names its exact transcript message; retries cannot substitute a
+new message or change the saved outcome.
+
+The engine extraction preserved the bundled WASM and JavaScript bytes and passed
+engine/RLM race tests before and after, repository build, and scoped vet. New
+ledger tests exercise independent SQLite connections, injected transaction
+failures, cancellation races, unknown/free/overflow costs and recovery. The real
+process fixture now observes a dispatched attempt before SIGKILL and checks the
+resulting uncertainty through the SDK. Phase 3 remains incomplete: the real
+provider, Starlark loop, effects, content authorization, checkpoints, and their
+remaining acceptance checks are still being implemented.
+
+This increment passed `task check:phase`, targeted race checks and the v4 process
+fixture with `WHIP_SDK_RACE=1`. `task check:analysis` reported zero new lint issues
+and no reachable vulnerabilities. These are local results, not a claim of
+completed Phase 3 acceptance or hosted validation for this increment.

@@ -260,6 +260,61 @@ type HistoryResult struct {
 type TurnParams struct {
 	TurnID ID `json:"turn_id"`
 }
+type ModelUsage struct {
+	Input        *Counter `json:"input"`
+	Output       *Counter `json:"output"`
+	Reasoning    *Counter `json:"reasoning"`
+	CachedInput  *Counter `json:"cached_input"`
+	CachedOutput *Counter `json:"cached_output"`
+}
+type ModelPrices struct {
+	Input        *Counter `json:"input"`
+	Output       *Counter `json:"output"`
+	Reasoning    *Counter `json:"reasoning"`
+	CachedInput  *Counter `json:"cached_input"`
+	CachedOutput *Counter `json:"cached_output"`
+}
+type ModelRequestSnapshot struct {
+	Purpose         ID             `json:"purpose"`
+	Model           ModelSelection `json:"model"`
+	Route           string         `json:"route"`
+	Adapter         ID             `json:"adapter"`
+	RequestDigest   string         `json:"request_digest" pattern:"^[a-f0-9]{64}$"`
+	Prices          ModelPrices    `json:"prices"`
+	MaxOutputTokens Counter        `json:"max_output_tokens"`
+	TimeoutMillis   Counter        `json:"timeout_millis"`
+}
+type ModelAttemptResult struct {
+	State               string     `json:"state" enum:"succeeded,failed,cancelled,uncertain"`
+	Usage               ModelUsage `json:"usage"`
+	ReportedCostNanoUSD *Counter   `json:"reported_cost_nano_usd"`
+	Failure             *string    `json:"failure"`
+	UsageNote           *string    `json:"usage_note"`
+}
+type ModelAttempt struct {
+	ID           ID                   `json:"id"`
+	TurnID       ID                   `json:"turn_id"`
+	LogicalID    ID                   `json:"logical_id"`
+	Number       int                  `json:"number" min:"1" max:"100"`
+	Request      ModelRequestSnapshot `json:"request"`
+	State        string               `json:"state" enum:"reserved,dispatched,succeeded,failed,cancelled,uncertain"`
+	Result       *ModelAttemptResult  `json:"result"`
+	CostNanoUSD  *Counter             `json:"cost_nano_usd"`
+	CostSource   string               `json:"cost_source" enum:"unknown,provider,prices,not_dispatched"`
+	CostNote     *string              `json:"cost_note"`
+	MessageID    *ID                  `json:"message_id"`
+	CreatedAt    string               `json:"created_at"`
+	DispatchedAt *string              `json:"dispatched_at"`
+	FinishedAt   *string              `json:"finished_at"`
+}
+type ModelAttemptsParams struct {
+	TurnID ID  `json:"turn_id"`
+	After  *ID `json:"after,omitempty"`
+	Limit  int `json:"limit" min:"1" max:"100"`
+}
+type ModelAttemptsResult struct {
+	Items []ModelAttempt `json:"items"`
+}
 type InputParams struct {
 	InputID ID `json:"input_id"`
 }

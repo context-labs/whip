@@ -13,29 +13,43 @@ import (
 
 type providerFunc func(context.Context, model.Request) (model.Response, error)
 
-func (f providerFunc) Complete(ctx context.Context, r model.Request) (model.Response, error) {
-	return f(ctx, r)
+func (f providerFunc) Prepare(ctx context.Context, request model.Request) (model.Prepared, error) {
+	prepared, err := (model.Scripted{}).Prepare(ctx, request)
+	prepared.Execute = func(ctx context.Context) (model.Response, error) { return f(ctx, request) }
+	return prepared, err
 }
 
 type flakyTranscript struct {
-	calls int
-	ids   []session.MessageID
+	calls  int
+	ids    []session.MessageID
+	result session.ModelAttemptResult
 }
 
 func (*flakyTranscript) History(context.Context, session.SessionID, int64, int) ([]session.Message, error) {
 	return nil, nil
 }
 
-func (s *flakyTranscript) AppendMessage(ctx context.Context, _ session.TurnID, m session.MessageDraft) (session.Message, error) {
+func (*flakyTranscript) ReserveModelAttempt(_ context.Context, p session.ModelAttemptSpec) (session.ModelAttempt, error) {
+	return session.ModelAttempt{ID: p.ID, State: session.AttemptReserved}, nil
+}
+
+func (*flakyTranscript) DispatchModelAttempt(context.Context, session.ModelAttemptID) (bool, error) {
+	return true, nil
+}
+
+func (s *flakyTranscript) SettleModelAttempt(ctx context.Context, _ session.ModelAttemptID, result session.ModelAttemptResult, m *session.MessageDraft) (session.ModelAttempt, error) {
 	if err := ctx.Err(); err != nil {
-		return session.Message{}, err
+		return session.ModelAttempt{}, err
 	}
 	s.calls++
-	s.ids = append(s.ids, m.ID)
-	if s.calls == 1 {
-		return session.Message{}, errors.New("injected ambiguous SQL acknowledgement")
+	if m != nil {
+		s.ids = append(s.ids, m.ID)
 	}
-	return session.Message{ID: m.ID}, nil
+	s.result = result
+	if s.calls == 1 {
+		return session.ModelAttempt{}, errors.New("injected ambiguous SQL acknowledgement")
+	}
+	return session.ModelAttempt{Result: &result}, nil
 }
 
 func TestCompletedResponseWriteRetryDoesNotRedispatch(t *testing.T) {
@@ -47,7 +61,7 @@ func TestCompletedResponseWriteRetryDoesNotRedispatch(t *testing.T) {
 		calls++
 		cancel()
 		return model.Response{Parts: []session.Part{{Type: "text", Text: "already completed"}}}, nil
-	}), transcript)
+	}), transcript, transcript)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,6 +71,20 @@ func TestCompletedResponseWriteRetryDoesNotRedispatch(t *testing.T) {
 	}
 	if calls != 1 || transcript.calls != 2 || transcript.ids[0] != transcript.ids[1] {
 		t.Fatalf("provider calls=%d writes=%+v", calls, transcript.ids)
+	}
+}
+
+func TestMalformedUsageDoesNotEraseCompletedOutput(t *testing.T) {
+	transcript := &flakyTranscript{}
+	r, err := New(providerFunc(func(context.Context, model.Request) (model.Response, error) {
+		return model.Response{Parts: []session.Part{{Type: "text", Text: "completed"}}, Usage: session.ModelUsage{Input: new(int64(-1))}}, nil
+	}), transcript, transcript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome, err := r.Run(t.Context(), session.Turn{ID: "turn"}, session.Configuration{})
+	if err != nil || outcome.State != session.Succeeded || len(transcript.ids) != 2 || transcript.result.Usage.Input != nil || transcript.result.UsageNote == nil {
+		t.Fatalf("outcome=%+v result=%+v err=%v", outcome, transcript.result, err)
 	}
 }
 

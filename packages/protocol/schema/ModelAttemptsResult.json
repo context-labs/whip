@@ -1,0 +1,326 @@
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "turn_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "logical_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "number": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "request": {
+            "type": "object",
+            "properties": {
+              "purpose": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "model": {
+                "type": "object",
+                "properties": {
+                  "provider": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "effort": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "provider",
+                  "name",
+                  "effort"
+                ],
+                "additionalProperties": false
+              },
+              "route": {
+                "type": "string"
+              },
+              "adapter": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "request_digest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "prices": {
+                "type": "object",
+                "properties": {
+                  "input": {
+                    "type": [
+                      "null",
+                      "string"
+                    ],
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  },
+                  "output": {
+                    "type": [
+                      "null",
+                      "string"
+                    ],
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  },
+                  "reasoning": {
+                    "type": [
+                      "null",
+                      "string"
+                    ],
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  },
+                  "cached_input": {
+                    "type": [
+                      "null",
+                      "string"
+                    ],
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  },
+                  "cached_output": {
+                    "type": [
+                      "null",
+                      "string"
+                    ],
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  }
+                },
+                "required": [
+                  "input",
+                  "output",
+                  "reasoning",
+                  "cached_input",
+                  "cached_output"
+                ],
+                "additionalProperties": false
+              },
+              "max_output_tokens": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "timeout_millis": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              }
+            },
+            "required": [
+              "purpose",
+              "model",
+              "route",
+              "adapter",
+              "request_digest",
+              "prices",
+              "max_output_tokens",
+              "timeout_millis"
+            ],
+            "additionalProperties": false
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "reserved",
+              "dispatched",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "uncertain"
+            ]
+          },
+          "result": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "succeeded",
+                  "failed",
+                  "cancelled",
+                  "uncertain"
+                ]
+              },
+              "usage": {
+                "type": "object",
+                "properties": {
+                  "input": {
+                    "type": [
+                      "null",
+                      "string"
+                    ],
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  },
+                  "output": {
+                    "type": [
+                      "null",
+                      "string"
+                    ],
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  },
+                  "reasoning": {
+                    "type": [
+                      "null",
+                      "string"
+                    ],
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  },
+                  "cached_input": {
+                    "type": [
+                      "null",
+                      "string"
+                    ],
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  },
+                  "cached_output": {
+                    "type": [
+                      "null",
+                      "string"
+                    ],
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  }
+                },
+                "required": [
+                  "input",
+                  "output",
+                  "reasoning",
+                  "cached_input",
+                  "cached_output"
+                ],
+                "additionalProperties": false
+              },
+              "reported_cost_nano_usd": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "failure": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "usage_note": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              }
+            },
+            "required": [
+              "state",
+              "usage",
+              "reported_cost_nano_usd",
+              "failure",
+              "usage_note"
+            ],
+            "additionalProperties": false
+          },
+          "cost_nano_usd": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^(0|[1-9][0-9]{0,18})$",
+            "format": "counter"
+          },
+          "cost_source": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "provider",
+              "prices",
+              "not_dispatched"
+            ]
+          },
+          "cost_note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "message_id": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "dispatched_at": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "finished_at": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "turn_id",
+          "logical_id",
+          "number",
+          "request",
+          "state",
+          "result",
+          "cost_nano_usd",
+          "cost_source",
+          "cost_note",
+          "message_id",
+          "created_at",
+          "dispatched_at",
+          "finished_at"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ModelAttemptsResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ModelAttemptsResult",
+  "required": [
+    "items"
+  ],
+  "additionalProperties": false
+}

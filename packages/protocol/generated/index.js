@@ -70,6 +70,11 @@ export const manifest = {
       "result": "Turn"
     },
     {
+      "name": "turns.attempts",
+      "params": "ModelAttemptsParams",
+      "result": "ModelAttemptsResult"
+    },
+    {
       "name": "turns.cancel",
       "params": "TurnParams",
       "result": "Turn"

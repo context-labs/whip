@@ -418,6 +418,62 @@ export interface ListSessionsResult {
         created_at: string;
       }[];
 }
+export interface ModelAttemptsParams {
+  turn_id: string;
+  after?: null | string;
+  limit: number;
+}
+export interface ModelAttemptsResult {
+  items:
+    | null
+    | {
+        id: string;
+        turn_id: string;
+        logical_id: string;
+        number: number;
+        request: {
+          purpose: string;
+          model: {
+            provider: string;
+            name: string;
+            effort: string;
+          };
+          route: string;
+          adapter: string;
+          request_digest: string;
+          prices: {
+            input: null | string;
+            output: null | string;
+            reasoning: null | string;
+            cached_input: null | string;
+            cached_output: null | string;
+          };
+          max_output_tokens: string;
+          timeout_millis: string;
+        };
+        state: "reserved" | "dispatched" | "succeeded" | "failed" | "cancelled" | "uncertain";
+        result: null | {
+          state: "succeeded" | "failed" | "cancelled" | "uncertain";
+          usage: {
+            input: null | string;
+            output: null | string;
+            reasoning: null | string;
+            cached_input: null | string;
+            cached_output: null | string;
+          };
+          reported_cost_nano_usd: null | string;
+          failure: null | string;
+          usage_note: null | string;
+        };
+        cost_nano_usd: null | string;
+        cost_source: "unknown" | "provider" | "prices" | "not_dispatched";
+        cost_note: null | string;
+        message_id: null | string;
+        created_at: string;
+        dispatched_at: null | string;
+        finished_at: null | string;
+      }[];
+}
 export interface RPCError {
   code: number;
   message: string;
@@ -679,6 +735,8 @@ export interface ContractTypes {
   LifecycleParams: LifecycleParams;
   ListSessionsParams: ListSessionsParams;
   ListSessionsResult: ListSessionsResult;
+  ModelAttemptsParams: ModelAttemptsParams;
+  ModelAttemptsResult: ModelAttemptsResult;
   RPCError: RPCError;
   Request: Request;
   RequestIdentity: RequestIdentity;
@@ -708,6 +766,7 @@ export interface Operations {
   "sessions.lifecycle": { params: LifecycleParams; result: Session };
   "sessions.delete": { params: SessionParams; result: DeleteResult };
   "turns.get": { params: TurnParams; result: Turn };
+  "turns.attempts": { params: ModelAttemptsParams; result: ModelAttemptsResult };
   "turns.cancel": { params: TurnParams; result: Turn };
   "inputs.cancel": { params: InputParams; result: Input };
   "receipts.get": { params: RequestIdentity; result: Admission };

@@ -91,10 +91,42 @@ CREATE TABLE messages (
  turn_id TEXT NOT NULL, sequence INTEGER NOT NULL CHECK(sequence > 0),
  role TEXT NOT NULL CHECK(role IN ('system','user','assistant','tool')),
  input_id TEXT, parts TEXT CHECK(parts IS NULL OR json_valid(parts)), created_at INTEGER NOT NULL,
- UNIQUE(session_id,sequence), UNIQUE(input_id),
+ UNIQUE(session_id,sequence), UNIQUE(input_id), UNIQUE(id,turn_id),
  CHECK((input_id IS NULL) <> (parts IS NULL)), CHECK((role='user') = (input_id IS NOT NULL)),
  FOREIGN KEY(turn_id,session_id) REFERENCES turns(id,session_id) ON DELETE CASCADE,
  FOREIGN KEY(input_id,turn_id,session_id) REFERENCES inputs(id,turn_id,session_id) ON DELETE CASCADE
 ) STRICT;
 CREATE TRIGGER message_immutable BEFORE UPDATE ON messages
  BEGIN SELECT RAISE(ABORT, 'transcript entry is immutable'); END;
+
+CREATE TABLE model_attempts (
+ id TEXT PRIMARY KEY, turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,
+ logical_id TEXT NOT NULL, number INTEGER NOT NULL CHECK(number BETWEEN 1 AND 100),
+ request TEXT NOT NULL CHECK(json_valid(request)),
+ state TEXT NOT NULL CHECK(state IN ('reserved','dispatched','succeeded','failed','cancelled','uncertain')),
+ result TEXT CHECK(result IS NULL OR json_valid(result)),
+ cost_nano_usd INTEGER CHECK(cost_nano_usd IS NULL OR cost_nano_usd>=0),
+ cost_source TEXT NOT NULL CHECK(cost_source IN ('unknown','provider','prices','not_dispatched')),
+ cost_note TEXT,
+ message_id TEXT UNIQUE,
+ created_at INTEGER NOT NULL, dispatched_at INTEGER, finished_at INTEGER,
+ UNIQUE(turn_id,logical_id,number),
+ FOREIGN KEY(message_id,turn_id) REFERENCES messages(id,turn_id) DEFERRABLE INITIALLY DEFERRED,
+ CHECK((state IN ('reserved','dispatched')) = (finished_at IS NULL)),
+ CHECK((result IS NULL) = (finished_at IS NULL)),
+ CHECK(result IS NULL OR json_extract(result,'$.state') IS state),
+ CHECK((cost_nano_usd IS NULL) = (cost_source='unknown')),
+ CHECK(state NOT IN ('dispatched','succeeded','failed','uncertain') OR dispatched_at IS NOT NULL),
+ CHECK(state <> 'reserved' OR dispatched_at IS NULL),
+ CHECK(state <> 'cancelled' OR dispatched_at IS NULL),
+ CHECK(message_id IS NULL OR finished_at IS NOT NULL)
+) STRICT;
+CREATE INDEX attempts_by_turn ON model_attempts(turn_id,id);
+CREATE INDEX attempts_unfinished ON model_attempts(id) WHERE finished_at IS NULL;
+CREATE TRIGGER attempt_transition BEFORE UPDATE ON model_attempts
+ WHEN NEW.id IS NOT OLD.id OR NEW.turn_id IS NOT OLD.turn_id OR NEW.logical_id IS NOT OLD.logical_id
+ OR NEW.number IS NOT OLD.number OR NEW.request IS NOT OLD.request OR NEW.created_at IS NOT OLD.created_at
+ OR OLD.state NOT IN ('reserved','dispatched')
+ OR (OLD.state='reserved' AND NEW.state NOT IN ('dispatched','cancelled'))
+ OR (OLD.state='dispatched' AND (NEW.state IN ('reserved','dispatched') OR NEW.dispatched_at IS NOT OLD.dispatched_at))
+ BEGIN SELECT RAISE(ABORT, 'invalid model attempt transition'); END;

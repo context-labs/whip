@@ -1,10 +1,9 @@
 # Backend domain and persistence
 
-This is the Phase 1 implementation contract for the
-[backend redesign](backend-redesign-plan.md). The replacement packages are
-internal/session, internal/store, internal/config, and internal/protocol.
-The retained runtime still uses internal/legacy/{session,config,protocol} and
-@whip/legacy-protocol until its replacement is connected in Phase 2.
+This is the implemented domain contract for the
+[backend redesign](backend-redesign-plan.md). The new runtime, runner, RPC and
+SDK use these records directly. Retained applications still use the explicitly
+separate legacy runtime and SDK until their client cutover.
 
 ## Ownership
 
@@ -21,6 +20,7 @@ The retained runtime still uses internal/legacy/{session,config,protocol} and
 | Execution outcome | Turn row; input and receipt outcomes are derived |
 | User transcript payload | Reference to the accepted input; no second body copy |
 | Assistant/tool transcript payload | Message row |
+| Provider dispatch, usage, price snapshot and cost | Model-attempt row, linked to its completed message |
 | Provider endpoint and credential reference | Explicit host configuration file |
 | Resolved credential, worker, interpreter, process or client | Execution memory; never session rows |
 
@@ -52,7 +52,7 @@ Configuration updates compare the expected revision and append a new immutable
 revision. A running turn retains its captured revision; the next claim captures
 the current one. Changing model selection never rewrites history, topology or
 checkpoints. Host route changes affect future dispatch through the named route;
-Phase 3 records each actual route/pricing snapshot on the model attempt.
+Each prepared request records its actual route/pricing snapshot on the model attempt.
 When spawning without a new definition, the child copies the parent's current
 effective configuration before applying overrides. It does not reapply the
 original template and accidentally undo explicit parent updates. Selecting a
@@ -78,10 +78,19 @@ overrides. Working directories are absolute and fixed for a session's lifetime.
    together. Input and receipt observations join the turn rather than copying
    terminal states. A failed persistence attempt can retry this transaction; it
    must not call a provider or repeat an effect.
-5. **Recovery:** opening a store never starts or interrupts execution. After
+5. **Model dispatch and settlement:** reservation precedes exclusive dispatch.
+   One attempt identifies one actual request, with a logical-call identity for
+   retries. Terminal outcome, usage, calculated/provider cost and its completed
+   assistant message commit together. Retrying settlement cannot redispatch.
+   Missing usage or prices remain unknown; explicitly free prices can prove zero.
+   Arithmetic overflow preserves output and evidence with unknown cost.
+6. **Recovery:** opening a store never starts or interrupts execution. After
    acquiring exclusive runtime ownership, the runtime explicitly interrupts
    nonterminal turns. Unclaimed queued inputs remain queued; claimed inputs stay
    linked to the interrupted turn and are never automatically requeued.
+   In the same transaction, reserved attempts become cancelled with known zero
+   cost and dispatched attempts become uncertain. A turn cannot finish while
+   an attempt remains unsettled.
 
 Turn transitions are running → cancelling → cancelled/interrupted or
 running → succeeded/failed/cancelled/interrupted. Terminal outcomes cannot

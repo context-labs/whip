@@ -6,7 +6,7 @@ vars:
   LDFLAGS: -X main.version={{.VERSION}}
   # New Phase 1 core plus retained immutable content primitives.
   # All tests in these packages are required; no test-name skip list.
-  REDESIGN_PACKAGES: ./internal/content ./internal/session ./internal/store ./internal/config ./internal/protocol ./internal/model ./internal/runner ./internal/runtime ./internal/rpc ./internal/client ./cmd/whip-contract ./cmd/whip-runtime
+  REDESIGN_PACKAGES: ./internal/content ./internal/session ./internal/store ./internal/config ./internal/protocol ./internal/model ./internal/runner ./internal/runtime ./internal/rpc ./internal/client ./internal/engine ./internal/engine/quickjs ./cmd/whip-contract ./cmd/whip-runtime
   REDESIGN_BASELINE: e3fed9c91918d9c36766dd47d878c1b5466238d1
 
 tasks:

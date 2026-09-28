@@ -59,6 +59,10 @@ func (r *Runtime) Turn(ctx context.Context, id session.TurnID) (session.Turn, er
 	return r.store.Turn(ctx, id)
 }
 
+func (r *Runtime) ModelAttempts(ctx context.Context, id session.TurnID, after session.ModelAttemptID, limit int) ([]session.ModelAttempt, error) {
+	return r.store.ModelAttempts(ctx, id, after, limit)
+}
+
 func (r *Runtime) CancelTurn(ctx context.Context, id session.TurnID) (session.Turn, error) {
 	result, err := r.store.CancelTurn(ctx, id)
 	if err == nil {
