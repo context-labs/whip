@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
-import { cp, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import net from 'node:net';
 import { basename, join, resolve } from 'node:path';
@@ -246,6 +246,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await stage('host account projections', () => accountAcceptance(runtime, client, evidence));
     await stage('Inference account projections', () => inferenceAccountAcceptance(runtime, client, evidence));
     await stage('workspace snapshots and restore', () => workspaceAcceptance(runtime, client, createParams, evidence, { dropAcknowledgement, unixSocket, deadline }));
+    await stage('provider setup and catalogs', () => providerSetupAcceptance(runtime, client, createParams, evidence));
     await stage('content owners', () => contentOwnerAcceptance(runtime, client, createParams, evidence));
     await stage('resources', () => resourceAcceptance(runtime, client, createParams, evidence));
     await stage('schedules', () => scheduleAcceptance(runtime, client, createParams, evidence));
@@ -3100,5 +3101,87 @@ async function inferenceAccountAcceptance(runtime, client, evidence) {
     await writeFile(path, previous, { mode: 0o600 });
     await rm(credentialsPath, { recursive: true, force: true });
     if (!fixtureAbort.signal.aborted) await runtime.start();
+  }
+}
+
+async function providerSetupAcceptance(runtime, client, createParams, evidence) {
+  const path = join(runtime.directory, 'state', 'host.json');
+  const previous = await readFile(path, 'utf8');
+  const key = 'private-provider-setup-fixture';
+  const id = 'provider-setup-fixture';
+  const requests = [];
+  let mode = 'success';
+  const server = http.createServer((request, response) => {
+    requests.push({ path: request.url, authorized: request.headers.authorization === `Bearer ${key}` });
+    response.setHeader('content-type', 'application/json');
+    if (mode === 'failed') { response.writeHead(401); response.end('private-provider-diagnostic'); return; }
+    response.end(mode === 'empty' ? '{"data":[]}' : '{"data":[{"id":"live-model","context_length":64000,"max_completion_tokens":4096,"reasoning_efforts":[],"pricing":{"prompt":"9.007199254740993","completion":"0"}}]}');
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  try {
+    const initial = await client.listProviders(deadline());
+    assert.equal((await client.providerPresets(deadline())).items.length, 11);
+    assert.ok((await client.bundledProviderModels('inference-net', deadline())).items.length);
+    const change = {
+      revision: initial.revision, provider: id, keep_credential: false, key: { id: 'provider-setup-stable-key', key },
+      declaration: { kind: 'openai-chat', base_url: `http://127.0.0.1:${server.address().port}/v1`, credential: { source: 'file', environment: '', file: '', command: null }, models: {} },
+    };
+    let dropped;
+    const close = await dropAcknowledgement(join(runtime.directory, 'provider-setup-drop.sock'), runtime.info.socket, '', value => { dropped = value; }, response => response.result?.routes?.some(route => route.id === id));
+    try {
+      const uncertain = await Client.connect(unixSocket(join(runtime.directory, 'provider-setup-drop.sock')), { clientID: client.clientID, expectedRuntimeID: client.runtimeID, ...deadline() });
+      await assert.rejects(uncertain.createProvider(change, deadline()), DeliveryError);
+    } finally { await close(); }
+    const created = await client.listProviders(deadline());
+    assert.deepEqual(created, dropped);
+    assert.deepEqual(created.defaults, initial.defaults);
+    assert.equal(requests.length, 0);
+    const route = created.routes.find(route => route.id === id);
+    assert.equal(route.credential.source, 'file'); assert.equal(route.credential.state, 'available');
+    assert.equal(await readFile(route.credential.file, 'utf8'), key);
+    const keyFiles = (await readdir(join(runtime.directory, 'state'))).sort();
+    await assert.rejects(client.createProvider(change, deadline()), error => error.kind === 'CONFLICT');
+    assert.deepEqual((await readdir(join(runtime.directory, 'state'))).sort(), keyFiles);
+    assert.equal((await client.providerCatalog(id, deadline())).state, 'missing');
+    assert.equal(requests.length, 0);
+    const live = await client.refreshProviderCatalog(id, deadline());
+    assert.equal(live.models[0].prices.input, '9007199254740993');
+    assert.equal(live.models[0].prices.output, '0'); assert.equal(live.models[0].prices.cached_input, null);
+    assert.deepEqual(live.models[0].reasoning_efforts, []);
+    assert.equal(live.models[0].input_modalities, null);
+    const selection = { provider: id, name: 'explicit-uncatalogued', effort: '', temperature: 0 };
+    const settings = { prices: live.models[0].prices, context_window_tokens: '64000', max_output_tokens: '4096', timeout_millis: '30000', max_attempts: 1 };
+    const configured = await client.setProviderDefaults({ revision: created.revision, defaults: { selection, settings } }, deadline());
+    const { model: _model, ...overrides } = createParams.overrides;
+    const first = await client.call('trees.create', { ...createParams, overrides }, deadline());
+    assert.deepEqual(first.root.configuration.model, selection);
+    const changed = await client.setProviderDefaults({ revision: configured.revision, defaults: { selection: { ...selection, name: 'second-explicit-model' }, settings: null } }, deadline());
+    const second = await client.call('trees.create', { ...createParams, overrides }, deadline());
+    assert.equal(second.root.configuration.model.name, 'second-explicit-model');
+    assert.equal((await client.call('sessions.get', { session_id: first.root.id }, deadline())).configuration.model.name, selection.name);
+    const ready = await client.providerReadiness(second.root.configuration.model, deadline());
+    assert.equal(ready.model_state, 'unknown'); assert.equal(ready.inference_state, 'not_tested');
+    const forkParams = { session_id: first.root.id, expected_history_revision: first.root.history_revision, expected_config_revision: first.root.config_revision, observed_through: '0', keep_through: '0', title: null };
+    const fork = await client.fork(forkParams, 'provider-setup-fork', deadline());
+    const validHost = await readFile(path, 'utf8');
+    await writeFile(path, 'invalid-current-host', { mode: 0o600 });
+    assert.deepEqual((await client.fork(forkParams, 'provider-setup-fork', deadline())).fork, fork.fork);
+    await writeFile(path, validHost, { mode: 0o600 });
+    mode = 'failed';
+    const failed = await client.refreshProviderCatalog(id, deadline());
+    assert.ok(failed.failure); assert.deepEqual(failed.models, live.models);
+    mode = 'empty';
+    assert.deepEqual((await client.refreshProviderCatalog(id, deadline())).models, []);
+    assert.equal(requests.length, 3); assert.ok(requests.every(request => request.authorized && request.path === '/v1/models'));
+    assert.ok(!JSON.stringify([created, live, ready, failed]).includes(key));
+    assert.ok(!JSON.stringify(failed).includes('private-provider-diagnostic'));
+    assert.ok(!(await readFile(path, 'utf8')).includes(key));
+    const removed = await client.removeProvider({ revision: changed.revision, provider: id, replacement: { selection: initial.defaults, settings: null } }, deadline());
+    assert.ok(!removed.routes.some(route => route.id === id));
+    assert.equal(await readFile(route.credential.file, 'utf8'), key);
+    evidence.push({ providerSetup: { created, live, ready, failed, first: first.root.id, second: second.root.id, fork: fork.fork, removed, requests } });
+  } finally {
+    await writeFile(path, previous, { mode: 0o600 });
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   }
 }

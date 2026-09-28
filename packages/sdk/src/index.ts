@@ -33,6 +33,59 @@ export class Client {
     return decodeResponse(method, id, response);
   }
 
+  /** Offline setup templates. Does not discover routes or read credentials. */
+  providerPresets(options: CallOptions = {}): Promise<Operations['providers.presets']['result']> {
+    return this.call('providers.presets', {}, options);
+  }
+
+  /** Reviewed offline metadata, separate from live account membership. */
+  bundledProviderModels(provider: string, options: CallOptions = {}): Promise<Operations['providers.bundled']['result']> {
+    return this.call('providers.bundled', { provider }, options);
+  }
+
+  /** Reads explicit host routes and local source status; never runs a credential command. */
+  listProviders(options: CallOptions = {}): Promise<Operations['providers.list']['result']> {
+    return this.call('providers.list', {}, options);
+  }
+
+  /** Explicit CAS edit. After lost delivery, reread; never automatically replay key publication. */
+  createProvider(params: Operations['providers.create']['params'], options: CallOptions = {}): Promise<Operations['providers.create']['result']> {
+    return this.call('providers.create', params, options);
+  }
+
+  updateProvider(params: Operations['providers.update']['params'], options: CallOptions = {}): Promise<Operations['providers.update']['result']> {
+    return this.call('providers.update', params, options);
+  }
+
+  /** Preserves credential files and rejects dangling defaults. */
+  removeProvider(params: Operations['providers.remove']['params'], options: CallOptions = {}): Promise<Operations['providers.remove']['result']> {
+    return this.call('providers.remove', params, options);
+  }
+
+  /** Saves a complete selection; applies to newly admitted roots, without changing existing sessions. */
+  setProviderDefaults(params: Operations['providers.defaults']['params'], options: CallOptions = {}): Promise<Operations['providers.defaults']['result']> {
+    return this.call('providers.defaults', params, options);
+  }
+
+  setProviderCompactionModel(params: Operations['providers.compaction']['params'], options: CallOptions = {}): Promise<Operations['providers.compaction']['result']> {
+    return this.call('providers.compaction', params, options);
+  }
+
+  /** Cached observation only. A missing or unverified scope never initiates discovery. */
+  providerCatalog(provider: string, options: CallOptions = {}): Promise<Operations['providers.catalog']['result']> {
+    return this.call('providers.catalog', { provider }, options);
+  }
+
+  /** Explicit bounded network discovery. Inspect failure even when same-scope models are retained. */
+  refreshProviderCatalog(provider: string, options: CallOptions = {}): Promise<Operations['providers.refresh']['result']> {
+    return this.call('providers.refresh', { provider }, options);
+  }
+
+  /** Local evidence only; no catalog response establishes inference readiness. */
+  providerReadiness(selection: Operations['providers.readiness']['params']['selection'], options: CallOptions = {}): Promise<Operations['providers.readiness']['result']> {
+    return this.call('providers.readiness', { selection }, options);
+  }
+
   /** Accepted login belongs to the host. Recover lost delivery with list/get; never replay begin automatically. */
   beginInferenceLogin(options: CallOptions = {}): Promise<Operations['accounts.inference.begin']['result']> {
     return this.call('accounts.inference.begin', {}, options);

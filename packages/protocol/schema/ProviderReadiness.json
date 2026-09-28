@@ -1,0 +1,52 @@
+{
+  "type": "object",
+  "properties": {
+    "configured": {
+      "type": "boolean"
+    },
+    "credential_state": {
+      "type": "string",
+      "enum": [
+        "unavailable",
+        "unchecked",
+        "not_required",
+        "missing",
+        "available",
+        "refresh_required"
+      ]
+    },
+    "catalog_state": {
+      "type": "string",
+      "enum": [
+        "missing",
+        "scope_changed",
+        "cached"
+      ]
+    },
+    "model_state": {
+      "type": "string",
+      "enum": [
+        "unknown",
+        "configured",
+        "catalogued"
+      ]
+    },
+    "inference_state": {
+      "type": "string",
+      "enum": [
+        "not_tested"
+      ]
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ProviderReadiness",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProviderReadiness",
+  "required": [
+    "configured",
+    "credential_state",
+    "catalog_state",
+    "model_state",
+    "inference_state"
+  ],
+  "additionalProperties": false
+}

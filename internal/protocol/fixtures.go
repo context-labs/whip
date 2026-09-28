@@ -62,6 +62,17 @@ func Fixtures() ([]Fixture, error) {
 		name  string
 		value any
 	}{
+		{"ProviderParams", ProviderParams{Provider: "explicit"}},
+		{"ProviderPresetsResult", ProviderPresetsResult{Items: []ProviderPreset{{ID: "openai", Name: "OpenAI", Kind: "openai-responses", BaseURL: "https://api.openai.com/v1", Methods: []string{"api_key"}, Environments: []string{"OPENAI_API_KEY"}, SuggestedModels: []string{"gpt-6-astra"}}}}},
+		{"ProviderModelsResult", ProviderModelsResult{Items: []ProviderModel{{ID: "model", Prices: ModelPrices{Input: new(Counter(9007199254740993)), Output: new(Counter(0))}, ContextWindowTokens: new(Counter(1000000)), ReasoningEfforts: []string{}, MetadataSource: "advertised"}}}},
+		{"ProviderInventory", ProviderInventory{Revision: ref.Revision, Routes: []ProviderRoute{}}},
+		{"ChangeProviderParams", ChangeProviderParams{Revision: ref.Revision, Provider: "custom", Declaration: ProviderDeclaration{Kind: "openai-chat", BaseURL: "https://example.test/v1", Credential: &ProviderCredentialInput{Source: "file"}}, Key: &ProviderKeyPublication{ID: "stable-key", Key: "fixture-only-key"}}},
+		{"ProviderDefaultsParams", ProviderDefaultsParams{Revision: ref.Revision, Defaults: ProviderDefaults{Selection: &ModelSelection{Provider: "custom", Name: "explicit-model", Temperature: new(0.0)}, Settings: &ProviderModelSettings{Prices: ModelPrices{Input: new(Counter(9007199254740993)), Output: new(Counter(0))}, MaxOutputTokens: 4096}}}},
+		{"RemoveProviderParams", RemoveProviderParams{Revision: ref.Revision, Provider: "custom", Replacement: &ProviderDefaults{}}},
+		{"ProviderCatalog", ProviderCatalog{Provider: "custom", State: "missing", ScopeState: "unverified", Discovery: "not_checked", Models: []ProviderModel{}}},
+		{"ProviderReadinessParams", ProviderReadinessParams{Selection: ModelSelection{Provider: "custom", Name: "model"}}},
+		{"ProviderReadiness", ProviderReadiness{Configured: true, CredentialState: "unchecked", CatalogState: "missing", ModelState: "unknown", InferenceState: "not_tested"}},
+		{"RPCError", RPCError{Code: -32033, Kind: "PROVIDER_KEY_PENDING", Message: "Published key durability is unconfirmed; retry the same key identity"}},
 		{"EmptyParams", EmptyParams{}},
 		{"RPCError", RPCError{Code: -32024, Kind: "ACCOUNT_MANAGEMENT", Message: "Management authorization is required"}},
 		{"InferenceFlowParams", InferenceFlowParams{FlowID: "AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB"}},

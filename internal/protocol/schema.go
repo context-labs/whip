@@ -26,6 +26,17 @@ func Operations() []Operation {
 		{"workspace.action", reflect.TypeFor[ReadWorkspaceActionParams](), reflect.TypeFor[WorkspaceAction]()},
 		{"workspace.snapshot", reflect.TypeFor[WorkspaceSnapshotParams](), reflect.TypeFor[WorkspaceSnapshot]()},
 		{"workspace.snapshots", reflect.TypeFor[WorkspaceSnapshotsParams](), reflect.TypeFor[WorkspaceSnapshotsResult]()},
+		{"providers.presets", reflect.TypeFor[EmptyParams](), reflect.TypeFor[ProviderPresetsResult]()},
+		{"providers.bundled", reflect.TypeFor[ProviderParams](), reflect.TypeFor[ProviderModelsResult]()},
+		{"providers.list", reflect.TypeFor[EmptyParams](), reflect.TypeFor[ProviderInventory]()},
+		{"providers.create", reflect.TypeFor[ChangeProviderParams](), reflect.TypeFor[ProviderInventory]()},
+		{"providers.update", reflect.TypeFor[ChangeProviderParams](), reflect.TypeFor[ProviderInventory]()},
+		{"providers.remove", reflect.TypeFor[RemoveProviderParams](), reflect.TypeFor[ProviderInventory]()},
+		{"providers.defaults", reflect.TypeFor[ProviderDefaultsParams](), reflect.TypeFor[ProviderInventory]()},
+		{"providers.compaction", reflect.TypeFor[ProviderDefaultsParams](), reflect.TypeFor[ProviderInventory]()},
+		{"providers.catalog", reflect.TypeFor[ProviderParams](), reflect.TypeFor[ProviderCatalog]()},
+		{"providers.refresh", reflect.TypeFor[ProviderParams](), reflect.TypeFor[ProviderCatalog]()},
+		{"providers.readiness", reflect.TypeFor[ProviderReadinessParams](), reflect.TypeFor[ProviderReadiness]()},
 		{"accounts.openai.begin", reflect.TypeFor[EmptyParams](), reflect.TypeFor[OpenAILoginFlow]()},
 		{"accounts.openai.get", reflect.TypeFor[OpenAIFlowParams](), reflect.TypeFor[OpenAILoginFlow]()},
 		{"accounts.openai.list", reflect.TypeFor[EmptyParams](), reflect.TypeFor[OpenAIFlowsResult]()},
@@ -214,6 +225,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 			schema.Properties["items"].MaxItems = new(100)
 		}
 		automaticTitleSchema(schema, t)
+		providerSchema(schema, t)
 		if t == reflect.TypeFor[GoalFormulationRequest]() {
 			schema.Properties["tail_messages"] = &jsonschema.Schema{OneOf: []*jsonschema.Schema{
 				{Type: "integer", Enum: []any{0}},

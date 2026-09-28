@@ -10,8 +10,10 @@ import (
 	"fmt"
 
 	"github.com/context-labs/whip/internal/account"
+	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/inferenceaccount"
 	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/providerhost"
 	"github.com/context-labs/whip/internal/runtime"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/store"
@@ -47,6 +49,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 	switch method {
 	case "workspace.capture", "workspace.restore", "workspace.release", "workspace.action", "workspace.snapshot", "workspace.snapshots":
 		return dispatchWorkspace(ctx, r, method, raw)
+	case "providers.presets", "providers.bundled", "providers.list", "providers.create", "providers.update", "providers.remove", "providers.defaults", "providers.compaction", "providers.catalog", "providers.refresh", "providers.readiness":
+		return dispatchProvider(ctx, host.ProviderHost, method, raw)
 	case "accounts.openai.begin", "accounts.openai.get", "accounts.openai.list", "accounts.openai.cancel", "accounts.openai.status", "accounts.openai.setup", "accounts.openai.logout":
 		return dispatchAccount(ctx, host.OpenAI, method, raw)
 	case "accounts.inference.begin", "accounts.inference.get", "accounts.inference.list", "accounts.inference.cancel", "accounts.inference.team", "accounts.inference.project", "accounts.inference.create_project", "accounts.inference.retry", "accounts.inference.rotate", "accounts.inference.status", "accounts.inference.setup", "accounts.inference.logout", "accounts.inference.cleanup", "accounts.inference.retry_cleanup":
@@ -380,6 +384,19 @@ func wireError(err error) *protocol.RPCError {
 		code int
 		kind string
 	}{
+		{providerhost.ErrInvalid, -32602, "INVALID"},
+		{providerhost.ErrMissing, -32004, "NOT_FOUND"},
+		{providerhost.ErrExists, -32009, "CONFLICT"},
+		{providerhost.ErrBusy, -32010, "BUSY"},
+		{providerhost.ErrClosed, -32013, "CLOSED"},
+		{providerhost.ErrStale, -32009, "CONFLICT"},
+		{providerhost.ErrCredentials, -32030, "PROVIDER_CREDENTIALS"},
+		{providerhost.ErrDiscovery, -32031, "PROVIDER_DISCOVERY"},
+		{providerhost.ErrStorage, -32032, "PROVIDER_CONFIGURATION"},
+		{config.ErrRevisionConflict, -32009, "CONFLICT"},
+		{config.ErrKeyConflict, -32009, "CONFLICT"},
+		{config.ErrKeyStoragePending, -32033, "PROVIDER_KEY_PENDING"},
+		{config.ErrKeyStorage, -32034, "PROVIDER_KEY_STORAGE"},
 		{session.ErrInvalid, -32602, "INVALID"},
 		{account.ErrInvalid, -32602, "INVALID"},
 		{account.ErrNotFound, -32004, "NOT_FOUND"},

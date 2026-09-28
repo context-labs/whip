@@ -59,7 +59,17 @@ const runtime = [
   '}',
   '',
 ].join('\n');
-const files = { 'index.d.ts': declarations, 'index.js': runtime, 'validators.js': standaloneCode(ajv, exports) };
+// Ajv emits a CommonJS runtime reference for string-length bounds even in ESM
+// standalone mode. Embed this browser-native helper so clients stay dependency
+// free and correctly count surrogate pairs. Reject any new unresolved helper.
+function unicodeLength(value) {
+  let count = 0;
+  for (const _ of value) count++;
+  return count;
+}
+const validators = standaloneCode(ajv, exports).replaceAll('require("ajv/dist/runtime/ucs2length").default', unicodeLength.toString());
+if (/\brequire\s*\(/.test(validators)) throw new Error('Generated validator contains an unresolved runtime dependency');
+const files = { 'index.d.ts': declarations, 'index.js': runtime, 'validators.js': validators };
 if (!check) await mkdir('generated', { recursive: true });
 for (const [name, expected] of Object.entries(files)) {
   const path = 'generated/' + name;

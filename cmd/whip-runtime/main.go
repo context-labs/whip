@@ -22,6 +22,7 @@ import (
 	"github.com/context-labs/whip/internal/model"
 	"github.com/context-labs/whip/internal/openaiauth"
 	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/providerhost"
 	"github.com/context-labs/whip/internal/rpc"
 	"github.com/context-labs/whip/internal/runner"
 	"github.com/context-labs/whip/internal/runtime"
@@ -114,7 +115,12 @@ func run(parent context.Context, args []string, out, diagnostics io.Writer) (err
 		return err
 	}
 	defer inferenceAccounts.Close()
-	server, err := rpc.Listen(r, rpc.HostServices{OpenAI: accounts, Inference: inferenceAccounts, Config: authority})
+	providers, err := providerhost.New(ctx, authority, nil, os.LookupEnv, auth, inference)
+	if err != nil {
+		return err
+	}
+	defer providers.Close()
+	server, err := rpc.Listen(r, rpc.HostServices{OpenAI: accounts, Inference: inferenceAccounts, Config: authority, ProviderHost: providers})
 	if err != nil {
 		return err
 	}

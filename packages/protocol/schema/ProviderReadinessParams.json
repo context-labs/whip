@@ -1,0 +1,49 @@
+{
+  "type": "object",
+  "properties": {
+    "selection": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "name": {
+          "type": "string"
+        },
+        "effort": {
+          "type": "string"
+        },
+        "temperature": {
+          "type": [
+            "null",
+            "number"
+          ],
+          "minimum": 0,
+          "maximum": 2
+        },
+        "top_p": {
+          "type": [
+            "null",
+            "number"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "required": [
+        "provider",
+        "name",
+        "effort"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ProviderReadinessParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProviderReadinessParams",
+  "required": [
+    "selection"
+  ],
+  "additionalProperties": false
+}
