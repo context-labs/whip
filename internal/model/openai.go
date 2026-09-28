@@ -44,6 +44,9 @@ type OpenAI struct {
 	Resolve func(context.Context, session.ModelSelection) (Route, error)
 	Client  *http.Client
 	Auth    SubscriptionAuth
+	// IdleTimeout is adapter policy, frozen at Prepare. Zero selects two minutes
+	// for Chat or five minutes for Responses; the attempt ceiling still applies.
+	IdleTimeout time.Duration
 }
 
 // CallError reports safe diagnostic and retry evidence without retaining a
@@ -84,6 +87,9 @@ func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) 
 		if err := subscriptionRoute(&route, request.Selection.Name); err != nil {
 			return Prepared{}, err
 		}
+	}
+	if p.IdleTimeout < 0 {
+		return Prepared{}, fmt.Errorf("%w: provider idle timeout must not be negative", session.ErrInvalid)
 	}
 	var inputBound, contextWindow *int64
 	if route.ContextWindowTokens != nil {
@@ -146,16 +152,23 @@ func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) 
 		client = *p.Client
 	}
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	idle := p.IdleTimeout
+	if idle == 0 {
+		idle = chatIdleTimeout
+		if adapter != "openai-chat" {
+			idle = responsesIdleTimeout
+		}
+	}
 	if adapter == "openai-codex" {
-		return prepareSubscription(p.Auth, captured, &client, snapshot, route.MaxAttempts, contextWindow, scope, body, allowedTools), nil
+		return prepareSubscription(p.Auth, captured, &client, snapshot, route.MaxAttempts, contextWindow, scope, body, allowedTools, idle), nil
 	}
 	return Prepared{
 		Snapshot: snapshot, MaxAttempts: route.MaxAttempts, ContextWindowTokens: contextWindow,
 		Execute: func(ctx context.Context, emit func(Chunk)) (Response, error) {
 			if adapter == "openai-responses" {
-				return executeResponses(ctx, &client, snapshot.Route, responseAuth{credential: route.Credential}, scope, body, allowedTools, emit)
+				return executeResponses(ctx, &client, snapshot.Route, responseAuth{credential: route.Credential}, scope, body, allowedTools, emit, idle)
 			}
-			return executeChat(ctx, &client, snapshot.Route, route.Credential, body, allowedTools, emit)
+			return executeChat(ctx, &client, snapshot.Route, route.Credential, body, allowedTools, emit, idle)
 		},
 	}, nil
 }
@@ -323,7 +336,9 @@ func promptCacheKey(id session.SessionID) string {
 	return key
 }
 
-func executeChat(ctx context.Context, client *http.Client, url, credential string, body []byte, allowedTools map[string]bool, emit func(Chunk)) (Response, error) {
+func executeChat(ctx context.Context, client *http.Client, url, credential string, body []byte, allowedTools map[string]bool, emit func(Chunk), idle time.Duration) (result Response, err error) {
+	ctx, watchdog := watchIdle(ctx, idle)
+	defer func() { watchdog.finish(ctx, &result, &err) }()
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return Response{}, errors.New("could not construct provider request")
@@ -344,11 +359,13 @@ func executeChat(ctx context.Context, client *http.Client, url, credential strin
 		// The read result determines completion; closing only releases resources.
 		_ = response.Body.Close()
 	}()
+	watchdog.progress() // Response headers are progress before the first body read.
+	reader := idleReader{reader: response.Body, watchdog: watchdog}
 	mediaType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	if response.StatusCode >= 200 && response.StatusCode < 300 && strings.EqualFold(mediaType, "text/event-stream") {
-		return decodeChatStream(ctx, response.Body, allowedTools, emit)
+		return decodeChatStream(ctx, reader, allowedTools, emit)
 	}
-	raw, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
+	raw, err := io.ReadAll(io.LimitReader(reader, maxResponseBytes+1))
 	if err != nil || len(raw) > maxResponseBytes {
 		if ctx.Err() != nil {
 			return Response{}, ctx.Err()
@@ -361,7 +378,6 @@ func executeChat(ctx context.Context, client *http.Client, url, credential strin
 		Error   json.RawMessage `json:"error"`
 	}
 	decodeErr := json.Unmarshal(raw, &envelope)
-	result := Response{}
 	if decodeErr == nil {
 		result.Usage, result.ReportedCostNanoUSD, result.UsageNote = decodeChatUsage(envelope.Usage)
 	}

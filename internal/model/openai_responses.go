@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/context-labs/whip/internal/session"
@@ -232,7 +233,9 @@ func decodeResponsesUsage(raw json.RawMessage) (session.ModelUsage, *int64, *str
 	return decodeChatUsage(translated)
 }
 
-func executeResponses(ctx context.Context, client *http.Client, url string, auth responseAuth, scope string, body []byte, allowed map[string]bool, emit func(Chunk)) (Response, error) {
+func executeResponses(ctx context.Context, client *http.Client, url string, auth responseAuth, scope string, body []byte, allowed map[string]bool, emit func(Chunk), idle time.Duration) (result Response, err error) {
+	ctx, watchdog := watchIdle(ctx, idle)
+	defer func() { watchdog.finish(ctx, &result, &err) }()
 	if err := ctx.Err(); err != nil {
 		return Response{}, err
 	}
@@ -252,11 +255,13 @@ func executeResponses(ctx context.Context, client *http.Client, url string, auth
 		return Response{}, streamError("provider transport failed; outcome is unknown")
 	}
 	defer func() { _ = response.Body.Close() }()
+	watchdog.progress()
+	reader := idleReader{reader: response.Body, watchdog: watchdog}
 	mediaType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	if response.StatusCode >= 200 && response.StatusCode < 300 && strings.EqualFold(mediaType, "text/event-stream") {
-		return decodeResponsesStream(ctx, response.Body, scope, allowed, emit, auth.accountID != "")
+		return decodeResponsesStream(ctx, reader, scope, allowed, emit, auth.accountID != "")
 	}
-	raw, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
+	raw, err := io.ReadAll(io.LimitReader(reader, maxResponseBytes+1))
 	if err != nil || len(raw) > maxResponseBytes {
 		if ctx.Err() != nil {
 			return Response{}, ctx.Err()
@@ -268,7 +273,6 @@ func executeResponses(ctx context.Context, client *http.Client, url string, auth
 		Error json.RawMessage `json:"error"`
 	}
 	decodeErr := json.Unmarshal(raw, &envelope)
-	result := Response{}
 	if decodeErr == nil {
 		result.Usage, result.ReportedCostNanoUSD, result.UsageNote = decodeResponsesUsage(envelope.Usage)
 	}

@@ -81,7 +81,7 @@ func (a responseAuth) setHeaders(request *http.Request) {
 	}
 }
 
-func prepareSubscription(auth SubscriptionAuth, captured openaiauth.CapturedCredentials, client *http.Client, snapshot session.ModelRequestSnapshot, attempts int, window *int64, scope string, body []byte, tools map[string]bool) Prepared {
+func prepareSubscription(auth SubscriptionAuth, captured openaiauth.CapturedCredentials, client *http.Client, snapshot session.ModelRequestSnapshot, attempts int, window *int64, scope string, body []byte, tools map[string]bool, idle time.Duration) Prepared {
 	return Prepared{
 		Snapshot: snapshot, MaxAttempts: attempts, ContextWindowTokens: window,
 		BeforeDispatch: func(ctx context.Context) error { return auth.Check(ctx, captured) },
@@ -92,7 +92,7 @@ func prepareSubscription(auth SubscriptionAuth, captured openaiauth.CapturedCred
 				return Response{}, err
 			}
 			credentials := captured.Credentials
-			return executeResponses(ctx, client, snapshot.Route, responseAuth{credential: credentials.AccessToken, accountID: credentials.AccountID, residency: credentials.ComputeResidency}, scope, body, tools, emit)
+			return executeResponses(ctx, client, snapshot.Route, responseAuth{credential: credentials.AccessToken, accountID: credentials.AccountID, residency: credentials.ComputeResidency}, scope, body, tools, emit, idle)
 		},
 		RefreshCredentials: func(ctx context.Context) (Prepared, error) {
 			fresh, err := auth.RefreshCaptured(ctx, captured)
@@ -105,7 +105,7 @@ func prepareSubscription(auth SubscriptionAuth, captured openaiauth.CapturedCred
 			if err := auth.Check(ctx, fresh); err != nil {
 				return Prepared{}, err
 			}
-			return prepareSubscription(auth, fresh, client, snapshot, attempts, window, scope, body, tools), nil
+			return prepareSubscription(auth, fresh, client, snapshot, attempts, window, scope, body, tools, idle), nil
 		},
 	}
 }
