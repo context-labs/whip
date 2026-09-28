@@ -12,8 +12,8 @@ import (
 
 // Host routes and credentials are refreshed at request preparation. The prepared
 // body, route and prices stay fixed across that logical call's recorded retries.
-func configuredProvider(directory string) model.OpenAI {
-	return model.OpenAI{Resolve: func(ctx context.Context, selection session.ModelSelection) (model.Route, error) {
+func configuredProvider(directory string, auth model.SubscriptionAuth) model.OpenAI {
+	return model.OpenAI{Auth: auth, Resolve: func(ctx context.Context, selection session.ModelSelection) (model.Route, error) {
 		if err := ctx.Err(); err != nil {
 			return model.Route{}, err
 		}
@@ -25,7 +25,18 @@ func configuredProvider(directory string) model.OpenAI {
 		if !ok {
 			return model.Route{}, fmt.Errorf("provider route %q is not configured", selection.Provider)
 		}
-		settings, err := provider.Models[selection.Name].Resolve()
+		settings := provider.Models[selection.Name]
+		if provider.Kind == "openai-codex" {
+			if provider.CredentialEnv != "" || provider.BaseURL != "" {
+				return model.Route{}, fmt.Errorf("%w: subscription routes cannot configure an endpoint or API credential", session.ErrInvalid)
+			}
+			ceiling := model.SubscriptionOutputLimit(selection.Name)
+			if ceiling == 0 || settings.MaxOutputTokens < 0 || settings.MaxOutputTokens > 0 && settings.MaxOutputTokens < ceiling {
+				return model.Route{}, fmt.Errorf("%w: subscription model requires its verified natural output ceiling", session.ErrInvalid)
+			}
+			settings.MaxOutputTokens = ceiling
+		}
+		settings, err = settings.Resolve()
 		if err != nil {
 			return model.Route{}, err
 		}

@@ -46,9 +46,13 @@ type Model struct {
 	ContextWindowTokens *int64 `json:"context_window_tokens,omitempty"`
 }
 
-func (m Model) Resolve() (Model, error) {
+func (m Model) Resolve() (Model, error) { return m.resolve(4096) }
+
+// A zero default keeps a subscription's unspecified ceiling unresolved until
+// the execution adapter applies its verified model-specific natural bound.
+func (m Model) resolve(defaultOutput int64) (Model, error) {
 	if m.MaxOutputTokens == 0 {
-		m.MaxOutputTokens = 4096
+		m.MaxOutputTokens = defaultOutput
 	}
 	if m.TimeoutMillis == 0 {
 		m.TimeoutMillis = 120000
@@ -56,7 +60,7 @@ func (m Model) Resolve() (Model, error) {
 	if m.MaxAttempts == 0 {
 		m.MaxAttempts = 3
 	}
-	if m.MaxOutputTokens < 1 || m.MaxOutputTokens > 1000000 {
+	if m.MaxOutputTokens < 0 || m.MaxOutputTokens > 1000000 {
 		return Model{}, fmt.Errorf("%w: output token limit must be 1–1000000", session.ErrInvalid)
 	}
 	if m.ContextWindowTokens != nil {
@@ -148,13 +152,19 @@ func (h Host) Validate() error {
 		if err := session.ValidateID(name); err != nil {
 			return err
 		}
-		route, err := url.Parse(provider.BaseURL)
-		if err != nil || len(provider.BaseURL) > 4000 || route.Hostname() == "" || (route.Scheme != "https" && route.Scheme != "http") ||
-			route.User != nil || route.RawQuery != "" || route.Fragment != "" || (provider.Kind != "openai-chat" && provider.Kind != "openai-responses") {
-			return fmt.Errorf("%w: invalid provider route %q", session.ErrInvalid, name)
-		}
-		if provider.CredentialEnv != "" && !environmentName.MatchString(provider.CredentialEnv) {
-			return fmt.Errorf("%w: invalid credential environment reference", session.ErrInvalid)
+		if provider.Kind == "openai-codex" {
+			if provider.BaseURL != "" || provider.CredentialEnv != "" {
+				return fmt.Errorf("%w: subscription routes cannot configure an endpoint or API credential", session.ErrInvalid)
+			}
+		} else {
+			route, err := url.Parse(provider.BaseURL)
+			if err != nil || len(provider.BaseURL) > 4000 || route.Hostname() == "" || (route.Scheme != "https" && route.Scheme != "http") ||
+				route.User != nil || route.RawQuery != "" || route.Fragment != "" || (provider.Kind != "openai-chat" && provider.Kind != "openai-responses") {
+				return fmt.Errorf("%w: invalid provider route %q", session.ErrInvalid, name)
+			}
+			if provider.CredentialEnv != "" && !environmentName.MatchString(provider.CredentialEnv) {
+				return fmt.Errorf("%w: invalid credential environment reference", session.ErrInvalid)
+			}
 		}
 		if len(provider.Models) > 1024 {
 			return fmt.Errorf("%w: too many configured provider models", session.ErrInvalid)
@@ -163,7 +173,11 @@ func (h Host) Validate() error {
 			if err := session.ValidateText(modelName, 256); err != nil {
 				return err
 			}
-			if _, err := settings.Resolve(); err != nil {
+			defaultOutput := int64(4096)
+			if provider.Kind == "openai-codex" {
+				defaultOutput = 0
+			}
+			if _, err := settings.resolve(defaultOutput); err != nil {
 				return err
 			}
 		}
@@ -188,6 +202,9 @@ func (h Host) Validate() error {
 // Credential resolves an environment reference only when the execution layer
 // constructs a client. Passing the lookup keeps tests and callers explicit.
 func (p Provider) Credential(lookup func(string) (string, bool)) (string, error) {
+	if p.Kind == "openai-codex" && p.CredentialEnv != "" {
+		return "", fmt.Errorf("%w: subscription routes cannot use API credentials", session.ErrInvalid)
+	}
 	if p.CredentialEnv == "" {
 		return "", nil
 	}

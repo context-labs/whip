@@ -82,9 +82,15 @@ checks to every client already ported to that contract.
 
 [v4-fixture.test.mjs](../scripts/redesign/v4-fixture.test.mjs) builds
 `cmd/whip-runtime`, uses a private `/tmp/whip-v4-*` directory, and runs the real
-scheduler/runner/store/RPC through `@whip/sdk`. `WHIP_SDK_RACE=1` instruments the
-Go binary; CI sets it. It does not need provider credentials or touch an installed
-daemon. The runnable SDK example is also executed against this process.
+scheduler/runner/store/RPC through `@whip/sdk`. It explicitly builds the production
+binary with `-race=false`, including its memory-limited engine subprocesses.
+Required Go package suites separately exercise backend and engine code with
+`-race`; the runtime integration suite combines a race-instrumented host with
+production workers. `WHIP_SDK_RACE` affects only the retained legacy fixture.
+No test contacts a real provider or touches an installed daemon. Synthetic
+private subscription credentials are confined to its disposable directory, with
+a rejecting proxy guarding the no-dispatch scenarios. The runnable SDK example
+is also executed against this process.
 
 The fixture drops a committed submission acknowledgement through a socket proxy,
 checks identity reuse/conflict, concurrent submissions, aborted observation,
@@ -146,7 +152,8 @@ recovery remains a Phase 3 obligation.
 
 [backend-redesign.yml](../.github/workflows/backend-redesign.yml) runs on PRs into
 the integration branch and pushes to it. Linux and macOS run the phase gate with
-a race-instrumented fixture; a separate job runs pinned lint/vulnerability tools.
+required Go race suites and production-binary SDK acceptance; a separate job
+runs pinned lint/vulnerability tools.
 Their Go compiler caches have separate keys from each other and production CI,
 so the first successful run can save the tools and race builds it actually uses.
 The `redesign` aggregate requires every job to succeed, including after failure
@@ -1885,3 +1892,60 @@ This checkpoint does not complete subscription support: host-config resolution,
 command-owned manager lifetime and real-runtime acceptance are the next slice.
 Public authentication/onboarding and client model catalogs remain Phase 6 work.
 Config/schema/protocol versions are unchanged by the model/runner slice.
+
+
+## Subscription host integration and production SDK acceptance
+
+The runtime command now owns one subscription credential manager for its lifetime.
+Configuration rejects subscription endpoint and environment-credential overrides;
+the fixed adapter owns its wire route. Host model resolution applies the pinned
+natural output ceiling before generic defaults and refuses unsupported bounds
+before credential capture. Credentials remain lazy: API and scripted routes do
+not read the private subscription file. Runtime shutdown finishes before the
+manager cancels and joins refresh work.
+
+Both-engine runtime tests cover subscription execution, private continuation
+across restart, account changes and stale captures. Command tests cover natural
+bounds, lazy credential access and refresh shutdown. The SDK admission scenario
+uses synthetic private credentials and a rejecting local proxy; finite unknown
+spend exposure fails before any HTTPS connection. Public login, onboarding and
+client account catalogs remain Phase 6 work.
+
+The first isolated race-built SDK run failed during context-recovery checkpointing
+with `RLM worker memory limit exceeded`. The completed cell output and failed
+checkpoint were reported truthfully; this was not a subscription dispatch failure.
+An unchanged diagnostic rerun passed, but that does not repair or reclassify the
+failure. Sampling that run every 0.2 seconds found QuickJS worker RSS as high as
+255.047 MiB against the unchanged 256 MiB production ceiling. The same full SDK
+scenarios with the production binary passed in 15.739s; sampled QuickJS RSS peaked
+at 67.359 MiB. Samples are observations, not guaranteed process maxima. The parent
+enforces total RSS, including race-detector overhead, which explains why this
+instrumented executable is unsuitable for production-limit acceptance.
+
+The v4 SDK fixture now explicitly builds with `-race=false` and records that build
+mode in its diagnostics. It tests the shipping command and production workers;
+the black-box daemon in this fixture is no longer race-instrumented. Required Go
+race/shuffle suites remain unchanged, including process-engine coverage and
+runtime integration with a race-instrumented host and production workers. The
+legacy SDK fixture still honors `WHIP_SDK_RACE=1`. No memory ceiling was raised,
+scenario removed, or production test mode added.
+
+After integrating host commit `16f2c2cf4` and the fixture correction,
+`WHIP_SDK_RACE=1 task check:phase` passed: store race tests 86.444s, runtime
+95.974s, process engine 100.544s, the full v4 SDK fixture 15.512s (subscription
+admission 0.202s), retained crash fixture 4.060s and retained daemon acceptance
+2.742s. `task check:analysis` passed with zero lint issues and no reachable
+vulnerabilities. Logs are `/tmp/whip-subscription-runtime-phase.log` and
+`/tmp/whip-subscription-runtime-analysis.log`. Diagnostic evidence remains in
+`/tmp/whip-subscription-host-sdk.log`,
+`/tmp/whip-subscription-host-sdk-rerun.log`,
+`/tmp/whip-subscription-host-rss.jsonl`, and
+`/tmp/whip-shipping-sdk-{rss.jsonl,peaks.json}`. Hosted validation of this increment
+is pending. Config 7, schema 26 and protocol development major 4 are unchanged.
+
+At this checkpoint, subscription capture revision `c10e6de1e` passed all hosted
+checks in [run 36473179604](https://github.com/context-labs/whip/actions/runs/36473179604),
+and schedules revision `b3dec1e3d` passed all hosted checks in
+[run 36474139342](https://github.com/context-labs/whip/actions/runs/36474139342).
+The subscription core run remains pending. Phase 4's audited closure is unchanged;
+Phases 5–7 remain open.

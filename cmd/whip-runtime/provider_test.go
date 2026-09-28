@@ -21,7 +21,7 @@ func TestHostRoutesRefreshOnlyForNewPreparedCalls(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("WHIP_V4_FIXTURE_TOKEN", "credential-must-not-persist")
-	provider := configuredProvider(directory)
+	provider := configuredProvider(directory, nil)
 	request := model.Request{
 		Selection: session.ModelSelection{Provider: "fixture", Name: "model"},
 		Messages:  []model.Message{{Role: session.User, Parts: []session.Part{{Type: "text", Text: "hello"}}}},
