@@ -3,19 +3,20 @@ package rlm
 import (
 	"context"
 
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/tools"
 )
 
 // PresentedHostCall enriches an execution observation for retained clients.
 type PresentedHostCall struct {
-	HostCall
+	process.HostCall
 	Display *llm.OperationDisplay
 }
 
 // PresentHostCalls snapshots bounded display fields before entering host code.
-func PresentHostCalls(started, completed func(PresentedHostCall)) HostObserver {
-	return func(call HostCall, arguments map[string]any) func(HostCall, any) {
+func PresentHostCalls(started, completed func(PresentedHostCall)) process.HostObserver {
+	return func(call process.HostCall, arguments map[string]any) func(process.HostCall, any) {
 		presented := PresentedHostCall{HostCall: call, Display: hostDisplay(call.Module, call.Operation, arguments)}
 		if started != nil {
 			started(presented)
@@ -23,7 +24,7 @@ func PresentHostCalls(started, completed func(PresentedHostCall)) HostObserver {
 		if completed == nil {
 			return nil
 		}
-		return func(call HostCall, result any) {
+		return func(call process.HostCall, result any) {
 			presented.HostCall = call
 			presented.Display = hostResultDisplay(presented, result)
 			completed(presented)
@@ -32,12 +33,12 @@ func PresentHostCalls(started, completed func(PresentedHostCall)) HostObserver {
 }
 
 // ToolHost forwards retained dispatcher operation identities to the kernel.
-func ToolHost(host Host) Host {
+func ToolHost(host process.Host) process.Host {
 	if host == nil {
 		return nil
 	}
-	return HostFunc(func(ctx context.Context, module, operation string, arguments map[string]any) (any, error) {
-		return host.Call(tools.WithOperationObserver(ctx, func(id string) { ReportHostOperation(ctx, id) }), module, operation, arguments)
+	return process.HostFunc(func(ctx context.Context, module, operation string, arguments map[string]any) (any, error) {
+		return host.Call(tools.WithOperationObserver(ctx, func(id string) { process.ReportHostOperation(ctx, id) }), module, operation, arguments)
 	})
 }
 

@@ -16,9 +16,9 @@ import (
 
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/tools"
 )
 
@@ -394,14 +394,14 @@ func openPromptRuntime(t *testing.T, store *session.Store, rootID string, client
 		value := agent.NewRuntime(client, meta.Model, 128, "", tools.NewServices())
 		value.ModelName, value.Provider, value.WorkingDir = meta.Model, meta.Provider, meta.CWD
 		value.ContextLimit = 65536
-		limits := rlm.DefaultLimits()
+		limits := process.DefaultLimits()
 		definition, _, err := DefinitionFor(context.Background(), store, meta)
 		if err != nil {
 			return Components{}, err
 		}
 		definition.Surface.AutoTitle = false
 		runtime, err = NewRecursiveRuntime(RecursiveRuntimeOptions{
-			Engine: meta.ExecutionEngine, Definition: definition, Agent: value, History: history, Limits: limits, Kernels: rlm.NewManager(limits.MaxWorkers), KernelCommand: recursiveKernelCommand,
+			Engine: meta.ExecutionEngine, Definition: definition, Agent: value, History: history, Limits: limits, Kernels: process.NewManager(limits.MaxWorkers), KernelCommand: recursiveKernelCommand,
 		})
 		if err != nil {
 			return Components{}, err

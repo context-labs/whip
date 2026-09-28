@@ -5,18 +5,19 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/tools"
 )
 
 // Tool exposes the entire RLM runtime as one model-facing operation.
-func Tool(kernel *Kernel) tools.Tool {
+func Tool(kernel *process.Kernel) tools.Tool {
 	descriptor, _ := ResolveEngine("")
 	if kernel != nil {
 		descriptor = kernel.Describe()
 	}
 	description := `Execute one bounded Starlark cell. Supported data and top-level helpers survive worker eviction and restart; unsupported bindings and checkpoint failures are reported in scratch notices. Checkpoint failure does not undo completed effects. Use host modules with keyword arguments. Local json.encode(value) and json.decode(text) accept positional arguments.`
-	if descriptor.ID == EngineQuickJS {
+	if descriptor.ID == process.EngineQuickJS {
 		description = `Execute one bounded JavaScript cell in QuickJS. Use await module.operation({key: value}) for host calls, and print or console.log for output. Top-level lexical variables, closures, cycles and classes persist in a complete heap checkpoint after all owned calls and jobs settle. No Node.js, npm, imports or timers. Up to 16 concurrent host calls. Host JSON uses BigInt for exact large integers; unsafe Number integers and accessors are rejected. Checkpoint failure does not undo effects.`
 	}
 	schema, _ := json.Marshal(map[string]any{"type": "object", "properties": map[string]any{"code": map[string]any{"type": "string", "description": descriptor.Label + " source code"}}, "required": []string{"code"}, "additionalProperties": false})
@@ -35,7 +36,7 @@ func Tool(kernel *Kernel) tools.Tool {
 			if input.Code == "" {
 				return "", errors.New("code is required")
 			}
-			result, err := kernel.Exec(ctx, Cell{Code: input.Code, CallID: tools.ToolCallID(ctx), OnOutput: tools.OnUpdate(ctx)})
+			result, err := kernel.Exec(ctx, process.Cell{Code: input.Code, CallID: tools.ToolCallID(ctx), OnOutput: tools.OnUpdate(ctx)})
 			if result.ExecutionEngine == "" {
 				result.ExecutionEngine, result.Language = descriptor.ID, descriptor.Language
 			}
@@ -53,7 +54,7 @@ func Tool(kernel *Kernel) tools.Tool {
 // Keep one valid JSON payload for model context, durable history and SDK replay.
 // Bound individual fields by encoded bytes before marshaling: truncating the
 // serialized document would lose the result and its checkpoint notices.
-func marshalToolResult(result Result) ([]byte, error) {
+func marshalToolResult(result process.Result) ([]byte, error) {
 	payload := boundedScratchNotices(result)
 	payload["format_version"] = 2
 	if result.Termination != "" {
@@ -61,7 +62,7 @@ func marshalToolResult(result Result) ([]byte, error) {
 	}
 	engineID := result.ExecutionEngine
 	if engineID == "" {
-		engineID = EngineStarlark
+		engineID = process.EngineStarlark
 	}
 	descriptor, _ := ResolveEngine(engineID)
 	payload["execution_engine"], payload["language"] = descriptor.ID, descriptor.Language
@@ -70,7 +71,7 @@ func marshalToolResult(result Result) ([]byte, error) {
 	if metrics == nil {
 		metrics = map[string]uint64{}
 	}
-	if descriptor.ID == EngineStarlark {
+	if descriptor.ID == process.EngineStarlark {
 		payload["steps"] = result.Steps
 		metrics["starlark_steps"] = result.Steps
 	}
@@ -115,7 +116,7 @@ func boundedResultText(value string, encodedLimit int) (string, bool) {
 
 // Bound presentation independently of the durable manifest. Counts preserve
 // visibility of omissions without putting an unbounded name list in context.
-func boundedScratchNotices(result Result) map[string]any {
+func boundedScratchNotices(result process.Result) map[string]any {
 	notices := make(map[string]any)
 	if report := result.Scratch; report != nil {
 		skipped, omitted := boundedScratchSkips(report.Skipped)
@@ -142,8 +143,8 @@ func boundedScratchNotices(result Result) map[string]any {
 	return notices
 }
 
-func boundedScratchSkips(items []SkippedName) ([]SkippedName, int) {
-	result := make([]SkippedName, 0)
+func boundedScratchSkips(items []process.SkippedName) ([]process.SkippedName, int) {
+	result := make([]process.SkippedName, 0)
 	bytes := 0
 	for _, item := range items {
 		if len(result) == 30 {

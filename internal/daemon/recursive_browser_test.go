@@ -15,8 +15,8 @@ import (
 	"github.com/context-labs/whip/internal/agentdef"
 	"github.com/context-labs/whip/internal/browser"
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/rlm"
 )
 
 type recursiveBrowserProvider struct {
@@ -91,7 +91,7 @@ func (p *recursiveBrowserProvider) Transfer(ctx context.Context, parent, child b
 }
 
 func TestRecursiveBrowserRoutesBothEnginesWithoutFallback(t *testing.T) {
-	for _, engine := range []string{rlm.EngineStarlark, rlm.EngineQuickJS} {
+	for _, engine := range []string{process.EngineStarlark, process.EngineQuickJS} {
 		t.Run(engine, func(t *testing.T) {
 			_, root, runtime := openRecursiveRuntime(t, llm.New("http://unused.test", "key"), 2, engine)
 			provider := &recursiveBrowserProvider{}
@@ -104,19 +104,19 @@ func TestRecursiveBrowserRoutesBothEnginesWithoutFallback(t *testing.T) {
 				{"allow_preview_port", `browser.allow_preview_port(attachment_id="attachment",port=3000)`, `await browser.allow_preview_port({attachment_id:"attachment",port:3000})`},
 			} {
 				code := tc.starlark
-				if engine == rlm.EngineQuickJS {
+				if engine == process.EngineQuickJS {
 					code = tc.javascript
 				}
-				result, err := runtime.rootNode.kernel.Exec(t.Context(), rlm.Cell{Code: "print(" + code + ")"})
+				result, err := runtime.rootNode.kernel.Exec(t.Context(), process.Cell{Code: "print(" + code + ")"})
 				if err != nil || !strings.Contains(result.Output, "desktop resolver reached") {
 					t.Fatalf("%s did not route to desktop resolver: %+v %v", tc.op, result, err)
 				}
 			}
 			code := `print(browser.list_tabs())`
-			if engine == rlm.EngineQuickJS {
+			if engine == process.EngineQuickJS {
 				code = `print(await browser.list_tabs())`
 			}
-			result, err := runtime.rootNode.kernel.Exec(t.Context(), rlm.Cell{Code: code})
+			result, err := runtime.rootNode.kernel.Exec(t.Context(), process.Cell{Code: code})
 			if err != nil || !strings.Contains(result.Output, "desktop inventory reached") {
 				t.Fatalf("list_tabs did not route to desktop inventory: %+v %v", result, err)
 			}
@@ -141,7 +141,7 @@ func TestRecursiveBrowserRoutesBothEnginesWithoutFallback(t *testing.T) {
 }
 
 func TestRecursiveBrowserTransferBeforeChildWorkAndRollback(t *testing.T) {
-	for _, engine := range []string{rlm.EngineStarlark, rlm.EngineQuickJS} {
+	for _, engine := range []string{process.EngineStarlark, process.EngineQuickJS} {
 		for _, fail := range []bool{false, true} {
 			name := engine + "/success"
 			if fail {

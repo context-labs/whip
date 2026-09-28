@@ -16,10 +16,10 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/agent"
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/legacy/protocol"
 	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/tools"
 )
 
@@ -70,11 +70,11 @@ func modelAccountingRuntimeAt(t *testing.T, path string, handler http.HandlerFun
 		if configure != nil {
 			configure(value)
 		}
-		limits := rlm.DefaultLimits()
+		limits := process.DefaultLimits()
 		limits.MaxWorkers = 4
 		var err error
 		runtime, err = NewRecursiveRuntime(RecursiveRuntimeOptions{
-			Engine: meta.ExecutionEngine, Agent: value, History: history, Limits: limits, Kernels: rlm.NewManager(4), KernelCommand: recursiveKernelCommand,
+			Engine: meta.ExecutionEngine, Agent: value, History: history, Limits: limits, Kernels: process.NewManager(4), KernelCommand: recursiveKernelCommand,
 		})
 		if err != nil {
 			return Components{}, err
@@ -353,7 +353,7 @@ func TestModelAccountingAcceptanceOverageRetainsResponseAndStopsEffects(t *testi
 }
 
 func TestModelAccountingAcceptanceHelperFailureStopsCurrentCell(t *testing.T) {
-	for _, engine := range []string{rlm.EngineStarlark, rlm.EngineQuickJS} {
+	for _, engine := range []string{process.EngineStarlark, process.EngineQuickJS} {
 		for _, failure := range []string{"overage", "settlement"} {
 			for _, operation := range []string{"call", "batch"} {
 				t.Run(engine+"/"+failure+"/"+operation, func(t *testing.T) {
@@ -364,7 +364,7 @@ func TestModelAccountingAcceptanceHelperFailureStopsCurrentCell(t *testing.T) {
 						call = `models.batch(prompts=["nested helper"])[0]`
 					}
 					code := "result = " + call + "\nprint(result[\"output\"])\n" + `state.private_set(key="helper-budget-write", value="must not exist")`
-					if engine == rlm.EngineQuickJS {
+					if engine == process.EngineQuickJS {
 						call = `await models.call({prompt: "nested helper"})`
 						if operation == "batch" {
 							call = `(await models.batch({prompts: ["nested helper"]}))[0]`

@@ -102,7 +102,7 @@ and asserted on an explicit resume. `rlm.defaultEngine` affects future sessions.
 CLI creation uses `--rlm-engine`; web and mobile creation use the daemon's
 advertised engine list. Retry journals retain the original choice.
 
-`internal/rlm` owns both trusted bundled engines, private worker protocol 2,
+`internal/engine/process` owns both trusted bundled engines, private worker protocol 2,
 and one daemon-hosted module registry. QuickJS runs bundled WASM in wazero
 inside the existing stripped-environment worker subprocess.
 
@@ -121,7 +121,7 @@ inside the existing stripped-environment worker subprocess.
 - Public protocol major 6 requires compatible clients and advertises the
   `execution_engines` capability. The language picker is a creation control.
 
-Implementation and validation: `internal/rlm/quickjs_test.go`,
+Implementation and validation: `internal/engine/process/quickjs_test.go`,
 `internal/legacy/session/execution_engine_test.go`,
 `internal/daemon/execution_engine_test.go`, SDK execution tests, web creation
 and REPL tests, mobile creation tests, and `internal/tui/repl_result_test.go`.
@@ -450,8 +450,8 @@ Code: `scripts/onboarding-docker.mjs`, `scripts/docker/onboarding.Dockerfile`,
 Tests: `scripts/onboarding-docker.test.mjs` and `scripts/renderer-artifact.test.mjs`.
 Linux worker startup also accounts for Go's existing virtual memory reservations
 before setting its address-space ceiling, while retaining the resident RAM limit.
-Code: `internal/rlm/memory_linux.go`; regression:
-`TestMemoryLimitPreservesRuntimeReservations` in `internal/rlm/memory_linux_test.go`.
+Code: `internal/engine/process/memory_linux.go`; regression:
+`TestMemoryLimitPreservesRuntimeReservations` in `internal/engine/process/memory_linux_test.go`.
 
 ### Known provider picker and local credentials
 

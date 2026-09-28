@@ -12,12 +12,12 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/legacy/config"
 	"github.com/context-labs/whip/internal/legacy/protocol"
 	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/mcp"
-	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/tools"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -104,7 +104,7 @@ func mcpCell(t *testing.T, node *AgentSession, tool string) error {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	_, err := node.kernel.Exec(ctx, rlm.Cell{Code: mcpCellCode(node, tool)})
+	_, err := node.kernel.Exec(ctx, process.Cell{Code: mcpCellCode(node, tool)})
 	return err
 }
 
@@ -163,7 +163,7 @@ func TestMCPRLMAdmissionBoundary(t *testing.T) {
 func TestMCPRLMRetainsExactArgumentsAndLargeResults(t *testing.T) {
 	url, _ := localMCPFixture(t, "guidance")
 	_, root, runtime := mcpRuntimeFixture(t, url, true)
-	result, err := runtime.rootNode.kernel.Exec(t.Context(), rlm.Cell{Code: `mcp.call(server="local", tool="echo", arguments={"id":9007199254740993})`})
+	result, err := runtime.rootNode.kernel.Exec(t.Context(), process.Cell{Code: `mcp.call(server="local", tool="echo", arguments={"id":9007199254740993})`})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +171,7 @@ func TestMCPRLMRetainsExactArgumentsAndLargeResults(t *testing.T) {
 	if value["output"] != `{"id":9007199254740993}` {
 		t.Fatalf("integer ID changed: %+v", result)
 	}
-	result, err = runtime.rootNode.kernel.Exec(t.Context(), rlm.Cell{Code: `mcp.call(server="local", tool="large", arguments={})`})
+	result, err = runtime.rootNode.kernel.Exec(t.Context(), process.Cell{Code: `mcp.call(server="local", tool="large", arguments={})`})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -472,7 +472,7 @@ func TestMCPDurableConsentAndLifecycleWaiters(t *testing.T) {
 				done := make(chan error, 1)
 				requested := time.Now()
 				go func() {
-					_, err := node.kernel.Exec(ctx, rlm.Cell{Code: mcpCellCode(node, "mutate")})
+					_, err := node.kernel.Exec(ctx, process.Cell{Code: mcpCellCode(node, "mutate")})
 					done <- err
 				}()
 				pending := waitMCPPermission(t, store, root, done)

@@ -12,8 +12,8 @@ import (
 	"testing"
 
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/legacy/session"
-	"github.com/context-labs/whip/internal/rlm"
 )
 
 func TestRecursiveAgentReceiptsWithLargeMCPGrants(t *testing.T) {
@@ -29,7 +29,7 @@ func TestRecursiveAgentReceiptsWithLargeMCPGrants(t *testing.T) {
 	runs := &sync.Map{}
 	runtime.setRunTurnHook(observeRunTurn(runs))
 	parent := runtime.rootNode
-	result, err := parent.kernel.Exec(t.Context(), rlm.Cell{Code: `child = agents.spawn(name="large", prompt="finish", report="message")
+	result, err := parent.kernel.Exec(t.Context(), process.Cell{Code: `child = agents.spawn(name="large", prompt="finish", report="message")
 print(child)
 child`})
 	if err != nil || result.Scratch != nil {
@@ -57,7 +57,7 @@ child`})
 		t.Fatalf("inherited grants: all=%v, count=%d, err=%v", all, len(selectors), err)
 	}
 	encoded, err := json.Marshal(selectors)
-	if err != nil || len(encoded) <= rlm.DefaultLimits().OutputBytes {
+	if err != nil || len(encoded) <= process.DefaultLimits().OutputBytes {
 		t.Fatalf("fixture does not reproduce the oversized grant response: bytes=%d, err=%v", len(encoded), err)
 	}
 	t.Logf("spawn output: %d bytes; persisted selectors: %d bytes", len(result.Output), len(encoded))
@@ -67,11 +67,11 @@ child`})
 	if err := parent.kernel.Suspend(); err != nil {
 		t.Fatal(err)
 	}
-	result, err = parent.kernel.Exec(t.Context(), rlm.Cell{Code: `child["id"]`})
+	result, err = parent.kernel.Exec(t.Context(), process.Cell{Code: `child["id"]`})
 	if err != nil || result.Value != childID || result.Restored == nil || !slices.Contains(result.Restored.Restored, "child") {
 		t.Fatalf("receipt did not survive worker replacement: %+v, %v", result, err)
 	}
-	result, err = parent.kernel.Exec(t.Context(), rlm.Cell{Code: `info = agents.inspect(id=child["id"])
+	result, err = parent.kernel.Exec(t.Context(), process.Cell{Code: `info = agents.inspect(id=child["id"])
 print(info)
 info`})
 	if err != nil || result.Scratch != nil || len(result.Output) >= session.InlineValueLimit {
@@ -81,7 +81,7 @@ info`})
 	if info["id"] != childID || info["effective_capabilities"] == nil || info["budgets"] == nil || info["effective_mcp_tools"] != nil || info["mcp_grants"] != nil {
 		t.Fatalf("default inspection lost state or included grants: %+v", info)
 	}
-	result, err = parent.kernel.Exec(t.Context(), rlm.Cell{Code: `details = agents.inspect(id=child["id"], include_grants=True)
+	result, err = parent.kernel.Exec(t.Context(), process.Cell{Code: `details = agents.inspect(id=child["id"], include_grants=True)
 print(details)
 details["mcp_grants"]`})
 	if err != nil || result.Scratch != nil {

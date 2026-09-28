@@ -10,12 +10,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/tools"
 )
 
 func TestToolAdapterPreservesOutputIdentityAndHostPresentation(t *testing.T) {
-	for _, engine := range []string{EngineStarlark, EngineQuickJS} {
+	for _, engine := range []string{process.EngineStarlark, process.EngineQuickJS} {
 		t.Run(engine, func(t *testing.T) {
 			workspace := t.TempDir()
 			if err := os.WriteFile(filepath.Join(workspace, "note.txt"), []byte("content"), 0o600); err != nil {
@@ -38,7 +39,7 @@ func TestToolAdapterPreservesOutputIdentityAndHostPresentation(t *testing.T) {
 			if err := services.BindDispatcher(store, store.Workspaces(), store.Processes(), authority); err != nil {
 				t.Fatal(err)
 			}
-			host := ToolHost(HostFunc(func(ctx context.Context, _, operation string, arguments map[string]any) (any, error) {
+			host := ToolHost(process.HostFunc(func(ctx context.Context, _, operation string, arguments map[string]any) (any, error) {
 				input, err := json.Marshal(arguments)
 				if err != nil {
 					return nil, err
@@ -53,7 +54,7 @@ func TestToolAdapterPreservesOutputIdentityAndHostPresentation(t *testing.T) {
 			}
 			var observed []PresentedHostCall
 			record := func(call PresentedHostCall) { observed = append(observed, call) }
-			kernel, err := NewKernel(KernelOptions{
+			kernel, err := process.NewKernel(process.KernelOptions{
 				Command: []string{executable, "-test.run=TestWorkerProcess", "--"},
 				Engine:  engine, Host: host, Checkpoints: &memoryCheckpoints{},
 				ObserveHost: PresentHostCalls(record, record),
@@ -66,7 +67,7 @@ func TestToolAdapterPreservesOutputIdentityAndHostPresentation(t *testing.T) {
 			ctx := tools.WithToolCallID(t.Context(), "model-call")
 			ctx = tools.WithOnUpdate(ctx, func(output string) { outputs = append(outputs, output) })
 			code := "print('before')\nfiles.read(path='note.txt')\nprint('after')"
-			if engine == EngineQuickJS {
+			if engine == process.EngineQuickJS {
 				code = "print('before'); await files.read({path:'note.txt'}); print('after');"
 			}
 			input, err := json.Marshal(map[string]string{"code": code})
@@ -93,18 +94,18 @@ func TestToolAdapterPreservesOutputIdentityAndHostPresentation(t *testing.T) {
 }
 
 func TestWorkerDescriptionSeparatesExecutionFromGuide(t *testing.T) {
-	for _, descriptor := range ExecutionEngines() {
+	for _, descriptor := range process.ExecutionEngines() {
 		t.Run(descriptor.ID, func(t *testing.T) {
 			for _, enriched := range []bool{false, true} {
-				var describe func(EngineDescriptor) EngineDescriptor
+				var describe func(process.EngineDescriptor) process.EngineDescriptor
 				if enriched {
 					describe = DescribeEngine
 				}
 				var output bytes.Buffer
-				if err := WorkerMain([]string{"-engine", descriptor.ID, "-describe"}, &bytes.Buffer{}, &output, describe); err != nil {
+				if err := process.WorkerMain([]string{"-engine", descriptor.ID, "-describe"}, &bytes.Buffer{}, &output, describe); err != nil {
 					t.Fatal(err)
 				}
-				var got EngineDescriptor
+				var got process.EngineDescriptor
 				if err := json.Unmarshal(output.Bytes(), &got); err != nil {
 					t.Fatal(err)
 				}

@@ -143,7 +143,8 @@ budgets, and private transcript.
 | `internal/daemon` | shared handlers, Unix/WebSocket/HTTP adapters, root actors, recursive runtime, lifecycle |
 | `internal/legacy/session` | durable commands, transcripts, agents, messages, budgets, recovery |
 | `internal/agentdef` | agent definitions and their registry: instructions and discovery toggles, selected modules and capabilities, model and compaction defaults, named children, and the capability-to-operation mapping; `Coding()` and `JuniorDeveloper()` are the first-party definitions |
-| `internal/rlm` | kernel process, Starlark modules, runtime guide fragments, focused-context composer |
+| `internal/engine/process` | bounded kernel subprocesses, Starlark/QuickJS workers, host-module syntax and checkpoint transport |
+| `internal/rlm` | retained runtime guide, focused-context composer and presentation/tool adapters |
 | `internal/capability` | identities, grants, path policy, operation admission |
 | `internal/tools` | concrete built-in services reached through host modules |
 | `internal/mcp` | external MCP connections and named tool calls |

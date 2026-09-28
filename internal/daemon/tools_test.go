@@ -13,10 +13,10 @@ import (
 
 	"github.com/context-labs/whip/internal/agentdef"
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/legacy/protocol"
 	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/rlm"
 )
 
 // toolingDefinition registers a coding-shaped definition with custom tools
@@ -141,7 +141,7 @@ func bindFakeExecutor(t *testing.T, owner *Daemon, store *session.Store, tools .
 }
 
 type cellOutcome struct {
-	result rlm.Result
+	result process.Result
 	err    error
 }
 
@@ -149,7 +149,7 @@ type cellOutcome struct {
 func execCell(ctx context.Context, node *AgentSession, code string) <-chan cellOutcome {
 	outcome := make(chan cellOutcome, 1)
 	go func() {
-		result, err := node.kernel.Exec(ctx, rlm.Cell{Code: code})
+		result, err := node.kernel.Exec(ctx, process.Cell{Code: code})
 		outcome <- cellOutcome{result, err}
 	}()
 	return outcome

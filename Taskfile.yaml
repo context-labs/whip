@@ -4,9 +4,11 @@ vars:
   VERSION:
     sh: printf 'dev+%s' "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
   LDFLAGS: -X main.version={{.VERSION}}
-  # New Phase 1 core plus retained immutable content primitives.
-  # All tests in these packages are required; no test-name skip list.
+  # Fast domain/runtime checks; all tests in these packages are required.
   REDESIGN_PACKAGES: ./internal/content ./internal/session ./internal/store ./internal/config ./internal/protocol ./internal/model ./internal/runner ./internal/runtime ./internal/rpc ./internal/client ./internal/engine ./internal/engine/quickjs ./cmd/whip-contract ./cmd/whip-runtime
+  # Process containment stress tests run in full at the change/CI boundary.
+  REDESIGN_INTEGRATION_PACKAGES: ./internal/engine/process
+  REDESIGN_ALL_PACKAGES: '{{.REDESIGN_PACKAGES}} {{.REDESIGN_INTEGRATION_PACKAGES}}'
   REDESIGN_BASELINE: e3fed9c91918d9c36766dd47d878c1b5466238d1
 
 tasks:
@@ -101,20 +103,21 @@ tasks:
     desc: Redesign active-package formatting and regression tests (no npm setup needed)
     cmds:
       - |
-        unformatted=$(gofmt -s -l {{.REDESIGN_PACKAGES}})
+        unformatted=$(gofmt -s -l {{.REDESIGN_ALL_PACKAGES}})
         if [ -n "$unformatted" ]; then
           echo "$unformatted"
           exit 1
         fi
       - go test -timeout=2m {{.REDESIGN_PACKAGES}}
+      - go build {{.REDESIGN_INTEGRATION_PACKAGES}}
 
   check:change:
     desc: Redesign integration gate (run npm ci first)
     cmds:
       - task: check:fast
-      - go build {{.REDESIGN_PACKAGES}}
-      - go vet {{.REDESIGN_PACKAGES}}
-      - go test -race -shuffle=on -count=1 -timeout=10m {{.REDESIGN_PACKAGES}}
+      - go build {{.REDESIGN_ALL_PACKAGES}}
+      - go vet {{.REDESIGN_ALL_PACKAGES}}
+      - go test -race -shuffle=on -count=1 -timeout=10m {{.REDESIGN_ALL_PACKAGES}}
       - task: contract
       - task: sdk
       - task: check:fixture
@@ -134,8 +137,8 @@ tasks:
     env:
       GOTOOLCHAIN: '{{.REDESIGN_TOOLCHAIN}}'
     cmds:
-      - go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1 run --new-from-rev={{.REDESIGN_BASELINE}} {{.REDESIGN_PACKAGES}}
-      - go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 {{.REDESIGN_PACKAGES}}
+      - go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1 run --new-from-rev={{.REDESIGN_BASELINE}} {{.REDESIGN_ALL_PACKAGES}}
+      - go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 {{.REDESIGN_ALL_PACKAGES}}
 
   check:phase:
     desc: Redesign milestone gate; expands with supported capabilities
@@ -164,11 +167,11 @@ tasks:
       - go test -race ./internal/daemon -run '^(TestRuntimeAcceptance.*|TestRuntimePathsAndOwnerLock|TestOwnerOnlySocketRefusesUnsafeState|TestArchitecture.*|TestRecursiveRuntimeUsesOneInterfaceAtEveryDepth|TestRecursiveSpawnQueuesUnderWorkerPressure|TestRecursiveChildrenInheritOrExplicitlyOverrideOneAgentConfiguration|TestRecursiveAgentClientControlsAuthorizeAndPersist|TestRecursiveRuntimeRestoresRetainedAgentAndTranscript|TestQueuedInitialAgentPromptSurvivesRestartExactlyOnce|TestConcurrentChildTurnPressureKeepsPromptQueued|TestSuspendedKernelNoticeIsEphemeral|TestSuspendedKernelRestoresScratchWithEphemeralNotice|TestBackgroundShellJobOutlivesTheCellAndTurn|TestToolHostRunsOnlyRestrictedToolCommands|TestPermissionRuleResolvesCoveredPromptsAndSkipsFutureOnes|TestUserAskRoundTripsThroughQuestionEvents|TestUserAskDismissAndCancelClose|TestUserAskIsRootOnlyAndValidatesArguments)$'
       - go test -race ./internal/legacy/session ./internal/capability ./internal/daemon -run '^(TestRuntimeTransitionIsAtomicAndLargeValuesAreHandleBacked|TestStatePrivateIsolationBlackboardVisibilityAndHandles|TestMailboxMessageIsCanonicalAndBodyStaysBehindRead|TestMailboxTurnDeliversOnCommitAndNewMailStaysPending|TestFailedMailboxTurnRedeliversPendingMail|TestRootMailboxFailureRequiresExplicitInputAcrossRestart|TestRootTurnLifecycleIdentifiesExactTurn|TestMessageDeliveryClassesAndDeferral|TestAgentAdmissionPersistsPromptAtomically|TestRecoveryKeepsQueuedAgentPromptButInterruptsRunningInput|TestChildBudgetClampingDepthAndActiveChildLimits|TestBudgetKindsExhaustIndependently|TestCapabilityPermissionSurvivesDispatcherAndRevalidates|TestDispatcherRunsDirectAndPersistedPermissionThroughOnePath|TestDispatcherRejectsCanonicalPathChangeAfterApproval|TestDispatcherWorkspaceMutationRunsAlongsidePathMutations|TestRecoveryInterruptsEveryNonterminalRuntimeRecord|TestSlowOutboundClientClosesWithoutStoppingDaemon|TestRootsRunConcurrentlyAndCallerCancellationDoesNotOwnWork|TestMCPLifecyclePanicFailsOnlyItsRoot|TestRootClientReconnectsStableCommandWithoutDuplicateEvent|TestRestartReturnsAuthoritativeInterruptedCommandWithoutReexecution)$'
       - go test -race ./internal/tui ./internal/acp ./cmd/whip -run '^(TestClientReconnectReplayAndSnapshotFallback|TestClientReattachesInFlightActionWithSameIdentityAfterDisconnect|TestDaemonBackedModelRendersWithoutAnAgent|TestThinPaletteAndAgentControlsStayDaemonBacked|TestBridgeDaemonCutoverMapsEventsAndContent|TestBridgePermissionAndModesWithoutCredentials|TestBridgeQuestionMapsToPermissionPromptAndAnswerOp|TestBridgeConcurrentSessionsAndCloseDetach|TestRunDaemonAlwaysUsesRLMRuntime|TestRunTextOutput|TestSessionsCLI|TestMCPServeStopsCleanlyOnStdinEOF|TestMCPTestCLIReady|TestACPDaemonBackendAndMCPToolsRoundTrip)$'
-      - go test -race ./internal/rlm -run '^(TestKernelEnforcesStepWallOutputHostAndFrameLimits|TestKernelDeadlineReapsProcessGroup|TestKernelDeniesAmbientAuthority|TestKernelStripsDaemonEnvironment|TestKernelReservationAndCrashRestart|TestKernelManagerSchedulesFIFOWithoutEvictingRunningTurns|TestKernelManagerEvictsIdleWorkersInLRUOrderAcrossRetainedSessions|TestKernelManagerRemovesCancelledWaitersAndWakesOnShutdown|TestKernelTurnLeasePreservesScratchAndSuspendRejectsRunning|TestKernelScratchSurvivesSuspensionAndMidTurnRestart)$'
+      - go test -race ./internal/engine/process -run '^(TestKernelEnforcesStepWallOutputHostAndFrameLimits|TestKernelDeadlineReapsProcessGroup|TestKernelDeniesAmbientAuthority|TestKernelStripsDaemonEnvironment|TestKernelReservationAndCrashRestart|TestKernelManagerSchedulesFIFOWithoutEvictingRunningTurns|TestKernelManagerEvictsIdleWorkersInLRUOrderAcrossRetainedSessions|TestKernelManagerRemovesCancelledWaitersAndWakesOnShutdown|TestKernelTurnLeasePreservesScratchAndSuspendRejectsRunning|TestKernelScratchSurvivesSuspensionAndMidTurnRestart)$'
       - go test -race ./evals/rlm -run '^TestDeterministicRLMEvaluationReport$'
       - WHIP_SDK_RACE=1 npm run acceptance
       - npm run test:package
-      - go test -race ./internal/rlm ./internal/legacy/session ./internal/daemon -run '^(TestScratch|TestWorkerSnapshot|TestWorkerRestore|TestWorkerCrossChunk|TestStructuredState|TestStatePages|TestChildScratchSurvivesDaemonRestart|TestPhaseFourAndFiveStoresAreRejectedWithoutMutation)'
+      - go test -race ./internal/engine/process ./internal/rlm ./internal/legacy/session ./internal/daemon -run '^(TestScratch|TestWorkerSnapshot|TestWorkerRestore|TestWorkerCrossChunk|TestStructuredState|TestStatePages|TestChildScratchSurvivesDaemonRestart|TestPhaseFourAndFiveStoresAreRejectedWithoutMutation)'
 
       - go test -race ./internal/llm ./internal/legacy/session ./internal/agent ./internal/daemon ./internal/tui -run '^(TestModel|TestPricing|TestUsage|TestStreamPreserves|TestStreamUnterminated|TestCompletePreserves|TestMalformedUsage)'
 

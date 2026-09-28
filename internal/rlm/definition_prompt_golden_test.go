@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/engine/process"
+
 	"github.com/charmbracelet/x/exp/golden"
 
 	"github.com/context-labs/whip/internal/agentdef"
@@ -28,7 +30,7 @@ func TestDefinitionPromptGolden(t *testing.T) {
 		{AgentID: "child-id", Name: "worker", ParentID: "root-id", ParentName: "root", Depth: 1, Report: "inline"},
 		{AgentID: "grandchild-id", Name: "scout", ParentID: "child-id", ParentName: "worker", Depth: 2, Report: "message"},
 	}
-	engines := []string{rlm.EngineStarlark, rlm.EngineQuickJS}
+	engines := []string{process.EngineStarlark, process.EngineQuickJS}
 	for _, id := range agentdef.IDs() {
 		definition, ok := agentdef.Lookup(id)
 		if !ok {

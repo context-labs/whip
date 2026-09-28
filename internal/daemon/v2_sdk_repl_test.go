@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/rlm"
@@ -350,7 +351,7 @@ type sdkScratchFailure struct {
 	fail bool
 }
 
-func (s *sdkScratchFailure) Save(ctx context.Context, snapshot string, manifest rlm.SnapshotManifest) error {
+func (s *sdkScratchFailure) Save(ctx context.Context, snapshot string, manifest process.SnapshotManifest) error {
 	if s.fail {
 		return errors.New("injected checkpoint storage failure")
 	}
@@ -360,12 +361,12 @@ func (s *sdkScratchFailure) Save(ctx context.Context, snapshot string, manifest 
 func (r *sdkFixtureRunner) scratchResult(ctx context.Context, started func()) (string, error) {
 	started()
 	scratch := &sdkScratchFailure{scratchStore: scratchStore{node: &AgentSession{root: r.root, id: r.root.AgentID()}}}
-	kernel, err := rlm.NewKernel(rlm.KernelOptions{Command: recursiveKernelCommand, Scratch: scratch})
+	kernel, err := process.NewKernel(process.KernelOptions{Command: recursiveKernelCommand, Scratch: scratch})
 	if err != nil {
 		return "", err
 	}
 	defer kernel.Close()
-	if _, err := kernel.Exec(ctx, rlm.Cell{Code: "saved = 42\nunsupported = files.read"}); err != nil {
+	if _, err := kernel.Exec(ctx, process.Cell{Code: "saved = 42\nunsupported = files.read"}); err != nil {
 		return "", err
 	}
 	if err := kernel.Suspend(); err != nil {

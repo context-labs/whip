@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/legacy/config"
 	"github.com/context-labs/whip/internal/legacy/protocol"
 	"github.com/context-labs/whip/internal/rlm"
@@ -28,17 +29,17 @@ func configuredExecutionEngine() string {
 
 type checkpointStore struct{ node *AgentSession }
 
-func (store checkpointStore) Load(ctx context.Context) (*rlm.Checkpoint, error) {
+func (store checkpointStore) Load(ctx context.Context) (*process.Checkpoint, error) {
 	node := store.node
 	if node.root == nil || node.id == "" {
 		return nil, nil //nolint:nilnil // An unbound agent has no checkpoint; nil tells the kernel to start fresh.
 	}
-	return routeControlValue(node.root, ctx, func(actorCtx context.Context) (*rlm.Checkpoint, error) {
+	return routeControlValue(node.root, ctx, func(actorCtx context.Context) (*process.Checkpoint, error) {
 		envelope, image, err := node.root.store.LoadAgentCheckpoint(actorCtx, node.root.ID(), node.id)
 		if err != nil || len(envelope) == 0 {
 			return nil, err
 		}
-		checkpoint := &rlm.Checkpoint{Data: image}
+		checkpoint := &process.Checkpoint{Data: image}
 		if err := json.Unmarshal(envelope, &checkpoint.Envelope); err != nil {
 			return nil, err
 		}
@@ -46,7 +47,7 @@ func (store checkpointStore) Load(ctx context.Context) (*rlm.Checkpoint, error) 
 	})
 }
 
-func (store checkpointStore) Save(ctx context.Context, checkpoint rlm.Checkpoint) error {
+func (store checkpointStore) Save(ctx context.Context, checkpoint process.Checkpoint) error {
 	node := store.node
 	if node.root == nil || node.id == "" {
 		return nil

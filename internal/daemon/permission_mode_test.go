@@ -16,10 +16,10 @@ import (
 
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/legacy/protocol"
 	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/tools"
 )
 
@@ -273,7 +273,7 @@ func TestPermissionModeRestoresChildrenBeforeResumedWork(t *testing.T) {
 					value := agent.NewRuntime(llm.New(server.URL, "key"), "model", 1024, "", tools.NewServices())
 					value.ModelName, value.Provider, value.WorkingDir = meta.Model, meta.Provider, meta.CWD
 					value.Services.SetExternalPermissions(!external)
-					limits := rlm.DefaultLimits()
+					limits := process.DefaultLimits()
 					var err error
 					runtime, err = NewRecursiveRuntime(RecursiveRuntimeOptions{
 						Agent: value, History: history, Limits: limits, KernelCommand: recursiveKernelCommand,

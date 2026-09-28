@@ -12,11 +12,11 @@ import (
 	"testing"
 
 	"github.com/context-labs/whip/internal/agent"
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/legacy/config"
 	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/openaiauth"
-	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/tools"
 )
 
@@ -93,11 +93,11 @@ func TestSubscriptionRecursiveRuntimeToolsHelpersTitleAndCompaction(t *testing.T
 		value := agent.NewRuntime(client, "gpt-5.5", llm.SubscriptionOutputLimit("gpt-5.5"), "", tools.NewServices())
 		value.ModelName, value.Provider, value.WorkingDir = "gpt-5.5", openaiauth.Provider, meta.CWD
 		value.ContextLimit = 400000
-		limits := rlm.DefaultLimits()
+		limits := process.DefaultLimits()
 		var err error
 		runtime, err = NewRecursiveRuntime(RecursiveRuntimeOptions{
 			Agent: value, History: history, Limits: limits,
-			Kernels: rlm.NewManager(4), KernelCommand: recursiveKernelCommand,
+			Kernels: process.NewManager(4), KernelCommand: recursiveKernelCommand,
 		})
 		if err != nil {
 			return Components{}, err

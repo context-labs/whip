@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/engine/process"
+
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/agentdef"
 	"github.com/context-labs/whip/internal/legacy/config"
@@ -355,7 +357,7 @@ func comparisonAnswer(spec comparisonSpec, evidence fixtureEvidence) string {
 }
 
 func comparisonCode(engineID string, spec comparisonSpec, evidence fixtureEvidence) string {
-	if engineID == rlm.EngineQuickJS {
+	if engineID == process.EngineQuickJS {
 		return fmt.Sprintf(`const candidates = await models.batch({prompts:["locate %s", "verify %s"], max_tokens:256});
 const evidence = await context.search({handle:%q, query:%q});
 const excerpt = await context.read({handle:evidence.matches[0].handle, offset:evidence.matches[0].span.start, length:%d});
@@ -468,19 +470,19 @@ func TestEvalKernelWorker(t *testing.T) {
 	if separator < 0 {
 		return
 	}
-	if err := rlm.WorkerMain(os.Args[separator+1:], os.Stdin, os.Stdout); err != nil {
+	if err := process.WorkerMain(os.Args[separator+1:], os.Stdin, os.Stdout, rlm.DescribeEngine); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
 }
 
-func smokeKernel(t *testing.T, engineID string, host rlm.Host) *rlm.Kernel {
+func smokeKernel(t *testing.T, engineID string, host process.Host) *process.Kernel {
 	t.Helper()
 	executable, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	kernel, err := rlm.NewKernel(rlm.KernelOptions{Command: []string{executable, "-test.run=TestEvalKernelWorker", "--"}, Engine: engineID, Host: host})
+	kernel, err := process.NewKernel(process.KernelOptions{Command: []string{executable, "-test.run=TestEvalKernelWorker", "--"}, Engine: engineID, Host: host})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -489,7 +491,7 @@ func smokeKernel(t *testing.T, engineID string, host rlm.Host) *rlm.Kernel {
 }
 
 func TestOversizedCorpusStaysBehindFocusedReads(t *testing.T) {
-	for _, engineID := range []string{rlm.EngineStarlark, rlm.EngineQuickJS} {
+	for _, engineID := range []string{process.EngineStarlark, process.EngineQuickJS} {
 		t.Run(engineID, func(t *testing.T) {
 			spec, corpus, _ := loadSmoke(t)
 			host := &smokeHost{corpus: corpus}
@@ -498,12 +500,12 @@ func TestOversizedCorpusStaysBehindFocusedReads(t *testing.T) {
 			code := fmt.Sprintf(`hits = context.search(query=%q)
 excerpt = context.read(handle=hits["matches"][0]["handle"], offset=hits["matches"][0]["span"]["start"], length=%d)
 {"text": excerpt["text"], "handle": excerpt["handle"], "citation": excerpt["span"]}`, spec.Needle, len(spec.Needle))
-			if engineID == rlm.EngineQuickJS {
+			if engineID == process.EngineQuickJS {
 				code = fmt.Sprintf(`const hits = await context.search({query:%q});
 const excerpt = await context.read({handle:hits.matches[0].handle,offset:hits.matches[0].span.start,length:%d});
 ({text:excerpt.text,handle:excerpt.handle,citation:excerpt.span})`, spec.Needle, len(spec.Needle))
 			}
-			result, err := kernel.Exec(t.Context(), code)
+			result, err := kernel.Exec(t.Context(), process.Cell{Code: code})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -530,7 +532,7 @@ const excerpt = await context.read({handle:hits.matches[0].handle,offset:hits.ma
 }
 
 func TestDeterministicRLMEvaluationReport(t *testing.T) {
-	for _, engineID := range []string{rlm.EngineStarlark, rlm.EngineQuickJS} {
+	for _, engineID := range []string{process.EngineStarlark, process.EngineQuickJS} {
 		t.Run(engineID, func(t *testing.T) {
 			spec, corpus, task := loadComparison(t)
 			evidence := comparisonEvidence(spec, corpus)
@@ -570,7 +572,7 @@ func TestDeterministicRLMEvaluationReport(t *testing.T) {
 func TestComparisonProviderRejectsInvalidEvidence(t *testing.T) {
 	spec := comparisonSpec{Query: "target", Expected: "answer"}
 	want := fixtureEvidence{Text: "target value=answer", Handle: "comparison-corpus", Citation: byteSpan{Start: 41, End: 60}}
-	for _, engineID := range []string{rlm.EngineStarlark, rlm.EngineQuickJS} {
+	for _, engineID := range []string{process.EngineStarlark, process.EngineQuickJS} {
 		t.Run(engineID, func(t *testing.T) {
 			descriptor, _ := rlm.ResolveEngine(engineID)
 			server := comparisonServer(t, engineID, spec, want)
@@ -778,9 +780,9 @@ func liveEvalEngine(t *testing.T) string {
 
 func TestLiveEvalEngineSelection(t *testing.T) {
 	for _, test := range []struct{ name, value, want string }{
-		{name: "default", value: "", want: rlm.EngineStarlark},
-		{name: "explicit Starlark", value: rlm.EngineStarlark, want: rlm.EngineStarlark},
-		{name: "explicit QuickJS", value: rlm.EngineQuickJS, want: rlm.EngineQuickJS},
+		{name: "default", value: "", want: process.EngineStarlark},
+		{name: "explicit Starlark", value: process.EngineStarlark, want: process.EngineStarlark},
+		{name: "explicit QuickJS", value: process.EngineQuickJS, want: process.EngineQuickJS},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Setenv("WHIP_RLM_EVAL_ENGINE", test.value)

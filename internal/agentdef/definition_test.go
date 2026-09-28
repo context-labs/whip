@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/context-labs/whip/internal/rlm"
+	"github.com/context-labs/whip/internal/engine/process"
 )
 
 func TestCodingSelectsEveryModuleAndCapability(t *testing.T) {
@@ -18,7 +18,7 @@ func TestCodingSelectsEveryModuleAndCapability(t *testing.T) {
 	modules := slices.Clone(coding.Modules)
 	slices.Sort(modules)
 	var registry []string
-	for name := range rlm.Modules() {
+	for name := range process.Modules() {
 		registry = append(registry, name)
 	}
 	slices.Sort(registry)

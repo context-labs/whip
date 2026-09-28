@@ -7,6 +7,7 @@ import (
 
 	"github.com/context-labs/whip/internal/agentdef"
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/rlm"
 )
 
@@ -80,5 +81,5 @@ func (session *AgentSession) executionEngine() string {
 	if session.root != nil && session.root.engine != "" {
 		return session.root.engine
 	}
-	return rlm.EngineStarlark
+	return process.EngineStarlark
 }

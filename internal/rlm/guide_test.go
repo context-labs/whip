@@ -4,13 +4,16 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/context-labs/whip/internal/engine/process"
 )
 
 func TestGuideDescribesEveryRegisteredModule(t *testing.T) {
 	described := ModuleNames()
 	slices.Sort(described)
-	registered := make([]string, 0, len(moduleRegistry))
-	for name := range moduleRegistry {
+	registry := process.Modules()
+	registered := make([]string, 0, len(registry))
+	for name := range registry {
 		registered = append(registered, name)
 	}
 	slices.Sort(registered)
@@ -20,10 +23,10 @@ func TestGuideDescribesEveryRegisteredModule(t *testing.T) {
 }
 
 func TestRuntimeGuideSelectsFragments(t *testing.T) {
-	if _, err := RuntimeGuide(EngineStarlark, []string{"telepathy"}, nil, nil, "", nil); err == nil {
+	if _, err := RuntimeGuide(process.EngineStarlark, []string{"telepathy"}, nil, nil, "", nil); err == nil {
 		t.Fatal("unknown module accepted")
 	}
-	files, err := RuntimeGuide(EngineStarlark, []string{"files", "browser"}, nil, nil, "/workspace", nil)
+	files, err := RuntimeGuide(process.EngineStarlark, []string{"files", "browser"}, nil, nil, "/workspace", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,14 +40,14 @@ func TestRuntimeGuideSelectsFragments(t *testing.T) {
 			t.Fatalf("guide leaked %q:\n%s", unwanted, files)
 		}
 	}
-	quickjs, err := RuntimeGuide(EngineQuickJS, []string{"messages"}, nil, nil, "", nil)
+	quickjs, err := RuntimeGuide(process.EngineQuickJS, []string{"messages"}, nil, nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(quickjs, "Messaging and delegation") || !strings.Contains(quickjs, `await messages.send({recipient: "..."`) || strings.Contains(quickjs, "Starlark") {
 		t.Fatalf("quickjs guide = %s", quickjs)
 	}
-	prompt, err := SystemPrompt(EngineStarlark, "You are a test agent.", []string{"context"}, nil, nil, "", nil)
+	prompt, err := SystemPrompt(process.EngineStarlark, "You are a test agent.", []string{"context"}, nil, nil, "", nil)
 	if err != nil || !strings.HasPrefix(prompt, "You are a test agent. Your only tool is rlm_exec") {
 		t.Fatalf("system prompt = %q, %v", prompt, err)
 	}
@@ -60,7 +63,7 @@ func TestRuntimeGuideCatalogsCustomTools(t *testing.T) {
 		},
 		{Name: "noop", Description: strings.Repeat("long ", 100), InputSchema: []byte(`{"type":"object"}`)},
 	}
-	starlark, err := RuntimeGuide(EngineStarlark, []string{"context"}, tools, nil, "", nil)
+	starlark, err := RuntimeGuide(process.EngineStarlark, []string{"context"}, tools, nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,14 +79,14 @@ func TestRuntimeGuideCatalogsCustomTools(t *testing.T) {
 	if line := starlark[strings.Index(starlark, "- tools.noop"):]; len(line[:strings.Index(line, "\n")]) > maxToolDescriptionBytes+32 {
 		t.Fatalf("tool description not bounded: %d bytes", len(line[:strings.Index(line, "\n")]))
 	}
-	quickjs, err := RuntimeGuide(EngineQuickJS, []string{"context"}, tools, nil, "", nil)
+	quickjs, err := RuntimeGuide(process.EngineQuickJS, []string{"context"}, tools, nil, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(quickjs, "- tools.lookup_ticket({id, verbose}) -> {id, title}: Fetch a ticket") || !strings.Contains(quickjs, "Pass one object matching the listed schema") {
 		t.Fatalf("quickjs guide lacks the tools catalog:\n%s", quickjs)
 	}
-	plain, err := RuntimeGuide(EngineStarlark, []string{"context"}, nil, nil, "", nil)
+	plain, err := RuntimeGuide(process.EngineStarlark, []string{"context"}, nil, nil, "", nil)
 	if err != nil || strings.Contains(plain, "tools.") {
 		t.Fatalf("guide without tools mentions tools: %v\n%s", err, plain)
 	}
@@ -93,7 +96,7 @@ func TestRuntimeGuideCatalogsCustomTools(t *testing.T) {
 // definition without one leaves the guide alone.
 func TestRuntimeGuideStatesTheOutputContract(t *testing.T) {
 	schema := []byte("{\n  \"type\": \"object\", \"properties\": {\"summary\": {\"type\": \"string\"}}, \"required\": [\"summary\"] }")
-	guide, err := RuntimeGuide(EngineStarlark, []string{"context"}, nil, schema, "", nil)
+	guide, err := RuntimeGuide(process.EngineStarlark, []string{"context"}, nil, schema, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +105,7 @@ func TestRuntimeGuideStatesTheOutputContract(t *testing.T) {
 		t.Fatalf("guide lacks the output contract:\n%s", guide)
 	}
 	for _, absent := range [][]byte{nil, []byte("null")} {
-		plain, err := RuntimeGuide(EngineStarlark, []string{"context"}, nil, absent, "", nil)
+		plain, err := RuntimeGuide(process.EngineStarlark, []string{"context"}, nil, absent, "", nil)
 		if err != nil || strings.Contains(plain, "Output contract") {
 			t.Fatalf("guide without a contract mentions one: %v", err)
 		}
