@@ -28,10 +28,14 @@ test('remote conflicts stay distinguishable from delivery uncertainty', async ()
 
 
 test('observation advances exact cursors, reconciles preview IDs, and clears on a new process epoch', async () => {
-  const preview = { attempt_id: 'attempt', turn_id: 'turn', message_id: 'answer', revision: '1', text: 'partial', calls: [], truncated: false };
-  const message = { id: 'answer', session_id: 'session', turn_id: 'turn', input_id: null, mail: null, sequence: '9007199254740993', role: 'assistant', parts: [{ type: 'text', text: 'completed' }], created_at: '2026-09-27T12:00:00Z' };
+  const preview = { attempt_id: 'attempt', turn_id: 'turn', message_id: 'answer', revision: '1', text: 'partial', reasoning: 'considering', calls: [], truncated: false };
+  const reasoning = { ...preview, revision: '2', reasoning: 'considering the request' };
+  const retry = { ...preview, attempt_id: 'retry', message_id: 'retry_answer', reasoning: '', text: '', revision: '0' };
+  const message = { id: 'retry_answer', session_id: 'session', turn_id: 'turn', input_id: null, mail: null, sequence: '9007199254740993', role: 'assistant', parts: [{ type: 'text', text: 'completed' }], created_at: '2026-09-27T12:00:00Z' };
   const pages = [
     { epoch: 'boot_one', messages: [], preview },
+    { epoch: 'boot_one', messages: [], preview: reasoning },
+    { epoch: 'boot_one', messages: [], preview: retry },
     { epoch: 'boot_one', messages: [message], preview: null },
     { epoch: 'boot_two', messages: [], preview: null },
   ];
@@ -43,12 +47,14 @@ test('observation advances exact cursors, reconciles preview IDs, and clears on 
   }, { clientID: 'observer' });
   const observation = client.observe('session');
   assert.deepEqual((await observation.next()).value.preview, preview);
+  assert.deepEqual((await observation.next()).value.preview, reasoning);
+  assert.deepEqual((await observation.next()).value.preview, retry);
   const committed = (await observation.next()).value;
-  assert.equal(committed.messages[0].id, preview.message_id);
+  assert.equal(committed.messages[0].id, retry.message_id);
   assert.equal(committed.preview, null);
   assert.equal((await observation.next()).value.epoch, 'boot_two');
   await observation.return();
-  assert.deepEqual(requests.map(request => request.after), ['0', '0', '9007199254740993']);
+  assert.deepEqual(requests.map(request => request.after), ['0', '0', '0', '0', '9007199254740993']);
 });
 
 test('aborting a stalled observation stops polling and never sends execution cancellation', async () => {
@@ -125,4 +131,13 @@ test('goals preserve stable creation IDs, exact allowances, and ordinary resume 
   const before = calls.length;
   await assert.rejects(client.createGoal({ ...params, spec: { text: 'objective', max_continuations: 0 } }, 'bad'), TypeError);
   assert.equal(calls.length, before);
+});
+
+
+test('observation validators require a string reasoning preview', async () => {
+  for (const reasoning of [undefined, null, 42, { text: 'not a string' }]) {
+    const preview = { attempt_id: 'attempt', turn_id: 'turn', message_id: 'message', revision: '1', text: '', reasoning, calls: [], truncated: false };
+    const client = await Client.connect(async request => success(request, request.method === 'initialize' ? initial : { epoch: 'boot', messages: [], preview }), { clientID: 'observer' });
+    await assert.rejects(client.call('sessions.observe', { session_id: 'session', after: '0', limit: 100 }), TypeError);
+  }
 });

@@ -654,7 +654,9 @@ async function streamAcceptance(runtime, client, createParams, evidence) {
     requests.push(body);
     const prompt = body.messages.findLast(item => item.role === 'user').content;
     response.setHeader('content-type', 'text/event-stream');
-    response.write('data: ' + JSON.stringify({ choices: [{ index: 0, delta: { role: 'assistant', content: 'partial' }, finish_reason: null }] }) + '\n\n');
+    response.write('data: ' + JSON.stringify({ choices: [{ index: 0, delta: { role: 'assistant', reasoning_content: 'Checking ' }, finish_reason: null }] }) + '\n\n');
+    response.write('data: ' + JSON.stringify({ choices: [{ index: 0, delta: { content: 'partial' }, finish_reason: null }] }) + '\n\n');
+    response.write('data: ' + JSON.stringify({ choices: [{ index: 0, delta: { reasoning_content: prompt === 'stream:bounded' ? '界'.repeat(50000) : 'the request' }, finish_reason: null }] }) + '\n\n');
     completions.set(prompt, () => {
       response.write('data: ' + JSON.stringify({ choices: [{ index: 0, delta: { content: ' completed' }, finish_reason: 'stop' }] }) + '\n\n');
       response.write('data: ' + JSON.stringify({ choices: [], usage: { prompt_tokens: 14, completion_tokens: 4, cost: 0 } }) + '\n\n');
@@ -679,12 +681,13 @@ async function streamAcceptance(runtime, client, createParams, evidence) {
     }, deadline());
     const observe = () => client.call('sessions.observe', { session_id: root.id, after: '0', limit: 100 }, deadline());
     await client.submit(root.id, [{ type: 'text', text: 'stream:complete' }], 'stream:complete', deadline());
-    const provisional = await until(observe, view => view.preview?.text === 'partial');
+    const provisional = await until(observe, view => view.preview?.text === 'partial' && view.preview?.reasoning === 'Checking the request');
     assert.deepEqual(provisional.messages.map(message => message.role), ['user']);
     assert.equal(provisional.preview.truncated, false);
     const iterator = client.observe(root.id);
     const previewPage = (await iterator.next()).value;
     assert.equal(previewPage.preview.attempt_id, provisional.preview.attempt_id);
+    assert.equal(previewPage.preview.reasoning, 'Checking the request');
     completions.get('stream:complete')();
     const completed = await client.wait('stream:complete', deadline());
     assert.equal(completed.turn.state, 'succeeded');
@@ -702,9 +705,23 @@ async function streamAcceptance(runtime, client, createParams, evidence) {
     assert.equal(ledger.items[0].message_id, provisional.preview.message_id);
     assert.equal(ledger.items[0].result.usage.input, '14');
     assert.equal(ledger.items[0].cost_nano_usd, '0');
+    assert.equal(JSON.stringify({ committed, ledger }).includes('Checking the request'), false, 'reasoning preview entered durable projections');
+
+    await client.submit(root.id, [{ type: 'text', text: 'stream:bounded' }], 'stream:bounded', deadline());
+    const bounded = await until(observe, view => view.preview?.truncated === true);
+    const previewBytes = Buffer.byteLength(bounded.preview.text) + Buffer.byteLength(bounded.preview.reasoning) + bounded.preview.calls.reduce((size, call) => size + Buffer.byteLength(call.id) + Buffer.byteLength(call.name) + Buffer.byteLength(call.arguments), 0);
+    assert.ok(previewBytes <= 128 * 1024 && previewBytes >= 128 * 1024 - 3, `shared preview bytes: ${previewBytes}`);
+    assert.equal(bounded.preview.text, 'partial');
+    assert.ok(bounded.preview.reasoning.startsWith('Checking 界'));
+    assert.equal(bounded.preview.reasoning.includes('\uFFFD'), false, 'preview split a Unicode codepoint');
+    completions.get('stream:bounded')();
+    assert.equal((await client.wait('stream:bounded', deadline())).turn.state, 'succeeded');
+    const afterBounded = await observe();
+    assert.equal(afterBounded.preview, null);
+    assert.deepEqual(afterBounded.messages.at(-1).parts, [{ type: 'text', text: 'partial completed' }]);
 
     await client.submit(root.id, [{ type: 'text', text: 'stream:crash' }], 'stream:crash', deadline());
-    const beforeKill = await until(observe, view => view.preview?.text === 'partial');
+    const beforeKill = await until(observe, view => view.preview?.text === 'partial' && view.preview?.reasoning === 'Checking the request');
     await runtime.stop('SIGKILL');
     await runtime.start(null);
     const interrupted = await client.wait('stream:crash', deadline());
@@ -720,7 +737,7 @@ async function streamAcceptance(runtime, client, createParams, evidence) {
     assert.equal(requests.filter(request => request.messages.at(-1).content === 'stream:crash').length, 1);
 
     await client.submit(root.id, [{ type: 'text', text: 'stream:observer-abort' }], 'stream:observer-abort', deadline());
-    await until(observe, view => view.preview?.text === 'partial');
+    await until(observe, view => view.preview?.text === 'partial' && view.preview?.reasoning === 'Checking the request');
     const controller = new AbortController();
     const observer = client.observe(root.id, { signal: controller.signal });
     await observer.next();
@@ -731,14 +748,15 @@ async function streamAcceptance(runtime, client, createParams, evidence) {
     assert.equal((await client.wait('stream:observer-abort', deadline())).turn.state, 'succeeded');
 
     await client.submit(root.id, [{ type: 'text', text: 'stream:cancel' }], 'stream:cancel', deadline());
-    const cancelling = await until(observe, view => view.preview?.text === 'partial');
+    const cancelling = await until(observe, view => view.preview?.text === 'partial' && view.preview?.reasoning === 'Checking the request');
     await client.call('turns.cancel', { turn_id: cancelling.preview.turn_id }, { signal: AbortSignal.timeout(3000) });
     assert.equal((await client.wait('stream:cancel', deadline())).turn.state, 'cancelled');
     const afterCancel = await observe();
     assert.equal(afterCancel.preview, null);
     assert.equal(afterCancel.messages.some(message => message.id === cancelling.preview.message_id), false);
     assert.ok(requests.every(request => request.stream === true && request.stream_options?.include_usage === true));
-    evidence.push({ provisional, committed, ledger, beforeKill, afterKill, interrupted, interruptedAttempts, afterCancel });
+    assert.equal(JSON.stringify(requests).includes('Checking the request'), false, 'reasoning preview was replayed in provider context');
+    evidence.push({ provisional, committed, ledger, bounded, afterBounded, beforeKill, afterKill, interrupted, interruptedAttempts, afterCancel });
   } finally {
     server.closeAllConnections();
     await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));

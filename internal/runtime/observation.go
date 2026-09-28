@@ -11,14 +11,15 @@ import (
 
 const maxPreviewBytes = 128 << 10
 
-// Preview contains incomplete provider text. It is deliberately not a Message:
-// partial tool arguments may be invalid JSON and must never be executed.
+// Preview contains provisional provider text and reasoning, not a Message.
+// Partial tool arguments may be invalid JSON and must never be executed.
 type Preview struct {
 	AttemptID session.ModelAttemptID
 	TurnID    session.TurnID
 	MessageID session.MessageID
 	Revision  int64
 	Text      string
+	Reasoning string
 	Calls     []CallPreview
 	Truncated bool
 }
@@ -34,10 +35,11 @@ type Observation struct {
 type (
 	callPreviewBuffer struct{ id, name, arguments strings.Builder }
 	livePreview       struct {
-		preview Preview
-		text    strings.Builder
-		calls   map[int]*callPreviewBuffer
-		bytes   int
+		preview   Preview
+		text      strings.Builder
+		reasoning strings.Builder
+		calls     map[int]*callPreviewBuffer
+		bytes     int
 	}
 )
 
@@ -58,11 +60,12 @@ func (r *Runtime) BeginPreview(turn session.Turn, id session.ModelAttemptID, mes
 		if r.previews[turn.SessionID] != live || live.preview.Truncated {
 			return
 		}
-		if chunk.Text == "" && chunk.Call == nil {
+		if chunk.Text == "" && chunk.Reasoning == "" && chunk.Call == nil {
 			return
 		}
 		live.preview.Revision++
 		live.append(&live.text, chunk.Text, maxPreviewBytes)
+		live.append(&live.reasoning, chunk.Reasoning, maxPreviewBytes)
 		if chunk.Call == nil {
 			return
 		}
@@ -118,6 +121,7 @@ func (r *Runtime) preview(id session.SessionID) *Preview {
 	}
 	result := live.preview
 	result.Text = strings.Clone(live.text.String())
+	result.Reasoning = strings.Clone(live.reasoning.String())
 	result.Calls = []CallPreview{}
 	for index := range session.MaxToolCalls {
 		if call := live.calls[index]; call != nil {

@@ -2246,6 +2246,7 @@ export interface SessionObservation {
     message_id: string;
     revision: string;
     text: string;
+    reasoning: string;
     calls:
       | null
       | {
