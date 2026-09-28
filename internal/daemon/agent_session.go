@@ -12,9 +12,9 @@ import (
 
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/agentdef"
+	"github.com/context-labs/whip/internal/engine/process"
 	sessionstore "github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/tools"
 )
 
@@ -41,7 +41,7 @@ func (session *AgentSession) RunTurn(ctx context.Context, input string, parts []
 		session.runtime.observeRunTurn(session)
 	}
 	var release func()
-	var start rlm.TurnStart
+	var start process.TurnStart
 	if session.kernel != nil {
 		var err error
 		ctx, start, release, err = session.kernel.AcquireTurn(ctx)
@@ -253,7 +253,7 @@ func (session *AgentSession) recordToolMetadata(calls []llm.ToolCall) {
 
 // scratchNotice tells the model what a replaced worker revived. It is
 // ephemeral: it rides with this turn's requests and never enters history.
-func scratchNotice(start rlm.TurnStart, language ...string) string {
+func scratchNotice(start process.TurnStart, language ...string) string {
 	name := "Starlark"
 	if len(language) > 0 && language[0] == "javascript" {
 		name = "JavaScript (QuickJS)"

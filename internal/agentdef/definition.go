@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/context-labs/whip/internal/rlm"
+	"github.com/context-labs/whip/internal/engine/process"
 )
 
 // Capabilities lists every capability name a root may hold. A child's list
@@ -255,7 +255,7 @@ func (d Definition) Validate() error {
 	if len(d.Modules) == 0 {
 		return fmt.Errorf("agent definition %q selects no host modules", d.ID)
 	}
-	known := rlm.Modules()
+	known := process.Modules()
 	for i, module := range d.Modules {
 		if _, ok := known[module]; !ok {
 			return fmt.Errorf("agent definition %q selects unknown host module %q", d.ID, module)

@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/engine/process"
 	sessionstore "github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/rlm"
 )
 
 func (s *Session) AdmitAgent(ctx context.Context, admission sessionstore.AgentAdmission) error {
@@ -183,7 +183,7 @@ func (s *Session) SaveAgentScratch(ctx context.Context, agentID, snapshot string
 }
 
 // RecordScratchRestore appends the durable scratch.restored event for a node.
-func (s *Session) RecordScratchRestore(ctx context.Context, agentID string, report rlm.RestoreReport) error {
+func (s *Session) RecordScratchRestore(ctx context.Context, agentID string, report process.RestoreReport) error {
 	report.Restored = slices.Clone(report.Restored)
 	notRestored := make([]sessionstore.ScratchSkip, 0, len(report.Failed))
 	for _, item := range report.Failed {

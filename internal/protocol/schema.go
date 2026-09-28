@@ -20,6 +20,16 @@ type Operation struct {
 
 func Operations() []Operation {
 	return []Operation{
+		{"sessions.observe", reflect.TypeFor[HistoryParams](), reflect.TypeFor[SessionObservation]()},
+		{"cells.get", reflect.TypeFor[CellParams](), reflect.TypeFor[Cell]()},
+		{"turns.cells", reflect.TypeFor[CellsParams](), reflect.TypeFor[CellsResult]()},
+		{"grants.create", reflect.TypeFor[CreateGrantParams](), reflect.TypeFor[Grant]()},
+		{"grants.list", reflect.TypeFor[GrantsParams](), reflect.TypeFor[GrantsResult]()},
+		{"grants.revoke", reflect.TypeFor[GrantParams](), reflect.TypeFor[Grant]()},
+		{"operations.get", reflect.TypeFor[HostOperationParams](), reflect.TypeFor[HostOperation]()},
+		{"turns.operations", reflect.TypeFor[HostOperationsParams](), reflect.TypeFor[HostOperationsResult]()},
+		{"permissions.list", reflect.TypeFor[PermissionsParams](), reflect.TypeFor[PermissionsResult]()},
+		{"permissions.resolve", reflect.TypeFor[ResolvePermissionParams](), reflect.TypeFor[Permission]()},
 		{"initialize", reflect.TypeFor[InitializeParams](), reflect.TypeFor[InitializeResult]()},
 		{"trees.create", reflect.TypeFor[CreateTreeParams](), reflect.TypeFor[CreateTreeResult]()},
 		{"trees.get", reflect.TypeFor[TreeParams](), reflect.TypeFor[Tree]()},
@@ -33,9 +43,12 @@ func Operations() []Operation {
 		{"sessions.lifecycle", reflect.TypeFor[LifecycleParams](), reflect.TypeFor[Session]()},
 		{"sessions.delete", reflect.TypeFor[SessionParams](), reflect.TypeFor[DeleteResult]()},
 		{"turns.get", reflect.TypeFor[TurnParams](), reflect.TypeFor[Turn]()},
+		{"turns.attempts", reflect.TypeFor[ModelAttemptsParams](), reflect.TypeFor[ModelAttemptsResult]()},
 		{"turns.cancel", reflect.TypeFor[TurnParams](), reflect.TypeFor[Turn]()},
 		{"inputs.cancel", reflect.TypeFor[InputParams](), reflect.TypeFor[Input]()},
 		{"receipts.get", reflect.TypeFor[RequestIdentity](), reflect.TypeFor[Admission]()},
+		{"content.put", reflect.TypeFor[PutContentParams](), reflect.TypeFor[ContentReference]()},
+		{"content.read", reflect.TypeFor[ReadContentParams](), reflect.TypeFor[ReadContentResult]()},
 		{"definitions.register", reflect.TypeFor[DefinitionDocument](), reflect.TypeFor[Definition]()},
 		{"definitions.get", reflect.TypeFor[DefinitionRef](), reflect.TypeFor[Definition]()},
 	}
@@ -46,6 +59,10 @@ func Types() map[string]reflect.Type {
 	result["RPCError"] = reflect.TypeFor[RPCError]()
 	result["Request"] = reflect.TypeFor[Request]()
 	result["Response"] = reflect.TypeFor[Response]()
+	result["Part"] = reflect.TypeFor[Part]()
+	result["Message"] = reflect.TypeFor[Message]()
+	result["ToolCall"] = reflect.TypeFor[ToolCall]()
+	result["ToolResult"] = reflect.TypeFor[ToolResult]()
 	for _, op := range Operations() {
 		result[op.Params.Name()] = op.Params
 		result[op.Result.Name()] = op.Result
@@ -58,14 +75,9 @@ func SchemaFor(t reflect.Type) (*jsonschema.Schema, error) {
 		reflect.TypeFor[ID]():              {Type: "string", Pattern: `^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$`},
 		reflect.TypeFor[Counter]():         {Type: "string", Pattern: `^(0|[1-9][0-9]{0,18})$`, Format: "counter"},
 		reflect.TypeFor[json.RawMessage](): {},
-		reflect.TypeFor[Part](): {OneOf: []*jsonschema.Schema{
-			{Type: "object", Required: []string{"type", "text"}, Properties: map[string]*jsonschema.Schema{
-				"type": {Type: "string", Enum: []any{"text"}}, "text": {Type: "string", Pattern: `^[\s\S]+$`},
-			}, AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}}},
-			{Type: "object", Required: []string{"type", "reference_id"}, Properties: map[string]*jsonschema.Schema{
-				"type": {Type: "string", Enum: []any{"content"}}, "reference_id": {Type: "string", Pattern: `^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$`},
-			}, AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}}},
-		}},
+		reflect.TypeFor[Part]():            partSchema("text", "content", "tool_call", "tool_result"),
+		reflect.TypeFor[ToolCall]():        toolCallSchema(),
+		reflect.TypeFor[ToolResult]():      toolResultSchema(),
 	}})
 	if err != nil {
 		return nil, err
@@ -118,6 +130,29 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 				child.MinItems = new(1)
 				child.MaxItems = new(128)
 			}
+		}
+		if t == reflect.TypeFor[Input]() || t == reflect.TypeFor[SubmitParams]() {
+			schema.Properties["parts"].Items = partSchema("text", "content")
+		}
+		if t == reflect.TypeFor[Message]() {
+			var variants []*jsonschema.Schema
+			for _, role := range []string{"user", "system", "assistant", "tool"} {
+				items := partSchema("text", "content")
+				maxItems := 128
+				switch role {
+				case "assistant":
+					items = partSchema("text", "content", "tool_call")
+				case "tool":
+					items, maxItems = partSchema("tool_result"), 1
+				}
+				// Keep common required fields in each variant. Conditional-only
+				// branches validate in JSON Schema but lose those fields in TS unions.
+				variant := schema.CloneSchemas()
+				variant.Properties["role"] = &jsonschema.Schema{Type: "string", Enum: []any{role}}
+				variant.Properties["parts"] = &jsonschema.Schema{Type: "array", MinItems: new(1), MaxItems: &maxItems, Items: items}
+				variants = append(variants, variant)
+			}
+			*schema = jsonschema.Schema{OneOf: variants}
 		}
 	case reflect.Slice:
 		if t != reflect.TypeFor[json.RawMessage]() && schema.Type == "array" {

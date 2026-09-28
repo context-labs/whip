@@ -161,15 +161,22 @@ func Resolve(base Configuration, definition DefinitionDocument, overrides Config
 	return resolved.Clone(), nil
 }
 
-func (c Configuration) Validate() error {
-	if err := ValidateID(c.Model.Provider); err != nil {
+func (m ModelSelection) Validate() error {
+	if err := ValidateID(m.Provider); err != nil {
 		return err
 	}
-	if err := ValidateText(c.Model.Name, 256); err != nil {
+	if err := ValidateText(m.Name, 256); err != nil {
 		return err
 	}
-	if len(c.Model.Effort) > 64 || strings.ContainsRune(c.Model.Effort, 0) {
+	if len(m.Effort) > 64 || strings.ContainsRune(m.Effort, 0) {
 		return fmt.Errorf("%w: invalid model effort", ErrInvalid)
+	}
+	return nil
+}
+
+func (c Configuration) Validate() error {
+	if err := c.Model.Validate(); err != nil {
+		return err
 	}
 	return (ConfigPatch{
 		Instructions: &c.Instructions, Tools: c.Tools, Children: c.Children,
@@ -179,14 +186,8 @@ func (c Configuration) Validate() error {
 
 func (p ConfigPatch) Validate() error {
 	if p.Model != nil {
-		if err := ValidateID(p.Model.Provider); err != nil {
+		if err := p.Model.Validate(); err != nil {
 			return err
-		}
-		if err := ValidateText(p.Model.Name, 256); err != nil {
-			return err
-		}
-		if len(p.Model.Effort) > 64 || strings.ContainsRune(p.Model.Effort, 0) {
-			return fmt.Errorf("%w: invalid model effort", ErrInvalid)
 		}
 	}
 	if p.Instructions != nil {

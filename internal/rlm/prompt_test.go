@@ -5,6 +5,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/llm"
 )
 
@@ -35,7 +36,7 @@ func TestFocusedHistoryBoundsSummaryAndRecentExchanges(t *testing.T) {
 }
 
 func TestRuntimeGuideReferencesHandleWithoutInliningCorpus(t *testing.T) {
-	prompt, err := RuntimeGuide(EngineStarlark, ModuleNames(), nil, nil, "/workspace", &ContextHandle{ReferenceID: "ref-history", Size: 1 << 20, Source: "history"})
+	prompt, err := RuntimeGuide(process.EngineStarlark, ModuleNames(), nil, nil, "/workspace", &ContextHandle{ReferenceID: "ref-history", Size: 1 << 20, Source: "history"})
 	if err != nil {
 		t.Fatal(err)
 	}

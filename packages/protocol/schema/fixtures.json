@@ -1,5 +1,213 @@
 [
   {
+    "type": "SessionObservation",
+    "value": {
+      "epoch": "boot_fixture",
+      "messages": [
+        {
+          "id": "message_fixture",
+          "session_id": "session_child",
+          "turn_id": "turn_fixture",
+          "input_id": null,
+          "sequence": "9007199254740993",
+          "role": "assistant",
+          "parts": [
+            {
+              "type": "text",
+              "text": "Completed."
+            },
+            {
+              "type": "content",
+              "reference_id": "content_fixture"
+            }
+          ],
+          "created_at": "2026-09-27T12:00:00.123456Z"
+        }
+      ],
+      "preview": {
+        "attempt_id": "attempt_live",
+        "turn_id": "turn_fixture",
+        "message_id": "message_live",
+        "revision": "9007199254740993",
+        "text": "In progress",
+        "calls": [
+          {
+            "index": 0,
+            "id": "call_partial",
+            "name": "execute",
+            "arguments": "{\"code\":\"print("
+          }
+        ],
+        "truncated": false
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "SessionObservation",
+    "value": {
+      "epoch": "boot_restarted",
+      "messages": [],
+      "preview": null
+    },
+    "valid": true
+  },
+  {
+    "type": "Grant",
+    "value": {
+      "id": "grant_fixture",
+      "session_id": "session_child",
+      "capability": "files.read",
+      "resource": "/workspace",
+      "operation_id": null,
+      "created_at": "2026-09-27T12:00:00.123456Z",
+      "revoked_at": null
+    },
+    "valid": true
+  },
+  {
+    "type": "HostOperation",
+    "value": {
+      "id": "operation_fixture",
+      "session_id": "session_child",
+      "turn_id": "turn_fixture",
+      "cell_id": "cell_fixture",
+      "request_id": "1:1",
+      "capability": "files.read",
+      "resource": "/workspace",
+      "arguments": {
+        "path": "example.txt",
+        "offset": 1,
+        "limit": 2000
+      },
+      "state": "succeeded",
+      "grant_id": "grant_fixture",
+      "result": {
+        "state": "succeeded",
+        "value": {
+          "output": "1: hello"
+        }
+      },
+      "created_at": "2026-09-27T12:00:00.123456Z",
+      "dispatched_at": "2026-09-27T12:00:00.123456Z",
+      "finished_at": "2026-09-27T12:00:00.123456Z"
+    },
+    "valid": true
+  },
+  {
+    "type": "Permission",
+    "value": {
+      "operation_id": "operation_fixture",
+      "state": "approved",
+      "created_at": "2026-09-27T12:00:00.123456Z",
+      "resolved_at": "2026-09-27T12:00:00.123456Z"
+    },
+    "valid": true
+  },
+  {
+    "type": "Cell",
+    "value": {
+      "id": "cell_fixture",
+      "session_id": "session_child",
+      "turn_id": "turn_fixture",
+      "call_message_id": "message_call",
+      "call_id": "call_fixture",
+      "state": "succeeded",
+      "result_message_id": "message_result",
+      "checkpoint": {
+        "digest": "8633cd0f58dfadf137ca203af9b760904da4fcf8de8a079a47542c051d38d1cb",
+        "size": "123",
+        "engine": "starlark",
+        "metadata": {
+          "format_version": 1
+        }
+      },
+      "created_at": "2026-09-27T12:00:00.123456Z",
+      "finished_at": "2026-09-27T12:00:00.123456Z"
+    },
+    "valid": true
+  },
+  {
+    "type": "PutContentParams",
+    "value": {
+      "session_id": "session_child",
+      "reference_id": "content_fixture",
+      "media_type": "text/plain",
+      "data_base64": "aGVsbG8="
+    },
+    "valid": true
+  },
+  {
+    "type": "ReadContentResult",
+    "value": {
+      "reference": {
+        "id": "content_fixture",
+        "session_id": "session_child",
+        "digest": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+        "size": "5",
+        "media_type": "text/plain",
+        "created_at": "2026-09-27T12:00:00.123456Z"
+      },
+      "data_base64": "aGVsbG8="
+    },
+    "valid": true
+  },
+  {
+    "type": "ModelAttemptsResult",
+    "value": {
+      "items": [
+        {
+          "id": "attempt_fixture",
+          "turn_id": "turn_fixture",
+          "logical_id": "call_fixture",
+          "number": 1,
+          "request": {
+            "purpose": "turn",
+            "model": {
+              "provider": "fixture",
+              "name": "model",
+              "effort": ""
+            },
+            "route": "https://provider.example/v1/chat/completions",
+            "adapter": "openai-chat",
+            "request_digest": "8633cd0f58dfadf137ca203af9b760904da4fcf8de8a079a47542c051d38d1cb",
+            "prices": {
+              "input": null,
+              "output": null,
+              "reasoning": null,
+              "cached_input": null,
+              "cached_output": null
+            },
+            "max_output_tokens": "4096",
+            "timeout_millis": "30000"
+          },
+          "state": "succeeded",
+          "result": {
+            "state": "succeeded",
+            "usage": {
+              "input": null,
+              "output": null,
+              "reasoning": null,
+              "cached_input": null,
+              "cached_output": null
+            },
+            "reported_cost_nano_usd": "9007199254740993",
+            "failure": null,
+            "usage_note": null
+          },
+          "cost_nano_usd": "9007199254740993",
+          "cost_source": "provider",
+          "cost_note": null,
+          "message_id": "message_fixture",
+          "created_at": "2026-09-27T12:00:00.123456Z",
+          "dispatched_at": "2026-09-27T12:00:00.123456Z",
+          "finished_at": "2026-09-27T12:00:00.123456Z"
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
     "type": "InitializeParams",
     "value": {
       "major": 4,
@@ -150,8 +358,74 @@
             }
           ],
           "created_at": "2026-09-27T12:00:00.123456Z"
+        },
+        {
+          "id": "message_call",
+          "session_id": "session_child",
+          "turn_id": "turn_fixture",
+          "input_id": null,
+          "sequence": "9007199254740994",
+          "role": "assistant",
+          "parts": [
+            {
+              "type": "tool_call",
+              "call": {
+                "id": "call_fixture",
+                "name": "execute",
+                "arguments": {
+                  "code": "print(1)"
+                }
+              }
+            }
+          ],
+          "created_at": "2026-09-27T12:00:00.123456Z"
+        },
+        {
+          "id": "message_result",
+          "session_id": "session_child",
+          "turn_id": "turn_fixture",
+          "input_id": null,
+          "sequence": "9007199254740995",
+          "role": "tool",
+          "parts": [
+            {
+              "type": "tool_result",
+              "result": {
+                "call_id": "call_fixture",
+                "output": "1",
+                "is_error": false
+              }
+            }
+          ],
+          "created_at": "2026-09-27T12:00:00.123456Z"
         }
       ]
+    },
+    "valid": true
+  },
+  {
+    "type": "Part",
+    "value": {
+      "type": "tool_call",
+      "call": {
+        "id": "call_fixture",
+        "name": "execute",
+        "arguments": {
+          "code": "print(1)"
+        }
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "Part",
+    "value": {
+      "type": "tool_result",
+      "result": {
+        "call_id": "call_fixture",
+        "output": "1",
+        "is_error": false
+      }
     },
     "valid": true
   },
@@ -269,6 +543,134 @@
           "type": "text",
           "text": "x",
           "reference_id": "content"
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "type": "SubmitParams",
+    "value": {
+      "identity": {
+        "client_id": "client",
+        "request_id": "request"
+      },
+      "session_id": "session_child",
+      "source": "user",
+      "parts": [
+        {
+          "type": "tool_call",
+          "call": {
+            "id": "call_fixture",
+            "name": "execute",
+            "arguments": {
+              "code": "print(1)"
+            }
+          }
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "type": "Part",
+    "value": {
+      "type": "tool_call",
+      "call": {
+        "id": "call",
+        "name": "execute",
+        "arguments": null
+      }
+    },
+    "valid": false
+  },
+  {
+    "type": "Part",
+    "value": {
+      "type": "tool_call",
+      "call": {
+        "id": "call",
+        "name": "execute",
+        "arguments": []
+      }
+    },
+    "valid": false
+  },
+  {
+    "type": "Part",
+    "value": {
+      "type": "tool_call",
+      "call": {
+        "id": "call",
+        "name": "execute",
+        "arguments": {}
+      },
+      "text": "extra"
+    },
+    "valid": false
+  },
+  {
+    "type": "Part",
+    "value": {
+      "type": "tool_result",
+      "result": {
+        "call_id": "call",
+        "output": "missing flag"
+      }
+    },
+    "valid": false
+  },
+  {
+    "type": "HistoryResult",
+    "value": {
+      "items": [
+        {
+          "id": "message_call",
+          "session_id": "session_child",
+          "turn_id": "turn_fixture",
+          "input_id": null,
+          "sequence": "9007199254740994",
+          "role": "user",
+          "parts": [
+            {
+              "type": "tool_call",
+              "call": {
+                "id": "call_fixture",
+                "name": "execute",
+                "arguments": {
+                  "code": "print(1)"
+                }
+              }
+            }
+          ],
+          "created_at": "2026-09-27T12:00:00.123456Z"
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "type": "HistoryResult",
+    "value": {
+      "items": [
+        {
+          "id": "message_result",
+          "session_id": "session_child",
+          "turn_id": "turn_fixture",
+          "input_id": null,
+          "sequence": "9007199254740995",
+          "role": "assistant",
+          "parts": [
+            {
+              "type": "tool_result",
+              "result": {
+                "call_id": "call_fixture",
+                "output": "1",
+                "is_error": false
+              }
+            }
+          ],
+          "created_at": "2026-09-27T12:00:00.123456Z"
         }
       ]
     },

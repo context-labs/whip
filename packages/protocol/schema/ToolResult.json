@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "properties": {
+    "call_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "is_error": {
+      "type": "boolean"
+    },
+    "output": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ToolResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ToolResult",
+  "required": [
+    "call_id",
+    "output",
+    "is_error"
+  ],
+  "additionalProperties": false
+}

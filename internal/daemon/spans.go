@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/legacy/config"
 	sessionstore "github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/rlm"
 )
 
 // Span writes are observational: they never fail the work they describe. A
@@ -168,12 +168,12 @@ func toolSummary(name, args string) string {
 	return ""
 }
 
-func (node *AgentSession) hostSpanID(turnID string, call rlm.HostCall) string {
+func (node *AgentSession) hostSpanID(turnID string, call process.HostCall) string {
 	return sessionstore.HostSpanID(node.root.ID(), node.id, turnID, call.CallID, call.InvocationID)
 }
 
 // hostSpanStart opens a host call's span under its cell.
-func (node *AgentSession) hostSpanStart(call rlm.HostCall) {
+func (node *AgentSession) hostSpanStart(call process.HostCall) {
 	turnID, turn, ok := node.traceContext()
 	if !ok || node.root == nil {
 		return
@@ -193,7 +193,7 @@ func (node *AgentSession) hostSpanStart(call rlm.HostCall) {
 
 // hostSpanEnd closes a host call's span. The kernel measured the duration
 // around the call itself, so the end is start plus duration rather than now.
-func (node *AgentSession) hostSpanEnd(call rlm.HostCall) {
+func (node *AgentSession) hostSpanEnd(call process.HostCall) {
 	turnID, turn, ok := node.traceContext()
 	if !ok || node.root == nil {
 		return
@@ -225,7 +225,7 @@ func (node *AgentSession) hostSpanEnd(call rlm.HostCall) {
 // of work it queues for another agent. Empty when the caller is not inside a
 // host call of a durable turn.
 func (node *AgentSession) hostSpanLink(ctx context.Context) sessionstore.SpanLink {
-	call, ok := rlm.HostCallFromContext(ctx)
+	call, ok := process.HostCallFromContext(ctx)
 	if !ok || node.root == nil {
 		return sessionstore.SpanLink{}
 	}

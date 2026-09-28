@@ -18,8 +18,10 @@ import (
 
 type providerFunc func(context.Context, model.Request) (model.Response, error)
 
-func (f providerFunc) Complete(ctx context.Context, r model.Request) (model.Response, error) {
-	return f(ctx, r)
+func (f providerFunc) Prepare(ctx context.Context, request model.Request) (model.Prepared, error) {
+	prepared, err := (model.Scripted{}).Prepare(ctx, request)
+	prepared.Execute = func(ctx context.Context, _ func(model.Chunk)) (model.Response, error) { return f(ctx, request) }
+	return prepared, err
 }
 
 func openTest(t *testing.T, path string, p runner.Provider) *Runtime {
@@ -63,7 +65,12 @@ func submitTest(t *testing.T, r *Runtime, s session.SessionID, key string) store
 
 func waitTest(t *testing.T, r *Runtime, key string, predicate func(store.Admission) bool) store.Admission {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	return waitTestWithin(t, r, key, predicate, 5*time.Second)
+}
+
+func waitTestWithin(t *testing.T, r *Runtime, key string, predicate func(store.Admission) bool, timeout time.Duration) store.Admission {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), timeout)
 	defer cancel()
 	ticker := time.NewTicker(time.Millisecond)
 	defer ticker.Stop()

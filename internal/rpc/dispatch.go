@@ -4,6 +4,7 @@ package rpc
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,6 +43,27 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 		return nil, ErrMethod
 	}
 	switch method {
+	case "sessions.observe":
+		return dispatchObservation(ctx, r, raw)
+	case "grants.create", "grants.list", "grants.revoke", "operations.get", "turns.operations", "permissions.list", "permissions.resolve", "cells.get", "turns.cells":
+		return dispatchOperation(ctx, r, method, raw)
+	case "content.put":
+		return decode(raw, func(p protocol.PutContentParams) (any, error) {
+			if len(p.DataBase64) > base64.StdEncoding.EncodedLen(session.MaxContentBytes) {
+				return nil, fmt.Errorf("%w: content exceeds 4 MiB", session.ErrInvalid)
+			}
+			data, err := base64.StdEncoding.Strict().DecodeString(p.DataBase64)
+			if err != nil {
+				return nil, fmt.Errorf("%w: invalid content encoding", session.ErrInvalid)
+			}
+			value, err := r.PutContent(ctx, session.SessionID(p.SessionID), string(p.ReferenceID), p.MediaType, data)
+			return protocol.ContentReferenceFromDomain(value), err
+		})
+	case "content.read":
+		return decode(raw, func(p protocol.ReadContentParams) (any, error) {
+			value, data, err := r.ReadContent(ctx, session.SessionID(p.SessionID), string(p.ReferenceID), session.MaxContentBytes)
+			return protocol.ReadContentResult{Reference: protocol.ContentReferenceFromDomain(value), DataBase64: base64.StdEncoding.EncodeToString(data)}, err
+		})
 	case "initialize":
 		return decode(raw, func(p protocol.InitializeParams) (any, error) {
 			if p.ExpectedRuntimeID != nil && string(*p.ExpectedRuntimeID) != string(r.Identity()) {
@@ -144,7 +166,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 		return decode(raw, func(p protocol.SubmitParams) (any, error) {
 			parts := make([]session.Part, len(p.Parts))
 			for i, part := range p.Parts {
-				parts[i] = session.Part{Type: part.Type, Text: part.Text, ReferenceID: string(part.ReferenceID)}
+				parts[i] = part.Domain()
 			}
 			value, err := r.Admit(ctx, identity(p.Identity), store.Submission{SessionID: session.SessionID(p.SessionID), Source: session.InputSource(p.Source), Parts: parts})
 			return admission(value), err
@@ -178,6 +200,22 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 		return decode(raw, func(p protocol.TurnParams) (any, error) {
 			value, err := r.Turn(ctx, session.TurnID(p.TurnID))
 			return protocol.TurnFromDomain(value), err
+		})
+	case "turns.attempts":
+		return decode(raw, func(p protocol.ModelAttemptsParams) (any, error) {
+			var after session.ModelAttemptID
+			if p.After != nil {
+				after = session.ModelAttemptID(*p.After)
+			}
+			values, err := r.ModelAttempts(ctx, session.TurnID(p.TurnID), after, p.Limit)
+			if err != nil {
+				return nil, err
+			}
+			result := protocol.ModelAttemptsResult{Items: []protocol.ModelAttempt{}}
+			for _, value := range values {
+				result.Items = append(result.Items, protocol.ModelAttemptFromDomain(value))
+			}
+			return result, nil
 		})
 	case "turns.cancel":
 		return decode(raw, func(p protocol.TurnParams) (any, error) {

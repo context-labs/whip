@@ -74,7 +74,7 @@ func (node *AgentSession) toolPresentationID(callID string) string {
 	return ""
 }
 
-func (node *AgentSession) recordHostPresentation(call rlm.HostCall) string {
+func (node *AgentSession) recordHostPresentation(call rlm.PresentedHostCall) string {
 	node.mu.Lock()
 	defer node.mu.Unlock()
 	for i := len(node.turn.Messages) - 1; i >= 0; i-- {

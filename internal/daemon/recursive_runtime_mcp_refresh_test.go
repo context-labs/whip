@@ -5,14 +5,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/legacy/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/mcp"
-	"github.com/context-labs/whip/internal/rlm"
 )
 
 func TestRecursiveHostMCPRefreshDiscoversNewToolsWithoutExpandingChildren(t *testing.T) {
-	for _, engine := range []string{rlm.EngineStarlark, rlm.EngineQuickJS} {
+	for _, engine := range []string{process.EngineStarlark, process.EngineQuickJS} {
 		t.Run(engine, func(t *testing.T) {
 			t.Setenv("WHIPCODE_HOME", t.TempDir())
 			url, effects := localMCPFixture(t, "guidance")
@@ -29,10 +29,10 @@ func TestRecursiveHostMCPRefreshDiscoversNewToolsWithoutExpandingChildren(t *tes
 			}
 			root.mcpMu.Unlock()
 			refresh, reconnect := `mcp.refresh()`, `mcp.reconnect(server="fresh")`
-			if engine == rlm.EngineQuickJS {
+			if engine == process.EngineQuickJS {
 				refresh, reconnect = `await mcp.refresh({})`, `await mcp.reconnect({server: "fresh"})`
 			}
-			result, err := runtime.rootNode.kernel.Exec(t.Context(), refresh)
+			result, err := runtime.rootNode.kernel.Exec(t.Context(), process.Cell{Code: refresh})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -64,7 +64,7 @@ func TestRecursiveHostMCPRefreshDiscoversNewToolsWithoutExpandingChildren(t *tes
 			if effects.Load() != 1 {
 				t.Fatalf("fresh tool effects=%d", effects.Load())
 			}
-			result, err = runtime.rootNode.kernel.Exec(t.Context(), reconnect)
+			result, err = runtime.rootNode.kernel.Exec(t.Context(), process.Cell{Code: reconnect})
 			if err != nil {
 				t.Fatal(err)
 			}

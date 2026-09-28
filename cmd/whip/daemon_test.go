@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/legacy/config"
 	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
@@ -35,7 +36,7 @@ func TestDaemonKernelWorker(t *testing.T) {
 	if separator < 0 {
 		return
 	}
-	if err := rlm.WorkerMain(os.Args[separator+1:], os.Stdin, os.Stdout); err != nil {
+	if err := process.WorkerMain(os.Args[separator+1:], os.Stdin, os.Stdout, rlm.DescribeEngine); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
@@ -571,7 +572,7 @@ func TestRLMLimitsPreserveConfiguredUnitsAndDefaultOmissions(t *testing.T) {
 	if limits.Steps != 1250 || limits.HostRequests != 3 || limits.OutputBytes != 1024 || limits.FrameBytes != 2048 || limits.MaxWorkers != 2 {
 		t.Fatalf("configured execution budgets lost: %+v", limits)
 	}
-	if limits.MaxConcurrentHostCalls != rlm.DefaultLimits().MaxConcurrentHostCalls {
+	if limits.MaxConcurrentHostCalls != process.DefaultLimits().MaxConcurrentHostCalls {
 		t.Fatalf("omitted host concurrency lost its default: %+v", limits)
 	}
 }

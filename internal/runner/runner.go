@@ -16,22 +16,44 @@ import (
 )
 
 type Provider interface {
-	Complete(context.Context, model.Request) (model.Response, error)
+	Prepare(context.Context, model.Request) (model.Prepared, error)
 }
 type Transcript interface {
 	History(context.Context, session.SessionID, int64, int) ([]session.Message, error)
-	AppendMessage(context.Context, session.TurnID, session.MessageDraft) (session.Message, error)
 }
+type Attempts interface {
+	ReserveModelAttempt(context.Context, session.ModelAttemptSpec) (session.ModelAttempt, error)
+	DispatchModelAttempt(context.Context, session.ModelAttemptID) (bool, error)
+	SettleModelAttempt(context.Context, session.ModelAttemptID, session.ModelAttemptResult, *session.MessageDraft) (session.ModelAttempt, error)
+}
+type ContentReader interface {
+	ReadContent(context.Context, session.SessionID, string, int64) (session.ContentReference, []byte, error)
+}
+type Executor interface {
+	Instructions(context.Context, session.SessionID) (string, error)
+	Execute(context.Context, session.Turn, session.MessageID, session.ToolCall) (session.ToolResult, error)
+}
+
+// Progress is ephemeral presentation, never transcript or execution authority.
+// The observer runs synchronously and cannot veto or own provider execution.
+type Progress interface {
+	BeginPreview(session.Turn, session.ModelAttemptID, session.MessageID) (func(model.Chunk), func())
+}
+
 type Runner struct {
 	provider   Provider
 	transcript Transcript
+	attempts   Attempts
+	content    ContentReader
+	executor   Executor
+	progress   Progress
 }
 
-func New(provider Provider, transcript Transcript) (*Runner, error) {
-	if provider == nil || transcript == nil {
-		return nil, errors.New("runner requires provider and transcript")
+func New(provider Provider, transcript Transcript, attempts Attempts, content ContentReader, executor Executor, progress Progress) (*Runner, error) {
+	if provider == nil || transcript == nil || attempts == nil {
+		return nil, errors.New("runner requires provider, transcript and attempt ledger")
 	}
-	return &Runner{provider: provider, transcript: transcript}, nil
+	return &Runner{provider: provider, transcript: transcript, attempts: attempts, content: content, executor: executor, progress: progress}, nil
 }
 
 type Outcome struct {
@@ -58,6 +80,14 @@ func Failure(err error) Outcome {
 // the turn separately; retrying that settlement must never call Run again.
 func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration session.Configuration) (Outcome, error) {
 	request := model.Request{SessionID: turn.SessionID, TurnID: turn.ID, Selection: configuration.Model, Instructions: configuration.Instructions.Text}
+	if r.executor != nil {
+		instructions, err := r.executor.Instructions(ctx, turn.SessionID)
+		if err != nil {
+			return Failure(err), nil
+		}
+		request.Instructions += "\n" + instructions
+		request.Tools = []model.Tool{{Name: "execute", Description: "Execute a code cell in this session’s persistent, isolated REPL. Host operations require separate authority.", InputSchema: json.RawMessage(`{"type":"object","properties":{"code":{"type":"string"}},"required":["code"],"additionalProperties":false}`)}}
+	}
 	var after int64
 	size := len(request.Instructions)
 	for {
@@ -83,25 +113,90 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 			after = message.Sequence
 		}
 	}
-	response, err := r.provider.Complete(ctx, request)
-	if err != nil {
-		if ctx.Err() != nil {
-			return Outcome{}, ctx.Err()
-		}
+	if err := r.hydrate(ctx, &request); err != nil {
 		return Failure(err), nil
 	}
-	if err := session.ValidateParts(response.Parts); err != nil {
-		return Failure(fmt.Errorf("invalid model output: %w", err)), nil
+	for round := 1; round <= 32; round++ {
+		completed, err := r.complete(ctx, turn, request, fmt.Sprintf("%s_model_%d", turn.ID, round))
+		if err != nil {
+			return Outcome{}, err
+		}
+		if completed.failure != nil {
+			return Failure(completed.failure), nil //nolint:nilerr // Settled execution failure is a turn outcome, not an infrastructure error.
+		}
+		calls := []session.ToolCall{}
+		for _, part := range completed.parts {
+			if part.Call != nil {
+				calls = append(calls, *part.Call)
+			}
+		}
+		if len(calls) == 0 {
+			return Outcome{State: session.Succeeded}, nil
+		}
+		if r.executor == nil {
+			return Failure(errors.New("code executor is unavailable")), nil
+		}
+		if err := appendContext(&request, session.Assistant, completed.parts, &size); err != nil {
+			return Failure(err), nil
+		}
+		for _, call := range calls {
+			if call.Name != "execute" {
+				return Failure(errors.New("unsupported tool call")), nil
+			}
+			result, err := r.executor.Execute(ctx, turn, completed.messageID, call)
+			if err != nil {
+				return Outcome{}, err
+			}
+			if err := appendContext(&request, session.Tool, []session.Part{{Type: "tool_result", Result: &result}}, &size); err != nil {
+				return Failure(err), nil
+			}
+		}
 	}
-	if err := r.persist(ctx, turn.ID, session.MessageDraft{
-		ID: session.MessageID(string(turn.ID) + "_answer"), Role: session.Assistant, Parts: response.Parts,
-	}); err != nil {
-		return Outcome{}, fmt.Errorf("persist completed output: %w", err)
-	}
-	return Outcome{State: session.Succeeded}, nil
+	return Failure(errors.New("turn exceeded the 32 model-call limit")), nil
 }
 
-func (r *Runner) persist(parent context.Context, turn session.TurnID, message session.MessageDraft) error {
+func appendContext(request *model.Request, role session.Role, parts []session.Part, size *int) error {
+	raw, err := json.Marshal(parts)
+	if err != nil {
+		return err
+	}
+	*size += len(raw)
+	if len(request.Messages) >= 100 || *size > 4<<20 {
+		return errors.New("model context exceeds limit; compaction is required")
+	}
+	request.Messages = append(request.Messages, model.Message{Role: role, Parts: parts})
+	return nil
+}
+
+func (r *Runner) hydrate(ctx context.Context, request *model.Request) error {
+	request.Contents = map[string]model.Content{}
+	remaining := int64(session.MaxContentBytes)
+	for _, message := range request.Messages {
+		for _, part := range message.Parts {
+			if part.Type != "content" {
+				continue
+			}
+			if _, exists := request.Contents[part.ReferenceID]; exists {
+				continue
+			}
+			if r.content == nil {
+				return errors.New("content reader is unavailable")
+			}
+			reference, data, err := r.content.ReadContent(ctx, request.SessionID, part.ReferenceID, remaining)
+			if err != nil {
+				return fmt.Errorf("hydrate model content: %w", err)
+			}
+			if int64(len(data)) > remaining {
+				return errors.New("hydrated content exceeds context limit")
+			}
+			remaining -= int64(len(data))
+			request.Contents[part.ReferenceID] = model.Content{MediaType: reference.MediaType, Data: data}
+		}
+	}
+	return nil
+}
+
+func (r *Runner) settleAttempt(parent context.Context, id session.ModelAttemptID, result session.ModelAttemptResult, message *session.MessageDraft) error {
 	// A completed response survives observer cancellation. Retry only the write,
 	// using its stable identity; never send a second provider request.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), 5*time.Second)
@@ -109,7 +204,7 @@ func (r *Runner) persist(parent context.Context, turn session.TurnID, message se
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		_, err := r.transcript.AppendMessage(ctx, turn, message)
+		_, err := r.attempts.SettleModelAttempt(ctx, id, result, message)
 		if err == nil || errors.Is(err, session.ErrInvalid) {
 			return err
 		}
@@ -119,4 +214,121 @@ func (r *Runner) persist(parent context.Context, turn session.TurnID, message se
 		case <-ticker.C:
 		}
 	}
+}
+
+func (r *Runner) complete(ctx context.Context, turn session.Turn, request model.Request, logicalID string) (attemptOutcome, error) {
+	prepared, err := r.provider.Prepare(ctx, request)
+	if err != nil {
+		return attemptOutcome{failure: err}, nil //nolint:nilerr // Preparation failure is a turn outcome; no dispatched evidence needs settlement.
+	}
+	if prepared.Execute == nil {
+		return attemptOutcome{failure: errors.New("provider returned no executable request")}, nil
+	}
+	limit := max(prepared.MaxAttempts, 1)
+	if limit > 5 {
+		return attemptOutcome{failure: errors.New("provider attempt limit exceeds five")}, nil
+	}
+	for number := 1; number <= limit; number++ {
+		outcome, err := r.attempt(ctx, turn, prepared, logicalID, number)
+		if err != nil {
+			return attemptOutcome{}, err
+		}
+		callErr := outcome.failure
+		if callErr == nil {
+			return outcome, nil
+		}
+		if ctx.Err() != nil {
+			return attemptOutcome{}, ctx.Err()
+		}
+		failure, retry := errors.AsType[*model.CallError](callErr)
+		if number == limit || !retry || !failure.Retryable || failure.Uncertain {
+			return outcome, nil
+		}
+		// Only an explicit retryable provider response permits another dispatch.
+		// Network uncertainty and settlement failures never automatically replay.
+		delay := min(max(time.Duration(number)*time.Second, failure.RetryAfter), time.Minute)
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return attemptOutcome{}, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return attemptOutcome{}, errors.New("model attempts exhausted without an outcome")
+}
+
+// Attempt execution can fail normally. A separate returned error means its
+// durable evidence could not be settled and execution must stop without retry.
+type attemptOutcome struct {
+	failure   error
+	parts     []session.Part
+	messageID session.MessageID
+}
+
+func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.Prepared, logicalID string, number int) (attemptOutcome, error) {
+	id := session.ModelAttemptID(fmt.Sprintf("%s_try_%d", logicalID, number))
+	attempt, err := r.attempts.ReserveModelAttempt(ctx, session.ModelAttemptSpec{ID: id, TurnID: turn.ID, LogicalID: logicalID, Number: number, Request: prepared.Snapshot})
+	if err != nil {
+		return attemptOutcome{}, fmt.Errorf("reserve model attempt: %w", err)
+	}
+	if attempt.State != session.AttemptReserved {
+		return attemptOutcome{}, errors.New("model attempt already dispatched; automatic replay prohibited")
+	}
+	allowed, err := r.attempts.DispatchModelAttempt(ctx, id)
+	if err != nil || !allowed {
+		if err == nil {
+			err = errors.New("model attempt dispatch already claimed")
+		}
+		// Only a confirmed reserved attempt can become a no-dispatch cancellation.
+		// Ambiguous dispatch failures stay pending and fault settlement/recovery.
+		cancelled := session.ModelAttemptResult{State: session.AttemptCancelled}
+		if settleErr := r.settleAttempt(ctx, id, cancelled, nil); settleErr != nil {
+			return attemptOutcome{}, errors.Join(err, settleErr)
+		}
+		return attemptOutcome{}, err
+	}
+	messageID := session.MessageID(logicalID + "_answer")
+	var emit func(model.Chunk)
+	if r.progress != nil {
+		var end func()
+		emit, end = r.progress.BeginPreview(turn, id, messageID)
+		defer end() // Keep the preview until settlement, including SQL-only retries.
+	}
+	callCtx, cancel := context.WithTimeout(ctx, time.Duration(prepared.Snapshot.TimeoutMillis)*time.Millisecond)
+	response, callErr := prepared.Execute(callCtx, emit)
+	cancel()
+	result := session.ModelAttemptResult{State: session.AttemptSucceeded, Usage: response.Usage, ReportedCostNanoUSD: response.ReportedCostNanoUSD, UsageNote: response.UsageNote}
+	if result.Usage.Validate() != nil {
+		result.Usage = session.ModelUsage{}
+		result.UsageNote = new("provider returned invalid usage; counts unavailable")
+	}
+	if result.ReportedCostNanoUSD != nil && *result.ReportedCostNanoUSD < 0 {
+		result.ReportedCostNanoUSD = nil
+		result.UsageNote = new("provider returned invalid cost; reported cost unavailable")
+	}
+	var message *session.MessageDraft
+	if callErr == nil {
+		callErr = session.ValidateMessage(session.Assistant, response.Parts)
+	}
+	if callErr != nil {
+		result.State = session.AttemptFailed
+		failure, typed := errors.AsType[*model.CallError](callErr)
+		uncertain := typed && failure.Uncertain
+		if uncertain || ctx.Err() != nil || errors.Is(callErr, context.DeadlineExceeded) || errors.Is(callErr, context.Canceled) {
+			result.State = session.AttemptUncertain
+		}
+		result.Failure = Failure(callErr).Failure
+	} else {
+		message = &session.MessageDraft{ID: messageID, Role: session.Assistant, Parts: response.Parts}
+	}
+	if err := r.settleAttempt(ctx, id, result, message); err != nil {
+		return attemptOutcome{}, fmt.Errorf("settle model attempt: %w", err)
+	}
+	outcome := attemptOutcome{failure: callErr}
+	if message != nil {
+		outcome.parts = message.Parts
+		outcome.messageID = message.ID
+	}
+	return outcome, nil
 }

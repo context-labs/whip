@@ -10,9 +10,9 @@ import (
 	"regexp"
 
 	"github.com/context-labs/whip/internal/agent"
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/tools"
 )
 
@@ -77,7 +77,7 @@ func sdkAgentsFactory(store *session.Store) (Factory, func()) {
 		value := agent.NewRuntime(llm.New(model.URL, "fixture-key"), meta.Model, 1024, "", tools.NewServices())
 		value.ModelName, value.Provider, value.WorkingDir = meta.Model, meta.Provider, meta.CWD
 		value.ContextLimit = 65536
-		limits := rlm.DefaultLimits()
+		limits := process.DefaultLimits()
 		definition, _, err := DefinitionFor(context.Background(), store, meta)
 		if err != nil {
 			return Components{}, err
@@ -85,7 +85,7 @@ func sdkAgentsFactory(store *session.Store) (Factory, func()) {
 		definition.Surface.AutoTitle = false
 		runtime, err := NewRecursiveRuntime(RecursiveRuntimeOptions{
 			Engine: meta.ExecutionEngine, Definition: definition, Agent: value, History: history, Limits: limits,
-			Kernels: rlm.NewManager(limits.MaxWorkers), KernelCommand: recursiveKernelCommand,
+			Kernels: process.NewManager(limits.MaxWorkers), KernelCommand: recursiveKernelCommand,
 		})
 		if err != nil {
 			return Components{}, err

@@ -32,7 +32,7 @@ export async function acceptRuntime(directory) {
     const native = path.join(bundle, 'Contents/Helpers');
     const run = async (executable, name) => {
       const filename = path.join(fixture, `${name}.json`);
-      await exec('go', ['test', '-tags=integration', './internal/rlm', '-run', '^TestPackagedRuntime$', '-count=1', '-timeout=2m'],
+      await exec('go', ['test', '-tags=integration', './internal/engine/process', '-run', '^TestPackagedRuntime$', '-count=1', '-timeout=2m'],
         { cwd: repositoryRoot, env: { ...process.env, WHIP_RLM_TEST_EXECUTABLE: executable, WHIP_RLM_TEST_REPORT: filename }, timeout: 180_000, maxBuffer: 2 << 20 });
       assert.equal(await fileDigest(executable), evidence.nativeFiles.whipcode.sha256, 'Tested executable changed');
       return JSON.parse(await readFile(filename, 'utf8'));

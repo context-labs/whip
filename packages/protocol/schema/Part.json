@@ -1,0 +1,123 @@
+{
+  "$id": "https://whip.dev/protocol/v4/Part",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Part",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "pattern": "^[\\s\\S]+$"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "text"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "reference_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "content"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "reference_id"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "call": {
+          "type": "object",
+          "properties": {
+            "arguments": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "name": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "arguments"
+          ],
+          "additionalProperties": false
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "tool_call"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "call"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "result": {
+          "type": "object",
+          "properties": {
+            "call_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "is_error": {
+              "type": "boolean"
+            },
+            "output": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "call_id",
+            "output",
+            "is_error"
+          ],
+          "additionalProperties": false
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "tool_result"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "result"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

@@ -23,6 +23,38 @@ func timeString(value *time.Time) *string {
 	return &text
 }
 
+func counter(value *int64) *Counter {
+	if value == nil {
+		return nil
+	}
+	number := Counter(*value)
+	return &number
+}
+
+func ModelAttemptFromDomain(value session.ModelAttempt) ModelAttempt {
+	r := value.Request
+	result := ModelAttempt{
+		ID: ID(value.ID), TurnID: ID(value.TurnID), LogicalID: ID(value.LogicalID), Number: value.Number, State: string(value.State),
+		CostNanoUSD: counter(value.CostNanoUSD), CostSource: value.CostSource, CostNote: value.CostNote, CreatedAt: value.CreatedAt.Format(time.RFC3339Nano), DispatchedAt: timeString(value.DispatchedAt), FinishedAt: timeString(value.FinishedAt),
+		Request: ModelRequestSnapshot{
+			Purpose: ID(r.Purpose), Model: ModelSelection{Provider: ID(r.Model.Provider), Name: r.Model.Name, Effort: r.Model.Effort}, Route: r.Route, Adapter: ID(r.Adapter), RequestDigest: r.RequestDigest, MaxOutputTokens: Counter(r.MaxOutputTokens), TimeoutMillis: Counter(r.TimeoutMillis),
+			Prices: ModelPrices{Input: counter(r.Prices.Input), Output: counter(r.Prices.Output), Reasoning: counter(r.Prices.Reasoning), CachedInput: counter(r.Prices.CachedInput), CachedOutput: counter(r.Prices.CachedOutput)},
+		},
+	}
+	if value.MessageID != nil {
+		id := ID(*value.MessageID)
+		result.MessageID = &id
+	}
+	if value.Result != nil {
+		u := value.Result.Usage
+		result.Result = &ModelAttemptResult{
+			State: string(value.Result.State), Failure: value.Result.Failure, UsageNote: value.Result.UsageNote, ReportedCostNanoUSD: counter(value.Result.ReportedCostNanoUSD),
+			Usage: ModelUsage{Input: counter(u.Input), Output: counter(u.Output), Reasoning: counter(u.Reasoning), CachedInput: counter(u.CachedInput), CachedOutput: counter(u.CachedOutput)},
+		}
+	}
+	return result
+}
+
 func TurnFromDomain(value session.Turn) Turn {
 	return Turn{
 		ID: ID(value.ID), SessionID: ID(value.SessionID), ConfigRevision: Counter(value.ConfigRevision), State: string(value.State),
@@ -38,7 +70,7 @@ func InputFromDomain(value session.Input) Input {
 	}
 	result.Parts = make([]Part, len(value.Parts))
 	for i, part := range value.Parts {
-		result.Parts[i] = Part{Type: part.Type, Text: part.Text, ReferenceID: ID(part.ReferenceID)}
+		result.Parts[i] = PartFromDomain(part)
 	}
 	return result
 }
@@ -136,12 +168,34 @@ func SessionFromDomain(value session.Session) (Session, error) {
 func MessageFromDomain(value session.Message) Message {
 	parts := make([]Part, len(value.Parts))
 	for i, part := range value.Parts {
-		parts[i] = Part{Type: part.Type, Text: part.Text, ReferenceID: ID(part.ReferenceID)}
+		parts[i] = PartFromDomain(part)
 	}
 	result := Message{ID: ID(value.ID), SessionID: ID(value.SessionID), TurnID: ID(value.TurnID), Sequence: Counter(value.Sequence), Role: string(value.Role), Parts: parts, CreatedAt: value.CreatedAt.Format(time.RFC3339Nano)}
 	if value.InputID != nil {
 		id := ID(*value.InputID)
 		result.InputID = &id
+	}
+	return result
+}
+
+func PartFromDomain(value session.Part) Part {
+	result := Part{Type: value.Type, Text: value.Text, ReferenceID: ID(value.ReferenceID)}
+	if value.Call != nil {
+		result.Call = &ToolCall{ID: ID(value.Call.ID), Name: value.Call.Name, Arguments: append(json.RawMessage(nil), value.Call.Arguments...)}
+	}
+	if value.Result != nil {
+		result.Result = &ToolResult{CallID: ID(value.Result.CallID), Output: value.Result.Output, IsError: value.Result.IsError}
+	}
+	return result
+}
+
+func (part Part) Domain() session.Part {
+	result := session.Part{Type: part.Type, Text: part.Text, ReferenceID: string(part.ReferenceID)}
+	if part.Call != nil {
+		result.Call = &session.ToolCall{ID: string(part.Call.ID), Name: part.Call.Name, Arguments: append(json.RawMessage(nil), part.Call.Arguments...)}
+	}
+	if part.Result != nil {
+		result.Result = &session.ToolResult{CallID: string(part.Result.CallID), Output: part.Result.Output, IsError: part.Result.IsError}
 	}
 	return result
 }

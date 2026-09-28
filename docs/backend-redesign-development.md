@@ -24,7 +24,7 @@ production gates on `main` and `development` remain unchanged.
 
 | Command | Purpose |
 | --- | --- |
-| `task check:fast` | Active Go package formatting and all their tests; no npm install needed |
+| `task check:fast` | Active Go formatting, core tests and process-package build; no npm install needed |
 | `task check:change` | Fast gate, active builds/vet/race tests, generated contracts, SDK/examples, real-runtime fixture |
 | `task check:phase` | Change gate plus selected admission/recovery/accounting integration regressions |
 | `task check:analysis` | New lint findings since the frozen baseline, plus reachable vulnerability checks on the active packages |
@@ -39,8 +39,9 @@ configuration choice, not a prerequisite for CI.
 
 ## Active scope
 
-`REDESIGN_PACKAGES` in [Taskfile.yaml](../Taskfile.yaml) is the single Go package
-list for fast, build, vet, race and analysis checks:
+`REDESIGN_PACKAGES` in [Taskfile.yaml](../Taskfile.yaml) lists the fast Go checks.
+`REDESIGN_INTEGRATION_PACKAGES` adds the extracted subprocess implementation;
+their union, `REDESIGN_ALL_PACKAGES`, is used by build, vet, race and analysis:
 
 - `internal/content`: retained immutable content and access primitives.
 - `internal/session`: pure durable values, pinned definitions and configuration resolution.
@@ -49,6 +50,8 @@ list for fast, build, vet, race and analysis checks:
 - `internal/protocol`: independent v4 DTOs, schemas and interchange fixtures.
 - `internal/model`, `internal/runner`: injected provider adapter and ordinary execution loop.
 - `internal/runtime`: exclusive ownership, scheduling, cancellation and cleanup.
+- `internal/engine`, `internal/engine/quickjs`: guest execution contract and bundled QuickJS implementation.
+- `internal/engine/process`: isolated workers, process limits and checkpoint transport; full tests run at the change/CI boundary.
 - `internal/rpc`, `internal/client`: v4 transport mapping and initial Go client.
 - `cmd/whip-contract`: deterministic v4 generation and fixture validation.
 - `cmd/whip-runtime`: explicit-directory new runtime entry point.
@@ -57,6 +60,11 @@ All tests in these packages are active. Add new domain/store/runtime packages as
 they land. Remove old packages only when their retained guarantees have been
 replaced or their retirement is recorded. `go test -run` cannot hide test files
 that fail to compile.
+
+The process package's full race suite takes about 85 seconds locally, exercising
+resource exhaustion, cancellation and worker lifecycle. It remains required by
+`check:change`, `check:phase` and CI. `check:fast` checks its formatting and build
+without running this subprocess stress suite on each local edit.
 
 The phase gate separately names four existing daemon regressions: admission
 before provider construction, queued child input across restart, settlement
@@ -320,3 +328,269 @@ Phase 2 intentionally does not claim engine execution, real-provider integration
 model accounting, effect permissions, checkpointing, or product UI adoption.
 The first five belong to Phase 3; uniform recursion and retained integrations
 follow in Phases 4–5. The overall execution objective remains through Phase 5.
+
+
+Hosted Phase 2 validation completed successfully on final revision
+`0da66231c1af5a7c7e320900e28666223d148672` in
+[run 36371312906](https://github.com/context-labs/whip/actions/runs/36371312906):
+Linux, macOS, analysis and the required aggregate all passed. Phase 2 is complete.
+
+## Phase 3 progress: model-attempt ledger
+
+The first Phase 3 increment isolates the existing independent engine package at
+`internal/engine` and introduces model-attempt admission, exclusive dispatch,
+atomic outcome/message settlement, and restart uncertainty. The runner now uses
+this ledger; the scripted provider exercises the same accounting boundary as
+future real providers. `turns.attempts` exposes bounded durable inspection through
+both clients and generated v4 validators.
+
+Storage version 2 adds the ledger to fresh databases. Earlier disposable redesign
+schema versions are rejected without mutation; this is not an old-data importer.
+Usage count presence remains explicit. Price snapshots use nano-USD per million
+tokens; resulting cost uses nano-USD with one final upward rounding. Missing usage
+or rates produce unknown cost unless the evidence proves the cost (including an
+explicitly free route). Overflow preserves the response and usage with unknown
+cost and a diagnostic note. Credentials never enter dispatch snapshots.
+
+Reserved attempts may become cancelled with known zero cost because they were
+not dispatched. Dispatched attempts settle with success/failure evidence or
+uncertainty; cancellation and crash cannot relabel them as never dispatched.
+Recovery updates attempts and turns in one transaction, processing bounded
+batches. A turn cannot finish while its attempts remain unsettled. A committed
+model outcome names its exact transcript message; retries cannot substitute a
+new message or change the saved outcome.
+
+The engine extraction preserved the bundled WASM and JavaScript bytes and passed
+engine/RLM race tests before and after, repository build, and scoped vet. New
+ledger tests exercise independent SQLite connections, injected transaction
+failures, cancellation races, unknown/free/overflow costs and recovery. The real
+process fixture now observes a dispatched attempt before SIGKILL and checks the
+resulting uncertainty through the SDK. Phase 3 remains incomplete: the real
+provider, Starlark loop, effects, content authorization, checkpoints, and their
+remaining acceptance checks are still being implemented.
+
+This increment passed `task check:phase`, targeted race checks and the v4 process
+fixture with `WHIP_SDK_RACE=1`. `task check:analysis` reported zero new lint issues
+and no reachable vulnerabilities. These are local results, not a claim of
+completed Phase 3 acceptance or hosted validation for this increment.
+
+### OpenAI-compatible dispatch increment
+
+`whip-runtime -directory <private-directory>` now uses configured HTTP providers.
+`-scripted` remains an explicit fixture option. The command composes the provider
+with the runtime; scheduling does not import provider implementations or resolve
+credentials. HTTP requests, including retryable rejections, pass through the same
+attempt ledger as scripted execution.
+
+Edit the initialized `host.json` provider map with an API base URL and an optional
+credential environment reference. For example, these provider entries can be
+added while preserving the other initialized host fields:
+
+```json
+{
+  "example": {
+    "kind": "openai-chat",
+    "base_url": "https://provider.example/v1",
+    "credential_env": "WHIP_PROVIDER_KEY",
+    "models": {
+      "your-model": {
+        "max_output_tokens": 4096,
+        "timeout_millis": 120000,
+        "max_attempts": 3
+      }
+    }
+  }
+}
+```
+
+Select `{ "provider": "example", "name": "your-model", "effort": "" }` in a
+session override or host defaults. Missing model settings use the limits above;
+missing prices remain unknown. Optional `prices` fields use the ledger's
+nano-USD-per-million-token units, with independent input/output/reasoning/cache
+rates. Provider-reported USD charges are converted exactly to nano-USD, rounding
+up once. No price is inferred from a model name.
+
+Routes and credentials refresh when preparing a logical call. Its body, endpoint,
+limits and price snapshot remain fixed for its retries. The adapter performs one
+request; the runner permits at most five attempts, with cancellation-aware
+backoff, only following explicit retryable HTTP responses. Transport uncertainty,
+invalid completion bodies and persistence failures do not cause automatic
+redispatch. Redirects are rejected to preserve the recorded route and credential
+scope. Responses and encoded requests have explicit size limits.
+
+Local race tests cover HTTP retry accounting, unknown transport outcomes, slow
+provider cancellation, exact decimal charges, missing/malformed accounting,
+immutable prepared bodies and route refresh. The SDK process fixture also runs
+the command without `-scripted` against a local HTTP provider, observes a 429 and
+successful retry as distinct attempts, and verifies one committed response.
+This local fixture is not the required live-provider/engine smoke; that remains
+part of Phase 3 acceptance.
+
+Hosted validation passed for provider revision
+`acd97035f4fa21e1ed2efdb234def9f116ed239f` in
+[run 36373024664](https://github.com/context-labs/whip/actions/runs/36373024664):
+Linux, macOS, analysis and the required aggregate all succeeded. The preceding
+ledger revision `952546ee7e485da94261f7c164f0bbaac7a6f74b` passed
+[run 36372449220](https://github.com/context-labs/whip/actions/runs/36372449220).
+
+### Authorized content increment
+
+Fresh schema version 3 adds content-body metadata and session-scoped references.
+The runtime publishes immutable files before committing references, validates
+references inside input/message transactions, and hydrates bounded verified
+bytes for provider encoding. Startup collection removes unreferenced files while
+preserving shared bodies. The exact ownership, quotas and collection boundary
+are documented in [the domain contract](backend-domain.md#content-boundary).
+
+The v4 SDK fixture now uploads an image, retries its upload identity, reads it,
+rejects access/admission from another session, and sends it through the actual
+HTTP adapter. It checks that history retains the reference and the provider sees
+the image payload. Local race checks additionally cover SQL rollback, shared
+quotas across independent connections, corrupt bodies rejected before dispatch,
+complete reads beyond 64 KiB, special-file rejection and startup orphan cleanup.
+The real-provider/engine smoke and other Phase 3 acceptance remain pending.
+
+The combined content and subprocess-extraction change passed `task check:phase`
+and `task check:analysis` locally. The phase gate includes both SDK process
+fixtures, generated contract checks, race/shuffle coverage for the new core and
+isolated engine, and the four retained admission/accounting regressions. Static
+analysis reported zero issues and no reachable vulnerabilities. The v4 fixture
+also passed separately with `WHIP_SDK_RACE=1`.
+
+
+### Durable code loop increment
+
+Fresh schema version 4 adds cells bound to committed assistant calls. The runner
+now supports typed tool calls/results and the same model-attempt path for every
+iteration. Both engines execute through `internal/engine/process`; the runtime
+stages immutable checkpoint bodies and atomically commits the result/boundary.
+The exact ownership and unavailable-checkpoint policy are documented in the
+[domain contract](backend-domain.md#code-execution-and-checkpoint-boundary).
+
+Targeted race tests cover one cell dispatch across independent SQL connections,
+rollback of result/checkpoint settlement, recovery of interrupted and undispatched
+calls, input spoof rejection, partial Starlark restoration, corrupt/incompatible
+images, failed publication, subtree kernel cleanup, and state across model
+changes, eviction and restart. A correlated engine result is explicitly distinct
+from an unsettled transport result, including a late successful QuickJS host call
+after cancellation. Review found and fixed dropped restore reports and retained
+kernel handles after deletion.
+
+The v4 SDK fixture passed with `WHIP_SDK_RACE=1` for both engines. It uses the
+packaged command and HTTP adapter, kills the runtime after a cell commit while a
+subsequent provider request is pending, and verifies the result/history/checkpoint
+survive with the pending request marked uncertain. Restarted execution reads the
+saved variable without rerunning the completed cell.
+
+The required live-provider/engine smoke passed at **2026-09-28 03:42:47 UTC** using
+OpenRouter's `openai/gpt-4.1-mini` and Starlark through the new command/socket/SDK.
+One call executed `6 * 7` in the REPL; the next consumed its result and answered
+`42`. Both attempts succeeded: usage was 192/28 and 272/3 input/output tokens,
+with provider-reported costs of 121600 and 113600 nano-USD. Credentials remained
+environment references. A preceding OpenAI-route attempt returned HTTP 429 and
+was recorded as failed with unknown usage/cost; it did not execute a cell.
+The disposable successful runtime was removed after verification; the full
+local evidence was saved to `/tmp/whip-redesign-live-evidence.json`.
+
+Hosted content/extraction revision `2c46110cd` passed Linux, macOS, analysis and
+the required aggregate in
+[run 36374104894](https://github.com/context-labs/whip/actions/runs/36374104894).
+This is preceding-revision evidence, not hosted validation of the code-loop slice.
+Scoped host effects/permissions and provisional output remain Phase 3 work;
+Phase 4 recursion policies and Phase 5 integrations remain incomplete.
+
+
+The combined code-loop increment passed `task check:phase` and
+`task check:analysis` locally, with zero lint issues and no reachable
+vulnerabilities. The phase gate includes full isolated-process stress/race tests,
+new runtime/store race checks, both SDK process fixtures, generated contracts and
+the retained admission/accounting regressions. Targeted deletion cleanup checks
+also passed after the final mechanical map-clone adjustment.
+
+
+### Scoped host-operation increment
+
+Fresh schema version 5 adds operations, grants and permissions, with ownership
+and transition rules in the [domain contract](backend-domain.md#host-operations-and-permission-decisions).
+The independent filesystem adapter supports confined read/write/patch through
+rooted handles and shared mutation locks. The dispatcher records immutable intent,
+waits for scoped consent, rechecks revocation after resource acquisition, commits
+dispatch, executes once, and retries only outcome persistence. The SDK exposes
+permissions, grants, operation evidence and cell boundaries through generated v4
+contracts; no hand-maintained second schema was added.
+
+Targeted race tests pass for two-connection dispatch and consent/revocation/stop/
+recovery races, transactional rollback, scope isolation, quota/page bounds,
+one-use cascade deletion, cancellation while awaiting consent, revocation while
+waiting for a path lock, and a failed SQL settlement after a completed write.
+That last test changes the file externally during settlement retries and verifies
+that persistence recovery never overwrites it by repeating the effect.
+
+The actual command/socket/SDK fixture passed with `WHIP_SDK_RACE=1` for both
+engines. In one cell it approves a first write, observes its committed success,
+waits on a second permission, then sends SIGKILL. Restart preserves the first
+operation unchanged, cancels the second without dispatch, records the lost cell
+as uncertain without a checkpoint, rejects late approval and permits text-only
+history inspection. An external file change survives restart and the unapproved
+file is never created. This distinguishes effect evidence from interpreter state.
+`task check:phase` and `task check:analysis` pass for this increment, including
+full process stress/race coverage, both SDK fixtures and generated contract checks.
+Analysis reports zero issues and no reachable vulnerabilities. Hosted validation
+of this increment remains pending.
+
+
+The preceding code-loop revision `bb1acc960` passed Linux, macOS, analysis and the
+required aggregate in [run 36375596169](https://github.com/context-labs/whip/actions/runs/36375596169).
+Its initial Linux run exposed a five-second test deadline shorter than cold
+QuickJS startup under concurrent race testing. The fix raises only real-engine
+acceptance waits to thirty seconds; ordinary scripted waits remain unchanged.
+This is preceding-revision evidence, not hosted validation of the operation slice.
+Review also found a transient operation-read failure could strand an admitted
+permission; the dispatcher now cancels that waiter, and a fault-injection test
+proves cell and turn settlement can proceed without an effect.
+
+
+### Provisional observation increment
+
+The OpenAI-compatible adapter now requests bounded SSE with usage and supports
+validated JSON fallback. Provider assembly is separate from a capped runtime
+preview; only a complete validated response enters durable history. The runner
+keeps previews through SQL settlement retries. `sessions.observe` and the SDK's
+async iterator reconcile previews by eventual message identity and process epoch.
+See the [observation contract](backend-domain.md#provisional-output-and-observation).
+Generated message unions now carry their shared required fields in every variant,
+fixing TypeScript's loss of typed IDs/cursors without maintaining separate types.
+
+Model tests cover framed/fragmented streams, complete markers, usage snapshots,
+known accounting on later failure, cancellation, limits and JSON fallback. Runtime
+race tests cover committed replacement, cursor advancement, isolation, stale
+callbacks, UTF-8 bounds, observer cancellation, failed/restarted streams and actual
+SQL rollback with preview retention. The race-enabled command/socket/SDK fixture
+observes partial output, verifies exactly one committed replacement, sends SIGKILL
+during another stream and verifies epoch change/uncertain attempt/no partial
+message, and exercises both observer abort and explicit turn cancellation.
+
+A direct streaming smoke passed at **2026-09-28 04:13:39 UTC** through OpenRouter
+`openai/gpt-4.1-mini` and Starlark: four preview snapshots, one successful cell,
+answer `42`, and two succeeded attempts with 269/28 and 349/3 input/output tokens.
+Provider-reported costs were 152400 and 144400 nano-USD. Evidence is saved locally
+at `/tmp/whip-redesign-stream-live-evidence.json`; the successful runtime was removed.
+The first streaming smoke detected OpenRouter's additional content-free choice in
+its usage footer. That failed attempt preserved usage/cost as uncertain and ran
+no code. A fresh ledger-recorded diagnostic through a local relay captured the
+shape; a focused regression now accepts that
+[documented accounting footer](https://openrouter.ai/docs/api_reference/streaming#the-final-usage-chunk-chat-completions),
+while rejecting new post-completion content and still requiring `[DONE]`.
+Failure evidence remains in `/tmp/whip-redesign-stream-live-failure.json` and
+`/tmp/whip-redesign-stream-capture-evidence.json`; captured response data is in
+`/tmp/whip-stream-capture.sse`. No credential headers were captured.
+
+Hosted operation revision `852ee6570` failed both platforms only when the test's
+independent SQL connection tried to drop its injected trigger while settlement
+held the database lock. Revision `ed7fba842` gives that test connection a bounded
+SQLite busy timeout. Twenty-five targeted race repetitions pass; production
+transaction semantics are unchanged. The complete preview increment passes
+`task check:phase` and `task check:analysis`: isolated-process stress/race tests,
+active core checks, SDK fixtures, generated Go/TypeScript interchange, retained
+regressions, zero lint issues and no reachable vulnerabilities. Final hosted
+validation remains pending.

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/legacy/config"
 	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
@@ -100,14 +101,14 @@ func TestRecursiveExecutionEngineInheritedAndRestored(t *testing.T) {
 					code = `var memo = 41; print(memo);`
 					read = `print(memo + 1);`
 				}
-				result, err := node.kernel.Exec(t.Context(), code)
+				result, err := node.kernel.Exec(t.Context(), process.Cell{Code: code})
 				if err != nil || !strings.Contains(result.Output, "41") {
 					t.Fatalf("exec result=%+v %v", result, err)
 				}
 				if err := node.kernel.Suspend(); err != nil {
 					t.Fatal(err)
 				}
-				result, err = node.kernel.Exec(t.Context(), read)
+				result, err = node.kernel.Exec(t.Context(), process.Cell{Code: read})
 				if err != nil || !strings.Contains(result.Output, "42") {
 					t.Fatalf("restore result=%+v %v", result, err)
 				}
@@ -152,7 +153,7 @@ func TestQuickJSCheckpointSurvivesDaemonRestart(t *testing.T) {
 	}
 	for _, id := range []string{root.AgentID(), "child"} {
 		node := runtime.agents[id]
-		if _, err := node.kernel.Exec(t.Context(), `var memo = {n: 41}; var increment = () => ++memo.n;`); err != nil {
+		if _, err := node.kernel.Exec(t.Context(), process.Cell{Code: `var memo = {n: 41}; var increment = () => ++memo.n;`}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -163,7 +164,7 @@ func TestQuickJSCheckpointSurvivesDaemonRestart(t *testing.T) {
 	_, root, runtime = openPromptRuntime(t, store, result.RootID, llm.New("http://127.0.0.1:1", "key"))
 	for _, id := range []string{root.AgentID(), "child"} {
 		node := runtime.agents[id]
-		result, err := node.kernel.Exec(t.Context(), `print(increment());`)
+		result, err := node.kernel.Exec(t.Context(), process.Cell{Code: `print(increment());`})
 		if err != nil || !strings.Contains(result.Output, "42") || node.kernel.Describe().ID != "quickjs" {
 			t.Fatalf("node %s lost its image: %+v %v", id, result, err)
 		}
@@ -190,10 +191,10 @@ messages.send(recipient=%q, subject="exact", body=json.encode(record["value"]), 
 await state.blackboard_cas({key:"exact",version:record.version,value:{n:record.value.n+1n}});
 await messages.send({recipient:%q,subject:"exact",body:json.encode(record.value),delivery:"next_turn"});`, root.ID())
 			}
-			if _, err := runtime.rootNode.kernel.Exec(t.Context(), rootCode); err != nil {
+			if _, err := runtime.rootNode.kernel.Exec(t.Context(), process.Cell{Code: rootCode}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := runtime.agents["child"].kernel.Exec(t.Context(), childCode); err != nil {
+			if _, err := runtime.agents["child"].kernel.Exec(t.Context(), process.Cell{Code: childCode}); err != nil {
 				t.Fatal(err)
 			}
 			state, err := root.GetBlackboard(t.Context(), root.AgentID(), "exact")

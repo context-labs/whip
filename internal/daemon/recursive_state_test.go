@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/context-labs/whip/internal/engine/process"
+
 	sessionstore "github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
 )
@@ -27,7 +29,7 @@ huge = int("9" * 400)
 state.private_set(key="huge", value=huge)
 print(state.private_get(key="huge")["value"] == huge)
 `
-	result, err := runtime.rootNode.kernel.Exec(t.Context(), code)
+	result, err := runtime.rootNode.kernel.Exec(t.Context(), process.Cell{Code: code})
 	if err != nil || !strings.Contains(result.Output, "True True float") || strings.Count(result.Output, "True") != 6 { //nolint:dupword // the fixture intentionally prints two consecutive boolean results
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
@@ -42,7 +44,7 @@ print(state.private_get(key="huge")["value"] == huge)
 		"cycle=[]\ncycle.append(cycle)\nstate.private_set(key=\"bad\", value=cycle)",
 		`state.private_cas(key="record", version=1, value="conflict")`,
 	} {
-		if _, err := runtime.rootNode.kernel.Exec(t.Context(), code); err == nil {
+		if _, err := runtime.rootNode.kernel.Exec(t.Context(), process.Cell{Code: code}); err == nil {
 			t.Errorf("accepted %s", code)
 		}
 	}
@@ -82,11 +84,11 @@ func TestStructuredStatePagesAndLargeHandles(t *testing.T) {
 	if record["handle"] == "" || record["media_type"] != "application/json" || record["value"] != nil {
 		t.Fatalf("record=%v", record)
 	}
-	result, err := runtime.rootNode.kernel.Exec(t.Context(), `r = state.blackboard_get(key="large")
+	result, err := runtime.rootNode.kernel.Exec(t.Context(), process.Cell{Code: `r = state.blackboard_get(key="large")
 parts = []
 for offset in range(0, r["size"], 8192):
     parts.append(context.read(handle=r["handle"], offset=offset, length=8192)["text"])
-print(len(json.decode("".join(parts))))`)
+print(len(json.decode("".join(parts))))`})
 	if err != nil || !strings.Contains(result.Output, strconv.Itoa(len(large))) {
 		t.Fatalf("large result=%+v err=%v", result, err)
 	}

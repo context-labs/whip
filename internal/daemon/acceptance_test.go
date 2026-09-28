@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/rlm"
@@ -268,7 +269,7 @@ func (host acceptanceHost) Call(_ context.Context, module, operation string, arg
 type acceptanceRunner struct {
 	mu      sync.Mutex
 	history []llm.Message
-	kernel  *rlm.Kernel
+	kernel  *process.Kernel
 	home    string
 }
 
@@ -294,7 +295,7 @@ func (runner *acceptanceRunner) Turn(ctx context.Context, input string, authored
 	}
 	defer runner.kernel.Close()
 	cell := fmt.Sprintf(`context.search(query=%q)`, acceptanceNeedle)
-	value, err := runner.kernel.Exec(ctx, cell)
+	value, err := runner.kernel.Exec(ctx, process.Cell{Code: cell})
 	if err != nil {
 		return "", err
 	}
@@ -361,9 +362,9 @@ func TestRuntimeAcceptanceDaemonHelper(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager := rlm.NewManager(1)
+	manager := process.NewManager(1)
 	value, err := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
-		kernel, kernelErr := rlm.NewKernel(rlm.KernelOptions{
+		kernel, kernelErr := process.NewKernel(process.KernelOptions{
 			Command: []string{executable, "-test.run=^TestRuntimeAcceptanceKernelWorker$", "--", "-acceptance-start", filepath.Join(home, "kernel-starts.log")},
 			Manager: manager, Host: acceptanceHost{corpus: string(corpus)},
 		})
@@ -402,7 +403,7 @@ func TestRuntimeAcceptanceKernelWorker(t *testing.T) {
 		}
 		args = args[2:]
 	}
-	if err := rlm.WorkerMain(args, os.Stdin, os.Stdout); err != nil {
+	if err := process.WorkerMain(args, os.Stdin, os.Stdout, rlm.DescribeEngine); err != nil {
 		t.Fatal(err)
 	}
 }

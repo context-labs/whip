@@ -5,6 +5,56 @@ export const manifest = {
   "minor": 0,
   "operations": [
     {
+      "name": "sessions.observe",
+      "params": "HistoryParams",
+      "result": "SessionObservation"
+    },
+    {
+      "name": "cells.get",
+      "params": "CellParams",
+      "result": "Cell"
+    },
+    {
+      "name": "turns.cells",
+      "params": "CellsParams",
+      "result": "CellsResult"
+    },
+    {
+      "name": "grants.create",
+      "params": "CreateGrantParams",
+      "result": "Grant"
+    },
+    {
+      "name": "grants.list",
+      "params": "GrantsParams",
+      "result": "GrantsResult"
+    },
+    {
+      "name": "grants.revoke",
+      "params": "GrantParams",
+      "result": "Grant"
+    },
+    {
+      "name": "operations.get",
+      "params": "HostOperationParams",
+      "result": "HostOperation"
+    },
+    {
+      "name": "turns.operations",
+      "params": "HostOperationsParams",
+      "result": "HostOperationsResult"
+    },
+    {
+      "name": "permissions.list",
+      "params": "PermissionsParams",
+      "result": "PermissionsResult"
+    },
+    {
+      "name": "permissions.resolve",
+      "params": "ResolvePermissionParams",
+      "result": "Permission"
+    },
+    {
       "name": "initialize",
       "params": "InitializeParams",
       "result": "InitializeResult"
@@ -70,6 +120,11 @@ export const manifest = {
       "result": "Turn"
     },
     {
+      "name": "turns.attempts",
+      "params": "ModelAttemptsParams",
+      "result": "ModelAttemptsResult"
+    },
+    {
       "name": "turns.cancel",
       "params": "TurnParams",
       "result": "Turn"
@@ -83,6 +138,16 @@ export const manifest = {
       "name": "receipts.get",
       "params": "RequestIdentity",
       "result": "Admission"
+    },
+    {
+      "name": "content.put",
+      "params": "PutContentParams",
+      "result": "ContentReference"
+    },
+    {
+      "name": "content.read",
+      "params": "ReadContentParams",
+      "result": "ReadContentResult"
     },
     {
       "name": "definitions.register",

@@ -14,9 +14,9 @@ import (
 	"testing"
 
 	"github.com/context-labs/whip/internal/agent"
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/tools"
 )
 
@@ -159,10 +159,10 @@ func TestChildCommitFailureInterruptsRootWithoutFalseSuccess(t *testing.T) {
 	owner, err := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
 		value := agent.NewRuntime(llm.New(server.URL, "key"), "model", 1024, "", tools.NewServices())
 		value.ModelName, value.Provider, value.WorkingDir = meta.Model, meta.Provider, meta.CWD
-		limits := rlm.DefaultLimits()
+		limits := process.DefaultLimits()
 		limits.MaxWorkers = 2
 		runtime, err := NewRecursiveRuntime(RecursiveRuntimeOptions{
-			Agent: value, History: history, Limits: limits, Kernels: rlm.NewManager(2), KernelCommand: recursiveKernelCommand,
+			Agent: value, History: history, Limits: limits, Kernels: process.NewManager(2), KernelCommand: recursiveKernelCommand,
 		})
 		if err != nil {
 			return Components{}, err

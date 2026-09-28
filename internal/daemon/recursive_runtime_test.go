@@ -18,6 +18,7 @@ import (
 
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/rlm"
@@ -31,7 +32,7 @@ func TestRecursiveRuntimeKernelWorker(t *testing.T) {
 	if separator < 0 {
 		return
 	}
-	if err := rlm.WorkerMain(os.Args[separator+1:], os.Stdin, os.Stdout); err != nil {
+	if err := process.WorkerMain(os.Args[separator+1:], os.Stdin, os.Stdout, rlm.DescribeEngine); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
@@ -67,11 +68,11 @@ func openRecursiveRuntime(t *testing.T, client *llm.Client, maxWorkers int, engi
 	owner, err := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
 		value := agent.NewRuntime(client, "model", 1024, "", tools.NewServices())
 		value.ModelName, value.Provider, value.WorkingDir = meta.Model, meta.Provider, meta.CWD
-		limits := rlm.DefaultLimits()
+		limits := process.DefaultLimits()
 		limits.MaxWorkers = maxWorkers
 		var runtimeErr error
 		runtime, runtimeErr = NewRecursiveRuntime(RecursiveRuntimeOptions{
-			Engine: meta.ExecutionEngine, Agent: value, History: history, Limits: limits, Kernels: rlm.NewManager(maxWorkers), KernelCommand: recursiveKernelCommand,
+			Engine: meta.ExecutionEngine, Agent: value, History: history, Limits: limits, Kernels: process.NewManager(maxWorkers), KernelCommand: recursiveKernelCommand,
 		})
 		if runtimeErr != nil {
 			return Components{}, runtimeErr
@@ -463,10 +464,10 @@ func TestRecursiveRuntimeRestoresRetainedAgentAndTranscript(t *testing.T) {
 		owner, err := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
 			value := agent.NewRuntime(llm.New(server.URL, "key"), "model", 1024, "", tools.NewServices())
 			value.ModelName, value.Provider, value.WorkingDir = meta.Model, meta.Provider, meta.CWD
-			limits := rlm.DefaultLimits()
+			limits := process.DefaultLimits()
 			var runtimeErr error
 			runtime, runtimeErr = NewRecursiveRuntime(RecursiveRuntimeOptions{
-				Agent: value, History: history, Limits: limits, Kernels: rlm.NewManager(limits.MaxWorkers), KernelCommand: recursiveKernelCommand,
+				Agent: value, History: history, Limits: limits, Kernels: process.NewManager(limits.MaxWorkers), KernelCommand: recursiveKernelCommand,
 			})
 			if runtimeErr != nil {
 				return Components{}, runtimeErr
@@ -563,11 +564,11 @@ func TestQueuedInitialAgentPromptSurvivesRestartExactlyOnce(t *testing.T) {
 		owner, ownerErr := New(store, func(_ context.Context, meta session.Meta, history []llm.Message) (Components, error) {
 			value := agent.NewRuntime(llm.New(server.URL, "key"), "model", 1024, "", tools.NewServices())
 			value.ModelName, value.Provider, value.WorkingDir = meta.Model, meta.Provider, meta.CWD
-			limits := rlm.DefaultLimits()
+			limits := process.DefaultLimits()
 			limits.MaxWorkers = 1
 			var runtimeErr error
 			runtime, runtimeErr = NewRecursiveRuntime(RecursiveRuntimeOptions{
-				Agent: value, History: history, Limits: limits, Kernels: rlm.NewManager(1), KernelCommand: recursiveKernelCommand,
+				Agent: value, History: history, Limits: limits, Kernels: process.NewManager(1), KernelCommand: recursiveKernelCommand,
 			})
 			if runtimeErr != nil {
 				return Components{}, runtimeErr
@@ -902,7 +903,7 @@ func TestChildScratchSurvivesDaemonRestart(t *testing.T) {
 			value.ModelName, value.Provider, value.WorkingDir = meta.Model, meta.Provider, meta.CWD
 			var runtimeErr error
 			runtime, runtimeErr = NewRecursiveRuntime(RecursiveRuntimeOptions{
-				Agent: value, History: history, Limits: rlm.DefaultLimits(), Kernels: rlm.NewManager(2), KernelCommand: recursiveKernelCommand,
+				Agent: value, History: history, Limits: process.DefaultLimits(), Kernels: process.NewManager(2), KernelCommand: recursiveKernelCommand,
 			})
 			if runtimeErr != nil {
 				return Components{}, runtimeErr

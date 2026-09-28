@@ -19,6 +19,7 @@ import (
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/agentdef"
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/legacy/protocol"
 	sessionstore "github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
@@ -34,8 +35,8 @@ type RecursiveRuntimeOptions struct {
 	Definition    agentdef.Definition
 	Agent         *agent.Agent
 	History       []llm.Message
-	Limits        rlm.Limits
-	Kernels       *rlm.Manager
+	Limits        process.Limits
+	Kernels       *process.Manager
 	KernelCommand []string
 }
 
@@ -48,8 +49,8 @@ type RecursiveRuntime struct {
 	root        *Session
 	rootNode    *AgentSession
 	agents      map[string]*AgentSession
-	limits      rlm.Limits
-	kernels     *rlm.Manager
+	limits      process.Limits
+	kernels     *process.Manager
 	command     []string
 	hookMu      sync.RWMutex
 	runTurnHook func(*AgentSession)
@@ -78,7 +79,7 @@ type AgentSession struct {
 	root         *Session
 	agent        *agent.Agent
 	host         *recursiveHost
-	kernel       *rlm.Kernel
+	kernel       *process.Kernel
 	authority    capability.Authority
 	definition   agentdef.Definition
 	id           string
@@ -114,7 +115,7 @@ func NewRecursiveRuntime(options RecursiveRuntimeOptions) (*RecursiveRuntime, er
 		return nil, errors.New("recursive runtime requires an agent")
 	}
 	if options.Kernels == nil {
-		options.Kernels = rlm.NewManager(options.Limits.MaxWorkers)
+		options.Kernels = process.NewManager(options.Limits.MaxWorkers)
 	}
 	definition := options.Definition
 	if definition.ID == "" {
@@ -167,31 +168,31 @@ func (node *AgentSession) identity() rlm.Identity {
 // node that is not bound to a root yet has nothing to load or save.
 type scratchStore struct{ node *AgentSession }
 
-func (store scratchStore) Load(ctx context.Context) (string, rlm.SnapshotManifest, error) {
+func (store scratchStore) Load(ctx context.Context) (string, process.SnapshotManifest, error) {
 	node := store.node
 	if node.root == nil || node.id == "" {
-		return "", rlm.SnapshotManifest{}, nil
+		return "", process.SnapshotManifest{}, nil
 	}
 	snapshot, encoded, err := node.root.LoadAgentScratch(ctx, node.id)
-	var manifest rlm.SnapshotManifest
+	var manifest process.SnapshotManifest
 	if err == nil && len(encoded) > 0 {
 		err = json.Unmarshal(encoded, &manifest)
 	}
 	return snapshot, manifest, err
 }
 
-func (node *AgentSession) emitHostStart(call rlm.HostCall) {
-	node.hostSpanStart(call)
+func (node *AgentSession) emitHostStart(call rlm.PresentedHostCall) {
+	node.hostSpanStart(call.HostCall)
 	node.emitHostEvent("stream.cell.host.started", call)
 }
 
 // The existing kind remains completion-only for older clients.
-func (node *AgentSession) emitHostCall(call rlm.HostCall) {
-	node.hostSpanEnd(call)
+func (node *AgentSession) emitHostCall(call rlm.PresentedHostCall) {
+	node.hostSpanEnd(call.HostCall)
 	node.emitHostEvent("stream.cell.host", call)
 }
 
-func (node *AgentSession) emitHostEvent(kind string, call rlm.HostCall) {
+func (node *AgentSession) emitHostEvent(kind string, call rlm.PresentedHostCall) {
 	partID := node.recordHostPresentation(call)
 	emit := node.emit
 	if emit == nil {
@@ -212,7 +213,7 @@ func (node *AgentSession) emitHostEvent(kind string, call rlm.HostCall) {
 
 // recordScratchRestore persists the restore outcome off the kernel lock; the
 // event is an audit trail, so ordering against the turn does not matter.
-func (node *AgentSession) recordScratchRestore(ctx context.Context, report rlm.RestoreReport) {
+func (node *AgentSession) recordScratchRestore(ctx context.Context, report process.RestoreReport) {
 	root, id := node.root, node.id
 	if root == nil || id == "" {
 		return
@@ -226,7 +227,7 @@ func (node *AgentSession) recordScratchRestore(ctx context.Context, report rlm.R
 	})
 }
 
-func (store scratchStore) Save(ctx context.Context, snapshot string, manifest rlm.SnapshotManifest) error {
+func (store scratchStore) Save(ctx context.Context, snapshot string, manifest process.SnapshotManifest) error {
 	node := store.node
 	if node.root == nil || node.id == "" {
 		return nil
@@ -244,9 +245,9 @@ func (runtime *RecursiveRuntime) newNode(value *agent.Agent, definition agentdef
 		capabilities: append([]string(nil), capabilities...), authority: authority,
 	}
 	host := &recursiveHost{session: node}
-	kernel, err := rlm.NewKernel(rlm.KernelOptions{
-		Engine: runtime.engine, Modules: definition.Modules, Tools: definition.ToolNames(), Checkpoints: checkpointStore{node: node}, Command: runtime.command, Limits: runtime.limits, Manager: runtime.kernels, Host: host, Scratch: scratchStore{node: node},
-		OnRestore: node.recordScratchRestore, OnHostStart: node.emitHostStart, OnHostCall: node.emitHostCall,
+	kernel, err := process.NewKernel(process.KernelOptions{
+		Engine: runtime.engine, Modules: definition.Modules, Tools: definition.ToolNames(), Checkpoints: checkpointStore{node: node}, Command: runtime.command, Limits: runtime.limits, Manager: runtime.kernels, Host: rlm.ToolHost(host), Scratch: scratchStore{node: node},
+		OnRestore: node.recordScratchRestore, ObserveHost: rlm.PresentHostCalls(node.emitHostStart, node.emitHostCall),
 	})
 	if err != nil {
 		return nil, err
@@ -810,7 +811,7 @@ func (host *recursiveHost) Call(ctx context.Context, module, operation string, a
 	if err != nil {
 		return nil, err
 	}
-	if module == rlm.ToolsModule {
+	if module == process.ToolsModule {
 		return host.tools(ctx, operation, arguments)
 	}
 	// The kernel installs only the definition's modules; the worker is not an

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/buildinfo"
+	"github.com/context-labs/whip/internal/engine/process"
 
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/agentdef"
@@ -29,7 +30,6 @@ import (
 	"github.com/context-labs/whip/internal/lsp"
 	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/openaiauth"
-	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/tools"
 	"github.com/context-labs/whip/internal/webgateway"
 )
@@ -101,7 +101,7 @@ func runDaemon(ctx context.Context, args []string) error {
 	} else if discovered.DiscoveryError != "" {
 		config.LogEvent("provider.discovery", discovered.DiscoveryError)
 	}
-	kernels := rlm.NewManager(limits.MaxWorkers)
+	kernels := process.NewManager(limits.MaxWorkers)
 	defer kernels.Close()
 	factory := func(ctx context.Context, meta session.Meta, history []llm.Message) (daemon.Components, error) {
 		runtimeCfg, err := config.Load()
@@ -365,8 +365,8 @@ func daemonToolServices(cfg *config.Config, meta session.Meta, apiID string, cap
 	return services
 }
 
-func rlmLimits(value config.RLMConfig) rlm.Limits {
-	limits := rlm.DefaultLimits()
+func rlmLimits(value config.RLMConfig) process.Limits {
+	limits := process.DefaultLimits()
 	if value.MaxConcurrentHostCalls != 0 {
 		limits.MaxConcurrentHostCalls = value.MaxConcurrentHostCalls
 	}

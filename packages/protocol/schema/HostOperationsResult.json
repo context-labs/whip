@@ -1,0 +1,131 @@
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "session_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "turn_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "cell_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "request_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "capability": {
+            "type": "string"
+          },
+          "resource": {
+            "type": "string"
+          },
+          "arguments": true,
+          "state": {
+            "type": "string",
+            "enum": [
+              "waiting",
+              "ready",
+              "dispatched",
+              "succeeded",
+              "failed",
+              "denied",
+              "cancelled",
+              "uncertain"
+            ]
+          },
+          "grant_id": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "result": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "state": {
+                "type": "string",
+                "enum": [
+                  "succeeded",
+                  "failed",
+                  "denied",
+                  "cancelled",
+                  "uncertain"
+                ]
+              },
+              "value": true,
+              "failure": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              }
+            },
+            "required": [
+              "state"
+            ],
+            "additionalProperties": false
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "dispatched_at": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "finished_at": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "session_id",
+          "turn_id",
+          "cell_id",
+          "request_id",
+          "capability",
+          "resource",
+          "arguments",
+          "state",
+          "grant_id",
+          "result",
+          "created_at",
+          "dispatched_at",
+          "finished_at"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/HostOperationsResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HostOperationsResult",
+  "required": [
+    "items"
+  ],
+  "additionalProperties": false
+}

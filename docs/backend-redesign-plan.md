@@ -1,8 +1,8 @@
 # Whip backend redesign and delivery plan
 
 Status: phases 0 and 1 complete and validated in PRs #197 and #199.
-Phase 2 is implemented in PR #200 and passes local gates; hosted validation is
-running. Phases 3–7 are pending.
+Phase 2 is complete and validated in PR #200. Phase 3 is implemented in PR #201
+with local acceptance passing; final hosted validation is pending. Phases 4–7 are pending.
 Written: 2026-09-27. Planning reference: `6f02507bf`.
 
 Execution baseline: `e3fed9c91918d9c36766dd47d878c1b5466238d1`. Commands,
@@ -407,8 +407,8 @@ complete with a passing check or recorded manual evidence.
 | --- | --- | --- | --- |
 | 0 | Baseline, feedback gates and fixture foundation | None | Complete; [evidence](backend-redesign-development.md#baseline-and-phase-0-evidence) |
 | 1 | Domain contract, ownership, fresh storage/config | 0 | Pending |
-| 2 | Working database → runtime → protocol → SDK slice | 1 | Implemented; hosted gate pending |
-| 3 | One provider, one engine, execution and recovery | 2 | Pending |
+| 2 | Working database → runtime → protocol → SDK slice | 1 | Complete |
+| 3 | One provider, one engine, execution and recovery | 2 | In progress |
 | 4 | Recursion and shared coordination | 3 | Pending |
 | 5 | Remaining engines, integrations and product behavior | 4 | Pending |
 | 6 | Complete client adoption and product validation | Starts at 2; finishes after 5 | Pending |
@@ -496,25 +496,25 @@ checkpointing. Establish failure behavior before broadening integrations.
 
 Acceptance:
 
-- [ ] The real runner executes model/code/tool work through injected boundaries.
+- [x] The real runner executes model/code/tool work through injected boundaries.
       A scripted provider exercises the same loop as the real provider.
-- [ ] Every dispatched model request, including retries/helpers, has an attempt
+- [x] Every dispatched model request, including retries/helpers, has an attempt
       record and truthful usage/cost/uncertainty; settlement failure cannot cause
       an automatic second provider dispatch.
-- [ ] Tool effects require scoped authority and have durable operation evidence.
+- [x] Tool effects require scoped authority and have durable operation evidence.
       Denial/revocation prevents the relevant effect; unresolved effects are not
       blindly replayed after restart.
-- [ ] Completed messages survive a crash mid-turn; provisional output reconciles
+- [x] Completed messages survive a crash mid-turn; provisional output reconciles
       without becoming a second committed message.
-- [ ] Checkpoint integrity, compatibility, execution boundary and failure policy
+- [x] Checkpoint integrity, compatibility, execution boundary and failure policy
       are tested; restoration does not replay external effects.
-- [ ] Injected transaction failures and selected real process kills yield the
+- [x] Injected transaction failures and selected real process kills yield the
       documented queued/interrupted/uncertain outcomes.
-- [ ] Explicit cancellation, deadlines and resource cleanup pass targeted race
+- [x] Explicit cancellation, deadlines and resource cleanup pass targeted race
       and lifecycle tests. Cancellation remains serviceable during slow calls.
-- [ ] A model/config change takes effect at its documented boundary while
+- [x] A model/config change takes effect at its documented boundary while
       preserving REPL, history and unrelated resource state.
-- [ ] Content is authorized and bounded; provider encoding leaves durable
+- [x] Content is authorized and bounded; provider encoding leaves durable
       references intact. One real-provider/engine smoke has recorded evidence.
 
 ### Phase 4 — Add recursion through the same execution path

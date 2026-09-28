@@ -34,6 +34,56 @@ Aborting the wait only stops observation; `inputs.cancel` or `turns.cancel`
 explicitly cancels execution. History uses bounded pages and exact decimal-string
 cursors. The client keeps no transcript cache or second execution state machine.
 
+`turns.attempts` reads bounded provider accounting with exact decimal counters.
+Retries have separate attempt IDs, a shared logical-call ID, and a link to the
+completed response. Unknown usage/cost is `null`, independently of known zero.
+
+Use `content.put` with `{session_id, reference_id, media_type, data_base64}` to
+upload up to 4 MiB. Generate and retain a unique reference ID before sending;
+retrying it with the same owner, bytes and media type returns the same reference.
+Submit `{type: 'content', reference_id}` parts alongside text. `content.read`
+takes the owning session and reference IDs and returns verified `data_base64`.
+References are session-scoped; a digest is not an access token. The runtime
+hydrates authorized bytes for the provider while history keeps the reference.
+Each session is limited to 1,024 references and 64 MiB of referenced bytes.
+
+For configured HTTP providers, omit `-scripted` and use the host configuration
+described in [the development guide](../../docs/backend-redesign-development.md#openai-compatible-dispatch-increment).
+
 See [the runnable example](examples/session.mjs), [Go client](../../internal/client/client.go),
-and [real process acceptance](../../scripts/redesign/v4-fixture.test.mjs). Streaming,
-effect authority, engines and product-client adoption follow in later phases.
+and [real process acceptance](../../scripts/redesign/v4-fixture.test.mjs). Product-client adoption remains in progress.
+
+
+The v4 transcript now includes assistant `tool_call` parts with a stable call ID,
+name and JSON arguments, followed by `tool_result` parts in tool messages. A
+result includes its call ID, output string and error flag. Inputs accept only
+text/content parts. Completed calls and results survive interrupted turns; an
+unfinished provider request is recorded as uncertain. The runtime executes both
+Starlark and QuickJS through the same durable code loop and restores committed
+REPL checkpoints across restart. Model changes apply to the next turn and retain
+that session's REPL state.
+
+
+`permissions.list` returns durable decisions for a session. For each pending
+operation, inspect `operations.get` for its exact capability, resource and
+arguments, then call `permissions.resolve` with `{operation_id, approved}`.
+Approval authorizes only that invocation. Explicit standing authority uses
+`grants.create` with a caller-generated ID, session ID, capability and resource;
+`grants.revoke` prevents future dispatches under it. A file grant's resource is
+the session's working directory. The local socket is a trusted-client boundary.
+
+Use `turns.operations` for effects and `turns.cells` for interpreter boundaries.
+A completed write may coexist with an uncertain cell and no usable checkpoint.
+Restart cancels pending permissions and never repeats completed/uncertain effects.
+Do not interpret an interrupted turn or a failed connection as proof that a write
+did not happen. Permission approval after cancellation returns `CONFLICT`.
+
+
+`client.observe(sessionID, {after?: '0', signal?})` yields bounded committed pages
+and a disposable preview. The underlying `sessions.observe` result contains
+`messages`, nullable `preview`, and the current process `epoch`. Each preview has
+an attempt ID, eventual `message_id`, revision, text, incomplete call fragments,
+and a truncation flag. Never execute preview arguments. Upsert committed messages
+by ID; a matching committed ID replaces the preview. Clear provisional display
+when the preview is null or the epoch changes. Aborting this iterator stops
+observation only. It retains a cursor, not a transcript cache.

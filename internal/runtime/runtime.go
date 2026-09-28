@@ -4,6 +4,7 @@ package runtime
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
@@ -12,9 +13,12 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/content"
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/runner"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/store"
+	"github.com/context-labs/whip/internal/tool"
 )
 
 var (
@@ -23,8 +27,10 @@ var (
 )
 
 type Options struct {
-	Workers      int
-	PollInterval time.Duration
+	Workers       int
+	PollInterval  time.Duration
+	EngineCommand []string
+	KernelWorkers int
 }
 type execution struct {
 	turn   session.TurnID
@@ -36,7 +42,11 @@ type completion struct {
 }
 type Runtime struct {
 	store           *store.Store
+	content         *content.Store
 	runner          *runner.Runner
+	tools           *tool.Dispatcher
+	engineManager   *process.Manager
+	kernels         map[session.SessionID]*sessionKernel
 	owner           *owner
 	directory       string
 	host            config.Host
@@ -50,6 +60,9 @@ type Runtime struct {
 	failure         error
 	closeOnce       sync.Once
 	closeErr        error
+	epoch           string
+	previewMu       sync.Mutex
+	previews        map[session.SessionID]*livePreview
 }
 
 // Open acquires exclusive execution ownership before opening fresh host/storage.
@@ -61,6 +74,13 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 	if options.Workers == 0 {
 		options.Workers = 4
 	}
+	if options.KernelWorkers == 0 {
+		options.KernelWorkers = options.Workers
+	}
+	if options.KernelWorkers < 1 || options.KernelWorkers > 64 {
+		return nil, fmt.Errorf("%w: invalid kernel worker limit", session.ErrInvalid)
+	}
+	options.EngineCommand = append([]string(nil), options.EngineCommand...)
 	if options.PollInterval == 0 {
 		options.PollInterval = 100 * time.Millisecond
 	}
@@ -109,15 +129,30 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 			err = errors.Join(err, database.Close())
 		}
 	}()
-	loop, err := runner.New(provider, database)
+	bodies, err := content.New(directory)
 	if err != nil {
 		return nil, err
 	}
-	return &Runtime{
-		store: database, runner: loop, owner: lock, directory: directory, host: host, options: options,
+	if err := bodies.Collect(ctx, database.ContentReferenced); err != nil {
+		return nil, err
+	}
+	if err := database.PruneUnusedContent(ctx); err != nil {
+		return nil, err
+	}
+	r := &Runtime{
+		epoch: "boot_" + rand.Text(), previews: map[session.SessionID]*livePreview{},
+		engineManager: process.NewManager(options.KernelWorkers), kernels: map[session.SessionID]*sessionKernel{},
+		store: database, content: bodies, owner: lock, directory: directory, host: host, options: options,
 		wake: make(chan struct{}, 1), done: make(chan struct{}), active: map[session.SessionID]execution{},
-	}, nil
+	}
+	r.tools = tool.NewDispatcher(database, database)
+	r.runner, err = runner.New(provider, database, database, r, r, r)
+	if err != nil {
+		return nil, err
+	}
+	return r, nil
 }
+
 func (r *Runtime) Identity() session.RuntimeID { return r.store.Identity() }
 func (r *Runtime) SocketPath() string          { return filepath.Join(r.directory, "runtime.sock") }
 func (r *Runtime) Done() <-chan struct{}       { return r.done }
@@ -148,9 +183,16 @@ func (r *Runtime) Close() error {
 			r.cancel()
 		}
 		r.mu.Unlock()
+		r.engineManager.Close()
 		if started {
 			<-r.done
 		}
+		for _, entry := range r.kernels {
+			entry.kernel.Close()
+		}
+		r.previewMu.Lock()
+		clear(r.previews)
+		r.previewMu.Unlock()
 		r.closeErr = errors.Join(r.store.Close(), r.owner.Close())
 	})
 	return r.closeErr

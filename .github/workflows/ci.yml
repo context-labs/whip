@@ -180,7 +180,7 @@ jobs:
       - name: Compact agent receipts and grant retrieval
         run: go test -race -tags=integration ./internal/daemon -run '^TestRecursiveAgent(ReceiptsWithLargeMCPGrants|GrantInspectionAccess)$'
       - name: RLM worker containment
-        run: go test -race ./internal/rlm -run '^(TestKernelEnforcesStepWallOutputHostAndFrameLimits|TestKernelDeadlineReapsProcessGroup)$'
+        run: go test -race ./internal/engine/process -run '^(TestKernelEnforcesStepWallOutputHostAndFrameLimits|TestKernelDeadlineReapsProcessGroup)$'
 
   sdk:
     runs-on: ubuntu-latest

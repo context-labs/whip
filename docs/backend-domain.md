@@ -1,10 +1,9 @@
 # Backend domain and persistence
 
-This is the Phase 1 implementation contract for the
-[backend redesign](backend-redesign-plan.md). The replacement packages are
-internal/session, internal/store, internal/config, and internal/protocol.
-The retained runtime still uses internal/legacy/{session,config,protocol} and
-@whip/legacy-protocol until its replacement is connected in Phase 2.
+This is the implemented domain contract for the
+[backend redesign](backend-redesign-plan.md). The new runtime, runner, RPC and
+SDK use these records directly. Retained applications still use the explicitly
+separate legacy runtime and SDK until their client cutover.
 
 ## Ownership
 
@@ -21,7 +20,18 @@ The retained runtime still uses internal/legacy/{session,config,protocol} and
 | Execution outcome | Turn row; input and receipt outcomes are derived |
 | User transcript payload | Reference to the accepted input; no second body copy |
 | Assistant/tool transcript payload | Message row |
+| Provider dispatch, usage, price snapshot and cost | Model-attempt row, linked to its completed message |
+| Code dispatch, outcome and exact REPL boundary | Cell row, linked to its assistant call and tool-result message |
+| Checkpoint compatibility metadata and body reference | Immutable terminal cell checkpoint |
+| Host-operation intent, dispatch and outcome | Operation row, owned through its cell and turn |
+| Exact session/capability/resource authority | Immutable grant row; revocation is a terminal fact |
+| One-use consent decision | Permission row, linked to its exact operation |
+| Checkpoint image bytes | Durable immutable blob file, verified before restore |
+| Content digest and size | Immutable content-body metadata row |
+| Session access and declared media type | Immutable content-reference row |
+| Content bytes | Durable immutable blob file, verified when read |
 | Provider endpoint and credential reference | Explicit host configuration file |
+| Incomplete provider text and tool-call previews | Bounded runtime memory; never transcript rows |
 | Resolved credential, worker, interpreter, process or client | Execution memory; never session rows |
 
 Root and child sessions have the same records and store methods. Root lookup is
@@ -46,13 +56,14 @@ then explicit overrides. Patches replace whole fields. Nil inherits; an empty
 collection clears. An explicit output policy with a null schema clears a
 structured output contract. Resolution owns deep copies of all collections and
 schemas. Dynamic project files and skill discovery are policies, not frozen
-contents; the runner refreshes them at turn start and records request evidence.
+contents. Refreshing those declared sources is part of the retained context
+behavior being ported; current execution uses the captured instruction text.
 
 Configuration updates compare the expected revision and append a new immutable
 revision. A running turn retains its captured revision; the next claim captures
 the current one. Changing model selection never rewrites history, topology or
-checkpoints. Host route changes affect future dispatch through the named route;
-Phase 3 records each actual route/pricing snapshot on the model attempt.
+checkpoints. Host route changes affect future dispatch through the named route.
+Each prepared request records its actual route/pricing snapshot on the model attempt.
 When spawning without a new definition, the child copies the parent's current
 effective configuration before applying overrides. It does not reapply the
 original template and accidentally undo explicit parent updates. Selecting a
@@ -73,20 +84,38 @@ overrides. Working directories are absolute and fixed for a session's lifetime.
    implicit. FIFO order comes from the input insertion ordinal.
 3. **Transcript append:** stable message identity and per-session sequence make
    retries idempotent. Completed entries survive restart even before turn finish.
-   Streaming fragments remain provisional. Root and child use the same table.
+   Tool calls are assistant parts; tool results reference their call ID and
+   occupy their own tool message. Input cannot inject either. Another assistant
+   message cannot pass unanswered calls. Root and child use the same table.
+   Provider deltas are disposable previews keyed to the eventual message ID.
+   Only validated completed responses become transcript messages.
 4. **Finish:** optional completed messages and the terminal turn outcome commit
    together. Input and receipt observations join the turn rather than copying
    terminal states. A failed persistence attempt can retry this transaction; it
    must not call a provider or repeat an effect.
-5. **Recovery:** opening a store never starts or interrupts execution. After
+5. **Model dispatch and settlement:** reservation precedes exclusive dispatch.
+   One attempt identifies one actual request, with a logical-call identity for
+   retries. Terminal outcome, usage, calculated/provider cost and its completed
+   assistant message commit together. Retrying settlement cannot redispatch.
+   Missing usage or prices remain unknown; explicitly free prices can prove zero.
+   Arithmetic overflow preserves output and evidence with unknown cost.
+6. **Recovery:** opening a store never starts or interrupts execution. After
    acquiring exclusive runtime ownership, the runtime explicitly interrupts
    nonterminal turns. Unclaimed queued inputs remain queued; claimed inputs stay
    linked to the interrupted turn and are never automatically requeued.
+   In the same transaction, reserved attempts become cancelled with known zero
+   cost and dispatched attempts become uncertain. A turn cannot finish while
+   an attempt, operation or code cell remains unsettled. Waiting/ready operations
+   become cancelled; dispatched operations become uncertain. Pending permissions
+   are cancelled before cells settle, so a lost live waiter cannot resume.
+   Recovery also records an uncertain
+   result for an admitted unfinished cell, and a not-dispatched result for an
+   unanswered assistant call that never acquired a cell record.
 
 Turn transitions are running → cancelling → cancelled/interrupted or
 running → succeeded/failed/cancelled/interrupted. Terminal outcomes cannot
 change. Cancellation requests persist intent; they do not claim that an external
-effect has stopped. Phase 3 supplies dispatch evidence and effect uncertainty.
+effect has stopped. Operation dispatch and settlement record that evidence separately.
 
 Queued input cancellation removes its eligibility. Claimed input cancellation
 targets its turn. Stopping a session pauses admission/claims and requests
@@ -111,6 +140,33 @@ sequence. An empty page means the end; a short page can reflect the byte budget.
 Messages and configuration documents are bounded at admission. SQL timestamps
 use integer UTC microseconds, avoiding mixed-precision textual ordering.
 
+## Content boundary
+
+`content.put` publishes bytes durably before registering body metadata and a
+session reference. A caller-supplied reference ID makes upload retries idempotent;
+changing its owner, bytes or media type conflicts. The body table owns digest and
+size once, while references own session access and media interpretation. A digest
+alone never authorizes reading. The trusted client can select a session; runner
+hydration always uses the actual executing session's identity.
+
+Input admission and completed-message insertion validate every reference in the
+same SQL transaction as their write. Missing and foreign references produce the
+same not-found outcome, without leaving an input, receipt or output. Existing
+admission/message retries preserve their original idempotency behavior.
+
+Bodies and reads are limited to 4 MiB. Each session may retain 1,024 references
+and 64 MiB of referenced bytes (including repeated references to one body).
+Provider context hydration is bounded in aggregate and checks file size/digest;
+encoding also counts repeated occurrences. Text and supported images become
+temporary provider payloads, while durable messages retain only reference IDs.
+Special files and symlinks cannot substitute for a body during verified reads.
+
+Session deletion removes references transactionally. Shared bytes remain available
+to surviving owners; checkpoint references also retain their image files. Physical orphan collection runs only during exclusive
+startup, before uploads or requests can run, in bounded directory batches. This
+also collects files left by successful publication followed by failed SQL.
+No live deletion can race the gap between publication and registration.
+
 ## Host and schema boundary
 
 Initialization takes explicit paths and never discovers an installed daemon or
@@ -124,18 +180,19 @@ runtime identity and seeded revisions; separate databases receive distinct
 identities. Future versions of this fresh schema may have ordinary migrations.
 The store owns database transactions only, with no resource-manager construction.
 
-The first real-provider execution implementation in Phase 3 will use the OpenAI-compatible
-chat-completions adapter and Starlark. This selects protocol/engine adapters, not
-a hardcoded commercial model or credentials. QuickJS remains a declared tree
-engine and is implemented in Phase 5.
+The new runtime implements the OpenAI-compatible chat-completions adapter and
+both Starlark and QuickJS subprocess engines. These are protocol/engine adapters,
+not a hardcoded commercial model or credentials. The remaining provider families
+and product integrations are still being ported.
 
 ## Phase boundary and verification
 
 Phase 1 delivers persistence and initial v4 wire declarations/generation fixtures.
 Phase 2 adds runtime scheduling, RPC serving, SDK/Go clients and a full scripted
-turn through the new stack. Model attempts, effects, checkpoint bytes, grants,
-budgets, mail and shared state are added by their owning later phases; no empty
-repositories or speculative tables are created for them here.
+turn through the new stack. Phase 3 adds model attempts, authorized content, the code loop and checkpoint
+boundaries. Scoped host effects and grants remain in progress; budgets, mail and
+shared state follow in Phase 4. No empty repositories or speculative tables are
+created for those capabilities.
 
 Passing tests against real temporary SQLite cover constraints,
 transaction rollback, concurrent claims across connections, pinned configuration,
@@ -152,7 +209,8 @@ and SQLite, and removes a dead owner's socket. It starts no work. `Start` perfor
 recovery under that execution lock and starts a bounded scheduler. One worker
 owns one claimed session turn; SQL also enforces this invariant. Workers do not
 hold the scheduler mutex across provider calls or database operations. Closing
-the runtime cancels and joins workers before releasing storage and its lock.
+the runtime cancels and joins workers, closes owned kernels, then releases storage
+and its lock. Successful subtree deletion also closes its live kernels.
 
 `runner` projects the durable transcript into a provider request using the turn's
 captured configuration. It has injected provider/transcript interfaces and no
@@ -179,4 +237,129 @@ The SDK and Go client initially observe by polling receipts and reading bounded
 history pages. They keep no event log or duplicate transcript authority. Stable
 request identities recover lost acknowledgements; ambiguous transport failures
 do not imply rejection. Explicit input/turn cancellation is separate from local
-wait cancellation. Streaming and product-facing synchronized views come later.
+wait cancellation. Bounded preview observation is described below; product-facing
+synchronized views are part of the later client cutover.
+
+
+## Code execution and checkpoint boundary
+
+The runner advertises `execute` and repeats model → code → model through injected
+interfaces, with at most 32 logical model calls and 64 dispatched cells per turn.
+Each retry has its own attempt under the logical call. Completed assistant calls
+commit before code admission. Model tool declarations describe available syntax;
+they do not authorize host effects. The tool dispatcher separately admits and
+authorizes supported host operations.
+
+A cell names its turn, committed assistant message and provider call ID. An atomic
+begin admits exactly one execution. The runtime serializes each session's kernel
+and pins process capacity through cell settlement, releasing capacity before the
+next provider call. Kernels are disposable runtime-owned resources. Loading a
+session or updating its model does not recreate its REPL or start execution.
+
+The engine stages a checkpoint after evaluation. Immutable bytes are published
+first; the tool-result message, cell outcome and checkpoint reference then commit
+in one SQL transaction. An unchanged image may reuse the preceding body at the
+new cell boundary. A failed publication/commit cannot make the candidate image
+restorable. Startup collection retains committed checkpoint bodies and removes
+orphans. Engine protocol sequence numbers are not transcript or cell watermarks.
+
+A correlated engine result can report a language error while retaining useful
+partially changed globals. It is distinct from transport loss/cancellation, which
+leaves the cell outcome uncertain. A completed cell can also lack a usable
+checkpoint. Both facts remain visible: its result survives, while further code
+execution fails explicitly instead of loading an older image. Text-only turns and
+history inspection remain possible; a fresh session starts a fresh REPL. No repair
+or replay is automatic. There is not yet a client operation to reset an existing
+REPL boundary.
+
+Restoration verifies the body digest/size and engine build, ABI, profile and
+fidelity. Starlark checkpoints are partial; skipped globals and restoration
+failures are recorded in tool results. QuickJS checkpoints preserve the whole
+image within their resource contract. Restoration never evaluates past cells or
+reissues host calls. Both engines preserve state across model changes, eviction
+and restart through the same runtime and storage path.
+
+
+## Host operations and permission decisions
+
+`internal/tool` prepares bounded host requests and coordinates their durable
+admission, consent and dispatch through consumer-owned interfaces. It owns no SQL,
+interpreter or scheduler. The runtime binds each host invocation to its running
+cell; the store derives the owning turn and session from that cell. The operation
+keeps normalized immutable arguments. Its ID is stable for the cell/invocation
+identity; a repeated identity cannot execute the effect again.
+
+A standing grant matches one session, capability and resource exactly. Workspace
+file capabilities use the session's fixed working directory as their resource;
+`files.read`, `files.write` and `files.patch` are separate capabilities. Workspace
+scope permits relative paths within that directory, not arbitrary host paths.
+Creating standing authority is an explicit trusted-client operation. Templates,
+model instructions, child relationships and an existing workspace confer none.
+Resolving a permission as approved creates a grant bound to that exact operation,
+including its normalized arguments. The next invocation needs its own decision.
+
+An operation moves from waiting → ready → dispatched → succeeded/failed/uncertain.
+Waiting/ready operations can instead become denied/cancelled. Consent, one-use
+grant creation and readiness commit together. Filesystem locks and root handles
+are acquired after consent, then SQL rechecks the live owner and unrevoked grant
+at dispatch. Revocation committed before dispatch prevents the effect; revocation
+after dispatch cannot claim an already admitted effect stopped. No SQL transaction
+contains filesystem execution. A cell cannot settle with unfinished operations.
+
+The filesystem adapter uses rooted handles, canonical cancellable mutation locks,
+regular-file checks and bounded UTF-8 requests/results. Writes/patches publish with
+an atomic same-directory rename and sync; each prepared request executes once.
+Read pages default to 2,000 lines with a 256 KiB source cap and 32 KiB output cap.
+A null `next_offset` means an incomplete line/source cannot resume by line number.
+Mutation errors conservatively record uncertainty. Successful effects retain that
+outcome even when cancellation arrives before result presentation. SQL settlement
+may retry for five seconds without invoking the effect again. Dispatched calls
+have a 30-second execution context; waiting for consent remains cancellable.
+
+A permission is durable decision evidence, not a live waiter. Restart cancels
+undispatched operations and pending permissions, marks dispatched unsettled
+operations uncertain, then reconciles cells/turns in the same transaction.
+Completed operation evidence remains unchanged even if its cell's checkpoint was
+lost. Late approval of a cancelled permission conflicts. No effect is replayed to
+recover an interpreter image. Grants and operation evidence are retained until
+explicit owner deletion; current limits are 1,024 grants per session and 1,024
+operations per turn. Lists use bounded 100-item/4 MiB pages.
+
+The SDK exposes `grants.create/list/revoke`, `permissions.list/resolve`,
+`operations.get`, `turns.operations`, `cells.get` and `turns.cells`. These views
+query durable records; they do not introduce another authority cache.
+
+
+## Provisional output and observation
+
+The provider owns response assembly; the runner owns dispatch and commit. A
+synchronous chunk callback publishes text and incomplete tool arguments into a
+runtime-owned preview for the active attempt. The runtime retains at most 64
+previews of 128 KiB each, uses UTF-8-safe truncation, and exposes truncation
+explicitly. It retains no completed preview cache or replay log. Preview callbacks
+cannot start effects, veto execution or inherit an observing client's lifetime.
+
+OpenAI-compatible requests ask for SSE and usage. The adapter also accepts bounded
+JSON responses. Streaming requires both a valid completion reason and the final
+transport marker; malformed, truncated or cancelled streams return no executable
+parts and are recorded as uncertain. Known usage/cost received before failure
+remains evidence. Each retry has its own attempt and preview identity. The prepared
+wire body, route and price snapshot remain frozen across retries.
+
+`sessions.observe` returns bounded committed history after a decimal cursor, a
+nullable preview and a fresh process epoch. A preview identifies its turn,
+attempt and eventual committed message, with its own revision. It is not a
+message and may contain incomplete JSON arguments. The runtime snapshots it before
+reading attempt/history state, suppressing it when its committed message is
+visible. SQL settlement retries keep the preview alive without redispatching.
+Success replaces it by the committed message ID; failure discards it without
+inventing an assistant message. Restart changes the epoch and drops all previews
+while the ordinary durable attempt/turn recovery records uncertainty.
+
+The SDK's `observe` async iterator drains history pages, then polls live state at
+100 ms. It retains only the exact history cursor and last preview revision. A
+slow or disconnected observer cannot block the provider or cancel accepted work.
+Consumers upsert completed messages by ID, replace matching previews, and clear
+a preview on null or epoch change. Polling reads current state, so losing a
+notification cannot leave a durable history gap. Aborting observation stops only
+the observer; execution cancellation remains an explicit operation.

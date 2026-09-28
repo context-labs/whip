@@ -1,5 +1,5 @@
 import { assertValid } from '@whip/protocol';
-import type { Admission, InitializeResult, Operations, RequestIdentity } from '@whip/protocol';
+import type { Admission, InitializeResult, Operations, RequestIdentity, SessionObservation } from '@whip/protocol';
 import { decodeResponse, operation } from './wire.js';
 import type { CallOptions, Method, Transport } from './wire.js';
 
@@ -7,7 +7,7 @@ export { DeliveryError, RemoteError } from './wire.js';
 export type { CallOptions, Transport } from './wire.js';
 export type * from '@whip/protocol';
 
-/** No conversation or execution state lives here. All observations read Go's durable records. */
+/** No conversation or execution state lives here. Previews are disposable runtime projections. */
 export class Client {
   private sequence = 0;
   private constructor(private readonly transport: Transport, private readonly initial: InitializeResult, readonly clientID: string) {}
@@ -48,6 +48,33 @@ export class Client {
       const result = await this.recover(requestID, options);
       if (result.receipt.deleted_at || result.input?.state === 'cancelled' || result.turn?.finished_at) return result;
       await delay(25, options.signal);
+    }
+  }
+
+  /**
+   * Read committed pages and disposable previews. Replace a preview by message_id
+   * when its committed message arrives; a null preview or changed epoch clears it.
+   * This iterator retains only a cursor and preview revision, never a transcript.
+   * Aborting observation does not cancel the session's work.
+   */
+  async *observe(sessionID: string, options: CallOptions & { after?: string } = {}): AsyncGenerator<SessionObservation> {
+    let after = options.after ?? '0';
+    let previous: string | undefined;
+    for (;;) {
+      const snapshot = await this.call('sessions.observe', { session_id: sessionID, after, limit: 100 }, { signal: options.signal });
+      const messages = snapshot.messages ?? [];
+      const preview = snapshot.preview;
+      const revision = snapshot.epoch + ':' + (preview ? preview.attempt_id + ':' + preview.revision : 'none');
+      for (const message of messages) {
+        if (BigInt(message.sequence) <= BigInt(after)) throw new TypeError('Observation history cursor did not advance');
+        after = message.sequence;
+      }
+      if (messages.length || previous !== revision) {
+        previous = revision;
+        yield snapshot;
+      }
+      if (messages.length) continue; // Drain bounded history pages before polling.
+      await delay(100, options.signal);
     }
   }
 

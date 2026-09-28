@@ -4,6 +4,9 @@ package model
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"slices"
 	"time"
@@ -21,8 +24,90 @@ type Request struct {
 	Selection    session.ModelSelection
 	Instructions string
 	Messages     []Message
+	Contents     map[string]Content
+	Tools        []Tool
 }
-type Response struct{ Parts []session.Part }
+
+type Tool struct {
+	Name        string
+	Description string
+	InputSchema json.RawMessage
+}
+
+// Content is a bounded, authorized request projection. Durable messages keep
+// only references; these bytes live only while preparing a provider request.
+type Content struct {
+	MediaType string
+	Data      []byte
+}
+type Response struct {
+	Parts               []session.Part
+	Usage               session.ModelUsage
+	ReportedCostNanoUSD *int64
+	UsageNote           *string
+}
+
+// Chunk is provisional output from one provider attempt. Its fields contain
+// incremental fragments, not snapshots or executable transcript parts.
+type Chunk struct {
+	Text string
+	Call *CallChunk
+}
+
+type CallChunk struct {
+	Index     int
+	ID        string
+	Name      string
+	Arguments string
+}
+
+// Prepared freezes the actual route, pricing and encoded request before durable
+// admission. Execute is one external attempt; it must not hide provider retries.
+// Callbacks run synchronously and stop before Execute returns.
+type Prepared struct {
+	Snapshot    session.ModelRequestSnapshot
+	Execute     func(context.Context, func(Chunk)) (Response, error)
+	MaxAttempts int
+}
+
+func (s Scripted) Prepare(_ context.Context, request Request) (Prepared, error) {
+	raw, err := json.Marshal(request)
+	if err != nil {
+		return Prepared{}, err
+	}
+	var frozen Request
+	if err := json.Unmarshal(raw, &frozen); err != nil {
+		return Prepared{}, err
+	}
+	request = frozen
+	hash := sha256.Sum256(raw)
+	zero := new(int64(0))
+	return Prepared{Snapshot: session.ModelRequestSnapshot{
+		Purpose: "turn", Model: request.Selection, Route: "scripted://fixture", Adapter: "scripted", RequestDigest: hex.EncodeToString(hash[:]),
+		Prices: session.ModelPrices{Input: zero, Output: zero, Reasoning: zero, CachedInput: zero, CachedOutput: zero}, MaxOutputTokens: 4096, TimeoutMillis: 600000,
+	}, Execute: func(ctx context.Context, emit func(Chunk)) (Response, error) {
+		response, err := s.Complete(ctx, request)
+		if err == nil {
+			emitResponse(response, emit)
+		}
+		return response, err
+	}}, nil
+}
+
+func emitResponse(response Response, emit func(Chunk)) {
+	if emit == nil {
+		return
+	}
+	index := 0
+	for _, part := range response.Parts {
+		if part.Type == "text" {
+			emit(Chunk{Text: part.Text})
+		} else if part.Call != nil {
+			emit(Chunk{Call: &CallChunk{Index: index, ID: part.Call.ID, Name: part.Call.Name, Arguments: string(part.Call.Arguments)}})
+			index++
+		}
+	}
+}
 
 // Scripted is a deterministic provider for disposable development and contract
 // fixtures. It is injected into the ordinary runner, not a second runtime path.

@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/context-labs/whip/internal/engine/process"
 )
 
 // CustomTool describes one definition-declared tool for the runtime guide. The
@@ -29,7 +31,7 @@ const maxToolDescriptionBytes = 240
 // ModuleNames returns every host module in the order the runtime guide
 // describes them.
 func ModuleNames() []string {
-	names := make([]string, 0, len(moduleRegistry))
+	names := make([]string, 0, len(process.Modules()))
 	for _, line := range guideCatalog {
 		for _, module := range line.modules {
 			if !slices.Contains(names, module) {
@@ -64,17 +66,18 @@ func SystemPrompt(engine, persona string, modules []string, tools []CustomTool, 
 func RuntimeGuide(engine string, modules []string, tools []CustomTool, output json.RawMessage, workingDirectory string, history *ContextHandle) (string, error) {
 	// Engine descriptors hash this guide, so resolve the id directly.
 	if engine == "" {
-		engine = EngineStarlark
+		engine = process.EngineStarlark
 	}
-	if engine != EngineStarlark && engine != EngineQuickJS {
+	if engine != process.EngineStarlark && engine != process.EngineQuickJS {
 		return "", fmt.Errorf("unsupported execution engine %q", engine)
 	}
+	registry := process.Modules()
 	for _, module := range modules {
-		if _, ok := moduleRegistry[module]; !ok {
+		if _, ok := registry[module]; !ok {
 			return "", fmt.Errorf("unknown RLM module %q", module)
 		}
 	}
-	javascript := engine == EngineQuickJS
+	javascript := engine == process.EngineQuickJS
 	var b strings.Builder
 	b.WriteString(guideIntro.text(javascript))
 	b.WriteString("\n\n")

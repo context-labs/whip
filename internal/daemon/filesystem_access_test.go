@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
 )
@@ -52,7 +53,7 @@ files.patch(path=%q, old="before", new="after")
 
 	runs := &sync.Map{}
 	runtime.setRunTurnHook(observeRunTurn(runs))
-	result, err := runtime.rootNode.kernel.Exec(t.Context(), `agents.spawn(name="keeper", prompt="Finish immediately.", report="message")["id"]`)
+	result, err := runtime.rootNode.kernel.Exec(t.Context(), process.Cell{Code: `agents.spawn(name="keeper", prompt="Finish immediately.", report="message")["id"]`})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +144,7 @@ func assertFilesystemCell(t *testing.T, node *AgentSession, code string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	result, err := node.kernel.Exec(ctx, code)
+	result, err := node.kernel.Exec(ctx, process.Cell{Code: code})
 	if err != nil || result.Value != true {
 		t.Fatalf("filesystem cell for %s: result=%+v error=%v", node.id, result, err)
 	}
@@ -153,7 +154,7 @@ func deniedFilesystemCell(t *testing.T, node *AgentSession, code string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	_, err := node.kernel.Exec(ctx, code)
+	_, err := node.kernel.Exec(ctx, process.Cell{Code: code})
 	if err == nil || !strings.Contains(err.Error(), "capability denied") {
 		t.Fatalf("out-of-scope filesystem cell for %s: %v", node.id, err)
 	}

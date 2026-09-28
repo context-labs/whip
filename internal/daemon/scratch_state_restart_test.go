@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/rlm"
 )
 
 // loadPersistedScratch follows the same migration preference as the kernel:
@@ -38,7 +38,7 @@ func loadPersistedScratch(store *session.Store, ctx context.Context, rootID, age
 func TestScratchCorruptDurableManifestPreservesCheckpoint(t *testing.T) {
 	store, root, runtime := openRecursiveRuntime(t, llm.New("http://127.0.0.1:1", "key"), 1)
 	node := runtime.rootNode
-	if _, err := node.kernel.Exec(t.Context(), "good = 42"); err != nil {
+	if _, err := node.kernel.Exec(t.Context(), process.Cell{Code: "good = 42"}); err != nil {
 		t.Fatal(err)
 	}
 	envelope, image, err := store.LoadAgentCheckpoint(t.Context(), root.ID(), node.id)
@@ -61,7 +61,7 @@ func TestScratchCorruptDurableManifestPreservesCheckpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	for range 2 {
-		if _, err := node.kernel.Exec(t.Context(), "good"); err == nil {
+		if _, err := node.kernel.Exec(t.Context(), process.Cell{Code: "good"}); err == nil {
 			t.Fatal("corrupt manifest was ignored")
 		}
 		if node.kernel.Started() || runtime.kernels.Active() != 0 {
@@ -75,7 +75,7 @@ func TestScratchCorruptDurableManifestPreservesCheckpoint(t *testing.T) {
 	if err := store.SaveAgentCheckpoint(t.Context(), root.ID(), node.id, envelope, image); err != nil {
 		t.Fatal(err)
 	}
-	if result, err := node.kernel.Exec(t.Context(), "good == 42"); err != nil || result.Value != true {
+	if result, err := node.kernel.Exec(t.Context(), process.Cell{Code: "good == 42"}); err != nil || result.Value != true {
 		t.Fatalf("repaired checkpoint did not restore: result=%+v err=%v", result, err)
 	}
 }
@@ -115,13 +115,13 @@ registry = [remember]
 state.private_set(key="memory", value={"owner": %q, "big": 1 << 100})
 state.private_set(key="effects", value=[])
 True`, node.id)
-		if result, err := node.kernel.Exec(t.Context(), code); err != nil || result.Value != true {
+		if result, err := node.kernel.Exec(t.Context(), process.Cell{Code: code}); err != nil || result.Value != true {
 			t.Fatalf("initial %s result=%+v err=%v", node.id, result, err)
 		}
-		if _, err := node.kernel.Exec(t.Context(), "number = 1\ndef stale():\n    return number"); err != nil {
+		if _, err := node.kernel.Exec(t.Context(), process.Cell{Code: "number = 1\ndef stale():\n    return number"}); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := node.kernel.Exec(t.Context(), "number = 2"); err != nil {
+		if _, err := node.kernel.Exec(t.Context(), process.Cell{Code: "number = 2"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -160,7 +160,7 @@ memory = state.private_get(key="memory")["value"]
 unchanged = state.private_get(key="effects")["value"] == []
 record()
 unchanged and container["items"] == [1, 42] and remember() == [1, 42] and big == 1 << 100 and memory == {"owner": %q, "big": 1 << 100} and state.private_get(key="effects")["value"] == [1]`, node.id)
-		result, err := node.kernel.Exec(ctx, code)
+		result, err := node.kernel.Exec(ctx, process.Cell{Code: code})
 		release()
 		if err != nil || result.Value != true {
 			t.Fatalf("restored %s result=%+v err=%v", node.id, result, err)
@@ -204,11 +204,11 @@ func TestScratchStateContractReachesProvider(t *testing.T) {
 func TestLegacyScratchMigratesToOpaqueCheckpoint(t *testing.T) {
 	store, root, runtime := openRecursiveRuntime(t, llm.New("http://127.0.0.1:1", "key"), 1)
 	node := runtime.rootNode
-	legacy, err := rlm.NewKernel(rlm.KernelOptions{Command: recursiveKernelCommand, Scratch: scratchStore{node: node}})
+	legacy, err := process.NewKernel(process.KernelOptions{Command: recursiveKernelCommand, Scratch: scratchStore{node: node}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := legacy.Exec(t.Context(), "legacy_value = 42"); err != nil {
+	if _, err := legacy.Exec(t.Context(), process.Cell{Code: "legacy_value = 42"}); err != nil {
 		t.Fatal(err)
 	}
 	legacy.Close()
@@ -216,7 +216,7 @@ func TestLegacyScratchMigratesToOpaqueCheckpoint(t *testing.T) {
 	if err != nil || before == "" {
 		t.Fatalf("legacy fixture=%q %v", before, err)
 	}
-	if result, err := node.kernel.Exec(t.Context(), "legacy_value == 42"); err != nil || result.Value != true {
+	if result, err := node.kernel.Exec(t.Context(), process.Cell{Code: "legacy_value == 42"}); err != nil || result.Value != true {
 		t.Fatalf("legacy restore=%+v %v", result, err)
 	}
 	if envelope, _, err := store.LoadAgentCheckpoint(t.Context(), root.ID(), node.id); err != nil || len(envelope) == 0 {

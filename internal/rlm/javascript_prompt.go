@@ -3,13 +3,15 @@ package rlm
 import (
 	"regexp"
 	"strings"
+
+	"github.com/context-labs/whip/internal/engine/process"
 )
 
 var keywordArgument = regexp.MustCompile(`\b([A-Za-z_][A-Za-z_0-9]*)=`)
 
 func IdentityBlockForEngine(engineID string, identity Identity) string {
 	text := IdentityBlock(identity)
-	if engineID == EngineQuickJS {
+	if engineID == process.EngineQuickJS {
 		return javascriptExamples(text)
 	}
 	return text
@@ -18,10 +20,11 @@ func IdentityBlockForEngine(engineID string, identity Identity) string {
 // Only rewrite actual host-call examples, leaving policy prose and local APIs
 // unchanged. This also covers shared mailbox, citation and identity guidance.
 func javascriptExamples(text string) string {
+	registry := process.Modules()
 	var result strings.Builder
 	for i := 0; i < len(text); {
 		matched := false
-		for module, operations := range moduleRegistry {
+		for module, operations := range registry {
 			for _, operation := range operations {
 				prefix := module + "." + operation + "("
 				if !strings.HasPrefix(text[i:], prefix) {
