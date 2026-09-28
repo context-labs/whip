@@ -110,9 +110,11 @@ Five inherited findings are recorded below rather than suppressed in source.
 Vulnerability checks have no baseline exclusion. Newly added packages have no
 baseline code to exclude.
 
-Required-check enforcement is a repository ruleset setting, separate from this
-workflow file. Record its activation and observed remote runs in the evidence
-below; workflow syntax validation alone is not evidence of enforcement.
+The active [integration-branch ruleset](https://github.com/context-labs/whip/rules/24090266)
+requires the `redesign` context from GitHub Actions, with an up-to-date base. Its
+only target is `refs/heads/codex/backend-redesign`. This is a repository setting
+separate from the workflow file; its effective branch rules were read back after
+creation. Remote failure/success evidence is recorded below.
 
 ## Baseline and phase 0 evidence
 
@@ -147,10 +149,16 @@ Go code and does not change their semantics merely to clear the lint baseline.
 | `task check:analysis` | Passed; 4.46 seconds with warm tool caches, no new lint findings or reachable vulnerabilities |
 | Deliberate failing test in `internal/content` | `check:fast` failed with the expected marker in 0.71 seconds; test removed and branch hook passed |
 | Manual fixture launcher, `--minutes=1` | Started, created SQLite, exited successfully on SIGTERM and removed its temporary directory; 1.67 seconds |
-| Deliberate incorrect fixture assertion | Failed and retained database, observations and daemon output; corrected scenario then passed |
+| Initial fixture assertion failure | Retained database, observations and daemon output; correcting the accounting check (unknown cost is independent of reported/estimated usage) produced a passing scenario |
 | Workflow and patch validation | `actionlint` and `git diff --check` passed |
 
 Logs and timings are under the ignored local `test-results/redesign/` directory.
 The existing daemon restore failure remains outside the initial active gate and
 is tracked above. These measurements do not include cold dependency downloads.
 Remote CI and required-check enforcement are the remaining phase 0 acceptance.
+
+The [remote canary run](https://github.com/context-labs/whip/actions/runs/36364503714)
+deliberately introduced `TestRedesignGateCanary`. The test failed in both OS jobs,
+analysis passed, and the required `redesign` aggregate failed. `gh pr checks 197
+--required` reported that failed context. The temporary test was then removed;
+the restored full phase gate must pass before phase 0 closes.
