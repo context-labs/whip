@@ -58,6 +58,8 @@ func (s *responsesStream) consume(raw []byte) (bool, error) {
 	case "response.output_text.delta", "response.refusal.delta":
 		s.text.WriteString(event.Delta)
 		return false, s.chunk(Chunk{Text: event.Delta})
+	case "response.reasoning_summary_text.delta":
+		return false, s.chunk(Chunk{Reasoning: event.Delta})
 	case "response.output_item.added", "response.output_item.done":
 		var item responseItem
 		if json.Unmarshal(event.Item, &item) != nil {

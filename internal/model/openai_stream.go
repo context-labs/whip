@@ -151,6 +151,7 @@ func (s *chatStream) consume(raw []byte) error {
 	var delta struct {
 		Role      string `json:"role"`
 		Content   string `json:"content"`
+		Reasoning string `json:"reasoning_content"`
 		ToolCalls []struct {
 			Index    *int             `json:"index"`
 			ID       string           `json:"id"`
@@ -177,6 +178,11 @@ func (s *chatStream) consume(raw []byte) error {
 	s.text.WriteString(delta.Content)
 	if delta.Content != "" {
 		if err := s.report(Chunk{Text: delta.Content}); err != nil {
+			return err
+		}
+	}
+	if delta.Reasoning != "" {
+		if err := s.report(Chunk{Reasoning: delta.Reasoning}); err != nil {
 			return err
 		}
 	}
