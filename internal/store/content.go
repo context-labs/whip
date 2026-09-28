@@ -18,7 +18,14 @@ func (s *Store) RegisterContent(ctx context.Context, reference session.ContentRe
 		return result, err
 	}
 	err = s.write(ctx, func(tx *sql.Tx) error {
+		var exists bool
+		if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM content_references WHERE id=?)", reference.ID).Scan(&exists); err != nil {
+			return err
+		}
 		result, err = registerContent(ctx, tx, reference)
+		if err == nil && !exists {
+			err = chargeWrite(ctx, tx, reference.SessionID, "content", reference.ID, 0, reference.Size)
+		}
 		return err
 	})
 	return result, err

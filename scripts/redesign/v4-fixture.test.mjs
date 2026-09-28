@@ -192,6 +192,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await assert.rejects(Client.connect(unixSocket(runtime.info.socket), { clientID: 'wrong', expectedRuntimeID: 'different', ...deadline() }), error => error instanceof RemoteError && error.kind === 'IDENTITY');
     await resourceAcceptance(runtime, client, createParams, evidence);
     await budgetAcceptance(client, createParams, evidence);
+    await writeAllowanceAcceptance(runtime, client, createParams, evidence);
     await mailAcceptance(runtime, client, createParams, evidence);
     await stateAcceptance(runtime, client, createParams, evidence);
     await stateSubscriptionAcceptance(runtime, client, createParams, evidence);
@@ -584,8 +585,10 @@ async function streamAcceptance(runtime, client, createParams, evidence) {
 async function budgetAcceptance(client, createParams, evidence) {
   const { root } = await client.call('trees.create', createParams, deadline());
   const initial = await client.call('budgets.list', { session_id: root.id }, deadline());
-  assert.equal(initial.items.length, 4);
-  assert.ok(initial.items.every(budget => budget.limit === null && budget.revision === '0' && budget.used === '0'));
+  assert.equal(initial.items.length, 6);
+  assert.ok(initial.items.filter(budget => budget.kind.startsWith('model_')).every(budget => budget.limit === null && budget.revision === '0' && budget.used === '0'));
+  assert.equal(initial.items.find(budget => budget.kind === 'logical_writes').limit, '100000');
+  assert.equal(initial.items.find(budget => budget.kind === 'logical_write_bytes').limit, '1073741824');
   const limited = await client.call('budgets.set', { session_id: root.id, expected_revision: '0', budget: { kind: 'model_calls', limit: '2' } }, deadline());
   assert.equal(limited.revision, '1');
   await assert.rejects(client.call('budgets.set', { session_id: root.id, expected_revision: '0', budget: { kind: 'model_calls', limit: '3' } }, deadline()), error => error.kind === 'CONFLICT');
@@ -604,6 +607,47 @@ async function budgetAcceptance(client, createParams, evidence) {
   assert.equal(blocked.turn.state, 'failed');
   assert.deepEqual((await client.call('turns.attempts', { turn_id: blocked.turn.id, limit: 100 }, deadline())).items, []);
   evidence.push({ budgetInitial: initial, budgetCharged: charged, budgetBlocked: blocked });
+}
+
+async function writeAllowanceAcceptance(runtime, client, createParams, evidence) {
+  const { root } = await client.call('trees.create', createParams, deadline());
+  const inspect = sessionID => client.call('budgets.list', { session_id: sessionID }, deadline());
+  const initial = await inspect(root.id);
+  for (const [kind, limit] of [['logical_writes', '3'], ['logical_write_bytes', '11']]) {
+    const current = initial.items.find(item => item.kind === kind);
+    await client.call('budgets.set', { session_id: root.id, expected_revision: current.revision, budget: { kind, limit } }, deadline());
+  }
+  const spawn = { parent_id: root.id, parts: [{ type: 'text', text: 'child' }], grant_ids: [], overrides: {} };
+  const child = await client.spawn(spawn, 'write:child', deadline());
+  await client.wait('write:child', deadline());
+  const encode = raw => Buffer.from(raw).toString('base64');
+  const params = { session_id: child.session.id, scope: 'tree', key: 'write-allowance', expected_revision: '0', data_base64: encode('[1]') };
+  const first = await client.writeState(params, 'write:first', deadline());
+  const append = { ...params, expected_revision: first.revision, data_base64: encode('[2]') };
+  const second = await client.appendState(append, 'write:second', deadline());
+  const charged = await inspect(root.id);
+  for (const [kind, used] of [['logical_writes', '3'], ['logical_write_bytes', '11']]) {
+    const budget = charged.items.find(item => item.kind === kind);
+    assert.equal(budget.used, used, 'spawn and submitted suffix must each charge once');
+    assert.equal(budget.reserved, '0'); assert.equal(budget.uncertain, '0');
+  }
+  assert.deepEqual(await client.appendState(append, 'write:second', deadline()), second);
+  await assert.rejects(client.writeState({ ...params, key: 'denied' }, 'write:denied', deadline()), error => error.kind === 'LIMIT');
+  await assert.rejects(client.call('state.get', { session_id: root.id, scope: 'tree', key: 'denied' }, deadline()), error => error.kind === 'NOT_FOUND');
+  await client.submit(child.session.id, [{ type: 'text', text: 'human input and model settlement remain available' }], 'write:human', deadline());
+  assert.equal((await client.wait('write:human', deadline())).turn.state, 'succeeded');
+  await runtime.stop(); await runtime.start('0');
+  const restarted = await inspect(root.id);
+  assert.deepEqual(restarted.items.filter(item => item.kind.startsWith('logical_')), charged.items.filter(item => item.kind.startsWith('logical_')));
+  await client.call('sessions.delete', { session_id: child.session.id }, deadline());
+  const retained = await inspect(root.id);
+  assert.deepEqual(retained.items.filter(item => item.kind.startsWith('logical_')), charged.items.filter(item => item.kind.startsWith('logical_')));
+  const replay = await client.spawn(spawn, 'write:child', deadline());
+  assert.equal(replay.session, null);
+  assert.ok(replay.admission.receipt.deleted_at);
+  const state = await client.call('state.read', { session_id: root.id, version_id: second.id, offset: '0', length: 65536 }, deadline());
+  assert.equal(Buffer.from(state.data_base64, 'base64').toString(), '[1,2]');
+  evidence.push({ writeAllowance: { root: root.id, charged, restarted, retained, replay, state } });
 }
 
 async function mailAcceptance(runtime, client, createParams, evidence) {

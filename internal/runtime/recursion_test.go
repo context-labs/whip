@@ -42,11 +42,11 @@ func TestRecursiveWaitReleasesWorkerAndKernelAtCommittedCell(t *testing.T) {
 						}
 						resources := ""
 						if next == "leaf" {
-							resources = `, resources=[{"kind":"depth","limit":"0"}]`
+							resources = `, resources=[{"kind":"depth","limit":"0"}], budgets=[{"kind":"logical_writes","limit":"0"}]`
 						}
 						code = fmt.Sprintf("marker=41\nchild=agents.spawn(prompt=%q%s)\nregistered=agents.wait_after_cell(input_ids=[child[\"input_id\"]])\nprint(registered[\"boundary\"])", next, resources)
 						if engine == session.QuickJS {
-							code = fmt.Sprintf("var marker=41; var child=await agents.spawn({prompt:%q%s}); var registered=await agents.wait_after_cell({input_ids:[child.input_id]}); print(registered.boundary)", next, strings.ReplaceAll(resources, "resources=", "resources:"))
+							code = fmt.Sprintf("var marker=41; var child=await agents.spawn({prompt:%q%s}); var registered=await agents.wait_after_cell({input_ids:[child.input_id]}); print(registered.boundary)", next, strings.NewReplacer("resources=", "resources:", "budgets=", "budgets:").Replace(resources))
 						}
 					case "leaf":
 						code = "print(42)"

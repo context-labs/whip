@@ -14,6 +14,7 @@ separate legacy runtime and SDK until their client cutover.
 | Tree metadata and common engine | Tree row |
 | Reusable subtree capacity limits | Revisioned resource-limit rows; usage derived from live owning records |
 | Scoped execution permission | One SQL permit per executing turn; released at a settled wait boundary or terminal settlement |
+| Permanent logical-write usage | Immutable SQL write charges and captured ancestor associations; retained until tree deletion |
 | Permanent model spending limits | Revisioned budget-limit rows; usage derived from immutable attempts |
 | Session identity, immutable parent/tree, definition origin, lifecycle | Session row |
 | Effective configuration | Immutable configuration revision selected by the session |
@@ -546,18 +547,56 @@ Root limits cannot be null. Partial creation/configuration lists inherit the
 remaining built-in defaults; duplicate kinds are rejected. Limits use decimal
 strings, including host JSON and guest child-spawn arguments. Host edits never
 change existing root limits. `TreePolicy` and its duplicate JSON column no longer
-exist; this disposable database uses schema 12 and rejects previous schemas.
+exist; this disposable database uses schema 13 and rejects previous schemas.
 The absolute depth ceiling remains 128 for bounded hierarchy and grant traversal.
 
 Capacity reuse never replenishes permanent model spend. Deleting a child releases
 its retained resources while its immutable model attempts remain charged to live
 ancestors. Per-value, retained-history and byte safety bounds remain at their
-owning boundaries. Configurable cumulative logical-write allowances are still
-Phase 4 work; reusable capacities do not claim to cover them.
-The legacy byte/record allowance charged selected accepted writes, including
-state and mail, without refund on deletion. It was not a quota over all database
-rows or retained bytes. Model accounting and required execution settlement must
-remain recordable when a write allowance is exhausted.
+owning boundaries. Cumulative write allowances below have their own permanent
+accounting and never count physical database rows or current disk usage.
+
+## Cumulative logical-write allowances
+
+`budgets.list/set` also exposes `logical_writes` and `logical_write_bytes`. Fresh
+roots start with finite limits of 100,000 writes and 1 GiB at revision one; model
+budgets remain unset by default. Every author and ancestor is charged. Children
+may narrow a limit or clear it to inherit, but roots cannot clear these two caps.
+Policy edits use the same compare-and-set and checked-exposure rules as model
+budgets. Write budgets have no reserved or uncertain amount: action and charge
+either commit together or both roll back.
+
+| Explicit logical action | Charged owner | Bytes charged |
+| --- | --- | --- |
+| Initial child input and later child submission | Calling parent | UTF-8 text bytes; shared content aliases add no byte charge |
+| Mail send or explicit replacement | Sender | Subject plus body bytes |
+| Content registration | Reference owner | Body size, even when physical bytes deduplicate |
+| State write or append | Author | Submitted JSON bytes; append charges only its submitted suffix |
+| State subscription creation | Subscriber | Key bytes |
+
+Each accepted action consumes one logical write. Initial child input now follows
+the same charging rule as later submission, closing a gap in the former spawn
+path. Ordinary human input remains exempt. Automatic notifications, content
+sharing aliases, transcript/checkpoint persistence, model/operation/turn settlement,
+mail observation/acknowledgement/defer, cancellation/deletion, policy edits and
+recovery do not consume this allowance. Schedule creation will use the same
+boundary when implemented in Phase 5.
+
+`logical_writes` retains immutable source identity/revision, author, byte quantity
+and tree ownership; `logical_write_ancestors` captures charge ancestry even where
+no local cap exists. Totals derive from this evidence. There is no mutable counter
+or reserve/reconcile lifecycle. Deleting a child does not refund surviving
+ancestors. Deleting the whole tree removes its ledger. Exact accepted retries
+return existing evidence before a new cap check, while a conflicting identity
+remains a conflict. Overflow is visible and blocks further charged writes.
+
+The runtime derives state `SubmittedBytes` before merging an append; guest and
+client request types cannot choose that accounting amount. Content/state body
+publication precedes the SQL transaction, so rejection can leave an unreferenced
+immutable file for startup collection. These limits bound committed logical
+writes, not pre-publication disk allocation. Physical retention limits still
+apply at their owning boundaries. Exhaustion never prevents recording a completed
+model or external effect, and does not prevent a human from submitting new input.
 
 ## Mail and presentation
 

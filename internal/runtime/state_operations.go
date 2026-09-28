@@ -91,6 +91,7 @@ func (r *Runtime) stageState(ctx context.Context, actor session.SessionID, opera
 		return request, err
 	}
 	data := []byte(put.Value)
+	request.SubmittedBytes = int64(len(data))
 	if operation == "append" {
 		if request.ExpectedRevision == 0 {
 			return request, store.ErrConflict

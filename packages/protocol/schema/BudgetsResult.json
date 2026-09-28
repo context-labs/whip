@@ -19,7 +19,9 @@
               "model_calls",
               "model_tokens",
               "model_cost_nano_usd",
-              "model_elapsed_millis"
+              "model_elapsed_millis",
+              "logical_writes",
+              "logical_write_bytes"
             ]
           },
           "revision": {

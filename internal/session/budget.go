@@ -9,16 +9,18 @@ const (
 	BudgetModelTokens        BudgetKind = "model_tokens"
 	BudgetModelCostNanoUSD   BudgetKind = "model_cost_nano_usd"
 	BudgetModelElapsedMillis BudgetKind = "model_elapsed_millis"
+	BudgetLogicalWrites      BudgetKind = "logical_writes"
+	BudgetLogicalWriteBytes  BudgetKind = "logical_write_bytes"
 )
 
 // BudgetLimit is a local cap. Nil removes only this cap; every live ancestor's
-// cap still applies, just as for reusable resource limits.
+// cap still applies. Root logical-write caps must remain finite.
 type BudgetLimit struct {
 	Kind  BudgetKind `json:"kind"`
-	Limit *int64     `json:"limit"`
+	Limit *int64     `json:"limit,string"`
 }
 
-// Budget is a projection of immutable attempt reservations and their outcomes.
+// Budget projects model attempts or committed logical writes.
 // Incomplete means some exposure cannot be quantified within the int64 range.
 type Budget struct {
 	SessionID  SessionID
@@ -33,7 +35,8 @@ type Budget struct {
 
 func (b BudgetLimit) Validate() error {
 	switch b.Kind {
-	case BudgetModelCalls, BudgetModelTokens, BudgetModelCostNanoUSD, BudgetModelElapsedMillis:
+	case BudgetModelCalls, BudgetModelTokens, BudgetModelCostNanoUSD, BudgetModelElapsedMillis,
+		BudgetLogicalWrites, BudgetLogicalWriteBytes:
 	default:
 		return fmt.Errorf("%w: unsupported budget kind", ErrInvalid)
 	}

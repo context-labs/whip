@@ -17,7 +17,7 @@ func budgetState(t *testing.T, s *Store, owner session.SessionID, kind session.B
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(budgets) != 4 {
+	if len(budgets) != 6 {
 		t.Fatalf("budget projection: %+v", budgets)
 	}
 	for _, budget := range budgets {

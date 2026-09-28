@@ -83,6 +83,9 @@ func subscribeState(ctx context.Context, tx *sql.Tx, actor session.SessionID, id
 	if err := checkResources(ctx, tx, actor, session.ResourceSubscriptions); err != nil {
 		return session.StateSubscription{}, err
 	}
+	if err := chargeWrite(ctx, tx, actor, "subscription", id, 0, int64(len(request.Key))); err != nil {
+		return session.StateSubscription{}, err
+	}
 	value, err := scanStateSubscription(tx.QueryRowContext(ctx, stateSubscriptionSelect+" WHERE id=?", id))
 	if err != nil {
 		return value, err

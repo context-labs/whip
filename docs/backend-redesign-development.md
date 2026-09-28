@@ -938,3 +938,67 @@ Focused lifecycle race/shuffle coverage, vet and scoped pinned lint passed. Full
 RPC race tests also passed. The store suite will be rerun with the next write
 allowance increment, since its concurrent projection changes affected the broader
 run. Completion reports and write allowances remain outstanding.
+
+## Phase 4 cumulative logical writes
+
+Schema 13 extends the existing budget API with `logical_writes` and
+`logical_write_bytes`, defaulting fresh roots to 100,000 and 1 GiB at revision one.
+Action and immutable charge evidence commit in one transaction. Captured ancestor
+associations outlive source deletion; deleting the whole tree removes its ledger.
+Finite root caps, explicit child narrowing and revision checks reuse budget rules.
+Model reservations read only model accounting and do not scan the write ledger.
+
+Explicit content registration, mail send/replacement, child initial/follow-up
+input, state write/append and subscription creation now charge the caller and
+ancestors. Spawn charging deliberately closes the old uncharged-initial-prompt
+gap. Ordinary human input remains exempt. Generic persistence helpers do not
+charge: shared content aliases, automatic notifications, mail defer/observation,
+transcript/checkpoint evidence and execution settlement retain their own bounds.
+State append derives its submitted byte quantity before merging, and guest/RPC
+request types cannot set that quantity. Budget limit JSON is now consistently
+decimal-string encoded, including guest child-spawn arguments.
+
+Tests cover independent-handle contention, every charge hook's rollback, late
+caps and narrowing, idempotent and conflicting retries, overflow, notification
+and alias exemptions, deletion/restart retention, and settlement after exhaustion.
+The SDK fixture consumes exactly three writes/eleven bytes through spawn, state
+write and append, then checks rejected-state absence, free retry, human/model
+progress, restart, child deletion and shared evidence retention. Both actual
+engines successfully execute a leaf with a zero logical-write allowance.
+
+The full local phase gate passed: store race 41.197 s, runtime race 87.415 s,
+process engines 96.505 s, generated contracts and SDK, new restart fixture 5.211 s,
+retained fixture 2.241 s and required daemon regressions 2.751 s. This also verifies
+the preceding lifecycle changes with the completed accounting implementation.
+Focused runtime/lifecycle/engine coverage passed in 14.422 s. Pinned analysis
+reports zero lint issues and no reachable vulnerabilities; independent review
+found no correctness blockers. The prior permit/control commit `eedc650bd` passed
+hosted Linux/macOS/analysis in run `36442791727`.
+
+## Next Phase 4 increment: completion reports
+
+Keep completion publication separate from required terminal settlement. A bounded
+parent-owned slot reserved when a child is admitted can capture the latest exact
+turn outcome and full bounded text in the Finish/Recover transaction. Count slots
+whose source children were deleted until their pending evidence is published;
+descendant counts alone cannot bound repeated create/delete churn. A later bounded
+coordinator can publish immutable parent-owned content and canonical mail, then
+clear only the exact pending turn it read. Mail/content pressure leaves inspectable
+pending evidence, never a repeated model turn or failed terminal commit.
+
+Retain queued idle-parent wakeups and the existing failed-parent retry barrier.
+Use completion provenance distinct from ordinary session/state mail. Coalescing
+must preserve immutable published revisions and recipient deferral. Notice and
+inline preview limits are 160 bytes and 4 KiB; ordinary digests remain capped at
+2 KiB. Message mode suppresses successful automatic reporting, not failures.
+Published and pending full evidence need a bounded guest read path as well as host
+inspection; content.read currently exists only for the host. The reporting policy
+must have one explicit owner and be captured for the exact turn being reported.
+
+Do not restore full-turn automatic replay. Existing confirmed provider-attempt
+retries and SQL settlement retries remain; failed/uncertain turns require explicit
+new input. Report pressure is independently recoverable delivery work. Remaining
+acceptance includes full inbox/content pressure, Finish/report rollback, restart,
+replacement races, child deletion/GC, all modes and zero logical-write allowance.
+Phase 4 remains open until this and its final cleanup checks pass. Phases 5–7 remain
+fully authorized and pending.

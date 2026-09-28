@@ -163,6 +163,9 @@ func sendMail(ctx context.Context, tx *sql.Tx, spec session.MailSpec) (session.M
 	if err := insertMailRevision(ctx, tx, spec, 1, created); err != nil {
 		return result, err
 	}
+	if err := chargeWrite(ctx, tx, spec.SenderID, "mail", string(spec.ID), 1, int64(len(spec.Subject)+len(spec.Body))); err != nil {
+		return result, err
+	}
 	mail, err := readMail(ctx, tx, spec.RecipientID, spec.ID)
 	result.Mail = &mail.MailMetadata
 	return result, err
@@ -193,6 +196,9 @@ func (s *Store) ReplaceMail(ctx context.Context, spec session.MailSpec, expected
 			return err
 		}
 		result, err = replaceMail(ctx, tx, spec, current)
+		if err == nil {
+			err = chargeWrite(ctx, tx, spec.SenderID, "mail", string(spec.ID), result.Revision, int64(len(spec.Subject)+len(spec.Body)))
+		}
 		return err
 	})
 	return

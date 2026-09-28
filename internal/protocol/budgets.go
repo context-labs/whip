@@ -3,13 +3,13 @@ package protocol
 import "github.com/context-labs/whip/internal/session"
 
 type BudgetLimit struct {
-	Kind  string   `json:"kind" enum:"model_calls,model_tokens,model_cost_nano_usd,model_elapsed_millis"`
+	Kind  string   `json:"kind" enum:"model_calls,model_tokens,model_cost_nano_usd,model_elapsed_millis,logical_writes,logical_write_bytes"`
 	Limit *Counter `json:"limit"`
 }
 
 type Budget struct {
 	SessionID  ID       `json:"session_id"`
-	Kind       string   `json:"kind" enum:"model_calls,model_tokens,model_cost_nano_usd,model_elapsed_millis"`
+	Kind       string   `json:"kind" enum:"model_calls,model_tokens,model_cost_nano_usd,model_elapsed_millis,logical_writes,logical_write_bytes"`
 	Revision   Counter  `json:"revision"`
 	Limit      *Counter `json:"limit"`
 	Used       Counter  `json:"used"`

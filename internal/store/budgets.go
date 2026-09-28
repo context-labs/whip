@@ -23,6 +23,15 @@ func (s *Store) Budgets(ctx context.Context, owner session.SessionID) (result []
 }
 
 func readBudgets(ctx context.Context, q querier, owner session.SessionID) ([]session.Budget, error) {
+	model, err := readModelBudgets(ctx, q, owner)
+	if err != nil {
+		return nil, err
+	}
+	writes, err := readWriteBudgets(ctx, q, owner)
+	return append(model, writes...), err
+}
+
+func readModelBudgets(ctx context.Context, q querier, owner session.SessionID) ([]session.Budget, error) {
 	if _, err := readSession(ctx, q, owner); err != nil {
 		return nil, err
 	}
@@ -221,13 +230,13 @@ func reserveBudgets(ctx context.Context, tx *sql.Tx, owner session.SessionID, re
 	}
 	for _, ancestor := range ancestors {
 		var finite bool
-		if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM budget_limits WHERE session_id=? AND limit_value IS NOT NULL)", ancestor).Scan(&finite); err != nil {
+		if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM budget_limits WHERE session_id=? AND kind IN ('model_calls','model_tokens','model_cost_nano_usd','model_elapsed_millis') AND limit_value IS NOT NULL)", ancestor).Scan(&finite); err != nil {
 			return nil, err
 		}
 		if !finite {
 			continue
 		}
-		budgets, err := readBudgets(ctx, tx, ancestor)
+		budgets, err := readModelBudgets(ctx, tx, ancestor)
 		if err != nil {
 			return nil, err
 		}
@@ -256,7 +265,11 @@ func (s *Store) SetBudget(ctx context.Context, owner session.SessionID, expected
 }
 
 func setBudget(ctx context.Context, tx *sql.Tx, owner session.SessionID, expectedRevision int64, limit session.BudgetLimit) (session.Budget, error) {
-	budgets, err := readBudgets(ctx, tx, owner)
+	read := readModelBudgets
+	if isWriteBudget(limit.Kind) {
+		read = readWriteBudgets
+	}
+	budgets, err := read(ctx, tx, owner)
 	if err != nil {
 		return session.Budget{}, err
 	}
@@ -278,6 +291,9 @@ func setBudget(ctx context.Context, tx *sql.Tx, owner session.SessionID, expecte
 	ancestors, err := sessionAncestors(ctx, tx, owner)
 	if err != nil {
 		return result, err
+	}
+	if len(ancestors) == 1 && isWriteBudget(limit.Kind) && limit.Limit == nil {
+		return result, fmt.Errorf("%w: root write budgets require finite limits", session.ErrInvalid)
 	}
 	for _, ancestor := range ancestors[1:] {
 		var parentLimit *int64

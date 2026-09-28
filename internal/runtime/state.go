@@ -37,7 +37,7 @@ func (r *Runtime) WriteState(ctx context.Context, actor session.SessionID, scope
 	if err != nil {
 		return session.StateValue{}, err
 	}
-	request.Digest, request.Size = body.Digest, body.Size
+	request.Digest, request.Size, request.SubmittedBytes = body.Digest, body.Size, int64(len(data))
 	value, err := r.store.WriteState(ctx, request)
 	if err == nil && scope == session.TreeState {
 		r.Wake()

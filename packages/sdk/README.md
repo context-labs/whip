@@ -149,11 +149,19 @@ Depth counts edges and descendants excludes the owner. Stale updates conflict;
 a finite limit below current usage is rejected. `LIMIT` admission failures create
 no work, so a caller can explicitly retry after capacity becomes available.
 
-`budgets.list({session_id})` returns local model-call, token, nano-USD and elapsed
-millisecond scopes with exact decimal-string counters. `limit: null` is locally
-unlimited; clearing a child cap inherits ancestor enforcement, just as for resources. `budgets.set` takes
+`budgets.list({session_id})` returns local model-call, token, nano-USD, elapsed
+millisecond and cumulative write scopes with exact decimal-string counters.
+`limit: null` removes a local cap; ancestors still apply. `budgets.set` takes
 `{session_id, expected_revision, budget: {kind, limit}}`; revision `'0'` creates an
 initial cap. Spawning may include a `budgets` array of narrower child caps.
+The additional kinds `logical_writes` and `logical_write_bytes` count committed
+logical actions and submitted payload bytes. Root defaults are 100,000 and 1 GiB,
+and these root limits must remain finite. Child spawn/submit, explicit mail,
+content registration, state writes and subscription creation consume allowance.
+State append charges the submitted suffix. Retries do not charge twice; deletion
+does not refund ancestors. Ordinary human input, automatic notifications and
+recording completed execution are exempt. A rejected write changes no SQL state;
+these allowances are distinct from current disk usage and reusable capacity.
 
 Read `used`, `reserved`, `uncertain` and `incomplete` separately. Unknown accounting
 is not zero. Finite limits cannot be set below allocated exposure, and requests

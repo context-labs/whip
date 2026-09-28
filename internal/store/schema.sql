@@ -296,11 +296,11 @@ CREATE TABLE resource_limits (
  PRIMARY KEY(session_id,kind)
 ) STRICT;
 
--- Limits are mutable policy. Accounting is derived from attempts, including
--- attempts whose original session/turn/transcript has been deleted.
+-- Limits are mutable policy. Accounting derives from attempts and logical writes,
+-- including evidence whose original session or source record has been deleted.
 CREATE TABLE budget_limits (
  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
- kind TEXT NOT NULL CHECK(kind IN ('model_calls','model_tokens','model_cost_nano_usd','model_elapsed_millis')),
+ kind TEXT NOT NULL CHECK(kind IN ('model_calls','model_tokens','model_cost_nano_usd','model_elapsed_millis','logical_writes','logical_write_bytes')),
  revision INTEGER NOT NULL CHECK(revision>0),
  limit_value INTEGER CHECK(limit_value IS NULL OR limit_value>=0),
  PRIMARY KEY(session_id,kind)
@@ -313,6 +313,29 @@ CREATE TABLE attempt_budget_ancestors (
 CREATE INDEX budget_attempts_by_session ON attempt_budget_ancestors(session_id,attempt_id);
 CREATE TRIGGER attempt_budget_ancestors_immutable BEFORE UPDATE ON attempt_budget_ancestors
  BEGIN SELECT RAISE(ABORT, 'attempt budget ancestry is immutable'); END;
+
+-- Logical-write charges outlive their source session and records. Only deleting
+-- the entire tree discards this permanent accounting evidence.
+CREATE TABLE logical_writes (
+ id TEXT PRIMARY KEY,
+ tree_id TEXT NOT NULL REFERENCES session_trees(id) ON DELETE CASCADE,
+ author_id TEXT NOT NULL,
+ source_kind TEXT NOT NULL CHECK(source_kind IN ('mail','input','content','state','subscription')),
+ source_id TEXT NOT NULL, source_revision INTEGER NOT NULL CHECK(source_revision>=0),
+ bytes INTEGER NOT NULL CHECK(bytes>=0), created_at INTEGER NOT NULL,
+ UNIQUE(source_kind,source_id,source_revision)
+) STRICT;
+CREATE INDEX logical_writes_by_tree ON logical_writes(tree_id,id);
+CREATE TRIGGER logical_write_immutable BEFORE UPDATE ON logical_writes
+ BEGIN SELECT RAISE(ABORT,'logical write is immutable'); END;
+CREATE TABLE logical_write_ancestors (
+ write_id TEXT NOT NULL REFERENCES logical_writes(id) ON DELETE CASCADE,
+ session_id TEXT NOT NULL,
+ PRIMARY KEY(write_id,session_id)
+) STRICT;
+CREATE INDEX logical_writes_by_ancestor ON logical_write_ancestors(session_id,write_id);
+CREATE TRIGGER logical_write_ancestor_immutable BEFORE UPDATE ON logical_write_ancestors
+ BEGIN SELECT RAISE(ABORT,'logical write ancestry is immutable'); END;
 
 -- Explicit application state is immutable JSON content, separate from VM images.
 -- Shared values outlive their author; private values follow their owning session.

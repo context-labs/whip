@@ -109,6 +109,11 @@ records and never silently change an existing conversation's limits.
 the scope owner. A turn stays running while a parent waits without permission;
 unfinished-turn counts do not represent runnable usage. Raising the scoped limit
 wakes scheduling, and a zero limit keeps child input queued.
+Permanent `logical_writes` and `logical_write_bytes` use the budget API. They count
+accepted logical actions and payload bytes, survive child deletion and never
+describe current disk usage. Their reserved/uncertain amounts are zero; rejected
+writes do not partially commit. Do not disable ordinary human submission or
+display execution as unrecordable merely because a write allowance is exhausted.
 Child creation in v4 is a durable `client.spawn` request: its receipt covers the
 child, initial input and delegated authority together. Keep its identity and exact
 payload for recovery just as for submissions.

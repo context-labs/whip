@@ -16,7 +16,7 @@ import (
 
 func stateWrite(actor session.SessionID, scope session.StateScope, id, key, body string, revision int64) session.StateWrite {
 	digest := sha256.Sum256([]byte(body))
-	return session.StateWrite{ID: id, SessionID: actor, Scope: scope, Key: key, ExpectedRevision: revision, Digest: hex.EncodeToString(digest[:]), Size: int64(len(body))}
+	return session.StateWrite{ID: id, SessionID: actor, Scope: scope, Key: key, ExpectedRevision: revision, Digest: hex.EncodeToString(digest[:]), Size: int64(len(body)), SubmittedBytes: int64(len(body))}
 }
 
 func putStateTest(t *testing.T, s *Store, write session.StateWrite) session.StateValue {

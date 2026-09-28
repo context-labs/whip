@@ -169,6 +169,9 @@ func submitChild(ctx context.Context, tx *sql.Tx, owner session.SessionID, opera
 	if err != nil {
 		return result, err
 	}
+	if err := chargeWrite(ctx, tx, owner, "input", string(admitted.Input.ID), 0, inputWriteBytes(request.Parts)); err != nil {
+		return result, err
+	}
 	return session.ChildSubmission{SessionID: target.ID, InputID: admitted.Input.ID}, nil
 }
 

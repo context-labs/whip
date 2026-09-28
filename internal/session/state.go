@@ -45,6 +45,8 @@ type StateWrite struct {
 	ExpectedRevision int64      `json:"expected_revision,string"`
 	Digest           string     `json:"digest"`
 	Size             int64      `json:"size,string"`
+	// SubmittedBytes is set by trusted staging before append merges the value.
+	SubmittedBytes int64 `json:"submitted_bytes,string"`
 }
 
 func ValidateStateKey(key string) error {
@@ -68,6 +70,9 @@ func (w StateWrite) Validate() error {
 	digest, err := hex.DecodeString(w.Digest)
 	if err != nil || len(digest) != 32 || hex.EncodeToString(digest) != w.Digest || w.Size < 1 || w.Size > MaxStateValueBytes {
 		return fmt.Errorf("%w: invalid state body", ErrInvalid)
+	}
+	if w.SubmittedBytes < 1 || w.SubmittedBytes > MaxStateValueBytes {
+		return fmt.Errorf("%w: invalid submitted state size", ErrInvalid)
 	}
 	return nil
 }

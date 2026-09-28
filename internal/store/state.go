@@ -92,7 +92,7 @@ func writeState(ctx context.Context, tx *sql.Tx, request session.StateWrite) (se
 		if !sameOwner || existing.TreeID != tree || existing.AuthorID != request.SessionID || existing.Key != request.Key || existing.Revision-1 != request.ExpectedRevision || existing.Digest != request.Digest || existing.Size != request.Size {
 			return session.StateValue{}, ErrConflict
 		}
-		return existing, nil
+		return existing, chargeWrite(ctx, tx, request.SessionID, "state", request.ID, 0, request.SubmittedBytes)
 	}
 	if !errors.Is(err, ErrNotFound) {
 		return session.StateValue{}, err
@@ -126,6 +126,9 @@ func writeState(ctx context.Context, tx *sql.Tx, request session.StateWrite) (se
 		return session.StateValue{}, ErrConflict
 	}
 	if _, err := tx.ExecContext(ctx, "INSERT INTO state_versions VALUES (?,?,?,?,?,?,?,?)", request.ID, tree, owner, request.Key, current.Revision+1, request.SessionID, request.Digest, now()); err != nil {
+		return session.StateValue{}, err
+	}
+	if err := chargeWrite(ctx, tx, request.SessionID, "state", request.ID, 0, request.SubmittedBytes); err != nil {
 		return session.StateValue{}, err
 	}
 	value, err := scanState(tx.QueryRowContext(ctx, stateSelect+" WHERE v.id=?", request.ID))

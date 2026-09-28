@@ -56,7 +56,13 @@ export interface Admission {
 }
 export interface Budget {
   session_id: string;
-  kind: "model_calls" | "model_tokens" | "model_cost_nano_usd" | "model_elapsed_millis";
+  kind:
+    | "model_calls"
+    | "model_tokens"
+    | "model_cost_nano_usd"
+    | "model_elapsed_millis"
+    | "logical_writes"
+    | "logical_write_bytes";
   revision: string;
   limit: null | string;
   used: string;
@@ -69,7 +75,13 @@ export interface BudgetsResult {
     | null
     | {
         session_id: string;
-        kind: "model_calls" | "model_tokens" | "model_cost_nano_usd" | "model_elapsed_millis";
+        kind:
+          | "model_calls"
+          | "model_tokens"
+          | "model_cost_nano_usd"
+          | "model_elapsed_millis"
+          | "logical_writes"
+          | "logical_write_bytes";
         revision: string;
         limit: null | string;
         used: string;
@@ -1430,7 +1442,13 @@ export interface SetBudgetParams {
   session_id: string;
   expected_revision: string;
   budget: {
-    kind: "model_calls" | "model_tokens" | "model_cost_nano_usd" | "model_elapsed_millis";
+    kind:
+      | "model_calls"
+      | "model_tokens"
+      | "model_cost_nano_usd"
+      | "model_elapsed_millis"
+      | "logical_writes"
+      | "logical_write_bytes";
     limit: null | string;
   };
 }
@@ -1518,7 +1536,13 @@ export interface SpawnSessionParams {
   budgets?:
     | null
     | {
-        kind: "model_calls" | "model_tokens" | "model_cost_nano_usd" | "model_elapsed_millis";
+        kind:
+          | "model_calls"
+          | "model_tokens"
+          | "model_cost_nano_usd"
+          | "model_elapsed_millis"
+          | "logical_writes"
+          | "logical_write_bytes";
         limit: null | string;
       }[];
   resources?:
