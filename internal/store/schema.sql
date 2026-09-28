@@ -397,7 +397,7 @@ CREATE TABLE operations (
  CHECK(result IS NULL OR json_extract(result,'$.state') IS state),
  CHECK((state IN ('dispatched','succeeded','failed','uncertain')) = (dispatched_at IS NOT NULL)),
  CHECK(state <> 'waiting' OR grant_id IS NULL),
- CHECK(state NOT IN ('ready','dispatched','succeeded','failed','uncertain') OR grant_id IS NOT NULL)
+ CHECK(state NOT IN ('ready','dispatched','succeeded','failed','uncertain') OR grant_id IS NOT NULL OR capability='user.ask')
 ) STRICT;
 CREATE INDEX operations_by_cell ON operations(cell_id,id);
 CREATE INDEX operations_by_grant ON operations(grant_id,id) WHERE state='ready';
@@ -444,6 +444,18 @@ CREATE TRIGGER permission_transition BEFORE UPDATE ON permissions
  WHEN NEW.operation_id IS NOT OLD.operation_id OR NEW.created_at IS NOT OLD.created_at
  OR OLD.state<>'pending' OR NEW.state='pending'
  BEGIN SELECT RAISE(ABORT, 'permission decision is immutable'); END;
+
+-- Intent and answers live only in operations.arguments/result. Closure records
+-- why an unanswered human interaction ended, never a resumable waiter.
+CREATE TABLE questions (
+ operation_id TEXT PRIMARY KEY REFERENCES operations(id) ON DELETE CASCADE,
+ created_at INTEGER NOT NULL, deadline INTEGER NOT NULL CHECK(deadline=created_at+300000000),
+ close_reason TEXT CHECK(close_reason IN ('cancelled','expired','interrupted'))
+) STRICT;
+CREATE TRIGGER question_transition BEFORE UPDATE ON questions
+ WHEN NEW.operation_id IS NOT OLD.operation_id OR NEW.created_at IS NOT OLD.created_at
+ OR NEW.deadline IS NOT OLD.deadline OR OLD.close_reason IS NOT NULL OR NEW.close_reason IS NULL
+ BEGIN SELECT RAISE(ABORT, 'question may only close once'); END;
 
 CREATE TABLE model_attempts (
  id TEXT PRIMARY KEY, turn_id TEXT NOT NULL,
