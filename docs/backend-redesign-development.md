@@ -1767,3 +1767,33 @@ checks in [run 36470031266](https://github.com/context-labs/whip/actions/runs/36
 were still running at this integration checkpoint. Subscription authentication,
 stateless helpers, sampling and the other Phase 5–7 acceptance criteria remain
 open.
+
+## Subscription credential capture boundary
+
+The retained independent `openaiauth.Manager` now captures credentials and login
+generation atomically. `Check` rejects closed, terminal, unpersisted-rotation or
+replaced logins; `RefreshCaptured` guards both entry to shared refresh work and
+the moment a waiting caller receives its result. Access-token rotation preserves
+the login generation. Logout and any installation, including the same account,
+invalidate older captures. The manager remains the only credential owner, with
+no new registry or persistent fields. Its check has a documented point-in-time
+guarantee; it is not atomic with a later HTTP request.
+
+Deterministic race tests cover capture ordered with installation, account and
+generation mismatch, logout during exchange, cancelled/coalesced waiters,
+replacement after refresh publication, dirty rotated-token persistence and
+joined shutdown. The full auth race/shuffle suite passed ten runs in 4.417s,
+retained subscription adapter tests passed in 1.742s, and retained daemon
+OpenAI/recursive subscription tests passed in 3.259s. Integration passed the auth
+race suite in 1.927s, `task check:fast` and `task check:analysis` with zero lint
+issues and no reachable vulnerabilities. The active package gates now include
+the independent auth package. No host config, schema or public contract changed.
+
+This is a prerequisite for subscription execution. The new runner and provider
+still need the captured dispatch guard, separately recorded 401 retry and fixed
+subscription wire profile; command lifetime wiring and real-runtime coverage
+remain required before claiming that capability complete.
+
+Ancestor revision `a8952622a` has now passed Linux, macOS, analysis and the
+aggregate redesign gate in
+[run 36470031266](https://github.com/context-labs/whip/actions/runs/36470031266).
