@@ -3,7 +3,7 @@
 Status: phases 0 and 1 complete and validated in PRs #197 and #199.
 Phases 2 and 3 are complete and validated in PRs #200 and #201.
 Phase 4 is complete with passing local gates in [PR #202](https://github.com/context-labs/whip/pull/202);
-phases 5–7 are pending. The authorized execution scope
+phase 5 is in progress and phases 6–7 are pending. The authorized execution scope
 is all phases, including client adoption and final removal of the retired core.
 Written: 2026-09-27. Planning reference: `6f02507bf`.
 
@@ -419,7 +419,7 @@ complete with a passing check or recorded manual evidence.
 | 2 | Working database → runtime → protocol → SDK slice | 1 | Complete |
 | 3 | One provider, one engine, execution and recovery | 2 | Complete |
 | 4 | Recursion and shared coordination | 3 | Complete |
-| 5 | Remaining engines, integrations and product behavior | 4 | Pending |
+| 5 | Remaining engines, integrations and product behavior | 4 | In progress |
 | 6 | Complete client adoption and product validation | Starts at 2; finishes after 5 | Pending |
 | 7 | Cutover, deletion and release readiness | All prior gates | Pending |
 
@@ -574,6 +574,31 @@ current explicit 100-message/4 MiB context limit is a temporary safety boundary.
 Compaction must retain raw history and exact covered sequence boundaries, and
 its model work must use ordinary attempt accounting. Both engines already run
 through the new core; extend their shared contract evidence as capabilities arrive.
+
+Compaction implementation decisions:
+
+- Admit manual compaction as a durable input with kind `compact`, using the
+  existing queue, receipt, turn, cancellation, permit and accounting paths.
+  Input kind owns the distinction; a turn exposes it as a projection. Compact
+  turns create no synthetic conversation message, consume no mail, execute no
+  cells, and apply neither output contracts nor child completion reporting.
+- Store immutable summaries separately from transcript messages. A summary names
+  its model attempt, base summary, exact covered sequence and any pinned raw
+  message IDs. One revisioned context head selects the current summary. Undo
+  changes that selection with an idle-session CAS; it does not erase evidence,
+  restore a checkpoint, or change workspace files.
+- Settle accounting and summary evidence together. If head selection has changed,
+  retain the completed attempt and summary without selecting it. A retry of an
+  already committed settlement cannot reselect a summary after undo.
+- Run automatic compaction only at settled model/tool boundaries through the same
+  helper and accounting path. Summaries are quoted conversation data, never new
+  system instructions or assistant answers. Do not stream them as ordinary reply
+  previews. Require forward coverage progress and bound helper calls and bytes.
+- Keep recent complete exchanges and the exact opening input of a split turn.
+  Never split an assistant call from any of its tool results. Fold oversized
+  historical prefixes in bounded batches or fail explicitly; never silently
+  skip them. Before introducing omissions, provide bounded own-history metadata,
+  exact reads and search against a fixed raw-history boundary.
 
 Acceptance:
 

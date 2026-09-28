@@ -198,6 +198,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await stateSubscriptionAcceptance(runtime, client, createParams, evidence);
     await completionAcceptance(runtime, client, createParams, evidence);
     await providerAcceptance(runtime, client, createParams, evidence);
+    await outputAcceptance(runtime, client, createParams, evidence);
     await engineAcceptance(runtime, client, createParams, evidence);
     await operationAcceptance(runtime, client, createParams, evidence);
     await streamAcceptance(runtime, client, createParams, evidence);
@@ -905,4 +906,78 @@ async function completionAcceptance(runtime, client, createParams, evidence) {
   assert.equal((await client.call('mail.list', { session_id: pressured.root.id, limit: 100 }, deadline())).items.length, 0);
   await client.call('sessions.delete', { session_id: pressured.root.id }, deadline());
   evidence.push({ completionReports: { notice, pending } });
+}
+
+async function outputAcceptance(runtime, client, createParams, evidence) {
+  const requests = [];
+  const valid = '{"count":9007199254740993}';
+  const replies = ['not JSON', '```json\n' + valid + '\n```', '{"count":"wrong"}', 'still invalid', 'null', 'plain text after clearing'];
+  const server = http.createServer(async (request, response) => {
+    let body = '';
+    for await (const chunk of request) body += chunk;
+    requests.push(JSON.parse(body));
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify({
+      choices: [{ message: { role: 'assistant', content: replies[requests.length - 1] ?? 'unexpected model call' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 10, completion_tokens: 3, cost: 0.000000001 },
+    }));
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  try {
+    await runtime.stop();
+    const path = join(runtime.directory, 'state', 'host.json');
+    const host = JSON.parse(await readFile(path, 'utf8'));
+    host.providers.fixture = {
+      kind: 'openai-chat', base_url: `http://127.0.0.1:${server.address().port}/v1`, credential_env: '',
+      models: { 'fixture-model': { max_output_tokens: 123, timeout_millis: 2000, max_attempts: 1 } },
+    };
+    await writeFile(path, JSON.stringify(host), { mode: 0o600 });
+    await runtime.start(null);
+    const schema = { type: 'object', properties: { count: { type: 'integer' } }, required: ['count'], additionalProperties: false };
+    const { root } = await client.call('trees.create', {
+      ...createParams, overrides: { ...createParams.overrides, model: { provider: 'fixture', name: 'fixture-model', effort: '' }, output: { schema } },
+    }, deadline());
+    const output = turnID => client.call('turns.output', { turn_id: turnID }, deadline());
+    await client.submit(root.id, [{ type: 'text', text: 'return structured count' }], 'output-valid', deadline());
+    const first = await client.wait('output-valid', deadline());
+    assert.equal(first.turn.state, 'succeeded');
+    const projected = await output(first.turn.id);
+    assert.equal(projected.output.turn_id, first.turn.id);
+    assert.equal(Buffer.from(projected.output.data_base64, 'base64').toString(), valid, 'wire must preserve JSON integers beyond JavaScript safe integer range');
+    const attempts = await client.call('turns.attempts', { turn_id: first.turn.id, limit: 100 }, deadline());
+    assert.equal(attempts.items.length, 2);
+    assert.ok(attempts.items.every(item => item.state === 'succeeded'));
+    assert.notEqual(attempts.items[0].logical_id, attempts.items[1].logical_id, 'correction is its own recorded model round');
+    const firstHistory = await client.call('sessions.history', { session_id: root.id, after: '0', limit: 100 }, deadline());
+    assert.deepEqual(firstHistory.items.map(item => item.role), ['user', 'assistant', 'assistant']);
+    assert.equal(firstHistory.items[1].parts[0].text, 'not JSON');
+    assert.equal(firstHistory.items[2].id, projected.output.message_id);
+    assert.equal(firstHistory.items[2].parts[0].text, replies[1]);
+    assert.ok(JSON.stringify(requests[1]).includes('not JSON'), 'corrective round must retain invalid assistant context');
+    await client.submit(root.id, [{ type: 'text', text: 'exercise invalid output' }], 'output-invalid', deadline());
+    const failed = await client.wait('output-invalid', deadline());
+    assert.equal(failed.turn.state, 'failed');
+    assert.match(failed.turn.failure, /output_invalid/);
+    assert.equal((await output(failed.turn.id)).output, null);
+    assert.equal((await client.call('turns.attempts', { turn_id: failed.turn.id, limit: 100 }, deadline())).items.length, 2);
+    const nullable = await client.call('sessions.configure', { session_id: root.id, expected_revision: root.config_revision, patch: { output: { schema: { type: 'null' } } } }, deadline());
+    await client.submit(root.id, [{ type: 'text', text: 'return null' }], 'output-null', deadline());
+    const nullTurn = await client.wait('output-null', deadline());
+    assert.equal(nullTurn.turn.state, 'succeeded');
+    assert.equal(Buffer.from((await output(nullTurn.turn.id)).output.data_base64, 'base64').toString(), 'null');
+    await client.call('sessions.configure', { session_id: root.id, expected_revision: nullable.config_revision, patch: { output: { schema: null } } }, deadline());
+    await client.submit(root.id, [{ type: 'text', text: 'ordinary reply' }], 'output-cleared', deadline());
+    const cleared = await client.wait('output-cleared', deadline());
+    assert.equal(cleared.turn.state, 'succeeded');
+    assert.equal((await output(cleared.turn.id)).output, null);
+    assert.deepEqual(await output(first.turn.id), projected, 'old output must use its captured schema');
+    assert.equal(requests.length, 6);
+    await runtime.stop(); await runtime.start(null);
+    assert.deepEqual(await output(first.turn.id), projected);
+    assert.equal(requests.length, 6, 'reading restored output must not execute the model');
+    evidence.push({ outputContracts: { first, projected, attempts, failed, nullTurn, cleared } });
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
 }

@@ -194,6 +194,7 @@ CREATE TABLE messages (
  FOREIGN KEY(turn_id,session_id) REFERENCES turns(id,session_id) ON DELETE CASCADE,
  FOREIGN KEY(input_id,turn_id,session_id) REFERENCES inputs(id,turn_id,session_id) ON DELETE CASCADE
 ) STRICT;
+CREATE INDEX message_turn_role_sequence ON messages(turn_id,role,sequence DESC);
 CREATE TRIGGER message_immutable BEFORE UPDATE ON messages
  BEGIN SELECT RAISE(ABORT, 'transcript entry is immutable'); END;
 

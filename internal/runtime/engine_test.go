@@ -18,30 +18,13 @@ import (
 	"github.com/context-labs/whip/internal/store"
 )
 
-func TestRuntimeWorkerProcess(t *testing.T) {
-	index := -1
-	for i, arg := range os.Args {
-		if arg == "--" {
-			index = i
-			break
-		}
-	}
-	if index < 0 {
-		return
-	}
-	if err := process.WorkerMain(os.Args[index+1:], os.Stdin, os.Stdout, nil); err != nil {
-		os.Exit(2)
-	}
-	os.Exit(0)
-}
-
 func engineOptions(t *testing.T) Options {
 	t.Helper()
-	executable, err := os.Executable()
+	executable, err := buildEngineWorker()
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Options{Workers: 2, KernelWorkers: 1, PollInterval: time.Millisecond, EngineCommand: []string{executable, "-test.run=^TestRuntimeWorkerProcess$", "--"}}
+	return Options{Workers: 2, KernelWorkers: 1, PollInterval: time.Millisecond, EngineCommand: []string{executable, "_kernel"}}
 }
 
 func cellProvider(codes map[string]string) providerFunc {

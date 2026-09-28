@@ -46,3 +46,10 @@ test('completion reads pin an exact snapshot and bound byte pages', () => {
   update.patch.report_mode = 'automatic';
   assert.equal(validate('UpdateConfigurationParams', update), false);
 });
+
+test('validated output retains exact JSON bytes and distinguishes JSON null', () => {
+  const outputs = fixtures.filter(f => f.type === 'TurnOutputResult').map(f => f.value.output);
+  assert.equal(outputs[0], null);
+  assert.equal(Buffer.from(outputs[1].data_base64, 'base64').toString(), '{"count":9007199254740993}');
+  assert.equal(Buffer.from(outputs[2].data_base64, 'base64').toString(), 'null');
+});

@@ -295,3 +295,26 @@ of joining bytes from different turns. Pending reads do not cause publication or
 acknowledge mail. Runtime restart retries delivery without replaying completed
 child work. A full retained mailbox can keep a report pending; clients should show
 that delivery state separately from the child's terminal outcome.
+
+
+A session's `overrides.output.schema` declares its final output contract. The
+runner states the schema to the model, retains every raw assistant reply, and
+allows one corrective model round if the final reply is invalid. A second mismatch
+fails the turn with `output_invalid`. Each model round has ordinary accounting;
+correction never replays the entire turn or an already completed host operation.
+
+```ts
+const result = await client.call('turns.output', { turn_id: completed.turn.id });
+if (result.output) {
+  const json = Buffer.from(result.output.data_base64, 'base64').toString('utf8');
+  // json contains the validated value; message_id identifies its raw transcript reply.
+}
+```
+
+This read derives output from the turn's captured schema and final assistant
+message. It keeps no second output store. A live turn returns `BUSY`; a failed turn
+or a successful turn without a contract returns `output: null`. A validated JSON
+`null` has a non-null output record whose encoded bytes are `null`. JSON bytes
+preserve exact numbers; consumers choose how to parse them. Updating or clearing
+the session's contract does not change prior turns. Clear with
+`patch: { output: { schema: null } }` in `sessions.configure`.

@@ -43,6 +43,11 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 		return nil, ErrMethod
 	}
 	switch method {
+	case "turns.output":
+		return decode(raw, func(p protocol.TurnParams) (any, error) {
+			value, err := r.TurnOutput(ctx, session.TurnID(p.TurnID))
+			return protocol.TurnOutputFromDomain(value), err
+		})
 	case "completions.list", "completions.read":
 		return dispatchCompletion(ctx, r, method, raw)
 	case "state.subscribe", "state.subscriptions", "state.unsubscribe":
