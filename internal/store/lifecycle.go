@@ -100,9 +100,9 @@ func (s *Store) Recover(ctx context.Context) (count int64, err error) {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM turn_permits"); err != nil {
 			return err
 		}
-		// Only newly interrupted child turns may create a report. Close this
+		// Only newly interrupted turns may pause goals or create reports. Close this
 		// cursor before nested reads/writes on the transaction connection.
-		rows, err := tx.QueryContext(ctx, "SELECT t.id FROM turns t JOIN completion_slots c ON c.child_id=t.session_id WHERE t.state IN ('running','cancelling')")
+		rows, err := tx.QueryContext(ctx, "SELECT t.id FROM turns t WHERE t.state IN ('running','cancelling')")
 		if err != nil {
 			return err
 		}
@@ -129,6 +129,9 @@ func (s *Store) Recover(ctx context.Context) (count int64, err error) {
 		for _, id := range interrupted {
 			turn, err := readTurn(ctx, tx, id)
 			if err != nil {
+				return err
+			}
+			if err := finishGoal(ctx, tx, turn); err != nil {
 				return err
 			}
 			if err := captureCompletion(ctx, tx, turn); err != nil {
@@ -170,7 +173,7 @@ func deleteSubtree(ctx context.Context, tx *sql.Tx, id session.SessionID) error 
 	if _, err := tx.ExecContext(ctx, subtree+` UPDATE schedules SET first_due=NULL,every_ns=NULL,next_due=NULL,parts=NULL,failure=NULL,cancelled_at=NULL,deleted_at=? WHERE session_id IN (SELECT id FROM subtree) AND deleted_at IS NULL`, id, now()); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, subtree+` UPDATE goals SET text=NULL,stop_reason=NULL,deleted_at=? WHERE session_id IN (SELECT id FROM subtree) AND deleted_at IS NULL`, id, now()); err != nil {
+	if _, err := tx.ExecContext(ctx, subtree+` UPDATE goals SET text=NULL,stop_reason=NULL,completion_turn_id=NULL,completion_operation_id=NULL,deleted_at=? WHERE session_id IN (SELECT id FROM subtree) AND deleted_at IS NULL`, id, now()); err != nil {
 		return err
 	}
 	if err := deleteRecipientMail(ctx, tx, id); err != nil {

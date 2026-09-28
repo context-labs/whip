@@ -236,3 +236,7 @@ func TestInstructionFailurePreventsProviderDispatch(t *testing.T) {
 		t.Fatalf("outcome=%+v err=%v instructions=%d calls=%d attempts=%d", outcome, err, instructions, calls, len(ledger.specs))
 	}
 }
+
+func (*flakyTranscript) TurnGoal(context.Context, session.TurnID) (*session.GoalContext, error) {
+	return nil, errors.New("goal context not configured")
+}

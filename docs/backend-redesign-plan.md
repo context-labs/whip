@@ -692,10 +692,11 @@ claims that goal support is already implemented.
 
 The goal-record foundation now implements immutable specifications, revisioned
 lifecycle, exact create/resume retries, current selection, atomic ordinary-input
-admission and deletion tombstones. Fresh config is 8 and schema 27. Generated
-input projections preserve goal provenance and exact decimal revisions. The
-public goal API is intentionally not exposed before execution is complete;
-turn capture, continuation, typed completion and formulation remain open.
+admission and deletion tombstones. Turn capture, durable continuation, recovery
+pause and authorized completion settlement are now implemented internally. Fresh
+config is 8 and schema 28. Generated input and turn projections preserve goal
+provenance and exact decimal revisions. Runtime/guest/RPC/SDK controls and
+formulation remain open; the public goal API is not yet exposed.
 
 Stateless model-helper implementation decisions (work remains open):
 

@@ -23,6 +23,8 @@ separate legacy runtime and SDK until their client cutover.
 | Schedule template and next occurrence | One schedule row; immutable admitted occurrences belong to ordinary inputs |
 | Goal objective, allowance, revision and state | One goal row; current selection derives from its owner's latest creation ordinal |
 | Accepted goal work | Ordinary input with immutable goal ID/revision provenance |
+| Goal selected for execution | Immutable goal ID/revision on the turn; text reads the goal row |
+| Goal completion intent | Successful authorized operation; the goal retains terminal turn/operation references |
 | Accepted input kind and payload | Input row (`prompt` or `compact`); turn kind is a read projection |
 | Request identity and payload digest | Receipt row |
 | Execution outcome | Turn row; input and receipt outcomes are derived |
@@ -184,11 +186,39 @@ an identity tombstone so an old creation retry cannot recreate work.
 
 `goals_enabled` is copied configuration, not authority. Assistant definitions
 enable eligibility by default; an explicit false override remains false. Existing
-children and active turns retain their captured configurations. This first
-increment implements the internal records and admission boundary only. Turn goal
-capture, automatic continuation, typed completion, formulation, public commands
-and SDK services remain pending; no public command starts partially implemented
-goal execution.
+children and active turns retain their captured configurations.
+
+Every ordinary prompt turn, including human, mail and schedule work, captures the
+current armed goal ID/revision when eligible. A goal-owned input must match that
+exact revision; stale or disabled queued inputs are cancelled in a committed
+cleanup transaction. Compact turns capture no goal. The runner reads the immutable
+objective once and freezes it with that turn's instructions through correction,
+provider retries and compaction; helper requests do not inherit it.
+
+Successful turn settlement either applies an authorized completion intent or
+admits one ordinary continuation and increments the durable allowance count in
+the same transaction. An already outstanding goal input prevents duplicate
+continuation. Semantic queue/write pressure rolls back only the proposed
+admission, then pauses the goal while preserving successful turn/accounting
+settlement. SQL errors roll back the whole transaction for SQL-only retry.
+Exhaustion, cancellation, interruption, failure, uncertain execution or invalid
+captured output pause continuation. Current stop/eligibility changes suppress it.
+The initial run does not consume an additional continuation; an ordinary turn
+that already worked on a start=false goal still counts as having started.
+
+`ApplyGoalCompletion` validates the exact captured goal and tree resource, then
+dispatches and settles a normal authorized `goals.complete` operation atomically.
+Its bounded UTF-8 evidence lives in the immutable operation arguments. It does
+not immediately complete the goal. Finish requires a successful turn, valid
+captured output, no uncertain execution and the unchanged armed goal; the goal
+then stores only completion turn/operation references. Revocation before dispatch
+blocks the intent. An already authorized successful operation remains evidence
+after later revocation; goal cancellation or replacement still defeats completion.
+The legacy `GOAL_MET` text heuristic is not used.
+
+This increment implements the internal execution boundary. Runtime/guest commands,
+public RPC/SDK controls and formulation remain pending; there is no public goal
+start command until those controls are connected.
 
 ## Content boundary
 
@@ -224,7 +254,7 @@ reads the retired home/config. A new host config is valid but unconfigured: user
 must select a model/provider before creating a runnable session. Credentials are
 environment references resolved only when constructing a provider client.
 
-Current fresh host configuration is version 8; the SQLite schema is version 27.
+Current fresh host configuration is version 8; the SQLite schema is version 28.
 SQLite has an application identifier and schema version. Existing databases of
 another application/version are rejected, not imported. Reopening preserves the
 runtime identity and seeded revisions; separate databases receive distinct

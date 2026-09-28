@@ -189,7 +189,7 @@ func TestTopologyAndRevisionConstraints(t *testing.T) {
 	mustFail(t, s, "UPDATE session_configurations SET configuration='{}'")
 	submit(t, s, root.ID, "first")
 	turn := claim(t, s, root.ID)
-	mustFail(t, s, `INSERT INTO turns VALUES ('other',?,1,'running',NULL,1,NULL)`, root.ID)
+	mustFail(t, s, `INSERT INTO turns (id,session_id,config_revision,state,started_at) VALUES ('other',?,1,'running',1)`, root.ID)
 	mustFail(t, s, "UPDATE turns SET state='succeeded' WHERE id=?", turn.Turn.ID)
 	if _, err := s.Finish(t.Context(), turn.Turn.ID, session.Succeeded, nil, nil); err != nil {
 		t.Fatal(err)

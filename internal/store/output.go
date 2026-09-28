@@ -11,14 +11,17 @@ import (
 
 // TurnOutput projects a successful turn's final assistant message using the
 // configuration captured when that turn began. Reading never executes work.
-//
-//nolint:nilnil // A terminal turn without a successful output contract has no structured output.
 func (s *Store) TurnOutput(ctx context.Context, id session.TurnID) (*session.StructuredOutput, error) {
+	return turnOutput(ctx, s.db, id)
+}
+
+//nolint:nilnil // A successful turn without a configured output contract has no structured output.
+func turnOutput(ctx context.Context, q querier, id session.TurnID) (*session.StructuredOutput, error) {
 	var state session.TurnState
 	var kind session.InputKind
 	var configuration string
 	var messageID, rawParts sql.NullString
-	err := s.db.QueryRowContext(ctx, `SELECT t.state,COALESCE(i.kind,'prompt'),c.configuration,m.id,m.parts
+	err := q.QueryRowContext(ctx, `SELECT t.state,COALESCE(i.kind,'prompt'),c.configuration,m.id,m.parts
 		FROM turns t
 		LEFT JOIN inputs i ON i.turn_id=t.id
 		JOIN session_configurations c ON c.session_id=t.session_id AND c.revision=t.config_revision

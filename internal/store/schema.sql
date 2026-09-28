@@ -64,16 +64,22 @@ CREATE TABLE turns (
  config_revision INTEGER NOT NULL, state TEXT NOT NULL
  CHECK(state IN ('running','cancelling','succeeded','failed','cancelled','interrupted')),
  failure TEXT, started_at INTEGER NOT NULL, finished_at INTEGER,
+ goal_id TEXT, goal_revision INTEGER,
+ CHECK((goal_id IS NULL) = (goal_revision IS NULL)),
+ CHECK(goal_revision IS NULL OR goal_revision>0),
+ FOREIGN KEY(goal_id,session_id) REFERENCES goals(id,session_id),
  UNIQUE(id,session_id),
  FOREIGN KEY(session_id,config_revision) REFERENCES session_configurations(session_id,revision),
  CHECK((state IN ('running','cancelling')) = (finished_at IS NULL)),
  CHECK(state <> 'succeeded' OR failure IS NULL)
 ) STRICT;
+CREATE INDEX goal_turns ON turns(goal_id,id) WHERE goal_id IS NOT NULL;
 CREATE INDEX turns_by_session_start ON turns(session_id,started_at DESC);
 CREATE UNIQUE INDEX one_active_turn ON turns(session_id) WHERE state IN ('running','cancelling');
 CREATE TRIGGER turn_transition BEFORE UPDATE ON turns
  WHEN NEW.id IS NOT OLD.id OR NEW.session_id IS NOT OLD.session_id
  OR NEW.config_revision IS NOT OLD.config_revision OR NEW.started_at IS NOT OLD.started_at
+ OR NEW.goal_id IS NOT OLD.goal_id OR NEW.goal_revision IS NOT OLD.goal_revision
  OR OLD.state NOT IN ('running','cancelling')
  OR (OLD.state='cancelling' AND NEW.state NOT IN ('cancelled','interrupted'))
  OR NEW.state='running'
@@ -165,10 +171,16 @@ CREATE TABLE goals (
  CHECK(state IN ('armed','paused','completed','cancelled','superseded')),
  continuations_used INTEGER NOT NULL CHECK(continuations_used BETWEEN 0 AND max_continuations),
  stop_reason TEXT, created_at INTEGER NOT NULL, deleted_at INTEGER,
+ completion_turn_id TEXT, completion_operation_id TEXT REFERENCES operations(id),
+ FOREIGN KEY(completion_turn_id,session_id) REFERENCES turns(id,session_id),
+ CHECK((completion_turn_id IS NULL) = (completion_operation_id IS NULL)),
+ CHECK(completion_turn_id IS NULL OR state='completed'),
  UNIQUE(id,session_id), CHECK((text IS NULL) = (deleted_at IS NOT NULL)),
  CHECK(text IS NULL OR length(CAST(text AS BLOB))<=1048576),
  CHECK(stop_reason IS NULL OR length(CAST(stop_reason AS BLOB))<=16384)
 ) STRICT;
+CREATE INDEX goal_completion_turn ON goals(completion_turn_id) WHERE completion_turn_id IS NOT NULL;
+CREATE INDEX goal_completion_operation ON goals(completion_operation_id) WHERE completion_operation_id IS NOT NULL;
 CREATE INDEX goals_owner ON goals(session_id,ordinal DESC);
 CREATE UNIQUE INDEX one_open_goal ON goals(session_id)
  WHERE deleted_at IS NULL AND state IN ('armed','paused');

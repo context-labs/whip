@@ -77,6 +77,10 @@ export interface Admission {
       }
     | null;
   turn: null | {
+    goal: null | {
+      id: string;
+      revision: string;
+    };
     id: string;
     session_id: string;
     kind: "prompt" | "compact";
@@ -2345,6 +2349,10 @@ export interface SpawnSessionResult {
         }
       | null;
     turn: null | {
+      goal: null | {
+        id: string;
+        revision: string;
+      };
       id: string;
       session_id: string;
       kind: "prompt" | "compact";
@@ -2486,6 +2494,10 @@ export interface TreeParams {
   tree_id: string;
 }
 export interface Turn {
+  goal: null | {
+    id: string;
+    revision: string;
+  };
   id: string;
   session_id: string;
   kind: "prompt" | "compact";

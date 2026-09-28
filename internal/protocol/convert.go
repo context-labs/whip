@@ -58,8 +58,13 @@ func ModelAttemptFromDomain(value session.ModelAttempt) ModelAttempt {
 }
 
 func TurnFromDomain(value session.Turn) Turn {
+	var goal *GoalRef
+	if value.Goal != nil {
+		goal = &GoalRef{ID: ID(value.Goal.ID), Revision: Counter(value.Goal.Revision)}
+	}
 	return Turn{
-		ID: ID(value.ID), SessionID: ID(value.SessionID), Kind: string(value.Kind), ConfigRevision: Counter(value.ConfigRevision), State: string(value.State),
+		Goal: goal,
+		ID:   ID(value.ID), SessionID: ID(value.SessionID), Kind: string(value.Kind), ConfigRevision: Counter(value.ConfigRevision), State: string(value.State),
 		Failure: value.Failure, StartedAt: value.StartedAt.Format(time.RFC3339Nano), FinishedAt: timeString(value.FinishedAt),
 	}
 }

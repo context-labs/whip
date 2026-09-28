@@ -66,3 +66,21 @@ func TestGoalRequestAndEligibilityResolution(t *testing.T) {
 		t.Fatal("builtin pointer shared")
 	}
 }
+
+func TestGoalCompletionRequiresBoundedExplicitEvidence(t *testing.T) {
+	valid := GoalCompletion{GoalID: "goal", ExpectedRevision: 1, Evidence: strings.Repeat("x", 16384)}
+	if err := valid.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, evidence := range []string{" ", "\xff", strings.Repeat("x", 16385)} {
+		invalid := valid
+		invalid.Evidence = evidence
+		if !errors.Is(invalid.Validate(), ErrInvalid) {
+			t.Fatal("invalid evidence accepted")
+		}
+	}
+	valid.ExpectedRevision = 0
+	if !errors.Is(valid.Validate(), ErrInvalid) {
+		t.Fatal("missing captured revision accepted")
+	}
+}
