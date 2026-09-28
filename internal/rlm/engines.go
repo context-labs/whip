@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/context-labs/whip/internal/rlm/engine/quickjs"
+	"github.com/context-labs/whip/internal/engine/quickjs"
 )
 
 const (

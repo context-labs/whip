@@ -15,7 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/context-labs/whip/internal/rlm/engine"
+	"github.com/context-labs/whip/internal/engine"
 	"github.com/tetratelabs/wazero/api"
 )
 

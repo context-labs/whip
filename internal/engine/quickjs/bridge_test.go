@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/context-labs/whip/internal/rlm/engine"
+	"github.com/context-labs/whip/internal/engine"
 )
 
 func TestFactoryRejectsInvalidPolicies(t *testing.T) {

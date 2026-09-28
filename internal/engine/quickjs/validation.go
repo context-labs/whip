@@ -8,7 +8,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/context-labs/whip/internal/rlm/engine"
+	"github.com/context-labs/whip/internal/engine"
 )
 
 func validArgs(args []byte, byteLimit int) error {

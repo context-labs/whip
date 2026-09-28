@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/context-labs/whip/internal/rlm/engine"
+	"github.com/context-labs/whip/internal/engine"
 )
 
 func TestAllocationRejectsOutOfRangeSizes(t *testing.T) {

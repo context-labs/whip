@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/context-labs/whip/internal/rlm/engine"
+	"github.com/context-labs/whip/internal/engine"
 )
 
 func rewriteSnapshotMetadata(t *testing.T, image []byte, change func(*imageMetadata)) []byte {
