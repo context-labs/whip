@@ -94,13 +94,14 @@ const (
 	GoalInput      InputSource = "goal"
 )
 
-// InputKind distinguishes conversation work from context maintenance. Source
-// still identifies who admitted that work; compact is never a synthetic prompt.
+// InputKind distinguishes conversation work from maintenance. Source identifies
+// who admitted that work; maintenance creates no synthetic prompt.
 type InputKind string
 
 const (
-	PromptInput  InputKind = "prompt"
-	CompactInput InputKind = "compact"
+	PromptInput              InputKind = "prompt"
+	CompactInput             InputKind = "compact"
+	GoalFormulationInputKind InputKind = "goal_formulation"
 )
 
 type InputState string

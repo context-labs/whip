@@ -172,6 +172,7 @@ CREATE TABLE goals (
  continuations_used INTEGER NOT NULL CHECK(continuations_used BETWEEN 0 AND max_continuations),
  stop_reason TEXT, created_at INTEGER NOT NULL, deleted_at INTEGER,
  completion_turn_id TEXT, completion_operation_id TEXT REFERENCES operations(id),
+ origin_formulation_attempt_id TEXT UNIQUE,
  FOREIGN KEY(completion_turn_id,session_id) REFERENCES turns(id,session_id),
  CHECK((completion_turn_id IS NULL) = (completion_operation_id IS NULL)),
  CHECK(completion_turn_id IS NULL OR state='completed'),
@@ -188,6 +189,7 @@ CREATE TRIGGER goal_identity_immutable BEFORE UPDATE ON goals
  WHEN NEW.id IS NOT OLD.id OR NEW.ordinal IS NOT OLD.ordinal OR NEW.session_id IS NOT OLD.session_id
  OR NEW.initial_digest IS NOT OLD.initial_digest OR NEW.created_at IS NOT OLD.created_at
  OR NEW.max_continuations IS NOT OLD.max_continuations OR OLD.deleted_at IS NOT NULL
+ OR NEW.origin_formulation_attempt_id IS NOT OLD.origin_formulation_attempt_id
  OR (NEW.deleted_at IS NULL AND (NEW.text IS NOT OLD.text OR NEW.revision<>OLD.revision+1
  OR OLD.state NOT IN ('armed','paused') OR NEW.continuations_used<OLD.continuations_used))
  BEGIN SELECT RAISE(ABORT, 'invalid goal change'); END;
@@ -196,7 +198,7 @@ CREATE TABLE inputs (
  ordinal INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
  source TEXT NOT NULL CHECK(source IN ('user','agent','schedule','goal')),
- kind TEXT NOT NULL DEFAULT 'prompt' CHECK(kind IN ('prompt','compact')),
+ kind TEXT NOT NULL DEFAULT 'prompt' CHECK(kind IN ('prompt','compact','goal_formulation')),
  parts TEXT NOT NULL CHECK(json_valid(parts)), turn_id TEXT UNIQUE, cancelled_at INTEGER, created_at INTEGER NOT NULL,
  schedule_id TEXT, scheduled_for TEXT, goal_id TEXT, goal_revision INTEGER,
  CHECK((goal_id IS NOT NULL) = (source='goal')),
@@ -208,7 +210,7 @@ CREATE TABLE inputs (
  CHECK(scheduled_for IS NULL OR (length(scheduled_for)=30 AND kind='prompt')),
  UNIQUE(schedule_id,scheduled_for),
  FOREIGN KEY(schedule_id,session_id) REFERENCES schedules(id,session_id),
- CHECK(kind<>'compact' OR (json_type(parts)='array' AND json_array_length(parts)=0)),
+ CHECK(kind='prompt' OR (json_type(parts)='array' AND json_array_length(parts)=0)),
  CHECK(turn_id IS NULL OR cancelled_at IS NULL), UNIQUE(id,turn_id,session_id),
  FOREIGN KEY(turn_id,session_id) REFERENCES turns(id,session_id) ON DELETE CASCADE
 ) STRICT;
@@ -400,7 +402,7 @@ CREATE TABLE model_attempts (
  CHECK(state <> 'reserved' OR dispatched_at IS NULL),
  CHECK(state <> 'cancelled' OR dispatched_at IS NULL),
  CHECK(message_id IS NULL OR finished_at IS NOT NULL),
- CHECK(message_id IS NULL OR json_extract(request,'$.purpose') NOT IN ('compaction','model_helper'))
+ CHECK(message_id IS NULL OR json_extract(request,'$.purpose') NOT IN ('compaction','model_helper','goal_formulation'))
 ) STRICT;
 CREATE INDEX attempts_by_turn ON model_attempts(turn_id,id);
 CREATE INDEX attempts_unfinished ON model_attempts(id) WHERE finished_at IS NULL;
@@ -518,3 +520,23 @@ CREATE TRIGGER state_subscription_transition BEFORE UPDATE ON state_subscription
  OR NEW.key IS NOT OLD.key OR NEW.delivery IS NOT OLD.delivery OR NEW.initial_digest IS NOT OLD.initial_digest
  OR NEW.created_at IS NOT OLD.created_at OR NEW.cursor<OLD.cursor OR OLD.cancelled_at IS NOT NULL
  BEGIN SELECT RAISE(ABORT,'invalid state subscription transition'); END;
+
+-- Typed maintenance input payload, separate from prompt parts and goal work.
+CREATE TABLE goal_formulation_inputs (
+ input_id TEXT PRIMARY KEY REFERENCES inputs(id) ON DELETE CASCADE,
+ snapshot TEXT NOT NULL CHECK(json_valid(snapshot) AND length(CAST(snapshot AS BLOB))<=4096)
+) STRICT;
+CREATE TRIGGER goal_formulation_input_immutable BEFORE UPDATE ON goal_formulation_inputs
+ BEGIN SELECT RAISE(ABORT, 'formulation input is immutable'); END;
+-- Candidates follow permanent attempt accounting, not deleted turns or inputs.
+CREATE TABLE goal_formulations (
+ attempt_id TEXT PRIMARY KEY REFERENCES model_attempts(id) ON DELETE CASCADE,
+ session_id TEXT NOT NULL, turn_id TEXT NOT NULL,
+ snapshot TEXT NOT NULL CHECK(json_valid(snapshot) AND length(CAST(snapshot AS BLOB))<=4096),
+ text TEXT NOT NULL CHECK(length(CAST(text AS BLOB)) BETWEEN 1 AND 1048576),
+ rejection TEXT, created_at INTEGER NOT NULL
+) STRICT;
+CREATE INDEX goal_formulations_owner ON goal_formulations(session_id,attempt_id);
+CREATE INDEX goal_formulations_turn ON goal_formulations(turn_id);
+CREATE TRIGGER goal_formulation_immutable BEFORE UPDATE ON goal_formulations
+ BEGIN SELECT RAISE(ABORT, 'formulation candidate is immutable'); END;

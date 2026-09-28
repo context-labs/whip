@@ -33,7 +33,7 @@ func turnOutput(ctx context.Context, q querier, id session.TurnID) (*session.Str
 	if !state.Terminal() {
 		return nil, ErrBusy
 	}
-	if state != session.Succeeded || kind == session.CompactInput {
+	if state != session.Succeeded || kind != session.PromptInput {
 		return nil, nil
 	}
 	var config session.Configuration

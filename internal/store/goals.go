@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/context-labs/whip/internal/session"
@@ -26,11 +27,11 @@ type GoalChange struct {
 	CancelTurnID *session.TurnID
 }
 
-const goalSelect = `SELECT id,revision,session_id,text,max_continuations,state,continuations_used,stop_reason,created_at,completion_turn_id,completion_operation_id FROM goals`
+const goalSelect = `SELECT id,revision,session_id,text,max_continuations,state,continuations_used,stop_reason,created_at,completion_turn_id,completion_operation_id,origin_formulation_attempt_id FROM goals`
 
 func scanGoal(row scanner) (value session.Goal, err error) {
 	var created int64
-	err = row.Scan(&value.ID, &value.Revision, &value.SessionID, &value.Spec.Text, &value.Spec.MaxContinuations, &value.State, &value.ContinuationsUsed, &value.StopReason, &created, &value.CompletionTurnID, &value.CompletionOperationID)
+	err = row.Scan(&value.ID, &value.Revision, &value.SessionID, &value.Spec.Text, &value.Spec.MaxContinuations, &value.State, &value.ContinuationsUsed, &value.StopReason, &created, &value.CompletionTurnID, &value.CompletionOperationID, &value.OriginFormulationAttemptID)
 	if err != nil {
 		return value, found(err)
 	}
@@ -113,7 +114,7 @@ func goalAdmission(ctx context.Context, q querier, owner session.SessionID, id s
 	return result, nil
 }
 
-func goalEligible(ctx context.Context, tx *sql.Tx, owner session.SessionID) error {
+func goalEligible(ctx context.Context, tx *sql.Tx, owner session.SessionID, except session.TurnID) error {
 	value, err := readSession(ctx, tx, owner)
 	if err != nil {
 		return err
@@ -125,7 +126,7 @@ func goalEligible(ctx context.Context, tx *sql.Tx, owner session.SessionID) erro
 		return fmt.Errorf("%w: goals are disabled for session", session.ErrInvalid)
 	}
 	var busy bool
-	if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM turns WHERE session_id=? AND state IN ('running','cancelling'))", owner).Scan(&busy); err != nil {
+	if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM turns WHERE session_id=? AND id<>? AND state IN ('running','cancelling'))", owner, except).Scan(&busy); err != nil {
 		return err
 	}
 	if busy {
@@ -178,39 +179,51 @@ func (s *Store) CreateGoal(ctx context.Context, owner session.SessionID, id sess
 		if err != nil {
 			return err
 		}
-		if err := goalEligible(ctx, tx, owner); err != nil {
+		if err := goalEligible(ctx, tx, owner, ""); err != nil {
 			return err
 		}
-		selected, err := currentGoal(ctx, tx, owner)
-		if err != nil {
+		if err := createGoal(ctx, tx, owner, id, expected, spec, start, digest, nil); err != nil {
 			return err
-		}
-		if (selected == nil) != (expected == nil) || selected != nil && selected.GoalRef != *expected {
-			return ErrConflict
-		}
-		if selected != nil && selected.State.Open() {
-			if _, err := tx.ExecContext(ctx, "UPDATE goals SET state='superseded',revision=revision+1,stop_reason=NULL WHERE id=?", selected.ID); err != nil {
-				return err
-			}
-			if err := cancelQueuedGoalInputs(ctx, tx, selected.ID); err != nil {
-				return err
-			}
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO goals (id,session_id,initial_digest,text,max_continuations,revision,state,continuations_used,created_at) VALUES (?,?,?,?,?,1,'armed',0,?)`, id, owner, digest, spec.Text, spec.MaxContinuations, now()); err != nil {
-			return err
-		}
-		if err := chargeWrite(ctx, tx, owner, "goal", string(id), 0, int64(len(spec.Text))); err != nil {
-			return err
-		}
-		if start {
-			if _, err := admitGoalInput(ctx, tx, goalInitialIdentity(id), digest, owner, session.GoalRef{ID: id, Revision: 1}); err != nil {
-				return err
-			}
 		}
 		result, err = goalAdmission(ctx, tx, owner, id)
 		return err
 	})
 	return
+}
+
+// createGoal applies the shared goal CAS, replacement, charges and initial input.
+// Public creation checks idle eligibility; formulation permits only its own turn.
+func createGoal(ctx context.Context, tx *sql.Tx, owner session.SessionID, id session.GoalID, expected *session.GoalRef, spec session.GoalSpec, start bool, digest string, origin *session.ModelAttemptID) error {
+	selected, err := currentGoal(ctx, tx, owner)
+	if err != nil {
+		return err
+	}
+	if (selected == nil) != (expected == nil) || selected != nil && selected.GoalRef != *expected {
+		return ErrConflict
+	}
+	if selected != nil && selected.State.Open() {
+		if selected.Revision == math.MaxInt64 {
+			return ErrLimit
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE goals SET state='superseded',revision=revision+1,stop_reason=NULL WHERE id=?", selected.ID); err != nil {
+			return err
+		}
+		if err := cancelQueuedGoalInputs(ctx, tx, selected.ID); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO goals (id,session_id,initial_digest,text,max_continuations,revision,state,continuations_used,created_at,origin_formulation_attempt_id) VALUES (?,?,?,?,?,1,'armed',0,?,?)`, id, owner, digest, spec.Text, spec.MaxContinuations, now(), origin); err != nil {
+		return err
+	}
+	if err := chargeWrite(ctx, tx, owner, "goal", string(id), 0, int64(len(spec.Text))); err != nil {
+		return err
+	}
+	if start {
+		if _, err := admitGoalInput(ctx, tx, goalInitialIdentity(id), digest, owner, session.GoalRef{ID: id, Revision: 1}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // The immutable goal is resolved by goal provenance during execution, not copied
@@ -258,7 +271,7 @@ func (s *Store) ResumeGoal(ctx context.Context, identity session.RequestIdentity
 		if err := ref.Validate(); err != nil {
 			return err
 		}
-		if err := goalEligible(ctx, tx, owner); err != nil {
+		if err := goalEligible(ctx, tx, owner, ""); err != nil {
 			return err
 		}
 		goal, err := readGoal(ctx, tx, owner, ref.ID)

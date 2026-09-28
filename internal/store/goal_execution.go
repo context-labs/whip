@@ -16,7 +16,7 @@ import (
 // TurnGoal reads the immutable objective selected by Claim, never the current
 // goal state. The caller can freeze this value for the entire provider loop.
 //
-//nolint:nilnil // Ordinary turns without an eligible goal and compact turns have no goal context.
+//nolint:nilnil // Ordinary turns without an eligible goal and maintenance turns have no goal context.
 func (s *Store) TurnGoal(ctx context.Context, id session.TurnID) (*session.GoalContext, error) {
 	var goalID *session.GoalID
 	var revision, limit sql.NullInt64
@@ -37,7 +37,7 @@ func (s *Store) TurnGoal(ctx context.Context, id session.TurnID) (*session.GoalC
 // claimGoal may retire one stale queued goal input. Its caller commits that
 // cleanup before returning ErrNoWork so a disabled input cannot block the queue.
 func claimGoal(ctx context.Context, tx *sql.Tx, owner session.Session, input *session.Input) (*session.GoalRef, bool, error) {
-	if input != nil && input.Kind == session.CompactInput {
+	if input != nil && input.Kind != session.PromptInput {
 		return nil, false, nil
 	}
 	goal, err := currentGoal(ctx, tx, owner.ID)
@@ -70,7 +70,7 @@ func pauseGoal(ctx context.Context, tx *sql.Tx, goal session.Goal, reason string
 }
 
 func finishGoal(ctx context.Context, tx *sql.Tx, turn session.Turn) error {
-	if turn.Goal == nil || turn.Kind == session.CompactInput {
+	if turn.Goal == nil || turn.Kind != session.PromptInput {
 		return nil
 	}
 	goal, err := currentGoal(ctx, tx, turn.SessionID)
@@ -195,7 +195,7 @@ func (s *Store) ApplyGoalCompletion(ctx context.Context, id session.OperationID)
 			return err
 		}
 		ref := session.GoalRef{ID: request.GoalID, Revision: request.ExpectedRevision}
-		if turn.Goal == nil || *turn.Goal != ref || turn.Kind == session.CompactInput {
+		if turn.Goal == nil || *turn.Goal != ref || turn.Kind != session.PromptInput {
 			return ErrConflict
 		}
 		owner, err := readSession(ctx, tx, op.SessionID)

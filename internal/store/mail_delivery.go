@@ -70,7 +70,7 @@ func observeMailBoundary(ctx context.Context, tx *sql.Tx, turn session.Turn, ste
 	if turn.State != session.Running {
 		return nil, ErrStopped
 	}
-	if turn.Kind == session.CompactInput {
+	if turn.Kind != session.PromptInput {
 		return []session.Message{}, nil
 	}
 	_, pending, err := pendingCalls(ctx, tx, turn.ID)
