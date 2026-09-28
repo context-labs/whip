@@ -26,7 +26,7 @@ func TestInstructionReadGrantRootChildAndIssuerRevocation(t *testing.T) {
 	_, root := create(t, s, nil)
 	submit(t, s, root.ID, "root")
 	turn := claim(t, s, root.ID).Turn
-	if grant, err := s.InstructionReadGrant(t.Context(), turn.ID); err != nil || grant != nil {
+	if grant, err := s.InstructionReadGrant(t.Context(), turn.ID, ""); err != nil || grant != nil {
 		t.Fatalf("ungranted read=%+v %v", grant, err)
 	}
 	_, foreign := create(t, s, nil)
@@ -39,14 +39,14 @@ func TestInstructionReadGrantRootChildAndIssuerRevocation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if grant, err := s.InstructionReadGrant(t.Context(), turn.ID); err != nil || grant != nil {
+	if grant, err := s.InstructionReadGrant(t.Context(), turn.ID, ""); err != nil || grant != nil {
 		t.Fatalf("scope mismatch authorized=%+v %v", grant, err)
 	}
 	standing := controlGrant(t, s, root, "workspace", "files.read", root.WorkingDirectory)
 	child := controlChild(t, s, root.ID, "child")
 	childTurn := claim(t, s, child.Session.ID).Turn
 	for _, current := range []session.Turn{turn, childTurn} {
-		grant, err := s.InstructionReadGrant(t.Context(), current.ID)
+		grant, err := s.InstructionReadGrant(t.Context(), current.ID, "")
 		if err != nil || grant == nil || grant.SessionID != current.SessionID || grant.OperationID != nil || grant.Resource != root.WorkingDirectory {
 			t.Fatalf("standing/delegated grant=%+v %v", grant, err)
 		}
@@ -55,7 +55,7 @@ func TestInstructionReadGrantRootChildAndIssuerRevocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, current := range []session.Turn{turn, childTurn} {
-		if grant, err := s.InstructionReadGrant(t.Context(), current.ID); err != nil || grant != nil {
+		if grant, err := s.InstructionReadGrant(t.Context(), current.ID, ""); err != nil || grant != nil {
 			t.Fatalf("revoked issuer authorized=%+v %v", grant, err)
 		}
 	}
@@ -73,7 +73,7 @@ func TestInstructionReadGrantNeverUsesOneUseApproval(t *testing.T) {
 	if _, err := s.ResolvePermission(t.Context(), op.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	if grant, err := s.InstructionReadGrant(t.Context(), cell.TurnID); err != nil || grant != nil {
+	if grant, err := s.InstructionReadGrant(t.Context(), cell.TurnID, ""); err != nil || grant != nil {
 		t.Fatalf("one-use approval authorized instructions=%+v %v", grant, err)
 	}
 	if dispatched, err := s.DispatchOperation(t.Context(), op.ID); err != nil || !dispatched {
@@ -90,7 +90,7 @@ func TestInstructionManifestMailOnlyTurnAndCancelledReplay(t *testing.T) {
 	if claimed.Input != nil || claimed.Turn.Kind != session.PromptInput {
 		t.Fatal("fixture did not claim mail-only prompt")
 	}
-	grant, err := s.InstructionReadGrant(t.Context(), claimed.Turn.ID)
+	grant, err := s.InstructionReadGrant(t.Context(), claimed.Turn.ID, "")
 	if err != nil || grant == nil || grant.ID != standing.ID {
 		t.Fatalf("mail-only authority=%+v %v", grant, err)
 	}
@@ -152,7 +152,7 @@ func TestInstructionLiveTurnAndDatabaseFailures(t *testing.T) {
 				}
 				want = nil
 			}
-			grant, err := s.InstructionReadGrant(t.Context(), turn.ID)
+			grant, err := s.InstructionReadGrant(t.Context(), turn.ID, "")
 			if grant != nil || err == nil || (want != nil && !errors.Is(err, want)) {
 				t.Fatalf("live guard=%+v %v, want %v", grant, err, want)
 			}
@@ -168,7 +168,7 @@ func TestInstructionLiveTurnAndDatabaseFailures(t *testing.T) {
 		submit(t, s, owner.ID, "prompt")
 		turn := claim(t, s, owner.ID).Turn
 		execTest(t, s, "ALTER TABLE grants RENAME TO inaccessible_grants")
-		if grant, err := s.InstructionReadGrant(t.Context(), turn.ID); grant != nil || err == nil || errors.Is(err, ErrNotFound) {
+		if grant, err := s.InstructionReadGrant(t.Context(), turn.ID, ""); grant != nil || err == nil || errors.Is(err, ErrNotFound) {
 			t.Fatalf("SQL failure treated as denied authority=%+v %v", grant, err)
 		}
 	})
@@ -250,7 +250,7 @@ func TestInstructionManifestCompetingCapturesAndCancelledContext(t *testing.T) {
 	manifest := instructionManifestTest()
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if grant, err := s.InstructionReadGrant(ctx, turn.ID); grant != nil || !errors.Is(err, context.Canceled) {
+	if grant, err := s.InstructionReadGrant(ctx, turn.ID, ""); grant != nil || !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled read=%+v %v", grant, err)
 	}
 	if err := s.SaveInstructionManifest(ctx, turn.ID, manifest); !errors.Is(err, context.Canceled) {
@@ -384,7 +384,7 @@ func TestSessionInstructionsIdleStoppedAndRevokedChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, grant, err := s.SessionInstructions(t.Context(), root.ID); err != nil || grant != nil || !reflect.DeepEqual(got, policy) {
+	if got, grant, err := s.SessionInstructions(t.Context(), root.ID); err != nil || len(grant) != 0 || !reflect.DeepEqual(got, policy) {
 		t.Fatalf("idle ungranted policy=%+v grant=%+v err=%v", got, grant, err)
 	}
 	standing := controlGrant(t, s, root, "standing", "files.read", root.WorkingDirectory)
@@ -400,7 +400,7 @@ func TestSessionInstructionsIdleStoppedAndRevokedChild(t *testing.T) {
 	execTest(t, s, "PRAGMA query_only=ON")
 	for _, owner := range []session.Session{updated, *child.Session} {
 		got, grant, err := s.SessionInstructions(t.Context(), owner.ID)
-		if err != nil || grant == nil || grant.SessionID != owner.ID || grant.Resource != owner.WorkingDirectory || !reflect.DeepEqual(got, owner.Config.Instructions) {
+		if err != nil || len(grant) != 1 || grant[0].SessionID != owner.ID || grant[0].Resource != owner.WorkingDirectory || !reflect.DeepEqual(got, owner.Config.Instructions) {
 			t.Fatalf("stopped inspection=%+v grant=%+v err=%v", got, grant, err)
 		}
 		got.ProjectFiles[0] = "caller mutation"
@@ -415,7 +415,7 @@ func TestSessionInstructionsIdleStoppedAndRevokedChild(t *testing.T) {
 	}
 	for _, owner := range []session.SessionID{root.ID, child.Session.ID} {
 		got, grant, err := s.SessionInstructions(t.Context(), owner)
-		if err != nil || grant != nil || !reflect.DeepEqual(got, policy) {
+		if err != nil || len(grant) != 0 || !reflect.DeepEqual(got, policy) {
 			t.Fatalf("revoked issuer inspection=%+v grant=%+v err=%v", got, grant, err)
 		}
 	}
@@ -433,9 +433,16 @@ func TestSessionInstructionsReadOnlySnapshotWithWriter(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "runtime.db")
 	s, writer := openTest(t, path), openTest(t, path)
 	_, owner := create(t, s, nil)
+	owner, err := s.UpdateConfiguration(t.Context(), owner.ID, owner.ConfigRevision, session.ConfigPatch{Instructions: &session.Instructions{SkillRoots: []string{"alpha", "beta"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	alpha := controlGrant(t, s, owner, "alpha", "skills.read", "alpha")
+	beta := controlGrant(t, s, owner, "beta", "skills.read", "beta")
 	standing := controlGrant(t, s, owner, "standing", "files.read", owner.WorkingDirectory)
 	changed := owner.Config.Clone()
 	changed.Instructions.Text = "updated policy"
+	changed.Instructions.SkillRoots = []string{"beta", "alpha"}
 	raw, err := encode(changed)
 	if err != nil {
 		t.Fatal(err)
@@ -451,20 +458,20 @@ func TestSessionInstructionsReadOnlySnapshotWithWriter(t *testing.T) {
 	if _, err := tx.ExecContext(t.Context(), "UPDATE sessions SET config_revision=? WHERE id=?", owner.ConfigRevision+1, owner.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(t.Context(), "UPDATE grants SET revoked_at=? WHERE id=?", now(), standing.ID); err != nil {
+	if _, err := tx.ExecContext(t.Context(), "UPDATE grants SET revoked_at=? WHERE id=?", now(), alpha.ID); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 	policy, grant, err := s.SessionInstructions(ctx, owner.ID)
-	if err != nil || grant == nil || grant.ID != standing.ID || !reflect.DeepEqual(policy, owner.Config.Instructions) {
+	if err != nil || len(grant) != 3 || grant[0].ID != standing.ID || grant[1].ID != alpha.ID || grant[2].ID != beta.ID || !reflect.DeepEqual(policy, owner.Config.Instructions) {
 		t.Fatalf("inspection blocked on writer or mixed uncommitted policy/authority: %+v %+v %v", policy, grant, err)
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
 	policy, grant, err = s.SessionInstructions(t.Context(), owner.ID)
-	if err != nil || grant != nil || !reflect.DeepEqual(policy, changed.Instructions) {
+	if err != nil || len(grant) != 2 || grant[0].ID != standing.ID || grant[1].ID != beta.ID || !reflect.DeepEqual(policy, changed.Instructions) {
 		t.Fatalf("inspection missed committed snapshot: %+v %+v %v", policy, grant, err)
 	}
 	if err := s.Close(); err != nil {
@@ -472,7 +479,7 @@ func TestSessionInstructionsReadOnlySnapshotWithWriter(t *testing.T) {
 	}
 	reopened := openTest(t, path)
 	policy, grant, err = reopened.SessionInstructions(t.Context(), owner.ID)
-	if err != nil || grant != nil || !reflect.DeepEqual(policy, changed.Instructions) {
+	if err != nil || len(grant) != 2 || grant[0].ID != standing.ID || grant[1].ID != beta.ID || !reflect.DeepEqual(policy, changed.Instructions) {
 		t.Fatalf("inspection after restart: %+v %+v %v", policy, grant, err)
 	}
 }
@@ -484,25 +491,196 @@ func TestSessionInstructionsRejectsOneUseAndPropagatesErrors(t *testing.T) {
 	if _, err := s.ResolvePermission(t.Context(), op.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	if _, grant, err := s.SessionInstructions(t.Context(), owner.ID); err != nil || grant != nil {
+	if _, grant, err := s.SessionInstructions(t.Context(), owner.ID); err != nil || len(grant) != 0 {
 		t.Fatalf("inspection used one-use approval=%+v %v", grant, err)
 	}
 	if dispatched, err := s.DispatchOperation(t.Context(), op.ID); err != nil || !dispatched {
 		t.Fatalf("inspection consumed approval: %v %v", dispatched, err)
 	}
-	if _, grant, err := s.SessionInstructions(t.Context(), "missing"); grant != nil || !errors.Is(err, ErrNotFound) {
+	if _, grant, err := s.SessionInstructions(t.Context(), "missing"); len(grant) != 0 || !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing session inspection=%+v %v", grant, err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, grant, err := s.SessionInstructions(ctx, owner.ID); grant != nil || !errors.Is(err, context.Canceled) {
+	if _, grant, err := s.SessionInstructions(ctx, owner.ID); len(grant) != 0 || !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled inspection=%+v %v", grant, err)
 	}
 	if input, err := s.TurnInput(ctx, cell.TurnID); input != nil || !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled input inspection=%+v %v", input, err)
 	}
 	execTest(t, s, "ALTER TABLE grants RENAME TO inaccessible_grants")
-	if _, grant, err := s.SessionInstructions(t.Context(), owner.ID); grant != nil || err == nil || errors.Is(err, ErrNotFound) {
+	if _, grant, err := s.SessionInstructions(t.Context(), owner.ID); len(grant) != 0 || err == nil || errors.Is(err, ErrNotFound) {
 		t.Fatalf("SQL error became denied authority=%+v %v", grant, err)
+	}
+}
+
+func TestNamedInstructionAuthorityScopeAndRevocation(t *testing.T) {
+	s := fresh(t)
+	_, owner := create(t, s, nil)
+	policy := session.Instructions{SkillRoots: []string{"beta", "alpha", "absent"}}
+	owner, err := s.UpdateConfiguration(t.Context(), owner.ID, owner.ConfigRevision, session.ConfigPatch{Instructions: &policy})
+	if err != nil {
+		t.Fatal(err)
+	}
+	submit(t, s, owner.ID, "prompt")
+	turn := claim(t, s, owner.ID).Turn
+	_, foreign := create(t, s, nil)
+	for _, grant := range []session.Grant{
+		{ID: "foreign", SessionID: foreign.ID, Capability: "skills.read", Resource: "alpha"},
+		{ID: "wrong_capability", SessionID: owner.ID, Capability: "files.read", Resource: "alpha"},
+		{ID: "wrong_resource", SessionID: owner.ID, Capability: "skills.read", Resource: owner.WorkingDirectory},
+	} {
+		if _, err := s.CreateGrant(t.Context(), grant); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if grant, err := s.InstructionReadGrant(t.Context(), turn.ID, "alpha"); err != nil || grant != nil {
+		t.Fatalf("foreign/wrong authority accepted: %+v %v", grant, err)
+	}
+	workspace := controlGrant(t, s, owner, "workspace", "files.read", owner.WorkingDirectory)
+	alpha := controlGrant(t, s, owner, "alpha", "skills.read", "alpha")
+	beta := controlGrant(t, s, owner, "beta", "skills.read", "beta")
+	controlGrant(t, s, owner, "unselected", "skills.read", "unselected")
+	child := *controlChild(t, s, owner.ID, "child").Session
+	childTurn := claim(t, s, child.ID).Turn
+	for _, target := range []session.Session{owner, child} {
+		got, grants, err := s.SessionInstructions(t.Context(), target.ID)
+		if err != nil || !reflect.DeepEqual(got, policy) || len(grants) != 3 {
+			t.Fatalf("selected grants=%+v policy=%+v err=%v", grants, got, err)
+		}
+		want := []session.Grant{workspace, beta, alpha}
+		for i, g := range grants {
+			if g.SessionID != target.ID || g.Capability != want[i].Capability || g.Resource != want[i].Resource {
+				t.Fatalf("grant order/scope mismatch: %+v", grants)
+			}
+		}
+	}
+	for _, current := range []session.Turn{turn, childTurn} {
+		grant, err := s.InstructionReadGrant(t.Context(), current.ID, "alpha")
+		if err != nil || grant == nil || grant.SessionID != current.SessionID || grant.Resource != "alpha" || grant.Capability != "skills.read" {
+			t.Fatalf("named turn grant=%+v %v", grant, err)
+		}
+	}
+	if _, err := s.RevokeGrant(t.Context(), alpha.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, current := range []session.Turn{turn, childTurn} {
+		if grant, err := s.InstructionReadGrant(t.Context(), current.ID, "alpha"); err != nil || grant != nil {
+			t.Fatalf("revoked root chain admitted: %+v %v", grant, err)
+		}
+		_, grants, err := s.SessionInstructions(t.Context(), current.SessionID)
+		if err != nil || len(grants) != 2 || grants[1].Resource != "beta" {
+			t.Fatalf("revoked root inspection=%+v %v", grants, err)
+		}
+	}
+	for _, rootID := range []string{"../alpha", "bad root"} {
+		if grant, err := s.InstructionReadGrant(t.Context(), turn.ID, rootID); grant != nil || !errors.Is(err, session.ErrInvalid) {
+			t.Fatalf("invalid root=%+v %v", grant, err)
+		}
+	}
+	if _, err := s.SetLifecycle(t.Context(), child.ID, session.Stopped); err != nil {
+		t.Fatal(err)
+	}
+	if grant, err := s.InstructionReadGrant(t.Context(), childTurn.ID, "beta"); grant != nil || !errors.Is(err, ErrStopped) {
+		t.Fatalf("stopped execution admitted=%+v %v", grant, err)
+	}
+	execTest(t, s, "PRAGMA query_only=ON")
+	_, grants, err := s.SessionInstructions(t.Context(), child.ID)
+	if err != nil || len(grants) != 2 || grants[1].Resource != "beta" {
+		t.Fatalf("stopped read-only inspection denied=%+v %v", grants, err)
+	}
+	execTest(t, s, "PRAGMA query_only=OFF")
+}
+
+func TestNamedInstructionOneUseNeverAuthorizesCaptureOrInspection(t *testing.T) {
+	s := fresh(t)
+	owner, cell := operationCell(t, s)
+	policy := session.Instructions{SkillRoots: []string{"team"}}
+	if _, err := s.UpdateConfiguration(t.Context(), owner.ID, owner.ConfigRevision, session.ConfigPatch{Instructions: &policy}); err != nil {
+		t.Fatal(err)
+	}
+	op := admitOperation(t, s, session.OperationSpec{ID: "skill_read", CellID: cell.ID, RequestID: "read", Capability: "skills.read", Resource: "team", Arguments: json.RawMessage(`{}`)})
+	if _, err := s.ResolvePermission(t.Context(), op.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if grant, err := s.InstructionReadGrant(t.Context(), cell.TurnID, "team"); err != nil || grant != nil {
+		t.Fatalf("one-use captured=%+v %v", grant, err)
+	}
+	if _, grants, err := s.SessionInstructions(t.Context(), owner.ID); err != nil || len(grants) != 0 {
+		t.Fatalf("one-use inspected=%+v %v", grants, err)
+	}
+	if dispatched, err := s.DispatchOperation(t.Context(), op.ID); err != nil || !dispatched {
+		t.Fatalf("inspection consumed one-use approval: %v %v", dispatched, err)
+	}
+}
+
+func TestInstructionRootsCapturedCopyClearAndRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runtime.db")
+	s := openTest(t, path)
+	_, owner := create(t, s, nil)
+	policy := session.Instructions{SkillRoots: []string{"team"}, DiscoverSkills: true}
+	owner, err := s.UpdateConfiguration(t.Context(), owner.ID, owner.ConfigRevision, session.ConfigPatch{Instructions: &policy})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy.SkillRoots[0] = "caller_mutation"
+	controlGrant(t, s, owner, "team", "skills.read", "team")
+	child := *controlChild(t, s, owner.ID, "child").Session
+	submit(t, s, owner.ID, "parent")
+	active := []Claim{claim(t, s, owner.ID), claim(t, s, child.ID)}
+	cleared := session.Instructions{}
+	owner, err = s.UpdateConfiguration(t.Context(), owner.ID, owner.ConfigRevision, session.ConfigPatch{Instructions: &cleared})
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, grants, err := s.SessionInstructions(t.Context(), owner.ID)
+	if err != nil || len(current.SkillRoots) != 0 || len(grants) != 0 {
+		t.Fatalf("inspection retained old selection=%+v %+v %v", current, grants, err)
+	}
+	childPolicy, childGrants, err := s.SessionInstructions(t.Context(), child.ID)
+	if err != nil || !reflect.DeepEqual(childPolicy.SkillRoots, []string{"team"}) || len(childGrants) != 1 {
+		t.Fatalf("parent clear changed child: %+v %+v %v", childPolicy, childGrants, err)
+	}
+	for _, claimed := range active {
+		captured, err := s.Configuration(t.Context(), claimed.Turn.SessionID, claimed.Turn.ConfigRevision)
+		if err != nil || !reflect.DeepEqual(captured.Instructions.SkillRoots, []string{"team"}) || !reflect.DeepEqual(claimed.Configuration.Instructions.SkillRoots, []string{"team"}) {
+			t.Fatalf("turn selection changed=%+v %v", captured.Instructions, err)
+		}
+		// Authority lookup takes the caller's captured selection, never the owner's
+		// mutable current selection, so clearing policy cannot rewrite this turn.
+		if grant, err := s.InstructionReadGrant(t.Context(), claimed.Turn.ID, "team"); err != nil || grant == nil {
+			t.Fatalf("captured root lost authority=%+v %v", grant, err)
+		}
+		manifest := instructionManifestTest()
+		manifest.Sources = []session.InstructionSource{{Kind: "invoked_skill", Scope: "host", RootID: new("team"), Path: "review/SKILL.md", Bytes: session.MaxInvokedSkillBytes, SHA256: strings.Repeat("ab", 32)}}
+		if err := s.SaveInstructionManifest(t.Context(), claimed.Turn.ID, manifest); err != nil {
+			t.Fatal(err)
+		}
+		*manifest.Sources[0].RootID = "caller_mutation"
+		if _, err := s.Finish(t.Context(), claimed.Turn.ID, session.Succeeded, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s = openTest(t, path)
+	for _, target := range []session.Session{owner, child} {
+		submit(t, s, target.ID, "next_"+string(target.ID))
+		next := claim(t, s, target.ID)
+		want := target.Config.Instructions.SkillRoots
+		if !reflect.DeepEqual(next.Configuration.Instructions.SkillRoots, want) {
+			t.Fatalf("next-turn roots=%q want=%q", next.Configuration.Instructions.SkillRoots, want)
+		}
+	}
+	for _, claimed := range active {
+		captured, err := s.Configuration(t.Context(), claimed.Turn.SessionID, claimed.Turn.ConfigRevision)
+		if err != nil || !reflect.DeepEqual(captured.Instructions.SkillRoots, []string{"team"}) {
+			t.Fatalf("reopen changed old selection=%+v %v", captured.Instructions, err)
+		}
+		audit, err := s.InstructionManifest(t.Context(), claimed.Turn.ID)
+		if err != nil || audit == nil || len(audit.Sources) != 1 || audit.Sources[0].RootID == nil || *audit.Sources[0].RootID != "team" {
+			t.Fatalf("host source audit lost=%+v %v", audit, err)
+		}
 	}
 }

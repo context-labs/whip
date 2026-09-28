@@ -184,14 +184,14 @@ func TestInvokedSkillRechecksAuthorityAfterDiscovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer root.Close()
-	captured, err := instruction.Load(t.Context(), root, session.Instructions{}, []string{"skill"})
+	captured, err := instruction.Load(t.Context(), []instruction.Root{{FS: root}}, session.Instructions{}, []string{"skill"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := r.RevokeGrant(t.Context(), grant.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.invokedInstructions(t.Context(), claimed.Turn.ID, root, &captured); err == nil {
+	if _, err := r.invokedInstructions(t.Context(), claimed.Turn.ID, []instruction.Root{{FS: root}}, &captured); err == nil {
 		t.Fatal("catalog identity authorized a revoked body read")
 	}
 }

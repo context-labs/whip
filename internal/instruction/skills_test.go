@@ -27,7 +27,7 @@ func TestCatalogAndLoadShareWinnersAndAuditEveryMetadataSource(t *testing.T) {
 	writeFile(t, dir, ".agents/skills/a-old/SKILL.md", "---\nname: alpha\ndescription: LOSER_VISIBLE\n---\nLOSER_BODY")
 	writeFile(t, dir, ".agents/skills/m-other/SKILL.md", "---\nname: beta\ndescription: BETA_VISIBLE\n---\nBETA_BODY")
 	writeFile(t, dir, ".agents/skills/z-new/SKILL.md", "---\nname: alpha\ndescription: DISABLED_WINNER\ndisable-model-invocation: true\n---\n"+strings.Repeat("\xffUNREAD_BODY", session.MaxInvokedSkillBytes))
-	catalog, err := Catalog(t.Context(), root)
+	catalog, err := Catalog(t.Context(), []Root{{FS: root}})
 	if err != nil || len(catalog.Skills) != 2 || len(catalog.Sources) != 3 {
 		t.Fatalf("catalog=%+v err=%v", catalog, err)
 	}
@@ -40,7 +40,7 @@ func TestCatalogAndLoadShareWinnersAndAuditEveryMetadataSource(t *testing.T) {
 		}
 	}
 	policy := session.Instructions{Text: "literal $unknown remains", DiscoverSkills: true}
-	snapshot, err := Load(t.Context(), root, policy, []string{"beta", "unknown", "alpha", "beta", "Alpha"})
+	snapshot, err := Load(t.Context(), []Root{{FS: root}}, policy, []string{"beta", "unknown", "alpha", "beta", "Alpha"})
 	if err != nil || len(snapshot.Selected) != 2 || !reflect.DeepEqual(snapshot.Selected, []Skill{catalog.Skills[1], catalog.Skills[0]}) || !reflect.DeepEqual(snapshot.Sources, catalog.Sources) {
 		t.Fatalf("selection disagrees with catalog: %+v err=%v", snapshot, err)
 	}
@@ -53,11 +53,11 @@ func TestCatalogAndLoadShareWinnersAndAuditEveryMetadataSource(t *testing.T) {
 		}
 	}
 	policy.DiscoverSkills = false
-	explicit, err := Load(t.Context(), root, policy, []string{"alpha"})
+	explicit, err := Load(t.Context(), []Root{{FS: root}}, policy, []string{"alpha"})
 	if err != nil || explicit.Text != policy.Text || len(explicit.Selected) != 1 || !explicit.Selected[0].Disabled || !reflect.DeepEqual(explicit.Sources, catalog.Sources) {
 		t.Fatalf("explicit-only discovery=%+v err=%v", explicit, err)
 	}
-	unknown, err := Load(t.Context(), root, policy, []string{"unknown"})
+	unknown, err := Load(t.Context(), []Root{{FS: root}}, policy, []string{"unknown"})
 	if err != nil || unknown.Text != policy.Text || len(unknown.Selected) != 0 || len(unknown.Sources) != 3 {
 		t.Fatalf("unknown invocation changed literal text: %+v err=%v", unknown, err)
 	}
@@ -102,7 +102,7 @@ func TestSkillCatalogWithoutAuthorityAndCancelledReads(t *testing.T) {
 func TestReadSkillCapturesFreshBodyWithSelectedMetadata(t *testing.T) {
 	dir, root := workspace(t)
 	writeFile(t, dir, skillPath, skillHeader+"old body")
-	catalog, err := Catalog(t.Context(), root)
+	catalog, err := Catalog(t.Context(), []Root{{FS: root}})
 	if err != nil || len(catalog.Skills) != 1 {
 		t.Fatalf("catalog=%+v err=%v", catalog, err)
 	}
@@ -127,7 +127,7 @@ func TestReadSkillRejectsChangedMetadataAndSelectionIdentity(t *testing.T) {
 		t.Run(change, func(t *testing.T) {
 			dir, root := workspace(t)
 			writeFile(t, dir, skillPath, skillHeader+"original")
-			catalog, err := Catalog(t.Context(), root)
+			catalog, err := Catalog(t.Context(), []Root{{FS: root}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -165,7 +165,7 @@ func TestReadSkillRejectsUnavailableOrInvalidSelectedBodies(t *testing.T) {
 		t.Run(change, func(t *testing.T) {
 			dir, root := workspace(t)
 			writeFile(t, dir, skillPath, skillHeader+"original")
-			catalog, err := Catalog(t.Context(), root)
+			catalog, err := Catalog(t.Context(), []Root{{FS: root}})
 			if err != nil {
 				t.Fatal(err)
 			}

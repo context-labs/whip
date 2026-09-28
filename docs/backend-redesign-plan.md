@@ -629,8 +629,10 @@ cross-turn usage cache. Workspace rules and project skill metadata now refresh
 once per ordinary turn with standing read authority, immutable source audit and
 frozen instructions across retries/corrections. Explicit current-input skill
 bodies now use the same catalog winners as read-only source inspection/completion;
-bodies remain turn-local and never rewrite canonical input. Authorized
-ancestor/global sources and standing user instructions remain required; the
+bodies remain turn-local and never rewrite canonical input. Named host roots
+now use explicit registry IDs, captured root selection and standing grants;
+`skills.read` supplies bounded, digest-checked body pages through the operation
+ledger. Authorized ancestors and standing user instructions remain required; the
 compaction acceptance item remains
 open until the retained instruction family is complete.
 Long-turn splitting now retains exact opening inputs and complete tool exchanges;

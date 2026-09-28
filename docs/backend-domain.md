@@ -545,7 +545,7 @@ admission even if a child's older local cap is larger. Inspection returns all
 scopes so callers can see which allowance is exhausted. A local allowance is not
 reserved exclusively for that child.
 
-Fresh host configuration is version 2. Optional finite `resources` defaults and
+Fresh host configuration is version 3. Optional finite `resources` defaults and
 creation overrides resolve once into root rows at revision one: depth 8,
 127 descendants, 256 queued inputs, 64 active operations, 1,000 subscriptions,
 and 64 runnable descendants.
@@ -950,9 +950,9 @@ The parser supports the retained scalar/block-scalar subset, validates known
 fields, and preserves keys following block scalars. Complete composed base
 instructions, including framing and the execution guide, are bounded to 1 MiB.
 
-Fresh schema 20 retains one immutable manifest per captured turn. It records the
-base instruction byte count/digest and ordered source kind, workspace-relative
-path, scope, byte count and digest. `skill_metadata` digests cover consumed
+Fresh schema 21 retains one immutable manifest per captured turn. It records the
+base instruction byte count/digest and ordered source kind, root-relative
+path, scope, nullable logical root ID, byte count and digest. `skill_metadata` digests cover consumed
 frontmatter, including disabled and duplicate entries that affected discovery.
 `invoked_skill` digests separately cover complete selected files.
 `turns.instructions` reads this metadata without reopening files. Null means the
@@ -962,8 +962,8 @@ replace a capture. A failed audit write prevents provider dispatch.
 
 Manifests do not reconstruct changed files or authorize later reads. The output
 contract guide is separately derived from the pinned configuration, and each
-actual provider request has its own digest. No full instruction body or mutable
-session-level source cache is stored.
+actual provider request has its own digest. Instruction capture stores neither
+full bodies nor a mutable session-level source cache. Explicit guest reads retain their ordinary operation results.
 
 Explicit whitespace-separated `$name` tokens are resolved only from the newly
 claimed canonical input's direct text parts, in first-reference order. Selection
@@ -997,5 +997,36 @@ at most 100 entries in name order, accept a case-sensitive prefix and exclusive
 a fresh view; mutable catalog pagination is not a historical snapshot. Clients
 use `turns.instructions` for historical capture evidence.
 
-Authorized ancestor/global sources and standing user instructions remain Phase 5
-obligations.
+Host configuration explicitly maps at most 16 `skill_roots` IDs to absolute
+directories. Captured instruction policy selects an ordered, unique list of those
+IDs; an empty list selects none. Registry paths stay host-local, and unknown
+selected IDs fail clearly. Host configuration is fixed for the runtime lifetime;
+source files refresh for each capture. No HOME/environment discovery or implicit
+registry grants exist. A host catalog or explicit body requires standing
+`skills.read` authority for the exact named root, including the live issuer chain.
+Missing authority omits that root without opening it. Human catalog inspection
+uses the same authority. Root IDs and whole-field policy changes are copied into
+children and frozen for active turns.
+
+Host catalogs read immediate child directories from their root; workspace
+catalogs still use `.agents/skills`. Policy order applies between host roots and
+workspace entries come last, so workspace winners override host names, including
+disabled winners. All roots share the existing total entry/skill/source limits.
+Host source manifests use `scope: host` and a logical `root_id`; workspace sources
+use `scope: workspace` and null. Source paths remain confined to their root;
+escaping symlinks are rejected even if legacy global discovery allowed them.
+
+Guest `skills.read` accepts `root_id` (null for workspace), exact `name`, a
+decimal-string `offset`, `length` from 1 to 65,536, and optional full-file `sha256`.
+The digest is required beyond offset zero. It resolves roots from the cell's
+immutable turn configuration, then uses ordinary durable operation admission and
+dispatch: `skills.read` on the host ID, or `files.read` on the workspace. An
+explicit one-use approval authorizes only that guest call, never automatic
+catalog/body capture. The descriptor is opened after permission and released on
+all outcomes. Each read validates a complete skill file within 256 KiB, checks
+its expected digest and returns a bounded base64 byte page plus full digest,
+size, offset and next offset. A changed file fails instead of mixing revisions.
+This authorizes skill files only; neighboring host files and scripts gain no
+authority. Catalog guidance names this tool and exposes no absolute host paths.
+
+Authorized ancestors and standing user instructions remain Phase 5 obligations.

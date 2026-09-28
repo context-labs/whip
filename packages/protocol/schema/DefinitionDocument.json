@@ -108,12 +108,22 @@
             },
             "discover_skills": {
               "type": "boolean"
+            },
+            "skill_roots": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              }
             }
           },
           "required": [
             "text",
             "project_files",
-            "discover_skills"
+            "discover_skills",
+            "skill_roots"
           ],
           "additionalProperties": false
         },

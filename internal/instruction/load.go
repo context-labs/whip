@@ -1,5 +1,5 @@
 // Package instruction assembles turn-local instructions from captured policy
-// and an already-authorized workspace root. It owns neither authority nor files.
+// and already-authorized filesystem roots. It owns neither authority nor files.
 package instruction
 
 import (
@@ -30,20 +30,31 @@ const (
 	skillDirectory = ".agents/skills"
 )
 
+// Root is an authorized, caller-owned directory. An empty ID identifies the
+// workspace; named roots contain immediate skill directories.
+type Root struct {
+	ID string
+	FS *os.Root
+}
+
 type Snapshot struct {
 	Text     string
 	Sources  []session.InstructionSource
 	Selected []Skill
 }
 
-// Load reads only through root, which remains owned by the caller. A nil root
-// omits all filesystem sources without probing their existence. Optional
-// missing sources are omitted; present but invalid sources fail the assembly.
-func Load(ctx context.Context, root *os.Root, policy session.Instructions, invoked []string) (Snapshot, error) {
+// Load reads only through caller-owned roots. No roots means no filesystem
+// reads. Project files belong to the workspace; skills follow host root order,
+// then workspace precedence. Missing optional sources are omitted.
+func Load(ctx context.Context, roots []Root, policy session.Instructions, invoked []string) (Snapshot, error) {
 	if err := ctx.Err(); err != nil {
 		return Snapshot{}, err
 	}
 	if err := policy.Validate(); err != nil {
+		return Snapshot{}, err
+	}
+	roots, err := orderedRoots(roots)
+	if err != nil {
 		return Snapshot{}, err
 	}
 	var text strings.Builder
@@ -51,11 +62,18 @@ func Load(ctx context.Context, root *os.Root, policy session.Instructions, invok
 		return Snapshot{}, err
 	}
 	var sources []session.InstructionSource
-	if root == nil {
+	if len(roots) == 0 {
 		return Snapshot{Text: text.String()}, nil
 	}
+	var workspace *os.Root
+	if roots[len(roots)-1].ID == "" {
+		workspace = roots[len(roots)-1].FS
+	}
 	for _, path := range policy.ProjectFiles {
-		data, found, err := readSource(ctx, root, path, false)
+		if workspace == nil {
+			break
+		}
+		data, found, err := readSource(ctx, workspace, path, false)
 		if err != nil {
 			return Snapshot{}, err
 		}
@@ -69,20 +87,16 @@ func Load(ctx context.Context, root *os.Root, policy session.Instructions, invok
 		if err := appendText(&text, framed); err != nil {
 			return Snapshot{}, err
 		}
-		sources = append(sources, source("project_file", path, data))
+		sources = append(sources, source("project_file", "", path, data))
 	}
 	var selected []Skill
 	if policy.DiscoverSkills || len(invoked) > 0 {
-		catalog, err := Catalog(ctx, root)
+		catalog, err := Catalog(ctx, roots)
 		if err != nil {
 			return Snapshot{}, err
 		}
 		if policy.DiscoverSkills {
-			visible := make([]skills.Skill, 0, len(catalog.Skills))
-			for _, skill := range catalog.Skills {
-				visible = append(visible, skills.Skill{Name: skill.Name, Description: skill.Description, Path: skill.Source.Path, DisableModelInvocation: skill.Disabled})
-			}
-			if err := appendText(&text, skills.PromptBlock(visible)); err != nil {
+			if err := appendCatalog(&text, catalog.Skills); err != nil {
 				return Snapshot{}, err
 			}
 		}
@@ -112,9 +126,14 @@ func appendText(text *strings.Builder, value string) error {
 	return nil
 }
 
-func source(kind, path string, data []byte) session.InstructionSource {
+func source(kind, rootID, path string, data []byte) session.InstructionSource {
 	hash := sha256.Sum256(data)
-	return session.InstructionSource{Kind: kind, Scope: "workspace", Path: filepath.ToSlash(path), Bytes: int64(len(data)), SHA256: hex.EncodeToString(hash[:])}
+	result := session.InstructionSource{Kind: kind, Scope: "workspace", Path: filepath.ToSlash(path), Bytes: int64(len(data)), SHA256: hex.EncodeToString(hash[:])}
+	if rootID != "" {
+		result.Scope = "host"
+		result.RootID = new(rootID)
+	}
+	return result
 }
 
 // Nonblocking open prevents a substituted FIFO from hanging before descriptor
@@ -129,12 +148,12 @@ func readSource(ctx context.Context, root *os.Root, path string, metadata bool) 
 		return nil, false, nil
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("open instruction source %s: %w", path, err)
+		return nil, false, fmt.Errorf("open instruction source %s: %w", path, withoutFilesystemPath(err))
 	}
 	defer func() { _ = file.Close() }()
 	info, err := file.Stat()
 	if err != nil {
-		return nil, false, err
+		return nil, false, withoutFilesystemPath(err)
 	}
 	if !info.Mode().IsRegular() {
 		return nil, false, fmt.Errorf("instruction source %s must be a regular file", path)
@@ -160,14 +179,14 @@ func readComplete(file *os.File, before fs.FileInfo, limit int64) ([]byte, error
 	}
 	data, err := io.ReadAll(io.LimitReader(file, limit+1))
 	if err != nil {
-		return nil, err
+		return nil, withoutFilesystemPath(err)
 	}
 	if int64(len(data)) > limit {
 		return nil, fmt.Errorf("instruction source exceeds %d bytes", limit)
 	}
 	after, err := file.Stat()
 	if err != nil {
-		return nil, err
+		return nil, withoutFilesystemPath(err)
 	}
 	if after.Size() != before.Size() || int64(len(data)) != before.Size() {
 		return nil, errors.New("instruction source size changed while reading")
@@ -198,35 +217,42 @@ func readMetadata(ctx context.Context, reader io.Reader) ([]byte, error) {
 			if errors.Is(err, io.EOF) {
 				return nil, errors.New("skill metadata has no closing delimiter")
 			}
-			return nil, err
+			return nil, withoutFilesystemPath(err)
 		}
 	}
 }
 
-func loadSkills(ctx context.Context, root *os.Root) ([]skills.Skill, []session.InstructionSource, error) {
+type catalogBounds struct {
+	entries, skills int
+}
+
+func loadSkills(ctx context.Context, root Root, bounds *catalogBounds) ([]skills.Skill, []session.InstructionSource, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
-	directory, err := root.OpenFile(skillDirectory, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NONBLOCK, 0)
-	if optionalMissing(root, skillDirectory, err) {
+	directoryPath := skillDirectory
+	if root.ID != "" {
+		directoryPath = "."
+	}
+	directory, err := root.FS.OpenFile(directoryPath, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NONBLOCK, 0)
+	if optionalMissing(root.FS, directoryPath, err) {
 		return nil, nil, nil
 	}
 	if err != nil {
-		return nil, nil, fmt.Errorf("open skill directory: %w", err)
+		return nil, nil, fmt.Errorf("open skill directory: %w", withoutFilesystemPath(err))
 	}
 	defer func() { _ = directory.Close() }()
 	var names []string
-	entriesRead := 0
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
 		entries, err := directory.ReadDir(128)
 		if err != nil && !errors.Is(err, io.EOF) {
-			return nil, nil, err
+			return nil, nil, withoutFilesystemPath(err)
 		}
-		entriesRead += len(entries)
-		if entriesRead > maxEntries {
+		bounds.entries += len(entries)
+		if bounds.entries > maxEntries {
 			return nil, nil, errors.New("skill catalog exceeds 8192 directory entries")
 		}
 		for _, entry := range entries {
@@ -244,23 +270,24 @@ func loadSkills(ctx context.Context, root *os.Root) ([]skills.Skill, []session.I
 	var catalog []skills.Skill
 	var sources []session.InstructionSource
 	for _, name := range names {
-		path := filepath.Join(skillDirectory, name, "SKILL.md")
-		data, found, err := readSource(ctx, root, path, true)
+		path := filepath.Join(directoryPath, name, "SKILL.md")
+		data, found, err := readSource(ctx, root.FS, path, true)
 		if err != nil {
 			return nil, nil, err
 		}
 		if !found {
 			continue
 		}
-		if len(catalog) >= maxSkills {
+		if bounds.skills >= maxSkills {
 			return nil, nil, errors.New("skill catalog exceeds 1024 skills")
 		}
+		bounds.skills++
 		skill, err := skills.ParsePromptMetadata(filepath.ToSlash(path), data)
 		if err != nil {
 			return nil, nil, err
 		}
 		catalog = append(catalog, skill)
-		metadata := source("skill_metadata", path, data)
+		metadata := source("skill_metadata", root.ID, path, data)
 		if err := metadata.Validate(); err != nil {
 			return nil, nil, err
 		}
@@ -278,4 +305,13 @@ func optionalMissing(root *os.Root, path string, err error) bool {
 	}
 	_, statErr := root.Lstat(path)
 	return errors.Is(statErr, fs.ErrNotExist)
+}
+
+// Files opened through os.Root can retain its absolute name in descriptor
+// errors. Expose the operation's relative source context and underlying cause.
+func withoutFilesystemPath(err error) error {
+	if pathError, ok := errors.AsType[*fs.PathError](err); ok {
+		return pathError.Err
+	}
+	return err
 }

@@ -150,7 +150,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     assert.equal((await detached.wait('abort-wait', deadline())).turn.state, 'succeeded');
     const beforeCrash = await page();
 
-    const configured = await client.call('sessions.configure', { session_id: root.id, expected_revision: root.config_revision, patch: { instructions: { text: 'inherit me', project_files: [], discover_skills: false } } }, deadline());
+    const configured = await client.call('sessions.configure', { session_id: root.id, expected_revision: root.config_revision, patch: { instructions: { text: 'inherit me', project_files: [], discover_skills: false, skill_roots: [] } } }, deadline());
     const spawnParams = { parent_id: root.id, overrides: {}, parts: [{ type: 'text', text: 'child' }], grant_ids: null };
     const spawned = await client.spawn(spawnParams, 'child', deadline());
     const child = spawned.session;
@@ -204,6 +204,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await contextRecoveryAcceptance(runtime, client, createParams, evidence);
     await contextPolicyAcceptance(runtime, client, createParams, evidence);
     await instructionAcceptance(runtime, client, createParams, evidence);
+    await hostSkillAcceptance(runtime, client, createParams, evidence);
     await engineAcceptance(runtime, client, createParams, evidence);
     await operationAcceptance(runtime, client, createParams, evidence);
     await streamAcceptance(runtime, client, createParams, evidence);
@@ -1376,7 +1377,7 @@ async function instructionAcceptance(runtime, client, createParams, evidence) {
     };
     await writeFile(path, JSON.stringify(host), { mode: 0o600 });
     await runtime.start(null);
-    const policy = { text: 'CONFIGURED_INSTRUCTIONS_BEFORE', project_files: ['AGENTS.md'], discover_skills: true };
+    const policy = { text: 'CONFIGURED_INSTRUCTIONS_BEFORE', project_files: ['AGENTS.md'], discover_skills: true, skill_roots: [] };
     const { root } = await client.call('trees.create', {
       ...createParams, engine: 'quickjs', working_directory: workspace,
       overrides: { ...createParams.overrides, model: { provider: 'instructions', name: 'instructions', effort: '' }, instructions: policy },
@@ -1469,6 +1470,122 @@ async function instructionAcceptance(runtime, client, createParams, evidence) {
     evidence.push({ instructions: { completed, captured, denied, childDone, restarted, failed, maintenance } });
   } finally {
     release.resolve();
+    server.closeAllConnections();
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+}
+
+async function hostSkillAcceptance(runtime, client, createParams, evidence) {
+  const requests = new Map();
+  const releases = new Map(['starlark', 'quickjs'].map(engine => [engine, Promise.withResolvers()]));
+  const server = http.createServer(async (request, response) => {
+    let raw = '';
+    for await (const chunk of request) raw += chunk;
+    const body = JSON.parse(raw);
+    const engine = body.model;
+    const received = requests.get(engine) ?? [];
+    received.push(body); requests.set(engine, received);
+    const first = received.length === 1;
+    if (first) await releases.get(engine).promise;
+    const code = engine === 'starlark'
+      ? 'p=skills.read(root_id="team",name="global",offset="0",length=65536)\nq=skills.read(root_id="team",name="global",offset=p["next_offset"],length=65536,sha256=p["sha256"])\nprint(p["total_bytes"], p["sha256"], q["next_offset"])'
+      : 'const p=await skills.read({root_id:"team",name:"global",offset:"0",length:65536}); const q=await skills.read({root_id:"team",name:"global",offset:p.next_offset,length:65536,sha256:p.sha256}); console.log(p.total_bytes,p.sha256,q.next_offset);';
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify({ choices: [{ message: first
+      ? { role: 'assistant', content: null, tool_calls: [{ id: `host-skill-${engine}`, type: 'function', function: { name: 'execute', arguments: JSON.stringify({ code }) } }] }
+      : { role: 'assistant', content: 'Named skill completed.' }, finish_reason: first ? 'tool_calls' : 'stop' }] }));
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  try {
+    const hostRoot = join(runtime.directory, 'host-skills');
+    await mkdir(join(hostRoot, 'global'), { recursive: true });
+    await mkdir(join(hostRoot, 'same'), { recursive: true });
+    const metadata = '---\nname: global\ndescription: Global metadata\ndisable-model-invocation: true\n---\n';
+    const globalPath = join(hostRoot, 'global', 'SKILL.md');
+    await writeFile(join(hostRoot, 'same', 'SKILL.md'), '---\nname: same\ndescription: HOST_DUPLICATE\n---\nHOST_SAME_BODY');
+    await runtime.stop();
+    const hostPath = join(runtime.directory, 'state', 'host.json');
+    const host = JSON.parse(await readFile(hostPath, 'utf8'));
+    host.skill_roots = { team: hostRoot, unused: join(runtime.directory, 'never-probe-missing-root') };
+    host.providers.hostskills = {
+      kind: 'openai-chat', base_url: `http://127.0.0.1:${server.address().port}/v1`, credential_env: '',
+      models: Object.fromEntries(['starlark', 'quickjs'].map(engine => [engine, { max_output_tokens: 128, timeout_millis: 5000, max_attempts: 1 }])),
+    };
+    await writeFile(hostPath, JSON.stringify(host), { mode: 0o600 });
+    await runtime.start(null);
+    for (const engine of ['starlark', 'quickjs']) {
+      const workspace = join(runtime.directory, `host-skill-${engine}`);
+      await mkdir(join(workspace, '.agents', 'skills', 'same'), { recursive: true });
+      await writeFile(join(workspace, '.agents', 'skills', 'same', 'SKILL.md'), '---\nname: same\ndescription: WORKSPACE_DUPLICATE\n---\nWORKSPACE_SAME_BODY');
+      await writeFile(globalPath, metadata + 'GLOBAL_BEFORE');
+      const policy = { text: '', project_files: [], discover_skills: true, skill_roots: ['unused', 'team'] };
+      const { root } = await client.call('trees.create', { ...createParams, engine, working_directory: workspace,
+        overrides: { ...createParams.overrides, model: { provider: 'hostskills', name: engine, effort: '' }, instructions: policy },
+      }, deadline());
+      assert.deepEqual((await client.call('skills.list', { session_id: root.id, limit: 100 }, deadline())).items, []);
+      await client.call('grants.create', { id: `host-skill-${engine}`, session_id: root.id, capability: 'skills.read', resource: 'team' }, deadline());
+      await client.call('grants.create', { id: `host-workspace-${engine}`, session_id: root.id, capability: 'files.read', resource: workspace }, deadline());
+      const catalog = await client.call('skills.list', { session_id: root.id, limit: 100 }, deadline());
+      assert.deepEqual(catalog.items.map(skill => skill.name), ['global', 'same']);
+      assert.equal(catalog.items[0].source.root_id, 'team');
+      assert.equal(catalog.items[0].source.scope, 'host');
+      assert.equal(catalog.items[1].description, 'WORKSPACE_DUPLICATE');
+      assert.equal(catalog.items[1].source.root_id, null);
+      assert.ok(!JSON.stringify(catalog).includes(hostRoot), 'catalog cannot expose host paths');
+      const key = `host-skills-${engine}`;
+      await client.submit(root.id, [{ type: 'text', text: 'Use $global' }], key, deadline());
+      await until(async () => requests.get(engine)?.length ?? 0, count => count === 1);
+      const captured = requests.get(engine)[0].messages[0].content;
+      assert.ok(captured.includes('GLOBAL_BEFORE'));
+      assert.ok(captured.includes('WORKSPACE_DUPLICATE'));
+      assert.ok(!captured.includes('HOST_DUPLICATE'));
+      assert.ok(!captured.includes(hostRoot));
+      const changed = metadata + 'GLOBAL_AFTER\n' + '🌍'.repeat(18_000);
+      const expectedHash = createHash('sha256').update(changed).digest('hex');
+      await writeFile(globalPath, changed);
+      const configured = await client.call('sessions.configure', { session_id: root.id, expected_revision: root.config_revision, patch: { instructions: { ...policy, skill_roots: [] } } }, deadline());
+      releases.get(engine).resolve();
+      const done = await client.wait(key, deadline());
+      assert.equal(done.turn.state, 'succeeded', done.turn.failure);
+      assert.equal(requests.get(engine)[1].messages[0].content, captured, 'active instructions retain old body and root policy');
+      const operations = await client.call('turns.operations', { turn_id: done.turn.id, limit: 100 }, deadline());
+      assert.equal(operations.items.length, 2);
+      const pages = operations.items.map(operation => {
+        assert.equal(operation.capability, 'skills.read');
+        assert.equal(operation.resource, 'team');
+        assert.equal(operation.state, 'succeeded', operation.result?.failure);
+        assert.equal(operation.result.value.sha256, expectedHash);
+        assert.equal(operation.result.value.total_bytes, String(Buffer.byteLength(changed)));
+        return operation.result.value;
+      }).sort((a, b) => Number(BigInt(a.offset) - BigInt(b.offset)));
+      assert.equal(Buffer.concat(pages.map(page => Buffer.from(page.data_base64, 'base64'))).toString('utf8'), changed);
+      assert.equal(pages.at(-1).next_offset, null);
+      const audit = await client.call('turns.instructions', { turn_id: done.turn.id }, deadline());
+      assert.equal(audit.manifest.sources.find(source => source.kind === 'invoked_skill').root_id, 'team');
+      assert.equal(audit.manifest.sources.find(source => source.kind === 'invoked_skill').sha256, createHash('sha256').update(metadata + 'GLOBAL_BEFORE').digest('hex'));
+      assert.deepEqual((await client.call('skills.list', { session_id: root.id, limit: 100 }, deadline())).items.map(skill => skill.name), ['same'], 'current inspection uses edited policy');
+      await client.submit(root.id, [{ type: 'text', text: 'next without reference' }], `${key}-next`, deadline());
+      assert.equal((await client.wait(`${key}-next`, deadline())).turn.state, 'succeeded');
+      assert.ok(!requests.get(engine).at(-1).messages[0].content.includes('GLOBAL_AFTER'));
+      await client.call('sessions.configure', { session_id: root.id, expected_revision: configured.config_revision, patch: { instructions: { ...policy, skill_roots: ['team'] } } }, deadline());
+      const child = await client.spawn({ parent_id: root.id, overrides: {}, parts: [{ type: 'text', text: 'Use $global' }], grant_ids: null }, `${key}-child`, deadline());
+      const childDone = await client.wait(`${key}-child`, deadline());
+      assert.equal(childDone.turn.state, 'succeeded', childDone.turn.failure);
+      assert.ok(requests.get(engine).at(-1).messages[0].content.includes('GLOBAL_AFTER'));
+      await runtime.stop();
+      await writeFile(globalPath, metadata + 'GLOBAL_RESTARTED');
+      await runtime.start(null);
+      assert.deepEqual(await client.call('turns.instructions', { turn_id: done.turn.id }, deadline()), audit);
+      await client.submit(child.session.id, [{ type: 'text', text: 'Use $global' }], `${key}-restart`, deadline());
+      const restarted = await client.wait(`${key}-restart`, deadline());
+      assert.equal(restarted.turn.state, 'succeeded', restarted.turn.failure);
+      assert.ok(requests.get(engine).at(-1).messages[0].content.includes('GLOBAL_RESTARTED'));
+      await client.call('grants.revoke', { grant_id: `host-skill-${engine}` }, deadline());
+      assert.deepEqual((await client.call('skills.list', { session_id: child.session.id, limit: 100 }, deadline())).items.map(skill => skill.name), ['same'], 'issuer revocation removes child host access');
+      evidence.push({ hostSkills: { engine, done, audit, pages, childDone, restarted } });
+    }
+  } finally {
+    for (const release of releases.values()) release.resolve();
     server.closeAllConnections();
     await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   }

@@ -1357,3 +1357,50 @@ refresh, unchanged canonical input and paged inspection with discovery disabled.
 Hosted recovery and compaction-policy PRs also passed Linux, macOS and analysis.
 Named host roots, standing user instructions, authorized ancestors and the
 remaining Phase 5–7 obligations remain open.
+
+## Phase 5 named host skill roots
+
+Fresh host config version 3 maps at most 16 logical skill-root IDs to explicit
+absolute directories. Captured instruction policy selects an ordered subset;
+registration and selection create no authority. Standing `skills.read` grants
+for the exact ID authorize automatic discovery and explicit body capture.
+Missing grants cause no filesystem probes. Workspace entries come last in the
+shared winner rules. Global catalog limits still apply across all roots before
+deduplication. Fresh schema 21 adds nullable logical root IDs to audit sources;
+paths remain relative and OS errors do not expose absolute host paths.
+
+Guest `skills.read` resolves the cell's immutable turn configuration, then uses
+ordinary durable permission/admission/dispatch. It reads a complete validated
+file up to 256 KiB and returns at most 64 KiB of base64 bytes. Continuations
+require the full-file digest, preventing mixed revisions. Workspace reads use
+existing `files.read` authority; named roots use `skills.read`. A one-use approval
+authorizes only that call, never automatic capture or neighboring files/scripts.
+Descriptor lifetime follows the existing dispatcher sequence; review removed an
+unneeded second in-memory lifecycle state machine. Guidance supplies the right
+call syntax for each engine.
+
+Focused race/shuffle passed for domain/config/store (1.285 s/1.514 s/5.331 s),
+reader (3.353 s after lint), and operation/process tests (4.473 s/3.415 s). Tests
+cover registry validation without probing, whole-field copying/clear, concurrent
+policy/authority snapshots, issuer revocation, one-use isolation, captured old
+policy, exact name lookup, Unicode pages, changed hashes, nonregular/escaping
+files, cancellation and real-dispatch descriptor cleanup. Independent review of
+both composition and the operation path found no defects. The first analysis
+run flagged construction of an oversized-root test slice; using concatenation
+preserves that boundary assertion without the lint ambiguity.
+
+Final `task check:phase` passed: store race 75.247 s, runtime race 79.502 s, runner
+race 2.738 s, instruction race 5.426 s, skills race 2.716 s, generated contracts,
+SDK checks, both-engine SDK process acceptance 12.572 s, retained process
+acceptance 3.698 s and required daemon regressions 2.711 s. The SDK scenario
+changes active root policy and file content before dispatching two named reads,
+reconstructs exact Unicode bytes, checks workspace precedence and no-grant
+missing-root isolation, then checks child inheritance, restart and issuer
+revocation. Final engine-specific guidance also passed focused instruction/runtime
+tests (1.978 s/3.367 s) and scoped lint. `task check:analysis` reports zero lint
+issues and no reachable vulnerabilities.
+
+The workspace instruction PR passed all hosted checks: Linux 10m26s, macOS
+14m31s, analysis 3m5s. Named roots deliberately reject legacy global symlinks that
+escape their root. Standing user instructions, authorized ancestors and all
+remaining Phase 5–7 obligations remain open.

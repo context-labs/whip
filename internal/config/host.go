@@ -12,13 +12,14 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"unicode/utf8"
 
 	"github.com/context-labs/whip/internal/session"
 )
 
 const (
 	FileName = "host.json"
-	Version  = 2
+	Version  = 3
 )
 
 var environmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -73,22 +74,38 @@ func (m Model) Resolve() (Model, error) {
 }
 
 type Host struct {
-	Version   int                     `json:"version"`
-	Providers map[string]Provider     `json:"providers"`
-	Defaults  session.Configuration   `json:"defaults"`
-	Engine    session.Engine          `json:"engine"`
-	Resources []session.ResourceLimit `json:"resources"`
+	// SkillRoots publishes explicit named directories; publication grants no authority.
+	SkillRoots map[string]string       `json:"skill_roots"`
+	Version    int                     `json:"version"`
+	Providers  map[string]Provider     `json:"providers"`
+	Defaults   session.Configuration   `json:"defaults"`
+	Engine     session.Engine          `json:"engine"`
+	Resources  []session.ResourceLimit `json:"resources"`
 }
 
 // Default is intentionally unconfigured. Model/provider selection is required
 // before resolving a runnable session; initialization invents no credentials.
 func Default() Host {
-	return Host{Version: Version, Providers: map[string]Provider{}, Engine: session.Starlark, Resources: session.DefaultResourceLimits()}
+	return Host{Version: Version, SkillRoots: map[string]string{}, Providers: map[string]Provider{}, Engine: session.Starlark, Resources: session.DefaultResourceLimits()}
 }
 
 func (h Host) Validate() error {
 	if h.Version != Version {
 		return fmt.Errorf("%w: unsupported host version %d", session.ErrInvalid, h.Version)
+	}
+	if len(h.SkillRoots) > session.MaxSkillRoots {
+		return fmt.Errorf("%w: too many host skill roots", session.ErrInvalid)
+	}
+	for id, path := range h.SkillRoots {
+		if err := session.ValidateID(id); err != nil {
+			return err
+		}
+		if err := session.ValidateText(path, 4096); err != nil {
+			return err
+		}
+		if !utf8.ValidString(path) || !filepath.IsAbs(path) || filepath.Clean(path) != path {
+			return fmt.Errorf("%w: host skill root must be a clean absolute path", session.ErrInvalid)
+		}
 	}
 	if err := h.Engine.Validate(); err != nil {
 		return err
