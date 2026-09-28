@@ -50,7 +50,30 @@ func headerValue(value string) bool {
 	return value != "" && len(value) <= 32<<10 && !strings.ContainsAny(value, "\r\n\x00")
 }
 
-func readCredentials(path string) (Credentials, error) {
+// A prior process may have published credentials or removed them without
+// confirming directory durability. First load confirms either visible outcome
+// before treating it as saved state, without rewriting the credential file.
+func readCredentials(path string, syncDirectory func(*os.File) error) (Credentials, error) {
+	// #nosec G304 -- The manager owns this fixed credential directory.
+	directory, err := os.Open(filepath.Dir(path))
+	if errors.Is(err, os.ErrNotExist) {
+		return Credentials{}, nil
+	}
+	if err != nil {
+		return Credentials{}, fmt.Errorf("%w: could not open credential directory", ErrPersistence)
+	}
+	defer func() { _ = directory.Close() }()
+	credentials, err := readCredentialFile(path)
+	if err != nil {
+		return Credentials{}, err
+	}
+	if err := syncDirectory(directory); err != nil {
+		return Credentials{}, fmt.Errorf("%w: saved credential state durability is unconfirmed", ErrPersistence)
+	}
+	return credentials, nil
+}
+
+func readCredentialFile(path string) (Credentials, error) {
 	// #nosec G304 -- Manager constructs this private host path with the fixed name openai-codex.json.
 	f, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {

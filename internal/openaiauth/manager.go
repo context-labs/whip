@@ -44,6 +44,7 @@ type Manager struct {
 	loadErr    error
 	terminal   error
 	flight     *refresh
+	read       func(string) (Credentials, error)
 	save       func(string, Credentials) (bool, error)
 	remove     func(string) error
 }
@@ -53,6 +54,7 @@ func New(ctx context.Context, directory string) *Manager {
 	return &Manager{
 		ctx: ctx, cancel: cancel, issuer: issuer,
 		path: filepath.Join(directory, "openai-codex.json"),
+		read: func(path string) (Credentials, error) { return readCredentials(path, (*os.File).Sync) },
 		save: func(path string, credentials Credentials) (bool, error) {
 			return saveCredentials(path, credentials, (*os.File).Sync)
 		},
@@ -73,7 +75,7 @@ func (m *Manager) Close() {
 
 func (m *Manager) load() error {
 	if !m.loaded {
-		m.credential, m.loadErr = readCredentials(m.path)
+		m.credential, m.loadErr = m.read(m.path)
 		m.loaded = m.loadErr == nil
 	}
 	return m.loadErr

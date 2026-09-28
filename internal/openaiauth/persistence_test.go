@@ -1,6 +1,7 @@
 package openaiauth
 
 import (
+	"bytes"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestInstallPersistenceOrdersDiskMemoryAndGeneration(t *testing.T) {
@@ -48,7 +50,7 @@ func TestInstallPersistenceOrdersDiskMemoryAndGeneration(t *testing.T) {
 				} else if err := m.Check(t.Context(), old); err != nil {
 					t.Fatal("unpublished replacement revoked the old login", err)
 				}
-				visible, err := readCredentials(m.path)
+				visible, err := readCredentials(m.path, (*os.File).Sync)
 				if err != nil || visible.AccessToken != want.AccessToken || visible.AccountID != want.AccountID || m.Generation() != generation {
 					t.Fatal("disk, memory and generation diverged", err)
 				}
@@ -108,7 +110,7 @@ func TestLogoutPersistenceKeepsRevocationAndRetryVisible(t *testing.T) {
 			if value, err := m.Snapshot(); value != (Credentials{}) || !errors.Is(err, ErrPersistence) {
 				t.Fatal("failed logout appeared clean", err)
 			}
-			visible, err := readCredentials(m.path)
+			visible, err := readCredentials(m.path, (*os.File).Sync)
 			if err != nil || (visible.AccessToken != "") != (stage == "unlink") {
 				t.Fatal("unexpected failed removal boundary", err)
 			}
@@ -237,5 +239,84 @@ func TestPersistPendingFirstLoginRequiresNoProviderOrReplacement(t *testing.T) {
 	t.Cleanup(reopened.Close)
 	if value, err := reopened.Snapshot(); err != nil || value.AccessToken != credentials.AccessToken || value.RefreshToken != credentials.RefreshToken {
 		t.Fatal("first-login persistence did not survive restart", err)
+	}
+}
+
+func TestLoadConfirmsPublishedCredentialsAndAbsenceBeforeAuthorization(t *testing.T) {
+	for _, outcome := range []string{"credentials", "absence"} {
+		t.Run(outcome, func(t *testing.T) {
+			directory := t.TempDir()
+			path := filepath.Join(directory, "openai-codex.json")
+			credentials := testCredentials()
+			credentials.ExpiresAt = time.Now().Add(time.Hour)
+			if _, err := saveCredentials(path, credentials, (*os.File).Sync); err != nil {
+				t.Fatal(err)
+			}
+			failedSync := func(*os.File) error { return errors.New("injected sync failure") }
+			if outcome == "credentials" {
+				credentials.AccessToken, credentials.RefreshToken = "published-access", "published-refresh"
+				if published, err := saveCredentials(path, credentials, failedSync); !published || !errors.Is(err, ErrPersistence) {
+					t.Fatal("missing post-publication failure", err)
+				}
+			} else if err := removeCredentials(path, os.Remove, failedSync); !errors.Is(err, ErrPersistence) {
+				t.Fatal("missing post-unlink failure", err)
+			}
+			before, readErr := os.ReadFile(path)
+			if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+				t.Fatal(readErr)
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				t.Error("first-load confirmation contacted provider")
+			}))
+			t.Cleanup(server.Close)
+			m := New(t.Context(), directory)
+			t.Cleanup(m.Close)
+			m.issuer = server.URL
+			m.save = func(string, Credentials) (bool, error) {
+				t.Error("first-load confirmation rewrote credentials")
+				return false, ErrPersistence
+			}
+			repaired, confirmations := false, 0
+			m.read = func(path string) (Credentials, error) {
+				return readCredentials(path, func(directory *os.File) error {
+					confirmations++
+					if !repaired {
+						return failedSync(directory)
+					}
+					return directory.Sync()
+				})
+			}
+			if value, err := m.Snapshot(); value != (Credentials{}) || !errors.Is(err, ErrPersistence) || strings.Contains(err.Error(), directory) {
+				t.Fatal("unconfirmed saved state was published", err)
+			}
+			if _, err := m.Capture(t.Context()); !errors.Is(err, ErrPersistence) {
+				t.Fatal("unconfirmed saved state authorized capture", err)
+			}
+			if err := m.PersistPending(t.Context()); !errors.Is(err, ErrPersistence) || confirmations != 3 {
+				t.Fatal("failed confirmation was cached as clean state", err)
+			}
+			repaired = true
+			value, err := m.Snapshot()
+			if err != nil || confirmations != 4 || m.Generation() != 0 {
+				t.Fatal("local confirmation did not recover", err)
+			}
+			if outcome == "credentials" {
+				captured, err := m.Capture(t.Context())
+				if err != nil || captured.Credentials.AccessToken != credentials.AccessToken || value.RefreshToken != credentials.RefreshToken {
+					t.Fatal("confirmed saved credentials changed", err)
+				}
+			} else {
+				if value != (Credentials{}) {
+					t.Fatal("confirmed absence restored credentials")
+				}
+				if _, err := m.Capture(t.Context()); !errors.Is(err, ErrSignInRequired) {
+					t.Fatal("confirmed absence was not signed out", err)
+				}
+			}
+			after, err := os.ReadFile(path)
+			if err != nil && !errors.Is(err, os.ErrNotExist) || !bytes.Equal(before, after) || confirmations != 4 {
+				t.Fatal("confirmation rewrote state or repeated completed loading", err)
+			}
+		})
 	}
 }
