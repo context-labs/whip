@@ -282,7 +282,7 @@ the recipient and reference through composite foreign keys, so it cannot point
 at another owner's row. Explicit child/mail sharing still creates recipient
 aliases; this foundation permits a later fork to preserve handles without
 rewriting opaque text. Conversation rewind preserves these independent references.
-Fork import remains a separate operation under development.
+Fork atomically preserves those owner-scoped handles in the destination.
 
 `content.put` publishes bytes durably before registering body metadata and a
 session reference. A caller-supplied reference ID makes upload retries idempotent;
@@ -317,7 +317,7 @@ must select a model/provider before creating a runnable session. API credentials
 use explicit sources resolved during request preparation. Subscription credentials
 belong to the independent host account manager and its private file.
 
-Current fresh host configuration is version 11; the SQLite schema is version 32.
+Current fresh host configuration is version 11; the SQLite schema is version 33.
 SQLite has an application identifier and schema version. Existing databases of
 another application/version are rejected, not imported. Reopening preserves the
 runtime identity and seeded revisions; separate databases receive distinct
@@ -1282,7 +1282,43 @@ Every new edit invalidates the REPL even when keeping all or no messages.
 Revision-qualified kernel/checkpoint loading prevents restoration after a crash
 between SQL commit and cache disposal. A delayed acknowledgement cannot dispose
 a new-revision kernel. Old exact cell evidence remains readable. No code is
-replayed to reconstruct state. Fork import remains separate work.
+replayed to reconstruct state.
+
+`sessions.fork` imports a selected terminal whole-group prefix into a fresh tree
+and root. The initial command compares expected history and configuration
+revisions plus the complete observed active tail. Later source work may run if
+all included groups are terminal and the snapshot still matches. An immutable
+fork identity and request digest are resolved before current source/default
+validation; changed payload reuse conflicts. The receipt survives either tree's
+deletion. Retry returns the original receipt with current tree/root projections,
+or an explicit deleted result with null projections; it never recreates a tree.
+
+A fork copies the source's effective configuration, pinned definition, engine and
+working directory, without creating a Git worktree. It copies raw message parts,
+new local group/message identities, opening-input markers and immutable immediate
+source provenance. Imported messages have no fabricated local input, turn or
+attempt. Selected compatible summary chains and pins get new local identities
+and source provenance without invented billing. The runner groups and pins by
+history group/opening input, including when execution links are null. Scoped
+private continuations remain subject to the adapter's route/credential/model HMAC
+and visible-part checks; copying does not authorize their replay under a new scope.
+
+Every authorized owner content handle is copied unchanged, including handles in
+opaque text; immutable body bytes remain shared. No children, grants, permission
+decisions, schedules, independent mail, explicit state, operations, checkpoints,
+spending or armed goals are copied. Presented mail retains only its history parts.
+The destination starts with an empty REPL and fresh root resource/write limits.
+Like fresh-tree creation, bounded initial import adds no logical-write charges;
+future writes consume the destination's fresh allowance. Source charges are never
+transferred or refunded. Title is explicitly supplied or null, and archive/pin
+metadata starts false.
+
+Import bounds are 10,000 messages, 1,000 groups, 64 MiB of serialized history,
+4 MiB of private envelopes, 128 summaries, and 1,024 content references totaling
+64 MiB including repeated references. Import hydrates one message at a time and
+commits all metadata, references and the receipt together. Source deletion and
+startup orphan collection cannot remove bodies still owned by a surviving fork.
+Workspace snapshot/restore remains separate from conversation editing.
 
 `context.list` and `context.search` expose their history revision and may require
 the snapshot revision, so paging cannot silently mix current histories. Their

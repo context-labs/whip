@@ -383,7 +383,7 @@ Maintain one compact table here as families are addressed:
 | Goals and schedules | Ordinary durable input admission; continuation/cursor state has one owner | Schedule store/runtime/guest/RPC/SDK and restart coverage implemented. Goal records, public controls, captured turns, atomic continuation and authorized completion settlement and durable formulation implemented; product-client adoption remains | 5 in progress |
 | Provider accounts and discovery | Host-owned credentials and setup flows, account-scoped catalogs, exact pricing and explicit defaults | ChatGPT manager, host-owned login flows, revisioned setup, public RPC/SDK and joined cancellation implemented; independent Inference.net credential manager and explicit gateway binding implemented. Explicit env/file/command/no-auth API sources implemented. Pasted/named-key setup, team/project/key flows, catalogs, readiness and product clients remain | 5–6 in progress |
 | Conversation titles | Preserve explicit titles and automatic title generation without mixing helper output into history | Tree metadata supports explicit titles; retained automatic-title admission and model helper behavior still need replacement evidence | 5 pending |
-| Fork/rewind/workspace | Revision/tail CAS, recoverable identities, scoped imports, empty REPL, separate uncertain workspace effects | History/rewind checkpoints and public rewind integrated; local phase/analysis gates pass, hosted validation pending. Fork and workspace restore remain | 5 in progress |
+| Fork/rewind/workspace | Revision/tail CAS, recoverable identities, scoped imports, empty REPL, separate uncertain workspace effects | Public rewind passes local and hosted gates; bounded fork core, imported runner context and RPC/SDK pass local phase/analysis gates and process acceptance. Fork hosted validation pending; workspace restore remains | 5 in progress |
 | Definition modules and executors | Captured declarations, connection-bound handlers, schema validation and child authority | Retained `daemon/definition_test.go`, `tools_test.go`, agents SDK/examples; replacement pending | 5 |
 | Required/optional hooks | Validated bounded rewrites and explicit disconnect/failure behavior | Retained `daemon/hooks_test.go`; replacement pending | 5 |
 | Human questions and permission modes | Questions/dismissal/cancellation, durable pending snapshots, saved Ask/Full Access semantics | Retained `daemon/question_test.go`, `question_snapshot_test.go`, legacy permission-mode tests; operation approvals alone are insufficient | 5 |
@@ -704,8 +704,8 @@ claims of legacy behavioral equivalence.
 The goal-record foundation now implements immutable specifications, revisioned
 lifecycle, exact create/resume retries, current selection, atomic ordinary-input
 admission and deletion tombstones. Turn capture, durable continuation, recovery
-pause and authorized completion settlement are now implemented internally. Fresh
-config is 9 and schema 31. Generated input and turn projections preserve goal
+pause and authorized completion settlement are now implemented internally. That checkpoint used fresh
+config9 and schema31. Generated input and turn projections preserve goal
 provenance and exact decimal revisions. Runtime/guest/RPC/SDK controls now expose
 creation, inspection, resume, cancellation and authorized completion intents.
 Both-engine and process acceptance cover the controls. Formulation now has the
@@ -872,9 +872,11 @@ foreign keys pass real-SQL and runtime evidence tests. The SDK process scenario
 covers the same handle with different bytes, exact retry, conflicts, restart,
 foreign access and independent deletion. History groups, revision-aware pages,
 public rewind and REPL invalidation now pass the local phase and analysis gates.
-Fork imports and separate workspace operations remain open.
+Bounded fork imports, imported runner context and public RPC/SDK now have focused
+race and real-process acceptance; integrated phase/analysis gates pass. Separate workspace
+operations remain open.
 
-Continue with fork imports, then separate workspace operations. Acceptance includes
+Continue with separate workspace operations. Acceptance includes
 source deletion/double forks, opaque handles, exact retries, concurrent stale
 history edits, compaction pins, non-reused sequences, restart/reset boundaries,
 and tracked/untracked/deleted/staged file behavior and partial restore failures.

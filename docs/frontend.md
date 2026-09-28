@@ -268,6 +268,15 @@ resets the REPL; repeated acknowledgements do not. Independent state, mail, goal
 spend and external files remain retained. Product history-action adoption and
 separate workspace restoration remain open.
 
+Fork uses `client.fork` with an explicit stable fork ID, source history/configuration
+revisions, observed tail, terminal group boundary and nullable title. Retain the
+exact request for uncertain retries. Its immutable receipt survives source and
+destination deletion; a deleted destination returns null tree/root projections and
+must not be locally recreated. A fork is an independent root with an empty REPL,
+copied bounded history/content/configuration and no copied authority or spending.
+Working-directory reuse does not create a Git worktree. Imported messages expose
+null local execution links and source provenance; use group identity for exchanges.
+
 The v4 host account API is separate from session execution. Use the SDK's
 `beginOpenAILogin`, `getOpenAILogin`, `listOpenAILogins`, `cancelOpenAILogin`,
 `openAIAccountStatus`, `setupOpenAIAccount` and `logoutOpenAIAccount` methods.
