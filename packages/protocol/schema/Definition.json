@@ -32,6 +32,12 @@
         "defaults": {
           "type": "object",
           "properties": {
+            "automatic_title": {
+              "type": [
+                "null",
+                "boolean"
+              ]
+            },
             "goals_enabled": {
               "type": [
                 "null",

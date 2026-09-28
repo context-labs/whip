@@ -12,11 +12,7 @@ import (
 	"github.com/context-labs/whip/internal/session"
 )
 
-const titleClient = "automatic-title"
-
-func titleIdentity(tree session.TreeID) session.RequestIdentity {
-	return session.RequestIdentity{ClientID: titleClient, RequestID: string(tree)}
-}
+const titleClient = session.AutomaticTitleClientID
 
 func readTitleDecision(ctx context.Context, q querier, tree session.TreeID) (value session.AutomaticTitleDecision, err error) {
 	var raw string
@@ -106,7 +102,7 @@ func admitTitle(ctx context.Context, tx *sql.Tx, owner session.Session) (*sessio
 	if err != nil {
 		return nil, err
 	}
-	identity := titleIdentity(owner.TreeID)
+	identity := session.AutomaticTitleIdentity(owner.TreeID)
 	if _, err := readReceipt(ctx, tx, identity); err == nil {
 		return nil, nil //nolint:nilnil // Claimed, cancelled, interrupted, or completed naming never re-arms.
 	} else if !errors.Is(err, ErrNotFound) {

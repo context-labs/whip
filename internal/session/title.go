@@ -10,6 +10,14 @@ import (
 
 const AutomaticTitlePurpose = "automatic_title"
 
+const AutomaticTitleClientID = "automatic-title"
+
+// AutomaticTitleIdentity addresses independently admitted naming maintenance.
+// A decision can precede its receipt; reading either never admits work.
+func AutomaticTitleIdentity(tree TreeID) RequestIdentity {
+	return RequestIdentity{ClientID: AutomaticTitleClientID, RequestID: string(tree)}
+}
+
 // AutomaticTitleDecision records the single initialization decision for a tree.
 // It is immutable, including when later manual metadata supersedes its revision.
 type AutomaticTitleDecision struct {

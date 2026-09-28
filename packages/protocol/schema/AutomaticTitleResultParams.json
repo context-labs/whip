@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "properties": {
+    "tree_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "attempt_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/AutomaticTitleResultParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AutomaticTitleResultParams",
+  "required": [
+    "tree_id",
+    "attempt_id"
+  ],
+  "additionalProperties": false
+}

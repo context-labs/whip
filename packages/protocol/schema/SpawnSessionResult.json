@@ -53,6 +53,9 @@
         "configuration": {
           "type": "object",
           "properties": {
+            "automatic_title": {
+              "type": "boolean"
+            },
             "goals_enabled": {
               "type": "boolean"
             },
@@ -287,6 +290,7 @@
             "output_schema": true
           },
           "required": [
+            "automatic_title",
             "goals_enabled",
             "compaction",
             "report_mode",
@@ -579,7 +583,8 @@
                   "type": "string",
                   "enum": [
                     "compact",
-                    "goal_formulation"
+                    "goal_formulation",
+                    "automatic_title"
                   ]
                 },
                 "parts": {
@@ -734,7 +739,8 @@
               "enum": [
                 "prompt",
                 "compact",
-                "goal_formulation"
+                "goal_formulation",
+                "automatic_title"
               ]
             },
             "config_revision": {

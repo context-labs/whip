@@ -47,6 +47,9 @@
     "configuration": {
       "type": "object",
       "properties": {
+        "automatic_title": {
+          "type": "boolean"
+        },
         "goals_enabled": {
           "type": "boolean"
         },
@@ -281,6 +284,7 @@
         "output_schema": true
       },
       "required": [
+        "automatic_title",
         "goals_enabled",
         "compaction",
         "report_mode",

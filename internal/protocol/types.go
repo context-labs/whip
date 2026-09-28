@@ -106,26 +106,28 @@ type CompactionPolicy struct {
 	ThresholdPercent int             `json:"threshold_percent" min:"0" max:"100"`
 }
 type Configuration struct {
-	GoalsEnabled bool                       `json:"goals_enabled"`
-	Compaction   CompactionPolicy           `json:"compaction"`
-	ReportMode   string                     `json:"report_mode" enum:"notice,inline,message"`
-	Model        ModelSelection             `json:"model"`
-	Instructions Instructions               `json:"instructions"`
-	Tools        map[string]ToolDeclaration `json:"tools"`
-	Children     map[string]DefinitionRef   `json:"children"`
-	Hooks        map[string]HookDeclaration `json:"hooks"`
-	OutputSchema json.RawMessage            `json:"output_schema"`
+	AutomaticTitle bool                       `json:"automatic_title"`
+	GoalsEnabled   bool                       `json:"goals_enabled"`
+	Compaction     CompactionPolicy           `json:"compaction"`
+	ReportMode     string                     `json:"report_mode" enum:"notice,inline,message"`
+	Model          ModelSelection             `json:"model"`
+	Instructions   Instructions               `json:"instructions"`
+	Tools          map[string]ToolDeclaration `json:"tools"`
+	Children       map[string]DefinitionRef   `json:"children"`
+	Hooks          map[string]HookDeclaration `json:"hooks"`
+	OutputSchema   json.RawMessage            `json:"output_schema"`
 }
 type ConfigPatch struct {
-	GoalsEnabled *bool                      `json:"goals_enabled,omitempty"`
-	Compaction   *CompactionPolicy          `json:"compaction,omitempty"`
-	ReportMode   *string                    `json:"report_mode,omitempty" enum:"notice,inline,message"`
-	Model        *ModelSelection            `json:"model,omitempty"`
-	Instructions *Instructions              `json:"instructions,omitempty"`
-	Tools        map[string]ToolDeclaration `json:"tools,omitempty"`
-	Children     map[string]DefinitionRef   `json:"children,omitempty"`
-	Hooks        map[string]HookDeclaration `json:"hooks,omitempty"`
-	Output       *OutputPolicy              `json:"output,omitempty"`
+	AutomaticTitle *bool                      `json:"automatic_title,omitempty"`
+	GoalsEnabled   *bool                      `json:"goals_enabled,omitempty"`
+	Compaction     *CompactionPolicy          `json:"compaction,omitempty"`
+	ReportMode     *string                    `json:"report_mode,omitempty" enum:"notice,inline,message"`
+	Model          *ModelSelection            `json:"model,omitempty"`
+	Instructions   *Instructions              `json:"instructions,omitempty"`
+	Tools          map[string]ToolDeclaration `json:"tools,omitempty"`
+	Children       map[string]DefinitionRef   `json:"children,omitempty"`
+	Hooks          map[string]HookDeclaration `json:"hooks,omitempty"`
+	Output         *OutputPolicy              `json:"output,omitempty"`
 }
 type DefinitionDocument struct {
 	ID       ID          `json:"id"`
@@ -198,7 +200,7 @@ type Input struct {
 	ID        ID                  `json:"id"`
 	SessionID ID                  `json:"session_id"`
 	Source    string              `json:"source" enum:"user,agent,schedule,goal"`
-	Kind      string              `json:"kind" enum:"prompt,compact,goal_formulation"`
+	Kind      string              `json:"kind" enum:"prompt,compact,goal_formulation,automatic_title"`
 	Parts     []Part              `json:"parts"`
 	State     string              `json:"state" enum:"queued,claimed,cancelled"`
 	TurnID    *ID                 `json:"turn_id"`
@@ -210,7 +212,7 @@ type Turn struct {
 	Goal            *GoalRef `json:"goal"`
 	ID              ID       `json:"id"`
 	SessionID       ID       `json:"session_id"`
-	Kind            string   `json:"kind" enum:"prompt,compact,goal_formulation"`
+	Kind            string   `json:"kind" enum:"prompt,compact,goal_formulation,automatic_title"`
 	ConfigRevision  Counter  `json:"config_revision"`
 	State           string   `json:"state" enum:"running,cancelling,succeeded,failed,cancelled,interrupted"`
 	Failure         *string  `json:"failure"`
@@ -324,7 +326,7 @@ type ModelPrices struct {
 	CachedOutput *Counter `json:"cached_output"`
 }
 type ModelRequestSnapshot struct {
-	Purpose         ID             `json:"purpose"`
+	Purpose         ID             `json:"purpose" enum:"turn,compaction,goal_formulation,model_helper,automatic_title"`
 	Model           ModelSelection `json:"model"`
 	Route           string         `json:"route"`
 	Adapter         ID             `json:"adapter"`

@@ -43,6 +43,28 @@ test('history revisions and imported provenance retain exact counters and nullab
   assert.equal(summary.attempt_id, null);
   assert.deepEqual(summary.source, { session_id: 'source', compaction_id: 'source_summary' });
 });
+test('automatic naming preserves bounded evidence, maintenance kinds and explicit policy false', () => {
+  const decision = fixtures.find(f => f.type === 'AutomaticTitleDecision' && f.value.reason === 'eligible').value;
+  assert.equal(decision.config_revision, '9007199254740993');
+  assert.equal(decision.expected_revision, '9007199254740994');
+  assert.deepEqual(decision.receipt_identity, { client_id: 'automatic-title', request_id: decision.tree_id });
+  assert.equal(validate('AutomaticTitleDecision', { ...decision, source: '🌍'.repeat(300) }), true);
+  assert.equal(validate('AutomaticTitleDecision', { ...decision, source: '🌍'.repeat(301) }), false);
+  assert.equal(validate('AutomaticTitleDecision', { ...decision, source: '🌍'.repeat(300) + '\n' }), false);
+  assert.equal(validate('AutomaticTitleDecision', { ...decision, config_revision: 9007199254740993 }), false);
+  const candidate = fixtures.find(f => f.type === 'AutomaticTitleResult').value;
+  assert.equal(validate('AutomaticTitleResult', { ...candidate, text: '🌍'.repeat(80) }), true);
+  for (const text of ['', '🌍'.repeat(81), 'two\nlines', 'control\u0085', 'two\u2029lines', 'title\n', 'title\r', 'title\u2029', ' leading', 'trailing ', 'title\u00a0']) {
+    assert.equal(validate('AutomaticTitleResult', { ...candidate, text }), false);
+  }
+  const input = fixtures.find(f => f.type === 'Input' && f.value.kind === 'automatic_title').value;
+  assert.equal(input.source, 'agent');
+  assert.deepEqual(input.parts, []);
+  assert.equal(validate('Input', { ...input, parts: [{ type: 'text', text: 'not authored input' }] }), false);
+  assert.equal(fixtures.find(f => f.type === 'Turn' && f.value.kind === 'automatic_title').value.config_revision, '9007199254740993');
+  assert.equal(fixtures.find(f => f.type === 'ModelAttemptsResult' && f.value.items[0]?.request.purpose === 'automatic_title').value.items[0].message_id, null);
+  assert.equal(fixtures.find(f => f.type === 'UpdateConfigurationParams').value.patch.automatic_title, false);
+});
 test('unknown types and ambiguous parts fail closed', () => {
   assert.throws(() => validate('LegacyCommand', {}), /Unknown/);
   const submit = structuredClone(fixtures.find(f => f.type === 'SubmitParams' && f.valid).value);

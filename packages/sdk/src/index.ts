@@ -202,6 +202,16 @@ export class Client {
     return this.call('goals.formulation', { session_id: sessionID, attempt_id: attemptID }, options);
   }
 
+  /** Immutable naming intent. Its receipt_identity may precede admission; this read never starts work. */
+  getAutomaticTitleDecision(treeID: string, options: CallOptions = {}): Promise<Operations['trees.title_decision']['result']> {
+    return this.call('trees.title_decision', { tree_id: treeID }, options);
+  }
+
+  /** Historical application evidence. Current selected naming belongs only to trees.get metadata. */
+  getAutomaticTitleResult(treeID: string, attemptID: string, options: CallOptions = {}): Promise<Operations['trees.title_result']['result']> {
+    return this.call('trees.title_result', { tree_id: treeID, attempt_id: attemptID }, options);
+  }
+
   currentGoal(sessionID: string, options: CallOptions = {}): Promise<Operations['goals.current']['result']> {
     return this.call('goals.current', { session_id: sessionID }, options);
   }

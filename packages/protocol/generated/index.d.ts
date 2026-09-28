@@ -62,7 +62,7 @@ export interface Admission {
         id: string;
         session_id: string;
         source: "user" | "agent" | "schedule" | "goal";
-        kind: "compact" | "goal_formulation";
+        kind: "compact" | "goal_formulation" | "automatic_title";
         /**
          * @maxItems 0
          */
@@ -84,13 +84,46 @@ export interface Admission {
     };
     id: string;
     session_id: string;
-    kind: "prompt" | "compact" | "goal_formulation";
+    kind: "prompt" | "compact" | "goal_formulation" | "automatic_title";
     config_revision: string;
     state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
     failure: null | string;
     started_at: string;
     finished_at: null | string;
   };
+}
+export interface AutomaticTitleDecision {
+  tree_id: string;
+  session_id: string;
+  input_id: null | string;
+  receipt_identity: null | {
+    client_id: string;
+    request_id: string;
+  };
+  config_revision: string;
+  expected_revision: string;
+  enabled: boolean;
+  model: {
+    provider: string;
+    name: string;
+    effort: string;
+    temperature?: null | number;
+    top_p?: null | number;
+  };
+  source: string;
+  reason: "eligible" | "disabled" | "short" | "manual" | "ineligible" | "fork";
+  created_at: string;
+}
+export interface AutomaticTitleResult {
+  tree_id: string;
+  attempt_id: string;
+  text: string;
+  applied: boolean;
+  created_at: string;
+}
+export interface AutomaticTitleResultParams {
+  tree_id: string;
+  attempt_id: string;
 }
 export interface Budget {
   session_id: string;
@@ -363,6 +396,7 @@ export interface CreateTreeParams {
     revision: string;
   };
   overrides: {
+    automatic_title?: null | boolean;
     goals_enabled?: null | boolean;
     compaction?: null | {
       model: null | {
@@ -439,6 +473,7 @@ export interface CreateTreeResult {
     };
     config_revision: string;
     configuration: {
+      automatic_title: boolean;
       goals_enabled: boolean;
       compaction: {
         model: null | {
@@ -520,6 +555,7 @@ export interface Definition {
     id: string;
     name: string;
     defaults: {
+      automatic_title?: null | boolean;
       goals_enabled?: null | boolean;
       compaction?: null | {
         model: null | {
@@ -578,6 +614,7 @@ export interface DefinitionDocument {
   id: string;
   name: string;
   defaults: {
+    automatic_title?: null | boolean;
     goals_enabled?: null | boolean;
     compaction?: null | {
       model: null | {
@@ -682,6 +719,7 @@ export interface ForkResult {
     };
     config_revision: string;
     configuration: {
+      automatic_title: boolean;
       goals_enabled: boolean;
       compaction: {
         model: null | {
@@ -857,7 +895,7 @@ export interface GoalAdmission {
           id: string;
           session_id: string;
           source: "user" | "agent" | "schedule" | "goal";
-          kind: "compact" | "goal_formulation";
+          kind: "compact" | "goal_formulation" | "automatic_title";
           /**
            * @maxItems 0
            */
@@ -879,7 +917,7 @@ export interface GoalAdmission {
       };
       id: string;
       session_id: string;
-      kind: "prompt" | "compact" | "goal_formulation";
+      kind: "prompt" | "compact" | "goal_formulation" | "automatic_title";
       config_revision: string;
       state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
       failure: null | string;
@@ -1519,7 +1557,7 @@ export type Input =
       id: string;
       session_id: string;
       source: "user" | "agent" | "schedule" | "goal";
-      kind: "compact" | "goal_formulation";
+      kind: "compact" | "goal_formulation" | "automatic_title";
       /**
        * @maxItems 0
        */
@@ -1634,6 +1672,7 @@ export interface ListSessionsResult {
         };
         config_revision: string;
         configuration: {
+          automatic_title: boolean;
           goals_enabled: boolean;
           compaction: {
             model: null | {
@@ -1961,7 +2000,7 @@ export interface ModelAttemptsResult {
         operation_id: null | string;
         batch_index: null | number;
         request: {
-          purpose: string;
+          purpose: "turn" | "compaction" | "goal_formulation" | "model_helper" | "automatic_title";
           model: {
             provider: string;
             name: string;
@@ -2549,6 +2588,7 @@ export interface Session {
   };
   config_revision: string;
   configuration: {
+    automatic_title: boolean;
     goals_enabled: boolean;
     compaction: {
       model: null | {
@@ -2879,6 +2919,7 @@ export interface SpawnSessionParams {
     revision: string;
   };
   overrides: {
+    automatic_title?: null | boolean;
     goals_enabled?: null | boolean;
     compaction?: null | {
       model: null | {
@@ -2996,6 +3037,7 @@ export interface SpawnSessionResult {
     };
     config_revision: string;
     configuration: {
+      automatic_title: boolean;
       goals_enabled: boolean;
       compaction: {
         model: null | {
@@ -3112,7 +3154,7 @@ export interface SpawnSessionResult {
           id: string;
           session_id: string;
           source: "user" | "agent" | "schedule" | "goal";
-          kind: "compact" | "goal_formulation";
+          kind: "compact" | "goal_formulation" | "automatic_title";
           /**
            * @maxItems 0
            */
@@ -3134,7 +3176,7 @@ export interface SpawnSessionResult {
       };
       id: string;
       session_id: string;
-      kind: "prompt" | "compact" | "goal_formulation";
+      kind: "prompt" | "compact" | "goal_formulation" | "automatic_title";
       config_revision: string;
       state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
       failure: null | string;
@@ -3280,7 +3322,7 @@ export interface Turn {
   };
   id: string;
   session_id: string;
-  kind: "prompt" | "compact" | "goal_formulation";
+  kind: "prompt" | "compact" | "goal_formulation" | "automatic_title";
   config_revision: string;
   state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
   failure: null | string;
@@ -3305,6 +3347,7 @@ export interface UpdateConfigurationParams {
   session_id: string;
   expected_revision: string;
   patch: {
+    automatic_title?: null | boolean;
     goals_enabled?: null | boolean;
     compaction?: null | {
       model: null | {
@@ -3448,6 +3491,9 @@ export interface WriteStateParams {
 
 export interface ContractTypes {
   Admission: Admission;
+  AutomaticTitleDecision: AutomaticTitleDecision;
+  AutomaticTitleResult: AutomaticTitleResult;
+  AutomaticTitleResultParams: AutomaticTitleResultParams;
   Budget: Budget;
   BudgetsResult: BudgetsResult;
   Cell: Cell;
@@ -3679,6 +3725,8 @@ export interface Operations {
   "trees.create": { params: CreateTreeParams; result: CreateTreeResult };
   "trees.get": { params: TreeParams; result: Tree };
   "trees.update": { params: UpdateTreeParams; result: Tree };
+  "trees.title_decision": { params: TreeParams; result: AutomaticTitleDecision };
+  "trees.title_result": { params: AutomaticTitleResultParams; result: AutomaticTitleResult };
   "sessions.get": { params: SessionParams; result: Session };
   "sessions.spawn": { params: SpawnSessionParams; result: SpawnSessionResult };
   "sessions.list": { params: ListSessionsParams; result: ListSessionsResult };
