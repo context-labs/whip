@@ -86,6 +86,20 @@ export class Client {
     return this.call('providers.readiness', { selection }, options);
   }
 
+  /** Durable question evidence; reading never creates or resumes a waiter. */
+  getQuestion(sessionID: string, operationID: string, options: CallOptions = {}): Promise<Operations['questions.get']['result']> {
+    return this.call('questions.get', { session_id: sessionID, operation_id: operationID }, options);
+  }
+
+  listQuestions(params: Operations['questions.list']['params'], options: CallOptions = {}): Promise<Operations['questions.list']['result']> {
+    return this.call('questions.list', params, options);
+  }
+
+  /** Preserve these exact answers on uncertain delivery. Inspect getQuestion; never regenerate or auto-answer. */
+  answerQuestion(sessionID: string, operationID: string, answers: Operations['questions.answer']['params']['answers'], options: CallOptions = {}): Promise<Operations['questions.answer']['result']> {
+    return this.call('questions.answer', { session_id: sessionID, operation_id: operationID, answers }, options);
+  }
+
   /** Accepted login belongs to the host. Recover lost delivery with list/get; never replay begin automatically. */
   beginInferenceLogin(options: CallOptions = {}): Promise<Operations['accounts.inference.begin']['result']> {
     return this.call('accounts.inference.begin', {}, options);

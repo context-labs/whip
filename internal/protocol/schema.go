@@ -111,6 +111,9 @@ func Operations() []Operation {
 		{"turns.operations", reflect.TypeFor[HostOperationsParams](), reflect.TypeFor[HostOperationsResult]()},
 		{"permissions.list", reflect.TypeFor[PermissionsParams](), reflect.TypeFor[PermissionsResult]()},
 		{"permissions.resolve", reflect.TypeFor[ResolvePermissionParams](), reflect.TypeFor[Permission]()},
+		{"questions.get", reflect.TypeFor[QuestionParams](), reflect.TypeFor[Question]()},
+		{"questions.list", reflect.TypeFor[QuestionsParams](), reflect.TypeFor[QuestionsResult]()},
+		{"questions.answer", reflect.TypeFor[AnswerQuestionParams](), reflect.TypeFor[Question]()},
 		{"initialize", reflect.TypeFor[InitializeParams](), reflect.TypeFor[InitializeResult]()},
 		{"trees.create", reflect.TypeFor[CreateTreeParams](), reflect.TypeFor[CreateTreeResult]()},
 		{"trees.get", reflect.TypeFor[TreeParams](), reflect.TypeFor[Tree]()},
@@ -226,6 +229,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 		}
 		automaticTitleSchema(schema, t)
 		providerSchema(schema, t)
+		questionSchema(schema, t)
 		if t == reflect.TypeFor[GoalFormulationRequest]() {
 			schema.Properties["tail_messages"] = &jsonschema.Schema{OneOf: []*jsonschema.Schema{
 				{Type: "integer", Enum: []any{0}},

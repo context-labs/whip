@@ -2721,6 +2721,282 @@
     "valid": false
   },
   {
+    "type": "Question",
+    "value": {
+      "operation_id": "operation_question",
+      "session_id": "session_root",
+      "turn_id": "turn_fixture",
+      "cell_id": "cell_fixture",
+      "request": {
+        "questions": [
+          {
+            "question": "Choose a route",
+            "options": [
+              {
+                "label": "A",
+                "description": "First route",
+                "recommended": true
+              },
+              {
+                "label": "B",
+                "description": "",
+                "recommended": false
+              }
+            ],
+            "multiple": false
+          }
+        ],
+        "batch": true
+      },
+      "state": "pending",
+      "answers": [],
+      "close_reason": null,
+      "created_at": "2026-09-27T12:00:00.123456Z",
+      "deadline": "2026-09-27T12:05:00.123456Z",
+      "closed_at": null
+    },
+    "valid": true
+  },
+  {
+    "type": "Question",
+    "value": {
+      "operation_id": "operation_question",
+      "session_id": "session_root",
+      "turn_id": "turn_fixture",
+      "cell_id": "cell_fixture",
+      "request": {
+        "questions": [
+          {
+            "question": "Choose a route",
+            "options": [
+              {
+                "label": "A",
+                "description": "First route",
+                "recommended": true
+              },
+              {
+                "label": "B",
+                "description": "",
+                "recommended": false
+              }
+            ],
+            "multiple": false
+          }
+        ],
+        "batch": true
+      },
+      "state": "answered",
+      "answers": [
+        {
+          "answer": [
+            "custom route"
+          ],
+          "dismissed": false
+        }
+      ],
+      "close_reason": null,
+      "created_at": "2026-09-27T12:00:00.123456Z",
+      "deadline": "2026-09-27T12:05:00.123456Z",
+      "closed_at": "2026-09-27T12:00:00.123456Z"
+    },
+    "valid": true
+  },
+  {
+    "type": "Question",
+    "value": {
+      "operation_id": "operation_question",
+      "session_id": "session_root",
+      "turn_id": "turn_fixture",
+      "cell_id": "cell_fixture",
+      "request": {
+        "questions": [
+          {
+            "question": "Choose a route",
+            "options": [
+              {
+                "label": "A",
+                "description": "First route",
+                "recommended": true
+              },
+              {
+                "label": "B",
+                "description": "",
+                "recommended": false
+              }
+            ],
+            "multiple": false
+          }
+        ],
+        "batch": true
+      },
+      "state": "dismissed",
+      "answers": [
+        {
+          "answer": [],
+          "dismissed": true
+        }
+      ],
+      "close_reason": null,
+      "created_at": "2026-09-27T12:00:00.123456Z",
+      "deadline": "2026-09-27T12:05:00.123456Z",
+      "closed_at": "2026-09-27T12:00:00.123456Z"
+    },
+    "valid": true
+  },
+  {
+    "type": "Question",
+    "value": {
+      "operation_id": "operation_question",
+      "session_id": "session_root",
+      "turn_id": "turn_fixture",
+      "cell_id": "cell_fixture",
+      "request": {
+        "questions": [
+          {
+            "question": "Choose a route",
+            "options": [
+              {
+                "label": "A",
+                "description": "First route",
+                "recommended": true
+              },
+              {
+                "label": "B",
+                "description": "",
+                "recommended": false
+              }
+            ],
+            "multiple": false
+          }
+        ],
+        "batch": true
+      },
+      "state": "closed",
+      "answers": [],
+      "close_reason": "interrupted",
+      "created_at": "2026-09-27T12:00:00.123456Z",
+      "deadline": "2026-09-27T12:05:00.123456Z",
+      "closed_at": "2026-09-27T12:00:00.123456Z"
+    },
+    "valid": true
+  },
+  {
+    "type": "QuestionParams",
+    "value": {
+      "session_id": "session_root",
+      "operation_id": "operation_question"
+    },
+    "valid": true
+  },
+  {
+    "type": "QuestionsParams",
+    "value": {
+      "session_id": "session_root",
+      "pending_only": true,
+      "limit": 100
+    },
+    "valid": true
+  },
+  {
+    "type": "QuestionsResult",
+    "value": {
+      "items": []
+    },
+    "valid": true
+  },
+  {
+    "type": "AnswerQuestionParams",
+    "value": {
+      "session_id": "session_root",
+      "operation_id": "operation_question",
+      "answers": [
+        {
+          "answer": [
+            "custom"
+          ],
+          "dismissed": false
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "type": "AnswerQuestionParams",
+    "value": {
+      "session_id": "session_root",
+      "operation_id": "operation_question",
+      "answers": [
+        {
+          "answer": [],
+          "dismissed": true
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "type": "AnswerQuestionParams",
+    "value": {
+      "session_id": "session_root",
+      "operation_id": "operation_question",
+      "answers": []
+    },
+    "valid": false
+  },
+  {
+    "type": "AnswerQuestionParams",
+    "value": {
+      "session_id": "session_root",
+      "operation_id": "operation_question",
+      "answers": [
+        {
+          "answer": null,
+          "dismissed": true
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "type": "AnswerQuestionParams",
+    "value": {
+      "session_id": "session_root",
+      "operation_id": "operation_question",
+      "answers": [
+        {
+          "answer": [
+            "a",
+            "b",
+            "c",
+            "d",
+            "e",
+            "f",
+            "g",
+            "h"
+          ],
+          "dismissed": false
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "type": "QuestionsParams",
+    "value": {
+      "session_id": "session_root",
+      "pending_only": true,
+      "limit": 101
+    },
+    "valid": false
+  },
+  {
+    "type": "QuestionParams",
+    "value": {
+      "operation_id": "operation_question"
+    },
+    "valid": false
+  },
+  {
     "type": "WorkspaceResult",
     "value": {
       "action": {

@@ -264,5 +264,9 @@ func Fixtures() ([]Fixture, error) {
 		}
 		result = append(result, Fixture{Type: "OpenAIAccountStatus", Value: raw, Valid: false})
 	}
-	return workspaceFixtures(result, created)
+	questions, err := questionFixtures(created)
+	if err != nil {
+		return nil, err
+	}
+	return workspaceFixtures(append(result, questions...), created)
 }

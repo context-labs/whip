@@ -94,6 +94,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return dispatchBudget(ctx, r, method, raw)
 	case "sessions.observe":
 		return dispatchObservation(ctx, r, raw)
+	case "questions.get", "questions.list", "questions.answer":
+		return dispatchQuestion(ctx, r, method, raw)
 	case "grants.create", "grants.list", "grants.revoke", "operations.get", "turns.operations", "permissions.list", "permissions.resolve", "cells.get", "turns.cells":
 		return dispatchOperation(ctx, r, method, raw)
 	case "content.put":

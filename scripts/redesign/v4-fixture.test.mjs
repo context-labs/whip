@@ -276,6 +276,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await stage('history rewind', () => rewindAcceptance(runtime, client, createParams, evidence));
     await stage('conversation fork', () => forkAcceptance(runtime, client, createParams, evidence));
     await stage('operations', () => operationAcceptance(runtime, client, createParams, evidence));
+    await stage('human questions', () => questionAcceptance(runtime, client, createParams, evidence));
     await stage('streaming', () => streamAcceptance(runtime, client, createParams, evidence));
   } catch (error) {
     failure = error;
@@ -3182,6 +3183,165 @@ async function providerSetupAcceptance(runtime, client, createParams, evidence) 
     evidence.push({ providerSetup: { created, live, ready, failed, first: first.root.id, second: second.root.id, fork: fork.fork, removed, requests } });
   } finally {
     await writeFile(path, previous, { mode: 0o600 });
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+}
+
+async function questionAcceptance(runtime, client, createParams, evidence) {
+  const requests = [];
+  const server = http.createServer(async (request, response) => {
+    let raw = '';
+    for await (const chunk of request) raw += chunk;
+    const body = JSON.parse(raw);
+    const prompt = body.messages.findLast(item => item.role === 'user')?.content ?? '';
+    requests.push(prompt);
+    const engine = prompt.split(':')[0];
+    let message;
+    if (body.messages.at(-1).role === 'tool') {
+      if (prompt.endsWith(':answer-lost-ack')) return; // Keep the turn alive until the deliberate crash.
+      message = { role: 'assistant', content: body.messages.at(-1).content };
+    } else {
+      const single = { question: 'Choose a route', options: [{ label: 'A', recommended: true }, { label: 'B' }] };
+      const batch = { questions: [
+        { ...single, multiple: true },
+        { question: 'Anything else?', options: [{ label: 'C' }, { label: 'D' }] },
+      ] };
+      const options = prompt.endsWith(':batch') ? batch : single;
+      let code;
+      if (engine === 'quickjs') code = `var answer = await user.ask(${JSON.stringify(options)}); console.log(JSON.stringify(answer));`;
+      else if (prompt.endsWith(':batch')) code = 'answer = user.ask(questions=[{"question":"Choose a route","options":[{"label":"A","recommended":True},{"label":"B"}],"multiple":True},{"question":"Anything else?","options":[{"label":"C"},{"label":"D"}]}])\nprint(answer)';
+      else code = 'answer = user.ask(question="Choose a route",options=[{"label":"A","recommended":True},{"label":"B"}])\nprint(answer)';
+      message = { role: 'assistant', content: null, tool_calls: [{ id: 'question-call', type: 'function', function: { name: 'execute', arguments: JSON.stringify({ code }) } }] };
+    }
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify({ choices: [{ message, finish_reason: message.tool_calls ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 12, completion_tokens: 4, cost: 0 } }));
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    await runtime.stop();
+    const path = join(runtime.directory, 'state', 'host.json');
+    const host = JSON.parse(await readFile(path, 'utf8'));
+    host.providers.questions = {
+      kind: 'openai-chat', base_url: `http://127.0.0.1:${server.address().port}/v1`, credential_source: 'none',
+      models: { questions: { max_output_tokens: 500, timeout_millis: 30000, max_attempts: 1 } },
+    };
+    await writeFile(path, JSON.stringify(host), { mode: 0o600 });
+    await runtime.start(null);
+    for (const engine of ['starlark', 'quickjs']) {
+      const createRoot = async () => (await client.call('trees.create', {
+        ...createParams, engine, overrides: { report_mode: 'notice', model: { provider: 'questions', name: 'questions', effort: '' } },
+      }, deadline())).root;
+      let root = await createRoot();
+      const pending = () => client.listQuestions({ session_id: root.id, pending_only: true, limit: 100 }, deadline());
+      const ask = async stage => {
+        const id = `${engine}:question:${stage}`;
+        await client.submit(root.id, [{ type: 'text', text: id }], id, deadline());
+        const page = await until(async () => {
+          const page = await pending();
+          if (!page.items.length) {
+            const receipt = await client.recover(id, deadline());
+            assert.equal(receipt.turn?.finished_at ?? null, null, JSON.stringify(receipt.turn));
+          }
+          return page;
+        }, page => page.items.length === 1, 30_000);
+        const question = page.items[0];
+        assert.equal(question.state, 'pending');
+        assert.deepEqual(question.answers, []);
+        assert.equal(question.close_reason, null);
+        assert.equal(new Date(question.deadline) - new Date(question.created_at), 300_000);
+        assert.equal(question.request.questions[0].options[0].recommended, true);
+        assert.equal((await client.call('permissions.list', { session_id: root.id, limit: 100 }, deadline())).items.length, 0);
+        const operation = await client.call('operations.get', { operation_id: question.operation_id }, deadline());
+        assert.equal(operation.state, 'dispatched');
+        assert.equal(operation.grant_id, null);
+        assert.equal(operation.resource, root.id);
+        assert.equal(operation.cell_id, question.cell_id);
+        assert.equal(operation.turn_id, question.turn_id);
+        assert.deepEqual(operation.arguments, {
+          questions: question.request.questions.map(set => ({ question: set.question,
+            options: set.options.map(option => ({ label: option.label, ...(option.description ? { description: option.description } : {}), ...(option.recommended ? { recommended: true } : {}) })),
+            ...(set.multiple ? { multiple: true } : {}),
+          })), batch: question.request.batch,
+        });
+        return { id, question };
+      };
+      const first = await ask('answer-lost-ack');
+      const answers = [{ answer: ['custom route'], dismissed: false }];
+      let accepted;
+      let killed;
+      const proxy = join(runtime.directory, `question-${engine}.sock`);
+      const closeProxy = await dropAcknowledgement(proxy, runtime.info.socket, first.id, result => {
+        accepted = result;
+        killed = runtime.stop('SIGKILL');
+      }, response => response.result?.operation_id === first.question.operation_id && response.result?.state === 'answered');
+      try {
+        const unreliable = await Client.connect(unixSocket(proxy), { clientID: client.clientID, expectedRuntimeID: client.runtimeID, ...deadline() });
+        await assert.rejects(unreliable.answerQuestion(root.id, first.question.operation_id, answers, deadline()), DeliveryError);
+        assert.ok(accepted);
+        await killed;
+      } finally { await closeProxy(); }
+      await runtime.start(null);
+      assert.deepEqual(await client.getQuestion(root.id, first.question.operation_id, deadline()), accepted);
+      assert.deepEqual(await client.answerQuestion(root.id, first.question.operation_id, answers, deadline()), accepted);
+      await assert.rejects(client.answerQuestion(root.id, first.question.operation_id, [{ answer: ['changed'], dismissed: false }], deadline()), error => error instanceof RemoteError && error.kind === 'CONFLICT');
+      assert.equal((await client.wait(first.id, deadline())).turn.state, 'interrupted');
+      assert.deepEqual((await pending()).items, []);
+      const saved = await client.call('operations.get', { operation_id: first.question.operation_id }, deadline());
+      assert.equal(saved.state, 'succeeded');
+      assert.deepEqual(saved.result.value, answers[0]);
+
+      // A crash inside a cell leaves an unavailable REPL boundary. New root
+      // work is explicit; historical questions never reconstruct that worker.
+      root = await createRoot();
+      const second = await ask('pending-crash');
+      const beforeCrash = requests.filter(prompt => prompt === second.id).length;
+      await runtime.stop('SIGKILL');
+      await runtime.start(null);
+      const interrupted = await client.getQuestion(root.id, second.question.operation_id, deadline());
+      assert.equal(interrupted.state, 'closed');
+      assert.equal(interrupted.close_reason, 'interrupted');
+      assert.ok(interrupted.closed_at);
+      assert.deepEqual(interrupted.answers, []);
+      assert.deepEqual((await pending()).items, []);
+      assert.equal((await client.wait(second.id, deadline())).turn.state, 'interrupted');
+      await assert.rejects(client.answerQuestion(root.id, second.question.operation_id, answers, deadline()), error => error instanceof RemoteError && error.kind === 'CONFLICT');
+      assert.equal((await client.call('operations.get', { operation_id: second.question.operation_id }, deadline())).state, 'failed');
+      assert.equal(requests.filter(prompt => prompt === second.id).length, beforeCrash, 'crash recovery resumed a historical waiter');
+
+      root = await createRoot();
+      const batch = await ask('batch');
+      const selections = [{ answer: ['A', 'custom route'], dismissed: false }, { answer: [], dismissed: true }];
+      await client.answerQuestion(root.id, batch.question.operation_id, selections, deadline());
+      assert.equal((await client.wait(batch.id, deadline())).turn.state, 'succeeded');
+      const history = await client.call('sessions.history', { session_id: root.id, after: '0', limit: 100 }, deadline());
+      assert.ok(history.items.at(-1).parts[0].text.includes('custom route'));
+      const cell = await client.call('cells.get', { cell_id: batch.question.cell_id }, deadline());
+      assert.equal(cell.state, 'succeeded');
+      assert.ok(cell.result_message_id);
+      assert.ok(cell.checkpoint);
+
+      const cancelled = await ask('cancel');
+      await client.call('turns.cancel', { turn_id: cancelled.question.turn_id }, deadline());
+      assert.equal((await client.wait(cancelled.id, deadline())).turn.state, 'cancelled');
+      const cancellation = await client.getQuestion(root.id, cancelled.question.operation_id, deadline());
+      assert.equal(cancellation.close_reason, 'cancelled');
+      await assert.rejects(client.answerQuestion(root.id, cancelled.question.operation_id, answers, deadline()), error => error instanceof RemoteError && error.kind === 'CONFLICT');
+
+      const childID = `${engine}:question:child`;
+      const child = await client.spawn({ parent_id: root.id, parts: [{ type: 'text', text: childID }], grant_ids: [], overrides: { report_mode: 'notice' } }, childID, deadline());
+      const childOutcome = await client.wait(childID, deadline());
+      const childOperations = await client.call('turns.operations', { turn_id: childOutcome.turn.id, limit: 100 }, deadline());
+      assert.equal(childOperations.items.length, 1);
+      assert.equal(childOperations.items[0].state, 'denied');
+      assert.match(childOperations.items[0].result.failure, /only the root agent/);
+      assert.deepEqual((await client.listQuestions({ session_id: child.session.id, limit: 100 }, deadline())).items, []);
+      assert.deepEqual((await client.call('permissions.list', { session_id: child.session.id, limit: 100 }, deadline())).items, []);
+      await assert.rejects(client.getQuestion(child.session.id, first.question.operation_id, deadline()), error => error instanceof RemoteError && error.kind === 'NOT_FOUND');
+      evidence.push({ engine, acceptedQuestion: accepted, interruptedQuestion: interrupted, cancelledQuestion: cancellation, childQuestionOperation: childOperations.items[0] });
+    }
+  } finally {
+    server.closeAllConnections();
     await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   }
 }
