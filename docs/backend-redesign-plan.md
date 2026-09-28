@@ -690,6 +690,52 @@ and SDK acceptance/outcome distinction. These decisions deliberately replace
 legacy in-memory round resets and automatic rearming after failure; they are not
 claims that goal support is already implemented.
 
+Stateless model-helper implementation decisions (work remains open):
+
+- Preserve `models.call(prompt, max_tokens)` and ordered
+  `models.batch(prompts, max_tokens)` as scoped host operations. The retained
+  guest implementation has no per-call model/provider/sampling/stream controls;
+  adding those would be new scope. Use captured session model selection; using
+  its captured effort consistently is an explicit correction to the retained
+  helper's omitted effort. Requests contain one user prompt, with no session
+  instructions/history, tools, output contract, compaction, continuation or
+  ordinary reply preview.
+- Reuse the runner's recorded-attempt loop via a small typed helper settlement
+  target. Store immutable operation ID and batch index on each helper attempt;
+  derive a domain-separated logical request ID from those values. Do not create
+  child sessions, inputs, a helper registry or another provider retry loop.
+  A requested output cap must affect encoding and reservation; a subscription
+  route must reject a smaller cap it cannot enforce.
+- Store ordered aggregate output in the ordinary operation result. Operation
+  settlement waits for linked attempts; cell settlement already waits for
+  operations. A crash after item billing but before aggregate publication keeps
+  the charge and an uncertain operation; that response text may be unavailable.
+  No recovery redispatches it. No separate per-item response table is needed for
+  a guarantee the retained product did not provide.
+- Bound batches to 32 items and four simultaneous requests, with encoded
+  argument/result bounds. Join every started request before returning from the
+  operation. Normal settled provider failures are positional results. Cancellation
+  or unresolved accounting failure stops new scheduling and drains started work.
+  Distinguish unstarted, cancelled-before-dispatch and dispatched-uncertain work.
+- Accounting or operation-settlement failures must abort the cell through a
+  typed host failure boundary that guest exception handling cannot swallow.
+  A catchable error string is insufficient. Preserve already committed output
+  evidence and charges; never declare a successful checkpoint for an aborted cell.
+- Recheck current ancestor exposure at model dispatch, counting existing
+  reservations once. A sibling can settle above its bound after another helper
+  reserves; prevent that later dispatch when the scope is now over budget or
+  unbounded. This cannot prevent overages from requests already dispatched.
+- Keep large helper output readable as owner-scoped content with a bounded
+  preview. Registering automatic provider evidence cannot require a new user
+  logical-write allowance after billing, roll back its charge or cause replay.
+  Strict arguments, bounded fan-out and existing safe retry limits deliberately
+  replace legacy lax parsing, unbounded batches and uncertain-response replay.
+
+Deliver helper accounting/join/fatal boundaries, then single-call execution,
+then bounded batch orchestration and both-engine SDK acceptance. Retain tests
+for caught host failures, exact attempt/HTTP counts, ancestor overages, output
+preservation, reversed completion order, cancellation, restart and large content.
+
 Acceptance:
 
 - [ ] Each retained capability is implemented, or its explicit retirement is
