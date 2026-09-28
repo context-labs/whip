@@ -12,13 +12,41 @@ import (
 	"strings"
 
 	"github.com/context-labs/whip/internal/buildinfo"
+	"github.com/context-labs/whip/internal/openaiauth"
 )
+
+// API flavor constants. The zero value and APICompletions mean the generic
+// OpenAI-compatible chat-completions wire protocol; APICodex is the fixed
+// ChatGPT subscription endpoint (openaiauth.Provider); APIMessages speaks
+// Anthropic Messages natively (internal/llm/messages.go).
+const (
+	APICompletions = "openai-completions"
+	APICodex       = openaiauth.Provider
+	APIMessages    = "anthropic-messages"
+)
+
+// KnownAPI reports whether s names a supported provider API flavor. The empty
+// string is valid: it means APICompletions (the historical default).
+func KnownAPI(s string) bool {
+	switch s {
+	case "", APICompletions, APICodex, APIMessages:
+		return true
+	}
+	return false
+}
+
+// GenericChatAPI reports whether s is the generic chat-completions wire
+// contract (open to custom endpoints and setup forms). Codex and Messages are
+// fixed-protocol providers, not generic endpoints.
+func GenericChatAPI(s string) bool {
+	return s == "" || s == APICompletions
+}
 
 // Provider is an API endpoint that can serve models.
 type Provider struct {
 	Name      string `json:"name,omitempty"`
 	BaseURL   string `json:"baseUrl"`
-	API       string `json:"api"`              // "openai-completions" or "openai-codex"
+	API       string `json:"api"`              // flavor constant, see api.go
 	APIKey    string `json:"apiKey,omitempty"` // literal key or a secret reference ("$VAR"/"${VAR}"/"!cmd"); apiKeyEnv is another option
 	APIKeyEnv string `json:"apiKeyEnv,omitempty"`
 	Auth      string `json:"auth,omitempty"` // "none" explicitly disables authentication; omitted resolves a key

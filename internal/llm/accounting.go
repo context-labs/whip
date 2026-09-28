@@ -453,6 +453,9 @@ func (c *Client) runAttempt(ctx context.Context, req Request, logicalID string, 
 		body, err = encodeResponses(req, credentials.AccountID)
 	} else if c.apiResponses(req.Model) {
 		body, err = encodeResponsesWithLimit(req, c.apiResponseScope(), req.MaxTokens)
+	} else if c.Flavor == FlavorMessages {
+		req.Messages = stripAuthored(req.Messages)
+		body, err = encodeMessages(req)
 	} else {
 		req.Messages = stripAuthored(req.Messages)
 		body, err = c.encodeChatRequest(req)
@@ -460,7 +463,7 @@ func (c *Client) runAttempt(ctx context.Context, req Request, logicalID string, 
 	if err != nil {
 		return Message{}, Usage{}, settle(ModelAttemptResult{Failed: true}, nonRetryable{err})
 	}
-	if _, err := httpRequest(ctx, c.BaseURL, body); err != nil {
+	if _, err := c.newRequest(ctx, body); err != nil {
 		return Message{}, Usage{}, settle(ModelAttemptResult{Failed: true}, nonRetryable{err})
 	}
 	if err := ctx.Err(); err != nil {

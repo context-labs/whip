@@ -46,6 +46,9 @@ func (s *ProviderService) ModelClient(provider config.Provider, configs ...*conf
 	if key == "" && provider.Auth != "none" {
 		return nil, errors.New("no API key for provider")
 	}
+	if provider.API == config.APIMessages {
+		return llm.NewMessagesClient(provider.BaseURL, key), nil
+	}
 	return llm.New(provider.BaseURL, key), nil
 }
 

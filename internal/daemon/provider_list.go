@@ -50,7 +50,7 @@ func (s *ProviderService) ListProvidersFor(model, provider string) (protocol.Pro
 			if preset.ID == config.InferenceNetProvider && inferenceNetLoginRoute(cfg) != nil {
 				entry.Methods = []string{"api_key"}
 			}
-			if preset.ID != openaiauth.Provider && route.API != "" && route.API != "openai-completions" {
+			if preset.ID != openaiauth.Provider && route.API != "" && !config.KnownAPI(route.API) {
 				entry.Methods = []string{}
 			}
 		}
@@ -178,7 +178,7 @@ func providerKeyStatusWithCredentials(cfg *config.Config, name string, credentia
 	}
 	endpoint, endpointErr := url.Parse(entry.BaseURL)
 	validEndpoint := endpointErr == nil && endpoint.Host != "" && (endpoint.Scheme == "https" || endpoint.Scheme == "http") && endpoint.User == nil && endpoint.RawQuery == "" && endpoint.Fragment == ""
-	if !validEndpoint || (entry.API != "" && entry.API != "openai-completions") || entry.ValidateAuth() != nil {
+	if !validEndpoint || (entry.API != "" && !config.KnownAPI(entry.API)) || entry.ValidateAuth() != nil {
 		result.AuthState, result.Available = "configuration_error", new(false)
 		result.Warnings = append(result.Warnings, "This provider requires a supported API configuration.")
 	}
@@ -195,7 +195,7 @@ func providerKeyStatusWithCredentials(cfg *config.Config, name string, credentia
 
 func inferenceNetLoginRoute(cfg *config.Config) error {
 	if route, exists := cfg.Providers[config.InferenceNetProvider]; exists {
-		if strings.TrimRight(route.BaseURL, "/") != config.InferenceNetBaseURL || (route.API != "" && route.API != "openai-completions") {
+		if strings.TrimRight(route.BaseURL, "/") != config.InferenceNetBaseURL || (route.API != "" && !config.KnownAPI(route.API)) {
 			return errors.New("account login to Inference.net requires its built-in endpoint; the saved custom provider was left unchanged")
 		}
 	}

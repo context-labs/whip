@@ -130,7 +130,7 @@ func validateProviderDefinition(provider config.Provider) error {
 	if strings.TrimSpace(provider.Name) == "" || len(provider.Name) > 256 || strings.IndexFunc(provider.Name, unicode.IsControl) >= 0 {
 		return errors.New("provider name is required and must be at most 256 characters")
 	}
-	if provider.API != "" && provider.API != "openai-completions" {
+	if provider.API != "" && !config.KnownAPI(provider.API) {
 		return errors.New("custom providers require the OpenAI-compatible Chat Completions API")
 	}
 	endpoint, err := url.Parse(provider.BaseURL)
