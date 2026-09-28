@@ -87,3 +87,50 @@ func TestProjectReaderBoundsAndConfinesChain(t *testing.T) {
 		t.Fatal("catalog changed caller chain", err)
 	}
 }
+
+func TestProjectReaderBoundsRulesAndCatalogTogether(t *testing.T) {
+	dir, root := workspace(t)
+	chain := []string{"."}
+	for range 35 {
+		chain = append(chain, filepath.Join(chain[len(chain)-1], "a"))
+	}
+	files := make([]string, 32)
+	for i := range files {
+		files[i] = "RULE_" + strconv.Itoa(i) + ".md"
+	}
+	lastRule := filepath.Join(chain[len(chain)-1], files[len(files)-1])
+	for _, directory := range chain {
+		for _, name := range files {
+			path := filepath.Join(directory, name)
+			if path != lastRule {
+				writeFile(t, dir, path, "rule")
+			}
+		}
+	}
+	writeFile(t, dir, ".agents/skills/bounded/SKILL.md", skillDocument("bounded", "bounded metadata", false))
+	roots := []Root{{ID: "project", FS: root, ProjectDirectories: chain}}
+	for _, boundary := range []string{"exact", "overflow"} {
+		if boundary == "overflow" {
+			writeFile(t, dir, lastRule, "one rule too many")
+		}
+		for _, discover := range []bool{false, true} {
+			t.Run(boundary+"/discover="+strconv.FormatBool(discover), func(t *testing.T) {
+				policy := session.Instructions{ProjectRoot: new("project"), ProjectFiles: files, DiscoverSkills: discover}
+				var invoked []string
+				if !discover {
+					invoked = []string{"bounded"}
+				}
+				got, err := Load(t.Context(), roots, policy, invoked)
+				if boundary == "overflow" {
+					if err == nil || !strings.Contains(err.Error(), "instruction source manifest exceeds bounds") || !reflect.DeepEqual(got, Snapshot{}) {
+						t.Fatalf("over-bound snapshot returned: sources=%d err=%v", len(got.Sources), err)
+					}
+					return
+				}
+				if err != nil || len(got.Sources) != session.MaxInstructionSources || got.Sources[len(got.Sources)-1].Kind != "skill_metadata" {
+					t.Fatalf("exact-bound snapshot rejected: sources=%d err=%v", len(got.Sources), err)
+				}
+			})
+		}
+	}
+}

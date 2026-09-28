@@ -127,6 +127,9 @@ func Load(ctx context.Context, roots []Root, policy session.Instructions, invoke
 		if err != nil {
 			return Snapshot{}, err
 		}
+		if len(catalog.Sources) > session.MaxInstructionSources-len(sources) {
+			return Snapshot{}, errors.New("instruction source manifest exceeds bounds")
+		}
 		if policy.DiscoverSkills {
 			if err := appendCatalog(&text, catalog.Skills); err != nil {
 				return Snapshot{}, err
