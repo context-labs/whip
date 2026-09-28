@@ -65,7 +65,12 @@ func submitTest(t *testing.T, r *Runtime, s session.SessionID, key string) store
 
 func waitTest(t *testing.T, r *Runtime, key string, predicate func(store.Admission) bool) store.Admission {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	return waitTestWithin(t, r, key, predicate, 5*time.Second)
+}
+
+func waitTestWithin(t *testing.T, r *Runtime, key string, predicate func(store.Admission) bool, timeout time.Duration) store.Admission {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), timeout)
 	defer cancel()
 	ticker := time.NewTicker(time.Millisecond)
 	defer ticker.Stop()

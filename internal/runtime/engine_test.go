@@ -90,10 +90,12 @@ func createEngineSession(t *testing.T, r *Runtime, engine session.Engine) sessio
 	return s
 }
 
+// Cold WASM compilation under race-enabled CI can exceed the five-second
+// scripted-provider wait. Keep this larger deadline local to real engine work.
 func runCellTurn(t *testing.T, r *Runtime, id session.SessionID, key, want string) {
 	t.Helper()
 	submitTest(t, r, id, key)
-	admission := waitTest(t, r, key, terminal)
+	admission := waitTestWithin(t, r, key, terminal, 30*time.Second)
 	if admission.Turn.State != session.Succeeded {
 		t.Fatalf("turn %s: %+v runtime=%v", key, admission.Turn, r.Err())
 	}
