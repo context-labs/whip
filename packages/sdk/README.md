@@ -53,3 +53,13 @@ described in [the development guide](../../docs/backend-redesign-development.md#
 See [the runnable example](examples/session.mjs), [Go client](../../internal/client/client.go),
 and [real process acceptance](../../scripts/redesign/v4-fixture.test.mjs). Streaming,
 effect authority, engines and product-client adoption follow in later phases.
+
+
+The v4 transcript now includes assistant `tool_call` parts with a stable call ID,
+name and JSON arguments, followed by `tool_result` parts in tool messages. A
+result includes its call ID, output string and error flag. Inputs accept only
+text/content parts. Completed calls and results survive interrupted turns; an
+unfinished provider request is recorded as uncertain. The runtime executes both
+Starlark and QuickJS through the same durable code loop and restores committed
+REPL checkpoints across restart. Model changes apply to the next turn and retain
+that session's REPL state.

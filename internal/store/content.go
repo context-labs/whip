@@ -91,7 +91,7 @@ func validateContentReferences(ctx context.Context, q querier, owner session.Ses
 // upload can race the gap between publishing a file and registering its reference.
 func (s *Store) ContentReferenced(ctx context.Context, digest string) (bool, error) {
 	var referenced bool
-	err := s.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM content_references WHERE digest=?)", digest).Scan(&referenced)
+	err := s.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM content_references WHERE digest=?) OR EXISTS(SELECT 1 FROM cells WHERE json_extract(checkpoint,'$.digest')=?)", digest, digest).Scan(&referenced)
 	return referenced, err
 }
 

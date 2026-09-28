@@ -20,7 +20,7 @@ func TestExecutionAndClientImportBoundaries(t *testing.T) {
 	const prefix = "github.com/context-labs/whip/internal/"
 	allowed := map[string]map[string]bool{
 		"model": {"session": true}, "runner": {"session": true, "model": true},
-		"runtime": {"session": true, "store": true, "config": true, "content": true, "runner": true},
+		"runtime": {"session": true, "store": true, "config": true, "content": true, "runner": true, "engine/process": true},
 		"rpc":     {"session": true, "store": true, "protocol": true, "runtime": true},
 		"client":  {"protocol": true},
 	}

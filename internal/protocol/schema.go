@@ -49,6 +49,9 @@ func Types() map[string]reflect.Type {
 	result["RPCError"] = reflect.TypeFor[RPCError]()
 	result["Request"] = reflect.TypeFor[Request]()
 	result["Response"] = reflect.TypeFor[Response]()
+	result["Part"] = reflect.TypeFor[Part]()
+	result["ToolCall"] = reflect.TypeFor[ToolCall]()
+	result["ToolResult"] = reflect.TypeFor[ToolResult]()
 	for _, op := range Operations() {
 		result[op.Params.Name()] = op.Params
 		result[op.Result.Name()] = op.Result
@@ -61,14 +64,9 @@ func SchemaFor(t reflect.Type) (*jsonschema.Schema, error) {
 		reflect.TypeFor[ID]():              {Type: "string", Pattern: `^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$`},
 		reflect.TypeFor[Counter]():         {Type: "string", Pattern: `^(0|[1-9][0-9]{0,18})$`, Format: "counter"},
 		reflect.TypeFor[json.RawMessage](): {},
-		reflect.TypeFor[Part](): {OneOf: []*jsonschema.Schema{
-			{Type: "object", Required: []string{"type", "text"}, Properties: map[string]*jsonschema.Schema{
-				"type": {Type: "string", Enum: []any{"text"}}, "text": {Type: "string", Pattern: `^[\s\S]+$`},
-			}, AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}}},
-			{Type: "object", Required: []string{"type", "reference_id"}, Properties: map[string]*jsonschema.Schema{
-				"type": {Type: "string", Enum: []any{"content"}}, "reference_id": {Type: "string", Pattern: `^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$`},
-			}, AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}}},
-		}},
+		reflect.TypeFor[Part]():            partSchema("text", "content", "tool_call", "tool_result"),
+		reflect.TypeFor[ToolCall]():        toolCallSchema(),
+		reflect.TypeFor[ToolResult]():      toolResultSchema(),
 	}})
 	if err != nil {
 		return nil, err
@@ -120,6 +118,25 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 				child.Types = nil
 				child.MinItems = new(1)
 				child.MaxItems = new(128)
+			}
+		}
+		if t == reflect.TypeFor[Input]() || t == reflect.TypeFor[SubmitParams]() {
+			schema.Properties["parts"].Items = partSchema("text", "content")
+		}
+		if t == reflect.TypeFor[Message]() {
+			for _, role := range []string{"user", "system", "assistant", "tool"} {
+				items := partSchema("text", "content")
+				maxItems := 128
+				switch role {
+				case "assistant":
+					items = partSchema("text", "content", "tool_call")
+				case "tool":
+					items, maxItems = partSchema("tool_result"), 1
+				}
+				schema.OneOf = append(schema.OneOf, &jsonschema.Schema{Properties: map[string]*jsonschema.Schema{
+					"role":  {Enum: []any{role}},
+					"parts": {Type: "array", MinItems: new(1), MaxItems: &maxItems, Items: items},
+				}})
 			}
 		}
 	case reflect.Slice:

@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type (
@@ -194,24 +195,85 @@ const (
 // Part keeps immutable content references separate from bytes. A reference's
 // existence and access grant must be checked by the content boundary before use.
 type Part struct {
-	Type        string `json:"type"`
-	Text        string `json:"text,omitempty"`
-	ReferenceID string `json:"reference_id,omitempty"`
+	Type        string      `json:"type"`
+	Text        string      `json:"text,omitempty"`
+	ReferenceID string      `json:"reference_id,omitempty"`
+	Call        *ToolCall   `json:"call,omitempty"`
+	Result      *ToolResult `json:"result,omitempty"`
+}
+
+const MaxToolCalls = 16
+
+type ToolCall struct {
+	ID        string          `json:"id"`
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments"`
+}
+
+type ToolResult struct {
+	CallID  string `json:"call_id"`
+	Output  string `json:"output"`
+	IsError bool   `json:"is_error"`
+}
+
+var toolName = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)
+
+func ValidateToolName(name string) error {
+	if !toolName.MatchString(name) {
+		return fmt.Errorf("%w: invalid tool name", ErrInvalid)
+	}
+	return nil
+}
+
+func (call ToolCall) Validate() error {
+	if err := ValidateID(call.ID); err != nil {
+		return err
+	}
+	if err := ValidateToolName(call.Name); err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if len(call.Arguments) > MaxDocumentBytes || !utf8.Valid(call.Arguments) || json.Unmarshal(call.Arguments, &object) != nil || object == nil {
+		return fmt.Errorf("%w: tool arguments require a bounded JSON object", ErrInvalid)
+	}
+	return nil
 }
 
 func ValidateParts(parts []Part) error {
 	if len(parts) == 0 || len(parts) > 128 {
 		return fmt.Errorf("%w: expected 1–128 message parts", ErrInvalid)
 	}
+	calls := map[string]bool{}
 	for _, part := range parts {
 		switch part.Type {
 		case "text":
-			if part.Text == "" || part.ReferenceID != "" {
+			if part.Text == "" || part.ReferenceID != "" || part.Call != nil || part.Result != nil {
 				return fmt.Errorf("%w: text part requires only text", ErrInvalid)
 			}
 		case "content":
-			if part.Text != "" || ValidateID(part.ReferenceID) != nil {
+			if part.Text != "" || ValidateID(part.ReferenceID) != nil || part.Call != nil || part.Result != nil {
 				return fmt.Errorf("%w: content part requires only a reference", ErrInvalid)
+			}
+		case "tool_call":
+			if part.Call == nil || part.Text != "" || part.ReferenceID != "" || part.Result != nil {
+				return fmt.Errorf("%w: tool call part requires only a call", ErrInvalid)
+			}
+			if err := part.Call.Validate(); err != nil {
+				return err
+			}
+			if calls[part.Call.ID] || len(calls) >= MaxToolCalls {
+				return fmt.Errorf("%w: expected at most 16 calls with unique IDs", ErrInvalid)
+			}
+			calls[part.Call.ID] = true
+		case "tool_result":
+			if part.Result == nil || part.Text != "" || part.ReferenceID != "" || part.Call != nil {
+				return fmt.Errorf("%w: tool result part requires only a result", ErrInvalid)
+			}
+			if err := ValidateID(part.Result.CallID); err != nil {
+				return err
+			}
+			if len(part.Result.Output) > MaxDocumentBytes || !utf8.ValidString(part.Result.Output) {
+				return fmt.Errorf("%w: tool output exceeds supported bounds or is not UTF-8", ErrInvalid)
 			}
 		default:
 			return fmt.Errorf("%w: unsupported message part", ErrInvalid)
@@ -226,6 +288,31 @@ func ValidateParts(parts []Part) error {
 	}
 	return nil
 }
+
+// ValidateMessage checks role ownership as well as each part's representation.
+// Cross-message call/result pairing belongs to the execution/transcript boundary.
+func ValidateMessage(role Role, parts []Part) error {
+	if err := ValidateParts(parts); err != nil {
+		return err
+	}
+	if role != User && role != Assistant && role != System && role != Tool {
+		return fmt.Errorf("%w: unsupported message role", ErrInvalid)
+	}
+	if role == Tool {
+		if len(parts) != 1 || parts[0].Type != "tool_result" {
+			return fmt.Errorf("%w: tool messages require exactly one result", ErrInvalid)
+		}
+		return nil
+	}
+	for _, part := range parts {
+		if part.Type == "tool_result" || (part.Type == "tool_call" && role != Assistant) {
+			return fmt.Errorf("%w: message role cannot own this part", ErrInvalid)
+		}
+	}
+	return nil
+}
+
+func ValidateInputParts(parts []Part) error { return ValidateMessage(User, parts) }
 
 // Message is the common root/child transcript projection. User entries resolve
 // Parts through InputID; assistant/tool entries own their stored parts directly.

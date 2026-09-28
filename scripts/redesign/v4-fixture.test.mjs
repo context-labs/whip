@@ -187,6 +187,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     assert.equal(JSON.parse(example.stdout).completed.turn.state, 'succeeded');
     await assert.rejects(Client.connect(unixSocket(runtime.info.socket), { clientID: 'wrong', expectedRuntimeID: 'different', ...deadline() }), error => error instanceof RemoteError && error.kind === 'IDENTITY');
     await providerAcceptance(runtime, client, createParams, evidence);
+    await engineAcceptance(runtime, client, createParams, evidence);
     passed = true;
   } finally {
     await proxyClose?.();
@@ -267,6 +268,99 @@ async function providerAcceptance(runtime, client, createParams, evidence) {
     assert.equal(requests[0].body.max_completion_tokens, 123);
     assert.equal(requests[0].body.messages.at(-1).content[1].image_url.url, 'data:image/png;base64,' + image);
     evidence.push({ httpProvider: { result, ledger, history, requests } });
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+}
+
+async function engineAcceptance(runtime, client, createParams, evidence) {
+  const requests = [];
+  const awaitingFinal = new Set();
+  const server = http.createServer(async (request, response) => {
+    let raw = '';
+    for await (const chunk of request) raw += chunk;
+    const body = JSON.parse(raw);
+    requests.push(body);
+    const last = body.messages.at(-1);
+    const prompt = body.messages.findLast(item => item.role === 'user').content;
+    const engine = prompt.split(':')[0];
+    let message;
+    let finish_reason;
+    if (last.role === 'tool') {
+      if (prompt.endsWith(':kill-after-cell')) {
+        awaitingFinal.add(engine);
+        return; // The fixture kills the runtime after this cell's durable commit.
+      }
+      message = { role: 'assistant', content: last.content };
+      finish_reason = 'stop';
+    } else {
+      let code;
+      if (prompt.endsWith(':first')) code = engine === 'starlark' ? 'x = 40\nprint(x)' : 'var x = 40; console.log(x)';
+      else if (prompt.endsWith(':kill-after-cell')) code = engine === 'starlark' ? 'x += 2\nprint(x)' : 'x += 2; console.log(x)';
+      else code = engine === 'starlark' ? 'print(x)' : 'console.log(x)';
+      message = { role: 'assistant', content: null, tool_calls: [{ id: 'engine-call', type: 'function', function: { name: 'execute', arguments: JSON.stringify({ code }) } }] };
+      finish_reason = 'tool_calls';
+    }
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify({ choices: [{ message, finish_reason }], usage: { prompt_tokens: 12, completion_tokens: 4, cost: 0 } }));
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    await runtime.stop();
+    const path = join(runtime.directory, 'state', 'host.json');
+    const host = JSON.parse(await readFile(path, 'utf8'));
+    host.providers.engine = {
+      kind: 'openai-chat', base_url: `http://127.0.0.1:${server.address().port}/v1`, credential_env: '',
+      models: { engine: { max_output_tokens: 500, timeout_millis: 30000, max_attempts: 1 } },
+    };
+    await writeFile(path, JSON.stringify(host), { mode: 0o600 });
+    await runtime.start(null);
+    for (const engine of ['starlark', 'quickjs']) {
+      const { root } = await client.call('trees.create', {
+        ...createParams, engine, overrides: { model: { provider: 'engine', name: 'engine', effort: '' } },
+      }, deadline());
+      const history = () => client.call('sessions.history', { session_id: root.id, after: '0', limit: 100 }, deadline());
+      const firstID = `${engine}:first`;
+      await client.submit(root.id, [{ type: 'text', text: firstID }], firstID, deadline());
+      const first = await client.wait(firstID, deadline());
+      assert.equal(first.turn.state, 'succeeded');
+      const firstHistory = await history();
+      assert.deepEqual(firstHistory.items.map(item => item.role), ['user', 'assistant', 'tool', 'assistant']);
+      assert.equal(firstHistory.items[1].parts[0].call.name, 'execute');
+      assert.equal(firstHistory.items[2].parts[0].result.call_id, 'engine-call');
+      assert.equal(JSON.parse(firstHistory.items.at(-1).parts[0].text).result.output, '40\n');
+      const attempts = await client.call('turns.attempts', { turn_id: first.turn.id, limit: 100 }, deadline());
+      assert.equal(attempts.items.length, 2);
+      assert.notEqual(attempts.items[0].logical_id, attempts.items[1].logical_id);
+      await client.call('sessions.configure', {
+        session_id: root.id, expected_revision: root.config_revision,
+        patch: { model: { provider: 'engine', name: 'changed-model', effort: '' } },
+      }, deadline());
+      const killedID = `${engine}:kill-after-cell`;
+      await client.submit(root.id, [{ type: 'text', text: killedID }], killedID, deadline());
+      await until(async () => awaitingFinal.has(engine), value => value);
+      const beforeKill = await history();
+      assert.equal(beforeKill.items.at(-1).role, 'tool');
+      assert.equal(JSON.parse(beforeKill.items.at(-1).parts[0].result.output).result.output, '42\n');
+      await runtime.stop('SIGKILL');
+      await runtime.start(null);
+      const interrupted = await client.wait(killedID, deadline());
+      assert.equal(interrupted.turn.state, 'interrupted');
+      const interruptedAttempts = await client.call('turns.attempts', { turn_id: interrupted.turn.id, limit: 100 }, deadline());
+      assert.deepEqual(interruptedAttempts.items.map(item => item.state), ['succeeded', 'uncertain']);
+      assert.deepEqual(await history(), beforeKill);
+      const readID = `${engine}:read-after-kill`;
+      await client.submit(root.id, [{ type: 'text', text: readID }], readID, deadline());
+      const read = await client.wait(readID, deadline());
+      assert.equal(read.turn.state, 'succeeded');
+      const after = await history();
+      assert.equal(JSON.parse(after.items.at(-1).parts[0].text).result.output, '42\n');
+      assert.equal(after.items.filter(item => item.role === 'tool').length, 3);
+      evidence.push({ engine, first, attempts, beforeKill, interrupted, interruptedAttempts, after });
+    }
+    assert.ok(requests.every(request => request.tools?.[0]?.function.name === 'execute'));
   } finally {
     server.closeAllConnections();
     await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));

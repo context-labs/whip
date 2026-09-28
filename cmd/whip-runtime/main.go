@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/model"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/rpc"
@@ -21,6 +22,13 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "_kernel" {
+		if err := process.WorkerMain(os.Args[2:], os.Stdin, os.Stdout, nil); err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := run(ctx, os.Args[1:], os.Stdout, os.Stderr); err != nil {

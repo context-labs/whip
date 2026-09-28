@@ -70,7 +70,7 @@ func InputFromDomain(value session.Input) Input {
 	}
 	result.Parts = make([]Part, len(value.Parts))
 	for i, part := range value.Parts {
-		result.Parts[i] = Part{Type: part.Type, Text: part.Text, ReferenceID: ID(part.ReferenceID)}
+		result.Parts[i] = PartFromDomain(part)
 	}
 	return result
 }
@@ -168,12 +168,34 @@ func SessionFromDomain(value session.Session) (Session, error) {
 func MessageFromDomain(value session.Message) Message {
 	parts := make([]Part, len(value.Parts))
 	for i, part := range value.Parts {
-		parts[i] = Part{Type: part.Type, Text: part.Text, ReferenceID: ID(part.ReferenceID)}
+		parts[i] = PartFromDomain(part)
 	}
 	result := Message{ID: ID(value.ID), SessionID: ID(value.SessionID), TurnID: ID(value.TurnID), Sequence: Counter(value.Sequence), Role: string(value.Role), Parts: parts, CreatedAt: value.CreatedAt.Format(time.RFC3339Nano)}
 	if value.InputID != nil {
 		id := ID(*value.InputID)
 		result.InputID = &id
+	}
+	return result
+}
+
+func PartFromDomain(value session.Part) Part {
+	result := Part{Type: value.Type, Text: value.Text, ReferenceID: ID(value.ReferenceID)}
+	if value.Call != nil {
+		result.Call = &ToolCall{ID: ID(value.Call.ID), Name: value.Call.Name, Arguments: append(json.RawMessage(nil), value.Call.Arguments...)}
+	}
+	if value.Result != nil {
+		result.Result = &ToolResult{CallID: ID(value.Result.CallID), Output: value.Result.Output, IsError: value.Result.IsError}
+	}
+	return result
+}
+
+func (part Part) Domain() session.Part {
+	result := session.Part{Type: part.Type, Text: part.Text, ReferenceID: string(part.ReferenceID)}
+	if part.Call != nil {
+		result.Call = &session.ToolCall{ID: string(part.Call.ID), Name: part.Call.Name, Arguments: append(json.RawMessage(nil), part.Call.Arguments...)}
+	}
+	if part.Result != nil {
+		result.Result = &session.ToolResult{CallID: string(part.Result.CallID), Output: part.Result.Output, IsError: part.Result.IsError}
 	}
 	return result
 }

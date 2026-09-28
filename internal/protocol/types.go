@@ -152,9 +152,21 @@ type Session struct {
 	CreatedAt        string        `json:"created_at"`
 }
 type Part struct {
-	Type        string `json:"type"`
-	Text        string `json:"text,omitempty"`
-	ReferenceID ID     `json:"reference_id,omitempty"`
+	Type        string      `json:"type"`
+	Text        string      `json:"text,omitempty"`
+	ReferenceID ID          `json:"reference_id,omitempty"`
+	Call        *ToolCall   `json:"call,omitempty"`
+	Result      *ToolResult `json:"result,omitempty"`
+}
+type ToolCall struct {
+	ID        ID              `json:"id"`
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments"`
+}
+type ToolResult struct {
+	CallID  ID     `json:"call_id"`
+	Output  string `json:"output"`
+	IsError bool   `json:"is_error"`
 }
 type RequestIdentity struct {
 	ClientID  ID `json:"client_id"`

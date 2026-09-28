@@ -230,8 +230,74 @@
             }
           ],
           "created_at": "2026-09-27T12:00:00.123456Z"
+        },
+        {
+          "id": "message_call",
+          "session_id": "session_child",
+          "turn_id": "turn_fixture",
+          "input_id": null,
+          "sequence": "9007199254740994",
+          "role": "assistant",
+          "parts": [
+            {
+              "type": "tool_call",
+              "call": {
+                "id": "call_fixture",
+                "name": "execute",
+                "arguments": {
+                  "code": "print(1)"
+                }
+              }
+            }
+          ],
+          "created_at": "2026-09-27T12:00:00.123456Z"
+        },
+        {
+          "id": "message_result",
+          "session_id": "session_child",
+          "turn_id": "turn_fixture",
+          "input_id": null,
+          "sequence": "9007199254740995",
+          "role": "tool",
+          "parts": [
+            {
+              "type": "tool_result",
+              "result": {
+                "call_id": "call_fixture",
+                "output": "1",
+                "is_error": false
+              }
+            }
+          ],
+          "created_at": "2026-09-27T12:00:00.123456Z"
         }
       ]
+    },
+    "valid": true
+  },
+  {
+    "type": "Part",
+    "value": {
+      "type": "tool_call",
+      "call": {
+        "id": "call_fixture",
+        "name": "execute",
+        "arguments": {
+          "code": "print(1)"
+        }
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "Part",
+    "value": {
+      "type": "tool_result",
+      "result": {
+        "call_id": "call_fixture",
+        "output": "1",
+        "is_error": false
+      }
     },
     "valid": true
   },
@@ -349,6 +415,134 @@
           "type": "text",
           "text": "x",
           "reference_id": "content"
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "type": "SubmitParams",
+    "value": {
+      "identity": {
+        "client_id": "client",
+        "request_id": "request"
+      },
+      "session_id": "session_child",
+      "source": "user",
+      "parts": [
+        {
+          "type": "tool_call",
+          "call": {
+            "id": "call_fixture",
+            "name": "execute",
+            "arguments": {
+              "code": "print(1)"
+            }
+          }
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "type": "Part",
+    "value": {
+      "type": "tool_call",
+      "call": {
+        "id": "call",
+        "name": "execute",
+        "arguments": null
+      }
+    },
+    "valid": false
+  },
+  {
+    "type": "Part",
+    "value": {
+      "type": "tool_call",
+      "call": {
+        "id": "call",
+        "name": "execute",
+        "arguments": []
+      }
+    },
+    "valid": false
+  },
+  {
+    "type": "Part",
+    "value": {
+      "type": "tool_call",
+      "call": {
+        "id": "call",
+        "name": "execute",
+        "arguments": {}
+      },
+      "text": "extra"
+    },
+    "valid": false
+  },
+  {
+    "type": "Part",
+    "value": {
+      "type": "tool_result",
+      "result": {
+        "call_id": "call",
+        "output": "missing flag"
+      }
+    },
+    "valid": false
+  },
+  {
+    "type": "HistoryResult",
+    "value": {
+      "items": [
+        {
+          "id": "message_call",
+          "session_id": "session_child",
+          "turn_id": "turn_fixture",
+          "input_id": null,
+          "sequence": "9007199254740994",
+          "role": "user",
+          "parts": [
+            {
+              "type": "tool_call",
+              "call": {
+                "id": "call_fixture",
+                "name": "execute",
+                "arguments": {
+                  "code": "print(1)"
+                }
+              }
+            }
+          ],
+          "created_at": "2026-09-27T12:00:00.123456Z"
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "type": "HistoryResult",
+    "value": {
+      "items": [
+        {
+          "id": "message_result",
+          "session_id": "session_child",
+          "turn_id": "turn_fixture",
+          "input_id": null,
+          "sequence": "9007199254740995",
+          "role": "assistant",
+          "parts": [
+            {
+              "type": "tool_result",
+              "result": {
+                "call_id": "call_fixture",
+                "output": "1",
+                "is_error": false
+              }
+            }
+          ],
+          "created_at": "2026-09-27T12:00:00.123456Z"
         }
       ]
     },

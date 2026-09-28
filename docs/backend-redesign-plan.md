@@ -514,7 +514,7 @@ Acceptance:
       and lifecycle tests. Cancellation remains serviceable during slow calls.
 - [ ] A model/config change takes effect at its documented boundary while
       preserving REPL, history and unrelated resource state.
-- [ ] Content is authorized and bounded; provider encoding leaves durable
+- [x] Content is authorized and bounded; provider encoding leaves durable
       references intact. One real-provider/engine smoke has recorded evidence.
 
 ### Phase 4 — Add recursion through the same execution path

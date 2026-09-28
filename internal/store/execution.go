@@ -102,7 +102,7 @@ func (s *Store) Admit(ctx context.Context, identity session.RequestIdentity, req
 	if request.Source != session.UserInput && request.Source != session.AgentInput && request.Source != session.ScheduledInput {
 		return result, fmt.Errorf("%w: invalid input source", session.ErrInvalid)
 	}
-	if err := session.ValidateParts(request.Parts); err != nil {
+	if err := session.ValidateInputParts(request.Parts); err != nil {
 		return result, err
 	}
 	raw, err := json.Marshal(request)
@@ -260,7 +260,7 @@ func validDraft(draft session.MessageDraft) error {
 	if draft.Role != session.Assistant && draft.Role != session.Tool && draft.Role != session.System {
 		return fmt.Errorf("%w: user messages are created only by claiming input", session.ErrInvalid)
 	}
-	return session.ValidateParts(draft.Parts)
+	return session.ValidateMessage(draft.Role, draft.Parts)
 }
 
 func appendMessage(ctx context.Context, tx *sql.Tx, turn session.Turn, draft session.MessageDraft) (session.Message, error) {
@@ -279,6 +279,9 @@ func appendMessage(ctx context.Context, tx *sql.Tx, turn session.Turn, draft ses
 	}
 	if turn.State.Terminal() {
 		return session.Message{}, ErrConflict
+	}
+	if err := validateCallOrder(ctx, tx, turn.ID, draft); err != nil {
+		return session.Message{}, err
 	}
 	if err := validateContentReferences(ctx, tx, turn.SessionID, draft.Parts); err != nil {
 		return session.Message{}, err
@@ -361,7 +364,7 @@ func (s *Store) Finish(ctx context.Context, id session.TurnID, state session.Tur
 			return ErrConflict
 		}
 		var pending int
-		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM model_attempts WHERE turn_id=? AND finished_at IS NULL", id).Scan(&pending); err != nil {
+		if err := tx.QueryRowContext(ctx, "SELECT (SELECT count(*) FROM model_attempts WHERE turn_id=? AND finished_at IS NULL) + (SELECT count(*) FROM cells WHERE turn_id=? AND state='running')", id, id).Scan(&pending); err != nil {
 			return err
 		}
 		if pending != 0 {
@@ -373,6 +376,17 @@ func (s *Store) Finish(ctx context.Context, id session.TurnID, state session.Tur
 			}
 		}
 		if !current.State.Terminal() {
+			if state == session.Succeeded {
+				_, pending, err := pendingCalls(ctx, tx, id)
+				if err != nil {
+					return err
+				}
+				if len(pending) != 0 {
+					return ErrBusy
+				}
+			} else if err := reconcileCalls(ctx, tx, current, "turn ended"); err != nil {
+				return err
+			}
 			if _, err := tx.ExecContext(ctx, "UPDATE turns SET state=?,failure=?,finished_at=? WHERE id=?", state, failure, now(), id); err != nil {
 				return err
 			}

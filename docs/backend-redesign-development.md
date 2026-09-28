@@ -456,3 +456,53 @@ fixtures, generated contract checks, race/shuffle coverage for the new core and
 isolated engine, and the four retained admission/accounting regressions. Static
 analysis reported zero issues and no reachable vulnerabilities. The v4 fixture
 also passed separately with `WHIP_SDK_RACE=1`.
+
+
+### Durable code loop increment
+
+Fresh schema version 4 adds cells bound to committed assistant calls. The runner
+now supports typed tool calls/results and the same model-attempt path for every
+iteration. Both engines execute through `internal/engine/process`; the runtime
+stages immutable checkpoint bodies and atomically commits the result/boundary.
+The exact ownership and unavailable-checkpoint policy are documented in the
+[domain contract](backend-domain.md#code-execution-and-checkpoint-boundary).
+
+Targeted race tests cover one cell dispatch across independent SQL connections,
+rollback of result/checkpoint settlement, recovery of interrupted and undispatched
+calls, input spoof rejection, partial Starlark restoration, corrupt/incompatible
+images, failed publication, subtree kernel cleanup, and state across model
+changes, eviction and restart. A correlated engine result is explicitly distinct
+from an unsettled transport result, including a late successful QuickJS host call
+after cancellation. Review found and fixed dropped restore reports and retained
+kernel handles after deletion.
+
+The v4 SDK fixture passed with `WHIP_SDK_RACE=1` for both engines. It uses the
+packaged command and HTTP adapter, kills the runtime after a cell commit while a
+subsequent provider request is pending, and verifies the result/history/checkpoint
+survive with the pending request marked uncertain. Restarted execution reads the
+saved variable without rerunning the completed cell.
+
+The required live-provider/engine smoke passed at **2026-09-28 03:42:47 UTC** using
+OpenRouter's `openai/gpt-4.1-mini` and Starlark through the new command/socket/SDK.
+One call executed `6 * 7` in the REPL; the next consumed its result and answered
+`42`. Both attempts succeeded: usage was 192/28 and 272/3 input/output tokens,
+with provider-reported costs of 121600 and 113600 nano-USD. Credentials remained
+environment references. A preceding OpenAI-route attempt returned HTTP 429 and
+was recorded as failed with unknown usage/cost; it did not execute a cell.
+The disposable successful runtime was removed after verification; the full
+local evidence was saved to `/tmp/whip-redesign-live-evidence.json`.
+
+Hosted content/extraction revision `2c46110cd` passed Linux, macOS, analysis and
+the required aggregate in
+[run 36374104894](https://github.com/context-labs/whip/actions/runs/36374104894).
+This is preceding-revision evidence, not hosted validation of the code-loop slice.
+Scoped host effects/permissions and provisional output remain Phase 3 work;
+Phase 4 recursion policies and Phase 5 integrations remain incomplete.
+
+
+The combined code-loop increment passed `task check:phase` and
+`task check:analysis` locally, with zero lint issues and no reachable
+vulnerabilities. The phase gate includes full isolated-process stress/race tests,
+new runtime/store race checks, both SDK process fixtures, generated contracts and
+the retained admission/accounting regressions. Targeted deletion cleanup checks
+also passed after the final mechanical map-clone adjustment.

@@ -29,18 +29,24 @@ type Attempts interface {
 type ContentReader interface {
 	ReadContent(context.Context, session.SessionID, string, int64) (session.ContentReference, []byte, error)
 }
+type Executor interface {
+	Instructions(context.Context, session.SessionID) (string, error)
+	Execute(context.Context, session.Turn, session.MessageID, session.ToolCall) (session.ToolResult, error)
+}
+
 type Runner struct {
 	provider   Provider
 	transcript Transcript
 	attempts   Attempts
 	content    ContentReader
+	executor   Executor
 }
 
-func New(provider Provider, transcript Transcript, attempts Attempts, content ContentReader) (*Runner, error) {
+func New(provider Provider, transcript Transcript, attempts Attempts, content ContentReader, executor Executor) (*Runner, error) {
 	if provider == nil || transcript == nil || attempts == nil {
 		return nil, errors.New("runner requires provider, transcript and attempt ledger")
 	}
-	return &Runner{provider: provider, transcript: transcript, attempts: attempts, content: content}, nil
+	return &Runner{provider: provider, transcript: transcript, attempts: attempts, content: content, executor: executor}, nil
 }
 
 type Outcome struct {
@@ -67,6 +73,14 @@ func Failure(err error) Outcome {
 // the turn separately; retrying that settlement must never call Run again.
 func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration session.Configuration) (Outcome, error) {
 	request := model.Request{SessionID: turn.SessionID, TurnID: turn.ID, Selection: configuration.Model, Instructions: configuration.Instructions.Text}
+	if r.executor != nil {
+		instructions, err := r.executor.Instructions(ctx, turn.SessionID)
+		if err != nil {
+			return Failure(err), nil
+		}
+		request.Instructions += "\n" + instructions
+		request.Tools = []model.Tool{{Name: "execute", Description: "Execute a code cell in this session’s persistent, isolated REPL. Host operations require separate authority.", InputSchema: json.RawMessage(`{"type":"object","properties":{"code":{"type":"string"}},"required":["code"],"additionalProperties":false}`)}}
+	}
 	var after int64
 	size := len(request.Instructions)
 	for {
@@ -95,7 +109,56 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 	if err := r.hydrate(ctx, &request); err != nil {
 		return Failure(err), nil
 	}
-	return r.complete(ctx, turn, request)
+	for round := 1; round <= 32; round++ {
+		completed, err := r.complete(ctx, turn, request, fmt.Sprintf("%s_model_%d", turn.ID, round))
+		if err != nil {
+			return Outcome{}, err
+		}
+		if completed.failure != nil {
+			return Failure(completed.failure), nil //nolint:nilerr // Settled execution failure is a turn outcome, not an infrastructure error.
+		}
+		calls := []session.ToolCall{}
+		for _, part := range completed.parts {
+			if part.Call != nil {
+				calls = append(calls, *part.Call)
+			}
+		}
+		if len(calls) == 0 {
+			return Outcome{State: session.Succeeded}, nil
+		}
+		if r.executor == nil {
+			return Failure(errors.New("code executor is unavailable")), nil
+		}
+		if err := appendContext(&request, session.Assistant, completed.parts, &size); err != nil {
+			return Failure(err), nil
+		}
+		for _, call := range calls {
+			if call.Name != "execute" {
+				return Failure(errors.New("unsupported tool call")), nil
+			}
+			result, err := r.executor.Execute(ctx, turn, completed.messageID, call)
+			if err != nil {
+				return Outcome{}, err
+			}
+			if err := appendContext(&request, session.Tool, []session.Part{{Type: "tool_result", Result: &result}}, &size); err != nil {
+				return Failure(err), nil
+			}
+		}
+	}
+	return Failure(errors.New("turn exceeded the 32 model-call limit")), nil
+}
+
+func appendContext(request *model.Request, role session.Role, parts []session.Part, size *int) error {
+	raw, err := json.Marshal(parts)
+	if err != nil {
+		return err
+	}
+	*size += len(raw)
+	if len(request.Messages) >= 100 || *size > 4<<20 {
+		return errors.New("model context exceeds limit; compaction is required")
+	}
+	request.Messages = append(request.Messages, model.Message{Role: role, Parts: parts})
+	return nil
 }
 
 func (r *Runner) hydrate(ctx context.Context, request *model.Request) error {
@@ -146,34 +209,33 @@ func (r *Runner) settleAttempt(parent context.Context, id session.ModelAttemptID
 	}
 }
 
-func (r *Runner) complete(ctx context.Context, turn session.Turn, request model.Request) (Outcome, error) {
+func (r *Runner) complete(ctx context.Context, turn session.Turn, request model.Request, logicalID string) (attemptOutcome, error) {
 	prepared, err := r.provider.Prepare(ctx, request)
 	if err != nil {
-		return Failure(err), nil
+		return attemptOutcome{failure: err}, nil //nolint:nilerr // Preparation failure is a turn outcome; no dispatched evidence needs settlement.
 	}
 	if prepared.Execute == nil {
-		return Failure(errors.New("provider returned no executable request")), nil
+		return attemptOutcome{failure: errors.New("provider returned no executable request")}, nil
 	}
-	logicalID := string(turn.ID) + "_model_1"
 	limit := max(prepared.MaxAttempts, 1)
 	if limit > 5 {
-		return Failure(errors.New("provider attempt limit exceeds five")), nil
+		return attemptOutcome{failure: errors.New("provider attempt limit exceeds five")}, nil
 	}
 	for number := 1; number <= limit; number++ {
 		outcome, err := r.attempt(ctx, turn, prepared, logicalID, number)
 		if err != nil {
-			return Outcome{}, err
+			return attemptOutcome{}, err
 		}
 		callErr := outcome.failure
 		if callErr == nil {
-			return Outcome{State: session.Succeeded}, nil
+			return outcome, nil
 		}
 		if ctx.Err() != nil {
-			return Outcome{}, ctx.Err()
+			return attemptOutcome{}, ctx.Err()
 		}
 		failure, retry := errors.AsType[*model.CallError](callErr)
 		if number == limit || !retry || !failure.Retryable || failure.Uncertain {
-			return Failure(callErr), nil
+			return outcome, nil
 		}
 		// Only an explicit retryable provider response permits another dispatch.
 		// Network uncertainty and settlement failures never automatically replay.
@@ -182,16 +244,20 @@ func (r *Runner) complete(ctx context.Context, turn session.Turn, request model.
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return Outcome{}, ctx.Err()
+			return attemptOutcome{}, ctx.Err()
 		case <-timer.C:
 		}
 	}
-	return Outcome{}, errors.New("model attempts exhausted without an outcome")
+	return attemptOutcome{}, errors.New("model attempts exhausted without an outcome")
 }
 
 // Attempt execution can fail normally. A separate returned error means its
 // durable evidence could not be settled and execution must stop without retry.
-type attemptOutcome struct{ failure error }
+type attemptOutcome struct {
+	failure   error
+	parts     []session.Part
+	messageID session.MessageID
+}
 
 func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.Prepared, logicalID string, number int) (attemptOutcome, error) {
 	id := session.ModelAttemptID(fmt.Sprintf("%s_try_%d", logicalID, number))
@@ -229,7 +295,7 @@ func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.
 	}
 	var message *session.MessageDraft
 	if callErr == nil {
-		callErr = session.ValidateParts(response.Parts)
+		callErr = session.ValidateMessage(session.Assistant, response.Parts)
 	}
 	if callErr != nil {
 		result.State = session.AttemptFailed
@@ -240,10 +306,15 @@ func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.
 		}
 		result.Failure = Failure(callErr).Failure
 	} else {
-		message = &session.MessageDraft{ID: session.MessageID(string(turn.ID) + "_answer"), Role: session.Assistant, Parts: response.Parts}
+		message = &session.MessageDraft{ID: session.MessageID(logicalID + "_answer"), Role: session.Assistant, Parts: response.Parts}
 	}
 	if err := r.settleAttempt(ctx, id, result, message); err != nil {
 		return attemptOutcome{}, fmt.Errorf("settle model attempt: %w", err)
 	}
-	return attemptOutcome{failure: callErr}, nil
+	outcome := attemptOutcome{failure: callErr}
+	if message != nil {
+		outcome.parts = message.Parts
+		outcome.messageID = message.ID
+	}
+	return outcome, nil
 }

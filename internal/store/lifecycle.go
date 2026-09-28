@@ -76,6 +76,9 @@ func (s *Store) Recover(ctx context.Context) (count int64, err error) {
 		if err := recoverAttempts(ctx, tx); err != nil {
 			return err
 		}
+		if err := recoverCells(ctx, tx); err != nil {
+			return err
+		}
 		result, err := tx.ExecContext(ctx, "UPDATE turns SET state='interrupted',failure='runtime restarted',finished_at=? WHERE state IN ('running','cancelling')", now())
 		if err != nil {
 			return err

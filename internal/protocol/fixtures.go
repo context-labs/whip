@@ -36,6 +36,14 @@ func Fixtures() ([]Fixture, error) {
 	parent := root.ID
 	child.ParentID = &parent
 	message := MessageFromDomain(session.Message{ID: "message_fixture", SessionID: "session_child", TurnID: "turn_fixture", Sequence: 9007199254740993, Role: session.Assistant, Parts: []session.Part{{Type: "text", Text: "Completed."}, {Type: "content", ReferenceID: "content_fixture"}}, CreatedAt: created})
+	callMessage := MessageFromDomain(session.Message{
+		ID: "message_call", SessionID: "session_child", TurnID: "turn_fixture", Sequence: 9007199254740994,
+		Role: session.Assistant, Parts: []session.Part{{Type: "tool_call", Call: &session.ToolCall{ID: "call_fixture", Name: "execute", Arguments: json.RawMessage(`{"code":"print(1)"}`)}}}, CreatedAt: created,
+	})
+	toolMessage := MessageFromDomain(session.Message{
+		ID: "message_result", SessionID: "session_child", TurnID: "turn_fixture", Sequence: 9007199254740995,
+		Role: session.Tool, Parts: []session.Part{{Type: "tool_result", Result: &session.ToolResult{CallID: "call_fixture", Output: "1", IsError: false}}}, CreatedAt: created,
+	})
 	attempt := ModelAttemptFromDomain(session.ModelAttempt{
 		ID: "attempt_fixture", TurnID: "turn_fixture", LogicalID: "call_fixture", Number: 1, State: session.AttemptSucceeded,
 		Request: session.ModelRequestSnapshot{Purpose: "turn", Model: session.ModelSelection{Provider: "fixture", Name: "model"}, Route: "https://provider.example/v1/chat/completions", Adapter: "openai-chat", RequestDigest: ref.Revision, MaxOutputTokens: 4096, TimeoutMillis: 30000},
@@ -59,7 +67,9 @@ func Fixtures() ([]Fixture, error) {
 		{"Response", Response{JSONRPC: "2.0", ID: "call", Error: &RPCError{Code: -32009, Kind: "CONFLICT", Message: "request conflict"}}},
 		{"Session", root},
 		{"Session", child},
-		{"HistoryResult", HistoryResult{Items: []Message{message}}},
+		{"HistoryResult", HistoryResult{Items: []Message{message, callMessage, toolMessage}}},
+		{"Part", callMessage.Parts[0]},
+		{"Part", toolMessage.Parts[0]},
 		{"SubmitParams", SubmitParams{Identity: RequestIdentity{ClientID: "client", RequestID: "request"}, SessionID: child.ID, Source: "user", Parts: []Part{{Type: "text", Text: "Run this."}}}},
 		{"UpdateConfigurationParams", UpdateConfigurationParams{SessionID: child.ID, ExpectedRevision: 9007199254740993, Patch: ConfigPatch{Tools: map[string]ToolDeclaration{}, Output: &OutputPolicy{}}}},
 		{"Turn", Turn{ID: "turn_fixture", SessionID: child.ID, ConfigRevision: 9007199254740993, State: "running", StartedAt: created.Format(time.RFC3339Nano)}},
@@ -83,6 +93,24 @@ func Fixtures() ([]Fixture, error) {
 		result = append(result, Fixture{Type: "HistoryParams", Value: json.RawMessage(raw), Valid: false})
 	}
 	result = append(result, Fixture{Type: "SubmitParams", Valid: false, Value: json.RawMessage(`{"identity":{"client_id":"client","request_id":"request"},"session_id":"session_child","source":"user","parts":[{"type":"text","text":"x","reference_id":"content"}]}`)})
+	result = append(result, Fixture{Type: "SubmitParams", Valid: false, Value: json.RawMessage(`{"identity":{"client_id":"client","request_id":"request"},"session_id":"session_child","source":"user","parts":[{"type":"tool_call","call":{"id":"call_fixture","name":"execute","arguments":{"code":"print(1)"}}}]}`)})
+	for _, raw := range []string{
+		`{"type":"tool_call","call":{"id":"call","name":"execute","arguments":null}}`,
+		`{"type":"tool_call","call":{"id":"call","name":"execute","arguments":[]}}`,
+		`{"type":"tool_call","call":{"id":"call","name":"execute","arguments":{}},"text":"extra"}`,
+		`{"type":"tool_result","result":{"call_id":"call","output":"missing flag"}}`,
+	} {
+		result = append(result, Fixture{Type: "Part", Valid: false, Value: json.RawMessage(raw)})
+	}
+	callMessage.Role = "user"
+	toolMessage.Role = "assistant"
+	for _, message := range []Message{callMessage, toolMessage} {
+		raw, err := json.Marshal(HistoryResult{Items: []Message{message}})
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, Fixture{Type: "HistoryResult", Value: raw, Valid: false})
+	}
 	for _, raw := range []string{`{"jsonrpc":"2.0","id":"call"}`, `{"jsonrpc":"2.0","id":"call","result":{},"error":{"code":-32009,"kind":"CONFLICT","message":"conflict"}}`} {
 		result = append(result, Fixture{Type: "Response", Value: json.RawMessage(raw), Valid: false})
 	}

@@ -162,7 +162,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 		return decode(raw, func(p protocol.SubmitParams) (any, error) {
 			parts := make([]session.Part, len(p.Parts))
 			for i, part := range p.Parts {
-				parts[i] = session.Part{Type: part.Type, Text: part.Text, ReferenceID: string(part.ReferenceID)}
+				parts[i] = part.Domain()
 			}
 			value, err := r.Admit(ctx, identity(p.Identity), store.Submission{SessionID: session.SessionID(p.SessionID), Source: session.InputSource(p.Source), Parts: parts})
 			return admission(value), err

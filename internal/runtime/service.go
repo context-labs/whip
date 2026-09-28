@@ -2,6 +2,9 @@ package runtime
 
 import (
 	"context"
+	"errors"
+	"maps"
+	"time"
 
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/store"
@@ -97,7 +100,24 @@ func (r *Runtime) SetLifecycle(ctx context.Context, id session.SessionID, state 
 }
 
 func (r *Runtime) DeleteSubtree(ctx context.Context, id session.SessionID) error {
-	return r.store.DeleteSubtree(ctx, id)
+	if err := r.store.DeleteSubtree(ctx, id); err != nil {
+		return err
+	}
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	// SQL rejects active subtrees, so deleted sessions cannot still be executing.
+	// Snapshot handles without holding the scheduler mutex during process cleanup.
+	r.mu.Lock()
+	entries := maps.Clone(r.kernels)
+	r.mu.Unlock()
+	for key, entry := range entries {
+		if _, err := r.store.Session(cleanup, key); errors.Is(err, store.ErrNotFound) {
+			r.discardKernel(key, entry)
+		} else if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *Runtime) RegisterDefinition(ctx context.Context, document session.DefinitionDocument) (session.DefinitionRevision, error) {

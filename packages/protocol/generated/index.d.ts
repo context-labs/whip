@@ -279,41 +279,136 @@ export interface HistoryParams {
 export interface HistoryResult {
   items:
     | null
-    | {
-        id: string;
-        session_id: string;
-        turn_id: string;
-        input_id: null | string;
-        sequence: string;
-        role: "system" | "user" | "assistant" | "tool";
-        /**
-         * @minItems 1
-         * @maxItems 128
-         */
-        parts: [
-          (
-            | {
-                text: string;
-                type: "text";
+    | (
+        | {
+            /**
+             * @minItems 1
+             * @maxItems 128
+             */
+            parts?: [
+              (
+                | {
+                    text: string;
+                    type: "text";
+                  }
+                | {
+                    reference_id: string;
+                    type: "content";
+                  }
+              ),
+              ...(
+                | {
+                    text: string;
+                    type: "text";
+                  }
+                | {
+                    reference_id: string;
+                    type: "content";
+                  }
+              )[]
+            ];
+            role?: "user";
+            [k: string]: unknown;
+          }
+        | {
+            /**
+             * @minItems 1
+             * @maxItems 128
+             */
+            parts?: [
+              (
+                | {
+                    text: string;
+                    type: "text";
+                  }
+                | {
+                    reference_id: string;
+                    type: "content";
+                  }
+              ),
+              ...(
+                | {
+                    text: string;
+                    type: "text";
+                  }
+                | {
+                    reference_id: string;
+                    type: "content";
+                  }
+              )[]
+            ];
+            role?: "system";
+            [k: string]: unknown;
+          }
+        | {
+            /**
+             * @minItems 1
+             * @maxItems 128
+             */
+            parts?: [
+              (
+                | {
+                    text: string;
+                    type: "text";
+                  }
+                | {
+                    reference_id: string;
+                    type: "content";
+                  }
+                | {
+                    call: {
+                      arguments: {
+                        [k: string]: unknown;
+                      };
+                      id: string;
+                      name: string;
+                    };
+                    type: "tool_call";
+                  }
+              ),
+              ...(
+                | {
+                    text: string;
+                    type: "text";
+                  }
+                | {
+                    reference_id: string;
+                    type: "content";
+                  }
+                | {
+                    call: {
+                      arguments: {
+                        [k: string]: unknown;
+                      };
+                      id: string;
+                      name: string;
+                    };
+                    type: "tool_call";
+                  }
+              )[]
+            ];
+            role?: "assistant";
+            [k: string]: unknown;
+          }
+        | {
+            /**
+             * @minItems 1
+             * @maxItems 1
+             */
+            parts?: [
+              {
+                result: {
+                  call_id: string;
+                  is_error: boolean;
+                  output: string;
+                };
+                type: "tool_result";
               }
-            | {
-                reference_id: string;
-                type: "content";
-              }
-          ),
-          ...(
-            | {
-                text: string;
-                type: "text";
-              }
-            | {
-                reference_id: string;
-                type: "content";
-              }
-          )[]
-        ];
-        created_at: string;
-      }[];
+            ];
+            role?: "tool";
+            [k: string]: unknown;
+          }
+      )[];
 }
 export interface InitializeParams {
   major: number;
@@ -482,6 +577,33 @@ export interface ModelAttemptsResult {
         finished_at: null | string;
       }[];
 }
+export type Part =
+  | {
+      text: string;
+      type: "text";
+    }
+  | {
+      reference_id: string;
+      type: "content";
+    }
+  | {
+      call: {
+        arguments: {
+          [k: string]: unknown;
+        };
+        id: string;
+        name: string;
+      };
+      type: "tool_call";
+    }
+  | {
+      result: {
+        call_id: string;
+        is_error: boolean;
+        output: string;
+      };
+      type: "tool_result";
+    };
 export interface PutContentParams {
   session_id: string;
   reference_id: string;
@@ -667,6 +789,18 @@ export interface SubmitParams {
     )[]
   ];
 }
+export interface ToolCall {
+  arguments: {
+    [k: string]: unknown;
+  };
+  id: string;
+  name: string;
+}
+export interface ToolResult {
+  call_id: string;
+  is_error: boolean;
+  output: string;
+}
 export interface Tree {
   id: string;
   metadata: {
@@ -767,6 +901,7 @@ export interface ContractTypes {
   ListSessionsResult: ListSessionsResult;
   ModelAttemptsParams: ModelAttemptsParams;
   ModelAttemptsResult: ModelAttemptsResult;
+  Part: Part;
   PutContentParams: PutContentParams;
   RPCError: RPCError;
   ReadContentParams: ReadContentParams;
@@ -778,6 +913,8 @@ export interface ContractTypes {
   SessionParams: SessionParams;
   SpawnSessionParams: SpawnSessionParams;
   SubmitParams: SubmitParams;
+  ToolCall: ToolCall;
+  ToolResult: ToolResult;
   Tree: Tree;
   TreeParams: TreeParams;
   Turn: Turn;

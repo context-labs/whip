@@ -13,6 +13,7 @@ import (
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/content"
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/runner"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/store"
@@ -24,8 +25,10 @@ var (
 )
 
 type Options struct {
-	Workers      int
-	PollInterval time.Duration
+	Workers       int
+	PollInterval  time.Duration
+	EngineCommand []string
+	KernelWorkers int
 }
 type execution struct {
 	turn   session.TurnID
@@ -39,6 +42,8 @@ type Runtime struct {
 	store           *store.Store
 	content         *content.Store
 	runner          *runner.Runner
+	engineManager   *process.Manager
+	kernels         map[session.SessionID]*sessionKernel
 	owner           *owner
 	directory       string
 	host            config.Host
@@ -63,6 +68,13 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 	if options.Workers == 0 {
 		options.Workers = 4
 	}
+	if options.KernelWorkers == 0 {
+		options.KernelWorkers = options.Workers
+	}
+	if options.KernelWorkers < 1 || options.KernelWorkers > 64 {
+		return nil, fmt.Errorf("%w: invalid kernel worker limit", session.ErrInvalid)
+	}
+	options.EngineCommand = append([]string(nil), options.EngineCommand...)
 	if options.PollInterval == 0 {
 		options.PollInterval = 100 * time.Millisecond
 	}
@@ -122,10 +134,11 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 		return nil, err
 	}
 	r := &Runtime{
+		engineManager: process.NewManager(options.KernelWorkers), kernels: map[session.SessionID]*sessionKernel{},
 		store: database, content: bodies, owner: lock, directory: directory, host: host, options: options,
 		wake: make(chan struct{}, 1), done: make(chan struct{}), active: map[session.SessionID]execution{},
 	}
-	r.runner, err = runner.New(provider, database, database, r)
+	r.runner, err = runner.New(provider, database, database, r, r)
 	if err != nil {
 		return nil, err
 	}
@@ -162,8 +175,12 @@ func (r *Runtime) Close() error {
 			r.cancel()
 		}
 		r.mu.Unlock()
+		r.engineManager.Close()
 		if started {
 			<-r.done
+		}
+		for _, entry := range r.kernels {
+			entry.kernel.Close()
 		}
 		r.closeErr = errors.Join(r.store.Close(), r.owner.Close())
 	})

@@ -21,6 +21,9 @@ separate legacy runtime and SDK until their client cutover.
 | User transcript payload | Reference to the accepted input; no second body copy |
 | Assistant/tool transcript payload | Message row |
 | Provider dispatch, usage, price snapshot and cost | Model-attempt row, linked to its completed message |
+| Code dispatch, outcome and exact REPL boundary | Cell row, linked to its assistant call and tool-result message |
+| Checkpoint compatibility metadata and body reference | Immutable terminal cell checkpoint |
+| Checkpoint image bytes | Durable immutable blob file, verified before restore |
 | Content digest and size | Immutable content-body metadata row |
 | Session access and declared media type | Immutable content-reference row |
 | Content bytes | Durable immutable blob file, verified when read |
@@ -77,7 +80,11 @@ overrides. Working directories are absolute and fixed for a session's lifetime.
    implicit. FIFO order comes from the input insertion ordinal.
 3. **Transcript append:** stable message identity and per-session sequence make
    retries idempotent. Completed entries survive restart even before turn finish.
-   Streaming fragments remain provisional. Root and child use the same table.
+   Tool calls are assistant parts; tool results reference their call ID and
+   occupy their own tool message. Input cannot inject either. Another assistant
+   message cannot pass unanswered calls. Root and child use the same table.
+   Provider responses currently arrive as completed messages; provisional stream
+   delivery is still being ported.
 4. **Finish:** optional completed messages and the terminal turn outcome commit
    together. Input and receipt observations join the turn rather than copying
    terminal states. A failed persistence attempt can retry this transaction; it
@@ -94,7 +101,9 @@ overrides. Working directories are absolute and fixed for a session's lifetime.
    linked to the interrupted turn and are never automatically requeued.
    In the same transaction, reserved attempts become cancelled with known zero
    cost and dispatched attempts become uncertain. A turn cannot finish while
-   an attempt remains unsettled.
+   an attempt or code cell remains unsettled. Recovery also records an uncertain
+   result for an admitted unfinished cell, and a not-dispatched result for an
+   unanswered assistant call that never acquired a cell record.
 
 Turn transitions are running → cancelling → cancelled/interrupted or
 running → succeeded/failed/cancelled/interrupted. Terminal outcomes cannot
@@ -146,7 +155,7 @@ temporary provider payloads, while durable messages retain only reference IDs.
 Special files and symlinks cannot substitute for a body during verified reads.
 
 Session deletion removes references transactionally. Shared bytes remain available
-to surviving owners. Physical orphan collection runs only during exclusive
+to surviving owners; checkpoint references also retain their image files. Physical orphan collection runs only during exclusive
 startup, before uploads or requests can run, in bounded directory batches. This
 also collects files left by successful publication followed by failed SQL.
 No live deletion can race the gap between publication and registration.
@@ -164,18 +173,19 @@ runtime identity and seeded revisions; separate databases receive distinct
 identities. Future versions of this fresh schema may have ordinary migrations.
 The store owns database transactions only, with no resource-manager construction.
 
-The first real-provider execution implementation in Phase 3 will use the OpenAI-compatible
-chat-completions adapter and Starlark. This selects protocol/engine adapters, not
-a hardcoded commercial model or credentials. QuickJS remains a declared tree
-engine and is implemented in Phase 5.
+The new runtime implements the OpenAI-compatible chat-completions adapter and
+both Starlark and QuickJS subprocess engines. These are protocol/engine adapters,
+not a hardcoded commercial model or credentials. The remaining provider families
+and product integrations are still being ported.
 
 ## Phase boundary and verification
 
 Phase 1 delivers persistence and initial v4 wire declarations/generation fixtures.
 Phase 2 adds runtime scheduling, RPC serving, SDK/Go clients and a full scripted
-turn through the new stack. Model attempts, effects, checkpoint bytes, grants,
-budgets, mail and shared state are added by their owning later phases; no empty
-repositories or speculative tables are created for them here.
+turn through the new stack. Phase 3 adds model attempts, authorized content, the code loop and checkpoint
+boundaries. Scoped host effects and grants remain in progress; budgets, mail and
+shared state follow in Phase 4. No empty repositories or speculative tables are
+created for those capabilities.
 
 Passing tests against real temporary SQLite cover constraints,
 transaction rollback, concurrent claims across connections, pinned configuration,
@@ -192,7 +202,8 @@ and SQLite, and removes a dead owner's socket. It starts no work. `Start` perfor
 recovery under that execution lock and starts a bounded scheduler. One worker
 owns one claimed session turn; SQL also enforces this invariant. Workers do not
 hold the scheduler mutex across provider calls or database operations. Closing
-the runtime cancels and joins workers before releasing storage and its lock.
+the runtime cancels and joins workers, closes owned kernels, then releases storage
+and its lock. Successful subtree deletion also closes its live kernels.
 
 `runner` projects the durable transcript into a provider request using the turn's
 captured configuration. It has injected provider/transcript interfaces and no
@@ -220,3 +231,42 @@ history pages. They keep no event log or duplicate transcript authority. Stable
 request identities recover lost acknowledgements; ambiguous transport failures
 do not imply rejection. Explicit input/turn cancellation is separate from local
 wait cancellation. Streaming and product-facing synchronized views come later.
+
+
+## Code execution and checkpoint boundary
+
+The runner advertises `execute` and repeats model → code → model through injected
+interfaces, with at most 32 logical model calls and 64 dispatched cells per turn.
+Each retry has its own attempt under the logical call. Completed assistant calls
+commit before code admission. Model tool declarations describe available syntax;
+they do not authorize host effects. Host operations currently fail closed while
+the new authority and operation dispatcher is being implemented.
+
+A cell names its turn, committed assistant message and provider call ID. An atomic
+begin admits exactly one execution. The runtime serializes each session's kernel
+and pins process capacity through cell settlement, releasing capacity before the
+next provider call. Kernels are disposable runtime-owned resources. Loading a
+session or updating its model does not recreate its REPL or start execution.
+
+The engine stages a checkpoint after evaluation. Immutable bytes are published
+first; the tool-result message, cell outcome and checkpoint reference then commit
+in one SQL transaction. An unchanged image may reuse the preceding body at the
+new cell boundary. A failed publication/commit cannot make the candidate image
+restorable. Startup collection retains committed checkpoint bodies and removes
+orphans. Engine protocol sequence numbers are not transcript or cell watermarks.
+
+A correlated engine result can report a language error while retaining useful
+partially changed globals. It is distinct from transport loss/cancellation, which
+leaves the cell outcome uncertain. A completed cell can also lack a usable
+checkpoint. Both facts remain visible: its result survives, while further code
+execution fails explicitly instead of loading an older image. Text-only turns and
+history inspection remain possible; a fresh session starts a fresh REPL. No repair
+or replay is automatic. There is not yet a client operation to reset an existing
+REPL boundary.
+
+Restoration verifies the body digest/size and engine build, ABI, profile and
+fidelity. Starlark checkpoints are partial; skipped globals and restoration
+failures are recorded in tool results. QuickJS checkpoints preserve the whole
+image within their resource contract. Restoration never evaluates past cells or
+reissues host calls. Both engines preserve state across model changes, eviction
+and restart through the same runtime and storage path.

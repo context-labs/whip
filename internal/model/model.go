@@ -25,6 +25,13 @@ type Request struct {
 	Instructions string
 	Messages     []Message
 	Contents     map[string]Content
+	Tools        []Tool
+}
+
+type Tool struct {
+	Name        string
+	Description string
+	InputSchema json.RawMessage
 }
 
 // Content is a bounded, authorized request projection. Durable messages keep

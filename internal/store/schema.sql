@@ -115,6 +115,30 @@ CREATE TABLE messages (
 CREATE TRIGGER message_immutable BEFORE UPDATE ON messages
  BEGIN SELECT RAISE(ABORT, 'transcript entry is immutable'); END;
 
+CREATE TABLE cells (
+ ordinal INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
+ turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,
+ call_message_id TEXT NOT NULL, call_id TEXT NOT NULL,
+ state TEXT NOT NULL CHECK(state IN ('running','succeeded','failed','uncertain')),
+ result_message_id TEXT UNIQUE, checkpoint TEXT CHECK(checkpoint IS NULL OR json_valid(checkpoint)),
+ created_at INTEGER NOT NULL, finished_at INTEGER,
+ UNIQUE(call_message_id,call_id),
+ FOREIGN KEY(call_message_id,turn_id) REFERENCES messages(id,turn_id) ON DELETE CASCADE,
+ FOREIGN KEY(result_message_id,turn_id) REFERENCES messages(id,turn_id) DEFERRABLE INITIALLY DEFERRED,
+ CHECK((state='running') = (finished_at IS NULL)),
+ CHECK((state='running') = (result_message_id IS NULL)),
+ CHECK(state NOT IN ('running','uncertain') OR checkpoint IS NULL)
+) STRICT;
+CREATE UNIQUE INDEX one_running_cell ON cells(turn_id) WHERE state='running';
+CREATE INDEX cells_by_turn ON cells(turn_id,ordinal);
+CREATE INDEX checkpoint_digest ON cells(json_extract(checkpoint,'$.digest')) WHERE checkpoint IS NOT NULL;
+CREATE TRIGGER cell_transition BEFORE UPDATE ON cells
+ WHEN OLD.state<>'running' OR NEW.state='running'
+ OR NEW.id IS NOT OLD.id OR NEW.ordinal IS NOT OLD.ordinal OR NEW.turn_id IS NOT OLD.turn_id
+ OR NEW.call_message_id IS NOT OLD.call_message_id OR NEW.call_id IS NOT OLD.call_id
+ OR NEW.created_at IS NOT OLD.created_at
+ BEGIN SELECT RAISE(ABORT, 'invalid cell transition'); END;
+
 CREATE TABLE model_attempts (
  id TEXT PRIMARY KEY, turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,
  logical_id TEXT NOT NULL, number INTEGER NOT NULL CHECK(number BETWEEN 1 AND 100),

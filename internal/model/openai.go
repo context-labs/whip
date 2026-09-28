@@ -72,6 +72,10 @@ func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) 
 	if err != nil {
 		return Prepared{}, err
 	}
+	allowedTools := make(map[string]bool, len(request.Tools))
+	for _, tool := range request.Tools {
+		allowedTools[tool.Name] = true
+	}
 	hash := sha256.Sum256(body)
 	snapshot := session.ModelRequestSnapshot{
 		Purpose: "turn", Model: request.Selection,
@@ -92,14 +96,16 @@ func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) 
 	return Prepared{
 		Snapshot: snapshot, MaxAttempts: route.MaxAttempts,
 		Execute: func(ctx context.Context) (Response, error) {
-			return executeChat(ctx, &client, snapshot.Route, route.Credential, body)
+			return executeChat(ctx, &client, snapshot.Route, route.Credential, body, allowedTools)
 		},
 	}, nil
 }
 
 type chatMessage struct {
-	Role    string `json:"role"`
-	Content any    `json:"content"`
+	Role       string     `json:"role"`
+	Content    any        `json:"content"`
+	ToolCalls  []chatCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
 }
 
 type chatPart struct {
@@ -120,20 +126,42 @@ func encodeChat(request Request, maxTokens int64) ([]byte, error) {
 	if remaining < 0 {
 		return nil, errors.New("provider instructions exceed context limit")
 	}
+	tools, err := encodeTools(request.Tools, &remaining)
+	if err != nil {
+		return nil, err
+	}
 	if request.Instructions != "" {
 		messages = append(messages, chatMessage{Role: "system", Content: request.Instructions})
 	}
 	for _, message := range request.Messages {
-		if err := session.ValidateParts(message.Parts); err != nil {
+		if err := session.ValidateMessage(message.Role, message.Parts); err != nil {
 			return nil, err
 		}
-		if message.Role != session.User && message.Role != session.Assistant && message.Role != session.System {
-			return nil, errors.New("model message role requires an unsupported encoding")
+		if message.Role == session.Tool {
+			result := message.Parts[0].Result
+			remaining -= len(result.Output)
+			if remaining < 0 {
+				return nil, errors.New("provider context exceeds content limit")
+			}
+			messages = append(messages, chatMessage{Role: "tool", ToolCallID: result.CallID, Content: result.Output})
+			continue
 		}
 		parts := make([]chatPart, 0, len(message.Parts))
+		var calls []chatCall
 		var text strings.Builder
 		hasImage := false
 		for _, part := range message.Parts {
+			if part.Type == "tool_call" {
+				remaining -= len(part.Call.Arguments)
+				if remaining < 0 {
+					return nil, errors.New("provider context exceeds content limit")
+				}
+				calls = append(calls, chatCall{
+					ID: part.Call.ID, Type: "function",
+					Function: chatFunctionCall{Name: part.Call.Name, Arguments: string(part.Call.Arguments)},
+				})
+				continue
+			}
 			if part.Type == "text" {
 				remaining -= len(part.Text)
 				if remaining < 0 {
@@ -172,8 +200,10 @@ func encodeChat(request Request, maxTokens int64) ([]byte, error) {
 		var encoded any = text.String()
 		if hasImage {
 			encoded = parts
+		} else if text.Len() == 0 && len(calls) > 0 {
+			encoded = nil
 		}
-		messages = append(messages, chatMessage{Role: string(message.Role), Content: encoded})
+		messages = append(messages, chatMessage{Role: string(message.Role), Content: encoded, ToolCalls: calls})
 	}
 	if len(messages) == 0 {
 		return nil, errors.New("model request has no messages")
@@ -183,7 +213,8 @@ func encodeChat(request Request, maxTokens int64) ([]byte, error) {
 		Messages            []chatMessage `json:"messages"`
 		MaxCompletionTokens int64         `json:"max_completion_tokens"`
 		ReasoningEffort     string        `json:"reasoning_effort,omitempty"`
-	}{Model: request.Selection.Name, Messages: messages, MaxCompletionTokens: maxTokens, ReasoningEffort: request.Selection.Effort})
+		Tools               []chatTool    `json:"tools,omitempty"`
+	}{Model: request.Selection.Name, Messages: messages, MaxCompletionTokens: maxTokens, ReasoningEffort: request.Selection.Effort, Tools: tools})
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +224,7 @@ func encodeChat(request Request, maxTokens int64) ([]byte, error) {
 	return body, nil
 }
 
-func executeChat(ctx context.Context, client *http.Client, url, credential string, body []byte) (Response, error) {
+func executeChat(ctx context.Context, client *http.Client, url, credential string, body []byte, allowedTools map[string]bool) (Response, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return Response{}, errors.New("could not construct provider request")
@@ -249,19 +280,20 @@ func executeChat(ctx context.Context, client *http.Client, url, credential strin
 		return result, &CallError{Uncertain: true, Message: "provider returned an invalid completion response"}
 	}
 	choice := choices[0]
-	if len(choice.Message.ToolCalls) > 0 && string(choice.Message.ToolCalls) != "null" && string(choice.Message.ToolCalls) != "[]" {
-		return result, &CallError{Message: "provider returned tool calls without a declared tool contract"}
+	if choice.Message.Role != "assistant" {
+		return result, &CallError{Message: "provider returned no assistant message"}
 	}
-	if choice.Message.Role != "assistant" || choice.Message.Content == nil {
-		return result, &CallError{Message: "provider returned no assistant text"}
-	}
-	if choice.FinishReason != "stop" {
+	if choice.FinishReason != "stop" && choice.FinishReason != "tool_calls" {
 		return result, &CallError{Message: "provider did not complete the response"}
 	}
-	result.Parts = []session.Part{{Type: "text", Text: *choice.Message.Content}}
-	if err := session.ValidateParts(result.Parts); err != nil {
+	parts, err := decodeChatParts(choice.Message.Content, choice.Message.ToolCalls, choice.FinishReason, allowedTools)
+	if err != nil {
+		return result, err
+	}
+	if err := session.ValidateMessage(session.Assistant, parts); err != nil {
 		return result, &CallError{Message: "provider returned invalid assistant content"}
 	}
+	result.Parts = parts
 	return result, nil
 }
 
