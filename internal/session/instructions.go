@@ -17,16 +17,18 @@ const (
 	MaxInstructionSourceBytes = 64 << 10
 	MaxInvokedSkillBytes      = 256 << 10
 	MaxInstructionSources     = 1152
+	MaxSkillRoots             = 16
 )
 
 // InstructionSource identifies an exact file read while composing a turn's
 // instructions. It contains audit metadata, never file contents or authority.
 type InstructionSource struct {
-	Kind   string `json:"kind"`
-	Scope  string `json:"scope"`
-	Path   string `json:"path"`
-	Bytes  int64  `json:"bytes,string"`
-	SHA256 string `json:"sha256"`
+	Kind   string  `json:"kind"`
+	Scope  string  `json:"scope"`
+	RootID *string `json:"root_id"`
+	Path   string  `json:"path"`
+	Bytes  int64   `json:"bytes,string"`
+	SHA256 string  `json:"sha256"`
 }
 
 // InstructionManifest describes the composed base instructions captured for a
@@ -40,6 +42,11 @@ type InstructionManifest struct {
 
 func (m InstructionManifest) Clone() InstructionManifest {
 	m.Sources = slices.Clone(m.Sources)
+	for i := range m.Sources {
+		if m.Sources[i].RootID != nil {
+			m.Sources[i].RootID = new(*m.Sources[i].RootID)
+		}
+	}
 	return m
 }
 
@@ -66,8 +73,23 @@ func (m InstructionManifest) Validate() error {
 }
 
 func (s InstructionSource) Validate() error {
-	if (s.Kind != "project_file" && s.Kind != "skill_metadata" && s.Kind != "invoked_skill") || s.Scope != "workspace" {
+	if s.Kind != "project_file" && s.Kind != "skill_metadata" && s.Kind != "invoked_skill" {
 		return fmt.Errorf("%w: unknown instruction source kind or scope", ErrInvalid)
+	}
+	switch s.Scope {
+	case "workspace":
+		if s.RootID != nil {
+			return fmt.Errorf("%w: workspace instruction source cannot name a host root", ErrInvalid)
+		}
+	case "host":
+		if s.RootID == nil || s.Kind == "project_file" {
+			return fmt.Errorf("%w: host instruction source requires a named skill root", ErrInvalid)
+		}
+		if err := ValidateID(*s.RootID); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("%w: unknown instruction source scope", ErrInvalid)
 	}
 	limit := int64(MaxInstructionSourceBytes)
 	if s.Kind == "invoked_skill" {
@@ -85,6 +107,19 @@ func (s InstructionSource) Validate() error {
 func (p Instructions) Validate() error {
 	if len(p.Text) > MaxInstructionBytes || !utf8.ValidString(p.Text) || strings.ContainsRune(p.Text, 0) || len(p.ProjectFiles) > 32 {
 		return fmt.Errorf("%w: instruction policy exceeds bounds or contains invalid text", ErrInvalid)
+	}
+	if len(p.SkillRoots) > MaxSkillRoots {
+		return fmt.Errorf("%w: too many selected skill roots", ErrInvalid)
+	}
+	roots := make(map[string]bool, len(p.SkillRoots))
+	for _, id := range p.SkillRoots {
+		if err := ValidateID(id); err != nil {
+			return err
+		}
+		if roots[id] {
+			return fmt.Errorf("%w: duplicate skill root", ErrInvalid)
+		}
+		roots[id] = true
 	}
 	seen := make(map[string]bool, len(p.ProjectFiles))
 	for _, path := range p.ProjectFiles {
@@ -106,7 +141,7 @@ func instructionPath(path string) error {
 	// Canonical slash-separated paths make uniqueness and scope independent of
 	// dot-segment cleaning. os.Root still enforces filesystem confinement.
 	if path == "." || !fs.ValidPath(path) || !filepath.IsLocal(path) || strings.ContainsRune(path, '\\') {
-		return fmt.Errorf("%w: instruction paths must be workspace-relative without traversal", ErrInvalid)
+		return fmt.Errorf("%w: instruction paths must be root-relative without traversal", ErrInvalid)
 	}
 	return nil
 }

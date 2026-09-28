@@ -196,7 +196,7 @@ func TestSaveIncludesNewlineInSizeLimit(t *testing.T) {
 	}
 }
 
-func TestResourceDefaultsResolveFromFreshVersionTwoHost(t *testing.T) {
+func TestResourceDefaultsResolveFromFreshHost(t *testing.T) {
 	host := Default()
 	host.Resources = []session.ResourceLimit{{Kind: session.ResourceDescendants, Limit: new(int64(7))}}
 	directory := t.TempDir()
@@ -207,7 +207,7 @@ func TestResourceDefaultsResolveFromFreshVersionTwoHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Version != 2 || len(loaded.Resources) != len(session.ResourceKinds()) {
+	if loaded.Version != Version || len(loaded.Resources) != len(session.ResourceKinds()) {
 		t.Fatalf("unresolved resource defaults: %+v", loaded)
 	}
 	*host.Resources[0].Limit = 99

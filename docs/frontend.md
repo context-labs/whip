@@ -169,6 +169,14 @@ literal input. Explicit bodies are frozen current-turn instructions, including
 when automatic discovery is disabled; they are not expanded into history or
 silently reread for later turns. `invoked_skill` manifest sources audit complete
 selected files, while `skill_metadata` sources audit frontmatter only.
+Instruction policy selects ordered logical `skill_roots` IDs; absolute registry
+paths remain host configuration. Listing/capture needs standing `skills.read`
+grants for those exact IDs. Configuration and selection do not create grants.
+Workspace sources expose null `root_id`, host sources a logical ID, and both use
+relative paths. Workspace names override host duplicates. Guest `skills.read`
+results are ordinary recorded operation evidence: bounded base64 byte pages with
+a full-file digest required for subsequent reads. A one-use approval enables only
+that call, not later discovery. Preserve this distinction in permission UI.
 Product clients continue to use the explicitly retained packages until their
 cutover. The package map below describes those retained clients.
 

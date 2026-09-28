@@ -82,6 +82,7 @@ type Instructions struct {
 	Text           string   `json:"text"`
 	ProjectFiles   []string `json:"project_files"`
 	DiscoverSkills bool     `json:"discover_skills"`
+	SkillRoots     []string `json:"skill_roots"`
 }
 type ToolDeclaration struct {
 	Description  string          `json:"description"`

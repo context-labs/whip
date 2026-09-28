@@ -3,6 +3,9 @@ package session
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -129,5 +132,95 @@ func TestInstructionInvokedSkillSourceBounds(t *testing.T) {
 				t.Fatalf("negative source bytes accepted: %v", err)
 			}
 		})
+	}
+}
+
+func TestInstructionSkillRootsPolicyResolution(t *testing.T) {
+	roots := []string{"personal", "team"}
+	base := Configuration{Model: ModelSelection{Provider: "test", Name: "test"}, Instructions: Instructions{SkillRoots: roots}}
+	resolved, err := Resolve(base, DefinitionDocument{}, ConfigPatch{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := Resolve(resolved, DefinitionDocument{}, ConfigPatch{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clone := resolved.Clone()
+	roots[0] = "original_mutated"
+	resolved.Instructions.SkillRoots[0] = "parent_mutated"
+	clone.Instructions.SkillRoots[1] = "clone_mutated"
+	if !reflect.DeepEqual(child.Instructions.SkillRoots, []string{"personal", "team"}) {
+		t.Fatal("copied roots alias parent or source")
+	}
+	for _, test := range []struct {
+		name                 string
+		definition, override *Instructions
+		want                 []string
+	}{
+		{name: "definition replaces", definition: &Instructions{SkillRoots: []string{"definition"}}, want: []string{"definition"}},
+		{name: "override replaces", definition: &Instructions{SkillRoots: []string{"definition"}}, override: &Instructions{SkillRoots: []string{"override"}}, want: []string{"override"}},
+		{name: "clear", override: &Instructions{}, want: nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := Resolve(base, DefinitionDocument{Defaults: ConfigPatch{Instructions: test.definition}}, ConfigPatch{Instructions: test.override})
+			if err != nil || !reflect.DeepEqual(got.Instructions.SkillRoots, test.want) {
+				t.Fatalf("policy=%+v err=%v", got.Instructions, err)
+			}
+			if len(test.want) > 0 {
+				got.Instructions.SkillRoots[0] = "changed"
+				if test.definition != nil && test.definition.SkillRoots[0] == "changed" || test.override != nil && test.override.SkillRoots[0] == "changed" {
+					t.Fatal("resolved selection aliases patch")
+				}
+			}
+		})
+	}
+	maxRoots := make([]string, MaxSkillRoots)
+	for i := range maxRoots {
+		maxRoots[i] = fmt.Sprintf("root_%d", i)
+	}
+	if err := (Instructions{SkillRoots: maxRoots}).Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range [][]string{{""}, {"../root"}, {"bad root"}, {"same", "same"}, slices.Concat(maxRoots, []string{"extra"})} {
+		if err := (ConfigPatch{Instructions: &Instructions{SkillRoots: bad}}).Validate(); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("invalid selection accepted: %q %v", bad, err)
+		}
+	}
+}
+
+func TestInstructionSourceHostIdentityAndClone(t *testing.T) {
+	for _, kind := range []string{"skill_metadata", "invoked_skill"} {
+		source := InstructionSource{Kind: kind, Scope: "host", RootID: new("team"), Path: "review/SKILL.md", Bytes: 10, SHA256: strings.Repeat("ab", 32)}
+		if err := source.Validate(); err != nil {
+			t.Fatal(err)
+		}
+		manifest := instructionManifestTest()
+		manifest.Sources = []InstructionSource{source}
+		clone := manifest.Clone()
+		*clone.Sources[0].RootID = "other"
+		if *manifest.Sources[0].RootID != "team" {
+			t.Fatal("manifest clone aliases root identity")
+		}
+		for name, mutate := range map[string]func(*InstructionSource){
+			"missing host id": func(s *InstructionSource) { s.RootID = nil },
+			"invalid id":      func(s *InstructionSource) { s.RootID = new("../team") },
+			"empty id":        func(s *InstructionSource) { s.RootID = new("") },
+			"workspace id":    func(s *InstructionSource) { s.Scope = "workspace" },
+			"host project":    func(s *InstructionSource) { s.Kind = "project_file" },
+			"unknown scope":   func(s *InstructionSource) { s.Scope = "ambient" },
+		} {
+			t.Run(kind+"/"+name, func(t *testing.T) {
+				bad := source
+				mutate(&bad)
+				if err := bad.Validate(); !errors.Is(err, ErrInvalid) {
+					t.Fatalf("invalid source accepted: %+v %v", bad, err)
+				}
+			})
+		}
+	}
+	raw, err := json.Marshal(instructionManifestTest())
+	if err != nil || !strings.Contains(string(raw), `"root_id":null`) {
+		t.Fatalf("workspace identity must remain explicit null: %s %v", raw, err)
 	}
 }

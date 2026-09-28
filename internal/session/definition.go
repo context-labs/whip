@@ -21,6 +21,7 @@ type ModelSelection struct {
 }
 
 type Instructions struct {
+	SkillRoots     []string `json:"skill_roots"`
 	Text           string   `json:"text"`
 	ProjectFiles   []string `json:"project_files"`
 	DiscoverSkills bool     `json:"discover_skills"`
@@ -136,6 +137,7 @@ func (c Configuration) Clone() Configuration {
 		c.Compaction.Model = new(*c.Compaction.Model)
 	}
 	c.Instructions.ProjectFiles = slices.Clone(c.Instructions.ProjectFiles)
+	c.Instructions.SkillRoots = slices.Clone(c.Instructions.SkillRoots)
 	c.Tools = maps.Clone(c.Tools)
 	for name, tool := range c.Tools {
 		tool.InputSchema = slices.Clone(tool.InputSchema)

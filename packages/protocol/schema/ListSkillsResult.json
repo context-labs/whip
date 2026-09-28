@@ -29,7 +29,14 @@
               "scope": {
                 "type": "string",
                 "enum": [
-                  "workspace"
+                  "workspace",
+                  "host"
+                ]
+              },
+              "root_id": {
+                "type": [
+                  "null",
+                  "string"
                 ]
               },
               "path": {
@@ -48,6 +55,7 @@
             "required": [
               "kind",
               "scope",
+              "root_id",
               "path",
               "bytes",
               "sha256"

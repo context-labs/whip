@@ -4,7 +4,8 @@ import "github.com/context-labs/whip/internal/session"
 
 type InstructionSource struct {
 	Kind   string  `json:"kind" enum:"project_file,skill_metadata,invoked_skill"`
-	Scope  string  `json:"scope" enum:"workspace"`
+	Scope  string  `json:"scope" enum:"workspace,host"`
+	RootID *string `json:"root_id"`
 	Path   string  `json:"path"`
 	Bytes  Counter `json:"bytes"`
 	SHA256 string  `json:"sha256" pattern:"^[a-f0-9]{64}$"`
@@ -32,7 +33,7 @@ func InstructionManifestFromDomain(value *session.InstructionManifest) Instructi
 }
 
 func InstructionSourceFromDomain(source session.InstructionSource) InstructionSource {
-	return InstructionSource{Kind: source.Kind, Scope: source.Scope, Path: source.Path, Bytes: Counter(source.Bytes), SHA256: source.SHA256}
+	return InstructionSource{Kind: source.Kind, Scope: source.Scope, RootID: source.RootID, Path: source.Path, Bytes: Counter(source.Bytes), SHA256: source.SHA256}
 }
 
 type ListSkillsParams struct {

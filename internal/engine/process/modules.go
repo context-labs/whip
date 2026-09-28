@@ -23,6 +23,7 @@ func (f HostFunc) Call(ctx context.Context, module, operation string, args map[s
 var moduleRegistry = map[string][]string{
 	"context":     {"inspect", "search", "read", "history"},
 	"files":       {"list", "search", "read", "write", "patch"},
+	"skills":      {"read"},
 	"shell":       {"run", "read", "start", "poll", "tail", "wait", "kill", "list"},
 	"browser":     {"list_tabs", "open", "attach", "run", "detach", "allow_preview_port"},
 	"computer":    {"run"},

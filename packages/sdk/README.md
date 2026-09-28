@@ -119,7 +119,7 @@ Each control requires its own capability grant.
 Reusable capacity lives in session resource scopes, separately from model budgets
 and tree metadata. `trees.create` and `client.spawn` accept an optional `resources`
 array, for example `[{kind: 'descendants', limit: '10'}]`. Fresh host configuration
-version 2 supplies root defaults; existing trees retain their persisted limits.
+version 3 supplies root defaults; existing trees retain their persisted limits.
 Root limits must be finite. Omitted child limits and `limit: null` inherit the
 ancestor bounds. Duplicate kinds are invalid.
 
@@ -433,3 +433,21 @@ replaces the literal submitted input. Future turns do not re-expand references i
 old history. Bodies are at most 256 KiB and share the 1 MiB composed instruction
 and 1,152-source manifest bounds. Invalid, changed-identity or unauthorized
 selected sources fail capture before provider dispatch.
+
+
+Host configuration can map logical `skill_roots` IDs to directories; session
+instruction policy selects an ordered list of those IDs. This creates no
+filesystem authority. Grant standing `skills.read` for each selected ID, just as
+workspace capture needs `files.read` for its exact workspace. Unknown IDs fail;
+ungranted registered roots are not opened. Workspace names override host names.
+Catalog and audit sources contain a relative path plus `scope` and nullable
+`root_id`, never the absolute registry path.
+
+The REPL reads a catalog skill with `skills.read({root_id, name, offset, length,
+sha256})` (keyword arguments in Starlark). Null `root_id` selects workspace skills.
+Use decimal-string offsets and at most 65,536 bytes; pass the returned full-file
+SHA-256 for subsequent pages. Join decoded `data_base64` bytes before decoding
+UTF-8. Changing the file between pages fails its digest check. Reads use the
+current cell's captured policy and ordinary operation permissions; one-use
+approval does not turn into standing discovery authority. A host root grants
+no permission to neighboring files or executable scripts.
