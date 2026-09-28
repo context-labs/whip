@@ -6,7 +6,9 @@
 package schedule
 
 import (
+	"errors"
 	"fmt"
+	"math/big"
 	"regexp"
 	"strconv"
 	"strings"
@@ -19,25 +21,42 @@ type Schedule struct {
 	At    time.Time     // non-zero for "@at" (one-shot)
 }
 
-var everyRe = regexp.MustCompile(`^@every\s+(\d+(?:\.\d+)?)(s|m|h|d)$`)
+var (
+	everyRe   = regexp.MustCompile(`^@every\s+(\d+(?:\.\d+)?)(s|m|h|d)$`)
+	instantRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$`)
+)
 
 // Parse reads "@every 10m" / "@every 1h" / "@at 2026-07-26T17:00:00Z".
 func Parse(expr string) (Schedule, error) {
 	expr = strings.TrimSpace(expr)
+	if len(expr) > 128 {
+		return Schedule{}, errors.New("schedule expression exceeds 128 bytes")
+	}
 	if m := everyRe.FindStringSubmatch(expr); m != nil {
-		n, err := strconv.ParseFloat(m[1], 64)
-		if err != nil || n <= 0 {
-			return Schedule{}, fmt.Errorf("bad interval %q", m[1])
+		number, ok := new(big.Rat).SetString(m[1])
+		if !ok {
+			return Schedule{}, errors.New("invalid interval")
 		}
 		unit := map[string]time.Duration{"s": time.Second, "m": time.Minute, "h": time.Hour, "d": 24 * time.Hour}[m[2]]
-		return Schedule{Every: time.Duration(n * float64(unit))}, nil
+		number.Mul(number, new(big.Rat).SetInt64(int64(unit)))
+		if !number.IsInt() || !number.Num().IsInt64() || number.Sign() <= 0 {
+			return Schedule{}, errors.New("interval must be a positive exact nanosecond duration within int64")
+		}
+		return Schedule{Every: time.Duration(number.Num().Int64())}, nil
 	}
-	if at, ok := strings.CutPrefix(expr, "@at"); ok {
-		t, err := time.Parse(time.RFC3339, strings.TrimSpace(at))
+	if at, ok := strings.CutPrefix(expr, "@at "); ok {
+		at = strings.TrimSpace(at)
+		if !instantRe.MatchString(at) {
+			return Schedule{}, errors.New("@at requires an RFC3339 instant with at most nine fractional digits")
+		}
+		t, err := time.Parse(time.RFC3339, at)
 		if err != nil {
 			return Schedule{}, fmt.Errorf("@at needs an RFC3339 time (e.g. @at 2026-07-26T17:00:00Z): %w", err)
 		}
-		return Schedule{At: t}, nil
+		if t.Year() < 1 || t.UTC().Year() > 9999 || t.UTC().Year() < 1 {
+			return Schedule{}, errors.New("schedule time is outside years 1–9999")
+		}
+		return Schedule{At: t.UTC()}, nil
 	}
 	return Schedule{}, fmt.Errorf("schedule must be @every <dur> or @at <rfc3339>, got %q", expr)
 }
@@ -45,9 +64,14 @@ func Parse(expr string) (Schedule, error) {
 // String renders the canonical form (what /schedule list shows).
 func (s Schedule) String() string {
 	if s.Every > 0 {
-		return "@every " + s.Every.String()
+		seconds := strconv.FormatInt(int64(s.Every/time.Second), 10)
+		fraction := strings.TrimRight(fmt.Sprintf("%09d", int64(s.Every%time.Second)), "0")
+		if fraction != "" {
+			seconds += "." + fraction
+		}
+		return "@every " + seconds + "s"
 	}
-	return "@at " + s.At.Format(time.RFC3339)
+	return "@at " + s.At.UTC().Format(time.RFC3339Nano)
 }
 
 // NextSlot returns the next unclaimed occurrence, including overdue slots.
@@ -87,4 +111,28 @@ func (s Schedule) NextAfter(anchor, t time.Time) (time.Time, bool) {
 		return s.At, true
 	}
 	return time.Time{}, false // one-shot already fired
+}
+
+// Stamp is the exact, chronologically sortable SQLite occurrence representation.
+func Stamp(at time.Time) (string, error) {
+	at = at.UTC()
+	if at.Year() < 1 || at.Year() > 9999 {
+		return "", errors.New("schedule time is outside years 1–9999")
+	}
+	return at.Format("2006-01-02T15:04:05.000000000Z"), nil
+}
+
+// Successor never rounds an occurrence or silently wraps the supported date range.
+func Successor(at time.Time, every time.Duration) (time.Time, error) {
+	if every <= 0 {
+		return time.Time{}, errors.New("recurrence interval must be positive")
+	}
+	next := at.Add(every).UTC()
+	if !next.After(at) {
+		return time.Time{}, errors.New("schedule successor does not advance")
+	}
+	if _, err := Stamp(next); err != nil {
+		return time.Time{}, err
+	}
+	return next, nil
 }

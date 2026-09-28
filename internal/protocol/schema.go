@@ -20,6 +20,10 @@ type Operation struct {
 
 func Operations() []Operation {
 	return []Operation{
+		{"schedules.create", reflect.TypeFor[CreateScheduleParams](), reflect.TypeFor[ScheduleAdmission]()},
+		{"schedules.get", reflect.TypeFor[ScheduleParams](), reflect.TypeFor[ScheduleResult]()},
+		{"schedules.list", reflect.TypeFor[ListSchedulesParams](), reflect.TypeFor[SchedulesResult]()},
+		{"schedules.cancel", reflect.TypeFor[ScheduleParams](), reflect.TypeFor[ScheduleAdmission]()},
 		{"sessions.compact", reflect.TypeFor[CompactParams](), reflect.TypeFor[Admission]()},
 		{"context.head", reflect.TypeFor[SessionParams](), reflect.TypeFor[ContextHead]()},
 		{"context.compaction", reflect.TypeFor[CompactionParams](), reflect.TypeFor[CompactionResult]()},

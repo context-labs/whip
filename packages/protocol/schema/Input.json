@@ -94,6 +94,26 @@
         },
         "created_at": {
           "type": "string"
+        },
+        "schedule": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "schedule_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "scheduled_for": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "schedule_id",
+            "scheduled_for"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -104,7 +124,8 @@
         "parts",
         "state",
         "turn_id",
-        "created_at"
+        "created_at",
+        "schedule"
       ],
       "additionalProperties": false
     },
@@ -198,6 +219,26 @@
         },
         "created_at": {
           "type": "string"
+        },
+        "schedule": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "schedule_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "scheduled_for": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "schedule_id",
+            "scheduled_for"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -208,7 +249,8 @@
         "parts",
         "state",
         "turn_id",
-        "created_at"
+        "created_at",
+        "schedule"
       ],
       "additionalProperties": false
     }

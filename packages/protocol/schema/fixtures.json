@@ -29,6 +29,86 @@
     "valid": true
   },
   {
+    "type": "ScheduleAdmission",
+    "value": {
+      "id": "schedule_fixture",
+      "schedule": {
+        "id": "schedule_fixture",
+        "session_id": "session_child",
+        "expression": "@every 0.000000001s",
+        "first_due": "2026-09-27T12:00:00.123456000Z",
+        "next_due": "2026-09-27T12:00:00.123456000Z",
+        "cancelled_at": null,
+        "failure": null,
+        "created_at": "2026-09-27T12:00:00.123456Z",
+        "parts_bytes": "123",
+        "preview": "",
+        "preview_truncated": false,
+        "latest": {
+          "schedule_id": "schedule_fixture",
+          "scheduled_for": "2026-09-27T12:00:00.123456000Z",
+          "input_id": "scheduled_input",
+          "identity": {
+            "client_id": "schedule",
+            "request_id": "slot_fixture"
+          }
+        }
+      },
+      "deleted_at": null
+    },
+    "valid": true
+  },
+  {
+    "type": "CreateScheduleParams",
+    "value": {
+      "session_id": "session_child",
+      "schedule_id": "schedule_fixture",
+      "expression": "@at 2500-01-02T03:04:05.123456789Z",
+      "parts": [
+        {
+          "type": "text",
+          "text": "wake up"
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "type": "SchedulesResult",
+    "value": {
+      "items": [],
+      "next_after": null,
+      "next_cursor": {
+        "due": "2500-01-02T03:04:05.123456789Z",
+        "id": "schedule_fixture"
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "Input",
+    "value": {
+      "id": "scheduled_input",
+      "session_id": "session_child",
+      "source": "schedule",
+      "kind": "prompt",
+      "parts": [
+        {
+          "type": "text",
+          "text": "wake"
+        }
+      ],
+      "state": "queued",
+      "turn_id": null,
+      "created_at": "2026-09-27T12:00:00.123456Z",
+      "schedule": {
+        "schedule_id": "schedule_fixture",
+        "scheduled_for": "2026-09-27T12:00:00.123456000Z"
+      }
+    },
+    "valid": true
+  },
+  {
     "type": "Input",
     "value": {
       "id": "input_compact",
@@ -38,7 +118,8 @@
       "parts": [],
       "state": "queued",
       "turn_id": null,
-      "created_at": "2026-09-27T12:00:00.123456Z"
+      "created_at": "2026-09-27T12:00:00.123456Z",
+      "schedule": null
     },
     "valid": true
   },

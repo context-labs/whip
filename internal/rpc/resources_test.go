@@ -6,6 +6,7 @@ import (
 
 	"github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/session"
 )
 
 func resource(t *testing.T, c *client.Client, requested, owner protocol.ID, kind string) protocol.ResourceUsage {
@@ -29,12 +30,12 @@ func TestResourcesRPCEnforcesAncestorCapacityAndRevision(t *testing.T) {
 	spawn := protocol.SpawnSessionParams{Identity: protocol.RequestIdentity{ClientID: "resources", RequestID: "child"}, ParentID: root, Parts: []protocol.Part{{Type: "text", Text: "queued"}}, Resources: []protocol.ResourceLimit{{Kind: "descendants", Limit: new(protocol.Counter(0))}, {Kind: "queued_inputs", Limit: new(protocol.Counter(2))}}}
 	child := call[protocol.SpawnSessionResult](t, c, "sessions.spawn", spawn)
 	page := call[protocol.ResourcesResult](t, c, "resources.list", protocol.SessionParams{SessionID: child.Session.ID})
-	if len(page.Items) != 12 {
+	if len(page.Items) != 2*len(session.ResourceKinds()) {
 		t.Fatalf("missing ancestor or child resource scopes: %+v", page)
 	}
 	for i, item := range page.Items {
 		owner := child.Session.ID
-		if i >= 6 {
+		if i >= len(session.ResourceKinds()) {
 			owner = root
 		}
 		if item.SessionID != owner {

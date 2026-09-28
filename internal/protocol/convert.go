@@ -66,6 +66,9 @@ func TurnFromDomain(value session.Turn) Turn {
 
 func InputFromDomain(value session.Input) Input {
 	result := Input{ID: ID(value.ID), SessionID: ID(value.SessionID), Source: string(value.Source), Kind: string(value.Kind), State: string(value.State), CreatedAt: value.CreatedAt.Format(time.RFC3339Nano)}
+	if value.Schedule != nil {
+		result.Schedule = &ScheduleOccurrence{ScheduleID: ID(value.Schedule.ScheduleID), ScheduledFor: scheduleTime(value.Schedule.ScheduledFor)}
+	}
 	if value.TurnID != nil {
 		id := ID(*value.TurnID)
 		result.TurnID = &id

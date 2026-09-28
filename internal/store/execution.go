@@ -9,7 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"time"
 
+	"github.com/context-labs/whip/internal/schedule"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -18,6 +20,7 @@ type Submission struct {
 	Source    session.InputSource
 	Kind      session.InputKind
 	Parts     []session.Part
+	Schedule  *session.ScheduleOccurrence
 }
 
 // Admission is a projection, not an independently persisted status.
@@ -45,10 +48,18 @@ func readInput(ctx context.Context, q querier, id session.InputID) (result sessi
 	var raw string
 	var created int64
 	var cancelled sql.NullInt64
-	err = q.QueryRowContext(ctx, "SELECT id,session_id,source,kind,parts,turn_id,cancelled_at,created_at FROM inputs WHERE id=?", id).
-		Scan(&result.ID, &result.SessionID, &result.Source, &result.Kind, &raw, &result.TurnID, &cancelled, &created)
+	var scheduleID, slot sql.NullString
+	err = q.QueryRowContext(ctx, "SELECT id,session_id,source,kind,parts,turn_id,cancelled_at,created_at,schedule_id,scheduled_for FROM inputs WHERE id=?", id).
+		Scan(&result.ID, &result.SessionID, &result.Source, &result.Kind, &raw, &result.TurnID, &cancelled, &created, &scheduleID, &slot)
 	if err != nil {
 		return result, found(err)
+	}
+	if scheduleID.Valid {
+		due, parseErr := time.Parse(time.RFC3339Nano, slot.String)
+		if parseErr != nil {
+			return result, parseErr
+		}
+		result.Schedule = &session.ScheduleOccurrence{ScheduleID: session.ScheduleID(scheduleID.String), ScheduledFor: due}
 	}
 	result.CreatedAt = timestamp(created)
 	result.State = session.Queued
@@ -95,13 +106,25 @@ func readAdmission(ctx context.Context, q querier, identity session.RequestIdent
 	return result, nil
 }
 
+// Public admissions cannot occupy identities owned by internal durable work.
+// Recovery/inspection intentionally accepts these returned receipt identities.
+func validatePublicIdentity(identity session.RequestIdentity) error {
+	if identity.ClientID == "schedule" || identity.ClientID == "operation" {
+		return fmt.Errorf("%w: client identity is reserved for internal admissions", session.ErrInvalid)
+	}
+	return nil
+}
+
 func (s *Store) Admit(ctx context.Context, identity session.RequestIdentity, request Submission) (result Admission, err error) {
+	if err := validatePublicIdentity(identity); err != nil {
+		return result, err
+	}
 	for _, id := range []string{identity.ClientID, identity.RequestID, string(request.SessionID)} {
 		if err := session.ValidateID(id); err != nil {
 			return result, err
 		}
 	}
-	if request.Source != session.UserInput && request.Source != session.AgentInput && request.Source != session.ScheduledInput {
+	if (request.Source != session.UserInput && request.Source != session.AgentInput) || request.Schedule != nil {
 		return result, fmt.Errorf("%w: invalid input source", session.ErrInvalid)
 	}
 	if request.Kind == "" {
@@ -172,9 +195,23 @@ func admitInput(ctx context.Context, tx *sql.Tx, identity session.RequestIdentit
 	if err != nil {
 		return result, err
 	}
+	var scheduleID, slot any
+	if request.Source == session.ScheduledInput {
+		if request.Schedule == nil || request.Kind != session.PromptInput {
+			return result, session.ErrInvalid
+		}
+		stamp, err := schedule.Stamp(request.Schedule.ScheduledFor)
+		if err != nil {
+			return result, err
+		}
+		scheduleID = request.Schedule.ScheduleID
+		slot = stamp
+	} else if request.Schedule != nil {
+		return result, session.ErrInvalid
+	}
 	inputID := session.InputID(newID("input"))
 	created := now()
-	if _, err := tx.ExecContext(ctx, "INSERT INTO inputs (id,session_id,source,kind,parts,created_at) VALUES (?,?,?,?,?,?)", inputID, current.ID, request.Source, request.Kind, parts, created); err != nil {
+	if _, err := tx.ExecContext(ctx, "INSERT INTO inputs (id,session_id,source,kind,parts,created_at,schedule_id,scheduled_for) VALUES (?,?,?,?,?,?,?,?)", inputID, current.ID, request.Source, request.Kind, parts, created, scheduleID, slot); err != nil {
 		return result, err
 	}
 	if _, err := tx.ExecContext(ctx, "INSERT INTO receipts VALUES (?,?,?,?,NULL,?)", identity.ClientID, identity.RequestID, digest, inputID, created); err != nil {

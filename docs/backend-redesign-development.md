@@ -1797,3 +1797,49 @@ remain required before claiming that capability complete.
 Ancestor revision `a8952622a` has now passed Linux, macOS, analysis and the
 aggregate redesign gate in
 [run 36470031266](https://github.com/context-labs/whip/actions/runs/36470031266).
+
+## Durable schedules through ordinary inputs
+
+Schedules own their immutable specification and one mutable next-due cursor.
+Firing atomically admits an ordinary input and its receipt, charges logical
+writes, and advances the cursor. Input provenance and the unique schedule/slot
+constraint provide occurrence evidence without a second execution ledger.
+Create/fire retries resolve their original identity before changed lifecycle or
+cursor checks. Cancellation prevents future occurrences; already accepted
+inputs retain their independent lifecycle. Session deletion leaves identity
+tombstones and clears payloads.
+
+The runtime scans a bounded global due page even when a session worker is not
+loaded. A keyset cursor and an input-ordinal boundary prevent a fast recurrence
+from monopolizing one sweep. Recurrence catches up one outstanding occurrence
+at a time on its original grid; stopping retains the cursor. Timestamp identity
+preserves UTC nanoseconds without relying on UnixNano's narrower date range.
+An unrepresentable successor becomes an inspectable blocked schedule rather
+than repeatedly admitting or dropping work. Active future schedules consume
+ancestor-enforced reusable capacity. Public input admission rejects the internal
+`schedule` and `operation` client namespaces so callers cannot occupy internal
+receipt identities.
+
+Coverage includes transaction rollback, receipt replay, capacity, exact time
+parsing, queued work across process kill/restart, cancellation and deletion,
+both guest engines, and generated SDK create/get/list/cancel. The isolated
+increment passed its phase and analysis gates. After integration at `e3765de4c`,
+`WHIP_SDK_RACE=1 task check:phase` passed: store race tests 86.873s, runtime
+91.084s, process engine 101.077s, the full SDK fixture 121.241s (schedules 0.594s),
+retained crash fixture 10.509s, and retained daemon acceptance 2.661s.
+`task check:analysis` passed with zero lint issues and no reachable
+vulnerabilities. Protocol regeneration produced no drift. Logs are
+`/tmp/whip-schedules-integrated-phase.log` and
+`/tmp/whip-schedules-integrated-analysis.log`. Hosted validation of this
+increment remains pending. Fresh config is 7, schema 26, protocol development
+major 4.
+
+The Phase 4 plan header was stale after its audit repair passed hosted checks;
+it now agrees with the detailed closure evidence. Responses revision
+`d39ee7ef7` has also passed Linux, macOS, analysis and the aggregate gate in
+[run 36471811463](https://github.com/context-labs/whip/actions/runs/36471811463).
+Subscription capture revision `c10e6de1e` has passed analysis; Linux and macOS
+remain pending at this checkpoint in
+[run 36473179604](https://github.com/context-labs/whip/actions/runs/36473179604).
+Goals are not yet implemented, so the combined goals/schedules acceptance
+criterion and the rest of Phases 5–7 remain open.

@@ -167,6 +167,9 @@ func deleteSubtree(ctx context.Context, tx *sql.Tx, id session.SessionID) error 
    WHERE input_id IN (SELECT id FROM inputs WHERE session_id IN (SELECT id FROM subtree))`, id, now()); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, subtree+` UPDATE schedules SET first_due=NULL,every_ns=NULL,next_due=NULL,parts=NULL,failure=NULL,cancelled_at=NULL,deleted_at=? WHERE session_id IN (SELECT id FROM subtree) AND deleted_at IS NULL`, id, now()); err != nil {
+		return err
+	}
 	if err := deleteRecipientMail(ctx, tx, id); err != nil {
 		return err
 	}

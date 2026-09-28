@@ -501,3 +501,31 @@ and boundary-relative paths. A guest can read a selected skill with
 Later pages require the returned full-file `sha256`. Selection and source paths
 are never grants. Roots/children, live inspection and turn capture share the same
 catalog winners; old audit stays immutable while later turns refresh file bytes.
+
+
+## Durable schedules
+
+```ts
+const scheduled = await client.createSchedule({
+  session_id: sessionID,
+  expression: '@every 10m',
+  parts: [{ type: 'text', text: 'Check the build.' }],
+}, 'my-stable-schedule-id');
+const upcoming = await client.call('schedules.list', {
+  session_id: sessionID, upcoming: true, limit: 20,
+});
+```
+
+Retain the schedule ID and template for uncertain retries; the host captures an
+interval anchor exactly once. Slots use UTC strings with nine fractional digits,
+so do not round them through JavaScript `Date` when retaining a cursor. Upcoming
+pages return `next_cursor`; full templates are available through `schedules.get`.
+`latest.identity` addresses the ordinary `receipts.get` outcome, and the accepted
+input carries `schedule_id` and `scheduled_for`. At most one input per schedule
+is outstanding. Stopped owners retain due slots; cancellation stops future slots
+and leaves accepted input/turn cancellation explicit. A deleted owner leaves a
+creation retry tombstone. See the [domain contract](../../docs/backend-domain.md#durable-schedules).
+
+The client identities `schedule` and `operation` are reserved for internal
+admission. Public submissions and child creation reject them; inspecting their
+returned receipt identities with `receipts.get` remains supported.

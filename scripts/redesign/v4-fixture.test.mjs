@@ -241,6 +241,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
       return { client, createParams };
     });
     await stage('resources', () => resourceAcceptance(runtime, client, createParams, evidence));
+    await stage('schedules', () => scheduleAcceptance(runtime, client, createParams, evidence));
     await stage('budgets', () => budgetAcceptance(client, createParams, evidence));
     await stage('logical write allowances', () => writeAllowanceAcceptance(runtime, client, createParams, evidence));
     await stage('mail', () => mailAcceptance(runtime, client, createParams, evidence));
@@ -1002,7 +1003,7 @@ async function resourceAcceptance(runtime, client, createParams, evidence) {
   const list = sessionID => client.call('resources.list', { session_id: sessionID }, deadline());
   const scope = (page, owner, kind) => page.items.find(item => item.session_id === owner && item.kind === kind);
   const rootResources = await list(root.id);
-  assert.equal(rootResources.items.length, 6);
+  assert.equal(rootResources.items.length, 7);
   assert.equal(scope(rootResources, root.id, 'descendants').limit, '1');
   const spawnParams = {
     parent_id: root.id, parts: [{ type: 'text', text: 'resource child' }], overrides: {}, grant_ids: [],
@@ -1011,7 +1012,7 @@ async function resourceAcceptance(runtime, client, createParams, evidence) {
   const child = await client.spawn(spawnParams, 'resource-child', deadline());
   const childResources = await list(child.session.id);
   assert.deepEqual(childResources.items.map(item => item.session_id), [
-    ...Array(6).fill(child.session.id), ...Array(6).fill(root.id),
+    ...Array(7).fill(child.session.id), ...Array(7).fill(root.id),
   ]);
   assert.equal(scope(childResources, root.id, 'descendants').used, '1');
   await assert.rejects(client.spawn(spawnParams, 'resource-rejected', deadline()), error => error instanceof RemoteError && error.kind === 'LIMIT');
@@ -2022,4 +2023,73 @@ async function projectInstructionAcceptance(runtime, client, createParams, evide
     server.closeAllConnections();
     await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   }
+}
+
+
+async function scheduleAcceptance(runtime, client, createParams, evidence) {
+  const { root } = await client.call('trees.create', { ...createParams, resources: [{ kind: 'schedules', limit: '2' }] }, deadline());
+  for (const clientID of ['schedule', 'operation']) {
+    await assert.rejects(client.call('sessions.submit', { identity: { client_id: clientID, request_id: 'collision' }, session_id: root.id, source: 'user', parts: [{ type: 'text', text: 'collision' }] }, deadline()), error => error.kind === 'INVALID');
+    await assert.rejects(client.call('sessions.spawn', { identity: { client_id: clientID, request_id: 'collision' }, parent_id: root.id, parts: [{ type: 'text', text: 'collision' }], overrides: {}, grant_ids: [] }, deadline()), error => error.kind === 'INVALID');
+  }
+  const params = { session_id: root.id, expression: '@at 2500-01-02T03:04:05.123456789-07:00', parts: [{ type: 'text', text: 'future exact slot' }] };
+  const proxy = join(runtime.directory, 'schedule-drop.sock');
+  let dropped;
+  const close = await dropAcknowledgement(proxy, runtime.info.socket, '', value => { dropped = value; }, response => response.result?.id === 'schedule-lost-ack');
+  try {
+    const unreliable = await Client.connect(unixSocket(proxy), { clientID: client.clientID, expectedRuntimeID: client.runtimeID, ...deadline() });
+    await assert.rejects(unreliable.createSchedule(params, 'schedule-lost-ack', deadline()), DeliveryError);
+  } finally { await close(); }
+  const retried = await client.createSchedule(params, 'schedule-lost-ack', deadline());
+  assert.deepEqual(retried, dropped);
+  assert.equal(retried.schedule.next_due, '2500-01-02T10:04:05.123456789Z');
+  await assert.rejects(client.createSchedule({ ...params, expression: '@every 1m' }, 'schedule-lost-ack', deadline()), error => error.kind === 'CONFLICT');
+  const child = await client.spawn({ parent_id: root.id, parts: [{ type: 'text', text: 'schedule child' }], overrides: {}, grant_ids: [] }, 'schedule-child', deadline());
+  await client.wait('schedule-child', deadline());
+  const capacities = await client.call('resources.list', { session_id: child.session.id }, deadline());
+  const queue = capacities.items.find(item => item.session_id === child.session.id && item.kind === 'queued_inputs');
+  const blocked = await client.call('resources.set', { session_id: child.session.id, expected_revision: queue.revision, resource: { kind: 'queued_inputs', limit: '0' } }, deadline());
+  const childParams = { session_id: child.session.id, expression: '@at 2000-01-02T03:04:05.987654321-07:00', parts: [{ type: 'text', text: 'schedule child wake' }] };
+  const pending = await client.createSchedule(childParams, 'schedule-restart', deadline());
+  await assert.rejects(client.createSchedule(params, 'schedule-capacity-denied', deadline()), error => error.kind === 'LIMIT');
+  await client.call('sessions.lifecycle', { session_id: child.session.id, lifecycle: 'stopped' }, deadline());
+  await client.call('resources.set', { session_id: child.session.id, expected_revision: blocked.revision, resource: { kind: 'queued_inputs', limit: '2' } }, deadline());
+  await runtime.stop('SIGKILL'); await runtime.start();
+  const before = await client.call('schedules.get', { session_id: child.session.id, schedule_id: pending.id }, deadline());
+  assert.equal(before.schedule.latest, null);
+  assert.equal(before.schedule.next_due, '2000-01-02T10:04:05.987654321Z');
+  assert.deepEqual(before.parts, childParams.parts);
+  await client.call('sessions.lifecycle', { session_id: child.session.id, lifecycle: 'active' }, deadline());
+  let current;
+  const end = Date.now() + 10_000;
+  do {
+    current = await client.call('schedules.get', { session_id: child.session.id, schedule_id: pending.id }, deadline());
+    if (current.schedule.latest) break;
+    assert.ok(Date.now() < end, 'due unloaded child was never admitted');
+    await new Promise(resolve => setTimeout(resolve, 5));
+  } while (true);
+  assert.equal(current.schedule.next_due, null);
+  const latest = current.schedule.latest;
+  let completed;
+  do {
+    completed = await client.call('receipts.get', latest.identity, deadline());
+    if (completed.turn?.finished_at) break;
+    assert.ok(Date.now() < end, 'schedule input never completed');
+    await new Promise(resolve => setTimeout(resolve, 5));
+  } while (true);
+  assert.equal(completed.input.source, 'schedule');
+  assert.equal(completed.input.session_id, child.session.id);
+  assert.deepEqual(completed.input.schedule, { schedule_id: pending.id, scheduled_for: '2000-01-02T10:04:05.987654321Z' });
+  assert.equal(completed.turn.state, 'succeeded');
+  const upcoming = await client.call('schedules.list', { session_id: child.session.id, upcoming: true, limit: 10 }, deadline());
+  assert.deepEqual(upcoming.items, []);
+  const cancelled = await client.call('schedules.cancel', { session_id: root.id, schedule_id: retried.id }, deadline());
+  assert.ok(cancelled.schedule.cancelled_at);
+  assert.ok((await client.createSchedule(params, retried.id, deadline())).schedule.cancelled_at);
+  await client.call('sessions.delete', { session_id: root.id }, deadline());
+  const deleted = await client.createSchedule(params, retried.id, deadline());
+  assert.equal(deleted.schedule, null); assert.ok(deleted.deleted_at);
+  const receipt = await client.call('receipts.get', latest.identity, deadline());
+  assert.equal(receipt.input, null); assert.ok(receipt.receipt.deleted_at);
+  evidence.push({ schedules: { retried, before, completed, upcoming, cancelled, deleted, receipt } });
 }

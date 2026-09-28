@@ -48,6 +48,11 @@ export class Client {
     return this.call('sessions.spawn', { ...params, identity: this.identity(requestID) }, options);
   }
 
+  /** Keep scheduleID and the exact template when retrying; interval anchoring happens once on the host. */
+  createSchedule(params: Omit<Operations['schedules.create']['params'], 'schedule_id'>, scheduleID: string, options: CallOptions = {}): Promise<Operations['schedules.create']['result']> {
+    return this.call('schedules.create', { ...params, schedule_id: scheduleID }, options);
+  }
+
   /** Keep a globally unique mailID and the same payload when retrying an uncertain send. */
   sendMail(params: Omit<Operations['mail.send']['params'], 'mail_id'>, mailID: string, options: CallOptions = {}): Promise<Operations['mail.send']['result']> {
     return this.call('mail.send', { ...params, mail_id: mailID }, options);

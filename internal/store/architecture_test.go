@@ -18,7 +18,12 @@ func TestCoreImportBoundaries(t *testing.T) {
 	}
 	decoder := json.NewDecoder(bytes.NewReader(output))
 	const prefix = "github.com/context-labs/whip/internal/"
-	core := map[string]bool{prefix + "session": true, prefix + "config": true, prefix + "store": true, prefix + "protocol": true}
+	// The schedule parser is a pure leaf shared with retained consumers; it may
+	// import no internal packages, persistence, filesystem or runtime authority.
+	allowed := map[string]map[string]bool{
+		"session": {"schedule": true}, "config": {"session": true},
+		"store": {"session": true, "schedule": true}, "protocol": {"session": true}, "schedule": {},
+	}
 	for {
 		var pkg struct {
 			ImportPath string
@@ -29,12 +34,16 @@ func TestCoreImportBoundaries(t *testing.T) {
 		} else if err != nil {
 			t.Fatal(err)
 		}
-		if !core[pkg.ImportPath] {
+		name := strings.TrimPrefix(pkg.ImportPath, prefix)
+		if _, ok := allowed[name]; !ok {
 			continue
 		}
 		for _, dependency := range pkg.Imports {
-			if strings.HasPrefix(dependency, prefix) && dependency != prefix+"session" {
+			if internal, ok := strings.CutPrefix(dependency, prefix); ok && !allowed[name][internal] {
 				t.Errorf("%s crosses the core boundary into %s", pkg.ImportPath, dependency)
+			}
+			if name == "schedule" && (dependency == "os" || dependency == "os/exec" || dependency == "net" || dependency == "net/http") {
+				t.Errorf("pure schedule parser imports side-effect capability %s", dependency)
 			}
 			if pkg.ImportPath != prefix+"store" && (dependency == "database/sql" || dependency == "modernc.org/sqlite") {
 				t.Errorf("%s owns database access", pkg.ImportPath)

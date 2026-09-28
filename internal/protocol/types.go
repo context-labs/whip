@@ -185,14 +185,15 @@ type Receipt struct {
 	CreatedAt string          `json:"created_at"`
 }
 type Input struct {
-	ID        ID     `json:"id"`
-	SessionID ID     `json:"session_id"`
-	Source    string `json:"source" enum:"user,agent,schedule"`
-	Kind      string `json:"kind" enum:"prompt,compact"`
-	Parts     []Part `json:"parts"`
-	State     string `json:"state" enum:"queued,claimed,cancelled"`
-	TurnID    *ID    `json:"turn_id"`
-	CreatedAt string `json:"created_at"`
+	ID        ID                  `json:"id"`
+	SessionID ID                  `json:"session_id"`
+	Source    string              `json:"source" enum:"user,agent,schedule"`
+	Kind      string              `json:"kind" enum:"prompt,compact"`
+	Parts     []Part              `json:"parts"`
+	State     string              `json:"state" enum:"queued,claimed,cancelled"`
+	TurnID    *ID                 `json:"turn_id"`
+	CreatedAt string              `json:"created_at"`
+	Schedule  *ScheduleOccurrence `json:"schedule"`
 }
 type Turn struct {
 	ID             ID      `json:"id"`
@@ -275,7 +276,7 @@ type UpdateConfigurationParams struct {
 type SubmitParams struct {
 	Identity  RequestIdentity `json:"identity"`
 	SessionID ID              `json:"session_id"`
-	Source    string          `json:"source" enum:"user,agent,schedule"`
+	Source    string          `json:"source" enum:"user,agent"`
 	Parts     []Part          `json:"parts"`
 }
 type HistoryParams struct {

@@ -1,0 +1,137 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "schedule": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "expression": {
+          "type": "string"
+        },
+        "first_due": {
+          "type": "string"
+        },
+        "next_due": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "cancelled_at": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "failure": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "parts_bytes": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "preview": {
+          "type": "string"
+        },
+        "preview_truncated": {
+          "type": "boolean"
+        },
+        "latest": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "schedule_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "scheduled_for": {
+              "type": "string"
+            },
+            "input_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "identity": {
+              "type": "object",
+              "properties": {
+                "client_id": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                },
+                "request_id": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                }
+              },
+              "required": [
+                "client_id",
+                "request_id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "schedule_id",
+            "scheduled_for",
+            "input_id",
+            "identity"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "session_id",
+        "expression",
+        "first_due",
+        "next_due",
+        "cancelled_at",
+        "failure",
+        "created_at",
+        "parts_bytes",
+        "preview",
+        "preview_truncated",
+        "latest"
+      ],
+      "additionalProperties": false
+    },
+    "deleted_at": {
+      "type": [
+        "null",
+        "string"
+      ]
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ScheduleAdmission",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ScheduleAdmission",
+  "required": [
+    "id",
+    "schedule",
+    "deleted_at"
+  ],
+  "additionalProperties": false
+}

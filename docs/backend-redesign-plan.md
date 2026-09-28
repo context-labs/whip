@@ -2,10 +2,12 @@
 
 Status: phases 0 and 1 complete and validated in PRs #197 and #199.
 Phases 2 and 3 are complete and validated in PRs #200 and #201.
-Phase 4 implementation in [PR #202](https://github.com/context-labs/whip/pull/202)
-passed its checks, but its completion was reopened for missing ordinary-mail
-content-reference transfer. The repair now passes local phase and analysis gates;
-hosted validation is pending. Phase 5 is in progress and phases 6–7 are pending. The authorized execution scope
+Phase 4 is complete and validated through [PR #202](https://github.com/context-labs/whip/pull/202)
+and the audited mail repair in [PR #215](https://github.com/context-labs/whip/pull/215).
+The earlier completion claim missed ordinary-mail content-reference transfer;
+the repair passes local gates and hosted Linux, macOS and analysis checks.
+The implementation remains in an unmerged draft PR stack.
+Phase 5 is in progress and phases 6–7 are pending. The authorized execution scope
 is all phases, including client adoption and final removal of the retired core.
 Written: 2026-09-27. Planning reference: `6f02507bf`.
 
@@ -636,6 +638,10 @@ Acceptance:
       and prevents stale client history from being silently applied.
 - [ ] Goals/schedules admit ordinary inputs; due work is handled according to
       policy even when its session worker is not already loaded.
+      Schedules now have exact ordinary-input provenance, atomic cursor/charge
+      admission, bounded client-independent polling, stopped-owner/restart and
+      both-engine ownership coverage. Goal work remains separate; this combined
+      acceptance item stays open until its goal obligations are satisfied.
 - [ ] Integration reloads/model changes preserve unrelated children, grants,
       REPL and resource ownership.
 - [ ] Executor disconnect, required/optional hooks, tool schemas and output

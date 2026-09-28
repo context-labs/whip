@@ -113,6 +113,7 @@ const (
 // Input owns the accepted payload. Its execution outcome is the linked Turn;
 // terminal turn states are never copied onto input or receipt rows.
 type Input struct {
+	Schedule  *ScheduleOccurrence
 	ID        InputID
 	SessionID SessionID
 	Source    InputSource

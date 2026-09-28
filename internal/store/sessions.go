@@ -166,6 +166,9 @@ func spawnSession(ctx context.Context, tx *sql.Tx, request SpawnSession) (sessio
 }
 
 func (s *Store) SpawnChild(ctx context.Context, identity session.RequestIdentity, request ChildRequest) (result ChildAdmission, err error) {
+	if err := validatePublicIdentity(identity); err != nil {
+		return result, err
+	}
 	if err := validateChildRequest(identity, request); err != nil {
 		return result, err
 	}

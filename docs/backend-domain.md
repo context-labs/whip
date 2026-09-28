@@ -20,6 +20,7 @@ separate legacy runtime and SDK until their client cutover.
 | Effective configuration | Immutable configuration revision selected by the session |
 | Configuration used by execution | Turn's pinned configuration revision |
 | Captured instruction source paths, byte counts and digests | One immutable instruction manifest per ordinary turn in SQLite; full composed text lives only in that turn's execution memory |
+| Schedule template and next occurrence | One schedule row; immutable admitted occurrences belong to ordinary inputs |
 | Accepted input kind and payload | Input row (`prompt` or `compact`); turn kind is a read projection |
 | Request identity and payload digest | Receipt row |
 | Execution outcome | Turn row; input and receipt outcomes are derived |
@@ -188,7 +189,7 @@ reads the retired home/config. A new host config is valid but unconfigured: user
 must select a model/provider before creating a runnable session. Credentials are
 environment references resolved only when constructing a provider client.
 
-Current fresh host configuration is version 6; the SQLite schema is version 25.
+Current fresh host configuration is version 7; the SQLite schema is version 26.
 SQLite has an application identifier and schema version. Existing databases of
 another application/version are rejected, not imported. Reopening preserves the
 runtime identity and seeded revisions; separate databases receive distinct
@@ -616,14 +617,16 @@ either commit together or both roll back.
 | Content registration | Reference owner | Body size, even when physical bytes deduplicate |
 | State write or append | Author | Submitted JSON bytes; append charges only its submitted suffix |
 | State subscription creation | Subscriber | Key bytes |
+| Schedule creation | Owning session | Canonical expression plus input template text bytes |
+| Scheduled occurrence admission | Owning session | Ordinary input text bytes |
 
 Each accepted action consumes one logical write. Initial child input now follows
 the same charging rule as later submission, closing a gap in the former spawn
 path. Ordinary human input remains exempt. Automatic notifications, content
 sharing aliases, transcript/checkpoint persistence, model/operation/turn settlement,
 mail observation/acknowledgement/defer, cancellation/deletion, policy edits and
-recovery do not consume this allowance. Schedule creation will use the same
-boundary when implemented in Phase 5.
+recovery do not consume this allowance. Schedule creation and each accepted
+occurrence use this same transaction boundary.
 
 `logical_writes` retains immutable source identity/revision, author, byte quantity
 and tree ownership; `logical_write_ancestors` captures charge ancestry even where
@@ -1154,3 +1157,70 @@ new turns read current files. Descriptors close after capture or guest execution
 There is no new source database, cache, watcher, or claim that digest metadata can
 reconstruct changed files. A filesystem membership check is not an atomic snapshot
 of the directory tree; the source digests describe the bytes actually captured.
+
+
+## Durable schedules
+
+A session owns each schedule, including schedules created by a child. Host/client
+`schedules.create` accepts a stable schedule ID, expression and ordinary input
+parts. Guest `schedules.create` derives that ID from the durable operation. Exact
+creation retries reuse the originally captured interval anchor, including after
+cancellation or owner deletion; changed templates conflict. Expressions are
+`@every <positive decimal><s|m|h|d>` or `@at <RFC3339 instant>`. Intervals must be
+exact positive nanoseconds within signed 64-bit duration; instants support years
+1–9999 and at most nine fractional digits. Normalization never rounds a slot.
+
+The schedule row owns one nullable `next_due`, its immutable first due time and
+interval/template, and explicit cancellation or scheduling failure. There is no
+fire counter, last-fire cursor, second turn state or execution queue. Recurring
+schedules are first due at their committed creation time; one-shots use the
+explicit instant. SQLite stores slots as fixed-nine-digit UTC text, so offsets
+and fractional seconds identify the same exact occurrence. The latest admitted
+occurrence derives from input provenance and its ordinary receipt. Public input,
+compaction and child admissions cannot use reserved client identities `schedule`
+or `operation`; this prevents callers from occupying internal receipt keys.
+Receipt inspection and waiting still accept those returned identities.
+
+Each admission transaction checks exact pending slot, active owner, reusable
+queued-input capacity, cumulative logical-write allowance, and absence of an
+outstanding input for this schedule. It then inserts the ordinary prompt input
+and receipt, charges the write, and advances `next_due` together. One-shots set it
+to null. Any rollback retains the slot and leaks neither work nor charge. Stable
+slot retries return the same input even after the cursor advances. Accepted
+failed, cancelled or interrupted turns are never replayed as that occurrence.
+
+Missed recurring occurrences catch up oldest first on their original grid. At
+most one queued/running/cancelling input per schedule is outstanding; completion
+permits the next distinct occurrence. This is deliberate backpressure, replacing
+legacy attempts to enqueue many missed slots while an owner was busy. Stopping a
+session retains its cursor and accepted inputs; reactivation resumes admission.
+Cancelling a schedule stops future admission and retains already accepted work;
+use input/turn cancellation separately. Deleting an inactive subtree cancels its
+future schedules through identity/digest tombstones and retains ordinary deleted
+input receipts. Child deletion does not refund permanent ancestor write usage.
+
+The runtime visits eight due metadata candidates per scheduler pass, before
+checking worker capacity. No client attachment, loaded session or live kernel is
+required. A disposable `(due,id)` cursor and captured input-ordinal watermark
+exclude schedules admitted during that sweep, so advancing fast recurring slots
+cannot starve later due work. Blocked candidates advance the cursor; wrapping or
+restart reconstructs the watermark. All admission truth remains in SQLite.
+
+Reusable `schedules` capacity counts uncancelled future occurrences throughout
+the subtree, including stopped and failed schedules. Roots default to 128. A
+one-shot releases this capacity when its input is admitted; that input retains
+its own queued capacity. Creation and each occurrence consume a logical write.
+If computing a recurring successor exceeds the supported date range, the store
+records `failure=successor_out_of_range` without consuming the current slot or
+charging/admitting work. Other schedules continue. Inspect and cancel/recreate
+the failed schedule; cancellation releases its reusable capacity.
+
+`schedules.list` is owner-scoped and bounded to 100 metadata rows. `upcoming`
+orders pending future slots by `(due,id)` and returns that exact continuation;
+ordinary lists page by ID and include cancelled/completed schedules. Metadata
+includes a bounded first-part text preview and latest input/receipt identity;
+`schedules.get` returns the immutable full template. Inspection does not wake or
+claim work. Guest create/list/cancel use existing durable operation dispatch and
+exact invoking-session ownership; grants are scoped to the tree ID. Revoking a
+create grant prevents new creation, while an already accepted schedule persists
+until cancelled. Its future execution still checks current tool authority.

@@ -18,8 +18,8 @@ func TestParseEvery(t *testing.T) {
 		if err != nil || s.Every != want {
 			t.Fatalf("Parse(%q) = %+v, %v; want every %s", expr, s, err, want)
 		}
-		if got := s.String(); got != "@every "+want.String() {
-			t.Fatalf("String() = %q", got)
+		if round, err := Parse(s.String()); err != nil || round.Every != want {
+			t.Fatalf("canonical round trip = %+v %v", round, err)
 		}
 	}
 }
@@ -73,5 +73,36 @@ func TestStringAt(t *testing.T) {
 	}
 	if got := s.String(); got != "@at 2026-07-26T17:00:00Z" {
 		t.Fatalf("String() = %q", got)
+	}
+}
+
+func TestExactScheduleRoundTripsAndRejectsTruncation(t *testing.T) {
+	for _, expression := range []string{"@every 10m", "@every 1h", "@every 0.000000001s", "@every 1.25d", "@every 9223372036.854775807s", "@at 2500-01-02T03:04:05.123456789-07:00"} {
+		t.Run(expression, func(t *testing.T) {
+			value, err := Parse(expression)
+			if err != nil {
+				t.Fatal(err)
+			}
+			again, err := Parse(value.String())
+			if err != nil || again.Every != value.Every || !again.At.Equal(value.At) {
+				t.Fatalf("roundtrip %q: %+v %v", value.String(), again, err)
+			}
+		})
+	}
+	for _, expression := range []string{"@every 0.0000000001s", "@every 0s", "@every 9223372036.854775808s", "@every 99999999999999999999999999999d", "@at 0000-01-01T00:00:00Z", "@at 2026-01-01T00:00:00.1234567891Z", "@at 2026-01-01T00:00:00+24:00", "@at 2026-01-01T00:00:00+01:60", "@at 9999-12-31T23:59:59-01:00"} {
+		if _, err := Parse(expression); err == nil {
+			t.Fatalf("accepted %q", expression)
+		}
+	}
+	a, _ := Parse("@at 2500-01-02T03:04:05.123456789-07:00")
+	b, _ := Parse("@at 2500-01-02T10:04:05.123456789Z")
+	left, _ := Stamp(a.At)
+	right, _ := Stamp(b.At)
+	if left != right || left != "2500-01-02T10:04:05.123456789Z" {
+		t.Fatal(left, right)
+	}
+	limit, _ := Parse("@at 9999-12-31T23:59:59.999999999Z")
+	if _, err := Successor(limit.At, time.Nanosecond); err == nil {
+		t.Fatal("successor silently overflowed")
 	}
 }
