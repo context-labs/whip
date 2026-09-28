@@ -18,7 +18,7 @@ import (
 
 const (
 	FileName = "host.json"
-	Version  = 1
+	Version  = 2
 )
 
 var environmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -37,6 +37,11 @@ type Model struct {
 	MaxOutputTokens int64               `json:"max_output_tokens"`
 	TimeoutMillis   int64               `json:"timeout_millis"`
 	MaxAttempts     int                 `json:"max_attempts"`
+	// ContextWindowTokens is the host-declared provider context maximum, from
+	// 1 to 1 billion tokens. It bounds input for reservation, not measured usage.
+	// Nil is unknown. The provider must enforce this maximum; actual overages
+	// are still recorded, including when the host declaration was inaccurate.
+	ContextWindowTokens *int64 `json:"context_window_tokens,omitempty"`
 }
 
 func (m Model) Resolve() (Model, error) {
@@ -52,6 +57,12 @@ func (m Model) Resolve() (Model, error) {
 	if m.MaxOutputTokens < 1 || m.MaxOutputTokens > 1000000 {
 		return Model{}, fmt.Errorf("%w: output token limit must be 1–1000000", session.ErrInvalid)
 	}
+	if m.ContextWindowTokens != nil {
+		if *m.ContextWindowTokens < 1 || *m.ContextWindowTokens > 1000000000 || m.MaxOutputTokens > *m.ContextWindowTokens {
+			return Model{}, fmt.Errorf("%w: context window must be 1–1000000000 tokens and at least the output limit", session.ErrInvalid)
+		}
+		m.ContextWindowTokens = new(*m.ContextWindowTokens)
+	}
 	if m.TimeoutMillis < 1 || m.TimeoutMillis > 600000 {
 		return Model{}, fmt.Errorf("%w: provider timeout must be 1–600000 milliseconds", session.ErrInvalid)
 	}
@@ -62,17 +73,17 @@ func (m Model) Resolve() (Model, error) {
 }
 
 type Host struct {
-	Version   int                   `json:"version"`
-	Providers map[string]Provider   `json:"providers"`
-	Defaults  session.Configuration `json:"defaults"`
-	Engine    session.Engine        `json:"engine"`
-	Policy    session.TreePolicy    `json:"policy"`
+	Version   int                     `json:"version"`
+	Providers map[string]Provider     `json:"providers"`
+	Defaults  session.Configuration   `json:"defaults"`
+	Engine    session.Engine          `json:"engine"`
+	Resources []session.ResourceLimit `json:"resources"`
 }
 
 // Default is intentionally unconfigured. Model/provider selection is required
 // before resolving a runnable session; initialization invents no credentials.
 func Default() Host {
-	return Host{Version: Version, Providers: map[string]Provider{}, Engine: session.Starlark, Policy: session.DefaultTreePolicy()}
+	return Host{Version: Version, Providers: map[string]Provider{}, Engine: session.Starlark, Resources: session.DefaultResourceLimits()}
 }
 
 func (h Host) Validate() error {
@@ -82,7 +93,7 @@ func (h Host) Validate() error {
 	if err := h.Engine.Validate(); err != nil {
 		return err
 	}
-	if err := h.Policy.Validate(); err != nil {
+	if _, err := session.ResolveResourceLimits(h.Resources, nil); err != nil {
 		return err
 	}
 	if len(h.Providers) > 128 {
@@ -167,6 +178,10 @@ func Load(directory string) (Host, error) {
 		return Host{}, fmt.Errorf("%w: trailing host configuration data", session.ErrInvalid)
 	}
 	if err := host.Validate(); err != nil {
+		return Host{}, err
+	}
+	host.Resources, err = session.ResolveResourceLimits(host.Resources, nil)
+	if err != nil {
 		return Host{}, err
 	}
 	return host, nil

@@ -27,6 +27,10 @@ type Sessions interface {
 	Session(context.Context, session.SessionID) (session.Session, error)
 }
 
+type Coordination interface {
+	PrepareCoordination(context.Context, session.Session, Invocation) (Prepared, error)
+}
+
 type Invocation struct {
 	SessionID session.SessionID
 	CellID    session.CellID
@@ -37,24 +41,29 @@ type Invocation struct {
 }
 
 type Dispatcher struct {
-	ledger   Ledger
-	sessions Sessions
-	files    *Files
+	ledger       Ledger
+	sessions     Sessions
+	files        *Files
+	coordination Coordination
 }
 
-func NewDispatcher(ledger Ledger, sessions Sessions) *Dispatcher {
-	return &Dispatcher{ledger: ledger, sessions: sessions, files: NewFiles()}
+func NewDispatcher(ledger Ledger, sessions Sessions, coordination Coordination) *Dispatcher {
+	return &Dispatcher{ledger: ledger, sessions: sessions, files: NewFiles(), coordination: coordination}
 }
 
 func (d *Dispatcher) Call(ctx context.Context, call Invocation) (any, session.OperationID, error) {
-	if call.Module != "files" {
-		return nil, "", errors.New("unsupported host module")
-	}
 	current, err := d.sessions.Session(ctx, call.SessionID)
 	if err != nil {
 		return nil, "", err
 	}
-	prepared, err := d.files.Prepare(current.WorkingDirectory, call.Module+"."+call.Name, call.Arguments)
+	var prepared Prepared
+	if call.Module == "files" {
+		prepared, err = d.files.Prepare(current.WorkingDirectory, call.Module+"."+call.Name, call.Arguments)
+	} else if d.coordination != nil {
+		prepared, err = d.coordination.PrepareCoordination(ctx, current, call)
+	} else {
+		err = errors.New("unsupported host module")
+	}
 	if err != nil {
 		return nil, "", err
 	}
@@ -68,10 +77,20 @@ func (d *Dispatcher) Call(ctx context.Context, call Invocation) (any, session.Op
 		return nil, id, errors.New("operation owner mismatch")
 	}
 	if admitted.State != session.OperationWaiting && admitted.State != session.OperationReady {
+		if admitted.Result != nil && admitted.Result.Failure != nil {
+			return nil, id, errors.New(*admitted.Result.Failure)
+		}
 		return nil, id, errors.New("operation already admitted; automatic replay prohibited")
 	}
 	if err := d.awaitPermission(ctx, id); err != nil {
 		return nil, id, errors.Join(err, d.cancelPending(ctx, id, err))
+	}
+	if prepared.Apply != nil {
+		value, err := prepared.Apply(ctx, id)
+		if err != nil {
+			return nil, id, errors.Join(err, d.cancelPending(ctx, id, err))
+		}
+		return value, id, nil
 	}
 	release, err := prepared.Acquire(ctx)
 	if err != nil {

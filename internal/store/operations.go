@@ -17,7 +17,7 @@ const operationSelect = `SELECT o.id,o.cell_id,o.request_id,o.capability,o.resou
  FROM operations o JOIN cells c ON c.id=o.cell_id JOIN turns t ON t.id=c.turn_id`
 
 const (
-	grantSelect      = `SELECT id,session_id,capability,resource,operation_id,created_at,revoked_at FROM grants`
+	grantSelect      = `SELECT id,session_id,capability,resource,operation_id,issuer_id,created_at,revoked_at FROM grants`
 	permissionSelect = `SELECT p.operation_id,p.state,p.created_at,p.resolved_at FROM permissions p`
 )
 
@@ -42,7 +42,7 @@ func scanOperation(row scanner) (value session.Operation, err error) {
 func scanGrant(row scanner) (value session.Grant, err error) {
 	var created int64
 	var revoked sql.NullInt64
-	err = row.Scan(&value.ID, &value.SessionID, &value.Capability, &value.Resource, &value.OperationID, &created, &revoked)
+	err = row.Scan(&value.ID, &value.SessionID, &value.Capability, &value.Resource, &value.OperationID, &value.IssuerID, &created, &revoked)
 	value.CreatedAt, value.RevokedAt = timestamp(created), optionalTime(revoked)
 	return value, found(err)
 }
@@ -73,17 +73,18 @@ func (s *Store) Operation(ctx context.Context, id session.OperationID) (session.
 
 func operationLive(ctx context.Context, q querier, cellID session.CellID) error {
 	var cell session.CellState
+	var turnID session.TurnID
 	var turn session.TurnState
 	var lifecycle session.Lifecycle
-	err := q.QueryRowContext(ctx, `SELECT c.state,t.state,s.lifecycle FROM cells c
- JOIN turns t ON t.id=c.turn_id JOIN sessions s ON s.id=t.session_id WHERE c.id=?`, cellID).Scan(&cell, &turn, &lifecycle)
+	err := q.QueryRowContext(ctx, `SELECT c.state,t.state,s.lifecycle,t.id FROM cells c
+ JOIN turns t ON t.id=c.turn_id JOIN sessions s ON s.id=t.session_id WHERE c.id=?`, cellID).Scan(&cell, &turn, &lifecycle, &turnID)
 	if err != nil {
 		return found(err)
 	}
 	if cell != session.CellRunning || turn != session.Running || lifecycle != session.Active {
 		return ErrStopped
 	}
-	return nil
+	return requireTurnPermit(ctx, q, turnID)
 }
 
 // AdmitOperation records immutable intent and either an exact standing grant or
@@ -129,7 +130,7 @@ func (s *Store) AdmitOperation(ctx context.Context, spec session.OperationSpec) 
 		if duplicate != 0 {
 			return ErrConflict
 		}
-		grant, err := scanGrant(tx.QueryRowContext(ctx, grantSelect+" WHERE session_id=? AND capability=? AND resource=? AND operation_id IS NULL AND revoked_at IS NULL ORDER BY id LIMIT 1", cell.SessionID, spec.Capability, spec.Resource))
+		grant, err := matchingGrant(ctx, tx, cell.SessionID, spec.Capability, spec.Resource)
 		var grantID *session.GrantID
 		state := session.OperationWaiting
 		if err == nil {
@@ -144,9 +145,24 @@ func (s *Store) AdmitOperation(ctx context.Context, spec session.OperationSpec) 
 			return err
 		}
 		if state == session.OperationWaiting {
+			owner, err := readSession(ctx, tx, cell.SessionID)
+			if err != nil {
+				return err
+			}
+			if owner.ParentID != nil {
+				operation, err := readOperation(ctx, tx, spec.ID)
+				if err != nil {
+					return err
+				}
+				result, err = settleOperation(ctx, tx, operation, session.OperationResult{State: session.OperationDenied, Failure: new("no delegated authority")})
+				return err
+			}
 			if _, err := tx.ExecContext(ctx, "INSERT INTO permissions (operation_id,state,created_at) VALUES (?,'pending',?)", spec.ID, created); err != nil {
 				return err
 			}
+		}
+		if err := checkResources(ctx, tx, cell.SessionID, session.ResourceActiveOperations); err != nil {
+			return err
 		}
 		result, err = readOperation(ctx, tx, spec.ID)
 		return err
@@ -158,31 +174,127 @@ func (s *Store) AdmitOperation(ctx context.Context, spec session.OperationSpec) 
 // commit returns true; cancellation or revocation that committed first wins.
 func (s *Store) DispatchOperation(ctx context.Context, id session.OperationID) (dispatch bool, err error) {
 	err = s.write(ctx, func(tx *sql.Tx) error {
-		operation, err := readOperation(ctx, tx, id)
-		if err != nil {
-			return err
-		}
-		if operation.State != session.OperationReady {
-			return nil
-		}
-		if err := operationLive(ctx, tx, operation.CellID); err != nil {
-			return err
-		}
-		if operation.GrantID == nil {
-			return ErrConflict
-		}
-		grant, err := readGrant(ctx, tx, *operation.GrantID)
-		if err != nil {
-			return err
-		}
-		if grant.RevokedAt != nil || grant.SessionID != operation.SessionID || grant.Capability != operation.Capability || grant.Resource != operation.Resource || (grant.OperationID != nil && *grant.OperationID != operation.ID) {
-			return ErrConflict
-		}
-		_, err = tx.ExecContext(ctx, "UPDATE operations SET state='dispatched',dispatched_at=? WHERE id=?", now(), id)
-		dispatch = err == nil
+		dispatch, err = dispatchOperation(ctx, tx, id)
 		return err
 	})
 	return dispatch && err == nil, err
+}
+
+// The caller owns commit. A true result is only a proposed dispatch until then.
+func dispatchOperation(ctx context.Context, tx *sql.Tx, id session.OperationID) (bool, error) {
+	operation, err := readOperation(ctx, tx, id)
+	if err != nil {
+		return false, err
+	}
+	if operation.State != session.OperationReady {
+		return false, nil
+	}
+	if err := authorizeOperation(ctx, tx, operation); err != nil {
+		return false, err
+	}
+	_, err = tx.ExecContext(ctx, "UPDATE operations SET state='dispatched',dispatched_at=? WHERE id=?", now(), id)
+	return err == nil, err
+}
+
+func authorizeOperation(ctx context.Context, q querier, operation session.Operation) error {
+	if err := operationLive(ctx, q, operation.CellID); err != nil {
+		return err
+	}
+	if operation.GrantID == nil {
+		return ErrConflict
+	}
+	grant, err := readGrant(ctx, q, *operation.GrantID)
+	if err != nil {
+		return err
+	}
+	if grant.SessionID != operation.SessionID || grant.Capability != operation.Capability || grant.Resource != operation.Resource || (grant.OperationID != nil && *grant.OperationID != operation.ID) {
+		return ErrConflict
+	}
+	return validateGrantChain(ctx, q, grant)
+}
+
+// Every hop must retain the same scope and move to the direct parent. Session
+// ancestry is immutable; the bound also rejects corrupted cyclic grant chains.
+func validateGrantChain(ctx context.Context, q querier, grant session.Grant) error {
+	for range session.MaxSessionDepth + 1 {
+		if grant.RevokedAt != nil {
+			return ErrConflict
+		}
+		owner, err := readSession(ctx, q, grant.SessionID)
+		if err != nil {
+			return err
+		}
+		if owner.ParentID == nil {
+			if grant.IssuerID != nil {
+				return ErrConflict
+			}
+			return nil
+		}
+		if grant.OperationID != nil || grant.IssuerID == nil {
+			return ErrConflict
+		}
+		issuer, err := readGrant(ctx, q, *grant.IssuerID)
+		if err != nil {
+			return err
+		}
+		if issuer.SessionID != *owner.ParentID || issuer.OperationID != nil || issuer.Capability != grant.Capability || issuer.Resource != grant.Resource {
+			return ErrConflict
+		}
+		grant = issuer
+	}
+	return ErrConflict
+}
+
+func matchingGrant(ctx context.Context, q querier, owner session.SessionID, capability, resource string) (session.Grant, error) {
+	var after session.GrantID
+	for {
+		grant, err := scanGrant(q.QueryRowContext(ctx, grantSelect+" WHERE session_id=? AND capability=? AND resource=? AND operation_id IS NULL AND revoked_at IS NULL AND id>? ORDER BY id LIMIT 1", owner, capability, resource, after))
+		if err != nil {
+			return session.Grant{}, err
+		}
+		if err := validateGrantChain(ctx, q, grant); err == nil {
+			return grant, nil
+		} else if !errors.Is(err, ErrConflict) {
+			return session.Grant{}, err
+		}
+		after = grant.ID
+	}
+}
+
+func delegatedGrants(ctx context.Context, q querier, parent session.SessionID, ids []session.GrantID) ([]session.Grant, error) {
+	result := []session.Grant{}
+	if ids != nil {
+		for _, id := range ids {
+			grant, err := readGrant(ctx, q, id)
+			if err != nil {
+				return nil, err
+			}
+			if grant.SessionID != parent || grant.OperationID != nil {
+				return nil, ErrConflict
+			}
+			if err := validateGrantChain(ctx, q, grant); err != nil {
+				return nil, err
+			}
+			result = append(result, grant)
+		}
+		return result, nil
+	}
+	var after session.GrantID
+	for {
+		grant, err := scanGrant(q.QueryRowContext(ctx, grantSelect+" WHERE session_id=? AND operation_id IS NULL AND revoked_at IS NULL AND id>? ORDER BY id LIMIT 1", parent, after))
+		if errors.Is(err, ErrNotFound) {
+			return result, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		if err := validateGrantChain(ctx, q, grant); err == nil {
+			result = append(result, grant)
+		} else if !errors.Is(err, ErrConflict) {
+			return nil, err
+		}
+		after = grant.ID
+	}
 }
 
 func (s *Store) SettleOperation(ctx context.Context, id session.OperationID, outcome session.OperationResult) (result session.Operation, err error) {
@@ -249,8 +361,8 @@ func insertGrant(ctx context.Context, tx *sql.Tx, grant session.Grant) error {
 	if count >= session.MaxGrantsPerSession {
 		return ErrLimit
 	}
-	_, err := tx.ExecContext(ctx, "INSERT INTO grants (id,session_id,capability,resource,operation_id,created_at) VALUES (?,?,?,?,?,?)",
-		grant.ID, grant.SessionID, grant.Capability, grant.Resource, grant.OperationID, now())
+	_, err := tx.ExecContext(ctx, "INSERT INTO grants (id,session_id,capability,resource,operation_id,issuer_id,created_at) VALUES (?,?,?,?,?,?,?)",
+		grant.ID, grant.SessionID, grant.Capability, grant.Resource, grant.OperationID, grant.IssuerID, now())
 	return err
 }
 
@@ -266,7 +378,7 @@ func (s *Store) CreateGrant(ctx context.Context, grant session.Grant) (result se
 	err = s.write(ctx, func(tx *sql.Tx) error {
 		existing, err := readGrant(ctx, tx, grant.ID)
 		if err == nil {
-			if existing.SessionID != grant.SessionID || existing.Capability != grant.Capability || existing.Resource != grant.Resource || existing.OperationID != nil {
+			if existing.SessionID != grant.SessionID || existing.Capability != grant.Capability || existing.Resource != grant.Resource || existing.OperationID != nil || !reflect.DeepEqual(existing.IssuerID, grant.IssuerID) {
 				return ErrConflict
 			}
 			result = existing
@@ -275,7 +387,7 @@ func (s *Store) CreateGrant(ctx context.Context, grant session.Grant) (result se
 		if !errors.Is(err, ErrNotFound) {
 			return err
 		}
-		if _, err := readSession(ctx, tx, grant.SessionID); err != nil {
+		if err := validateGrantChain(ctx, tx, grant); err != nil {
 			return err
 		}
 		if err := insertGrant(ctx, tx, grant); err != nil {
@@ -315,6 +427,13 @@ func (s *Store) ResolvePermission(ctx context.Context, id session.OperationID, a
 			return err
 		}
 		if approved {
+			owner, err := readSession(ctx, tx, operation.SessionID)
+			if err != nil {
+				return err
+			}
+			if owner.ParentID != nil {
+				return ErrConflict
+			}
 			grant := session.Grant{
 				ID: session.GrantID(newID("grant")), SessionID: operation.SessionID,
 				Capability: operation.Capability, Resource: operation.Resource, OperationID: &operation.ID,
@@ -352,10 +471,12 @@ func (s *Store) RevokeGrant(ctx context.Context, id session.GrantID) (result ses
 		if _, err := tx.ExecContext(ctx, "UPDATE grants SET revoked_at=? WHERE id=?", now(), id); err != nil {
 			return err
 		}
-		// Each statement is bounded to the owner's operations and grants. No
-		// external cancellation occurs inside this transaction.
+		// Revocation also invalidates derived authority. Already dispatched effects
+		// retain their original outcome; only ready operations are denied here.
 		for {
-			operation, err := scanOperation(tx.QueryRowContext(ctx, operationSelect+" WHERE o.grant_id=? AND o.state='ready' ORDER BY o.id LIMIT 1", id))
+			operation, err := scanOperation(tx.QueryRowContext(ctx, `WITH RECURSIVE delegated(id) AS (
+ SELECT ? UNION ALL SELECT g.id FROM grants g JOIN delegated d ON g.issuer_id=d.id
+ ) `+operationSelect+" WHERE o.grant_id IN (SELECT id FROM delegated) AND o.state='ready' ORDER BY o.id LIMIT 1", id))
 			if errors.Is(err, ErrNotFound) {
 				break
 			}

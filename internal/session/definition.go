@@ -47,6 +47,25 @@ type OutputPolicy struct {
 	Schema json.RawMessage `json:"schema"`
 }
 
+// ReportMode controls automatic child completion mail. Message mode leaves
+// successful reporting to the child; unsuccessful outcomes still notify its parent.
+type ReportMode string
+
+const (
+	ReportNotice  ReportMode = "notice"
+	ReportInline  ReportMode = "inline"
+	ReportMessage ReportMode = "message"
+)
+
+func (m ReportMode) Validate() error {
+	switch m {
+	case ReportNotice, ReportInline, ReportMessage:
+		return nil
+	default:
+		return fmt.Errorf("%w: unknown report mode %q", ErrInvalid, m)
+	}
+}
+
 type DefinitionRef struct {
 	ID       string `json:"id"`
 	Revision string `json:"revision"`
@@ -64,6 +83,7 @@ func (r DefinitionRef) Validate() error {
 }
 
 type Configuration struct {
+	ReportMode   ReportMode                 `json:"report_mode"`
 	Model        ModelSelection             `json:"model"`
 	Instructions Instructions               `json:"instructions"`
 	Tools        map[string]ToolDeclaration `json:"tools"`
@@ -76,6 +96,7 @@ type Configuration struct {
 // clears. A present Output policy with no schema clears structured output.
 // This avoids recursive merge rules and implicit inheritance of credentials.
 type ConfigPatch struct {
+	ReportMode   *ReportMode                `json:"report_mode"`
 	Model        *ModelSelection            `json:"model"`
 	Instructions *Instructions              `json:"instructions"`
 	Tools        map[string]ToolDeclaration `json:"tools"`
@@ -139,6 +160,9 @@ func Resolve(base Configuration, definition DefinitionDocument, overrides Config
 		if patch.Model != nil {
 			resolved.Model = *patch.Model
 		}
+		if patch.ReportMode != nil {
+			resolved.ReportMode = *patch.ReportMode
+		}
 		if patch.Instructions != nil {
 			resolved.Instructions = *patch.Instructions
 		}
@@ -154,6 +178,9 @@ func Resolve(base Configuration, definition DefinitionDocument, overrides Config
 		if patch.Output != nil {
 			resolved.OutputSchema = patch.Output.Schema
 		}
+	}
+	if resolved.ReportMode == "" {
+		resolved.ReportMode = ReportNotice
 	}
 	if err := resolved.Validate(); err != nil {
 		return Configuration{}, err
@@ -175,6 +202,12 @@ func (m ModelSelection) Validate() error {
 }
 
 func (c Configuration) Validate() error {
+	// Host defaults may omit the policy. Resolve always records an explicit mode.
+	if c.ReportMode != "" {
+		if err := c.ReportMode.Validate(); err != nil {
+			return err
+		}
+	}
 	if err := c.Model.Validate(); err != nil {
 		return err
 	}
@@ -185,6 +218,11 @@ func (c Configuration) Validate() error {
 }
 
 func (p ConfigPatch) Validate() error {
+	if p.ReportMode != nil {
+		if err := p.ReportMode.Validate(); err != nil {
+			return err
+		}
+	}
 	if p.Model != nil {
 		if err := p.Model.Validate(); err != nil {
 			return err

@@ -1,0 +1,33 @@
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "version_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "offset": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "length": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65536
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ReadStateParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ReadStateParams",
+  "required": [
+    "session_id",
+    "version_id",
+    "offset",
+    "length"
+  ],
+  "additionalProperties": false
+}

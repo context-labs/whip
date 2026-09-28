@@ -169,6 +169,7 @@ type ModelRequestSnapshot struct {
 	Adapter         string         `json:"adapter"`
 	RequestDigest   string         `json:"request_digest"`
 	Prices          ModelPrices    `json:"prices"`
+	InputTokenBound *int64         `json:"input_token_bound"`
 	MaxOutputTokens int64          `json:"max_output_tokens"`
 	TimeoutMillis   int64          `json:"timeout_millis"`
 }
@@ -191,6 +192,9 @@ func (s ModelRequestSnapshot) Validate() error {
 	if err != nil || route.User != nil || route.RawQuery != "" || route.Fragment != "" || route.Hostname() == "" || (route.Scheme != "https" && route.Scheme != "http" && route.Scheme != "scripted") || len(s.Route) > 4096 {
 		return fmt.Errorf("%w: invalid model route snapshot", ErrInvalid)
 	}
+	if s.InputTokenBound != nil && *s.InputTokenBound < 0 {
+		return fmt.Errorf("%w: negative input token bound", ErrInvalid)
+	}
 	if s.MaxOutputTokens < 1 || s.MaxOutputTokens > 1000000 || s.TimeoutMillis < 1 || s.TimeoutMillis > 600000 {
 		return fmt.Errorf("%w: invalid model request limits", ErrInvalid)
 	}
@@ -199,6 +203,7 @@ func (s ModelRequestSnapshot) Validate() error {
 
 type ModelAttemptResult struct {
 	State               ModelAttemptState `json:"state"`
+	ElapsedMillis       *int64            `json:"elapsed_millis"`
 	Usage               ModelUsage        `json:"usage"`
 	ReportedCostNanoUSD *int64            `json:"reported_cost_nano_usd"`
 	Failure             *string           `json:"failure"`
@@ -206,6 +211,9 @@ type ModelAttemptResult struct {
 }
 
 func (r ModelAttemptResult) Validate() error {
+	if r.ElapsedMillis != nil && *r.ElapsedMillis < 0 {
+		return fmt.Errorf("%w: negative model elapsed time", ErrInvalid)
+	}
 	if r.UsageNote != nil {
 		if err := ValidateText(*r.UsageNote, 1024); err != nil {
 			return err

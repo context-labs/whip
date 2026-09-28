@@ -43,6 +43,18 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 		return nil, ErrMethod
 	}
 	switch method {
+	case "completions.list", "completions.read":
+		return dispatchCompletion(ctx, r, method, raw)
+	case "state.subscribe", "state.subscriptions", "state.unsubscribe":
+		return dispatchStateSubscription(ctx, r, method, raw)
+	case "state.get", "state.write", "state.append", "state.read", "state.list", "state.history":
+		return dispatchState(ctx, r, method, raw)
+	case "mail.send", "mail.list", "mail.read":
+		return dispatchMail(ctx, r, method, raw)
+	case "resources.list", "resources.set":
+		return dispatchResource(ctx, r, method, raw)
+	case "budgets.list", "budgets.set":
+		return dispatchBudget(ctx, r, method, raw)
 	case "sessions.observe":
 		return dispatchObservation(ctx, r, raw)
 	case "grants.create", "grants.list", "grants.revoke", "operations.get", "turns.operations", "permissions.list", "permissions.resolve", "cells.get", "turns.cells":
@@ -85,7 +97,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 			if err != nil {
 				return nil, err
 			}
-			tree, root, err := r.CreateTree(ctx, store.CreateTree{Metadata: session.TreeMetadata(p.Metadata), Engine: session.Engine(p.Engine), Policy: session.TreePolicy(p.Policy), Definition: definitionRef(p.Definition), Overrides: patch, WorkingDirectory: p.WorkingDirectory})
+			tree, root, err := r.CreateTree(ctx, store.CreateTree{Metadata: session.TreeMetadata(p.Metadata), Engine: session.Engine(p.Engine), Resources: protocol.ResourceLimitsDomain(p.Resources), Definition: definitionRef(p.Definition), Overrides: patch, WorkingDirectory: p.WorkingDirectory})
 			if err != nil {
 				return nil, err
 			}
@@ -116,7 +128,19 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 			if err != nil {
 				return nil, err
 			}
-			request := store.SpawnSession{ParentID: session.SessionID(p.ParentID), Overrides: patch}
+			request := store.ChildRequest{ParentID: session.SessionID(p.ParentID), Overrides: patch, Resources: protocol.ResourceLimitsDomain(p.Resources)}
+			for _, limit := range p.Budgets {
+				request.Budgets = append(request.Budgets, limit.Domain())
+			}
+			for _, part := range p.Parts {
+				request.Parts = append(request.Parts, part.Domain())
+			}
+			if p.GrantIDs != nil {
+				request.GrantIDs = make([]session.GrantID, len(p.GrantIDs))
+				for i, id := range p.GrantIDs {
+					request.GrantIDs[i] = session.GrantID(id)
+				}
+			}
 			if p.Definition != nil {
 				ref := definitionRef(*p.Definition)
 				request.Definition = &ref
@@ -124,11 +148,19 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 			if p.WorkingDirectory != nil {
 				request.WorkingDirectory = *p.WorkingDirectory
 			}
-			value, err := r.SpawnSession(ctx, request)
+			value, err := r.SpawnChild(ctx, identity(p.Identity), request)
 			if err != nil {
 				return nil, err
 			}
-			return protocol.SessionFromDomain(value)
+			result := protocol.SpawnSessionResult{Admission: admission(value.Admission)}
+			if value.Session != nil {
+				wire, err := protocol.SessionFromDomain(*value.Session)
+				if err != nil {
+					return nil, err
+				}
+				result.Session = &wire
+			}
+			return result, nil
 		})
 	case "sessions.list":
 		return decode(raw, func(p protocol.ListSessionsParams) (any, error) {

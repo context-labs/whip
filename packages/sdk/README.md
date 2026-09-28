@@ -87,3 +87,211 @@ and a truncation flag. Never execute preview arguments. Upsert committed message
 by ID; a matching committed ID replaces the preview. Clear provisional display
 when the preview is null or the epoch changes. Aborting this iterator stops
 observation only. It retains a cursor, not a transcript cache.
+
+
+`client.spawn({parent_id, parts, overrides: {}, grant_ids: null}, requestID)`
+atomically creates a child and accepts its initial input. It returns
+`{session, admission}`; use `client.wait(requestID)` and `client.recover(requestID)`
+for the same recovery behavior as submissions. Reusing the exact spawn identity
+and payload returns the same child; changed parameters conflict. After deletion,
+the receipt remains and `session` is null. Content parts must reference content
+owned by the parent; admission creates new scoped child references to those bytes.
+
+`grant_ids: null` inherits live standing parent grants; an explicit list selects
+a subset and `[]` grants none. `grants.create` for a child additionally requires
+`issuer_id` identifying a standing direct-parent grant with the exact same scope.
+Ancestor revocation invalidates descendant dispatch. Child permission decisions
+cannot widen delegated authority.
+
+In a REPL, `agents.spawn` accepts a prompt and returns `session_id`/`input_id`.
+`agents.wait_after_cell` accepts descendant input IDs and immediately returns a
+registration. Finish the cell to begin the wait; the runtime then releases worker
+and kernel capacity until those inputs finish. Same-cell blocking `agents.wait`
+is unavailable in the new runtime. These operations use tree-ID grant resources.
+`agents.submit` queues another input to a direct child. Use `agents.inspect` with
+that exact input ID for outcome and paged text; `next_offset`, `total_bytes` and
+`offset` are decimal strings. Verify `message_id` when paging unfinished output.
+`agents.list` exposes bounded relative metadata. `agents.stop` retains queued
+work while stopping a descendant subtree; `agents.delete` requires it to be idle.
+Each control requires its own capability grant.
+
+
+Reusable capacity lives in session resource scopes, separately from model budgets
+and tree metadata. `trees.create` and `client.spawn` accept an optional `resources`
+array, for example `[{kind: 'descendants', limit: '10'}]`. Fresh host configuration
+version 2 supplies root defaults; existing trees retain their persisted limits.
+Root limits must be finite. Omitted child limits and `limit: null` inherit the
+ancestor bounds. Duplicate kinds are invalid.
+
+```ts
+const resources = await client.call('resources.list', { session_id: sessionID });
+const current = resources.items.find(item => item.session_id === sessionID && item.kind === 'queued_inputs');
+await client.call('resources.set', {
+  session_id: sessionID,
+  expected_revision: current.revision,
+  resource: { kind: 'queued_inputs', limit: '20' },
+});
+```
+
+The listing includes all applicable scopes, nearest first. Each scope exposes
+`session_id`, `kind`, `revision`, nullable `limit`, and `used`, with exact decimal
+strings for numbers. Revision `'0'` means no local record; clearing a child cap
+still advances its revision. Kinds are `depth`, `descendants`, `queued_inputs`,
+`active_operations`, `subscriptions`, and `runnable_descendants`. Usage is derived from live owning rows
+across each subtree. Claiming or cancelling queued input, settling operations,
+unsubscribing, and deleting children release the corresponding capacity.
+Runnable capacity counts execution permissions of proper descendants, excluding
+the owner. Waiting parents release permission at a settled cell boundary and
+reacquire it before resuming. A zero cap keeps children queued while allowing the
+owner itself to run; raising it wakes scheduling. Host worker slots remain a
+separate physical limit. A running turn can be waiting without consuming either.
+Depth counts edges and descendants excludes the owner. Stale updates conflict;
+a finite limit below current usage is rejected. `LIMIT` admission failures create
+no work, so a caller can explicitly retry after capacity becomes available.
+
+`budgets.list({session_id})` returns local model-call, token, nano-USD, elapsed
+millisecond and cumulative write scopes with exact decimal-string counters.
+`limit: null` removes a local cap; ancestors still apply. `budgets.set` takes
+`{session_id, expected_revision, budget: {kind, limit}}`; revision `'0'` creates an
+initial cap. Spawning may include a `budgets` array of narrower child caps.
+The additional kinds `logical_writes` and `logical_write_bytes` count committed
+logical actions and submitted payload bytes. Root defaults are 100,000 and 1 GiB,
+and these root limits must remain finite. Child spawn/submit, explicit mail,
+content registration, state writes and subscription creation consume allowance.
+State append charges the submitted suffix. Retries do not charge twice; deletion
+does not refund ancestors. Ordinary human input, automatic notifications and
+recording completed execution are exempt. A rejected write changes no SQL state;
+these allowances are distinct from current disk usage and reusable capacity.
+
+Read `used`, `reserved`, `uncertain` and `incomplete` separately. Unknown accounting
+is not zero. Finite limits cannot be set below allocated exposure, and requests
+without enough bounded allowance fail before dispatch. Deleting a child retains
+its accounting against ancestors. Original turn/message IDs in accounting may
+therefore refer to deleted history. A root budget denial fails that turn without
+stopping unrelated sessions.
+
+Mail has its own stable identity and does not create an input receipt:
+
+```ts
+const params = {
+  sender_id: childID,
+  recipient_id: parentID,
+  delivery: 'next_turn' as const,
+  subject: 'Investigation complete',
+  body: 'The result is ready for the next turn.',
+};
+const mailID = crypto.randomUUID(); // Retain this ID with params before sending.
+const sent = await client.sendMail(params, mailID);
+const inbox = await client.call('mail.list', {
+  session_id: parentID, state: 'pending', limit: 100,
+});
+const inspected = await client.call('mail.read', {
+  session_id: parentID, mail_id: sent.mail_id,
+});
+```
+
+Keep the mail ID and exact payload for retries after an uncertain send; IDs are
+unique across the runtime. Retrying after recipient deletion returns a tombstone.
+Listings omit bodies. Reading a body is read-only and never acknowledges delivery.
+Only successful turn presentation or explicit authorized agent handling changes
+delivery state. `queued` and `steer` mail can start idle execution; `next_turn`
+waits for another trigger. Transcript messages identify mail provenance with
+`mail.id`, exact decimal-string `mail.revision`, and `mail.presentation`; their
+`input_id` is null. Other messages have `mail: null`.
+
+Explicit state uses `scope: 'session'` for private values or `scope: 'tree'` for
+shared values. Every write supplies an expected revision and stable version ID:
+
+```ts
+const versionID = crypto.randomUUID(); // Retain with this exact payload.
+const params = {
+  session_id: sessionID,
+  scope: 'session' as const,
+  key: 'results',
+  expected_revision: '0', // Create. Use the current revision to replace.
+  data_base64: Buffer.from('[9007199254740993]', 'utf8').toString('base64'),
+};
+const version = await client.writeState(params, versionID);
+const chunk = await client.call('state.read', {
+  session_id: sessionID, version_id: version.id, offset: '0', length: 65536,
+});
+const exactJSON = Buffer.from(chunk.data_base64, 'base64').toString('utf8');
+```
+
+The Node encoding above is an example; the SDK core has no Node dependency.
+Encoded JSON preserves numeric lexemes; `JSON.parse` may lose integer precision,
+so choose a decoder appropriate to the value. Reads return at most 64 KiB of bytes;
+assemble chunks before decoding UTF-8/JSON. Each write/append payload is at most
+4 MiB, with a final value limit of 64 MiB. `client.appendState` concatenates strings
+or arrays against the same explicit revision. `state.get`, `state.list` and
+`state.history` return metadata; list cursors are keys and history cursors are
+exact revision strings. Reads never admit execution. Shared writes can create notifications for explicit
+subscribers; private writes do not.
+
+Keep IDs and exact payloads when recovering uncertain writes. Identical retries
+return the original immutable version, not the latest head. Stale revisions and
+changed payloads conflict. Deleting a private owner makes retries not-found;
+shared versions survive their author's deletion until the tree is deleted.
+State handles never authorize ordinary content reads or access to another tree.
+
+
+Mail metadata uses `source: { kind: 'session' | 'state' | 'completion', id }`. For ordinary mail,
+`id` is the sender session; for a state notification it is the subscription ID.
+The send request still specifies `sender_id`. Its API cannot impersonate a state
+notification. A notification body identifies an immutable `version_id`, `key`,
+`revision` and `author_id`; read the value through `state.read` with that handle.
+
+```ts
+const subscription = await client.subscribeState({
+  session_id: sessionID, key: 'results', after: observedRevision,
+  delivery: 'queued',
+}, crypto.randomUUID()); // Retain this ID and payload before sending.
+const subscriptions = await client.call('state.subscriptions', {
+  session_id: sessionID, limit: 100,
+});
+await client.call('state.unsubscribe', {
+  session_id: sessionID, subscription_id: subscription.id,
+});
+```
+
+Creation catches up atomically from `after`; subsequent writes coalesce pending
+notifications. The cursor tracks enqueued/own revisions, not agent processing.
+Own writes advance it without self-notification. Cancellation stops future mail
+and retains existing notifications. A cancelled creation retry stays cancelled.
+If a notification cannot fit the bounded mailbox, the whole state write fails
+with a resource-limit error; no state change commits without its notifications.
+
+
+Child completion policy is `overrides.report_mode`: `notice` (default), `inline`,
+or `message`. It follows configuration inheritance and is captured per turn.
+Message mode suppresses successful automatic reports; failures still notify the
+parent. Automatic reports use queued mail and may wake an idle parent without
+creating an input. Reading them does not acknowledge them.
+
+Completion mail has source kind `completion` and a child ID. Parse its body for
+`turn_id`, `input_id`, `mode`, truncation flags and `evidence_ref`. The reference
+belongs to the parent and contains the full JSON outcome and last assistant text;
+use `content.read` with the parent's session ID. Evidence survives child deletion.
+
+Mailbox or content limits can delay publication while the child is already
+finished. Inspect these pending outcomes with bounded pages:
+
+```ts
+const pending = await client.call('completions.list', {
+  parent_id: parentID, limit: 20,
+});
+const item = pending.items?.[0];
+if (item) {
+  const chunk = await client.call('completions.read', {
+    parent_id: parentID, child_id: item.child_id, turn_id: item.turn_id,
+    offset: '0', length: 65536,
+  });
+  // Decode data_base64 as JSON bytes; follow next_offset until null.
+}
+```
+
+A conflict means the exact snapshot was published or superseded; re-list instead
+of joining bytes from different turns. Pending reads do not cause publication or
+acknowledge mail. Runtime restart retries delivery without replaying completed
+child work. A full retained mailbox can keep a report pending; clients should show
+that delivery state separately from the child's terminal outcome.

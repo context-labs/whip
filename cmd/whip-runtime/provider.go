@@ -36,7 +36,7 @@ func configuredProvider(directory string) model.OpenAI {
 		return model.ChatRoute{
 			URL: provider.BaseURL, Credential: credential, Prices: settings.Prices,
 			MaxOutputTokens: settings.MaxOutputTokens, TimeoutMillis: settings.TimeoutMillis,
-			MaxAttempts: settings.MaxAttempts,
+			MaxAttempts: settings.MaxAttempts, ContextWindowTokens: settings.ContextWindowTokens,
 		}, nil
 	}}
 }

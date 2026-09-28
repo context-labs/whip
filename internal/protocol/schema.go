@@ -20,6 +20,24 @@ type Operation struct {
 
 func Operations() []Operation {
 	return []Operation{
+		{"completions.list", reflect.TypeFor[ListCompletionsParams](), reflect.TypeFor[ListCompletionsResult]()},
+		{"completions.read", reflect.TypeFor[ReadCompletionParams](), reflect.TypeFor[ReadCompletionResult]()},
+		{"state.subscribe", reflect.TypeFor[SubscribeStateParams](), reflect.TypeFor[StateSubscription]()},
+		{"state.subscriptions", reflect.TypeFor[StateSubscriptionsParams](), reflect.TypeFor[StateSubscriptionsResult]()},
+		{"state.unsubscribe", reflect.TypeFor[UnsubscribeStateParams](), reflect.TypeFor[StateSubscription]()},
+		{"state.get", reflect.TypeFor[GetStateParams](), reflect.TypeFor[StateVersion]()},
+		{"state.write", reflect.TypeFor[WriteStateParams](), reflect.TypeFor[StateVersion]()},
+		{"state.append", reflect.TypeFor[WriteStateParams](), reflect.TypeFor[StateVersion]()},
+		{"state.read", reflect.TypeFor[ReadStateParams](), reflect.TypeFor[ReadStateResult]()},
+		{"state.list", reflect.TypeFor[ListStateParams](), reflect.TypeFor[StateVersionsResult]()},
+		{"state.history", reflect.TypeFor[StateHistoryParams](), reflect.TypeFor[StateVersionsResult]()},
+		{"mail.send", reflect.TypeFor[SendMailParams](), reflect.TypeFor[MailAdmission]()},
+		{"mail.list", reflect.TypeFor[ListMailParams](), reflect.TypeFor[ListMailResult]()},
+		{"mail.read", reflect.TypeFor[ReadMailParams](), reflect.TypeFor[ReadMailResult]()},
+		{"resources.list", reflect.TypeFor[SessionParams](), reflect.TypeFor[ResourcesResult]()},
+		{"resources.set", reflect.TypeFor[SetResourceParams](), reflect.TypeFor[ResourceUsage]()},
+		{"budgets.list", reflect.TypeFor[SessionParams](), reflect.TypeFor[BudgetsResult]()},
+		{"budgets.set", reflect.TypeFor[SetBudgetParams](), reflect.TypeFor[Budget]()},
 		{"sessions.observe", reflect.TypeFor[HistoryParams](), reflect.TypeFor[SessionObservation]()},
 		{"cells.get", reflect.TypeFor[CellParams](), reflect.TypeFor[Cell]()},
 		{"turns.cells", reflect.TypeFor[CellsParams](), reflect.TypeFor[CellsResult]()},
@@ -35,7 +53,7 @@ func Operations() []Operation {
 		{"trees.get", reflect.TypeFor[TreeParams](), reflect.TypeFor[Tree]()},
 		{"trees.update", reflect.TypeFor[UpdateTreeParams](), reflect.TypeFor[Tree]()},
 		{"sessions.get", reflect.TypeFor[SessionParams](), reflect.TypeFor[Session]()},
-		{"sessions.spawn", reflect.TypeFor[SpawnSessionParams](), reflect.TypeFor[Session]()},
+		{"sessions.spawn", reflect.TypeFor[SpawnSessionParams](), reflect.TypeFor[SpawnSessionResult]()},
 		{"sessions.list", reflect.TypeFor[ListSessionsParams](), reflect.TypeFor[ListSessionsResult]()},
 		{"sessions.configure", reflect.TypeFor[UpdateConfigurationParams](), reflect.TypeFor[Session]()},
 		{"sessions.submit", reflect.TypeFor[SubmitParams](), reflect.TypeFor[Admission]()},
@@ -131,7 +149,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 				child.MaxItems = new(128)
 			}
 		}
-		if t == reflect.TypeFor[Input]() || t == reflect.TypeFor[SubmitParams]() {
+		if t == reflect.TypeFor[Input]() || t == reflect.TypeFor[SubmitParams]() || t == reflect.TypeFor[SpawnSessionParams]() {
 			schema.Properties["parts"].Items = partSchema("text", "content")
 		}
 		if t == reflect.TypeFor[Message]() {

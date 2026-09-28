@@ -29,7 +29,7 @@ test('remote conflicts stay distinguishable from delivery uncertainty', async ()
 
 test('observation advances exact cursors, reconciles preview IDs, and clears on a new process epoch', async () => {
   const preview = { attempt_id: 'attempt', turn_id: 'turn', message_id: 'answer', revision: '1', text: 'partial', calls: [], truncated: false };
-  const message = { id: 'answer', session_id: 'session', turn_id: 'turn', input_id: null, sequence: '9007199254740993', role: 'assistant', parts: [{ type: 'text', text: 'completed' }], created_at: '2026-09-27T12:00:00Z' };
+  const message = { id: 'answer', session_id: 'session', turn_id: 'turn', input_id: null, mail: null, sequence: '9007199254740993', role: 'assistant', parts: [{ type: 'text', text: 'completed' }], created_at: '2026-09-27T12:00:00Z' };
   const pages = [
     { epoch: 'boot_one', messages: [], preview },
     { epoch: 'boot_one', messages: [message], preview: null },
@@ -64,4 +64,21 @@ test('aborting a stalled observation stops polling and never sends execution can
   controller.abort();
   await assert.rejects(waiting, error => error.name === 'AbortError');
   assert.deepEqual(calls, ['initialize', 'sessions.observe']);
+});
+
+test('resource calls preserve exact limits and validate before transport', async () => {
+  const calls = [];
+  const value = { session_id: 'child', kind: 'queued_inputs', revision: '9007199254740993', limit: null, used: '9007199254740994' };
+  const client = await Client.connect(async request => {
+    if (request.method === 'initialize') return success(request, initial);
+    calls.push(request);
+    return success(request, request.method === 'resources.list' ? { items: [value] } : value);
+  }, { clientID: 'resources' });
+  assert.deepEqual(await client.call('resources.list', { session_id: 'child' }), { items: [value] });
+  const params = { session_id: 'child', expected_revision: '9007199254740992', resource: { kind: 'queued_inputs', limit: null } };
+  assert.deepEqual(await client.call('resources.set', params), value);
+  assert.deepEqual(calls[1].params, params);
+  await assert.rejects(client.call('resources.set', { ...params, expected_revision: 9007199254740992 }), TypeError);
+  await assert.rejects(client.call('resources.set', { ...params, resource: { kind: 'queued_inputs', limit: 1 } }), TypeError);
+  assert.equal(calls.length, 2);
 });

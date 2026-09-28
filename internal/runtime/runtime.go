@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -31,38 +32,44 @@ type Options struct {
 	PollInterval  time.Duration
 	EngineCommand []string
 	KernelWorkers int
+	// MaxActiveTurns bounds running and waiting turn goroutines together.
+	// Zero defaults to 1024; at least Workers slots are reserved for progress.
+	MaxActiveTurns int
 }
 type execution struct {
-	turn   session.TurnID
-	cancel context.CancelFunc
-}
-type completion struct {
-	session session.SessionID
-	err     error
+	turn    session.TurnID
+	cancel  context.CancelFunc
+	worker  bool
+	waiting bool
 }
 type Runtime struct {
-	store           *store.Store
-	content         *content.Store
-	runner          *runner.Runner
-	tools           *tool.Dispatcher
-	engineManager   *process.Manager
-	kernels         map[session.SessionID]*sessionKernel
-	owner           *owner
-	directory       string
-	host            config.Host
-	options         Options
-	wake            chan struct{}
-	done            chan struct{}
-	mu              sync.Mutex
-	active          map[session.SessionID]execution
-	started, closed bool
-	cancel          context.CancelFunc
-	failure         error
-	closeOnce       sync.Once
-	closeErr        error
-	epoch           string
-	previewMu       sync.Mutex
-	previews        map[session.SessionID]*livePreview
+	store            *store.Store
+	content          *content.Store
+	runner           *runner.Runner
+	tools            *tool.Dispatcher
+	engineManager    *process.Manager
+	kernels          map[session.SessionID]*sessionKernel
+	owner            *owner
+	directory        string
+	host             config.Host
+	options          Options
+	wake             chan struct{}
+	done             chan struct{}
+	mu               sync.Mutex
+	active           map[session.SessionID]*execution
+	runnable         int
+	waiting          int
+	resumptions      []*workerResumption
+	queueCursor      store.QueueCursor // owned only by the scheduling goroutine
+	preferResumption bool
+	started, closed  bool
+	cancel           context.CancelFunc
+	failure          error
+	closeOnce        sync.Once
+	closeErr         error
+	epoch            string
+	previewMu        sync.Mutex
+	previews         map[session.SessionID]*livePreview
 }
 
 // Open acquires exclusive execution ownership before opening fresh host/storage.
@@ -74,6 +81,9 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 	if options.Workers == 0 {
 		options.Workers = 4
 	}
+	if options.MaxActiveTurns == 0 {
+		options.MaxActiveTurns = 1024
+	}
 	if options.KernelWorkers == 0 {
 		options.KernelWorkers = options.Workers
 	}
@@ -84,7 +94,7 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 	if options.PollInterval == 0 {
 		options.PollInterval = 100 * time.Millisecond
 	}
-	if options.Workers < 1 || options.Workers > 64 || options.PollInterval < time.Millisecond || options.PollInterval > time.Second {
+	if options.Workers < 1 || options.Workers > 64 || options.MaxActiveTurns < options.Workers || options.MaxActiveTurns > 1024 || options.PollInterval < time.Millisecond || options.PollInterval > time.Second {
 		return nil, fmt.Errorf("%w: invalid scheduler limits", session.ErrInvalid)
 	}
 	directory, err = filepath.Abs(directory)
@@ -143,10 +153,11 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 		epoch: "boot_" + rand.Text(), previews: map[session.SessionID]*livePreview{},
 		engineManager: process.NewManager(options.KernelWorkers), kernels: map[session.SessionID]*sessionKernel{},
 		store: database, content: bodies, owner: lock, directory: directory, host: host, options: options,
-		wake: make(chan struct{}, 1), done: make(chan struct{}), active: map[session.SessionID]execution{},
+		wake: make(chan struct{}, 1), done: make(chan struct{}), active: map[session.SessionID]*execution{},
+		preferResumption: true,
 	}
-	r.tools = tool.NewDispatcher(database, database)
-	r.runner, err = runner.New(provider, database, database, r, r, r)
+	r.tools = tool.NewDispatcher(database, database, r)
+	r.runner, err = runner.New(provider, database, database, r, r, r, r)
 	if err != nil {
 		return nil, err
 	}
@@ -219,76 +230,113 @@ func (r *Runtime) cancelTurn(id session.TurnID) {
 func (r *Runtime) run(ctx context.Context) {
 	defer close(r.done)
 	var workers sync.WaitGroup
-	// At most Workers completions can be pending. A worker never waits for a
-	// scheduler which is joining it during shutdown.
-	completed := make(chan completion, r.options.Workers)
+	var completionCursor session.SessionID
 	ticker := time.NewTicker(r.options.PollInterval)
 	defer ticker.Stop()
 	defer workers.Wait()
 	for {
-		if err := r.schedule(ctx, &workers, completed); err != nil && ctx.Err() == nil {
+		// Delivery progresses even when all execution slots are occupied. This
+		// cursor is disposable; pending outcomes remain authoritative in SQLite.
+		var err error
+		completionCursor, err = r.publishCompletions(ctx, completionCursor)
+		if err == nil {
+			err = r.schedule(ctx, &workers)
+		}
+		if err != nil && ctx.Err() == nil {
 			r.mu.Lock()
-			r.failure = err
+			if r.failure == nil {
+				r.failure = err
+			}
 			r.cancel()
 			r.mu.Unlock()
 		}
 		select {
 		case <-ctx.Done():
 			return
-		case result := <-completed:
-			r.mu.Lock()
-			delete(r.active, result.session)
-			if result.err != nil && ctx.Err() == nil {
-				r.failure = result.err
-				r.cancel()
-			}
-			r.mu.Unlock()
 		case <-r.wake:
 		case <-ticker.C:
 		}
 	}
 }
 
-func (r *Runtime) schedule(ctx context.Context, workers *sync.WaitGroup, completed chan<- completion) error {
+func (r *Runtime) schedule(ctx context.Context, workers *sync.WaitGroup) error {
 	r.mu.Lock()
-	available := r.options.Workers - len(r.active)
+	available := r.options.Workers - r.runnable
+	resumes := slices.Clone(r.resumptions)
 	r.mu.Unlock()
 	if available == 0 {
 		return nil
 	}
-	pending, err := r.store.QueuedSessions(ctx, r.options.Workers)
+	const pageSize = 100
+	pending, err := r.store.QueuedSessions(ctx, r.queueCursor, pageSize)
 	if err != nil {
 		return err
 	}
-	for _, id := range pending {
-		if available == 0 {
-			break
+	index, resumeIndex := 0, 0
+	defer func() {
+		if index == len(pending) && len(pending) < pageSize {
+			r.queueCursor = store.QueueCursor{}
 		}
+	}()
+	for {
 		r.mu.Lock()
-		_, busy := r.active[id]
-		r.mu.Unlock()
-		if busy {
+		if r.closed || ctx.Err() != nil || r.runnable >= r.options.Workers {
+			r.mu.Unlock()
+			return ctx.Err()
+		}
+		for index < len(pending) && r.active[pending[index].SessionID] != nil {
+			r.queueCursor = pending[index]
+			index++
+		}
+		for resumeIndex < len(resumes) && !slices.Contains(r.resumptions, resumes[resumeIndex]) {
+			resumeIndex++
+		}
+		fresh := index < len(pending) && len(r.active) < r.options.MaxActiveTurns
+		resuming := resumeIndex < len(resumes)
+		if !fresh && !resuming {
+			r.mu.Unlock()
+			return nil
+		}
+		// Reserve the host slot before SQL without holding the scheduler mutex.
+		// Each blocked resumption/candidate is examined at most once this pass.
+		r.runnable++
+		if resuming && (r.preferResumption || !fresh) {
+			resume := resumes[resumeIndex]
+			resumeIndex++
+			r.mu.Unlock()
+			if err := r.resumeWorker(ctx, resume); err != nil {
+				return err
+			}
 			continue
 		}
-		claim, err := r.store.Claim(ctx, id)
-		if errors.Is(err, store.ErrBusy) || errors.Is(err, store.ErrNoWork) || errors.Is(err, store.ErrStopped) || errors.Is(err, store.ErrNotFound) {
+		candidate := pending[index]
+		index++
+		r.queueCursor = candidate
+		r.mu.Unlock()
+		claim, err := r.store.Claim(ctx, candidate.SessionID)
+		if err != nil {
+			r.mu.Lock()
+			r.runnable--
+			r.mu.Unlock()
+		}
+		if errors.Is(err, store.ErrBusy) || errors.Is(err, store.ErrNoWork) || errors.Is(err, store.ErrStopped) || errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrLimit) {
 			continue
 		}
 		if err != nil {
 			return err
 		}
 		workerCtx, cancel := context.WithCancel(ctx)
+		active := &execution{turn: claim.Turn.ID, cancel: cancel, worker: true}
 		r.mu.Lock()
-		r.active[id] = execution{turn: claim.Turn.ID, cancel: cancel}
+		r.active[candidate.SessionID] = active
+		r.preferResumption = true
 		r.mu.Unlock()
-		available--
 		workers.Go(func() {
 			defer cancel()
 			err := r.execute(workerCtx, claim)
-			completed <- completion{session: id, err: err}
+			r.finishExecution(candidate.SessionID, active, err, ctx.Err() != nil)
 		})
 	}
-	return nil
 }
 
 func (r *Runtime) execute(ctx context.Context, claim store.Claim) error {

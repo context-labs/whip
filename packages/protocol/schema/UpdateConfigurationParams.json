@@ -13,6 +13,17 @@
     "patch": {
       "type": "object",
       "properties": {
+        "report_mode": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "enum": [
+            "notice",
+            "inline",
+            "message"
+          ]
+        },
         "model": {
           "type": [
             "null",

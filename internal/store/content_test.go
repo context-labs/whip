@@ -22,7 +22,7 @@ func TestContentQuotaIsSharedAcrossStoreConnections(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "runtime.db")
 	s := openTest(t, path)
 	other := openTest(t, path)
-	_, owner := create(t, s, session.DefaultTreePolicy())
+	_, owner := create(t, s, nil)
 	for i := range 15 {
 		ref := contentReference(owner.ID, fmt.Sprintf("existing-%d", i), "shared digest")
 		ref.Size = session.MaxContentBytes
@@ -60,8 +60,8 @@ func TestContentQuotaIsSharedAcrossStoreConnections(t *testing.T) {
 
 func TestContentAdmissionScopeAndAtomicity(t *testing.T) {
 	s := fresh(t)
-	_, owner := create(t, s, session.DefaultTreePolicy())
-	_, other := create(t, s, session.DefaultTreePolicy())
+	_, owner := create(t, s, nil)
+	_, other := create(t, s, nil)
 	reference, err := s.RegisterContent(t.Context(), contentReference(owner.ID, "reference", "bytes"))
 	if err != nil {
 		t.Fatal(err)
@@ -93,8 +93,8 @@ func TestContentAdmissionScopeAndAtomicity(t *testing.T) {
 
 func TestContentReferencesProtectEveryTranscriptWrite(t *testing.T) {
 	s := fresh(t)
-	_, owner := create(t, s, session.DefaultTreePolicy())
-	_, other := create(t, s, session.DefaultTreePolicy())
+	_, owner := create(t, s, nil)
+	_, other := create(t, s, nil)
 	reference, err := s.RegisterContent(t.Context(), contentReference(owner.ID, "reference", "body"))
 	if err != nil {
 		t.Fatal(err)
@@ -120,8 +120,8 @@ func TestContentReferencesProtectEveryTranscriptWrite(t *testing.T) {
 
 func TestContentRegistrationRollbackIdentityAndSharedBodies(t *testing.T) {
 	s := fresh(t)
-	_, owner := create(t, s, session.DefaultTreePolicy())
-	_, other := create(t, s, session.DefaultTreePolicy())
+	_, owner := create(t, s, nil)
+	_, other := create(t, s, nil)
 	draft := contentReference(owner.ID, "reference", "same bytes")
 	execTest(t, s, `CREATE TRIGGER injected_content BEFORE INSERT ON content_references BEGIN SELECT RAISE(ABORT,'injected'); END`)
 	if _, err := s.RegisterContent(t.Context(), draft); err == nil {

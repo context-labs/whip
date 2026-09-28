@@ -1,5 +1,164 @@
 [
   {
+    "type": "ListCompletionsResult",
+    "value": {
+      "items": [
+        {
+          "parent_id": "session_root",
+          "child_id": "session_deleted",
+          "turn_id": "turn_fixture",
+          "input_id": "input_fixture",
+          "message_id": null,
+          "state": "interrupted",
+          "failure": "runtime restarted",
+          "mode": "message",
+          "finished_at": "2026-09-27T12:00:00.123456Z",
+          "text_bytes": "0",
+          "omitted_parts": "0"
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "type": "ReadCompletionParams",
+    "value": {
+      "parent_id": "session_root",
+      "child_id": "session_deleted",
+      "turn_id": "turn_fixture",
+      "offset": "0",
+      "length": 65536
+    },
+    "valid": true
+  },
+  {
+    "type": "ReadCompletionResult",
+    "value": {
+      "completion": {
+        "parent_id": "session_root",
+        "child_id": "session_deleted",
+        "turn_id": "turn_fixture",
+        "input_id": null,
+        "message_id": null,
+        "state": "succeeded",
+        "failure": null,
+        "mode": "inline",
+        "finished_at": "2026-09-27T12:00:00.123456Z",
+        "text_bytes": "70000",
+        "omitted_parts": "0"
+      },
+      "offset": "65536",
+      "total_bytes": "71000",
+      "data_base64": "e30=",
+      "next_offset": null
+    },
+    "valid": true
+  },
+  {
+    "type": "MailAdmission",
+    "value": {
+      "mail_id": "mail_deleted",
+      "mail": null,
+      "deleted_at": "2026-09-27T12:00:00.123456Z"
+    },
+    "valid": true
+  },
+  {
+    "type": "ReadMailResult",
+    "value": {
+      "mail": {
+        "id": "mail_fixture",
+        "revision": "128",
+        "source": {
+          "kind": "session",
+          "id": "session_root"
+        },
+        "recipient_id": "session_child",
+        "delivery": "next_turn",
+        "subject": "Subject",
+        "body_bytes": "5",
+        "state": "pending",
+        "available_at": "2026-09-27T12:00:00.123456Z",
+        "created_at": "2026-09-27T12:00:00.123456Z",
+        "revised_at": "2026-09-27T12:00:00.123456Z"
+      },
+      "body": "hello"
+    },
+    "valid": true
+  },
+  {
+    "type": "Message",
+    "value": {
+      "id": "message_mail",
+      "session_id": "session_child",
+      "turn_id": "turn_fixture",
+      "input_id": null,
+      "mail": {
+        "id": "mail_fixture",
+        "revision": "128",
+        "presentation": "digest"
+      },
+      "sequence": "9007199254740995",
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Mail from session_root: Subject"
+        }
+      ],
+      "created_at": "2026-09-27T12:00:00.123456Z"
+    },
+    "valid": true
+  },
+  {
+    "type": "ResourceUsage",
+    "value": {
+      "session_id": "session_root",
+      "kind": "queued_inputs",
+      "revision": "9007199254740993",
+      "limit": "9007199254740994",
+      "used": "9007199254740993"
+    },
+    "valid": true
+  },
+  {
+    "type": "ResourceUsage",
+    "value": {
+      "session_id": "session_child",
+      "kind": "descendants",
+      "revision": "0",
+      "limit": null,
+      "used": "0"
+    },
+    "valid": true
+  },
+  {
+    "type": "SetResourceParams",
+    "value": {
+      "session_id": "session_child",
+      "expected_revision": "9007199254740993",
+      "resource": {
+        "kind": "descendants",
+        "limit": null
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "Budget",
+    "value": {
+      "session_id": "session_root",
+      "kind": "model_tokens",
+      "revision": "9007199254740993",
+      "limit": "9007199254740994",
+      "used": "9007199254740993",
+      "reserved": "1",
+      "uncertain": "0",
+      "incomplete": false
+    },
+    "valid": true
+  },
+  {
     "type": "SessionObservation",
     "value": {
       "epoch": "boot_fixture",
@@ -9,6 +168,7 @@
           "session_id": "session_child",
           "turn_id": "turn_fixture",
           "input_id": null,
+          "mail": null,
           "sequence": "9007199254740993",
           "role": "assistant",
           "parts": [
@@ -60,6 +220,7 @@
       "capability": "files.read",
       "resource": "/workspace",
       "operation_id": null,
+      "issuer_id": "grant_parent",
       "created_at": "2026-09-27T12:00:00.123456Z",
       "revoked_at": null
     },
@@ -115,7 +276,7 @@
       "state": "succeeded",
       "result_message_id": "message_result",
       "checkpoint": {
-        "digest": "8633cd0f58dfadf137ca203af9b760904da4fcf8de8a079a47542c051d38d1cb",
+        "digest": "f483ff5ad142cada6a49e2c4235de463c37fa4ba16e76b931319c8487c4f74ef",
         "size": "123",
         "engine": "starlark",
         "metadata": {
@@ -170,7 +331,7 @@
             },
             "route": "https://provider.example/v1/chat/completions",
             "adapter": "openai-chat",
-            "request_digest": "8633cd0f58dfadf137ca203af9b760904da4fcf8de8a079a47542c051d38d1cb",
+            "request_digest": "f483ff5ad142cada6a49e2c4235de463c37fa4ba16e76b931319c8487c4f74ef",
             "prices": {
               "input": null,
               "output": null,
@@ -179,6 +340,7 @@
               "cached_output": null
             },
             "max_output_tokens": "4096",
+            "input_token_bound": null,
             "timeout_millis": "30000"
           },
           "state": "succeeded",
@@ -193,7 +355,8 @@
             },
             "reported_cost_nano_usd": "9007199254740993",
             "failure": null,
-            "usage_note": null
+            "usage_note": null,
+            "elapsed_millis": null
           },
           "cost_nano_usd": "9007199254740993",
           "cost_source": "provider",
@@ -224,7 +387,7 @@
       "builtins": [
         {
           "id": "assistant",
-          "revision": "8633cd0f58dfadf137ca203af9b760904da4fcf8de8a079a47542c051d38d1cb"
+          "revision": "f483ff5ad142cada6a49e2c4235de463c37fa4ba16e76b931319c8487c4f74ef"
         }
       ]
     },
@@ -274,10 +437,11 @@
       "parent_id": null,
       "definition": {
         "id": "assistant",
-        "revision": "8633cd0f58dfadf137ca203af9b760904da4fcf8de8a079a47542c051d38d1cb"
+        "revision": "f483ff5ad142cada6a49e2c4235de463c37fa4ba16e76b931319c8487c4f74ef"
       },
       "config_revision": "9007199254740993",
       "configuration": {
+        "report_mode": "notice",
         "model": {
           "provider": "fixture",
           "name": "scripted",
@@ -309,10 +473,11 @@
       "parent_id": "session_root",
       "definition": {
         "id": "assistant",
-        "revision": "8633cd0f58dfadf137ca203af9b760904da4fcf8de8a079a47542c051d38d1cb"
+        "revision": "f483ff5ad142cada6a49e2c4235de463c37fa4ba16e76b931319c8487c4f74ef"
       },
       "config_revision": "9007199254740993",
       "configuration": {
+        "report_mode": "notice",
         "model": {
           "provider": "fixture",
           "name": "scripted",
@@ -345,6 +510,7 @@
           "session_id": "session_child",
           "turn_id": "turn_fixture",
           "input_id": null,
+          "mail": null,
           "sequence": "9007199254740993",
           "role": "assistant",
           "parts": [
@@ -364,6 +530,7 @@
           "session_id": "session_child",
           "turn_id": "turn_fixture",
           "input_id": null,
+          "mail": null,
           "sequence": "9007199254740994",
           "role": "assistant",
           "parts": [
@@ -385,6 +552,7 @@
           "session_id": "session_child",
           "turn_id": "turn_fixture",
           "input_id": null,
+          "mail": null,
           "sequence": "9007199254740995",
           "role": "tool",
           "parts": [
@@ -430,6 +598,25 @@
     "valid": true
   },
   {
+    "type": "SpawnSessionParams",
+    "value": {
+      "identity": {
+        "client_id": "client",
+        "request_id": "spawn"
+      },
+      "parent_id": "session_root",
+      "overrides": {},
+      "parts": [
+        {
+          "type": "text",
+          "text": "Child work"
+        }
+      ],
+      "grant_ids": []
+    },
+    "valid": true
+  },
+  {
     "type": "SubmitParams",
     "value": {
       "identity": {
@@ -456,6 +643,7 @@
         "output": {
           "schema": null
         },
+        "report_mode": "inline",
         "tools": {}
       }
     },
@@ -526,6 +714,54 @@
       "after": "0",
       "limit": 10,
       "unexpected": true
+    },
+    "valid": false
+  },
+  {
+    "type": "SetResourceParams",
+    "value": {
+      "session_id": "session_child",
+      "expected_revision": "1",
+      "resource": {
+        "kind": "queued_inputs",
+        "limit": 1
+      }
+    },
+    "valid": false
+  },
+  {
+    "type": "SetResourceParams",
+    "value": {
+      "session_id": "session_child",
+      "expected_revision": 1,
+      "resource": {
+        "kind": "queued_inputs",
+        "limit": "1"
+      }
+    },
+    "valid": false
+  },
+  {
+    "type": "SetResourceParams",
+    "value": {
+      "session_id": "session_child",
+      "expected_revision": "1",
+      "resource": {
+        "kind": "unknown",
+        "limit": "1"
+      }
+    },
+    "valid": false
+  },
+  {
+    "type": "SetResourceParams",
+    "value": {
+      "session_id": "session_child",
+      "expected_revision": "1",
+      "resource": {
+        "kind": "depth",
+        "limit": "9223372036854775808"
+      }
     },
     "valid": false
   },
@@ -629,6 +865,7 @@
           "session_id": "session_child",
           "turn_id": "turn_fixture",
           "input_id": null,
+          "mail": null,
           "sequence": "9007199254740994",
           "role": "user",
           "parts": [
@@ -658,6 +895,7 @@
           "session_id": "session_child",
           "turn_id": "turn_fixture",
           "input_id": null,
+          "mail": null,
           "sequence": "9007199254740995",
           "role": "assistant",
           "parts": [

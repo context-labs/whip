@@ -38,32 +38,6 @@
             "quickjs"
           ]
         },
-        "policy": {
-          "type": "object",
-          "properties": {
-            "max_depth": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 128
-            },
-            "max_sessions": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 10000
-            },
-            "max_queued_inputs_per_session": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 10000
-            }
-          },
-          "required": [
-            "max_depth",
-            "max_sessions",
-            "max_queued_inputs_per_session"
-          ],
-          "additionalProperties": false
-        },
         "revision": {
           "type": "string",
           "pattern": "^(0|[1-9][0-9]{0,18})$",
@@ -77,7 +51,6 @@
         "id",
         "metadata",
         "engine",
-        "policy",
         "revision",
         "created_at"
       ],
@@ -127,6 +100,14 @@
         "configuration": {
           "type": "object",
           "properties": {
+            "report_mode": {
+              "type": "string",
+              "enum": [
+                "notice",
+                "inline",
+                "message"
+              ]
+            },
             "model": {
               "type": "object",
               "properties": {
@@ -258,6 +239,7 @@
             "output_schema": true
           },
           "required": [
+            "report_mode",
             "model",
             "instructions",
             "tools",

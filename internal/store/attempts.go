@@ -76,6 +76,9 @@ func (s *Store) ReserveModelAttempt(ctx context.Context, p session.ModelAttemptS
 		if turn.State != session.Running {
 			return ErrStopped
 		}
+		if err := requireTurnPermit(ctx, tx, turn.ID); err != nil {
+			return err
+		}
 		var count int
 		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM model_attempts WHERE turn_id=?", p.TurnID).Scan(&count); err != nil {
 			return err
@@ -90,8 +93,17 @@ func (s *Store) ReserveModelAttempt(ctx context.Context, p session.ModelAttemptS
 		if used != 0 {
 			return ErrConflict
 		}
+		ancestors, err := reserveBudgets(ctx, tx, turn.SessionID, p.Request)
+		if err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO model_attempts (id,turn_id,logical_id,number,request,state,cost_source,created_at) VALUES (?,?,?,?,?,'reserved','unknown',?)`, p.ID, p.TurnID, p.LogicalID, p.Number, raw, now()); err != nil {
 			return err
+		}
+		for _, ancestor := range ancestors {
+			if _, err := tx.ExecContext(ctx, "INSERT INTO attempt_budget_ancestors VALUES (?,?)", p.ID, ancestor); err != nil {
+				return err
+			}
 		}
 		result, err = readAttempt(ctx, tx, p.ID)
 		return err
@@ -116,6 +128,9 @@ func (s *Store) DispatchModelAttempt(ctx context.Context, id session.ModelAttemp
 		}
 		if turn.State != session.Running {
 			return ErrStopped
+		}
+		if err := requireTurnPermit(ctx, tx, turn.ID); err != nil {
+			return err
 		}
 		_, err = tx.ExecContext(ctx, "UPDATE model_attempts SET state='dispatched',dispatched_at=? WHERE id=?", now(), id)
 		if err == nil {
@@ -183,7 +198,7 @@ func settleAttempt(ctx context.Context, tx *sql.Tx, attempt session.ModelAttempt
 		return session.ModelAttempt{}, ErrConflict
 	}
 	if attempt.DispatchedAt == nil {
-		if outcome.State != session.AttemptCancelled || message != nil || !reflect.DeepEqual(outcome.Usage, session.ModelUsage{}) || outcome.ReportedCostNanoUSD != nil {
+		if outcome.State != session.AttemptCancelled || message != nil || !reflect.DeepEqual(outcome.Usage, session.ModelUsage{}) || outcome.ReportedCostNanoUSD != nil || (outcome.ElapsedMillis != nil && *outcome.ElapsedMillis != 0) {
 			return session.ModelAttempt{}, ErrConflict
 		}
 		cost = new(int64(0))

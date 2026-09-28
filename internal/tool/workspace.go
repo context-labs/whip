@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/session"
 )
 
 const (
@@ -35,6 +36,10 @@ type Prepared struct {
 	Mutating   bool
 	Acquire    func(context.Context) (func(), error)
 	Run        func(context.Context) (any, error)
+	// Apply is used instead of Acquire/Run for database-only coordination. It
+	// rechecks dispatch authority, performs the mutation and records its outcome
+	// in one transaction. It never performs an external effect.
+	Apply func(context.Context, session.OperationID) (any, error)
 }
 
 // Files shares canonical mutation locks across the runtime's sessions.

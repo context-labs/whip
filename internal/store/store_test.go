@@ -32,14 +32,14 @@ func fresh(t *testing.T) *Store {
 	return openTest(t, filepath.Join(t.TempDir(), "runtime.db"))
 }
 
-func create(t *testing.T, s *Store, policy session.TreePolicy) (session.Tree, session.Session) {
+func create(t *testing.T, s *Store, resources []session.ResourceLimit) (session.Tree, session.Session) {
 	t.Helper()
 	_, _, ref, err := session.CanonicalDefinition(session.Builtins()[0])
 	if err != nil {
 		t.Fatal(err)
 	}
 	tree, root, err := s.CreateTree(t.Context(), CreateTree{
-		Engine: session.Starlark, Policy: policy, Definition: ref, WorkingDirectory: t.TempDir(),
+		Engine: session.Starlark, Resources: resources, Definition: ref, WorkingDirectory: t.TempDir(),
 		Defaults: session.Configuration{Model: session.ModelSelection{Provider: "test", Name: "scripted"}},
 	})
 	if err != nil {
@@ -169,8 +169,8 @@ func TestConcurrentInitialization(t *testing.T) {
 
 func TestTopologyAndRevisionConstraints(t *testing.T) {
 	s := fresh(t)
-	tree, root := create(t, s, session.DefaultTreePolicy())
-	other, _ := create(t, s, session.DefaultTreePolicy())
+	tree, root := create(t, s, nil)
+	other, _ := create(t, s, nil)
 	child, err := s.SpawnSession(t.Context(), SpawnSession{ParentID: root.ID})
 	if err != nil {
 		t.Fatal(err)
@@ -202,7 +202,7 @@ func TestTopologyAndRevisionConstraints(t *testing.T) {
 
 func TestConfigurationCaptureAndUniformHistory(t *testing.T) {
 	s := fresh(t)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	child, err := s.SpawnSession(t.Context(), SpawnSession{ParentID: root.ID})
 	if err != nil {
 		t.Fatal(err)
@@ -256,7 +256,7 @@ func TestConfigurationCaptureAndUniformHistory(t *testing.T) {
 
 func TestAtomicAdmissionClaimFinishAndRetry(t *testing.T) {
 	s := fresh(t)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	identity := session.RequestIdentity{ClientID: "client", RequestID: "request"}
 	request := Submission{SessionID: root.ID, Source: session.UserInput, Parts: []session.Part{{Type: "text", Text: "hello"}}}
 	execTest(t, s, "CREATE TRIGGER fail_receipt BEFORE INSERT ON receipts BEGIN SELECT RAISE(ABORT,'injected'); END")
@@ -317,7 +317,7 @@ func TestIndependentConnectionsSerializeClaimsAndDuplicateAdmission(t *testing.T
 	path := filepath.Join(t.TempDir(), "runtime.db")
 	a := openTest(t, path)
 	b := openTest(t, path)
-	_, root := create(t, a, session.DefaultTreePolicy())
+	_, root := create(t, a, nil)
 	var wg sync.WaitGroup
 	failures := make(chan error, 12)
 	for i := range 12 {
@@ -363,7 +363,7 @@ func TestIndependentConnectionsSerializeClaimsAndDuplicateAdmission(t *testing.T
 func TestStopCancelRecoveryAndDeletion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "runtime.db")
 	s := openTest(t, path)
-	tree, root := create(t, s, session.DefaultTreePolicy())
+	tree, root := create(t, s, nil)
 	child, err := s.SpawnSession(t.Context(), SpawnSession{ParentID: root.ID})
 	if err != nil {
 		t.Fatal(err)
@@ -445,7 +445,7 @@ func TestStopCancelRecoveryAndDeletion(t *testing.T) {
 
 func TestAdmissionLimitsAndCancelledContext(t *testing.T) {
 	s := fresh(t)
-	_, root := create(t, s, session.TreePolicy{MaxDepth: 0, MaxSessions: 1, MaxQueuedInputsPerSession: 1})
+	_, root := create(t, s, []session.ResourceLimit{{Kind: session.ResourceDepth, Limit: new(int64(0))}, {Kind: session.ResourceDescendants, Limit: new(int64(0))}, {Kind: session.ResourceQueuedInputs, Limit: new(int64(1))}})
 	if _, err := s.SpawnSession(t.Context(), SpawnSession{ParentID: root.ID}); !errors.Is(err, ErrLimit) {
 		t.Fatal("child limit", err)
 	}

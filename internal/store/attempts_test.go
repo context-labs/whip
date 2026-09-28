@@ -40,7 +40,7 @@ func TestAttemptAdmissionAndSingleDispatchAcrossConnections(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.db")
 	s := openTest(t, path)
 	other := openTest(t, path)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	submit(t, s, root.ID, "input")
 	claim := claim(t, s, root.ID)
 	p := attemptRequest(claim.Turn.ID, "attempt")
@@ -93,7 +93,7 @@ func TestAttemptAdmissionAndSingleDispatchAcrossConnections(t *testing.T) {
 
 func TestAttemptSettlementAndTranscriptCommitAtomicallyAndRetryExactly(t *testing.T) {
 	s := fresh(t)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	submit(t, s, root.ID, "input")
 	turn := claim(t, s, root.ID).Turn
 	attempt := reserveTest(t, s, attemptRequest(turn.ID, "attempt"))
@@ -144,7 +144,7 @@ func TestAttemptSettlementAndTranscriptCommitAtomicallyAndRetryExactly(t *testin
 
 func TestAttemptRecoveryDistinguishesUndispatchedFromUncertainAndRollsBack(t *testing.T) {
 	s := fresh(t)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	submit(t, s, root.ID, "input")
 	turn := claim(t, s, root.ID).Turn
 	reserved := reserveTest(t, s, attemptRequest(turn.ID, "reserved"))
@@ -189,7 +189,7 @@ func TestAttemptRecoveryDistinguishesUndispatchedFromUncertainAndRollsBack(t *te
 
 func TestCancellationPreventsNewModelDispatch(t *testing.T) {
 	s := fresh(t)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	submit(t, s, root.ID, "input")
 	turn := claim(t, s, root.ID).Turn
 	pending := reserveTest(t, s, attemptRequest(turn.ID, "pending"))
@@ -217,7 +217,7 @@ func TestCancellationPreventsNewModelDispatch(t *testing.T) {
 
 func TestUnrepresentableCostRetainsUsageAndCompletedResponse(t *testing.T) {
 	s := fresh(t)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	submit(t, s, root.ID, "input")
 	turn := claim(t, s, root.ID).Turn
 	p := attemptRequest(turn.ID, "large-cost")
@@ -241,7 +241,7 @@ func TestUnrepresentableCostRetainsUsageAndCompletedResponse(t *testing.T) {
 
 func TestDispatchedAttemptCannotClaimUndispatchedCancellationOrMissingOutcome(t *testing.T) {
 	s := fresh(t)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	submit(t, s, root.ID, "input")
 	turn := claim(t, s, root.ID).Turn
 	attempt := reserveTest(t, s, attemptRequest(turn.ID, "dispatched"))

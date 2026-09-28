@@ -26,7 +26,7 @@ func TestCellDispatchAndAtomicCheckpointBoundary(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.db")
 	s := openTest(t, path)
 	other := openTest(t, path)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	turn, message := cellCall(t, s, root.ID)
 	spec := session.CellSpec{ID: "cell", TurnID: turn.ID, CallMessageID: message.ID, CallID: "call"}
 	var wins atomic.Int32
@@ -97,7 +97,7 @@ func TestCellRecoveryReconcilesCallsWithoutReplay(t *testing.T) {
 	for _, dispatched := range []bool{false, true} {
 		t.Run(map[bool]string{false: "not_dispatched", true: "uncertain"}[dispatched], func(t *testing.T) {
 			s := fresh(t)
-			_, root := create(t, s, session.DefaultTreePolicy())
+			_, root := create(t, s, nil)
 			turn, message := cellCall(t, s, root.ID)
 			if dispatched {
 				if _, _, err := s.BeginCell(t.Context(), session.CellSpec{ID: "cell", TurnID: turn.ID, CallMessageID: message.ID, CallID: "call"}); err != nil {
@@ -144,7 +144,7 @@ func TestCellRecoveryReconcilesCallsWithoutReplay(t *testing.T) {
 
 func TestToolTranscriptRejectsSpoofingAndMissingResults(t *testing.T) {
 	s := fresh(t)
-	_, root := create(t, s, session.DefaultTreePolicy())
+	_, root := create(t, s, nil)
 	turn, _ := cellCall(t, s, root.ID)
 	if _, err := s.Admit(t.Context(), session.RequestIdentity{ClientID: "test", RequestID: "spoof"}, Submission{SessionID: root.ID, Source: session.UserInput, Parts: []session.Part{{Type: "tool_call", Call: &session.ToolCall{ID: "spoof", Name: "execute", Arguments: []byte(`{}`)}}}}); !errors.Is(err, session.ErrInvalid) {
 		t.Fatalf("input call spoof: %v", err)

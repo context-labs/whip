@@ -20,7 +20,7 @@ func TestContractFixtures(t *testing.T) {
 }
 
 func TestPatchClearRoundTripAndOwnership(t *testing.T) {
-	patch := ConfigPatch{Tools: map[string]ToolDeclaration{}, Output: &OutputPolicy{}}
+	patch := ConfigPatch{ReportMode: new("inline"), Tools: map[string]ToolDeclaration{}, Output: &OutputPolicy{}}
 	raw, err := json.Marshal(patch)
 	if err != nil {
 		t.Fatal(err)
@@ -35,6 +35,9 @@ func TestPatchClearRoundTripAndOwnership(t *testing.T) {
 	}
 	if domain.Tools == nil || len(domain.Tools) != 0 || domain.Output == nil {
 		t.Fatal("explicit clear became inheritance")
+	}
+	if domain.ReportMode == nil || *domain.ReportMode != "inline" {
+		t.Fatal("explicit report mode became inheritance")
 	}
 	if reflect.DeepEqual(domain.Output.Schema, []byte("{}")) {
 		t.Fatal("clear changed schema")

@@ -38,6 +38,31 @@ export class Client {
     return this.call('sessions.submit', { session_id: sessionID, source: 'user', parts, identity: this.identity(requestID) }, options);
   }
 
+  /** Child identity, initial input and delegated authority share one recoverable admission. */
+  spawn(params: Omit<Operations['sessions.spawn']['params'], 'identity'>, requestID: string, options: CallOptions = {}): Promise<Operations['sessions.spawn']['result']> {
+    return this.call('sessions.spawn', { ...params, identity: this.identity(requestID) }, options);
+  }
+
+  /** Keep a globally unique mailID and the same payload when retrying an uncertain send. */
+  sendMail(params: Omit<Operations['mail.send']['params'], 'mail_id'>, mailID: string, options: CallOptions = {}): Promise<Operations['mail.send']['result']> {
+    return this.call('mail.send', { ...params, mail_id: mailID }, options);
+  }
+
+  /** Retain versionID and the exact encoded JSON payload when a write acknowledgement is lost. */
+  writeState(params: Omit<Operations['state.write']['params'], 'version_id'>, versionID: string, options: CallOptions = {}): Promise<Operations['state.write']['result']> {
+    return this.call('state.write', { ...params, version_id: versionID }, options);
+  }
+
+  /** Appends strings or arrays against an explicit revision; conflicts never overwrite another writer. */
+  appendState(params: Omit<Operations['state.append']['params'], 'version_id'>, versionID: string, options: CallOptions = {}): Promise<Operations['state.append']['result']> {
+    return this.call('state.append', { ...params, version_id: versionID }, options);
+  }
+
+  /** Subscribes from an observed revision; creation atomically catches up with the current head. */
+  subscribeState(params: Omit<Operations['state.subscribe']['params'], 'subscription_id'>, subscriptionID: string, options: CallOptions = {}): Promise<Operations['state.subscribe']['result']> {
+    return this.call('state.subscribe', { ...params, subscription_id: subscriptionID }, options);
+  }
+
   recover(requestID: string, options: CallOptions = {}): Promise<Admission> {
     return this.call('receipts.get', this.identity(requestID), options);
   }

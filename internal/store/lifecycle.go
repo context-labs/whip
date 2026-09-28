@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/context-labs/whip/internal/session"
@@ -47,7 +48,14 @@ func (s *Store) CancelInput(ctx context.Context, id session.InputID) (result ses
 	return
 }
 
-func (s *Store) SetLifecycle(ctx context.Context, id session.SessionID, lifecycle session.Lifecycle) (result session.Session, err error) {
+// LifecycleChange carries the committed session snapshot and the exact execution
+// whose cancellation was requested. It is a transaction result, not stored state.
+type LifecycleChange struct {
+	Session      session.Session
+	CancelTurnID *session.TurnID
+}
+
+func (s *Store) SetLifecycle(ctx context.Context, id session.SessionID, lifecycle session.Lifecycle) (result LifecycleChange, err error) {
 	if lifecycle != session.Active && lifecycle != session.Stopped {
 		return result, fmt.Errorf("%w: invalid lifecycle", session.ErrInvalid)
 	}
@@ -62,8 +70,15 @@ func (s *Store) SetLifecycle(ctx context.Context, id session.SessionID, lifecycl
 			if _, err := tx.ExecContext(ctx, "UPDATE turns SET state='cancelling' WHERE session_id=? AND state='running'", id); err != nil {
 				return err
 			}
+			var turn session.TurnID
+			err := tx.QueryRowContext(ctx, "SELECT id FROM turns WHERE session_id=? AND state='cancelling'", id).Scan(&turn)
+			if err == nil {
+				result.CancelTurnID = &turn
+			} else if !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
 		}
-		result, err = readSession(ctx, tx, id)
+		result.Session, err = readSession(ctx, tx, id)
 		return err
 	})
 	return
@@ -82,12 +97,45 @@ func (s *Store) Recover(ctx context.Context) (count int64, err error) {
 		if err := recoverCells(ctx, tx); err != nil {
 			return err
 		}
+		if _, err := tx.ExecContext(ctx, "DELETE FROM turn_permits"); err != nil {
+			return err
+		}
+		// Only newly interrupted child turns may create a report. Close this
+		// cursor before nested reads/writes on the transaction connection.
+		rows, err := tx.QueryContext(ctx, "SELECT t.id FROM turns t JOIN completion_slots c ON c.child_id=t.session_id WHERE t.state IN ('running','cancelling')")
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rows.Close() }()
+		var interrupted []session.TurnID
+		for rows.Next() {
+			var id session.TurnID
+			if err := rows.Scan(&id); err != nil {
+				return errors.Join(err, rows.Close())
+			}
+			interrupted = append(interrupted, id)
+		}
+		if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+			return err
+		}
 		result, err := tx.ExecContext(ctx, "UPDATE turns SET state='interrupted',failure='runtime restarted',finished_at=? WHERE state IN ('running','cancelling')", now())
 		if err != nil {
 			return err
 		}
 		count, err = result.RowsAffected()
-		return err
+		if err != nil {
+			return err
+		}
+		for _, id := range interrupted {
+			turn, err := readTurn(ctx, tx, id)
+			if err != nil {
+				return err
+			}
+			if err := captureCompletion(ctx, tx, turn); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	return
 }
@@ -100,27 +148,38 @@ const subtree = `WITH RECURSIVE subtree(id) AS (
 // DeleteSubtree rejects active turns and discards queued work. Receipts retain
 // identity and digest so a late retry observes deletion without recreating work.
 func (s *Store) DeleteSubtree(ctx context.Context, id session.SessionID) error {
-	return s.write(ctx, func(tx *sql.Tx) error {
-		target, err := readSession(ctx, tx, id)
-		if err != nil {
-			return err
-		}
-		var active int
-		if err := tx.QueryRowContext(ctx, subtree+" SELECT count(*) FROM turns WHERE session_id IN (SELECT id FROM subtree) AND state IN ('running','cancelling')", id).Scan(&active); err != nil {
-			return err
-		}
-		if active != 0 {
-			return ErrBusy
-		}
-		if _, err := tx.ExecContext(ctx, subtree+` UPDATE receipts SET input_id=NULL,deleted_at=?
-   WHERE input_id IN (SELECT id FROM inputs WHERE session_id IN (SELECT id FROM subtree))`, id, now()); err != nil {
-			return err
-		}
-		if target.ParentID == nil {
-			_, err = tx.ExecContext(ctx, "DELETE FROM session_trees WHERE id=?", target.TreeID)
-		} else {
-			_, err = tx.ExecContext(ctx, "DELETE FROM sessions WHERE id=?", id)
-		}
+	return s.write(ctx, func(tx *sql.Tx) error { return deleteSubtree(ctx, tx, id) })
+}
+
+func deleteSubtree(ctx context.Context, tx *sql.Tx, id session.SessionID) error {
+	target, err := readSession(ctx, tx, id)
+	if err != nil {
 		return err
-	})
+	}
+	var active int
+	if err := tx.QueryRowContext(ctx, subtree+" SELECT count(*) FROM turns WHERE session_id IN (SELECT id FROM subtree) AND state IN ('running','cancelling')", id).Scan(&active); err != nil {
+		return err
+	}
+	if active != 0 {
+		return ErrBusy
+	}
+	if _, err := tx.ExecContext(ctx, subtree+` UPDATE receipts SET input_id=NULL,deleted_at=?
+   WHERE input_id IN (SELECT id FROM inputs WHERE session_id IN (SELECT id FROM subtree))`, id, now()); err != nil {
+		return err
+	}
+	if err := deleteRecipientMail(ctx, tx, id); err != nil {
+		return err
+	}
+	if target.ParentID == nil {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM model_attempts WHERE id IN (SELECT attempt_id FROM attempt_budget_ancestors WHERE session_id=?)", target.ID); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, "DELETE FROM session_trees WHERE id=?", target.TreeID)
+	} else {
+		_, err = tx.ExecContext(ctx, "DELETE FROM sessions WHERE id=?", id)
+	}
+	if err != nil {
+		return err
+	}
+	return releaseDeletedCompletionSlot(ctx, tx, id)
 }

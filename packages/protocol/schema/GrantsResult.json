@@ -30,6 +30,13 @@
             ],
             "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
           },
+          "issuer_id": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
           "created_at": {
             "type": "string"
           },
@@ -46,6 +53,7 @@
           "capability",
           "resource",
           "operation_id",
+          "issuer_id",
           "created_at",
           "revoked_at"
         ],

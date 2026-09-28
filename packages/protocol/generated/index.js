@@ -5,6 +5,96 @@ export const manifest = {
   "minor": 0,
   "operations": [
     {
+      "name": "completions.list",
+      "params": "ListCompletionsParams",
+      "result": "ListCompletionsResult"
+    },
+    {
+      "name": "completions.read",
+      "params": "ReadCompletionParams",
+      "result": "ReadCompletionResult"
+    },
+    {
+      "name": "state.subscribe",
+      "params": "SubscribeStateParams",
+      "result": "StateSubscription"
+    },
+    {
+      "name": "state.subscriptions",
+      "params": "StateSubscriptionsParams",
+      "result": "StateSubscriptionsResult"
+    },
+    {
+      "name": "state.unsubscribe",
+      "params": "UnsubscribeStateParams",
+      "result": "StateSubscription"
+    },
+    {
+      "name": "state.get",
+      "params": "GetStateParams",
+      "result": "StateVersion"
+    },
+    {
+      "name": "state.write",
+      "params": "WriteStateParams",
+      "result": "StateVersion"
+    },
+    {
+      "name": "state.append",
+      "params": "WriteStateParams",
+      "result": "StateVersion"
+    },
+    {
+      "name": "state.read",
+      "params": "ReadStateParams",
+      "result": "ReadStateResult"
+    },
+    {
+      "name": "state.list",
+      "params": "ListStateParams",
+      "result": "StateVersionsResult"
+    },
+    {
+      "name": "state.history",
+      "params": "StateHistoryParams",
+      "result": "StateVersionsResult"
+    },
+    {
+      "name": "mail.send",
+      "params": "SendMailParams",
+      "result": "MailAdmission"
+    },
+    {
+      "name": "mail.list",
+      "params": "ListMailParams",
+      "result": "ListMailResult"
+    },
+    {
+      "name": "mail.read",
+      "params": "ReadMailParams",
+      "result": "ReadMailResult"
+    },
+    {
+      "name": "resources.list",
+      "params": "SessionParams",
+      "result": "ResourcesResult"
+    },
+    {
+      "name": "resources.set",
+      "params": "SetResourceParams",
+      "result": "ResourceUsage"
+    },
+    {
+      "name": "budgets.list",
+      "params": "SessionParams",
+      "result": "BudgetsResult"
+    },
+    {
+      "name": "budgets.set",
+      "params": "SetBudgetParams",
+      "result": "Budget"
+    },
+    {
       "name": "sessions.observe",
       "params": "HistoryParams",
       "result": "SessionObservation"
@@ -82,7 +172,7 @@ export const manifest = {
     {
       "name": "sessions.spawn",
       "params": "SpawnSessionParams",
-      "result": "Session"
+      "result": "SpawnSessionResult"
     },
     {
       "name": "sessions.list",

@@ -11,12 +11,24 @@ import (
 )
 
 func (r *Runtime) CreateTree(ctx context.Context, request store.CreateTree) (session.Tree, session.Session, error) {
+	resources, err := session.ResolveResourceLimits(r.host.Resources, request.Resources)
+	if err != nil {
+		return session.Tree{}, session.Session{}, err
+	}
+	request.Resources = resources
 	request.Defaults = r.host.Defaults.Clone()
 	return r.store.CreateTree(ctx, request)
 }
 
-func (r *Runtime) SpawnSession(ctx context.Context, request store.SpawnSession) (session.Session, error) {
-	return r.store.SpawnSession(ctx, request)
+func (r *Runtime) SpawnChild(ctx context.Context, identity session.RequestIdentity, request store.ChildRequest) (store.ChildAdmission, error) {
+	if err := r.Err(); err != nil {
+		return store.ChildAdmission{}, err
+	}
+	result, err := r.store.SpawnChild(ctx, identity, request)
+	if err == nil {
+		r.Wake()
+	}
+	return result, err
 }
 
 func (r *Runtime) Tree(ctx context.Context, id session.TreeID) (session.Tree, error) {
@@ -85,24 +97,29 @@ func (r *Runtime) CancelInput(ctx context.Context, id session.InputID) (session.
 func (r *Runtime) SetLifecycle(ctx context.Context, id session.SessionID, state session.Lifecycle) (session.Session, error) {
 	result, err := r.store.SetLifecycle(ctx, id, state)
 	if err != nil {
-		return result, err
+		return session.Session{}, err
 	}
-	if state == session.Stopped {
-		r.mu.Lock()
-		if active, ok := r.active[id]; ok {
-			active.cancel()
-		}
-		r.mu.Unlock()
-	} else {
+	r.applyLifecycleChange(result)
+	return result.Session, nil
+}
+
+func (r *Runtime) applyLifecycleChange(change store.LifecycleChange) {
+	if change.CancelTurnID != nil {
+		r.cancelTurn(*change.CancelTurnID)
+	}
+	if change.Session.Lifecycle == session.Active {
 		r.Wake()
 	}
-	return result, nil
 }
 
 func (r *Runtime) DeleteSubtree(ctx context.Context, id session.SessionID) error {
 	if err := r.store.DeleteSubtree(ctx, id); err != nil {
 		return err
 	}
+	return r.cleanupDeletedKernels(ctx)
+}
+
+func (r *Runtime) cleanupDeletedKernels(ctx context.Context) error {
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	// SQL rejects active subtrees, so deleted sessions cannot still be executing.

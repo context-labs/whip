@@ -1,0 +1,28 @@
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "scope": {
+      "type": "string",
+      "enum": [
+        "session",
+        "tree"
+      ]
+    },
+    "key": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/GetStateParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GetStateParams",
+  "required": [
+    "session_id",
+    "scope",
+    "key"
+  ],
+  "additionalProperties": false
+}

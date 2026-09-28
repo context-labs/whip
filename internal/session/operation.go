@@ -43,8 +43,10 @@ type Grant struct {
 	Capability  string
 	Resource    string
 	OperationID *OperationID
-	CreatedAt   time.Time
-	RevokedAt   *time.Time
+	// IssuerID is the exact standing grant held by this session's direct parent.
+	IssuerID  *GrantID
+	CreatedAt time.Time
+	RevokedAt *time.Time
 }
 
 type OperationSpec struct {
@@ -107,6 +109,14 @@ func (g Grant) Validate() error {
 	if g.OperationID != nil {
 		if err := ValidateID(string(*g.OperationID)); err != nil {
 			return err
+		}
+	}
+	if g.IssuerID != nil {
+		if err := ValidateID(string(*g.IssuerID)); err != nil {
+			return err
+		}
+		if g.OperationID != nil || *g.IssuerID == g.ID {
+			return fmt.Errorf("%w: delegated grants require a distinct standing issuer", ErrInvalid)
 		}
 	}
 	return validateOperationScope(g.Capability, g.Resource)

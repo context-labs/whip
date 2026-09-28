@@ -98,6 +98,40 @@ is separate from committed messages: replace it by the matching message ID, and
 clear it on a null preview or changed process epoch. The iterator keeps no second
 transcript authority. An aborted wait or observation does not cancel execution. See [its example and recovery
 contract](../packages/sdk/README.md) and [the backend domain contract](backend-domain.md).
+Reusable limits are session-scoped `resources.list/set` records, separate from
+permanent model budgets. Inspect all returned ancestor scopes before displaying
+available subtree capacity: a child's null local limit means inheritance. Queued
+inputs share ancestor capacity across siblings. Keep resource revisions for
+explicit compare-and-set edits; counters are exact decimal strings. Tree metadata
+contains no duplicate limit policy. Host defaults are captured into new root
+records and never silently change an existing conversation's limits.
+`runnable_descendants` counts execution permissions of proper descendants, excluding
+the scope owner. A turn stays running while a parent waits without permission;
+unfinished-turn counts do not represent runnable usage. Raising the scoped limit
+wakes scheduling, and a zero limit keeps child input queued.
+Permanent `logical_writes` and `logical_write_bytes` use the budget API. They count
+accepted logical actions and payload bytes, survive child deletion and never
+describe current disk usage. Their reserved/uncertain amounts are zero; rejected
+writes do not partially commit. Do not disable ordinary human submission or
+display execution as unrecordable merely because a write allowance is exhausted.
+Child creation in v4 is a durable `client.spawn` request: its receipt covers the
+child, initial input and delegated authority together. Keep its identity and exact
+payload for recovery just as for submissions.
+Mail uses a separate stable mail ID, and `mail.list`/`mail.read` are read-only
+inspection. They neither submit input nor acknowledge agent delivery. A transcript
+entry with `mail` provenance references an immutable mail revision and has no
+`input_id`; clients must preserve that distinction in views and recovery records.
+Explicit state uses immutable version handles and revision-checked writes.
+Client state reads return bounded base64 JSON bytes, preserving exact numbers;
+list/history calls return metadata. Mail provenance distinguishes session senders, state subscriptions, and child
+completion reports. A completion source identifies the child; its parent owns the
+immutable `evidence_ref`. `completions.list/read` inspect snapshots still awaiting
+publication and survive source-child deletion. Pin reads to the exact turn token,
+handle superseded-token conflicts by re-listing, and keep the 64 KiB JSON-byte
+pages in bounded consumer scope. These reads do not acknowledge mail. Subscriptions start from an explicit observed revision
+and deliver ordinary revisioned mail; their cursor does not acknowledge handling.
+Reconstruct requested values in bounded
+consumer scope rather than introducing a second authoritative state cache.
 Product clients continue to use the explicitly retained packages until their
 cutover. The package map below describes those retained clients.
 

@@ -14,6 +14,13 @@
     },
     "resource": {
       "type": "string"
+    },
+    "issuer_id": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
     }
   },
   "$id": "https://whip.dev/protocol/v4/CreateGrantParams",

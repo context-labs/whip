@@ -1,0 +1,40 @@
+{
+  "type": "object",
+  "properties": {
+    "subscription_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "key": {
+      "type": "string"
+    },
+    "after": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "delivery": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "steer",
+        "next_turn"
+      ]
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/SubscribeStateParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SubscribeStateParams",
+  "required": [
+    "subscription_id",
+    "session_id",
+    "key",
+    "after",
+    "delivery"
+  ],
+  "additionalProperties": false
+}

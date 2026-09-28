@@ -1,0 +1,59 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "tree_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "session_id": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "key": {
+      "type": "string"
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "author_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "size": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "created_at": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/StateVersion",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "StateVersion",
+  "required": [
+    "id",
+    "tree_id",
+    "session_id",
+    "key",
+    "revision",
+    "author_id",
+    "digest",
+    "size",
+    "created_at"
+  ],
+  "additionalProperties": false
+}

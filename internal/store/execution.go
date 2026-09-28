@@ -105,12 +105,10 @@ func (s *Store) Admit(ctx context.Context, identity session.RequestIdentity, req
 	if err := session.ValidateInputParts(request.Parts); err != nil {
 		return result, err
 	}
-	raw, err := json.Marshal(request)
+	digest, err := requestDigest("submit", request)
 	if err != nil {
 		return result, err
 	}
-	hash := sha256.Sum256(raw)
-	digest := hex.EncodeToString(hash[:])
 	err = s.write(ctx, func(tx *sql.Tx) error {
 		receipt, err := readReceipt(ctx, tx, identity)
 		if err == nil {
@@ -123,43 +121,52 @@ func (s *Store) Admit(ctx context.Context, identity session.RequestIdentity, req
 		if !errors.Is(err, ErrNotFound) {
 			return err
 		}
-		current, err := readSession(ctx, tx, request.SessionID)
-		if err != nil {
-			return err
-		}
-		if current.Lifecycle != session.Active {
-			return ErrStopped
-		}
-		if err := validateContentReferences(ctx, tx, current.ID, request.Parts); err != nil {
-			return err
-		}
-		tree, err := readTree(ctx, tx, current.TreeID)
-		if err != nil {
-			return err
-		}
-		var queued int
-		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM inputs WHERE session_id=? AND turn_id IS NULL AND cancelled_at IS NULL", current.ID).Scan(&queued); err != nil {
-			return err
-		}
-		if queued >= tree.Policy.MaxQueuedInputsPerSession {
-			return ErrLimit
-		}
-		parts, err := encode(request.Parts)
-		if err != nil {
-			return err
-		}
-		inputID := session.InputID(newID("input"))
-		created := now()
-		if _, err := tx.ExecContext(ctx, "INSERT INTO inputs (id,session_id,source,parts,created_at) VALUES (?,?,?,?,?)", inputID, current.ID, request.Source, parts, created); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, "INSERT INTO receipts VALUES (?,?,?,?,NULL,?)", identity.ClientID, identity.RequestID, digest, inputID, created); err != nil {
-			return err
-		}
-		result, err = readAdmission(ctx, tx, identity)
+		result, err = admitInput(ctx, tx, identity, digest, request)
 		return err
 	})
 	return
+}
+
+func requestDigest(kind string, request any) (string, error) {
+	raw, err := json.Marshal(struct {
+		Kind    string
+		Request any
+	}{kind, request})
+	if err != nil {
+		return "", err
+	}
+	hash := sha256.Sum256(raw)
+	return hex.EncodeToString(hash[:]), nil
+}
+
+func admitInput(ctx context.Context, tx *sql.Tx, identity session.RequestIdentity, digest string, request Submission) (result Admission, err error) {
+	current, err := readSession(ctx, tx, request.SessionID)
+	if err != nil {
+		return result, err
+	}
+	if current.Lifecycle != session.Active {
+		return result, ErrStopped
+	}
+	if err := validateContentReferences(ctx, tx, current.ID, request.Parts); err != nil {
+		return result, err
+	}
+	parts, err := encode(request.Parts)
+	if err != nil {
+		return result, err
+	}
+	inputID := session.InputID(newID("input"))
+	created := now()
+	if _, err := tx.ExecContext(ctx, "INSERT INTO inputs (id,session_id,source,parts,created_at) VALUES (?,?,?,?,?)", inputID, current.ID, request.Source, parts, created); err != nil {
+		return result, err
+	}
+	if _, err := tx.ExecContext(ctx, "INSERT INTO receipts VALUES (?,?,?,?,NULL,?)", identity.ClientID, identity.RequestID, digest, inputID, created); err != nil {
+		return result, err
+	}
+	if err := checkResources(ctx, tx, current.ID, session.ResourceQueuedInputs); err != nil {
+		return result, err
+	}
+	result, err = readAdmission(ctx, tx, identity)
+	return result, err
 }
 
 func (s *Store) Admission(ctx context.Context, identity session.RequestIdentity) (result Admission, err error) {
@@ -178,7 +185,7 @@ func (s *Store) Turn(ctx context.Context, id session.TurnID) (session.Turn, erro
 
 type Claim struct {
 	Turn          session.Turn
-	Input         session.Input
+	Input         *session.Input
 	Configuration session.Configuration
 }
 
@@ -201,9 +208,14 @@ func (s *Store) Claim(ctx context.Context, id session.SessionID) (result Claim, 
 		var inputID session.InputID
 		err = tx.QueryRowContext(ctx, "SELECT id FROM inputs WHERE session_id=? AND turn_id IS NULL AND cancelled_at IS NULL ORDER BY ordinal LIMIT 1", id).Scan(&inputID)
 		if errors.Is(err, sql.ErrNoRows) {
-			return ErrNoWork
-		}
-		if err != nil {
+			ready, err := mailReady(ctx, tx, id)
+			if err != nil {
+				return err
+			}
+			if !ready {
+				return ErrNoWork
+			}
+		} else if err != nil {
 			return err
 		}
 		turnID := session.TurnID(newID("turn"))
@@ -211,45 +223,69 @@ func (s *Store) Claim(ctx context.Context, id session.SessionID) (result Claim, 
 		if _, err := tx.ExecContext(ctx, "INSERT INTO turns VALUES (?,?,?,'running',NULL,?,NULL)", turnID, id, current.ConfigRevision, started); err != nil {
 			return err
 		}
-		update, err := tx.ExecContext(ctx, "UPDATE inputs SET turn_id=? WHERE id=? AND turn_id IS NULL AND cancelled_at IS NULL", turnID, inputID)
-		if err != nil {
-			return err
-		}
-		affected, err := update.RowsAffected()
-		if err != nil {
-			return err
-		}
-		if affected != 1 {
-			return ErrConflict
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,turn_id,sequence,role,input_id,created_at)
-   SELECT ?,?,?,COALESCE(MAX(sequence),0)+1,'user',?,? FROM messages WHERE session_id=?`,
-			"message_"+string(inputID), id, turnID, inputID, started, id); err != nil {
-			return err
-		}
-		result.Input, err = readInput(ctx, tx, inputID)
-		if err != nil {
-			return err
-		}
 		result.Turn, err = readTurn(ctx, tx, turnID)
+		if err != nil {
+			return err
+		}
+		if err := acquireTurnPermit(ctx, tx, result.Turn); err != nil {
+			return err
+		}
+		if inputID != "" {
+			update, err := tx.ExecContext(ctx, "UPDATE inputs SET turn_id=? WHERE id=? AND turn_id IS NULL AND cancelled_at IS NULL", turnID, inputID)
+			if err != nil {
+				return err
+			}
+			affected, err := update.RowsAffected()
+			if err != nil {
+				return err
+			}
+			if affected != 1 {
+				return ErrConflict
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,turn_id,sequence,role,input_id,created_at)
+   SELECT ?,?,?,COALESCE(MAX(sequence),0)+1,'user',?,? FROM messages WHERE session_id=?`,
+				"message_"+string(inputID), id, turnID, inputID, started, id); err != nil {
+				return err
+			}
+			input, err := readInput(ctx, tx, inputID)
+			if err != nil {
+				return err
+			}
+			result.Input = &input
+		}
+
+		if _, err := observeMailBoundary(ctx, tx, result.Turn, false); err != nil {
+			return err
+		}
 		result.Configuration = current.Config
-		return err
+		return nil
 	})
 	return
 }
 
 const messageSelect = `SELECT m.id,m.session_id,m.turn_id,m.sequence,m.role,m.input_id,
- COALESCE(m.parts,i.parts),m.created_at FROM messages m LEFT JOIN inputs i ON i.id=m.input_id`
+ COALESCE(m.parts,i.parts),m.created_at,m.mail_id,m.mail_revision,m.mail_presentation,r.subject,r.body,mail.source_kind,mail.source_id
+ FROM messages m LEFT JOIN inputs i ON i.id=m.input_id
+ LEFT JOIN mail_revisions r ON r.mail_id=m.mail_id AND r.revision=m.mail_revision
+ LEFT JOIN mail ON mail.id=m.mail_id`
 
 func scanMessage(row scanner) (result session.Message, err error) {
-	var raw string
+	var raw sql.NullString
 	var created int64
-	err = row.Scan(&result.ID, &result.SessionID, &result.TurnID, &result.Sequence, &result.Role, &result.InputID, &raw, &created)
+	var mailID *session.MailID
+	var revision sql.NullInt64
+	var presentation, subject, body, sourceKind, sourceID sql.NullString
+	err = row.Scan(&result.ID, &result.SessionID, &result.TurnID, &result.Sequence, &result.Role, &result.InputID, &raw, &created, &mailID, &revision, &presentation, &subject, &body, &sourceKind, &sourceID)
 	if err != nil {
 		return result, found(err)
 	}
 	result.CreatedAt = timestamp(created)
-	err = json.Unmarshal([]byte(raw), &result.Parts)
+	if mailID != nil {
+		result.Mail = &session.MailRef{ID: *mailID, Revision: revision.Int64, Presentation: session.MailPresentation(presentation.String)}
+		result.Parts = mailParts(*result.Mail, session.MailSource{Kind: sourceKind.String, ID: sourceID.String}, subject.String, body.String)
+	} else {
+		err = json.Unmarshal([]byte(raw.String), &result.Parts)
+	}
 	return
 }
 
@@ -363,14 +399,11 @@ func (s *Store) Finish(ctx context.Context, id session.TurnID, state session.Tur
 		} else if !current.State.CanTransitionTo(state) {
 			return ErrConflict
 		}
-		var pending int
-		if err := tx.QueryRowContext(ctx, `SELECT
- (SELECT count(*) FROM model_attempts WHERE turn_id=? AND finished_at IS NULL) +
- (SELECT count(*) FROM cells WHERE turn_id=? AND state='running') +
- (SELECT count(*) FROM operations o JOIN cells c ON c.id=o.cell_id WHERE c.turn_id=? AND o.finished_at IS NULL)`, id, id, id).Scan(&pending); err != nil {
+		pending, err := unfinishedExecution(ctx, tx, id)
+		if err != nil {
 			return err
 		}
-		if pending != 0 {
+		if pending {
 			return ErrBusy
 		}
 		for _, draft := range messages {
@@ -390,11 +423,22 @@ func (s *Store) Finish(ctx context.Context, id session.TurnID, state session.Tur
 			} else if err := reconcileCalls(ctx, tx, current, "turn ended"); err != nil {
 				return err
 			}
+			if state == session.Succeeded {
+				if err := acknowledgeMail(ctx, tx, id); err != nil {
+					return err
+				}
+			}
+			if _, err := tx.ExecContext(ctx, "DELETE FROM turn_permits WHERE turn_id=?", id); err != nil {
+				return err
+			}
 			if _, err := tx.ExecContext(ctx, "UPDATE turns SET state=?,failure=?,finished_at=? WHERE id=?", state, failure, now(), id); err != nil {
 				return err
 			}
 		}
 		result, err = readTurn(ctx, tx, id)
+		if err == nil && !current.State.Terminal() {
+			err = captureCompletion(ctx, tx, result)
+		}
 		return err
 	})
 	return

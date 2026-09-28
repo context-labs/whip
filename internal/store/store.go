@@ -21,7 +21,7 @@ import (
 
 const (
 	applicationID = 0x57504834
-	schemaVersion = 5
+	schemaVersion = 14
 )
 
 // MaxPageBytes bounds hydrated collection responses as well as their row count.
@@ -191,6 +191,7 @@ func (s *Store) write(ctx context.Context, fn func(*sql.Tx) error) (err error) {
 }
 
 type querier interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 

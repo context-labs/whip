@@ -173,8 +173,24 @@ func TestBothEnginesCancelPendingFilePermissionReleasesWorker(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if cell.State != session.CellUncertain || cell.Checkpoint != nil || cell.ResultMessageID == nil {
-				t.Fatalf("cancelled worker exposed a reusable execution boundary: %+v", cell)
+			if cell.ResultMessageID == nil || (cell.State != session.CellUncertain && cell.State != session.CellFailed) {
+				t.Fatalf("cancelled cell lost its failed execution boundary: %+v", cell)
+			}
+			if cell.State == session.CellUncertain && cell.Checkpoint != nil {
+				t.Fatalf("uncertain cell exposed a reusable checkpoint: %+v", cell)
+			}
+			// Host cancellation can reach the guest as a language error before
+			// process cancellation wins. A correlated final result may retain its
+			// exact checkpoint; a terminated worker must never retain one.
+			if cell.Checkpoint != nil {
+				entry, err := r.kernel(t.Context(), current.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				restored, err := entry.checkpoints.Load(t.Context())
+				if err != nil || restored == nil {
+					t.Fatalf("settled cancellation checkpoint cannot be restored: %v", err)
+				}
 			}
 			// There is only one kernel slot; a new session proves cancellation
 			// released the worker lease as well as the pending permission.

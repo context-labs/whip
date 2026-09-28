@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"path/filepath"
@@ -14,7 +15,7 @@ import (
 type CreateTree struct {
 	Metadata         session.TreeMetadata
 	Engine           session.Engine
-	Policy           session.TreePolicy
+	Resources        []session.ResourceLimit
 	Definition       session.DefinitionRef
 	Defaults         session.Configuration
 	Overrides        session.ConfigPatch
@@ -32,7 +33,8 @@ func (s *Store) CreateTree(ctx context.Context, request CreateTree) (tree sessio
 	if err := request.Engine.Validate(); err != nil {
 		return tree, root, err
 	}
-	if err := request.Policy.Validate(); err != nil {
+	limits, err := session.ResolveResourceLimits(nil, request.Resources)
+	if err != nil {
 		return tree, root, err
 	}
 	if err := validMetadata(request.Metadata); err != nil {
@@ -51,18 +53,26 @@ func (s *Store) CreateTree(ctx context.Context, request CreateTree) (tree sessio
 		if err != nil {
 			return err
 		}
-		policy, err := encode(request.Policy)
-		if err != nil {
-			return err
-		}
 		treeID := session.TreeID(newID("tree"))
 		created := now()
-		if _, err := tx.ExecContext(ctx, "INSERT INTO session_trees VALUES (?,?,?,?,1,?)", treeID, metadata, request.Engine, policy, created); err != nil {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO session_trees VALUES (?,?,?,1,?)", treeID, metadata, request.Engine, created); err != nil {
 			return err
 		}
 		root, err = insertSession(ctx, tx, treeID, nil, request.Definition, config, request.WorkingDirectory)
 		if err != nil {
 			return err
+		}
+		for _, limit := range limits {
+			if _, err := setResource(ctx, tx, root.ID, 0, limit); err != nil {
+				return err
+			}
+		}
+		for kind, value := range map[session.BudgetKind]int64{
+			session.BudgetLogicalWrites: 100_000, session.BudgetLogicalWriteBytes: 1 << 30,
+		} {
+			if _, err := setBudget(ctx, tx, root.ID, 0, session.BudgetLimit{Kind: kind, Limit: &value}); err != nil {
+				return err
+			}
 		}
 		tree, err = readTree(ctx, tx, treeID)
 		return err
@@ -95,59 +105,243 @@ func insertSession(ctx context.Context, tx *sql.Tx, tree session.TreeID, parent 
 }
 
 type SpawnSession struct {
-	ParentID session.SessionID
+	ParentID session.SessionID `json:"parent_id"`
 	// Nil inherits the parent's effective configuration and definition origin.
 	// A specified revision applies its defaults before explicit overrides.
-	Definition       *session.DefinitionRef
-	Overrides        session.ConfigPatch
-	WorkingDirectory string
+	Definition       *session.DefinitionRef `json:"definition"`
+	Overrides        session.ConfigPatch    `json:"overrides"`
+	WorkingDirectory string                 `json:"working_directory"`
 }
 
-func (s *Store) SpawnSession(ctx context.Context, request SpawnSession) (result session.Session, err error) {
+// ChildRequest preserves the original request for idempotency. Nil GrantIDs
+// inherits live standing grants; an explicit empty slice delegates none.
+type ChildRequest struct {
+	SpawnSession
+	Parts     []session.Part          `json:"parts"`
+	GrantIDs  []session.GrantID       `json:"grant_ids"`
+	Budgets   []session.BudgetLimit   `json:"budgets"`
+	Resources []session.ResourceLimit `json:"resources"`
+}
+
+// ChildAdmission projects the child from its input. A deleted receipt has no child.
+type ChildAdmission struct {
+	Session   *session.Session
+	Admission Admission
+}
+
+func spawnSession(ctx context.Context, tx *sql.Tx, request SpawnSession) (session.Session, error) {
+	parent, err := readSession(ctx, tx, request.ParentID)
+	if err != nil {
+		return session.Session{}, err
+	}
+	if parent.Lifecycle != session.Active {
+		return session.Session{}, ErrStopped
+	}
+	ref := parent.Definition
+	var doc session.DefinitionDocument
+	if request.Definition != nil {
+		ref = *request.Definition
+		def, err := definition(ctx, tx, ref)
+		if err != nil {
+			return session.Session{}, err
+		}
+		doc = def.Document
+	}
+	config, err := session.Resolve(parent.Config, doc, request.Overrides)
+	if err != nil {
+		return session.Session{}, err
+	}
+	cwd := request.WorkingDirectory
+	if cwd == "" {
+		cwd = parent.WorkingDirectory
+	}
+	child, err := insertSession(ctx, tx, parent.TreeID, &parent.ID, ref, config, cwd)
+	if err != nil {
+		return child, err
+	}
+	if err := reserveCompletion(ctx, tx, parent.ID, child.ID); err != nil {
+		return child, err
+	}
+	return child, checkResources(ctx, tx, child.ID, session.ResourceDepth, session.ResourceDescendants)
+}
+
+func (s *Store) SpawnChild(ctx context.Context, identity session.RequestIdentity, request ChildRequest) (result ChildAdmission, err error) {
+	if err := validateChildRequest(identity, request); err != nil {
+		return result, err
+	}
 	err = s.write(ctx, func(tx *sql.Tx) error {
-		parent, err := readSession(ctx, tx, request.ParentID)
+		result, err = spawnChild(ctx, tx, identity, request)
+		return err
+	})
+	return
+}
+
+func validateChildRequest(identity session.RequestIdentity, request ChildRequest) error {
+	for _, id := range []string{identity.ClientID, identity.RequestID, string(request.ParentID)} {
+		if err := session.ValidateID(id); err != nil {
+			return err
+		}
+	}
+	if err := session.ValidateInputParts(request.Parts); err != nil {
+		return err
+	}
+	if len(request.GrantIDs) > session.MaxGrantsPerSession {
+		return ErrLimit
+	}
+	seen := make(map[session.GrantID]bool, len(request.GrantIDs))
+	for _, id := range request.GrantIDs {
+		if err := session.ValidateID(string(id)); err != nil {
+			return err
+		}
+		if seen[id] {
+			return fmt.Errorf("%w: duplicate delegated grant", session.ErrInvalid)
+		}
+		seen[id] = true
+	}
+	if err := session.ValidateResourceLimits(request.Resources); err != nil {
+		return err
+	}
+	seenBudgets := make(map[session.BudgetKind]bool, len(request.Budgets))
+	for _, limit := range request.Budgets {
+		if err := limit.Validate(); err != nil {
+			return err
+		}
+		if seenBudgets[limit.Kind] {
+			return fmt.Errorf("%w: duplicate child budget", session.ErrInvalid)
+		}
+		seenBudgets[limit.Kind] = true
+	}
+	return nil
+}
+
+func readChildAdmission(ctx context.Context, tx *sql.Tx, identity session.RequestIdentity) (result ChildAdmission, err error) {
+	result.Admission, err = readAdmission(ctx, tx, identity)
+	if err != nil || result.Admission.Input == nil {
+		return result, err
+	}
+	child, err := readSession(ctx, tx, result.Admission.Input.SessionID)
+	if err != nil {
+		return result, err
+	}
+	result.Session = &child
+	return result, nil
+}
+
+func spawnChild(ctx context.Context, tx *sql.Tx, identity session.RequestIdentity, request ChildRequest) (ChildAdmission, error) {
+	digest, err := requestDigest("spawn_child", request)
+	if err != nil {
+		return ChildAdmission{}, err
+	}
+	receipt, err := readReceipt(ctx, tx, identity)
+	if err == nil {
+		if receipt.Digest != digest {
+			return ChildAdmission{}, ErrConflict
+		}
+		return readChildAdmission(ctx, tx, identity)
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return ChildAdmission{}, err
+	}
+	issuers, err := delegatedGrants(ctx, tx, request.ParentID, request.GrantIDs)
+	if err != nil {
+		return ChildAdmission{}, err
+	}
+	child, err := spawnSession(ctx, tx, request.SpawnSession)
+	if err != nil {
+		return ChildAdmission{}, err
+	}
+	for _, limit := range request.Resources {
+		if _, err := setResource(ctx, tx, child.ID, 0, limit); err != nil {
+			return ChildAdmission{}, err
+		}
+	}
+	for _, limit := range request.Budgets {
+		if _, err := setBudget(ctx, tx, child.ID, 0, limit); err != nil {
+			return ChildAdmission{}, err
+		}
+	}
+	for _, issuer := range issuers {
+		grant := session.Grant{
+			ID: session.GrantID(newID("grant")), SessionID: child.ID,
+			Capability: issuer.Capability, Resource: issuer.Resource, IssuerID: &issuer.ID,
+		}
+		if err := insertGrant(ctx, tx, grant); err != nil {
+			return ChildAdmission{}, err
+		}
+	}
+	parts, err := shareChildContent(ctx, tx, request.ParentID, child.ID, request.Parts)
+	if err != nil {
+		return ChildAdmission{}, err
+	}
+	if err := session.ValidateInputParts(parts); err != nil {
+		return ChildAdmission{}, err
+	}
+	admission, err := admitInput(ctx, tx, identity, digest, Submission{SessionID: child.ID, Source: session.AgentInput, Parts: parts})
+	if err != nil {
+		return ChildAdmission{}, err
+	}
+	if err := chargeWrite(ctx, tx, request.ParentID, "input", string(admission.Input.ID), 0, inputWriteBytes(request.Parts)); err != nil {
+		return ChildAdmission{}, err
+	}
+	return ChildAdmission{Session: &child, Admission: admission}, nil
+}
+
+// SpawnChildOperation applies only persisted, authorized agents.spawn intent.
+// Dispatch, all child rows, the receipt and success are committed together.
+func (s *Store) SpawnChildOperation(ctx context.Context, id session.OperationID) (result ChildAdmission, err error) {
+	err = s.write(ctx, func(tx *sql.Tx) error {
+		operation, err := readOperation(ctx, tx, id)
 		if err != nil {
 			return err
 		}
-		if parent.Lifecycle != session.Active {
-			return ErrStopped
+		if operation.Capability != "agents.spawn" {
+			return ErrConflict
 		}
-		tree, err := readTree(ctx, tx, parent.TreeID)
+		owner, err := readSession(ctx, tx, operation.SessionID)
 		if err != nil {
 			return err
 		}
-		var count, depth int
-		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM sessions WHERE tree_id=?", tree.ID).Scan(&count); err != nil {
+		if operation.Resource != string(owner.TreeID) {
+			return ErrConflict
+		}
+		identity := session.RequestIdentity{ClientID: "operation", RequestID: string(id)}
+		if operation.State == session.OperationSucceeded {
+			result, err = readChildAdmission(ctx, tx, identity)
 			return err
 		}
-		if err := tx.QueryRowContext(ctx, `WITH RECURSIVE ancestors(id,parent_id) AS (
-   SELECT id,parent_id FROM sessions WHERE id=? UNION ALL
-   SELECT s.id,s.parent_id FROM sessions s JOIN ancestors a ON a.parent_id=s.id
-  ) SELECT count(*) FROM ancestors`, parent.ID).Scan(&depth); err != nil {
+		var request ChildRequest
+		if err := json.Unmarshal(operation.Arguments, &request); err != nil {
 			return err
 		}
-		if count >= tree.Policy.MaxSessions || depth > tree.Policy.MaxDepth {
-			return ErrLimit
+		if request.ParentID != owner.ID {
+			return ErrConflict
 		}
-		ref := parent.Definition
-		var doc session.DefinitionDocument
-		if request.Definition != nil {
-			ref = *request.Definition
-			def, err := definition(ctx, tx, ref)
-			if err != nil {
-				return err
-			}
-			doc = def.Document
+		if err := validateChildRequest(identity, request); err != nil {
+			return err
 		}
-		config, err := session.Resolve(parent.Config, doc, request.Overrides)
+		dispatch, err := dispatchOperation(ctx, tx, id)
 		if err != nil {
 			return err
 		}
-		cwd := request.WorkingDirectory
-		if cwd == "" {
-			cwd = parent.WorkingDirectory
+		if !dispatch {
+			return ErrConflict
 		}
-		result, err = insertSession(ctx, tx, parent.TreeID, &parent.ID, ref, config, cwd)
+		result, err = spawnChild(ctx, tx, identity, request)
+		if err != nil {
+			return err
+		}
+		if result.Session == nil || result.Admission.Input == nil {
+			return ErrConflict
+		}
+		value, err := json.Marshal(struct {
+			SessionID session.SessionID `json:"session_id"`
+			InputID   session.InputID   `json:"input_id"`
+		}{result.Session.ID, result.Admission.Input.ID})
+		if err != nil {
+			return err
+		}
+		operation.State = session.OperationDispatched
+		_, err = settleOperation(ctx, tx, operation, session.OperationResult{State: session.OperationSucceeded, Value: value})
 		return err
 	})
 	return
@@ -214,10 +408,10 @@ func (s *Store) Sessions(ctx context.Context, tree session.TreeID, after session
 }
 
 func readTree(ctx context.Context, q querier, id session.TreeID) (result session.Tree, err error) {
-	var metadata, policy string
+	var metadata string
 	var created int64
-	err = q.QueryRowContext(ctx, "SELECT id,metadata,engine,policy,revision,created_at FROM session_trees WHERE id=?", id).
-		Scan(&result.ID, &metadata, &result.Engine, &policy, &result.Revision, &created)
+	err = q.QueryRowContext(ctx, "SELECT id,metadata,engine,revision,created_at FROM session_trees WHERE id=?", id).
+		Scan(&result.ID, &metadata, &result.Engine, &result.Revision, &created)
 	if err != nil {
 		return result, found(err)
 	}
@@ -225,7 +419,6 @@ func readTree(ctx context.Context, q querier, id session.TreeID) (result session
 	if err = json.Unmarshal([]byte(metadata), &result.Metadata); err != nil {
 		return
 	}
-	err = json.Unmarshal([]byte(policy), &result.Policy)
 	return
 }
 
@@ -300,4 +493,26 @@ func (s *Store) UpdateConfiguration(ctx context.Context, id session.SessionID, e
 		return err
 	})
 	return
+}
+
+const sessionAncestry = `WITH RECURSIVE ancestors(id,parent_id,depth) AS (
+ SELECT id,parent_id,0 FROM sessions WHERE id=? UNION ALL
+ SELECT s.id,s.parent_id,a.depth+1 FROM sessions s JOIN ancestors a ON a.parent_id=s.id
+) `
+
+func sessionAncestors(ctx context.Context, q querier, owner session.SessionID) ([]session.SessionID, error) {
+	rows, err := q.QueryContext(ctx, sessionAncestry+"SELECT id FROM ancestors ORDER BY depth", owner)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var result []session.SessionID
+	for rows.Next() {
+		var id session.SessionID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		result = append(result, id)
+	}
+	return result, rows.Err()
 }

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"testing/synctest"
+	"time"
 	"unicode/utf8"
 
 	"github.com/context-labs/whip/internal/model"
@@ -61,7 +63,7 @@ func TestCompletedResponseWriteRetryDoesNotRedispatch(t *testing.T) {
 		calls++
 		cancel()
 		return model.Response{Parts: []session.Part{{Type: "text", Text: "already completed"}}}, nil
-	}), transcript, transcript, nil, nil, nil)
+	}), transcript, transcript, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +80,7 @@ func TestMalformedUsageDoesNotEraseCompletedOutput(t *testing.T) {
 	transcript := &flakyTranscript{}
 	r, err := New(providerFunc(func(context.Context, model.Request) (model.Response, error) {
 		return model.Response{Parts: []session.Part{{Type: "text", Text: "completed"}}, Usage: session.ModelUsage{Input: new(int64(-1))}}, nil
-	}), transcript, transcript, nil, nil, nil)
+	}), transcript, transcript, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,5 +96,43 @@ func TestExternalFailureTextAlwaysFitsDurableContract(t *testing.T) {
 		if result.State != session.Failed || result.Failure == nil || *result.Failure == "" || len(*result.Failure) > 16384 || !utf8.ValidString(*result.Failure) || strings.ContainsRune(*result.Failure, 0) {
 			t.Fatalf("invalid failure: %+v", result)
 		}
+	}
+}
+
+func TestAttemptElapsedEvidenceExcludesSQLRetriesAndSurvivesFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		err   error
+		state session.ModelAttemptState
+	}{
+		{name: "success", state: session.AttemptSucceeded},
+		{name: "failure", err: errors.New("provider rejected request"), state: session.AttemptFailed},
+		{name: "cancelled", err: context.Canceled, state: session.AttemptUncertain},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				transcript := &flakyTranscript{}
+				calls := 0
+				r, err := New(providerFunc(func(context.Context, model.Request) (model.Response, error) {
+					calls++
+					time.Sleep(1500 * time.Microsecond)
+					return model.Response{Parts: []session.Part{{Type: "text", Text: "completed"}}, Usage: session.ModelUsage{Input: new(int64(99))}}, tc.err
+				}), transcript, transcript, nil, nil, nil, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				started := time.Now()
+				if _, err := r.Run(t.Context(), session.Turn{ID: "turn"}, session.Configuration{}); err != nil {
+					t.Fatal(err)
+				}
+				if calls != 1 || transcript.calls != 2 || time.Since(started) < 20*time.Millisecond {
+					t.Fatal("fixture did not exercise a SQL-only settlement retry")
+				}
+				result := transcript.result
+				if result.State != tc.state || result.ElapsedMillis == nil || *result.ElapsedMillis != 2 || result.Usage.Input == nil || *result.Usage.Input != 99 {
+					t.Fatalf("execution evidence was clipped, lost or included settlement time: %+v", result)
+				}
+			})
+		})
 	}
 }

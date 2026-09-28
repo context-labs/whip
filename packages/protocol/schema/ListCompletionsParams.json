@@ -1,0 +1,29 @@
+{
+  "type": "object",
+  "properties": {
+    "parent_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "after": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ListCompletionsParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ListCompletionsParams",
+  "required": [
+    "parent_id",
+    "limit"
+  ],
+  "additionalProperties": false
+}

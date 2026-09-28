@@ -54,9 +54,19 @@ func Fixtures() ([]Fixture, error) {
 		name  string
 		value any
 	}{
+		{"ListCompletionsResult", ListCompletionsResult{Items: []CompletionMetadata{{ParentID: "session_root", ChildID: "session_deleted", TurnID: "turn_fixture", InputID: new(ID("input_fixture")), State: "interrupted", Failure: new("runtime restarted"), Mode: "message", FinishedAt: created.Format(time.RFC3339Nano), TextBytes: 0, OmittedParts: 0}}}},
+		{"ReadCompletionParams", ReadCompletionParams{ParentID: "session_root", ChildID: "session_deleted", TurnID: "turn_fixture", Offset: 0, Length: 65536}},
+		{"ReadCompletionResult", ReadCompletionResult{Completion: CompletionMetadata{ParentID: "session_root", ChildID: "session_deleted", TurnID: "turn_fixture", State: "succeeded", Mode: "inline", FinishedAt: created.Format(time.RFC3339Nano), TextBytes: 70000}, Offset: 65536, TotalBytes: 71000, DataBase64: "e30="}},
+		{"MailAdmission", MailAdmission{MailID: "mail_deleted", DeletedAt: new(created.Format(time.RFC3339Nano))}},
+		{"ReadMailResult", ReadMailResult{Mail: MailMetadataFromDomain(session.MailMetadata{ID: "mail_fixture", Revision: 128, Source: session.MailSource{Kind: "session", ID: "session_root"}, RecipientID: "session_child", Delivery: session.MailNextTurn, Subject: "Subject", BodyBytes: 5, State: session.MailPending, AvailableAt: created, CreatedAt: created, RevisedAt: created}), Body: "hello"}},
+		{"Message", MessageFromDomain(session.Message{ID: "message_mail", SessionID: "session_child", TurnID: "turn_fixture", Sequence: 9007199254740995, Role: session.User, Mail: &session.MailRef{ID: "mail_fixture", Revision: 128, Presentation: session.MailDigest}, Parts: []session.Part{{Type: "text", Text: "Mail from session_root: Subject"}}, CreatedAt: created})},
+		{"ResourceUsage", ResourceUsageFromDomain(session.ResourceUsage{SessionID: "session_root", Kind: session.ResourceQueuedInputs, Revision: 9007199254740993, Limit: new(int64(9007199254740994)), Used: 9007199254740993})},
+		{"ResourceUsage", ResourceUsageFromDomain(session.ResourceUsage{SessionID: "session_child", Kind: session.ResourceDescendants, Revision: 0, Limit: nil, Used: 0})},
+		{"SetResourceParams", SetResourceParams{SessionID: "session_child", ExpectedRevision: 9007199254740993, Resource: ResourceLimit{Kind: "descendants", Limit: nil}}},
+		{"Budget", BudgetFromDomain(session.Budget{SessionID: "session_root", Kind: session.BudgetModelTokens, Revision: 9007199254740993, Limit: new(int64(9007199254740994)), Used: 9007199254740993, Reserved: 1})},
 		{"SessionObservation", SessionObservation{Epoch: "boot_fixture", Messages: []Message{message}, Preview: &MessagePreview{AttemptID: "attempt_live", TurnID: "turn_fixture", MessageID: "message_live", Revision: 9007199254740993, Text: "In progress", Calls: []CallPreview{{Index: 0, ID: "call_partial", Name: "execute", Arguments: `{"code":"print(`}}}}},
 		{"SessionObservation", SessionObservation{Epoch: "boot_restarted", Messages: []Message{}, Preview: nil}},
-		{"Grant", GrantFromDomain(session.Grant{ID: "grant_fixture", SessionID: "session_child", Capability: "files.read", Resource: "/workspace", CreatedAt: created})},
+		{"Grant", GrantFromDomain(session.Grant{ID: "grant_fixture", SessionID: "session_child", Capability: "files.read", Resource: "/workspace", IssuerID: new(session.GrantID("grant_parent")), CreatedAt: created})},
 		{"HostOperation", OperationFromDomain(session.Operation{ID: "operation_fixture", CellID: "cell_fixture", RequestID: "1:1", Capability: "files.read", Resource: "/workspace", Arguments: json.RawMessage(`{"path":"example.txt","offset":1,"limit":2000}`), SessionID: "session_child", TurnID: "turn_fixture", State: session.OperationSucceeded, GrantID: new(session.GrantID("grant_fixture")), Result: &session.OperationResult{State: session.OperationSucceeded, Value: json.RawMessage(`{"output":"1: hello"}`)}, CreatedAt: created, DispatchedAt: &created, FinishedAt: &created})},
 		{"Permission", PermissionFromDomain(session.Permission{OperationID: "operation_fixture", State: session.PermissionApproved, CreatedAt: created, ResolvedAt: &created})},
 		{"Cell", CellFromDomain(session.Cell{ID: "cell_fixture", SessionID: "session_child", TurnID: "turn_fixture", CallMessageID: "message_call", CallID: "call_fixture", State: session.CellSucceeded, ResultMessageID: new(session.MessageID("message_result")), Checkpoint: &session.Checkpoint{Digest: ref.Revision, Size: 123, Engine: session.Starlark, Metadata: json.RawMessage(`{"format_version":1}`)}, CreatedAt: created, FinishedAt: &created})},
@@ -76,8 +86,9 @@ func Fixtures() ([]Fixture, error) {
 		{"HistoryResult", HistoryResult{Items: []Message{message, callMessage, toolMessage}}},
 		{"Part", callMessage.Parts[0]},
 		{"Part", toolMessage.Parts[0]},
+		{"SpawnSessionParams", SpawnSessionParams{Identity: RequestIdentity{ClientID: "client", RequestID: "spawn"}, ParentID: root.ID, Parts: []Part{{Type: "text", Text: "Child work"}}, GrantIDs: []ID{}}},
 		{"SubmitParams", SubmitParams{Identity: RequestIdentity{ClientID: "client", RequestID: "request"}, SessionID: child.ID, Source: "user", Parts: []Part{{Type: "text", Text: "Run this."}}}},
-		{"UpdateConfigurationParams", UpdateConfigurationParams{SessionID: child.ID, ExpectedRevision: 9007199254740993, Patch: ConfigPatch{Tools: map[string]ToolDeclaration{}, Output: &OutputPolicy{}}}},
+		{"UpdateConfigurationParams", UpdateConfigurationParams{SessionID: child.ID, ExpectedRevision: 9007199254740993, Patch: ConfigPatch{ReportMode: new("inline"), Tools: map[string]ToolDeclaration{}, Output: &OutputPolicy{}}}},
 		{"Turn", Turn{ID: "turn_fixture", SessionID: child.ID, ConfigRevision: 9007199254740993, State: "running", StartedAt: created.Format(time.RFC3339Nano)}},
 	}
 	result := make([]Fixture, 0, len(values)+8)
@@ -97,6 +108,14 @@ func Fixtures() ([]Fixture, error) {
 		`{"session_id":"session_child","after":"0","limit":10,"unexpected":true}`,
 	} {
 		result = append(result, Fixture{Type: "HistoryParams", Value: json.RawMessage(raw), Valid: false})
+	}
+	for _, raw := range []string{
+		`{"session_id":"session_child","expected_revision":"1","resource":{"kind":"queued_inputs","limit":1}}`,
+		`{"session_id":"session_child","expected_revision":1,"resource":{"kind":"queued_inputs","limit":"1"}}`,
+		`{"session_id":"session_child","expected_revision":"1","resource":{"kind":"unknown","limit":"1"}}`,
+		`{"session_id":"session_child","expected_revision":"1","resource":{"kind":"depth","limit":"9223372036854775808"}}`,
+	} {
+		result = append(result, Fixture{Type: "SetResourceParams", Value: json.RawMessage(raw), Valid: false})
 	}
 	result = append(result, Fixture{Type: "SubmitParams", Valid: false, Value: json.RawMessage(`{"identity":{"client_id":"client","request_id":"request"},"session_id":"session_child","source":"user","parts":[{"type":"text","text":"x","reference_id":"content"}]}`)})
 	result = append(result, Fixture{Type: "SubmitParams", Valid: false, Value: json.RawMessage(`{"identity":{"client_id":"client","request_id":"request"},"session_id":"session_child","source":"user","parts":[{"type":"tool_call","call":{"id":"call_fixture","name":"execute","arguments":{"code":"print(1)"}}}]}`)})

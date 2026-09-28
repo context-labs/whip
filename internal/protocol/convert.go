@@ -11,7 +11,7 @@ import (
 func TreeFromDomain(value session.Tree) Tree {
 	return Tree{
 		ID: ID(value.ID), Metadata: TreeMetadata(value.Metadata), Engine: string(value.Engine),
-		Policy: TreePolicy(value.Policy), Revision: Counter(value.Revision), CreatedAt: value.CreatedAt.Format(time.RFC3339Nano),
+		Revision: Counter(value.Revision), CreatedAt: value.CreatedAt.Format(time.RFC3339Nano),
 	}
 }
 
@@ -37,7 +37,8 @@ func ModelAttemptFromDomain(value session.ModelAttempt) ModelAttempt {
 		ID: ID(value.ID), TurnID: ID(value.TurnID), LogicalID: ID(value.LogicalID), Number: value.Number, State: string(value.State),
 		CostNanoUSD: counter(value.CostNanoUSD), CostSource: value.CostSource, CostNote: value.CostNote, CreatedAt: value.CreatedAt.Format(time.RFC3339Nano), DispatchedAt: timeString(value.DispatchedAt), FinishedAt: timeString(value.FinishedAt),
 		Request: ModelRequestSnapshot{
-			Purpose: ID(r.Purpose), Model: ModelSelection{Provider: ID(r.Model.Provider), Name: r.Model.Name, Effort: r.Model.Effort}, Route: r.Route, Adapter: ID(r.Adapter), RequestDigest: r.RequestDigest, MaxOutputTokens: Counter(r.MaxOutputTokens), TimeoutMillis: Counter(r.TimeoutMillis),
+			InputTokenBound: counter(r.InputTokenBound),
+			Purpose:         ID(r.Purpose), Model: ModelSelection{Provider: ID(r.Model.Provider), Name: r.Model.Name, Effort: r.Model.Effort}, Route: r.Route, Adapter: ID(r.Adapter), RequestDigest: r.RequestDigest, MaxOutputTokens: Counter(r.MaxOutputTokens), TimeoutMillis: Counter(r.TimeoutMillis),
 			Prices: ModelPrices{Input: counter(r.Prices.Input), Output: counter(r.Prices.Output), Reasoning: counter(r.Prices.Reasoning), CachedInput: counter(r.Prices.CachedInput), CachedOutput: counter(r.Prices.CachedOutput)},
 		},
 	}
@@ -48,7 +49,8 @@ func ModelAttemptFromDomain(value session.ModelAttempt) ModelAttempt {
 	if value.Result != nil {
 		u := value.Result.Usage
 		result.Result = &ModelAttemptResult{
-			State: string(value.Result.State), Failure: value.Result.Failure, UsageNote: value.Result.UsageNote, ReportedCostNanoUSD: counter(value.Result.ReportedCostNanoUSD),
+			ElapsedMillis: counter(value.Result.ElapsedMillis),
+			State:         string(value.Result.State), Failure: value.Result.Failure, UsageNote: value.Result.UsageNote, ReportedCostNanoUSD: counter(value.Result.ReportedCostNanoUSD),
 			Usage: ModelUsage{Input: counter(u.Input), Output: counter(u.Output), Reasoning: counter(u.Reasoning), CachedInput: counter(u.CachedInput), CachedOutput: counter(u.CachedOutput)},
 		}
 	}
@@ -128,6 +130,9 @@ func (p ConfigPatch) Domain() (session.ConfigPatch, error) {
 
 func (p ConfigPatch) MarshalJSON() ([]byte, error) {
 	fields := map[string]any{}
+	if p.ReportMode != nil {
+		fields["report_mode"] = p.ReportMode
+	}
 	if p.Model != nil {
 		fields["model"] = p.Model
 	}
@@ -174,6 +179,9 @@ func MessageFromDomain(value session.Message) Message {
 	if value.InputID != nil {
 		id := ID(*value.InputID)
 		result.InputID = &id
+	}
+	if value.Mail != nil {
+		result.Mail = &MailRef{ID: ID(value.Mail.ID), Revision: Counter(value.Mail.Revision), Presentation: string(value.Mail.Presentation)}
 	}
 	return result
 }

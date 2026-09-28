@@ -97,6 +97,7 @@ type OutputPolicy struct {
 	Schema json.RawMessage `json:"schema"`
 }
 type Configuration struct {
+	ReportMode   string                     `json:"report_mode" enum:"notice,inline,message"`
 	Model        ModelSelection             `json:"model"`
 	Instructions Instructions               `json:"instructions"`
 	Tools        map[string]ToolDeclaration `json:"tools"`
@@ -105,6 +106,7 @@ type Configuration struct {
 	OutputSchema json.RawMessage            `json:"output_schema"`
 }
 type ConfigPatch struct {
+	ReportMode   *string                    `json:"report_mode,omitempty" enum:"notice,inline,message"`
 	Model        *ModelSelection            `json:"model,omitempty"`
 	Instructions *Instructions              `json:"instructions,omitempty"`
 	Tools        map[string]ToolDeclaration `json:"tools,omitempty"`
@@ -122,11 +124,6 @@ type Definition struct {
 	Document  DefinitionDocument `json:"document"`
 	CreatedAt string             `json:"created_at"`
 }
-type TreePolicy struct {
-	MaxDepth                  int `json:"max_depth" min:"0" max:"128"`
-	MaxSessions               int `json:"max_sessions" min:"1" max:"10000"`
-	MaxQueuedInputsPerSession int `json:"max_queued_inputs_per_session" min:"1" max:"10000"`
-}
 type TreeMetadata struct {
 	Title    *string `json:"title"`
 	Archived bool    `json:"archived"`
@@ -136,7 +133,6 @@ type Tree struct {
 	ID        ID           `json:"id"`
 	Metadata  TreeMetadata `json:"metadata"`
 	Engine    string       `json:"engine" enum:"starlark,quickjs"`
-	Policy    TreePolicy   `json:"policy"`
 	Revision  Counter      `json:"revision"`
 	CreatedAt string       `json:"created_at"`
 }
@@ -198,14 +194,15 @@ type Turn struct {
 	FinishedAt     *string `json:"finished_at"`
 }
 type Message struct {
-	ID        ID      `json:"id"`
-	SessionID ID      `json:"session_id"`
-	TurnID    ID      `json:"turn_id"`
-	InputID   *ID     `json:"input_id"`
-	Sequence  Counter `json:"sequence"`
-	Role      string  `json:"role" enum:"system,user,assistant,tool"`
-	Parts     []Part  `json:"parts"`
-	CreatedAt string  `json:"created_at"`
+	ID        ID       `json:"id"`
+	SessionID ID       `json:"session_id"`
+	TurnID    ID       `json:"turn_id"`
+	InputID   *ID      `json:"input_id"`
+	Mail      *MailRef `json:"mail"`
+	Sequence  Counter  `json:"sequence"`
+	Role      string   `json:"role" enum:"system,user,assistant,tool"`
+	Parts     []Part   `json:"parts"`
+	CreatedAt string   `json:"created_at"`
 }
 type Admission struct {
 	Receipt Receipt `json:"receipt"`
@@ -214,12 +211,12 @@ type Admission struct {
 }
 
 type CreateTreeParams struct {
-	Metadata         TreeMetadata  `json:"metadata"`
-	Engine           string        `json:"engine" enum:"starlark,quickjs"`
-	Policy           TreePolicy    `json:"policy"`
-	Definition       DefinitionRef `json:"definition"`
-	Overrides        ConfigPatch   `json:"overrides"`
-	WorkingDirectory string        `json:"working_directory"`
+	Metadata         TreeMetadata    `json:"metadata"`
+	Engine           string          `json:"engine" enum:"starlark,quickjs"`
+	Resources        []ResourceLimit `json:"resources,omitempty"`
+	Definition       DefinitionRef   `json:"definition"`
+	Overrides        ConfigPatch     `json:"overrides"`
+	WorkingDirectory string          `json:"working_directory"`
 }
 type CreateTreeResult struct {
 	Tree Tree    `json:"tree"`
@@ -237,10 +234,19 @@ type SessionParams struct {
 	SessionID ID `json:"session_id"`
 }
 type SpawnSessionParams struct {
-	ParentID         ID             `json:"parent_id"`
-	Definition       *DefinitionRef `json:"definition,omitempty"`
-	Overrides        ConfigPatch    `json:"overrides"`
-	WorkingDirectory *string        `json:"working_directory,omitempty"`
+	Identity         RequestIdentity `json:"identity"`
+	ParentID         ID              `json:"parent_id"`
+	Definition       *DefinitionRef  `json:"definition,omitempty"`
+	Overrides        ConfigPatch     `json:"overrides"`
+	WorkingDirectory *string         `json:"working_directory,omitempty"`
+	Parts            []Part          `json:"parts"`
+	GrantIDs         []ID            `json:"grant_ids"`
+	Budgets          []BudgetLimit   `json:"budgets,omitempty"`
+	Resources        []ResourceLimit `json:"resources,omitempty"`
+}
+type SpawnSessionResult struct {
+	Session   *Session  `json:"session"`
+	Admission Admission `json:"admission"`
 }
 type ListSessionsParams struct {
 	TreeID ID  `json:"tree_id"`
@@ -294,6 +300,7 @@ type ModelRequestSnapshot struct {
 	RequestDigest   string         `json:"request_digest" pattern:"^[a-f0-9]{64}$"`
 	Prices          ModelPrices    `json:"prices"`
 	MaxOutputTokens Counter        `json:"max_output_tokens"`
+	InputTokenBound *Counter       `json:"input_token_bound"`
 	TimeoutMillis   Counter        `json:"timeout_millis"`
 }
 type ModelAttemptResult struct {
@@ -302,6 +309,7 @@ type ModelAttemptResult struct {
 	ReportedCostNanoUSD *Counter   `json:"reported_cost_nano_usd"`
 	Failure             *string    `json:"failure"`
 	UsageNote           *string    `json:"usage_note"`
+	ElapsedMillis       *Counter   `json:"elapsed_millis"`
 }
 type ModelAttempt struct {
 	ID           ID                   `json:"id"`

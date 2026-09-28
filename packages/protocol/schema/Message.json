@@ -25,6 +25,36 @@
           ],
           "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
         },
+        "mail": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "revision": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,18})$",
+              "format": "counter"
+            },
+            "presentation": {
+              "type": "string",
+              "enum": [
+                "digest",
+                "body"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "revision",
+            "presentation"
+          ],
+          "additionalProperties": false
+        },
         "sequence": {
           "type": "string",
           "pattern": "^(0|[1-9][0-9]{0,18})$",
@@ -94,6 +124,7 @@
         "session_id",
         "turn_id",
         "input_id",
+        "mail",
         "sequence",
         "role",
         "parts",
@@ -122,6 +153,36 @@
             "string"
           ],
           "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "mail": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "revision": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,18})$",
+              "format": "counter"
+            },
+            "presentation": {
+              "type": "string",
+              "enum": [
+                "digest",
+                "body"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "revision",
+            "presentation"
+          ],
+          "additionalProperties": false
         },
         "sequence": {
           "type": "string",
@@ -192,6 +253,7 @@
         "session_id",
         "turn_id",
         "input_id",
+        "mail",
         "sequence",
         "role",
         "parts",
@@ -220,6 +282,36 @@
             "string"
           ],
           "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "mail": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "revision": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,18})$",
+              "format": "counter"
+            },
+            "presentation": {
+              "type": "string",
+              "enum": [
+                "digest",
+                "body"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "revision",
+            "presentation"
+          ],
+          "additionalProperties": false
         },
         "sequence": {
           "type": "string",
@@ -329,6 +421,7 @@
         "session_id",
         "turn_id",
         "input_id",
+        "mail",
         "sequence",
         "role",
         "parts",
@@ -357,6 +450,36 @@
             "string"
           ],
           "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "mail": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "revision": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,18})$",
+              "format": "counter"
+            },
+            "presentation": {
+              "type": "string",
+              "enum": [
+                "digest",
+                "body"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "revision",
+            "presentation"
+          ],
+          "additionalProperties": false
         },
         "sequence": {
           "type": "string",
@@ -424,6 +547,7 @@
         "session_id",
         "turn_id",
         "input_id",
+        "mail",
         "sequence",
         "role",
         "parts",

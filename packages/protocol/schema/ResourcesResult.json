@@ -1,0 +1,64 @@
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "object",
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "depth",
+              "descendants",
+              "queued_inputs",
+              "active_operations",
+              "subscriptions",
+              "runnable_descendants"
+            ]
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,18})$",
+            "format": "counter"
+          },
+          "limit": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^(0|[1-9][0-9]{0,18})$",
+            "format": "counter"
+          },
+          "used": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,18})$",
+            "format": "counter"
+          }
+        },
+        "required": [
+          "session_id",
+          "kind",
+          "revision",
+          "limit",
+          "used"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ResourcesResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ResourcesResult",
+  "required": [
+    "items"
+  ],
+  "additionalProperties": false
+}
