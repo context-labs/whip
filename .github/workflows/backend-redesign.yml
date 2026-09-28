@@ -1,0 +1,72 @@
+name: backend-redesign
+
+on:
+  pull_request:
+    branches: [codex/backend-redesign]
+  push:
+    branches: [codex/backend-redesign]
+
+concurrency:
+  group: redesign-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: go install github.com/go-task/task/v3/cmd/task@v3.48.0
+      - run: npm ci --no-audit --no-fund
+      - name: Active scope and real-runtime acceptance
+        env:
+          WHIP_SDK_RACE: '1'
+        run: task check:phase
+      - name: Failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: redesign-failure-${{ matrix.os }}
+          path: test-results/redesign/
+          if-no-files-found: ignore
+
+  analysis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go install github.com/go-task/task/v3/cmd/task@v3.48.0
+      - run: task check:analysis
+
+  # Keep one stable required context; a failed or cancelled dependency fails it.
+  redesign:
+    if: always()
+    needs: [checks, analysis]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every active check
+        env:
+          CHECKS_RESULT: ${{ needs.checks.result }}
+          ANALYSIS_RESULT: ${{ needs.analysis.result }}
+        run: test "$CHECKS_RESULT" = success && test "$ANALYSIS_RESULT" = success

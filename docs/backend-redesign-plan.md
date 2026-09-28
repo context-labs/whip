@@ -1,0 +1,655 @@
+# Whip backend redesign and delivery plan
+
+Status: phase 0 in progress; phases 1–7 have not started.
+Written: 2026-09-27. Planning reference: `6f02507bf`.
+
+Execution baseline: `e3fed9c91918d9c36766dd47d878c1b5466238d1`. Commands,
+active targets and measured evidence are in
+[backend-redesign-development.md](backend-redesign-development.md).
+
+Build a simpler Go backend with explicit ownership, uniform root/child sessions,
+and a matching SDK and client contract. Deliver it in working increments with a
+small, continuously green regression suite.
+
+This document records the intended replacement architecture and its delivery
+gates. It does not describe current behavior. Existing engineering guides remain
+the references for current implementation; update them as each change lands.
+In particular, follow [frontend.md](frontend.md) when changing SDK,
+protocol, or application boundaries. Historical plans are context, not additional
+requirements for the replacement.
+
+## Scope and constraints
+
+- Keep the core backend in Go. TypeScript examples from the design discussion
+  illustrated concepts; they did not propose moving execution into clients.
+- Start with fresh tables, configuration, runtime identity, and a new protocol
+  major. No old-data importer, old-config reader, dual writes, or old-protocol
+  compatibility layer is required.
+- Preserve wanted product capabilities. Changing their implementation does not
+  implicitly remove them. Record deliberate feature retirements explicitly.
+- Update the TypeScript SDK, shared app, web, desktop, mobile, Go client, CLI,
+  TUI, ACP bridge, examples, and documentation as applicable.
+- Reuse useful provider, engine, transport, UI, and platform implementations
+  where they fit the new boundaries. Evaluate reuse at the responsibility level.
+- Keep SQLite and the existing socket/JSON-RPC/gateway transport approach unless
+  implementation evidence establishes a concrete reason to change them.
+- Develop against disposable homes and databases. The old user data directory
+  can remain unused; cutover does not require deleting it.
+
+## Redesign philosophy
+
+1. **Give every fact one authority.** Database records own durable facts. Live
+   workers own execution handles. SDK views own reconstructed client state.
+   Derived caches and projections must identify their source and invalidation.
+2. **Use one session model at every depth.** Roots and children share records,
+   execution, history, and client operations. Parent relationships and explicit
+   policies explain their differences.
+3. **Separate retained state from execution.** A session exists without a live
+   worker. Reading history does not start work. Loading a worker does not invent
+   configuration or authority missing from storage.
+4. **Make transitions explicit.** Input admission, turn start, model dispatch,
+   host effects, transcript writes, and completion each have defined durability
+   and failure semantics.
+5. **Keep abstractions small.** Use concrete structs, ordinary constructors,
+   direct composition, and small consumer-owned interfaces where useful. Avoid
+   a generic workflow framework, service locator, or repository per table.
+6. **Preserve meaningful distinctions.** Inputs, mail, turns, messages, model
+   attempts, and host operations have different lifetimes. Unifying their
+   storage envelopes must not erase those semantics.
+7. **Allow representations to serve their purpose.** Stored messages, provider
+   requests, and UI projections can have different shapes. Explicit conversion
+   is useful; independently mutable copies of the same fact are not.
+8. **Bound retained and live resources.** Queues, worker counts, event replay,
+   content reads, transcript pages, and client caches need explicit limits and
+   observable exhaustion or truncation behavior.
+9. **Make deletion part of delivery.** Remove superseded implementations and
+   tests as their replacements land. Keep historical reference in Git.
+
+## Domain ownership and persistence
+
+The names below establish responsibilities. Exact Go fields and SQL columns are
+settled in phase 1 before dependent implementations grow around them.
+
+| Concept | Owns | Authoritative storage |
+| --- | --- | --- |
+| AgentDefinition | Immutable revision of defaults, instruction policy, tool descriptions, child templates, hook/output declarations | SQL definition revisions, including built-ins |
+| SessionTree | Shared policy and limits; conversation title, archive/pin metadata; common engine selection | SQL |
+| Session | Identity, tree/parent relationship, source definition revision, resolved configuration and its revision, working directory, retained lifecycle | SQL |
+| Input | Accepted work, recipient, source, queue/delivery state, link to execution | SQL |
+| RequestReceipt | Stable request identity, payload identity, admission/outcome needed for client recovery | SQL; provider credentials and ephemeral operations excluded |
+| Turn | Execution identity, captured configuration revision, accepted inputs, start/end, durable outcome | SQL |
+| Message | Authored/model/tool transcript entry with stable identity, ordering, and content references | SQL; large/binary bodies in content storage |
+| Compaction | Summary and exact transcript boundary summarized | SQL |
+| ModelContext | Composed instructions, selected summary, recent messages and provisional request data | Derived memory |
+| SessionWorker | Loaded REPL, current execution snapshot, cancellation and temporary buffers | Memory |
+| Runtime | Scheduler, live worker registry, resource lifetime and coordination | Memory; reconstructs work from SQL |
+| ModelAttempt | One provider request, logical-call identity, route/pricing snapshot, outcome, usage and settlement state | SQL |
+| Operation | Host-action admission, authority, dispatch, outcome and uncertainty | SQL; live handles remain in memory |
+| Budget / Grant | Enforced limits, reservations and scoped authority | SQL; derived totals have explicit owners |
+| SessionMail | Inter-session communication and delivery/acknowledgement state | SQL, distinct from execution inputs |
+| SessionState / TreeState | Explicit private/shared application state and relevant subscriptions | SQL, distinct from VM globals |
+| REPLCheckpoint | Opaque engine image, compatibility metadata, integrity and execution boundary | Durable storage; initially SQL binary payload is acceptable |
+| Content | Immutable bytes, metadata and scoped access references | Bodies in blob files; metadata/references/grants in SQL |
+| ProviderConfiguration | Host routes, endpoint configuration and credential references | Host config files and secret sources |
+| Event / Span | Bounded observation/replay and diagnostic evidence | Durable bounded records where needed; streaming deltas may be transient |
+| SDK view | Bounded tree/session snapshots, history windows and live presentation | Reconstructible client memory |
+| Client draft / recovery record | Unsubmitted user work and request identity metadata | Explicit device storage; separate from authoritative transcripts |
+
+### Required ownership rules
+
+- Exactly one root exists per tree. Other sessions have a parent in the same
+  tree; relationships cannot form cycles. Root lookup is derived from this
+  relationship rather than an independently writable second identity.
+- Every session uses the same transcript table and turn lifecycle. There is at
+  most one active turn per session, enforced through runtime ownership and a
+  database constraint or transactional claim.
+- Creating a session resolves a pinned definition plus explicit overrides,
+  validates the result, deeply copies maps/slices, and persists effective config.
+  Editing a definition or host default does not silently modify that session.
+- Configuration changes are explicit and revisioned. A running turn uses its
+  captured configuration; changes take effect at a defined safe boundary.
+- Model changes preserve history, children, REPL state, and unrelated integration
+  resources. Model selection contains no provider client or credentials.
+- Prompt policy belongs to configuration. Dynamic project files, skills, and
+  other declared context sources are refreshed at documented boundaries. Keep
+  audit evidence of the actual composed request where required; do not pretend
+  a pinned definition freezes external files.
+- Definitions advertise available operations. Grants, permission decisions and
+  host policy determine actual authority. Child creation cannot widen authority
+  or evade ancestor budget limits.
+- A SessionWorker may cache immutable configuration and derived context. The
+  database remains authoritative; there is one path for committed updates to
+  invalidate or replace those execution snapshots.
+- SessionTree starts as data and policy. One runtime scheduler and per-session
+  execution ownership are the default. Add another actor only for an invariant
+  that transactions and the scheduler cannot express clearly.
+- Client disconnect, view closure, and aborted local waits release observation.
+  Cancellation of accepted execution is an explicit operation targeting a turn.
+- Parent-turn completion does not implicitly delete a retained child. Stop,
+  cancel, session deletion, subtree deletion and worker eviction have distinct
+  semantics and resource cleanup.
+- VM state, explicit session state, shared tree state, and conversation history
+  remain separate. Live process, browser, terminal and executor handles cannot
+  be reconstructed merely by restoring their IDs.
+- A content digest identifies bytes; an authorized reference grants scoped
+  access. Provider encoding can hydrate bytes without rewriting the stored
+  transcript into base64 bodies.
+- Store model accounting once per actual attempt, including retries and helper
+  calls. Preserve unknown usage/cost separately from known zero. Budget counters
+  are transactional projections, with used/reserved/uncertain distinguished.
+- Events provide bounded recovery and observation. Canonical state and final
+  outcomes cannot depend on replaying an indefinitely retained event log.
+
+### Fresh schema direction
+
+| Current organization | Replacement direction |
+| --- | --- |
+| Root `sessions` plus `agents` | `session_trees` plus uniform `sessions` |
+| `messages` plus child `transcript_messages` | One `messages` table keyed by session |
+| Separate root/child turn commit paths | One `turns` lifecycle and persistence API |
+| Special built-in definition resolution | Revisioned definition documents for every template |
+| Configuration reconstructed through several owners | Stored effective session config plus explicit revisions |
+| Model-call ledger plus competing usage representations | Attempt ledger with explicit budget/read projections |
+| Checkpoints plus legacy scratch restoration | One checkpoint contract with engine-specific payloads |
+
+This is a responsibility mapping, not an ALTER TABLE migration. Start with a
+fresh schema version. Retain normal schema versioning for future releases of the
+new system; omit migrations from the retired implementation.
+
+## Go boundaries and execution flow
+
+Target core packages:
+
+```text
+cmd/whip/          Startup, explicit dependency construction, CLI entry points
+internal/session/ Durable conversation values and validation
+internal/store/   SQLite schema, queries, atomic transitions, recovery
+internal/runtime/ Scheduling, workers, cancellation, coordination
+internal/runner/  Model/code/tool loop and model-context assembly
+internal/model/   Provider implementations and request/response conversion
+internal/engine/  QuickJS/Starlark execution and checkpoint formats
+internal/tool/    Dispatch and integration with scoped authority checks
+internal/content/ Immutable content bodies and bounded access
+internal/config/  Host configuration and credential resolution
+internal/protocol/ Wire DTOs, operation/event declarations, generation metadata
+internal/rpc/     Wire validation and application-operation mapping
+internal/client/  Go client for CLI, TUI and ACP
+```
+
+Keep existing integration packages where useful. This is a boundary map, not a
+requirement to create empty packages or move every leaf implementation.
+
+Domain values must not import SQLite, runtime, provider clients, or engines.
+Store owns transactions and no live process managers. Runner uses narrow injected
+interfaces and cannot reach a global runtime or issue SQL. Protocol owns explicit
+wire shapes rather than exporting persistence implementations. Both clients
+depend on the wire contract without importing backend execution packages.
+
+Keep transactions intact across related tables. Splitting persistence into many
+small repositories must not force orchestration to simulate database atomicity.
+Long provider calls and host effects run outside database transactions and
+scheduler locks. Root and child execution follow the same path:
+
+```text
+client / schedule / authorized agent
+    -> admit work and commit request receipt + input
+    -> scheduler claims input and starts a turn
+    -> worker captures config and builds model context
+    -> runner dispatches recorded model attempts and authorized host operations
+    -> completed messages / cells become durable
+    -> turn outcome and related input transitions commit
+    -> clients reconcile committed state with live presentation
+```
+
+## Durability and recovery contract
+
+Define these transitions before adding more features to the runner:
+
+| Boundary | Required guarantee |
+| --- | --- |
+| Input admission | Retry identity, payload identity and input admission commit atomically; same identity with different payload is rejected |
+| Turn start | Claim eligible input, link it to the turn, capture config and enforce one active turn atomically |
+| Model dispatch | Record attempt/reservation before dispatch; settle each actual attempt without treating unknown cost as zero |
+| Host effect | Validate authority, persist admission and record dispatch/outcome; uncertain effects are not automatically repeated |
+| Transcript append | Completed entries have stable IDs/order and survive restart; streaming fragments are explicitly provisional |
+| Cell checkpoint | Checkpoint identifies engine compatibility and the completed cell/transcript boundary it covers |
+| Turn finish | Final outcome and associated input/receipt transitions commit together where they form one invariant |
+| Observation | Notify after committed state exists; snapshot/replay closes notification gaps |
+
+Persist completed transcript entries during a running turn. On a crash, retain a
+truthful partial conversation associated with an interrupted turn. At cell
+boundaries, commit checkpoint metadata/image and transcript evidence together
+when their consistency requires it. External effects cannot be rolled back by
+that transaction; their independent operation records remain necessary.
+
+Recovery preserves unclaimed queued work, identifies interrupted turns, and
+retains unresolved dispatch/accounting outcomes. Retrying failed persistence
+must not reissue the provider request or host effect. A retry policy must identify
+which work can safely be retried and when explicit input is required.
+
+Blob writes need an explicit ordering with reference commits and orphan cleanup.
+Checkpoint incompatibility/corruption needs an explicit failure/reset policy;
+never silently replay code to rebuild state containing external effects.
+
+## SDK and client contract
+
+Keep the Go-derived wire generation path. Generate TypeScript declarations,
+schemas, operation metadata and validators from the protocol registry. Treat
+generated drift and actual Go/TypeScript interchange as required checks.
+
+The client-facing shape should make identity consistent:
+
+| Concern | Intended service shape |
+| --- | --- |
+| New conversation tree | `trees.create(...)`, returning tree and root session identities |
+| Shared metadata/policy | `trees.get/update(...)` |
+| Any root or child | `sessions.get(id)` / `session(id)` |
+| Child creation | `sessions.spawn({ parentId, ... })` |
+| Work submission | `session.submit(...)`, returning accepted input identity |
+| History | `session.history(...)` |
+| Execution inspection/cancellation | `turns.get/cancel(...)` |
+| Descendants | `sessions.list({ treeId, parentId })` |
+| Templates | `definitions.register/get/list(...)` |
+
+A convenience `run()` may follow an input into its associated turn. Admission,
+execution outcome, and the lifetime of a local stream remain distinguishable.
+Durable requests retain stable recovery identities. Queries and ephemeral
+operations such as terminal input do not enter an automatic replay queue.
+
+Use lightweight tree views and uniform session transcript views. The SDK owns
+bounded snapshots, event reconciliation, reconnect and request recovery. The app
+owns selection, drafts and presentation, with no second reducer for daemon truth.
+Snapshot revisions/cursors must provide a gap-free handoff to updates; expired
+replay cursors require a fresh snapshot. Large counters remain exact across Go
+and JavaScript. Content references remain scoped and lazy.
+
+Custom tool/hook schemas belong to definition revisions. Executable handlers and
+their connection-bound availability belong to live executor bindings. Reconnect
+must not recreate authority or replay arbitrary effects.
+
+Porting includes shared React presentation, web/gateway transfers, desktop native
+bridges and packaging, mobile suspension and local recovery, Go CLI/TUI, ACP,
+examples, fixtures and user documentation. SDK work begins with the first working
+slice; client adoption continues through the project rather than waiting for a
+completed backend.
+
+## Development, testing and CI process
+
+### Working loop
+
+1. State one behavior or invariant to deliver, including the important failure.
+2. Add the smallest meaningful check that would catch it breaking.
+3. Implement the path through the required layers.
+4. Run affected tests while editing; run the active change gate when complete.
+5. Review state ownership, transaction boundaries and cleanup; delete superseded
+   code/tests and commit a coherent increment.
+6. Update phase evidence and feature/test disposition only where they changed.
+
+Use an isolated integration branch and disposable runtime storage. Preserve a
+baseline commit and record its actual check results before replacement work.
+Use small reviewable changes without requiring every intermediate increment to
+support the retired application. Each active target must remain buildable and
+green. Retained integration code must not conceal an import back into the retired
+orchestration.
+
+Do not create tests for trivial forwarding or field assignments solely to raise
+coverage. Prioritize transitions, transactions, concurrency, authority, recovery,
+and provider/wire conversion. Test an invariant at the lowest layer that proves
+it, then add cross-layer coverage where crossing the boundary is itself risky.
+
+### Feedback gates
+
+The following commands are implemented in phase 0 using the existing Taskfile
+and test tools. Targets below are budgets; measured results are recorded in the
+[development guide](backend-redesign-development.md).
+
+| Gate | When and scope | Warm feedback target |
+| --- | --- | --- |
+| Focused checks | During edits: affected package tests and typechecking | A few seconds |
+| `check:fast` | Before commit: formatting and compact active core regression suite | Under one minute |
+| `check:change` | Before integration merge: active backend tests/build/vet, targeted race checks, affected SDK/client tests, contract drift/interoperability | A few minutes |
+| `check:phase` | Phase completion: full active acceptance, broader race/platform/client checks, packaging where introduced | Deliberate longer run |
+
+Keep pre-commit hooks lightweight. Avoid automatically rebuilding every client
+or running the full cross-platform suite for each local checkpoint. Measure gate
+duration and fix costly setup before adding a test-selection framework.
+
+Maintain a short explicit active-target list in the task configuration. Include
+new packages as they land, along with affected retained dependencies. Shared
+domain/protocol changes trigger all active consumers, not only changed files.
+Not-yet-ported targets have an assigned phase; they do not create permanent
+expected-red jobs. Every supported target must return to the gate by cutover.
+
+Configure CI triggers and required status checks for the integration branch.
+Required jobs must actually run and their failures must reach the aggregate gate.
+Keep production branch policy intact while the replacement has a narrower active
+scope. Remove the rewrite branch's global 90% coverage floor as a blocking gate;
+keep coverage reports diagnostic and require explicit high-risk scenario coverage.
+
+Run deterministic tests without live provider credentials. Broader OS/browser
+matrices, installation, signing, fuzzing, performance measurements and live-model
+evaluation run at relevant milestones. A failure in a supported capability remains
+a regression even when detected by the broader gate. Live-model quality evaluation
+is separate from deterministic runtime correctness.
+
+### Existing test disposition
+
+Classify by feature/test family as its subsystem is touched:
+
+| Category | Action |
+| --- | --- |
+| Required behavior with retained implementation | Keep; adapt setup only as necessary |
+| Required behavior with replacement implementation | Rewrite against its new public boundary; preserve valuable failure scenarios |
+| Intentionally removed behavior | Delete with the old implementation |
+| Capability scheduled for a later phase | Record the obligation and target phase; cover it before declaring the feature supported |
+
+Historical bug tests are requirements evidence. Actor names, duplicate table
+layouts, old wire fields and obsolete migration paths are not automatically new
+requirements. Replacing an assertion requires identifying whether the behavior
+changed, the implementation broke, or the test was coupled to obsolete structure.
+Do not simply update expectations until a failure disappears.
+
+Keep the old suite in baseline Git history. Avoid an archived test directory,
+permanent skip lists, blanket retries, and compatibility shims built just to keep
+old assertions alive. `go test -run` still compiles all tests in selected packages;
+remove or port obsolete tests that no longer compile.
+
+Maintain one compact table here as families are addressed:
+
+| Feature/test family | Guarantee retained or retirement decision | Replacement evidence | Target phase / status |
+| --- | --- | --- | --- |
+| Admission and client recovery | Stable request identity; accepted work survives lost acknowledgement | Pending | 2 |
+| Execution and crash recovery | Explicit interruption, durable completed evidence, no uncertain-effect replay | Pending | 3 |
+| Accounting | Every dispatched attempt recorded; settlement retry does not redispatch | Pending | 3 |
+| Recursion and authority | Uniform session behavior, scoped grants, shared limits | Pending | 4 |
+| Context and checkpointing | Raw history retained; checkpoint boundary and fidelity explicit | Pending | 3 and 5 |
+| Integrations and product features | Preserve capability outcomes; inspect existing regression scenarios | Pending | 5 |
+| All client surfaces | Correct submission, observation, recovery and resource cleanup | Pending | 2 through 6 |
+| Old schemas/protocol/scratch compatibility | Retired by fresh-start scope | Delete with corresponding implementation | 1 through 7 |
+
+### Test fixture and diagnostics
+
+Adapt existing fixture utilities where useful. Use real temporary SQLite, the
+real runtime/protocol/SDK, a scripted provider, and controlled external tools.
+Runtime acceptance must execute the real runner; mocking it bypasses the very
+orchestration being tested. Keep a small real-provider/real-engine smoke path
+separate from the deterministic daily gate.
+
+Add controls only when a scenario needs them: barriers for dispatch/completion,
+provider/tool failures, dropped acknowledgements, disconnection, storage failure,
+and daemon restart. Prefer explicit signals and controlled clocks to arbitrary
+sleeps. Use a few subprocess kills to establish crash recovery; graceful shutdown
+alone is insufficient. Bound every wait and clean up processes and resources.
+
+Retain useful failure artifacts: database, logs, event trace, scripted actions,
+and the command/seed needed to reproduce the failure. A narrow failed commit
+must prove rollback or recovery, not merely that a returned error is non-nil.
+
+Use the same disposable fixture for manual development of permission waits,
+children, interruptions and large output. It must not target a developer's normal
+daemon or depend on spending model tokens.
+
+Add a few package-boundary checks for forbidden domain/runtime, store/resource,
+and client/execution imports. Keep them tied to intentional dependency rules,
+not source-text snapshots or incidental function names.
+
+## Delivery phases
+
+Phases are dependency gates. SDK/client work begins in phase 2 and continues
+through phases 3–5; phase 6 completes coverage rather than starting client work.
+Within a phase, deliver one useful behavior at a time. Only mark a criterion
+complete with a passing check or recorded manual evidence.
+
+| Phase | Deliverable | Depends on | Status |
+| --- | --- | --- | --- |
+| 0 | Baseline, feedback gates and fixture foundation | None | In progress |
+| 1 | Domain contract, ownership, fresh storage/config | 0 | Pending |
+| 2 | Working database → runtime → protocol → SDK slice | 1 | Pending |
+| 3 | One provider, one engine, execution and recovery | 2 | Pending |
+| 4 | Recursion and shared coordination | 3 | Pending |
+| 5 | Remaining engines, integrations and product behavior | 4 | Pending |
+| 6 | Complete client adoption and product validation | Starts at 2; finishes after 5 | Pending |
+| 7 | Cutover, deletion and release readiness | All prior gates | Pending |
+
+### Phase 0 — Establish the feedback loop
+
+Record baseline revision/results and set up the integration branch, isolated
+storage, active-target gates and fixture lifecycle. Inventory required behavior
+families using existing tests and the feature map. Prepare the first admission
+and restart scenarios; do not add failing placeholders to the required suite.
+
+Acceptance:
+
+- [x] Baseline identity and actual check results are recorded, including any
+      pre-existing failures. No unrun check is described as passing.
+- [x] Active targets and the initial behavior/test inventory are explicit.
+- [ ] Fast/change/phase tasks run locally; CI runs on integration-branch PRs and
+      fails visibly when a required check is deliberately broken.
+- [x] Hook behavior is lightweight; broader validation is available explicitly.
+- [x] Fixture startup/shutdown is repeatable in disposable storage, with bounded
+      waits and failure artifacts. It does not touch the normal runtime.
+- [x] Feedback times are measured once; targets are adjusted transparently if
+      necessary without silently dropping important checks.
+
+### Phase 1 — Define the domain and fresh persistence
+
+Implement durable value types, validation, definition revisions, effective config
+resolution, host config and fresh schema. Establish transaction APIs and the
+state machines that later code will use. Write the initial wire shapes and
+generation fixtures. Choose the first provider and engine for phase 3.
+
+Acceptance:
+
+- [ ] Fresh storage/config initializes deterministically with a new identity and
+      no dependency on legacy readers or migrations.
+- [ ] Root uniqueness, parent/tree consistency, cycle prevention and active-turn
+      uniqueness have meaningful validation/constraint tests.
+- [ ] Root and child use the same records, transcript source and persistence API.
+- [ ] Built-ins and registered definitions have pinned revisions; resolving and
+      changing one session cannot mutate another through aliased maps/slices.
+- [ ] Each durable field has one authority; configuration update/capture rules
+      are explicit. Secrets and live resource handles stay outside session rows.
+- [ ] Transaction tests cover atomic admission/claims and rollback using real
+      SQLite. Store construction does not create process/workspace managers.
+- [ ] Admission, retry, interruption, cancellation and deletion semantics are
+      documented sufficiently to implement phases 2–4 without guessing.
+
+### Phase 2 — Deliver the first working slice
+
+Connect tree/session creation, accepted input, a scripted model turn, transcript
+persistence, outcome, history and observation through the actual runtime and
+generated wire contract. Implement a minimal SDK example and initial Go client.
+Use the real runner with a scripted provider as soon as the loop exists.
+
+Acceptance:
+
+- [ ] An SDK example creates a tree/session, submits work, observes a turn and
+      reads its durable messages and outcome.
+- [ ] Losing an acknowledgement and resubmitting the same identity returns the
+      same admission; conflicting payload reuse is rejected.
+- [ ] Concurrent submissions cannot start two active turns for one session.
+- [ ] Reconnect reconstructs completed state without duplicate messages.
+- [ ] Unclaimed queued input survives restart; reading history starts no work.
+- [ ] Client disconnect/local wait cancellation does not cancel accepted work.
+- [ ] Generated declarations/validators and actual Go-to-TypeScript fixtures
+      agree; the new SDK talks directly to the new contract.
+- [ ] This end-to-end slice is part of the required change gate.
+
+### Phase 3 — Make execution and recovery trustworthy
+
+Add one real provider and one engine, content references, explicit operation
+authority, permission interaction, model-attempt accounting, cancellation and
+checkpointing. Establish failure behavior before broadening integrations.
+
+Acceptance:
+
+- [ ] The real runner executes model/code/tool work through injected boundaries.
+      A scripted provider exercises the same loop as the real provider.
+- [ ] Every dispatched model request, including retries/helpers, has an attempt
+      record and truthful usage/cost/uncertainty; settlement failure cannot cause
+      an automatic second provider dispatch.
+- [ ] Tool effects require scoped authority and have durable operation evidence.
+      Denial/revocation prevents the relevant effect; unresolved effects are not
+      blindly replayed after restart.
+- [ ] Completed messages survive a crash mid-turn; provisional output reconciles
+      without becoming a second committed message.
+- [ ] Checkpoint integrity, compatibility, execution boundary and failure policy
+      are tested; restoration does not replay external effects.
+- [ ] Injected transaction failures and selected real process kills yield the
+      documented queued/interrupted/uncertain outcomes.
+- [ ] Explicit cancellation, deadlines and resource cleanup pass targeted race
+      and lifecycle tests. Cancellation remains serviceable during slow calls.
+- [ ] A model/config change takes effect at its documented boundary while
+      preserving REPL, history and unrelated resource state.
+- [ ] Content is authorized and bounded; provider encoding leaves durable
+      references intact. One real-provider/engine smoke has recorded evidence.
+
+### Phase 4 — Add recursion through the same execution path
+
+Implement child admission, scheduling, authority/budget narrowing, mail,
+session/tree state, retry/report policies, and subtree lifecycle operations.
+
+Acceptance:
+
+- [ ] Child creation atomically persists identity/config/authority and its
+      initial input before scheduling; restart retains accepted child work.
+- [ ] Root and child pass the same applicable turn, history, cancel and recovery
+      scenarios. No parallel child commit or transcript implementation exists.
+- [ ] Concurrent descendants cannot overspend shared reservations or widen
+      authority. Unrelated sessions cannot alter each other's scoped state.
+- [ ] Saturated worker/kernel capacity still permits required child progress;
+      parent waits do not deadlock children. Queued work remains durable.
+- [ ] Retry and report behavior is explicit policy; failed/uncertain work follows
+      the selected retry semantics at every depth.
+- [ ] Mail delivery/acknowledgement is distinct from human inspection and input
+      admission. Private and shared state isolation is tested.
+- [ ] Parent-turn completion, child cancellation, subtree deletion and worker
+      eviction release the intended resources without implicit data loss.
+
+### Phase 5 — Port retained product capabilities
+
+Port the remaining engine/provider implementations, compaction, goals, schedules,
+fork/rewind/workspace snapshots, MCP, browser/computer, terminals, custom tools,
+hooks and output validation. Consult the feature map and existing regression
+tests for capabilities omitted from this initial list. Retain the native helper
+and host/gateway trust boundaries while replacing their orchestration callers.
+
+Acceptance:
+
+- [ ] Each retained capability is implemented, or its explicit retirement is
+      recorded. No feature disappears merely because its old tests were deleted.
+- [ ] Both engines pass common contract tests and their documented checkpoint
+      fidelity/compatibility tests; shared semantics do not depend on language.
+- [ ] Compaction preserves raw transcript history and records exact boundaries.
+      Fork/rewind defines conversation, checkpoint and external workspace effects
+      and prevents stale client history from being silently applied.
+- [ ] Goals/schedules admit ordinary inputs; due work is handled according to
+      policy even when its session worker is not already loaded.
+- [ ] Integration reloads/model changes preserve unrelated children, grants,
+      REPL and resource ownership.
+- [ ] Executor disconnect, required/optional hooks, tool schemas and output
+      validation have explicit failure behavior and matching SDK coverage.
+- [ ] Human terminal/browser resources and agent authority remain distinct;
+      reconnect does not silently restore revoked attachments or replay effects.
+- [ ] All retained feature families have replacement evidence and use the new
+      core; no compatibility wrapper delegates execution to the retired runtime.
+
+### Phase 6 — Complete SDK and client adoption
+
+Finish the uniform services and views, shared app, web gateway, desktop native
+bridges, mobile, Go client, CLI/TUI and ACP. Update examples and canonical docs.
+Preserve app-owned drafts, selection and reading behavior without duplicating
+daemon state in a second client store.
+
+Acceptance:
+
+- [ ] Every supported client builds against the new generated contract and
+      exercises submission, observation and explicit cancellation.
+- [ ] Uniform session handles/history/views work for roots and children. SDK
+      recovery distinguishes acceptance, outcome and local observation errors.
+- [ ] Snapshot/subscription handoff, dropped events, expired replay, restart and
+      lost acknowledgement recover without duplicate work or presentation.
+- [ ] Large histories/content and slow consumers remain bounded and report
+      truncation/unavailability truthfully; cross-session access is rejected.
+- [ ] Desktop native bindings, mobile suspension/resume, web content transfer,
+      Go client and ACP pass their relevant transport/lifecycle checks.
+- [ ] Fresh namespaces for local recovery records/caches prevent old identities
+      from targeting the new runtime. Unsupported peers fail initialization.
+- [ ] Manual product checks cover interrupted work, permissions/questions,
+      children, content, drafts and navigation on the affected surfaces.
+- [ ] Examples, SDK docs and canonical frontend/protocol guides describe shipped
+      behavior. All supported client targets are now in required CI.
+
+### Phase 7 — Cut over and remove the retired core
+
+Finish deletion, restore comprehensive product gates and prepare matching
+backend/SDK/client artifacts with a fresh runtime/config namespace.
+
+Acceptance:
+
+- [ ] Old root/child orchestration, duplicate transcript paths, legacy migrations,
+      scratch readers, protocol shapes and superseded reducers/tests are removed.
+- [ ] No active target depends on retired execution code or compatibility
+      aliases. Temporary exclusions and scaffolding have been removed.
+- [ ] All retained guarantees have replacement coverage; the disposition table
+      contains no unresolved obligations for supported features.
+- [ ] Full applicable build, vet/lint, race, contract, SDK, client, platform and
+      packaging gates pass on the final revision, with exact coverage recorded.
+- [ ] Fresh installation/startup and restart are validated on shipped targets;
+      incompatible clients fail clearly. Matching artifacts use one source
+      revision and verified shared renderer where applicable.
+- [ ] Representative real-provider/engine workflows and bounded-resource checks
+      have evidence. Unverified platform/manual checks remain explicitly named.
+- [ ] Release/setup docs explain fresh config/data and retain old directories
+      without silently importing or deleting them.
+- [ ] The normal supported-product gate replaces the temporary active-target
+      scope; this plan records completion and links to canonical documentation.
+
+## Decisions to settle before dependent work
+
+These are concrete decisions, not permission gates for routine implementation.
+Resolve them with the simplest behavior consistent with the ownership rules and
+record the result here. A phase cannot pass while its required semantics remain
+undecided.
+
+| Decision | Latest point | Starting position |
+| --- | --- | --- |
+| Submit vs steer, input batching, input-to-turn mapping | Phase 1 | Queued admission is durable; steering targets an explicit active turn |
+| Configuration updates while busy | Phase 1 | Revisioned changes affect the next turn; current execution snapshot stays fixed |
+| Session stop, cancellation, deletion and subtree policy | Phase 1 | Separate operations with explicit descendant/resource effects |
+| First provider and engine | Phase 1 | Choose retained implementations with useful deterministic fixtures |
+| Retry policy after interruption or uncertain dispatch | Before phase 3 effects | Preserve uncertainty; no automatic replay of unknown external effects |
+| Cell/checkpoint/transcript commit boundary and fidelity | Before phase 3 checkpointing | Completed entries persist during turns; checkpoint names its covered boundary |
+| Question/permission lifetime across crash | Phase 3 | Persist decisions as appropriate; never claim a lost live waiter resumed |
+| Provider config changes and request provenance | Phase 3 | Host credentials remain live; record the actual request route/pricing snapshot |
+| Fork/rewind relationship to VM and workspace state | Before phase 5 implementation | Explicit history revision and documented external-state behavior |
+| Exact service names, DTOs, cursors and protocol major | Initial subset in phase 1; final before phase 6 completion | One Go-owned wire registry, uniform session identities |
+| Feature retirement discovered during porting | Before deleting its only coverage | Preserve by default; record any intentional scope change |
+
+## Evidence and ongoing maintenance
+
+For each phase completion, append a brief entry with revision, commands and
+results, relevant manual checks, remaining limitations, and links to replacement
+tests/artifacts. Keep implementation detail in code and canonical guides; this
+file owns the migration sequence, unresolved decisions and acceptance status.
+
+No implementation or runtime validation is claimed by this planning document.
+
+Useful starting references:
+
+- [Current architecture](architecture.md),
+  [runtime](rlm-runtime.md),
+  [concurrency](concurrency.md), and
+  [feature map](features.md).
+- [Frontend ownership and validation](frontend.md),
+  [SDK API](../packages/sdk/README.md), and
+  [Go contract generator](../cmd/whip-contract/main.go).
+- [Current task gates](../Taskfile.yaml),
+  [CI workflow](../.github/workflows/ci.yml), and
+  [pre-commit hook](../scripts/git-hooks/pre-commit).
+- [Current root-bound SDK](../packages/sdk/src/session.ts),
+  [Go client in daemon](../internal/daemon/root_client.go), and
+  [SDK process-restart fixture](../internal/daemon/v2_sdk_test.go).
+- [Accounting failure regressions](../internal/daemon/budget_test.go),
+  [engine recovery tests](../internal/daemon/execution_engine_test.go), and
+  [compaction regressions](../internal/daemon/manual_compaction_test.go).

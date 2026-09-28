@@ -2695,6 +2695,11 @@ Useful starting files:
 
 ## Development and validation
 
+Work on the backend replacement branch uses the scoped checks and disposable
+runtime in [backend-redesign-development.md](backend-redesign-development.md).
+That guide records which client targets are active in each phase; the ordinary
+product validation below continues to apply outside that branch.
+
 Run from the repository root with Node 24 and the Go toolchain in `go.mod`.
 
 ```sh
