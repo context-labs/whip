@@ -524,6 +524,23 @@ Mutation errors conservatively record uncertainty. Successful effects retain tha
 outcome even when cancellation arrives before result presentation. SQL settlement
 may retry for five seconds without invoking the effect again. Dispatched calls
 have a 30-second execution context; waiting for consent remains cancellable.
+Prepared handlers receive the committed operation ID. Only `models.call/batch`
+may instead use their bounded model-attempt deadlines, still under turn
+cancellation. This internal lifetime boundary does not yet expose guest helpers.
+
+An accepted operation whose persistence or accounting cannot be reconciled
+returns a typed fatal host error. The process consumes that marker locally,
+terminates the worker before replying, cancels and joins outstanding host calls,
+and publishes no new checkpoint. Guest exceptions cannot swallow this failure
+or continue to another effect. The operation retains unresolved dispatched
+evidence for recovery; completed effects and charges are not rolled back or
+replayed. Ordinary settled errors remain catchable. Pre-admission rejection
+never invokes the handler, and cell settlement still refuses unresolved work.
+
+QuickJS no longer applies a separate ten-minute whole-cell timer while waiting
+for host operations. Guest compute/time, VM job/request and RSS limits remain,
+along with turn cancellation and handler deadlines. Suspended host waiting does
+not consume guest compute time, matching the Starlark lifetime boundary.
 
 A permission is durable decision evidence, not a live waiter. Restart cancels
 undispatched operations and pending permissions, marks dispatched unsettled

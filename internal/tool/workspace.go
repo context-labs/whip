@@ -28,14 +28,18 @@ const (
 
 // Prepared contains an immutable request and a one-use execution lifetime.
 // Acquire runs after consent and before durable dispatch. Its release must run
-// even when dispatch is refused. Run requires that acquired lifetime.
+// even when dispatch is refused. Run requires that acquired lifetime and receives
+// the committed operation identity for any separately recorded model attempts.
 type Prepared struct {
 	Capability string
 	Resource   string
 	Arguments  json.RawMessage
 	Mutating   bool
 	Acquire    func(context.Context) (func(), error)
-	Run        func(context.Context) (any, error)
+	Run        func(context.Context, session.OperationID) (any, error)
+	// ModelTimeouts leaves request deadlines to the model attempt runner. It is
+	// valid only for models.call/batch; parent cancellation still applies.
+	ModelTimeouts bool
 	// Apply is used instead of Acquire/Run for database-only coordination. It
 	// rechecks dispatch authority, performs the mutation and records its outcome
 	// in one transaction. It never performs an external effect.
@@ -240,7 +244,7 @@ func (e *fileExecution) acquire(ctx context.Context) (func(), error) {
 	}), nil
 }
 
-func (e *fileExecution) run(ctx context.Context) (any, error) {
+func (e *fileExecution) run(ctx context.Context, _ session.OperationID) (any, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.root == nil || e.ran {

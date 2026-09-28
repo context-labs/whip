@@ -47,24 +47,24 @@ type historyReadRequest struct {
 func (r *Runtime) prepareHistory(ctx context.Context, current session.Session, call tool.Invocation) (tool.Prepared, error) {
 	var request any
 	var page *historyPageRequest
-	var run func(context.Context) (any, error)
+	var run func(context.Context, session.OperationID) (any, error)
 	switch call.Name {
 	case "inspect":
 		args := &historyPageRequest{Limit: 20}
 		request, page = args, args
-		run = func(ctx context.Context) (any, error) {
+		run = func(ctx context.Context, _ session.OperationID) (any, error) {
 			return r.HistoryMetadata(ctx, current.ID, args.After, *args.ThroughSequence, args.Limit)
 		}
 	case "search":
 		args := &historySearchRequest{Limit: 20}
 		request, page = args, &args.historyPageRequest
-		run = func(ctx context.Context) (any, error) {
+		run = func(ctx context.Context, _ session.OperationID) (any, error) {
 			return r.SearchHistory(ctx, current.ID, args.After, *args.ThroughSequence, args.Query, args.Limit)
 		}
 	case "read":
 		args := &historyReadRequest{Length: session.MaxHistoryReadBytes}
 		request = args
-		run = func(ctx context.Context) (any, error) {
+		run = func(ctx context.Context, _ session.OperationID) (any, error) {
 			return r.ReadHistoryMessage(ctx, current.ID, args.ID, args.Offset, args.Length)
 		}
 	default:

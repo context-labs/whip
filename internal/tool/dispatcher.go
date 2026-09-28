@@ -67,6 +67,10 @@ func (d *Dispatcher) Call(ctx context.Context, call Invocation) (any, session.Op
 	if err != nil {
 		return nil, "", err
 	}
+	if prepared.ModelTimeouts && (prepared.Apply != nil || (prepared.Capability != "models.call" && prepared.Capability != "models.batch")) {
+		return nil, "", fmt.Errorf("%w: model timeouts require models.call or models.batch execution", session.ErrInvalid)
+	}
+
 	digest := sha256.Sum256([]byte(string(call.CellID) + "\x00" + call.RequestID))
 	id := session.OperationID("operation_" + hex.EncodeToString(digest[:]))
 	admitted, err := d.ledger.AdmitOperation(ctx, session.OperationSpec{ID: id, CellID: call.CellID, RequestID: call.RequestID, Capability: prepared.Capability, Resource: prepared.Resource, Arguments: prepared.Arguments})
@@ -74,7 +78,10 @@ func (d *Dispatcher) Call(ctx context.Context, call Invocation) (any, session.Op
 		return nil, id, err
 	}
 	if admitted.SessionID != call.SessionID {
-		return nil, id, errors.New("operation owner mismatch")
+		return nil, id, Fatal(errors.New("operation owner mismatch"))
+	}
+	if admitted.State == session.OperationDispatched {
+		return nil, id, Fatal(errors.New("operation remains dispatched; automatic replay prohibited"))
 	}
 	if admitted.State != session.OperationWaiting && admitted.State != session.OperationReady {
 		if admitted.Result != nil && admitted.Result.Failure != nil {
@@ -83,37 +90,45 @@ func (d *Dispatcher) Call(ctx context.Context, call Invocation) (any, session.Op
 		return nil, id, errors.New("operation already admitted; automatic replay prohibited")
 	}
 	if err := d.awaitPermission(ctx, id); err != nil {
-		return nil, id, errors.Join(err, d.cancelPending(ctx, id, err))
+		return nil, id, d.cancelAfterError(ctx, id, err)
 	}
 	if prepared.Apply != nil {
 		value, err := prepared.Apply(ctx, id)
 		if err != nil {
-			return nil, id, errors.Join(err, d.cancelPending(ctx, id, err))
+			return nil, id, d.cancelAfterError(ctx, id, err)
 		}
 		return value, id, nil
 	}
 	release, err := prepared.Acquire(ctx)
 	if err != nil {
-		return nil, id, errors.Join(err, d.cancelPending(ctx, id, err))
+		return nil, id, d.cancelAfterError(ctx, id, err)
 	}
 	defer release()
 	allowed, err := d.ledger.DispatchOperation(ctx, id)
 	if err != nil {
-		return nil, id, errors.Join(err, d.cancelPending(ctx, id, err))
+		return nil, id, d.cancelAfterError(ctx, id, err)
 	} // Ambiguous admission never grants a handler call.
 	if !allowed {
 		outcome, err := d.ledger.Operation(ctx, id)
 		if err != nil {
-			return nil, id, err
+			return nil, id, Fatal(err)
+		}
+		if !outcome.State.Terminal() {
+			return nil, id, Fatal(errors.New("operation dispatch outcome is unresolved"))
 		}
 		if outcome.Result != nil && outcome.Result.Failure != nil {
 			return nil, id, errors.New(*outcome.Result.Failure)
 		}
 		return nil, id, errors.New("operation dispatch was not authorized")
 	}
-	effectCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	value, callErr := prepared.Run(effectCtx)
+	effectCtx, cancel := operationContext(ctx, prepared.ModelTimeouts)
+	value, callErr := prepared.Run(effectCtx, id)
 	cancel()
+	if isFatal(callErr) {
+		// Linked attempt accounting may still be unresolved. Do not fabricate a
+		// terminal operation; recovery owns the persisted dispatched evidence.
+		return nil, id, callErr
+	}
 	result := session.OperationResult{State: session.OperationSucceeded}
 	if callErr != nil {
 		result.State = session.OperationFailed
@@ -131,7 +146,7 @@ func (d *Dispatcher) Call(ctx context.Context, call Invocation) (any, session.Op
 		}
 	}
 	if err := d.settle(ctx, id, result); err != nil {
-		return nil, id, fmt.Errorf("operation outcome could not be committed; do not repeat the effect: %w", err)
+		return nil, id, Fatal(fmt.Errorf("operation outcome could not be committed; do not repeat the effect: %w", err))
 	}
 	if result.State == session.OperationUncertain {
 		return nil, id, fmt.Errorf("operation outcome is uncertain; do not automatically repeat the effect: %w", callErr)
@@ -146,7 +161,7 @@ func (d *Dispatcher) awaitPermission(ctx context.Context, id session.OperationID
 		operation, err := d.ledger.Operation(ctx, id)
 		if err != nil {
 			if ctx.Err() != nil {
-				return errors.Join(ctx.Err(), d.cancelPending(ctx, id, ctx.Err()))
+				return ctx.Err()
 			}
 			return err
 		}
@@ -162,10 +177,27 @@ func (d *Dispatcher) awaitPermission(ctx context.Context, id session.OperationID
 		}
 		select {
 		case <-ctx.Done():
-			return errors.Join(ctx.Err(), d.cancelPending(ctx, id, ctx.Err()))
+			return ctx.Err()
 		case <-ticker.C:
 		}
 	}
+}
+
+func operationContext(parent context.Context, modelTimeouts bool) (context.Context, context.CancelFunc) {
+	if modelTimeouts {
+		return context.WithCancel(parent)
+	}
+	return context.WithTimeout(parent, 30*time.Second)
+}
+
+func (d *Dispatcher) cancelAfterError(ctx context.Context, id session.OperationID, cause error) error {
+	if isFatal(cause) {
+		return cause
+	}
+	if err := d.cancelPending(ctx, id, cause); err != nil {
+		return Fatal(errors.Join(cause, err))
+	}
+	return cause
 }
 
 func (d *Dispatcher) cancelPending(parent context.Context, id session.OperationID, reason error) error {

@@ -33,14 +33,16 @@ func (kernel *Kernel) completeHost(completion hostCompletion) {
 
 // The pump owns callbacks and the writer. A single process reader continues to
 // receive output and independent requests while bounded host goroutines run.
-func (kernel *Kernel) evalQuickJSLocked(ctx context.Context, cell Cell) (Result, error) {
+func (kernel *Kernel) evalQuickJSLocked(ctx context.Context, cell Cell) (result Result, executionErr error) {
 	kernel.nextID++
 	id := kernel.nextID
 	if err := kernel.write(ctx, frame{Type: "eval", ID: id, Code: cell.Code}); err != nil {
 		kernel.stop()
 		return Result{}, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	// Host calls own their deadlines. A whole-cell wall timer would truncate
+	// bounded model batches while guest compute is suspended.
+	ctx, cancel := context.WithCancelCause(ctx)
 	pending := make(map[uint64]bool)
 	seen := make(map[uint64]bool)
 	completed := make(chan hostCompletion, maxOutstandingCalls)
@@ -50,27 +52,30 @@ func (kernel *Kernel) evalQuickJSLocked(ctx context.Context, cell Cell) (Result,
 	// them to repair a lost guest or checkpoint. The bounded channel lets every
 	// producer exit even while worker shutdown completes.
 	defer func() {
-		cancel()
+		cancel(nil)
 		for len(pending) > 0 {
 			out := <-completed
 			delete(pending, out.request.ID)
 			kernel.completeHost(out)
+			if fatalHostError(out.err) && !errors.Is(executionErr, out.err) {
+				executionErr = errors.Join(executionErr, out.err)
+			}
 		}
 	}()
 	process := kernel.worker
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
-	last := time.Now()
-	var compute time.Duration
+	compute := computeTimer{last: time.Now()}
 	onUpdate, callID := cell.OnOutput, cell.CallID
-	fail := func(err error) (Result, error) { kernel.stop(); return Result{}, err }
-	for {
-		now := time.Now()
-		if len(pending) == 0 {
-			compute += now.Sub(last)
+	fail := func(err error) (Result, error) {
+		kernel.stop()
+		if cause := context.Cause(ctx); fatalHostError(cause) {
+			err = cause
 		}
-		last = now
-		if compute > kernel.limits.Wall {
+		return Result{}, err
+	}
+	for {
+		if compute.advance(time.Now(), len(pending) > 0) > kernel.limits.Wall {
 			return fail(errors.New("QuickJS cell compute deadline exceeded"))
 		}
 		select {
@@ -83,6 +88,9 @@ func (kernel *Kernel) evalQuickJSLocked(ctx context.Context, cell Cell) (Result,
 		case out := <-completed:
 			delete(pending, out.request.ID)
 			kernel.completeHost(out)
+			if fatalHostError(out.err) {
+				return fail(out.err)
+			}
 			reply := frame{Type: "host_response", ID: out.request.ID, CellID: id, Value: out.value}
 			if out.err != nil {
 				reply.Value = nil
@@ -138,12 +146,20 @@ func (kernel *Kernel) evalQuickJSLocked(ctx context.Context, cell Cell) (Result,
 						}
 					}
 					if out.err == nil {
+						out.err = ctx.Err()
+					}
+					if out.err == nil {
 						if kernel.host == nil {
 							out.err = errors.New("RLM host is not bound")
 						} else {
 							callCtx := withHostOperationReporter(WithHostCall(ctx, call), func(id string) { out.call.OperationID = id })
 							out.value, out.err = kernel.host.Call(callCtx, response.Module, response.Operation, response.Arguments)
 						}
+					}
+					// Poison the cell before releasing admission/serialization:
+					// queued calls must not begin after an accounting failure.
+					if fatalHostError(out.err) {
+						cancel(out.err)
 					}
 					out.call.Duration = time.Since(start)
 					completed <- out
@@ -165,6 +181,20 @@ func (kernel *Kernel) evalQuickJSLocked(ctx context.Context, cell Cell) (Result,
 			}
 		}
 	}
+}
+
+// Host-wait intervals suspend guest time; every other pump interval is charged.
+type computeTimer struct {
+	last    time.Time
+	elapsed time.Duration
+}
+
+func (c *computeTimer) advance(now time.Time, waiting bool) time.Duration {
+	if !waiting {
+		c.elapsed += now.Sub(c.last)
+	}
+	c.last = now
+	return c.elapsed
 }
 
 func serializedHostOperation(module, operation string) bool {

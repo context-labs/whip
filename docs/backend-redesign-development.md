@@ -2216,3 +2216,37 @@ interchange/drift, all eight SDK tests and the full process fixture passed
 vulnerabilities. Logs are `/tmp/whip-reasoning-public-{fast,contract,sdk,fixture,analysis}.log`.
 Hosted validation is pending. Config8/schema29/protocol development major4 are
 unchanged. Product UI adoption remains a later client-cutover obligation.
+
+
+## Fatal host persistence boundary
+
+Integrated isolated `e38c9508c` as `1e9c6f817`. Prepared external handlers receive
+their committed operation ID. The dispatcher turns unresolved accepted-operation
+cleanup or settlement errors into `tool.Fatal`; helper accounting can use the
+same marker. The process owns interpretation of that Go error interface and
+terminates the worker before sending a guest response. There is no guest-writable
+fatal frame or string-based classification.
+
+QuickJS cancels before releasing host admission/serialization, prevents queued
+calls from starting, and joins all started calls. Both engines return an
+unsettled cell and publish no checkpoint. Ordinary settled failures remain
+catchable; pre-admission failures invoke no handler. Completed filesystem bytes
+and dispatched ledger evidence survive a settlement failure without replay.
+Only `models.call/batch` may opt into per-attempt deadlines instead of the normal
+30-second handler deadline. The obsolete QuickJS ten-minute whole-cell timer was
+removed; guest compute/time, VM job/request, RSS and cancellation limits remain.
+Synthetic long host waits and live busy-guest/cancellation tests verify the
+remaining boundaries without ten-minute sleeps.
+
+The isolated full tool/process race suites passed (5.046s/111.601s), as did
+affected runtime race tests (25.117s), vet, build and pinned lint. Integrated fast,
+focused fatal/compute/host-wait race tests (tool 2.218s, process 8.728s), the full
+SDK fixture (16.882s) and analysis passed. Analysis reported zero lint issues and
+no reachable vulnerabilities. Logs are
+`/tmp/whip-fatal-boundary-{fast,race,fixture,analysis}.log`. Hosted validation is
+pending. Config 8, schema 29 and protocol development major 4 are unchanged.
+
+The scheduler fairness correction `b2a61bd69` now passes Linux, macOS, analysis
+and the aggregate gate in
+[run 36478833850](https://github.com/context-labs/whip/actions/runs/36478833850).
+The earlier failed goal-foundation/execution runs remain failed results.

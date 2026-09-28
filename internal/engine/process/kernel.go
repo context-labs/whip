@@ -536,7 +536,9 @@ func (kernel *Kernel) Exec(ctx context.Context, cell Cell) (Result, error) {
 	result, err := kernel.evalLocked(ctx, cell)
 	result.FormatVersion, result.ExecutionEngine, result.Language = 2, kernel.engine.ID, kernel.engine.Language
 	result.Restored = restored
-	result.Scratch = kernel.snapshotLocked(ctx)
+	if !fatalHostError(err) {
+		result.Scratch = kernel.snapshotLocked(ctx)
+	}
 	return result, err
 }
 
@@ -624,6 +626,10 @@ func (kernel *Kernel) evalLocked(ctx context.Context, cell Cell) (Result, error)
 					}
 				}
 				completed(call, value)
+			}
+			if fatalHostError(callErr) {
+				kernel.stop()
+				return Result{}, callErr
 			}
 			reply := frame{Type: "host_response", ID: response.ID, Value: value}
 			if callErr != nil {

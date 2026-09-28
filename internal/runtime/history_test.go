@@ -35,7 +35,7 @@ func TestHistoryPreparationPinsSnapshotAndRejectsForeignOwners(t *testing.T) {
 	if _, err := r.store.AppendMessage(t.Context(), turn.Turn.ID, session.MessageDraft{ID: "later", Role: session.Assistant, Parts: []session.Part{{Type: "text", Text: "later message"}}}); err != nil {
 		t.Fatal(err)
 	}
-	value, err := prepared.Run(t.Context())
+	value, err := prepared.Run(t.Context(), "test_operation")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestHistoryPreparationPinsSnapshotAndRejectsForeignOwners(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := foreign.Run(t.Context()); !errors.Is(err, store.ErrNotFound) {
+	if _, err := foreign.Run(t.Context(), "test_operation"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("message identity granted foreign access: %v", err)
 	}
 	for _, call := range []tool.Invocation{

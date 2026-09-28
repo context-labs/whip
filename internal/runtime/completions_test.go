@@ -54,7 +54,7 @@ func artifactBytesTest(t *testing.T, r *Runtime, owner session.Session, id strin
 		if err != nil {
 			t.Fatal(err)
 		}
-		value, err := prepared.Run(t.Context())
+		value, err := prepared.Run(t.Context(), "test_operation")
 		release()
 		if err != nil {
 			t.Fatal(err)
@@ -252,7 +252,7 @@ func TestCompletionReadValidationAndImmutableRanges(t *testing.T) {
 	if err != nil || prepared.Capability != "agents.pending_reports" || prepared.Resource != string(parent.TreeID) || prepared.Mutating {
 		t.Fatalf("pending inspection authority=%+v %v", prepared, err)
 	}
-	if _, err := prepared.Run(t.Context()); err != nil {
+	if _, err := prepared.Run(t.Context(), "test_operation"); err != nil {
 		t.Fatal(err)
 	}
 	page, err := r.ReadPendingCompletion(t.Context(), parent.ID, metadata.ChildID, metadata.TurnID, 0, maxEvidenceReadBytes)

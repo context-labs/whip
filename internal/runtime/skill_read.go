@@ -165,7 +165,7 @@ func (e *skillReadExecution) acquire(ctx context.Context) (func(), error) {
 	}, nil
 }
 
-func (e *skillReadExecution) run(ctx context.Context) (any, error) {
+func (e *skillReadExecution) run(ctx context.Context, _ session.OperationID) (any, error) {
 	if e.root == nil {
 		return nil, errors.New("skill read requires an acquired root")
 	}
