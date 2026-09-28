@@ -78,10 +78,12 @@ func scanHistory(row scanner, withSnapshot bool) (value historyRecord, err error
 	var sourceOwner *session.SessionID
 	var sourceMessage *session.MessageID
 	var sourceSequence sql.NullInt64
-	destinations := []any{&value.metadata.SessionID, &value.maximum, &value.metadata.ID, &value.metadata.TurnID, &value.metadata.InputID,
+	destinations := []any{
+		&value.metadata.SessionID, &value.maximum, &value.metadata.ID, &value.metadata.TurnID, &value.metadata.InputID,
 		&value.metadata.Sequence, &value.metadata.Role, &value.metadata.PartsBytes, &raw, &value.created,
 		&mailID, &revision, &presentation, &subject, &body, &sourceKind, &sourceID, &evidence,
-		&value.metadata.GroupID, &value.metadata.OpeningInput, &sourceOwner, &sourceMessage, &sourceSequence, &value.metadata.RetiredBy, &value.metadata.RetiredRevision}
+		&value.metadata.GroupID, &value.metadata.OpeningInput, &sourceOwner, &sourceMessage, &sourceSequence, &value.metadata.RetiredBy, &value.metadata.RetiredRevision,
+	}
 	if withSnapshot {
 		destinations = append([]any{&value.snapshot.Revision, &value.snapshot.ThroughSequence, &value.snapshot.MessageCount}, destinations...)
 	}

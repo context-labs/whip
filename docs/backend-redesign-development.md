@@ -2457,7 +2457,9 @@ process147.618s, account15.597s, auth3.440s, generated contracts and SDK checks,
 v4 process fixture23.920s, retained crash fixture4.376s and daemon regressions2.833s.
 Logs are `/tmp/whip-host-accounts-{phase,analysis,durability-fixture}.log`;
 the pre-fix reproduction is `/tmp/whip-host-accounts-before-durability.log`.
-Hosted validation of this account increment remains pending.
+Hosted Linux, macOS, analysis and aggregate validation passed at `07641b736`
+in [run 36487199877](https://github.com/context-labs/whip/actions/runs/36487199877),
+verified again before this continuation began.
 
 The preceding stateless-model and formulation increments also passed hosted
 Linux, macOS, analysis and aggregate gates at their exact heads:
@@ -2485,3 +2487,51 @@ was saved in clean isolated commits without integrating it into this account PR:
 
 These are local checkpoints, not completed product features or published PRs.
 No next implementation slice was started after finishing this checkpoint.
+
+
+## Revision-aware history and public rewind
+
+Continuation started from the clean verified account head `07641b736`, preserving
+all unrelated changes in the original development checkout. Reused saved history
+foundation `762f8451b` as `124054b07` and rewind `0651d7349` as `545983a27`;
+no duplicate branch ancestors were imported. Fresh storage is now schema32,
+with config9 and development protocol major4 unchanged in this slice.
+
+Atomic history pages (`51aa86007`) read current revision, active maximum sequence,
+active count and bounded message bodies from one SQLite statement. An expected
+revision rejects stale history, metadata/search and observation cursors before
+returning a replacement page. Appends retain the revision and advance sequences;
+rewind advances the revision, including keep-all or empty edits. Provisional
+previews carry their captured history revision and cannot cross into a new one.
+
+Focused store/runtime history and observation checks passed, followed by focused
+race/shuffle checks (store3.258s/runtime2.483s). Public protocol/SDK exposure (`98701fd2a`, isolated `7ce6270c7`) adds `sessions.rewind`,
+revision-bearing pages/observation and explicit imported execution/provenance
+fields. RPC tests exercise both roots and children; SDK observation resets its
+cursor on revision conflict and emits an empty replacement when applicable.
+A resumed SDK observation requires the saved revision with its nonzero cursor.
+Focused protocol/RPC races passed2.862s/10.969s; 15 SDK tests and seven generated
+interchange/strict-CSP tests passed, including clean generation drift and focused
+build/vet/lint.
+
+The complete real-process SDK fixture passed25.530s; its new rewind stage passed
+1.802s. Both engines and roots/children exercise lost edit acknowledgements,
+SIGKILL/restart after commitment, exact retry after later work, stale tail/revision,
+split-group rejection, retained exact evidence, non-reused sequences and empty
+REPL restoration. The integrated `task check:phase` passed: store race167.062s,
+runtime173.291s, process126.962s, RPC14.874s, runner15.355s, account14.857s,
+model11.990s, plus generated contracts, SDK checks and remaining package races.
+Its v4 process fixture passed25.179s, retained crash fixture3.004s and selected
+daemon regressions2.825s. `task check:analysis` passed with zero lint findings
+and no reachable vulnerabilities after correcting a multiline literal's format.
+An independent review found no blocking defect in the integrated history path.
+Logs are `/tmp/whip-history-controls-{phase,analysis,fixture}.log`.
+Hosted validation and broader Phase5 acceptance remain open.
+
+The retained-feature audit also makes these Phase5 obligations explicit: human
+questions and permission modes, file list/search/LSP behavior, definition modules
+and capability surfaces, executor tools/required versus optional hooks, MCP
+configuration/import/refresh, shell jobs versus human PTYs, browser/computer/native
+resources and host/gateway trust. Existing operation approvals and file read/write/
+patch alone do not replace those families. Every supported client and final core
+removal remain required under Phases6–7.

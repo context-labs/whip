@@ -280,7 +280,8 @@ handle belonging to another session does not grant access. Mail evidence binds
 the recipient and reference through composite foreign keys, so it cannot point
 at another owner's row. Explicit child/mail sharing still creates recipient
 aliases; this foundation permits a later fork to preserve handles without
-rewriting opaque text. It does not implement fork or rewind yet.
+rewriting opaque text. Conversation rewind preserves these independent references.
+Fork import remains a separate operation under development.
 
 `content.put` publishes bytes durably before registering body metadata and a
 session reference. A caller-supplied reference ID makes upload retries idempotent;
@@ -315,7 +316,7 @@ must select a model/provider before creating a runnable session. API credentials
 use environment references resolved during request preparation. Subscription
 credentials belong to the independent host account manager and its private file.
 
-Current fresh host configuration is version 9; the SQLite schema is version 31.
+Current fresh host configuration is version 9; the SQLite schema is version 32.
 SQLite has an application identifier and schema version. Existing databases of
 another application/version are rejected, not imported. Reopening preserves the
 runtime identity and seeded revisions; separate databases receive distinct
@@ -598,8 +599,9 @@ leaves the cell outcome uncertain. A completed cell can also lack a usable
 checkpoint. Both facts remain visible: its result survives, while further code
 execution fails explicitly instead of loading an older image. Text-only turns and
 history inspection remain possible; a fresh session starts a fresh REPL. No repair
-or replay is automatic. There is not yet a client operation to reset an existing
-REPL boundary.
+or replay is automatic. Conversation rewind explicitly invalidates an existing
+REPL boundary by advancing the history revision, including when keeping every
+message.
 
 Restoration verifies the body digest/size and engine build, ABI, profile and
 fidelity. Starlark checkpoints are partial; skipped globals and restoration
@@ -1199,10 +1201,35 @@ completion mail.
 
 ## Raw history and selected model context
 
-History remains the immutable record of authored messages and presented mail.
-`context.snapshot` captures its greatest sequence and message count in one read.
-`context.list` and `context.search` use that fixed boundary; later appends cannot
-enter the same scan. Metadata pages contain at most 100 records. Literal,
+Messages retain immutable bodies, history groups and opening-input markers.
+Native groups identify their prompt turn. Imported groups may have no local
+turn/input/attempt and instead carry immutable source provenance. These source
+identities grant no access. A session's history revision starts at one; turns
+capture it alongside configuration. Current-history queries exclude retired
+messages, while exact evidence reads retain them. Sequences never repeat.
+
+`context.snapshot` captures revision, active greatest sequence and active message
+count in one read. Revision-aware full history pages read that boundary and their
+bounded messages in the same SQL snapshot. Expected-revision checks reject a
+cursor after rewind; later appends retain the revision and advance the tail.
+
+Rewind requires a stopped owner with no active turn or uncancelled queued input.
+The caller supplies a stable edit identity, expected revision, observed tail and
+whole terminal group boundary (or zero). One transaction records an immutable
+edit, advances revision, retires the suffix and clears incompatible summary
+selection. Exact identity/payload retries return their original edit before
+current lifecycle/CAS checks; a changed payload conflicts. An edit does not
+rewind mail, goals, explicit state, spending or external files and effects.
+
+Every new edit invalidates the REPL even when keeping all or no messages.
+Revision-qualified kernel/checkpoint loading prevents restoration after a crash
+between SQL commit and cache disposal. A delayed acknowledgement cannot dispose
+a new-revision kernel. Old exact cell evidence remains readable. No code is
+replayed to reconstruct state. Fork import remains separate work.
+
+`context.list` and `context.search` expose their history revision and may require
+the snapshot revision, so paging cannot silently mix current histories. Their
+fixed through-sequence boundary keeps later appends out of the same scan. Metadata pages contain at most 100 records. Literal,
 case-sensitive search scans at most 100 messages or 4 MiB of serialized parts
 per call and returns at most one match per message. Follow `next_after` even when
 there are no matches. Search does not load referenced content bodies.
