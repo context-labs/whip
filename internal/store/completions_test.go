@@ -43,6 +43,9 @@ func publishCompletionTest(t *testing.T, s *Store, value session.Completion) ses
 	if err != nil {
 		t.Fatal(err)
 	}
+	if result.EvidenceRef == nil || *result.EvidenceRef != completionReference(t, value).ID {
+		t.Fatalf("completion omitted its mail attachment: %+v", result)
+	}
 	return result
 }
 
@@ -258,7 +261,7 @@ func TestCompletionPublicationAtomicExactAndCoalesced(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		_, err = replaceMail(t.Context(), tx, session.MailSpec{ID: current.ID, RecipientID: parent.ID, Delivery: session.MailQueued, Subject: current.Subject, Body: current.Body, AvailableAt: &deferred}, current)
+		_, err = replaceMail(t.Context(), tx, session.MailSpec{ID: current.ID, RecipientID: parent.ID, Delivery: session.MailQueued, Subject: current.Subject, Body: current.Body, EvidenceRef: current.EvidenceRef, AvailableAt: &deferred}, current)
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -268,10 +271,13 @@ func TestCompletionPublicationAtomicExactAndCoalesced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(history) != 1 || !strings.Contains(history[0].Parts[0].Text, *published.EvidenceRef) {
+		t.Fatal("deferral discarded completion attachment from the observed revision")
+	}
 	submit(t, s, child.Session.ID, "third")
 	third := finishCompletionTest(t, s, parent.ID, child.Session.ID, "third")
 	replacement := publishCompletionTest(t, s, third)
-	if replacement.ID != published.ID || replacement.Revision != 3 || !replacement.AvailableAt.Equal(deferred) {
+	if replacement.ID != published.ID || replacement.Revision != 3 || !replacement.AvailableAt.Equal(deferred) || *replacement.EvidenceRef == *published.EvidenceRef {
 		t.Fatalf("did not preserve pending identity/deferral: %+v", replacement)
 	}
 	after, err := s.History(t.Context(), parent.ID, 0, 100)
@@ -466,6 +472,14 @@ func TestCompletionNoticeBoundsAndMetadataPagination(t *testing.T) {
 			}
 			if len(read.Body) > session.MaxMailBodyBytes || len(notice.Preview) > limit || !utf8.ValidString(notice.Preview) || !notice.TextTruncated || !notice.FailureTruncated || notice.TextBytes != int64(len(text)) {
 				t.Fatalf("bad bounded notice: %+v", notice)
+			}
+			if read.EvidenceRef == nil || *read.EvidenceRef != *mail.EvidenceRef || strings.Contains(read.Body, `"evidence_ref"`) || len(read.Body) <= 2048 {
+				t.Fatal("completion body duplicated attachment or did not exercise digest truncation")
+			}
+			claim(t, s, parent.ID)
+			history, err := s.History(t.Context(), parent.ID, 0, 100)
+			if err != nil || len(history) != 1 || !strings.Contains(history[0].Parts[0].Text, *mail.EvidenceRef) || len(history[0].Parts[0].Text) >= len(read.Body) {
+				t.Fatalf("digest truncation hid completion attachment: %+v %v", history, err)
 			}
 			if value.Text != text || *value.Failure != failure {
 				t.Fatal("notice truncation altered full evidence")

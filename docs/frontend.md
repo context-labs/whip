@@ -131,8 +131,10 @@ acknowledge delivery. The recipient reference survives sender deletion and resta
 Explicit state uses immutable version handles and revision-checked writes.
 Client state reads return bounded base64 JSON bytes, preserving exact numbers;
 list/history calls return metadata. Mail provenance distinguishes session senders, state subscriptions, and child
-completion reports. A completion source identifies the child; its parent owns the
-immutable `evidence_ref`. `completions.list/read` inspect snapshots still awaiting
+completion reports. A completion source identifies the child; its parent owns
+the immutable attachment returned in `mail.evidence_ref`, just like authored
+mail. The completion JSON body contains outcome metadata and previews, so clients
+do not need a second attachment parser. `completions.list/read` inspect snapshots still awaiting
 publication and survive source-child deletion. Pin reads to the exact turn token,
 handle superseded-token conflicts by re-listing, and keep the 64 KiB JSON-byte
 pages in bounded consumer scope. These reads do not acknowledge mail. Subscriptions start from an explicit observed revision

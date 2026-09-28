@@ -31,11 +31,10 @@ type Completion struct {
 }
 
 // CompletionNotice is the bounded JSON body of canonical completion mail.
-// Failure and Preview may be shortened; EvidenceRef owns the full Completion.
+// Failure and Preview may be shortened; the mail's EvidenceRef owns the full Completion.
 type CompletionNotice struct {
 	CompletionMetadata
 	Preview          string `json:"preview"`
 	TextTruncated    bool   `json:"text_truncated"`
 	FailureTruncated bool   `json:"failure_truncated"`
-	EvidenceRef      string `json:"evidence_ref"`
 }

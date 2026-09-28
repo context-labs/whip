@@ -145,8 +145,8 @@ must be an explicit future retention policy. Definition documents belong to the
 catalog, so deleting a session does not delete its template.
 Queued inputs in the deleted subtree are discarded, with the same receipt
 deletion markers. Stopping one session affects that session; it does not silently
-stop descendants. Child admission is atomic; authorized subtree controls remain
-Phase 4 work.
+stop descendants. Child admission is atomic; grant-backed child controls use the
+same cancellation and deletion paths as root sessions.
 
 Collection queries accept 1–100 rows and also stop at a 4 MiB payload budget.
 Resume after the last returned session ID, definition ID/revision, or transcript
@@ -188,6 +188,7 @@ reads the retired home/config. A new host config is valid but unconfigured: user
 must select a model/provider before creating a runnable session. Credentials are
 environment references resolved only when constructing a provider client.
 
+Current fresh host configuration is version 4; the SQLite schema is version 23.
 SQLite has an application identifier and schema version. Existing databases of
 another application/version are rejected, not imported. Reopening preserves the
 runtime identity and seeded revisions; separate databases receive distinct
@@ -199,14 +200,13 @@ both Starlark and QuickJS subprocess engines. These are protocol/engine adapters
 not a hardcoded commercial model or credentials. The remaining provider families
 and product integrations are still being ported.
 
-## Phase boundary and verification
+## Verification and remaining scope
 
-Phase 1 delivers persistence and initial v4 wire declarations/generation fixtures.
-Phase 2 adds runtime scheduling, RPC serving, SDK/Go clients and a full scripted
-turn through the new stack. Phase 3 adds model attempts, authorized content, the code loop and checkpoint
-boundaries. Scoped host effects and grants remain in progress; budgets, mail and
-shared state follow in Phase 4. No empty repositories or speculative tables are
-created for those capabilities.
+The replacement implements persistence, runtime scheduling, RPC, SDK/Go clients,
+model attempts, authorized content and host effects, code execution/checkpoints,
+recursive sessions, budgets, mail and shared state. Product integrations and
+client adoption are still being ported. The delivery plan tracks phase acceptance;
+this guide describes the implemented ownership and behavior.
 
 Passing tests against real temporary SQLite cover constraints,
 transaction rollback, concurrent claims across connections, pinned configuration,
@@ -232,12 +232,12 @@ runtime or SQL imports. Completed output is persisted with a stable message ID;
 retrying that write or turn settlement never dispatches the provider again.
 These cleanup writes have a separate five-second bound. Exhausting settlement
 retries faults the runtime, leaving recovery to interrupt the nonterminal turn.
-Phase 3 adds durable attempt accounting and effect uncertainty.
+Dispatched attempts and uncertain effects have durable evidence.
 
-The Phase 2 runner explicitly fails context beyond 100 messages or 4 MiB until
-compaction is implemented. Its scripted provider is an injected adapter on this
-same runner path and accepts only the `scripted/scripted` selection. There is no
-engine execution in Phase 2, despite the tree's engine selection being retained.
+Context selection and recorded compaction keep provider requests bounded while
+retaining raw history. Indivisible inputs or exchanges that exceed the bound fail
+explicitly. The scripted provider is an injected adapter on the same runner and
+engine path and accepts only the `scripted/scripted` selection.
 
 `rpc` serves newline-framed JSON-RPC on the private Unix socket. Every connection
 must initialize with major 4; reconnections verify the original runtime identity.
@@ -545,7 +545,7 @@ admission even if a child's older local cap is larger. Inspection returns all
 scopes so callers can see which allowance is exhausted. A local allowance is not
 reserved exclusively for that child.
 
-Fresh host configuration is version 4. Optional finite `resources` defaults and
+Optional finite `resources` defaults and
 creation overrides resolve once into root rows at revision one: depth 8,
 127 descendants, 256 queued inputs, 64 active operations, 1,000 subscriptions,
 and 64 runnable descendants.
@@ -553,7 +553,7 @@ Root limits cannot be null. Partial creation/configuration lists inherit the
 remaining built-in defaults; duplicate kinds are rejected. Limits use decimal
 strings, including host JSON and guest child-spawn arguments. Host edits never
 change existing root limits. `TreePolicy` and its duplicate JSON column no longer
-exist; this disposable database uses schema 15 and rejects previous schemas.
+exist. The fresh database rejects previous schemas.
 The absolute depth ceiling remains 128 for bounded hierarchy and grant traversal.
 
 Capacity reuse never replenishes permanent model spend. Deleting a child releases
@@ -612,8 +612,8 @@ identical send retry idempotent. A deleted recipient leaves a mail tombstone,
 so retrying an uncertain send cannot resurrect deleted work. Sender deletion
 leaves surviving recipients' mail intact. For session-authored mail, senders and
 recipients must be in the same tree and be self, parent, child or siblings.
-Mail metadata has an explicit source: `session` plus sender ID, or `state` plus
-subscription ID. Clients and agents cannot forge runtime notification provenance
+Mail metadata has an explicit source: `session` plus sender ID, `state` plus
+subscription ID, or `completion` plus child ID. Clients and agents cannot forge runtime notification provenance
 through the send API. Runtime-authored notifications use their own scoped source
 identity and can reach any subscriber in the same tree.
 
@@ -636,8 +636,10 @@ recipient retained-content capacity but does not upload or charge the body again
 Metadata, reads and transcript digests identify the recipient's reference. Model
 context contains only its bounded identifier, never automatically hydrated bytes;
 the agent uses authorized `artifacts.read` to read them. The send identity hashes
-the original caller payload, so an exact retry returns the same recipient alias,
-including after sender deletion and restart. Replacing pending mail may attach
+the original caller payload, so an exact retry returns the existing admission
+without creating another alias, including after sender deletion and restart.
+Admission metadata reflects the mail's current revision if it has since changed.
+Replacing pending mail may attach
 new evidence, while older revisions keep their exact references; deferral carries
 the same reference without sharing or charging it again. Deleting a sender does
 not remove recipient references. Recipient deletion releases its mail and owned
@@ -706,8 +708,8 @@ float64. JSON storage accepts arbitrary numeric lexemes; a language adapter may
 reject a number it cannot represent. Each tree retains at most 1024 versions and
 1 GiB of logical version bytes, including private and shared history. Content
 file deduplication does not reduce that logical budget. Limits reject writes;
-no old version is silently evicted. Broader ancestor resource policies remain
-Phase 4 work.
+no old version is silently evicted. These retained-data bounds are separate from
+ancestor logical-write allowances.
 
 Guest `state.get` returns version metadata plus inline JSON only up to 64 KiB.
 Larger values return metadata without an inline `value`; a stored JSON null is
@@ -835,9 +837,12 @@ runtime open. Automatic reports consume no logical-write allowance.
 Host `completions.list/read` and guest `agents.pending_reports/read_report` inspect
 pending snapshots; each read pins a child and exact turn token. Superseded or
 published tokens return conflict so readers re-list. Evidence reads page JSON bytes
-at up to 64 KiB; metadata lists exclude full text. Published mail contains an
-`evidence_ref` owned by the parent, readable via host `content.read` or scoped guest
-`artifacts.read`. Neither route acknowledges mail. Deleting the child retains
+at up to 64 KiB; metadata lists exclude full text. Published mail uses the same
+revision-owned `MailMetadata.evidence_ref` as authored attachments, pointing to
+the existing parent-owned content without creating another alias. Its JSON body
+contains outcome metadata and bounded previews; the digest retains the attachment
+reference independently of body truncation. Read it via host `content.read` or
+scoped guest `artifacts.read`. Neither route acknowledges mail. Deleting the child retains
 pending and published parent evidence; deleting the parent removes its slots and
 owned content references. A full retained mailbox or content allowance can leave
 delivery pending indefinitely; no history is silently evicted to make room.
@@ -917,7 +922,7 @@ and a threshold of 1–100 percent. A patch with threshold zero resolves to the
 default of 50 percent; a null model uses the captured conversation model. An
 explicit helper route is used by manual, local-bound, proactive and reactive
 folds, and an invalid route fails without fallback. Configuration updates affect
-the next turn; children copy the resolved parent policy. Fresh schema 18 requires
+the next turn; children copy the resolved parent policy. The schema requires
 this captured policy rather than re-resolving defaults when storage is reopened.
 
 Proactive checks run before ordinary model requests and after a successful final
@@ -969,7 +974,7 @@ The parser supports the retained scalar/block-scalar subset, validates known
 fields, and preserves keys following block scalars. Complete composed base
 instructions, including framing and the execution guide, are bounded to 1 MiB.
 
-Fresh schema 23 retains one immutable manifest per captured turn. It records the
+The database retains one immutable manifest per captured turn. It records the
 base instruction byte count/digest and ordered source kind, root-relative
 path, scope, nullable logical root ID, byte count and digest. `skill_metadata` digests cover consumed
 frontmatter, including disabled and duplicate entries that affected discovery.

@@ -282,9 +282,11 @@ parent. Automatic reports use queued mail and may wake an idle parent without
 creating an input. Reading them does not acknowledge them.
 
 Completion mail has source kind `completion` and a child ID. Parse its body for
-`turn_id`, `input_id`, `mode`, truncation flags and `evidence_ref`. The reference
-belongs to the parent and contains the full JSON outcome and last assistant text;
-use `content.read` with the parent's session ID. Evidence survives child deletion.
+`turn_id`, `input_id`, `mode`, truncation flags and bounded previews. Read its
+attachment from `mail.evidence_ref`, the same metadata field as authored mail.
+It belongs to the parent and contains the full JSON outcome and last assistant
+text; use `content.read` with the parent's session ID. The digest keeps this
+reference even when the body is truncated. Evidence survives child deletion.
 
 Mailbox or content limits can delay publication while the child is already
 finished. Inspect these pending outcomes with bounded pages:
