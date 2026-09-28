@@ -65,7 +65,7 @@ func accountFixture(t *testing.T) (*runtime.Runtime, *openaiauth.Manager, *confi
 
 func accountSocket(t *testing.T, r *runtime.Runtime, accounts *account.Service) (*client.Client, func()) {
 	t.Helper()
-	server, err := rpc.Listen(r, accounts)
+	server, err := rpc.Listen(r, rpc.HostServices{OpenAI: accounts})
 	if err != nil {
 		t.Fatal(err)
 	}

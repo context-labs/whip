@@ -1,0 +1,199 @@
+{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "object",
+      "properties": {
+        "management_state": {
+          "type": "string",
+          "enum": [
+            "absent",
+            "stored",
+            "expired",
+            "unavailable"
+          ]
+        },
+        "inference_state": {
+          "type": "string",
+          "enum": [
+            "absent",
+            "stored",
+            "unavailable"
+          ]
+        },
+        "route_state": {
+          "type": "string",
+          "enum": [
+            "missing",
+            "configured",
+            "conflict",
+            "unavailable"
+          ]
+        },
+        "user_id": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^[^\\x00-\\x1f\\x7f]{1,256}$"
+        },
+        "email": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^[^\\x00-\\x1f\\x7f]{1,1000}[^\\x00-\\x1f\\x7f]{0,24}$"
+        },
+        "expires_at": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "format": "account-time"
+        },
+        "team_id": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^[^\\x00-\\x1f\\x7f]{1,256}$"
+        },
+        "team_name": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^[^\\x00-\\x1f\\x7f]{1,512}$"
+        },
+        "project_id": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^[^\\x00-\\x1f\\x7f]{1,256}$"
+        },
+        "project_name": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^[^\\x00-\\x1f\\x7f]{1,512}$"
+        },
+        "failure": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^[^\\x00-\\x1f\\x7f]{1,512}$"
+        },
+        "cleanup_pending": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "management_state",
+        "inference_state",
+        "route_state",
+        "user_id",
+        "email",
+        "expires_at",
+        "team_id",
+        "team_name",
+        "project_id",
+        "project_name",
+        "failure",
+        "cleanup_pending"
+      ],
+      "additionalProperties": false
+    },
+    "local_failure": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[^\\x00-\\x1f\\x7f]{1,512}$"
+    },
+    "cleanup_failure": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[^\\x00-\\x1f\\x7f]{1,512}$"
+    },
+    "cleanup": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Z2-7]{26}:[A-Z2-7]{26}$"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "account-time"
+          },
+          "team_id": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^[^\\x00-\\x1f\\x7f]{1,256}$"
+          },
+          "key_id": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^[^\\x00-\\x1f\\x7f]{1,256}$"
+          },
+          "key_state": {
+            "type": "string",
+            "enum": [
+              "absent",
+              "pending",
+              "archived"
+            ]
+          },
+          "session_state": {
+            "type": "string",
+            "enum": [
+              "absent",
+              "pending",
+              "retained",
+              "signed_out"
+            ]
+          },
+          "failure": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^[^\\x00-\\x1f\\x7f]{1,512}$"
+          }
+        },
+        "required": [
+          "id",
+          "expires_at",
+          "team_id",
+          "key_id",
+          "key_state",
+          "session_state",
+          "failure"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 64
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/InferenceLogoutResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "InferenceLogoutResult",
+  "required": [
+    "status",
+    "local_failure",
+    "cleanup_failure",
+    "cleanup"
+  ],
+  "additionalProperties": false
+}

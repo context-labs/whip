@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "properties": {
+    "flow_id": {
+      "type": "string",
+      "pattern": "^[A-Z2-7]{26}:[A-Z2-7]{26}$"
+    },
+    "team_id": {
+      "type": "string",
+      "pattern": "^[^\\x00-\\x1f\\x7f]{1,256}$"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/InferenceTeamParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "InferenceTeamParams",
+  "required": [
+    "flow_id",
+    "team_id"
+  ],
+  "additionalProperties": false
+}

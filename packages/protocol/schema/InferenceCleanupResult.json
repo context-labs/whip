@@ -1,0 +1,85 @@
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Z2-7]{26}:[A-Z2-7]{26}$"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "account-time"
+          },
+          "team_id": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^[^\\x00-\\x1f\\x7f]{1,256}$"
+          },
+          "key_id": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^[^\\x00-\\x1f\\x7f]{1,256}$"
+          },
+          "key_state": {
+            "type": "string",
+            "enum": [
+              "absent",
+              "pending",
+              "archived"
+            ]
+          },
+          "session_state": {
+            "type": "string",
+            "enum": [
+              "absent",
+              "pending",
+              "retained",
+              "signed_out"
+            ]
+          },
+          "failure": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^[^\\x00-\\x1f\\x7f]{1,512}$"
+          }
+        },
+        "required": [
+          "id",
+          "expires_at",
+          "team_id",
+          "key_id",
+          "key_state",
+          "session_state",
+          "failure"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 64
+    },
+    "failure": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[^\\x00-\\x1f\\x7f]{1,512}$"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/InferenceCleanupResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "InferenceCleanupResult",
+  "required": [
+    "items",
+    "failure"
+  ],
+  "additionalProperties": false
+}

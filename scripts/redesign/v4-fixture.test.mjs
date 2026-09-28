@@ -243,6 +243,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
       return { client, createParams };
     });
     await stage('host account projections', () => accountAcceptance(runtime, client, evidence));
+    await stage('Inference account projections', () => inferenceAccountAcceptance(runtime, client, evidence));
     await stage('content owners', () => contentOwnerAcceptance(runtime, client, createParams, evidence));
     await stage('resources', () => resourceAcceptance(runtime, client, createParams, evidence));
     await stage('schedules', () => scheduleAcceptance(runtime, client, createParams, evidence));
@@ -2901,5 +2902,77 @@ async function forkAcceptance(runtime, client, createParams, evidence) {
     assert.equal((await client.call('content.read', { session_id: second.root.id, reference_id: referenceID }, deadline())).data_base64, content);
     await client.call('sessions.lifecycle', { session_id: second.root.id, lifecycle: 'stopped' }, deadline());
     evidence.push({ fork: { engine, kind, history, admitted, imported, budgets, retained, continued, second, tombstone } });
+  }
+}
+
+
+async function inferenceAccountAcceptance(runtime, client, evidence) {
+  const path = join(runtime.directory, 'state', 'host.json');
+  const credentialsPath = join(runtime.directory, 'state', 'inference-net.json');
+  const previous = await readFile(path, 'utf8');
+  const oldID = 'A'.repeat(26) + ':' + 'B'.repeat(26);
+  const absent = await client.inferenceAccountStatus(deadline());
+  assert.equal(absent.management_state, 'absent'); assert.equal(absent.inference_state, 'absent');
+  assert.equal((await client.getInferenceLogin(oldID, deadline())).state, 'interrupted');
+  assert.deepEqual((await client.listInferenceLogins(deadline())).items, []);
+  await assert.rejects(client.setupInferenceAccount(deadline()), error => error.kind === 'ACCOUNT_CREDENTIALS');
+  // A synthetic machine-key-only record exercises the independent authority
+  // and cleanup projections. No request can be authorized to the control plane.
+  const record = { version: 1, credentials: {
+    management: { token: '', user_id: '', email: '', expires_at: null },
+    scope: { team_id: 'fixture-team', team_name: 'Fixture team', project_id: 'fixture-project', project_name: 'Fixture project' },
+    machine_key: { id: 'fixture-key', value: 'fixture-private-inference-key', name: 'Fixture key' },
+  } };
+  try {
+    await runtime.stop();
+    await writeFile(credentialsPath, JSON.stringify(record), { mode: 0o600 });
+    await runtime.start();
+    const stored = await client.inferenceAccountStatus(deadline());
+    assert.equal(stored.management_state, 'absent'); assert.equal(stored.inference_state, 'stored');
+    assert.equal(stored.team_id, record.credentials.scope.team_id); assert.equal(stored.project_id, record.credentials.scope.project_id);
+    assert.equal(stored.expires_at, null);
+    assert.ok(!JSON.stringify(stored).includes(record.credentials.machine_key.value));
+    await assert.rejects(client.rotateInferenceKey(deadline()), error => error.kind === 'ACCOUNT_MANAGEMENT');
+    const configured = await client.setupInferenceAccount(deadline());
+    assert.equal(configured.route_state, 'configured'); assert.equal(configured.inference_state, 'stored');
+    const setupHost = await readFile(path, 'utf8');
+    assert.deepEqual(JSON.parse(setupHost).defaults, JSON.parse(previous).defaults);
+    assert.equal(JSON.parse(setupHost).providers['inference-net'].credential_source, 'inference-net');
+    assert.deepEqual(await client.setupInferenceAccount(deadline()), configured);
+    assert.equal(await readFile(path, 'utf8'), setupHost);
+    const conflict = JSON.parse(setupHost);
+    conflict.providers['inference-net'] = { kind: 'openai-chat', base_url: 'http://127.0.0.1:1/v1', credential_source: 'none', models: {} };
+    await writeFile(path, JSON.stringify(conflict), { mode: 0o600 });
+    assert.equal((await client.inferenceAccountStatus(deadline())).route_state, 'conflict');
+    await assert.rejects(client.setupInferenceAccount(deadline()), error => error.kind === 'ACCOUNT_SETUP');
+    assert.deepEqual(JSON.parse(await readFile(credentialsPath, 'utf8')), record);
+    await writeFile(path, setupHost, { mode: 0o600 });
+    const proxy = join(runtime.directory, 'inference-logout-drop.sock');
+    let dropped;
+    const close = await dropAcknowledgement(proxy, runtime.info.socket, '', value => { dropped = value; }, response => response.result?.status?.inference_state === 'absent');
+    try {
+      const unreliable = await Client.connect(unixSocket(proxy), { clientID: client.clientID, expectedRuntimeID: client.runtimeID, ...deadline() });
+      await assert.rejects(unreliable.logoutInferenceAccount(deadline()), DeliveryError);
+    } finally { await close(); }
+    assert.equal(dropped.local_failure, null); assert.ok(dropped.cleanup_failure);
+    assert.equal(dropped.status.inference_state, 'absent'); assert.equal(dropped.status.cleanup_pending, true);
+    assert.deepEqual(await client.inferenceAccountStatus(deadline()), dropped.status);
+    const pending = await client.retryInferenceCleanup(deadline());
+    assert.ok(pending.failure); assert.equal(pending.items[0].key_state, 'pending');
+    assert.equal(pending.items[0].session_state, 'absent');
+    await assert.rejects(readFile(credentialsPath), error => error.code === 'ENOENT');
+    assert.equal(await readFile(path, 'utf8'), setupHost);
+    await runtime.stop(); await runtime.start();
+    const restarted = await client.inferenceAccountStatus(deadline());
+    assert.equal(restarted.inference_state, 'absent'); assert.equal(restarted.management_state, 'absent');
+    assert.deepEqual((await client.listInferenceCleanup(deadline())).items, []);
+    // Ephemeral cleanup evidence disappearing on restart does not prove that
+    // the remote machine key was archived.
+    evidence.push({ inferenceAccounts: { absent, stored, configured, loggedOut: dropped, pending, restarted } });
+  } finally {
+    await runtime.stop();
+    await writeFile(path, previous, { mode: 0o600 });
+    await rm(credentialsPath, { recursive: true, force: true });
+    if (!fixtureAbort.signal.aborted) await runtime.start();
   }
 }

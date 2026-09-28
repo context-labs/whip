@@ -17,6 +17,7 @@ import (
 	"github.com/context-labs/whip/internal/account"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/engine/process"
+	"github.com/context-labs/whip/internal/inferenceaccount"
 	"github.com/context-labs/whip/internal/inferenceauth"
 	"github.com/context-labs/whip/internal/model"
 	"github.com/context-labs/whip/internal/openaiauth"
@@ -104,7 +105,19 @@ func run(parent context.Context, args []string, out, diagnostics io.Writer) (err
 		return err
 	}
 	defer accounts.Close() // Join device requests before closing the borrowed manager.
-	server, err := rpc.Listen(r, accounts)
+	inferenceAccounts, err := inferenceaccount.New(ctx, inference, nil, func(ctx context.Context) error {
+		current, err := authority.Snapshot(ctx)
+		if err != nil {
+			return err
+		}
+		_, err = authority.Update(ctx, current.Revision, (*config.Host).EnsureInference)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	defer inferenceAccounts.Close()
+	server, err := rpc.Listen(r, rpc.HostServices{OpenAI: accounts, Inference: inferenceAccounts, Config: authority})
 	if err != nil {
 		return err
 	}

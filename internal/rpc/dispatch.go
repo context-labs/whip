@@ -10,6 +10,7 @@ import (
 	"fmt"
 
 	"github.com/context-labs/whip/internal/account"
+	"github.com/context-labs/whip/internal/inferenceaccount"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/runtime"
 	"github.com/context-labs/whip/internal/session"
@@ -29,7 +30,7 @@ func decode[P any](raw json.RawMessage, fn func(P) (any, error)) (any, error) {
 	return fn(params)
 }
 
-func Dispatch(ctx context.Context, r *runtime.Runtime, accounts *account.Service, method string, raw json.RawMessage) (any, error) {
+func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method string, raw json.RawMessage) (any, error) {
 	found := false
 	for _, op := range protocol.Operations() {
 		if op.Name == method {
@@ -45,7 +46,9 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, accounts *account.Service
 	}
 	switch method {
 	case "accounts.openai.begin", "accounts.openai.get", "accounts.openai.list", "accounts.openai.cancel", "accounts.openai.status", "accounts.openai.setup", "accounts.openai.logout":
-		return dispatchAccount(ctx, accounts, method, raw)
+		return dispatchAccount(ctx, host.OpenAI, method, raw)
+	case "accounts.inference.begin", "accounts.inference.get", "accounts.inference.list", "accounts.inference.cancel", "accounts.inference.team", "accounts.inference.project", "accounts.inference.create_project", "accounts.inference.retry", "accounts.inference.rotate", "accounts.inference.status", "accounts.inference.setup", "accounts.inference.logout", "accounts.inference.cleanup", "accounts.inference.retry_cleanup":
+		return dispatchInferenceAccount(ctx, host, method, raw)
 	case "sessions.compact", "context.head", "context.compaction", "context.compactions", "context.select", "context.snapshot", "context.list", "context.read", "context.search":
 		return dispatchContext(ctx, r, method, raw)
 	case "turns.output":
@@ -374,6 +377,14 @@ func wireError(err error) *protocol.RPCError {
 		{account.ErrSetupRequired, -32021, "ACCOUNT_SETUP"},
 		{account.ErrConfiguration, -32022, "ACCOUNT_CONFIGURATION"},
 		{account.ErrLogout, -32023, "ACCOUNT_LOGOUT"},
+		{inferenceaccount.ErrInvalid, -32602, "INVALID"},
+		{inferenceaccount.ErrNotFound, -32004, "NOT_FOUND"},
+		{inferenceaccount.ErrBusy, -32010, "BUSY"},
+		{inferenceaccount.ErrLimit, -32011, "LIMIT"},
+		{inferenceaccount.ErrClosed, -32013, "CLOSED"},
+		{inferenceaccount.ErrCredentials, -32020, "ACCOUNT_CREDENTIALS"},
+		{inferenceaccount.ErrSetup, -32021, "ACCOUNT_SETUP"},
+		{inferenceaccount.ErrManagement, -32024, "ACCOUNT_MANAGEMENT"},
 		{store.ErrNotFound, -32004, "NOT_FOUND"},
 		{store.ErrConflict, -32009, "CONFLICT"},
 		{store.ErrBusy, -32010, "BUSY"},

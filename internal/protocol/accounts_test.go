@@ -53,3 +53,43 @@ func TestAccountContractExactTimeAndSafeFields(t *testing.T) {
 		t.Fatal("account operation accepted session payload")
 	}
 }
+
+func TestInferenceAccountContractBoundsAndSecretRejection(t *testing.T) {
+	flow := InferenceFlow{ID: "AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB", Kind: new("login"), State: "choose_team", Teams: []InferenceTeam{{ID: "team", Name: "Team", Slug: "team"}}, Projects: []InferenceProject{}}
+	raw, err := json.Marshal(flow)
+	if err != nil || Validate("InferenceFlow", raw) != nil {
+		t.Fatal("valid flow rejected", err, string(raw))
+	}
+	for _, mutate := range []func(map[string]any){
+		func(v map[string]any) { v["access_token"] = "private" },
+		func(v map[string]any) { v["device_code"] = "private" },
+		func(v map[string]any) { v["user_code"] = "stale-code" },
+		func(v map[string]any) { v["verification_url"] = "https://evil.test" },
+		func(v map[string]any) { v["teams"] = nil },
+		func(v map[string]any) { v["projects"] = make([]InferenceProject, 257) },
+		func(v map[string]any) { v["failure"] = strings.Repeat("x", 513) },
+	} {
+		var value map[string]any
+		if err := json.Unmarshal(raw, &value); err != nil {
+			t.Fatal(err)
+		}
+		mutate(value)
+		encoded, _ := json.Marshal(value)
+		if Validate("InferenceFlow", encoded) == nil {
+			t.Fatal("invalid flow projection accepted", string(encoded))
+		}
+	}
+	cleanup, _ := json.Marshal(InferenceCleanupResult{Items: []InferenceCleanup{}, Failure: new(strings.Repeat("x", 513))})
+	if Validate("InferenceCleanupResult", cleanup) == nil {
+		t.Fatal("unbounded cleanup diagnostic accepted")
+	}
+	for _, pair := range []struct{ typ, raw string }{
+		{"InferenceTeamParams", `{"flow_id":"AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB","team_id":""}`},
+		{"InferenceProjectParams", `{"flow_id":"AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB","project_id":"bad\n"}`},
+		{"InferenceCreateProjectParams", `{"flow_id":"AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB","name":"","team_id":"out-of-flow"}`},
+	} {
+		if Validate(pair.typ, []byte(pair.raw)) == nil {
+			t.Fatal("invalid account choice accepted", pair.raw)
+		}
+	}
+}
