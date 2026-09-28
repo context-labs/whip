@@ -1,5 +1,64 @@
 [
   {
+    "type": "InitializeParams",
+    "value": {
+      "major": 4,
+      "expected_runtime_id": "runtime_fixture"
+    },
+    "valid": true
+  },
+  {
+    "type": "InitializeResult",
+    "value": {
+      "major": 4,
+      "minor": 0,
+      "runtime_id": "runtime_fixture",
+      "builtins": [
+        {
+          "id": "assistant",
+          "revision": "8633cd0f58dfadf137ca203af9b760904da4fcf8de8a079a47542c051d38d1cb"
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "type": "Request",
+    "value": {
+      "jsonrpc": "2.0",
+      "id": "call",
+      "method": "initialize",
+      "params": {
+        "major": 4
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "Response",
+    "value": {
+      "jsonrpc": "2.0",
+      "id": "call",
+      "result": {
+        "items": []
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "Response",
+    "value": {
+      "jsonrpc": "2.0",
+      "id": "call",
+      "error": {
+        "code": -32009,
+        "message": "request conflict",
+        "kind": "CONFLICT"
+      }
+    },
+    "valid": true
+  },
+  {
     "type": "Session",
     "value": {
       "id": "session_root",
@@ -212,6 +271,35 @@
           "reference_id": "content"
         }
       ]
+    },
+    "valid": false
+  },
+  {
+    "type": "Response",
+    "value": {
+      "jsonrpc": "2.0",
+      "id": "call"
+    },
+    "valid": false
+  },
+  {
+    "type": "Response",
+    "value": {
+      "jsonrpc": "2.0",
+      "id": "call",
+      "result": {},
+      "error": {
+        "code": -32009,
+        "kind": "CONFLICT",
+        "message": "conflict"
+      }
+    },
+    "valid": false
+  },
+  {
+    "type": "InitializeParams",
+    "value": {
+      "major": 3
     },
     "valid": false
   }

@@ -149,7 +149,7 @@ func TestHistoryByteBudgetAndCursor(t *testing.T) {
 	active := claim(t, s, root.ID)
 	text := strings.Repeat("x", session.MaxDocumentBytes-128)
 	for _, id := range []session.MessageID{"a", "b", "c", "d", "e"} {
-		if _, err := s.AppendMessage(t.Context(), active.Turn.ID, MessageDraft{ID: id, Role: session.Assistant, Parts: []session.Part{{Type: "text", Text: text}}}); err != nil {
+		if _, err := s.AppendMessage(t.Context(), active.Turn.ID, session.MessageDraft{ID: id, Role: session.Assistant, Parts: []session.Part{{Type: "text", Text: text}}}); err != nil {
 			t.Fatal(err)
 		}
 	}

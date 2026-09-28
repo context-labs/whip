@@ -406,7 +406,7 @@ complete with a passing check or recorded manual evidence.
 | --- | --- | --- | --- |
 | 0 | Baseline, feedback gates and fixture foundation | None | Complete; [evidence](backend-redesign-development.md#baseline-and-phase-0-evidence) |
 | 1 | Domain contract, ownership, fresh storage/config | 0 | Pending |
-| 2 | Working database → runtime → protocol → SDK slice | 1 | Pending |
+| 2 | Working database → runtime → protocol → SDK slice | 1 | Implemented; hosted gate pending |
 | 3 | One provider, one engine, execution and recovery | 2 | Pending |
 | 4 | Recursion and shared coordination | 3 | Pending |
 | 5 | Remaining engines, integrations and product behavior | 4 | Pending |
@@ -464,7 +464,7 @@ Acceptance:
 
 Evidence for every criterion, measured feedback times and hosted validation are
 recorded in [the development guide](backend-redesign-development.md#phase-1-behavior-ownership-and-evidence).
-The next increment is Phase 2's scripted-provider runtime/RPC/SDK slice.
+Phase 2 now connects the new runtime and SDK; its evidence is recorded in the development guide.
 
 ### Phase 2 — Deliver the first working slice
 
@@ -475,17 +475,17 @@ Use the real runner with a scripted provider as soon as the loop exists.
 
 Acceptance:
 
-- [ ] An SDK example creates a tree/session, submits work, observes a turn and
+- [x] An SDK example creates a tree/session, submits work, observes a turn and
       reads its durable messages and outcome.
-- [ ] Losing an acknowledgement and resubmitting the same identity returns the
+- [x] Losing an acknowledgement and resubmitting the same identity returns the
       same admission; conflicting payload reuse is rejected.
-- [ ] Concurrent submissions cannot start two active turns for one session.
-- [ ] Reconnect reconstructs completed state without duplicate messages.
-- [ ] Unclaimed queued input survives restart; reading history starts no work.
-- [ ] Client disconnect/local wait cancellation does not cancel accepted work.
-- [ ] Generated declarations/validators and actual Go-to-TypeScript fixtures
+- [x] Concurrent submissions cannot start two active turns for one session.
+- [x] Reconnect reconstructs completed state without duplicate messages.
+- [x] Unclaimed queued input survives restart; reading history starts no work.
+- [x] Client disconnect/local wait cancellation does not cancel accepted work.
+- [x] Generated declarations/validators and actual Go-to-TypeScript fixtures
       agree; the new SDK talks directly to the new contract.
-- [ ] This end-to-end slice is part of the required change gate.
+- [x] This end-to-end slice is part of the required change gate.
 
 ### Phase 3 — Make execution and recovery trustworthy
 
@@ -659,7 +659,7 @@ Useful starting references:
 - [Current task gates](../Taskfile.yaml),
   [CI workflow](../.github/workflows/ci.yml), and
   [pre-commit hook](../scripts/git-hooks/pre-commit).
-- [Current root-bound SDK](../packages/sdk/src/session.ts),
+- [Retained root-bound SDK](../packages/legacy-sdk/src/session.ts),
   [Go client in daemon](../internal/daemon/root_client.go), and
   [SDK process-restart fixture](../internal/daemon/v2_sdk_test.go).
 - [Accounting failure regressions](../internal/daemon/budget_test.go),

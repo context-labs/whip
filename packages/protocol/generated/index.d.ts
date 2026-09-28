@@ -307,6 +307,21 @@ export interface HistoryResult {
         created_at: string;
       }[];
 }
+export interface InitializeParams {
+  major: number;
+  expected_runtime_id?: null | string;
+}
+export interface InitializeResult {
+  major: number;
+  minor: number;
+  runtime_id: string;
+  builtins:
+    | null
+    | {
+        id: string;
+        revision: string;
+      }[];
+}
 export interface Input {
   id: string;
   session_id: string;
@@ -403,10 +418,44 @@ export interface ListSessionsResult {
         created_at: string;
       }[];
 }
+export interface RPCError {
+  code: number;
+  message: string;
+  kind:
+    "INVALID" | "NOT_FOUND" | "CONFLICT" | "BUSY" | "LIMIT" | "STOPPED" | "CLOSED" | "IDENTITY" | "METHOD" | "INTERNAL";
+}
+export interface Request {
+  jsonrpc: "2.0";
+  id: string;
+  method: string;
+  params: unknown;
+}
 export interface RequestIdentity {
   client_id: string;
   request_id: string;
 }
+export type Response = {
+  jsonrpc: "2.0";
+  id: string;
+  result?: unknown;
+  error?: null | {
+    code: number;
+    message: string;
+    kind:
+      | "INVALID"
+      | "NOT_FOUND"
+      | "CONFLICT"
+      | "BUSY"
+      | "LIMIT"
+      | "STOPPED"
+      | "CLOSED"
+      | "IDENTITY"
+      | "METHOD"
+      | "INTERNAL";
+  };
+} & {
+  [k: string]: unknown;
+};
 export interface Session {
   id: string;
   tree_id: string;
@@ -623,12 +672,17 @@ export interface ContractTypes {
   DeleteResult: DeleteResult;
   HistoryParams: HistoryParams;
   HistoryResult: HistoryResult;
+  InitializeParams: InitializeParams;
+  InitializeResult: InitializeResult;
   Input: Input;
   InputParams: InputParams;
   LifecycleParams: LifecycleParams;
   ListSessionsParams: ListSessionsParams;
   ListSessionsResult: ListSessionsResult;
+  RPCError: RPCError;
+  Request: Request;
   RequestIdentity: RequestIdentity;
+  Response: Response;
   Session: Session;
   SessionParams: SessionParams;
   SpawnSessionParams: SpawnSessionParams;
@@ -641,6 +695,7 @@ export interface ContractTypes {
   UpdateTreeParams: UpdateTreeParams;
 }
 export interface Operations {
+  "initialize": { params: InitializeParams; result: InitializeResult };
   "trees.create": { params: CreateTreeParams; result: CreateTreeResult };
   "trees.get": { params: TreeParams; result: Tree };
   "trees.update": { params: UpdateTreeParams; result: Tree };

@@ -12,9 +12,9 @@
   ],
   "scripts": {
     "generate": "npm run generate -w @whip/protocol && npm run generate -w @whip/legacy-protocol",
-    "build": "npm run build -w @whip/legacy-sdk",
-    "check": "npm run check -w @whip/protocol && npm run check -w @whip/legacy-protocol && npm run check -w @whip/legacy-sdk && npm run build -w @whip/client-example",
-    "test": "npm run test -w @whip/legacy-sdk",
+    "build": "npm run build -w @whip/sdk && npm run build -w @whip/legacy-sdk",
+    "check": "npm run check -w @whip/protocol && npm run check -w @whip/legacy-protocol && npm run check -w @whip/sdk && npm run check -w @whip/legacy-sdk && npm run build -w @whip/client-example",
+    "test": "npm run test -w @whip/sdk && npm run test -w @whip/legacy-sdk",
     "acceptance": "npm run build && npm run build -w @whip/agents-example && node packages/legacy-sdk/scripts/acceptance.mjs",
     "test:browser": "npm run build && node packages/legacy-sdk/scripts/browser-smoke.mjs",
     "test:package": "npm run build && node packages/legacy-sdk/scripts/package-smoke.mjs",

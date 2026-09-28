@@ -1,0 +1,19 @@
+{
+  "name": "@whip/sdk",
+  "version": "4.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24 <25" },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./node": { "types": "./dist/node.d.ts", "import": "./dist/node.js" }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "npm run build && node --test test/*.test.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": { "@whip/protocol": "4.0.0" },
+  "devDependencies": { "typescript": "5.9.3", "@types/node": "24.13.3" }
+}

@@ -1,0 +1,22 @@
+package main
+
+import (
+	"bytes"
+	"testing"
+)
+
+func TestExplicitRuntimeSelection(t *testing.T) {
+	for _, args := range [][]string{nil, {"-scripted"}, {"-directory", t.TempDir()}, {"-directory", t.TempDir(), "-scripted", "-scripted-delay", "-1s"}} {
+		var out, diagnostics bytes.Buffer
+		if err := run(t.Context(), args, &out, &diagnostics); err == nil {
+			t.Fatalf("accepted missing/invalid runtime selection: %v", args)
+		}
+		if out.Len() != 0 {
+			t.Fatal("announced readiness for invalid invocation")
+		}
+	}
+	var out, diagnostics bytes.Buffer
+	if err := run(t.Context(), []string{"-help"}, &out, &diagnostics); err != nil {
+		t.Fatal(err)
+	}
+}

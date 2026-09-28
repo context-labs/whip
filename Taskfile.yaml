@@ -6,7 +6,7 @@ vars:
   LDFLAGS: -X main.version={{.VERSION}}
   # New Phase 1 core plus retained immutable content primitives.
   # All tests in these packages are required; no test-name skip list.
-  REDESIGN_PACKAGES: ./internal/content ./internal/session ./internal/store ./internal/config ./internal/protocol ./cmd/whip-contract
+  REDESIGN_PACKAGES: ./internal/content ./internal/session ./internal/store ./internal/config ./internal/protocol ./internal/model ./internal/runner ./internal/runtime ./internal/rpc ./internal/client ./cmd/whip-contract ./cmd/whip-runtime
   REDESIGN_BASELINE: e3fed9c91918d9c36766dd47d878c1b5466238d1
 
 tasks:
@@ -120,9 +120,10 @@ tasks:
       - task: check:fixture
 
   check:fixture:
-    desc: Real daemon, scripted provider, SDK admission and process-restart smoke
+    desc: New v4 runtime and retained legacy reference, SDK admission and process-restart checks
     cmds:
       - npm run build
+      - node --test --test-concurrency=1 scripts/redesign/v4-fixture.test.mjs
       - node --test --test-concurrency=1 scripts/redesign/fixture.test.mjs
 
   check:analysis:
@@ -143,10 +144,15 @@ tasks:
       - go test -race -shuffle=on -count=1 -timeout=3m ./internal/daemon -run '^(TestClientAcceptancePrecedesProviderConstructionAndSurvivesDisconnect|TestQueuedInitialAgentPromptSurvivesRestartExactlyOnce|TestModelAccountingFailureRetriesSettlementWithoutProviderReplay|TestModelAdmissionWaitingForActorDoesNotHoldAccountingLock)$'
 
   dev:redesign:
-    desc: Disposable real-runtime fixture with scripted provider (-- --minutes=1..30)
+    desc: Retained legacy product fixture (-- --minutes=1..30)
     cmds:
       - npm run build
       - WHIP_SDK_AGENTS_FIXTURE=1 node apps/mobile/scripts/fixture.mjs {{.CLI_ARGS}}
+
+  dev:v4:
+    desc: New scripted runtime (pass -- -directory /private/disposable/path)
+    cmds:
+      - go run ./cmd/whip-runtime -scripted {{.CLI_ARGS}}
 
   acceptance:
     desc: "Run the deterministic daemon, recursive-agent, client, and RLM release acceptance suite"
@@ -175,6 +181,7 @@ tasks:
   sdk:
     desc: "Build and test the TypeScript SDK, synchronized views, and React example"
     cmds:
+      - npm run check -w @whip/sdk
       - npm run check -w @whip/legacy-sdk
       - npm run build -w @whip/client-example
       - npm run check -w @whip/agents-example

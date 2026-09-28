@@ -89,10 +89,14 @@ Use Node 24. Exact installed versions belong to the package manifests and
 `package-lock.json`; do not copy a historical plan's version list into a new setup.
 
 During the backend redesign, the retained product clients use
-`@whip/legacy-sdk` and `@whip/legacy-protocol`. The new `@whip/sdk` is built
-against `@whip/protocol` v4 in Phase 2; see [the backend domain contract](backend-domain.md)
-for its ownership and persistence rules. The package map below describes the
-retained clients.
+`@whip/legacy-sdk` and `@whip/legacy-protocol`. The new `@whip/sdk` now talks
+directly to `@whip/protocol` v4 over its Node transport. Its main entry point is
+transport-independent and validates generated request/response types. It keeps
+only connection identity, reading durable receipts and bounded transcript pages
+from Go. An aborted wait does not cancel execution. See [its example and recovery
+contract](../packages/sdk/README.md) and [the backend domain contract](backend-domain.md).
+Product clients continue to use the explicitly retained packages until their
+cutover. The package map below describes those retained clients.
 
 | Package | Responsibility | Internal dependencies and boundary |
 | --- | --- | --- |

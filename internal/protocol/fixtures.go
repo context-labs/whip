@@ -38,6 +38,11 @@ func Fixtures() ([]Fixture, error) {
 		name  string
 		value any
 	}{
+		{"InitializeParams", InitializeParams{Major: Major, ExpectedRuntimeID: new(ID("runtime_fixture"))}},
+		{"InitializeResult", InitializeResult{Major: Major, Minor: Minor, RuntimeID: "runtime_fixture", Builtins: []DefinitionRef{{ID: ID(ref.ID), Revision: ref.Revision}}}},
+		{"Request", Request{JSONRPC: "2.0", ID: "call", Method: "initialize", Params: json.RawMessage(`{"major":4}`)}},
+		{"Response", Response{JSONRPC: "2.0", ID: "call", Result: json.RawMessage(`{"items":[]}`)}},
+		{"Response", Response{JSONRPC: "2.0", ID: "call", Error: &RPCError{Code: -32009, Kind: "CONFLICT", Message: "request conflict"}}},
 		{"Session", root},
 		{"Session", child},
 		{"HistoryResult", HistoryResult{Items: []Message{message}}},
@@ -64,5 +69,9 @@ func Fixtures() ([]Fixture, error) {
 		result = append(result, Fixture{Type: "HistoryParams", Value: json.RawMessage(raw), Valid: false})
 	}
 	result = append(result, Fixture{Type: "SubmitParams", Valid: false, Value: json.RawMessage(`{"identity":{"client_id":"client","request_id":"request"},"session_id":"session_child","source":"user","parts":[{"type":"text","text":"x","reference_id":"content"}]}`)})
+	for _, raw := range []string{`{"jsonrpc":"2.0","id":"call"}`, `{"jsonrpc":"2.0","id":"call","result":{},"error":{"code":-32009,"kind":"CONFLICT","message":"conflict"}}`} {
+		result = append(result, Fixture{Type: "Response", Value: json.RawMessage(raw), Valid: false})
+	}
+	result = append(result, Fixture{Type: "InitializeParams", Value: json.RawMessage(`{"major":3}`), Valid: false})
 	return result, nil
 }

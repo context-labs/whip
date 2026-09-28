@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "properties": {
+    "major": {
+      "type": "integer",
+      "minimum": 4,
+      "maximum": 4
+    },
+    "expected_runtime_id": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/InitializeParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "InitializeParams",
+  "required": [
+    "major"
+  ],
+  "additionalProperties": false
+}

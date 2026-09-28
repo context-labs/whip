@@ -124,7 +124,7 @@ runtime identity and seeded revisions; separate databases receive distinct
 identities. Future versions of this fresh schema may have ordinary migrations.
 The store owns database transactions only, with no resource-manager construction.
 
-The first execution implementation in Phase 3 will use the OpenAI-compatible
+The first real-provider execution implementation in Phase 3 will use the OpenAI-compatible
 chat-completions adapter and Starlark. This selects protocol/engine adapters, not
 a hardcoded commercial model or credentials. QuickJS remains a declared tree
 engine and is implemented in Phase 5.
@@ -132,8 +132,8 @@ engine and is implemented in Phase 5.
 ## Phase boundary and verification
 
 Phase 1 delivers persistence and initial v4 wire declarations/generation fixtures.
-Runtime scheduling, RPC serving, SDK adoption and a full turn through the new
-stack belong to Phase 2. Model attempts, effects, checkpoint bytes, grants,
+Phase 2 adds runtime scheduling, RPC serving, SDK/Go clients and a full scripted
+turn through the new stack. Model attempts, effects, checkpoint bytes, grants,
 budgets, mail and shared state are added by their owning later phases; no empty
 repositories or speculative tables are created for them here.
 
@@ -144,3 +144,39 @@ validate actual Go JSON in TypeScript, including counters above JavaScript's
 safe-integer range. Import checks prevent new core packages reaching the retired
 orchestration. The [development guide](backend-redesign-development.md#phase-1-behavior-ownership-and-evidence)
 maps every acceptance criterion to its tests and records local/hosted results.
+
+## Execution and transport ownership
+
+`runtime.Open` locks a private explicit directory, opens fresh host configuration
+and SQLite, and removes a dead owner's socket. It starts no work. `Start` performs
+recovery under that execution lock and starts a bounded scheduler. One worker
+owns one claimed session turn; SQL also enforces this invariant. Workers do not
+hold the scheduler mutex across provider calls or database operations. Closing
+the runtime cancels and joins workers before releasing storage and its lock.
+
+`runner` projects the durable transcript into a provider request using the turn's
+captured configuration. It has injected provider/transcript interfaces and no
+runtime or SQL imports. Completed output is persisted with a stable message ID;
+retrying that write or turn settlement never dispatches the provider again.
+These cleanup writes have a separate five-second bound. Exhausting settlement
+retries faults the runtime, leaving recovery to interrupt the nonterminal turn.
+Phase 3 adds durable attempt accounting and effect uncertainty.
+
+The Phase 2 runner explicitly fails context beyond 100 messages or 4 MiB until
+compaction is implemented. Its scripted provider is an injected adapter on this
+same runner path and accepts only the `scripted/scripted` selection. There is no
+engine execution in Phase 2, despite the tree's engine selection being retained.
+
+`rpc` serves newline-framed JSON-RPC on the private Unix socket. Every connection
+must initialize with major 4; reconnections verify the original runtime identity.
+Frames are bounded at 8 MiB, connections at 64, idle reads at 30 seconds, writes at
+5 seconds, and request handlers at 10 seconds. The server joins its connection
+handlers on shutdown. Request contexts own admission/observation only, never the
+lifetime of accepted work. Protocol errors are typed without exposing internal
+database or provider error details.
+
+The SDK and Go client initially observe by polling receipts and reading bounded
+history pages. They keep no event log or duplicate transcript authority. Stable
+request identities recover lost acknowledgements; ambiguous transport failures
+do not imply rejection. Explicit input/turn cancellation is separate from local
+wait cancellation. Streaming and product-facing synchronized views come later.

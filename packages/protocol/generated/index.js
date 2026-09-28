@@ -5,6 +5,11 @@ export const manifest = {
   "minor": 0,
   "operations": [
     {
+      "name": "initialize",
+      "params": "InitializeParams",
+      "result": "InitializeResult"
+    },
+    {
       "name": "trees.create",
       "params": "CreateTreeParams",
       "result": "CreateTreeResult"
