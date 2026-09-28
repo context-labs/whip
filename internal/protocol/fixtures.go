@@ -51,6 +51,10 @@ func Fixtures() ([]Fixture, error) {
 		Result:  &session.ModelAttemptResult{State: session.AttemptSucceeded, ReportedCostNanoUSD: new(int64(9007199254740993))}, CostNanoUSD: new(int64(9007199254740993)), CostSource: "provider", MessageID: new(session.MessageID(message.ID)), CreatedAt: created, DispatchedAt: &created, FinishedAt: &created,
 	})
 	contentDigest := sha256.Sum256([]byte("hello"))
+	helper := attempt
+	helper.Request.Purpose = "model_helper"
+	helper.OperationID, helper.BatchIndex = new(ID("operation_helper")), new(31)
+	helper.MessageID = nil
 	values := []struct {
 		name  string
 		value any
@@ -114,6 +118,7 @@ func Fixtures() ([]Fixture, error) {
 			DataBase64: "aGVsbG8=",
 		}},
 		{"ModelAttemptsResult", ModelAttemptsResult{Items: []ModelAttempt{attempt}}},
+		{"ModelAttemptsResult", ModelAttemptsResult{Items: []ModelAttempt{helper}}},
 		{"InitializeParams", InitializeParams{Major: Major, ExpectedRuntimeID: new(ID("runtime_fixture"))}},
 		{"InitializeResult", InitializeResult{Major: Major, Minor: Minor, RuntimeID: "runtime_fixture", Builtins: []DefinitionRef{{ID: ID(ref.ID), Revision: ref.Revision}}}},
 		{"Request", Request{JSONRPC: "2.0", ID: "call", Method: "initialize", Params: json.RawMessage(`{"major":4}`)}},

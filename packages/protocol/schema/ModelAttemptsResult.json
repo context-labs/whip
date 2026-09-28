@@ -26,6 +26,21 @@
             "minimum": 1,
             "maximum": 100
           },
+          "operation_id": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "batch_index": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "minimum": 0,
+            "maximum": 31
+          },
           "request": {
             "type": "object",
             "properties": {
@@ -335,6 +350,8 @@
           "turn_id",
           "logical_id",
           "number",
+          "operation_id",
+          "batch_index",
           "request",
           "state",
           "result",

@@ -1534,6 +1534,8 @@ export interface ModelAttemptsResult {
         turn_id: string;
         logical_id: string;
         number: number;
+        operation_id: null | string;
+        batch_index: null | number;
         request: {
           purpose: string;
           model: {

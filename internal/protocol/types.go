@@ -338,6 +338,8 @@ type ModelAttempt struct {
 	TurnID       ID                   `json:"turn_id"`
 	LogicalID    ID                   `json:"logical_id"`
 	Number       int                  `json:"number" min:"1" max:"100"`
+	OperationID  *ID                  `json:"operation_id"`
+	BatchIndex   *int                 `json:"batch_index" min:"0" max:"31"`
 	Request      ModelRequestSnapshot `json:"request"`
 	State        string               `json:"state" enum:"reserved,dispatched,succeeded,failed,cancelled,uncertain"`
 	Result       *ModelAttemptResult  `json:"result"`

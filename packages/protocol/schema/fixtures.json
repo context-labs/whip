@@ -876,6 +876,8 @@
           "turn_id": "turn_fixture",
           "logical_id": "call_fixture",
           "number": 1,
+          "operation_id": null,
+          "batch_index": null,
           "request": {
             "purpose": "turn",
             "model": {
@@ -918,6 +920,67 @@
           "cost_source": "provider",
           "cost_note": null,
           "message_id": "message_fixture",
+          "created_at": "2026-09-27T12:00:00.123456Z",
+          "dispatched_at": "2026-09-27T12:00:00.123456Z",
+          "finished_at": "2026-09-27T12:00:00.123456Z"
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "type": "ModelAttemptsResult",
+    "value": {
+      "items": [
+        {
+          "id": "attempt_fixture",
+          "turn_id": "turn_fixture",
+          "logical_id": "call_fixture",
+          "number": 1,
+          "operation_id": "operation_helper",
+          "batch_index": 31,
+          "request": {
+            "purpose": "model_helper",
+            "model": {
+              "provider": "fixture",
+              "name": "model",
+              "effort": "",
+              "temperature": 0,
+              "top_p": 0.9
+            },
+            "route": "https://provider.example/v1/chat/completions",
+            "adapter": "openai-chat",
+            "request_digest": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a",
+            "prices": {
+              "input": null,
+              "output": null,
+              "reasoning": null,
+              "cached_input": null,
+              "cached_output": null
+            },
+            "max_output_tokens": "4096",
+            "input_token_bound": null,
+            "timeout_millis": "30000"
+          },
+          "state": "succeeded",
+          "result": {
+            "state": "succeeded",
+            "usage": {
+              "input": null,
+              "output": null,
+              "reasoning": null,
+              "cached_input": null,
+              "cached_output": null
+            },
+            "reported_cost_nano_usd": "9007199254740993",
+            "failure": null,
+            "usage_note": null,
+            "elapsed_millis": null
+          },
+          "cost_nano_usd": "9007199254740993",
+          "cost_source": "provider",
+          "cost_note": null,
+          "message_id": null,
           "created_at": "2026-09-27T12:00:00.123456Z",
           "dispatched_at": "2026-09-27T12:00:00.123456Z",
           "finished_at": "2026-09-27T12:00:00.123456Z"
