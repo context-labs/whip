@@ -31,14 +31,15 @@ const (
 )
 
 type Snapshot struct {
-	Text    string
-	Sources []session.InstructionSource
+	Text     string
+	Sources  []session.InstructionSource
+	Selected []Skill
 }
 
 // Load reads only through root, which remains owned by the caller. A nil root
 // omits all filesystem sources without probing their existence. Optional
 // missing sources are omitted; present but invalid sources fail the assembly.
-func Load(ctx context.Context, root *os.Root, policy session.Instructions) (Snapshot, error) {
+func Load(ctx context.Context, root *os.Root, policy session.Instructions, invoked []string) (Snapshot, error) {
 	if err := ctx.Err(); err != nil {
 		return Snapshot{}, err
 	}
@@ -70,20 +71,37 @@ func Load(ctx context.Context, root *os.Root, policy session.Instructions) (Snap
 		}
 		sources = append(sources, source("project_file", path, data))
 	}
-	if policy.DiscoverSkills {
-		catalog, metadata, err := loadSkills(ctx, root)
+	var selected []Skill
+	if policy.DiscoverSkills || len(invoked) > 0 {
+		catalog, err := Catalog(ctx, root)
 		if err != nil {
 			return Snapshot{}, err
 		}
-		if err := appendText(&text, skills.PromptBlock(catalog)); err != nil {
-			return Snapshot{}, err
+		if policy.DiscoverSkills {
+			visible := make([]skills.Skill, 0, len(catalog.Skills))
+			for _, skill := range catalog.Skills {
+				visible = append(visible, skills.Skill{Name: skill.Name, Description: skill.Description, Path: skill.Source.Path, DisableModelInvocation: skill.Disabled})
+			}
+			if err := appendText(&text, skills.PromptBlock(visible)); err != nil {
+				return Snapshot{}, err
+			}
 		}
-		sources = append(sources, metadata...)
+		sources = append(sources, catalog.Sources...)
+		byName := make(map[string]Skill, len(catalog.Skills))
+		for _, skill := range catalog.Skills {
+			byName[skill.Name] = skill
+		}
+		for _, name := range invoked {
+			if skill, ok := byName[name]; ok {
+				selected = append(selected, skill)
+				delete(byName, name)
+			}
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return Snapshot{}, err
 	}
-	return Snapshot{Text: text.String(), Sources: sources}, nil
+	return Snapshot{Text: text.String(), Sources: sources, Selected: selected}, nil
 }
 
 func appendText(text *strings.Builder, value string) error {
@@ -125,7 +143,7 @@ func readSource(ctx context.Context, root *os.Root, path string, metadata bool) 
 	if metadata {
 		data, err = readMetadata(ctx, file)
 	} else {
-		data, err = readProject(file, info)
+		data, err = readComplete(file, info, maxSourceBytes)
 	}
 	if err == nil {
 		err = ctx.Err()
@@ -136,23 +154,23 @@ func readSource(ctx context.Context, root *os.Root, path string, metadata bool) 
 	return data, true, nil
 }
 
-func readProject(file *os.File, before fs.FileInfo) ([]byte, error) {
-	if before.Size() > maxSourceBytes {
-		return nil, errors.New("project instructions exceed 64 KiB")
+func readComplete(file *os.File, before fs.FileInfo, limit int64) ([]byte, error) {
+	if before.Size() > limit {
+		return nil, fmt.Errorf("instruction source exceeds %d bytes", limit)
 	}
-	data, err := io.ReadAll(io.LimitReader(file, maxSourceBytes+1))
+	data, err := io.ReadAll(io.LimitReader(file, limit+1))
 	if err != nil {
 		return nil, err
 	}
-	if len(data) > maxSourceBytes {
-		return nil, errors.New("project instructions exceed 64 KiB")
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("instruction source exceeds %d bytes", limit)
 	}
 	after, err := file.Stat()
 	if err != nil {
 		return nil, err
 	}
 	if after.Size() != before.Size() || int64(len(data)) != before.Size() {
-		return nil, errors.New("project instruction size changed while reading")
+		return nil, errors.New("instruction source size changed while reading")
 	}
 	return data, nil
 }

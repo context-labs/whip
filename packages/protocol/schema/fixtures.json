@@ -146,6 +146,64 @@
     "valid": true
   },
   {
+    "type": "ListSkillsParams",
+    "value": {
+      "session_id": "session_root",
+      "prefix": "my",
+      "after": "my-a",
+      "limit": 1
+    },
+    "valid": true
+  },
+  {
+    "type": "ListSkillsResult",
+    "value": {
+      "items": [],
+      "next_after": null
+    },
+    "valid": true
+  },
+  {
+    "type": "ListSkillsResult",
+    "value": {
+      "items": [
+        {
+          "name": "my-skill",
+          "description": "Selected explicitly.",
+          "disabled": true,
+          "source": {
+            "kind": "skill_metadata",
+            "scope": "workspace",
+            "path": ".agents/skills/my-skill/SKILL.md",
+            "bytes": "40",
+            "sha256": "39e9523d0c5ea852e868d4fe03a5e18e06bb3110bf2baf038de23259739fe773"
+          }
+        }
+      ],
+      "next_after": "my-skill"
+    },
+    "valid": true
+  },
+  {
+    "type": "InstructionManifestResult",
+    "value": {
+      "manifest": {
+        "bytes": "80000",
+        "sha256": "39e9523d0c5ea852e868d4fe03a5e18e06bb3110bf2baf038de23259739fe773",
+        "sources": [
+          {
+            "kind": "invoked_skill",
+            "scope": "workspace",
+            "path": ".agents/skills/my-skill/SKILL.md",
+            "bytes": "70000",
+            "sha256": "39e9523d0c5ea852e868d4fe03a5e18e06bb3110bf2baf038de23259739fe773"
+          }
+        ]
+      }
+    },
+    "valid": true
+  },
+  {
     "type": "InstructionManifestResult",
     "value": {
       "manifest": null

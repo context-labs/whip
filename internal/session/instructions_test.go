@@ -105,3 +105,29 @@ func TestInstructionManifestValidationAndClone(t *testing.T) {
 		t.Fatal("source-free empty composition rejected", err)
 	}
 }
+
+func TestInstructionInvokedSkillSourceBounds(t *testing.T) {
+	for _, kind := range []string{"project_file", "skill_metadata", "invoked_skill"} {
+		t.Run(kind, func(t *testing.T) {
+			value := instructionManifestTest()
+			value.Sources[0].Kind = kind
+			value.Sources[0].Path = ".agents/skills/review/SKILL.md"
+			limit := int64(MaxInstructionSourceBytes)
+			if kind == "invoked_skill" {
+				limit = MaxInvokedSkillBytes
+			}
+			value.Sources[0].Bytes = limit
+			if err := value.Validate(); err != nil {
+				t.Fatalf("complete source at limit rejected: %v", err)
+			}
+			value.Sources[0].Bytes++
+			if err := value.Validate(); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("oversized source accepted: %v", err)
+			}
+			value.Sources[0].Bytes = -1
+			if err := value.Validate(); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("negative source bytes accepted: %v", err)
+			}
+		})
+	}
+}

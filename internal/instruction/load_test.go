@@ -51,7 +51,7 @@ func TestLoadCapturesOnlyAuthorizedRulesAndSkillMetadata(t *testing.T) {
 	writeFile(t, dir, ".agents/skills/a-disabled/SKILL.md", disabled+"NEVER_IN_PROMPT")
 	writeFile(t, dir, ".agents/skills/ignored.md", "not an immediate skill directory")
 	policy := session.Instructions{Text: "captured instructions", ProjectFiles: []string{"AGENTS.md", "missing.md", "docs/RULES.md"}, DiscoverSkills: true}
-	snapshot, err := Load(t.Context(), root, policy)
+	snapshot, err := Load(t.Context(), root, policy, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,12 +76,12 @@ func TestLoadCapturesOnlyAuthorizedRulesAndSkillMetadata(t *testing.T) {
 			t.Fatalf("incorrect source evidence: %+v", source)
 		}
 	}
-	again, err := Load(t.Context(), root, policy)
+	again, err := Load(t.Context(), root, policy, nil)
 	if err != nil || !reflect.DeepEqual(snapshot, again) {
 		t.Fatalf("assembly was nondeterministic: %v", err)
 	}
 	writeFile(t, dir, "AGENTS.md", "changed next turn")
-	next, err := Load(t.Context(), root, policy)
+	next, err := Load(t.Context(), root, policy, nil)
 	if err != nil || next.Sources[0].SHA256 == snapshot.Sources[0].SHA256 || strings.Contains(snapshot.Text, "changed next turn") {
 		t.Fatal("refresh mutated previous snapshot or retained stale file")
 	}
@@ -89,7 +89,7 @@ func TestLoadCapturesOnlyAuthorizedRulesAndSkillMetadata(t *testing.T) {
 
 func TestLoadWithoutFilesystemAuthorityDoesNotProbeSources(t *testing.T) {
 	policy := session.Instructions{Text: "only captured text", ProjectFiles: []string{"AGENTS.md"}, DiscoverSkills: true}
-	snapshot, err := Load(t.Context(), nil, policy)
+	snapshot, err := Load(t.Context(), nil, policy, nil)
 	if err != nil || snapshot.Text != policy.Text || len(snapshot.Sources) != 0 {
 		t.Fatalf("source-free snapshot=%+v err=%v", snapshot, err)
 	}
@@ -98,13 +98,13 @@ func TestLoadWithoutFilesystemAuthorityDoesNotProbeSources(t *testing.T) {
 		t.Fatal(err)
 	}
 	// No configured sources means even a closed root need not be consulted.
-	snapshot, err = Load(t.Context(), root, session.Instructions{Text: "static"})
+	snapshot, err = Load(t.Context(), root, session.Instructions{Text: "static"}, nil)
 	if err != nil || snapshot.Text != "static" || len(snapshot.Sources) != 0 {
 		t.Fatalf("static policy probed root: %+v %v", snapshot, err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := Load(ctx, nil, policy); !errors.Is(err, context.Canceled) {
+	if _, err := Load(ctx, nil, policy, nil); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled load=%v", err)
 	}
 }
@@ -151,7 +151,7 @@ func TestLoadRejectsInvalidPresentSources(t *testing.T) {
 			}
 			result := make(chan error, 1)
 			go func() {
-				_, err := Load(t.Context(), root, session.Instructions{ProjectFiles: []string{relative}})
+				_, err := Load(t.Context(), root, session.Instructions{ProjectFiles: []string{relative}}, nil)
 				result <- err
 			}()
 			select {
@@ -179,7 +179,7 @@ func TestLoadRootDescriptorSurvivesDirectoryRetarget(t *testing.T) {
 	if err := os.Symlink(out, dir); err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := Load(t.Context(), root, session.Instructions{ProjectFiles: []string{"AGENTS.md"}})
+	snapshot, err := Load(t.Context(), root, session.Instructions{ProjectFiles: []string{"AGENTS.md"}}, nil)
 	if err != nil || !strings.Contains(snapshot.Text, "original workspace") || strings.Contains(snapshot.Text, "OUTSIDE_SECRET") {
 		t.Fatalf("root path retarget escaped descriptor: %+v %v", snapshot, err)
 	}
@@ -212,7 +212,7 @@ func TestLoadSymlinkRetargetCannotEscapeRoot(t *testing.T) {
 	})
 	defer func() { cancel(); writers.Wait() }()
 	for range 100 {
-		snapshot, err := Load(t.Context(), root, session.Instructions{ProjectFiles: []string{"rules.md"}})
+		snapshot, err := Load(t.Context(), root, session.Instructions{ProjectFiles: []string{"rules.md"}}, nil)
 		if err == nil && (!strings.Contains(snapshot.Text, "inside workspace") || strings.Contains(snapshot.Text, "OUTSIDE_SECRET")) {
 			t.Fatalf("retarget escaped root: %+v", snapshot)
 		}
@@ -222,20 +222,20 @@ func TestLoadSymlinkRetargetCannotEscapeRoot(t *testing.T) {
 func TestLoadBoundsIncludeFramingAndOptionalDiscovery(t *testing.T) {
 	dir, root := workspace(t)
 	writeFile(t, dir, "AGENTS.md", strings.Repeat("x", maxSourceBytes))
-	if _, err := Load(t.Context(), root, session.Instructions{ProjectFiles: []string{"AGENTS.md"}}); err != nil {
+	if _, err := Load(t.Context(), root, session.Instructions{ProjectFiles: []string{"AGENTS.md"}}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Load(t.Context(), root, session.Instructions{Text: strings.Repeat("s", session.MaxInstructionBytes-maxSourceBytes), ProjectFiles: []string{"AGENTS.md"}}); err == nil {
+	if _, err := Load(t.Context(), root, session.Instructions{Text: strings.Repeat("s", session.MaxInstructionBytes-maxSourceBytes), ProjectFiles: []string{"AGENTS.md"}}, nil); err == nil {
 		t.Fatal("composed bound omitted project framing")
 	}
-	if _, err := Load(t.Context(), nil, session.Instructions{Text: strings.Repeat("s", session.MaxInstructionBytes)}); err != nil {
+	if _, err := Load(t.Context(), nil, session.Instructions{Text: strings.Repeat("s", session.MaxInstructionBytes)}, nil); err != nil {
 		t.Fatal(err)
 	}
 	writeFile(t, dir, ".agents/skills/broken/SKILL.md", "bad frontmatter")
-	if _, err := Load(t.Context(), root, session.Instructions{}); err != nil {
+	if _, err := Load(t.Context(), root, session.Instructions{}, nil); err != nil {
 		t.Fatal("disabled discovery read malformed skill", err)
 	}
-	if _, err := Load(t.Context(), root, session.Instructions{DiscoverSkills: true}); err == nil {
+	if _, err := Load(t.Context(), root, session.Instructions{DiscoverSkills: true}, nil); err == nil {
 		t.Fatal("malformed metadata silently omitted")
 	}
 }
@@ -278,7 +278,7 @@ func TestLoadSkillBoundsAndNonregularMetadata(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if _, err := Load(t.Context(), root, session.Instructions{DiscoverSkills: true}); err == nil {
+			if _, err := Load(t.Context(), root, session.Instructions{DiscoverSkills: true}, nil); err == nil {
 				t.Fatal("invalid or excessive catalog accepted")
 			}
 		})
@@ -323,7 +323,7 @@ func TestProjectReadRejectsSizeChangesAfterDescriptorValidation(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			data, err := readProject(file, before)
+			data, err := readComplete(file, before, maxSourceBytes)
 			if err == nil || data != nil || !strings.Contains(err.Error(), "size changed") {
 				t.Fatalf("changed read was labelled complete: bytes=%q err=%v", data, err)
 			}

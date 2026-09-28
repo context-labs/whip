@@ -5,7 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
+	"strconv"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/context-labs/whip/internal/instruction"
 	"github.com/context-labs/whip/internal/session"
@@ -22,8 +26,16 @@ func (r *Runtime) Instructions(ctx context.Context, turn session.Turn, policy se
 	if err != nil {
 		return "", err
 	}
+	input, err := r.store.TurnInput(ctx, turn.ID)
+	if err != nil {
+		return "", err
+	}
+	var invoked []string
+	if input != nil {
+		invoked = instruction.InvokedNames(input.Parts)
+	}
 	var root *os.Root
-	if len(policy.ProjectFiles) > 0 || policy.DiscoverSkills {
+	if len(policy.ProjectFiles) > 0 || policy.DiscoverSkills || len(invoked) > 0 {
 		grant, err := r.store.InstructionReadGrant(ctx, turn.ID)
 		if err != nil {
 			return "", err
@@ -36,11 +48,15 @@ func (r *Runtime) Instructions(ctx context.Context, turn session.Turn, policy se
 			defer func() { _ = root.Close() }()
 		}
 	}
-	captured, err := instruction.Load(ctx, root, policy)
+	captured, err := instruction.Load(ctx, root, policy, invoked)
 	if err != nil {
 		return "", err
 	}
-	text := captured.Text + "\n" + executionInstructions(current, tree)
+	text, err := r.invokedInstructions(ctx, turn.ID, root, &captured)
+	if err != nil {
+		return "", err
+	}
+	text += "\n" + executionInstructions(current, tree)
 	if len(text) > session.MaxInstructionBytes {
 		return "", errors.New("composed instructions exceed 1 MiB")
 	}
@@ -55,6 +71,71 @@ func (r *Runtime) Instructions(ctx context.Context, turn session.Turn, policy se
 // InstructionManifest inspects immutable source metadata without reopening files.
 func (r *Runtime) InstructionManifest(ctx context.Context, turn session.TurnID) (*session.InstructionManifest, error) {
 	return r.store.InstructionManifest(ctx, turn)
+}
+
+// Each selected body is separately admitted. Discovery, a previous completion
+// result, and previously granted permission for a single tool read confer none.
+func (r *Runtime) invokedInstructions(ctx context.Context, turn session.TurnID, root *os.Root, captured *instruction.Snapshot) (string, error) {
+	var text strings.Builder
+	text.WriteString(captured.Text)
+	for _, selected := range captured.Selected {
+		if len(captured.Sources) >= session.MaxInstructionSources {
+			return "", errors.New("instruction source manifest exceeds bounds")
+		}
+		grant, err := r.store.InstructionReadGrant(ctx, turn)
+		if err != nil {
+			return "", err
+		}
+		if root == nil || grant == nil || grant.Resource != root.Name() {
+			return "", fmt.Errorf("%w: skill invocation requires standing workspace read authority", session.ErrInvalid)
+		}
+		body, source, err := instruction.ReadSkill(ctx, root, selected)
+		if err != nil {
+			return "", err
+		}
+		framed := "\n\n--- Explicit skill: " + strconv.Quote(selected.Name) + " from " + strconv.Quote(source.Path) + " ---\n" + body
+		if len(framed) > session.MaxInstructionBytes-text.Len() {
+			return "", errors.New("composed instructions exceed 1 MiB")
+		}
+		text.WriteString(framed)
+		captured.Sources = append(captured.Sources, source)
+	}
+	return text.String(), nil
+}
+
+// Skills returns current, authorized metadata for human inspection and completion.
+// Each page is a fresh view; its name cursor does not promise a historical snapshot.
+func (r *Runtime) Skills(ctx context.Context, id session.SessionID, prefix, after string, limit int) ([]instruction.Skill, *string, error) {
+	if limit < 1 || limit > 100 || len(prefix) > 64 || len(after) > 64 || !utf8.ValidString(prefix+after) || strings.ContainsRune(prefix+after, 0) {
+		return nil, nil, fmt.Errorf("%w: invalid skill page bounds", session.ErrInvalid)
+	}
+	_, grant, err := r.store.SessionInstructions(ctx, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	result := []instruction.Skill{}
+	if grant == nil {
+		return result, nil, nil
+	}
+	root, err := os.OpenRoot(grant.Resource)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = root.Close() }()
+	catalog, err := instruction.Catalog(ctx, root)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, skill := range catalog.Skills {
+		if skill.Name <= after || !strings.HasPrefix(skill.Name, prefix) {
+			continue
+		}
+		if len(result) == limit {
+			return result, new(result[len(result)-1].Name), nil
+		}
+		result = append(result, skill)
+	}
+	return result, nil, nil
 }
 
 func executionInstructions(current session.Session, tree session.Tree) string {

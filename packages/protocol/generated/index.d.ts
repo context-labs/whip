@@ -836,7 +836,7 @@ export interface InstructionManifestResult {
      * @maxItems 1152
      */
     sources: {
-      kind: "project_file" | "skill_metadata";
+      kind: "project_file" | "skill_metadata" | "invoked_skill";
       scope: "workspace";
       path: string;
       bytes: string;
@@ -959,6 +959,30 @@ export interface ListSessionsResult {
         lifecycle: "active" | "stopped";
         created_at: string;
       }[];
+}
+export interface ListSkillsParams {
+  session_id: string;
+  prefix?: string;
+  after?: string;
+  limit: number;
+}
+export interface ListSkillsResult {
+  /**
+   * @maxItems 100
+   */
+  items: {
+    name: string;
+    description: string;
+    disabled: boolean;
+    source: {
+      kind: "project_file" | "skill_metadata" | "invoked_skill";
+      scope: "workspace";
+      path: string;
+      bytes: string;
+      sha256: string;
+    };
+  }[];
+  next_after: null | string;
 }
 export interface ListStateParams {
   session_id: string;
@@ -2257,6 +2281,8 @@ export interface ContractTypes {
   ListMailResult: ListMailResult;
   ListSessionsParams: ListSessionsParams;
   ListSessionsResult: ListSessionsResult;
+  ListSkillsParams: ListSkillsParams;
+  ListSkillsResult: ListSkillsResult;
   ListStateParams: ListStateParams;
   MailAdmission: MailAdmission;
   Message: Message;
@@ -2327,6 +2353,7 @@ export interface Operations {
   "context.search": { params: SearchHistoryParams; result: SearchHistoryResult };
   "turns.output": { params: TurnParams; result: TurnOutputResult };
   "turns.instructions": { params: TurnParams; result: InstructionManifestResult };
+  "skills.list": { params: ListSkillsParams; result: ListSkillsResult };
   "completions.list": { params: ListCompletionsParams; result: ListCompletionsResult };
   "completions.read": { params: ReadCompletionParams; result: ReadCompletionResult };
   "state.subscribe": { params: SubscribeStateParams; result: StateSubscription };

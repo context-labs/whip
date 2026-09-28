@@ -160,6 +160,15 @@ base instructions. Display the saved paths/digests without rereading files or
 replacing the user's original input. Configuration edits refresh instructions on
 the next turn. Workspace project files and skill metadata require standing read
 authority; one-use file approvals do not enable automatic discovery.
+`skills.list` supplies current winner metadata for completion and source inspection,
+including explicitly invocable disabled skills. Use its case-sensitive `prefix`,
+exclusive name `after`, `limit` (1–100), and `next_after`; each page is a fresh
+filesystem view. It does not claim work or require a running session. The SDK
+retains no mutable catalog. Clients derive `$name` insertions and keep the user's
+literal input. Explicit bodies are frozen current-turn instructions, including
+when automatic discovery is disabled; they are not expanded into history or
+silently reread for later turns. `invoked_skill` manifest sources audit complete
+selected files, while `skill_metadata` sources audit frontmatter only.
 Product clients continue to use the explicitly retained packages until their
 cutover. The package map below describes those retained clients.
 
