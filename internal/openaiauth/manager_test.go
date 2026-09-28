@@ -34,10 +34,11 @@ func TestCaptureOrdersWithInstall(t *testing.T) {
 	credentials := old.Credentials
 	credentials.AccessToken, credentials.AccountID = "replacement", "replacement-account"
 	started, release := make(chan struct{}), make(chan struct{})
-	m.save = func(path string, credentials Credentials) error {
+	save := m.save
+	m.save = func(path string, credentials Credentials) (bool, error) {
 		close(started)
 		<-release
-		return saveCredentials(path, credentials)
+		return save(path, credentials)
 	}
 	installed := make(chan error, 1)
 	go func() { installed <- m.Install(t.Context(), old.Generation, credentials) }()
@@ -288,7 +289,8 @@ func TestRefreshCapturedRetriesRotatedPersistence(t *testing.T) {
 		refreshResponse(w)
 	})
 	diskErr := errors.New("disk unavailable")
-	m.save = func(string, Credentials) error { return diskErr }
+	save := m.save
+	m.save = func(string, Credentials) (bool, error) { return false, diskErr }
 	if result, err := m.RefreshCaptured(t.Context(), captured); !errors.Is(err, diskErr) || result != (CapturedCredentials{}) {
 		t.Fatalf("unpersisted rotation returned success: %v", err)
 	}
@@ -296,7 +298,7 @@ func TestRefreshCapturedRetriesRotatedPersistence(t *testing.T) {
 		t.Fatal("unpersisted rotated credentials passed dispatch check")
 	}
 	m.mu.Lock()
-	m.save = saveCredentials
+	m.save = save
 	m.mu.Unlock()
 	result, err := m.RefreshCaptured(t.Context(), captured)
 	if err != nil || result.Generation != captured.Generation || result.Credentials.RefreshToken != "new-refresh" || requests.Load() != 1 {

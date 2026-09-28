@@ -124,7 +124,7 @@ func (s *Service) Begin(ctx context.Context) (Flow, error) {
 	// A malformed local credential file cannot accept a completed login. Known
 	// terminal rejection of an existing credential still permits reauthorization.
 	credentials, err := s.auth.Snapshot()
-	if err != nil && credentials.AccessToken == "" {
+	if err != nil && (credentials.AccessToken == "" || errors.Is(err, openaiauth.ErrPersistence)) {
 		return Flow{}, ErrCredentials
 	}
 	configuration, err := s.config.Snapshot(ctx)
@@ -261,16 +261,15 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 	return s.status(ctx), nil
 }
 
-// Setup retries route publication using already saved credentials. It neither
-// refreshes nor reinstalls them and never changes model defaults.
+// Setup confirms pending local credential persistence, then retries route
+// publication. It never refreshes tokens or changes model defaults.
 func (s *Service) Setup(ctx context.Context) (Status, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.check(ctx); err != nil {
 		return Status{}, err
 	}
-	credentials, err := s.auth.Snapshot()
-	if err != nil || credentials.AccessToken == "" {
+	if err := s.auth.PersistPending(ctx); err != nil {
 		return s.status(ctx), ErrCredentials
 	}
 	if err := s.setup(ctx); err != nil {
@@ -374,7 +373,7 @@ func (s *Service) status(ctx context.Context) Status {
 	}
 	if err != nil {
 		result.AuthState = "unavailable"
-		if credentials.AccessToken != "" {
+		if credentials.AccessToken != "" && !errors.Is(err, openaiauth.ErrPersistence) {
 			result.AuthState = "sign_in_required"
 		}
 		result.Failure = ErrCredentials.Error()
