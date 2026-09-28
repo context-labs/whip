@@ -13,7 +13,9 @@ for (const file of (await readdir('schema')).sort()) {
 }
 let declarations = '// Generated from Go DTOs. Run npm run generate.\n';
 for (const [name, schema] of Object.entries(schemas)) {
-  declarations += await compile(schema, name, { bannerComment: '' });
+  // Nested bounded collections otherwise expand into thousands of unioned
+  // tuples. Go and standalone validators retain every exact collection bound.
+  declarations += await compile(schema, name, { bannerComment: '', maxItems: 4 });
 }
 declarations += '\nexport interface ContractTypes {\n';
 for (const name of Object.keys(schemas)) declarations += '  ' + name + ': ' + name + ';\n';
