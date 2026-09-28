@@ -9,6 +9,32 @@
       "items": {
         "type": "object",
         "properties": {
+          "history_revision": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,18})$",
+            "format": "counter"
+          },
+          "source": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "session_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "compaction_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              }
+            },
+            "required": [
+              "session_id",
+              "compaction_id"
+            ],
+            "additionalProperties": false
+          },
           "id": {
             "type": "string",
             "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
@@ -18,11 +44,17 @@
             "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
           },
           "turn_id": {
-            "type": "string",
+            "type": [
+              "null",
+              "string"
+            ],
             "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
           },
           "attempt_id": {
-            "type": "string",
+            "type": [
+              "null",
+              "string"
+            ],
             "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
           },
           "base_id": {
@@ -62,6 +94,8 @@
           }
         },
         "required": [
+          "history_revision",
+          "source",
           "id",
           "session_id",
           "turn_id",

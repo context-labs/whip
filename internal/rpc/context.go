@@ -51,11 +51,11 @@ func dispatchContext(ctx context.Context, r *runtime.Runtime, method string, raw
 	case "context.snapshot":
 		return decode(raw, func(p protocol.SessionParams) (any, error) {
 			value, err := r.HistorySnapshot(ctx, session.SessionID(p.SessionID))
-			return protocol.HistorySnapshot{SessionID: protocol.ID(value.SessionID), ThroughSequence: protocol.Counter(value.ThroughSequence), MessageCount: protocol.Counter(value.MessageCount)}, err
+			return protocol.HistorySnapshotFromDomain(value), err
 		})
 	case "context.list":
 		return decode(raw, func(p protocol.ContextHistoryParams) (any, error) {
-			value, err := r.HistoryMetadata(ctx, session.SessionID(p.SessionID), int64(p.After), int64(p.ThroughSequence), p.Limit)
+			value, err := r.HistoryMetadataAtRevision(ctx, session.SessionID(p.SessionID), int64(p.After), int64(p.ThroughSequence), p.Limit, expectedHistoryRevision(p.ExpectedRevision))
 			return protocol.HistoryPageFromDomain(value), err
 		})
 	case "context.read":
@@ -65,7 +65,7 @@ func dispatchContext(ctx context.Context, r *runtime.Runtime, method string, raw
 		})
 	case "context.search":
 		return decode(raw, func(p protocol.SearchHistoryParams) (any, error) {
-			value, err := r.SearchHistory(ctx, session.SessionID(p.SessionID), int64(p.After), int64(p.ThroughSequence), p.Query, p.Limit)
+			value, err := r.SearchHistoryAtRevision(ctx, session.SessionID(p.SessionID), int64(p.After), int64(p.ThroughSequence), p.Query, p.Limit, expectedHistoryRevision(p.ExpectedRevision))
 			return protocol.HistorySearchFromDomain(value), err
 		})
 	default:

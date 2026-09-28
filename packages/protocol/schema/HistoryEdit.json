@@ -1,0 +1,54 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "expected_revision": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "observed_through": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "keep_through": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "created_at": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/HistoryEdit",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HistoryEdit",
+  "required": [
+    "id",
+    "session_id",
+    "digest",
+    "expected_revision",
+    "revision",
+    "observed_through",
+    "keep_through",
+    "created_at"
+  ],
+  "additionalProperties": false
+}

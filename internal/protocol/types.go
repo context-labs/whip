@@ -150,6 +150,7 @@ type Tree struct {
 	CreatedAt string       `json:"created_at"`
 }
 type Session struct {
+	HistoryRevision  Counter       `json:"history_revision"`
 	ID               ID            `json:"id"`
 	TreeID           ID            `json:"tree_id"`
 	ParentID         *ID           `json:"parent_id"`
@@ -205,26 +206,32 @@ type Input struct {
 	Schedule  *ScheduleOccurrence `json:"schedule"`
 }
 type Turn struct {
-	Goal           *GoalRef `json:"goal"`
-	ID             ID       `json:"id"`
-	SessionID      ID       `json:"session_id"`
-	Kind           string   `json:"kind" enum:"prompt,compact,goal_formulation"`
-	ConfigRevision Counter  `json:"config_revision"`
-	State          string   `json:"state" enum:"running,cancelling,succeeded,failed,cancelled,interrupted"`
-	Failure        *string  `json:"failure"`
-	StartedAt      string   `json:"started_at"`
-	FinishedAt     *string  `json:"finished_at"`
+	HistoryRevision Counter  `json:"history_revision"`
+	Goal            *GoalRef `json:"goal"`
+	ID              ID       `json:"id"`
+	SessionID       ID       `json:"session_id"`
+	Kind            string   `json:"kind" enum:"prompt,compact,goal_formulation"`
+	ConfigRevision  Counter  `json:"config_revision"`
+	State           string   `json:"state" enum:"running,cancelling,succeeded,failed,cancelled,interrupted"`
+	Failure         *string  `json:"failure"`
+	StartedAt       string   `json:"started_at"`
+	FinishedAt      *string  `json:"finished_at"`
 }
 type Message struct {
-	ID        ID       `json:"id"`
-	SessionID ID       `json:"session_id"`
-	TurnID    ID       `json:"turn_id"`
-	InputID   *ID      `json:"input_id"`
-	Mail      *MailRef `json:"mail"`
-	Sequence  Counter  `json:"sequence"`
-	Role      string   `json:"role" enum:"system,user,assistant,tool"`
-	Parts     []Part   `json:"parts"`
-	CreatedAt string   `json:"created_at"`
+	GroupID         ID             `json:"group_id"`
+	OpeningInput    bool           `json:"opening_input"`
+	Source          *MessageSource `json:"source"`
+	RetiredBy       *ID            `json:"retired_by"`
+	RetiredRevision *Counter       `json:"retired_revision"`
+	ID              ID             `json:"id"`
+	SessionID       ID             `json:"session_id"`
+	TurnID          *ID            `json:"turn_id"`
+	InputID         *ID            `json:"input_id"`
+	Mail            *MailRef       `json:"mail"`
+	Sequence        Counter        `json:"sequence"`
+	Role            string         `json:"role" enum:"system,user,assistant,tool"`
+	Parts           []Part         `json:"parts"`
+	CreatedAt       string         `json:"created_at"`
 }
 type Admission struct {
 	Receipt Receipt `json:"receipt"`
@@ -290,12 +297,14 @@ type SubmitParams struct {
 	Parts     []Part          `json:"parts"`
 }
 type HistoryParams struct {
-	SessionID ID      `json:"session_id"`
-	After     Counter `json:"after"`
-	Limit     int     `json:"limit" min:"1" max:"100"`
+	ExpectedRevision *Counter `json:"expected_revision,omitempty"`
+	SessionID        ID       `json:"session_id"`
+	After            Counter  `json:"after"`
+	Limit            int      `json:"limit" min:"1" max:"100"`
 }
 type HistoryResult struct {
-	Items []Message `json:"items"`
+	Snapshot HistorySnapshot `json:"snapshot"`
+	Items    []Message       `json:"items"`
 }
 type TurnParams struct {
 	TurnID ID `json:"turn_id"`

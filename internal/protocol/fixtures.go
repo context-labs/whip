@@ -28,7 +28,7 @@ func Fixtures() ([]Fixture, error) {
 	if err != nil {
 		return nil, err
 	}
-	root, err := SessionFromDomain(session.Session{ID: "session_root", TreeID: "tree_fixture", Definition: ref, ConfigRevision: 9007199254740993, Config: config, WorkingDirectory: "/workspace", Lifecycle: session.Active, CreatedAt: created})
+	root, err := SessionFromDomain(session.Session{ID: "session_root", TreeID: "tree_fixture", Definition: ref, HistoryRevision: 9007199254740993, ConfigRevision: 9007199254740993, Config: config, WorkingDirectory: "/workspace", Lifecycle: session.Active, CreatedAt: created})
 	if err != nil {
 		return nil, err
 	}
@@ -36,13 +36,13 @@ func Fixtures() ([]Fixture, error) {
 	child.ID = "session_child"
 	parent := root.ID
 	child.ParentID = &parent
-	message := MessageFromDomain(session.Message{ID: "message_fixture", SessionID: "session_child", TurnID: "turn_fixture", Sequence: 9007199254740993, Role: session.Assistant, Parts: []session.Part{{Type: "text", Text: "Completed."}, {Type: "content", ReferenceID: "content_fixture"}}, CreatedAt: created})
+	message := MessageFromDomain(session.Message{ID: "message_fixture", SessionID: "session_child", GroupID: "turn_fixture", TurnID: "turn_fixture", Sequence: 9007199254740993, Role: session.Assistant, Parts: []session.Part{{Type: "text", Text: "Completed."}, {Type: "content", ReferenceID: "content_fixture"}}, CreatedAt: created})
 	callMessage := MessageFromDomain(session.Message{
-		ID: "message_call", SessionID: "session_child", TurnID: "turn_fixture", Sequence: 9007199254740994,
+		ID: "message_call", SessionID: "session_child", GroupID: "turn_fixture", TurnID: "turn_fixture", Sequence: 9007199254740994,
 		Role: session.Assistant, Parts: []session.Part{{Type: "tool_call", Call: &session.ToolCall{ID: "call_fixture", Name: "execute", Arguments: json.RawMessage(`{"code":"print(1)"}`)}}}, CreatedAt: created,
 	})
 	toolMessage := MessageFromDomain(session.Message{
-		ID: "message_result", SessionID: "session_child", TurnID: "turn_fixture", Sequence: 9007199254740995,
+		ID: "message_result", SessionID: "session_child", GroupID: "turn_fixture", TurnID: "turn_fixture", Sequence: 9007199254740995,
 		Role: session.Tool, Parts: []session.Part{{Type: "tool_result", Result: &session.ToolResult{CallID: "call_fixture", Output: "1", IsError: false}}}, CreatedAt: created,
 	})
 	attempt := ModelAttemptFromDomain(session.ModelAttempt{
@@ -71,10 +71,10 @@ func Fixtures() ([]Fixture, error) {
 		{"ScheduleAdmission", ScheduleAdmissionFromDomain(session.ScheduleAdmission{ID: "schedule_fixture", Schedule: &session.ScheduleMetadata{ID: "schedule_fixture", SessionID: "session_child", Expression: "@every 0.000000001s", FirstDue: created, NextDue: &created, CreatedAt: created, PartsBytes: 123, Latest: &session.ScheduleInput{ScheduleID: "schedule_fixture", ScheduledFor: created, InputID: "scheduled_input", ClientID: "schedule", RequestID: "slot_fixture"}}})},
 		{"FormulateGoalParams", FormulateGoalParams{Identity: RequestIdentity{ClientID: "client", RequestID: "formulate"}, SessionID: "session_child", Request: GoalFormulationRequest{GoalID: "goal_formulated"}}},
 		{"FormulateGoalParams", FormulateGoalParams{Identity: RequestIdentity{ClientID: "client", RequestID: "formulate_zero"}, SessionID: "session_child", Request: GoalFormulationRequest{GoalID: "goal_formulated", MaxContinuations: new(Counter(0)), TailMessages: 100, Start: true}}},
-		{"GoalFormulation", GoalFormulationFromDomain(session.GoalFormulation{InputID: "input_formulate", SessionID: "session_child", Request: session.GoalFormulationRequest{GoalID: "goal_formulated", MaxContinuations: new(int64(9007199254740993)), TailMessages: 8}, AfterSequence: 9007199254740993, ThroughSequence: 9007199254740994, TurnID: "turn_formulate", AttemptID: "attempt_formulate", Text: "Build the requested exporter.", CreatedAt: created})},
-		{"GoalFormulation", GoalFormulationFromDomain(session.GoalFormulation{InputID: "input_rejected", SessionID: "session_child", Request: session.GoalFormulationRequest{GoalID: "goal_rejected", Expected: &session.GoalRef{ID: "previous", Revision: 9007199254740993}, TailMessages: 2}, TurnID: "turn_rejected", AttemptID: "attempt_rejected", Text: "Retained candidate.", Rejection: new("conflicting revision"), CreatedAt: created})},
+		{"GoalFormulation", GoalFormulationFromDomain(session.GoalFormulation{HistoryRevision: 9007199254740993, InputID: "input_formulate", SessionID: "session_child", Request: session.GoalFormulationRequest{GoalID: "goal_formulated", MaxContinuations: new(int64(9007199254740993)), TailMessages: 8}, AfterSequence: 9007199254740993, ThroughSequence: 9007199254740994, TurnID: "turn_formulate", AttemptID: "attempt_formulate", Text: "Build the requested exporter.", CreatedAt: created})},
+		{"GoalFormulation", GoalFormulationFromDomain(session.GoalFormulation{HistoryRevision: 9007199254740993, InputID: "input_rejected", SessionID: "session_child", Request: session.GoalFormulationRequest{GoalID: "goal_rejected", Expected: &session.GoalRef{ID: "previous", Revision: 9007199254740993}, TailMessages: 2}, TurnID: "turn_rejected", AttemptID: "attempt_rejected", Text: "Retained candidate.", Rejection: new("conflicting revision"), CreatedAt: created})},
 		{"Input", Input{ID: "input_formulate", SessionID: child.ID, Source: "user", Kind: "goal_formulation", State: "queued", Parts: []Part{}, CreatedAt: created.Format(time.RFC3339Nano)}},
-		{"Turn", Turn{ID: "turn_formulate", SessionID: child.ID, Kind: "goal_formulation", ConfigRevision: 9007199254740993, State: "interrupted", StartedAt: created.Format(time.RFC3339Nano), FinishedAt: new(created.Format(time.RFC3339Nano))}},
+		{"Turn", Turn{ID: "turn_formulate", SessionID: child.ID, Kind: "goal_formulation", HistoryRevision: 9007199254740993, ConfigRevision: 9007199254740993, State: "interrupted", StartedAt: created.Format(time.RFC3339Nano), FinishedAt: new(created.Format(time.RFC3339Nano))}},
 		{"CreateGoalParams", CreateGoalParams{SessionID: "session_child", GoalID: "goal_default", Spec: GoalRequest{Text: "Objective"}}},
 		{"CreateGoalParams", CreateGoalParams{SessionID: "session_child", GoalID: "goal_zero", ExpectedCurrent: &GoalRef{ID: "goal_default", Revision: 9007199254740993}, Spec: GoalRequest{Text: "Initial only", MaxContinuations: new(Counter(0))}, Start: true}},
 		{"Goal", GoalFromDomain(session.Goal{ID: "goal_fixture", Revision: 9007199254740993, SessionID: "session_child", Spec: session.GoalSpec{Text: "Objective", MaxContinuations: 9007199254740994}, OriginFormulationAttemptID: new(session.ModelAttemptID("attempt_formulate")), State: session.GoalCompleted, ContinuationsUsed: 9007199254740993, CompletionTurnID: new(session.TurnID("turn_fixture")), CompletionOperationID: new(session.OperationID("operation_fixture")), CreatedAt: created})},
@@ -88,12 +88,16 @@ func Fixtures() ([]Fixture, error) {
 		{"Input", Input{ID: "input_compact", SessionID: child.ID, Source: "user", Kind: "compact", State: "queued", Parts: []Part{}, CreatedAt: created.Format(time.RFC3339Nano)}},
 		{"ContextHead", ContextHeadFromDomain(session.ContextHead{SessionID: session.SessionID(child.ID), Revision: 9007199254740993, CompactionID: new(session.CompactionID("summary"))})},
 		{"ContextHead", ContextHeadFromDomain(session.ContextHead{SessionID: session.SessionID(child.ID)})},
-		{"CompactionResult", CompactionResult{Metadata: CompactionFromDomain(session.CompactionMetadata{ID: "summary", SessionID: session.SessionID(child.ID), TurnID: "turn", AttemptID: "attempt", ExpectedRevision: 9007199254740993, ThroughSequence: 9007199254740994, PinnedMessageIDs: []session.MessageID{"message"}, TextBytes: 14, CreatedAt: created}), Text: "Exact summary."}},
+		{"CompactionResult", CompactionResult{Metadata: CompactionFromDomain(session.CompactionMetadata{HistoryRevision: 9007199254740993, ID: "summary", SessionID: session.SessionID(child.ID), TurnID: "turn", AttemptID: "attempt", ExpectedRevision: 9007199254740993, ThroughSequence: 9007199254740994, PinnedMessageIDs: []session.MessageID{"message"}, TextBytes: 14, CreatedAt: created}), Text: "Exact summary."}},
 		{"SelectCompactionParams", SelectCompactionParams{SessionID: child.ID, ExpectedRevision: 9007199254740993}},
-		{"HistorySnapshot", HistorySnapshot{SessionID: child.ID, ThroughSequence: 9007199254740993, MessageCount: 9007199254740993}},
-		{"ReadHistoryResult", ReadHistoryResult{Message: HistoryMetadata{ID: "message", SessionID: child.ID, TurnID: "turn", Sequence: 9007199254740993, Role: "assistant", PartsBytes: 88}, Offset: 1, NextOffset: new(Counter(6)), DataBase64: base64.StdEncoding.EncodeToString([]byte{0x9f, 0x8c, 0x8d, '\n', '9'})}},
-		{"HistoryMetadataResult", HistoryMetadataResult{Items: []HistoryMetadata{}, ThroughSequence: 9007199254740993}},
-		{"SearchHistoryResult", SearchHistoryResult{Matches: []HistoryMatch{}, ThroughSequence: 9007199254740993, NextAfter: new(Counter(100)), ScannedMessages: 100, ScannedBytes: 65536}},
+		{"RewindParams", RewindParams{EditID: "edit", SessionID: child.ID, ExpectedRevision: 9007199254740993, ObservedThrough: 9007199254740995, KeepThrough: 0}},
+		{"HistoryEdit", HistoryEditFromDomain(session.HistoryEdit{ID: "edit", SessionID: session.SessionID(child.ID), Digest: ref.Revision, ExpectedRevision: 9007199254740993, Revision: 9007199254740994, ObservedThrough: 9007199254740995, KeepThrough: 0, CreatedAt: created})},
+		{"Message", MessageFromDomain(session.Message{ID: "imported", SessionID: "session_child", GroupID: "imported_group", OpeningInput: true, Source: &session.MessageSource{SessionID: "source", MessageID: "original", Sequence: 9007199254740993}, Sequence: 1, Role: session.User, Parts: []session.Part{{Type: "text", Text: "Imported authored input"}}, CreatedAt: created})},
+		{"CompactionResult", CompactionResult{Metadata: CompactionFromDomain(session.CompactionMetadata{HistoryRevision: 1, ID: "imported_summary", SessionID: "session_child", Source: &session.CompactionSource{SessionID: "source", CompactionID: "source_summary"}, ThroughSequence: 1, PinnedMessageIDs: []session.MessageID{}, TextBytes: 8, CreatedAt: created}), Text: "Summary."}},
+		{"HistorySnapshot", HistorySnapshot{Revision: 9007199254740993, SessionID: child.ID, ThroughSequence: 9007199254740993, MessageCount: 9007199254740993}},
+		{"ReadHistoryResult", ReadHistoryResult{Message: HistoryMetadata{GroupID: "turn", ID: "message", SessionID: child.ID, TurnID: new(ID("turn")), Sequence: 9007199254740993, Role: "assistant", PartsBytes: 88}, Offset: 1, NextOffset: new(Counter(6)), DataBase64: base64.StdEncoding.EncodeToString([]byte{0x9f, 0x8c, 0x8d, '\n', '9'})}},
+		{"HistoryMetadataResult", HistoryMetadataResult{Revision: 9007199254740993, Items: []HistoryMetadata{}, ThroughSequence: 9007199254740993}},
+		{"SearchHistoryResult", SearchHistoryResult{Revision: 9007199254740993, Matches: []HistoryMatch{}, ThroughSequence: 9007199254740993, NextAfter: new(Counter(100)), ScannedMessages: 100, ScannedBytes: 65536}},
 		{"TurnOutputResult", TurnOutputFromDomain(nil)},
 		{"ListSkillsParams", ListSkillsParams{SessionID: "session_root", Prefix: "my", After: "my-a", Limit: 1}},
 		{"ListSkillsResult", ListSkillsResult{Items: []SkillMetadata{}}},
@@ -114,13 +118,13 @@ func Fixtures() ([]Fixture, error) {
 		{"SendMailParams", SendMailParams{MailID: "mail_evidence", SenderID: "session_root", RecipientID: "session_child", Delivery: "next_turn", EvidenceRef: new(ID("sender_evidence"))}},
 		{"ReadMailResult", ReadMailResult{Mail: MailMetadataFromDomain(session.MailMetadata{ID: "mail_evidence", Revision: 1, Source: session.MailSource{Kind: "session", ID: "session_root"}, RecipientID: "session_child", Delivery: session.MailNextTurn, EvidenceRef: new("recipient_evidence"), State: session.MailPending, AvailableAt: created, CreatedAt: created, RevisedAt: created})}},
 		{"ReadMailResult", ReadMailResult{Mail: MailMetadataFromDomain(session.MailMetadata{ID: "mail_fixture", Revision: 128, Source: session.MailSource{Kind: "session", ID: "session_root"}, RecipientID: "session_child", Delivery: session.MailNextTurn, Subject: "Subject", BodyBytes: 5, State: session.MailPending, AvailableAt: created, CreatedAt: created, RevisedAt: created}), Body: "hello"}},
-		{"Message", MessageFromDomain(session.Message{ID: "message_mail", SessionID: "session_child", TurnID: "turn_fixture", Sequence: 9007199254740995, Role: session.User, Mail: &session.MailRef{ID: "mail_fixture", Revision: 128, Presentation: session.MailDigest}, Parts: []session.Part{{Type: "text", Text: "Mail from session_root: Subject"}}, CreatedAt: created})},
+		{"Message", MessageFromDomain(session.Message{ID: "message_mail", SessionID: "session_child", GroupID: "turn_fixture", TurnID: "turn_fixture", Sequence: 9007199254740995, Role: session.User, Mail: &session.MailRef{ID: "mail_fixture", Revision: 128, Presentation: session.MailDigest}, Parts: []session.Part{{Type: "text", Text: "Mail from session_root: Subject"}}, CreatedAt: created})},
 		{"ResourceUsage", ResourceUsageFromDomain(session.ResourceUsage{SessionID: "session_root", Kind: session.ResourceQueuedInputs, Revision: 9007199254740993, Limit: new(int64(9007199254740994)), Used: 9007199254740993})},
 		{"ResourceUsage", ResourceUsageFromDomain(session.ResourceUsage{SessionID: "session_child", Kind: session.ResourceDescendants, Revision: 0, Limit: nil, Used: 0})},
 		{"SetResourceParams", SetResourceParams{SessionID: "session_child", ExpectedRevision: 9007199254740993, Resource: ResourceLimit{Kind: "descendants", Limit: nil}}},
 		{"Budget", BudgetFromDomain(session.Budget{SessionID: "session_root", Kind: session.BudgetModelTokens, Revision: 9007199254740993, Limit: new(int64(9007199254740994)), Used: 9007199254740993, Reserved: 1})},
-		{"SessionObservation", SessionObservation{Epoch: "boot_fixture", Messages: []Message{message}, Preview: &MessagePreview{AttemptID: "attempt_live", TurnID: "turn_fixture", MessageID: "message_live", Revision: 9007199254740993, Text: "In progress", Reasoning: "Considering the request", Calls: []CallPreview{{Index: 0, ID: "call_partial", Name: "execute", Arguments: `{"code":"print(`}}}}},
-		{"SessionObservation", SessionObservation{Epoch: "boot_restarted", Messages: []Message{}, Preview: nil}},
+		{"SessionObservation", SessionObservation{Snapshot: HistorySnapshot{Revision: 9007199254740993, SessionID: child.ID, ThroughSequence: 9007199254740995, MessageCount: 3}, Epoch: "boot_fixture", Messages: []Message{message}, Preview: &MessagePreview{AttemptID: "attempt_live", TurnID: "turn_fixture", MessageID: "message_live", Revision: 9007199254740993, Text: "In progress", Reasoning: "Considering the request", Calls: []CallPreview{{Index: 0, ID: "call_partial", Name: "execute", Arguments: `{"code":"print(`}}}}},
+		{"SessionObservation", SessionObservation{Snapshot: HistorySnapshot{Revision: 9007199254740993, SessionID: child.ID, ThroughSequence: 9007199254740995, MessageCount: 3}, Epoch: "boot_restarted", Messages: []Message{}, Preview: nil}},
 		{"Grant", GrantFromDomain(session.Grant{ID: "grant_fixture", SessionID: "session_child", Capability: "files.read", Resource: "/workspace", IssuerID: new(session.GrantID("grant_parent")), CreatedAt: created})},
 		{"HostOperation", OperationFromDomain(session.Operation{ID: "operation_fixture", CellID: "cell_fixture", RequestID: "1:1", Capability: "files.read", Resource: "/workspace", Arguments: json.RawMessage(`{"path":"example.txt","offset":1,"limit":2000}`), SessionID: "session_child", TurnID: "turn_fixture", State: session.OperationSucceeded, GrantID: new(session.GrantID("grant_fixture")), Result: &session.OperationResult{State: session.OperationSucceeded, Value: json.RawMessage(`{"output":"1: hello"}`)}, CreatedAt: created, DispatchedAt: &created, FinishedAt: &created})},
 		{"Permission", PermissionFromDomain(session.Permission{OperationID: "operation_fixture", State: session.PermissionApproved, CreatedAt: created, ResolvedAt: &created})},
@@ -139,13 +143,13 @@ func Fixtures() ([]Fixture, error) {
 		{"Response", Response{JSONRPC: "2.0", ID: "call", Error: &RPCError{Code: -32009, Kind: "CONFLICT", Message: "request conflict"}}},
 		{"Session", root},
 		{"Session", child},
-		{"HistoryResult", HistoryResult{Items: []Message{message, callMessage, toolMessage}}},
+		{"HistoryResult", HistoryResult{Snapshot: HistorySnapshot{Revision: 9007199254740993, SessionID: child.ID, ThroughSequence: 9007199254740995, MessageCount: 3}, Items: []Message{message, callMessage, toolMessage}}},
 		{"Part", callMessage.Parts[0]},
 		{"Part", toolMessage.Parts[0]},
 		{"SpawnSessionParams", SpawnSessionParams{Identity: RequestIdentity{ClientID: "client", RequestID: "spawn"}, ParentID: root.ID, Parts: []Part{{Type: "text", Text: "Child work"}}, GrantIDs: []ID{}}},
 		{"SubmitParams", SubmitParams{Identity: RequestIdentity{ClientID: "client", RequestID: "request"}, SessionID: child.ID, Source: "user", Parts: []Part{{Type: "text", Text: "Run this."}}}},
 		{"UpdateConfigurationParams", UpdateConfigurationParams{SessionID: child.ID, ExpectedRevision: 9007199254740993, Patch: ConfigPatch{GoalsEnabled: new(false), Compaction: &CompactionPolicy{Model: nil, ThresholdPercent: 0}, ReportMode: new("inline"), Tools: map[string]ToolDeclaration{}, Output: &OutputPolicy{}}}},
-		{"Turn", Turn{Goal: &GoalRef{ID: "goal_fixture", Revision: 9007199254740993}, ID: "turn_fixture", SessionID: child.ID, Kind: "prompt", ConfigRevision: 9007199254740993, State: "running", StartedAt: created.Format(time.RFC3339Nano)}},
+		{"Turn", Turn{Goal: &GoalRef{ID: "goal_fixture", Revision: 9007199254740993}, ID: "turn_fixture", SessionID: child.ID, Kind: "prompt", HistoryRevision: 9007199254740993, ConfigRevision: 9007199254740993, State: "running", StartedAt: created.Format(time.RFC3339Nano)}},
 	}
 	result := make([]Fixture, 0, len(values)+8)
 	for _, value := range values {
@@ -206,7 +210,7 @@ func Fixtures() ([]Fixture, error) {
 	callMessage.Role = "user"
 	toolMessage.Role = "assistant"
 	for _, message := range []Message{callMessage, toolMessage} {
-		raw, err := json.Marshal(HistoryResult{Items: []Message{message}})
+		raw, err := json.Marshal(HistoryResult{Snapshot: HistorySnapshot{Revision: 9007199254740993, SessionID: child.ID, ThroughSequence: 9007199254740995, MessageCount: 3}, Items: []Message{message}})
 		if err != nil {
 			return nil, err
 		}

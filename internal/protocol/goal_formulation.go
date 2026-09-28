@@ -27,6 +27,7 @@ type GoalFormulationParams struct {
 
 // GoalFormulation is immutable evidence, not the current goal or turn outcome.
 type GoalFormulation struct {
+	HistoryRevision Counter                `json:"history_revision"`
 	InputID         ID                     `json:"input_id"`
 	SessionID       ID                     `json:"session_id"`
 	Request         GoalFormulationRequest `json:"request"`
@@ -63,7 +64,7 @@ func GoalFormulationFromDomain(value session.GoalFormulation) GoalFormulation {
 	// activation or an explicit rejection. This never consults mutable goal or
 	// turn state: acceptance survives cancellation, replacement and deletion.
 	return GoalFormulation{
-		InputID: ID(value.InputID), SessionID: ID(value.SessionID), Request: request,
+		HistoryRevision: Counter(value.HistoryRevision), InputID: ID(value.InputID), SessionID: ID(value.SessionID), Request: request,
 		AfterSequence: Counter(value.AfterSequence), ThroughSequence: Counter(value.ThroughSequence),
 		TurnID: ID(value.TurnID), AttemptID: ID(value.AttemptID), Text: value.Text,
 		Accepted: value.Rejection == nil, Rejection: value.Rejection, CreatedAt: value.CreatedAt.Format(time.RFC3339Nano),

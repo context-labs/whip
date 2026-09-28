@@ -1,6 +1,6 @@
 import { assertValid } from '@whip/protocol';
 import type { Admission, InitializeResult, Operations, RequestIdentity, SessionObservation } from '@whip/protocol';
-import { decodeResponse, operation } from './wire.js';
+import { decodeResponse, operation, RemoteError } from './wire.js';
 import type { CallOptions, Method, Transport } from './wire.js';
 
 export { DeliveryError, RemoteError } from './wire.js';
@@ -72,6 +72,11 @@ export class Client {
   /** Queues context maintenance with ordinary admission, cancellation and receipt recovery. */
   compact(sessionID: string, requestID: string, options: CallOptions = {}): Promise<Admission> {
     return this.call('sessions.compact', { session_id: sessionID, identity: this.identity(requestID) }, options);
+  }
+
+  /** Keep editID and this exact snapshot/boundary when retrying an uncertain rewind. */
+  rewind(params: Omit<Operations['sessions.rewind']['params'], 'edit_id'>, editID: string, options: CallOptions = {}): Promise<Operations['sessions.rewind']['result']> {
+    return this.call('sessions.rewind', { ...params, edit_id: editID }, options);
   }
 
   /** Child identity, initial input and delegated authority share one recoverable admission. */
@@ -153,17 +158,34 @@ export class Client {
   /**
    * Read committed pages and disposable previews. Replace a preview by message_id
    * when its committed message arrives; a null preview or changed epoch clears it.
-   * This iterator retains only a cursor and preview revision, never a transcript.
+   * A changed snapshot.revision replaces all prior history, including an empty page.
+   * This iterator retains only cursors and revisions, never a transcript.
    * Aborting observation does not cancel the session's work.
    */
-  async *observe(sessionID: string, options: CallOptions & { after?: string } = {}): AsyncGenerator<SessionObservation> {
+  async *observe(sessionID: string, options: CallOptions & { after?: string; expectedRevision?: string } = {}): AsyncGenerator<SessionObservation> {
     let after = options.after ?? '0';
+    let expectedRevision = options.expectedRevision;
+    if (BigInt(after) !== 0n && expectedRevision === undefined) throw new TypeError('Resuming observation requires its history revision');
     let previous: string | undefined;
     for (;;) {
-      const snapshot = await this.call('sessions.observe', { session_id: sessionID, after, limit: 100 }, { signal: options.signal });
+      let snapshot: SessionObservation;
+      try {
+        snapshot = await this.call('sessions.observe', {
+          session_id: sessionID, after, limit: 100,
+          ...(expectedRevision === undefined ? {} : { expected_revision: expectedRevision }),
+        }, { signal: options.signal });
+      } catch (error) {
+        if (!(error instanceof RemoteError) || error.kind !== 'CONFLICT' || expectedRevision === undefined) throw error;
+        after = '0';
+        expectedRevision = undefined;
+        previous = undefined;
+        continue;
+      }
+      if (expectedRevision !== undefined && snapshot.snapshot.revision !== expectedRevision) throw new TypeError('Observation history revision did not match');
+      expectedRevision = snapshot.snapshot.revision;
       const messages = snapshot.messages ?? [];
       const preview = snapshot.preview;
-      const revision = snapshot.epoch + ':' + (preview ? preview.attempt_id + ':' + preview.revision : 'none');
+      const revision = expectedRevision + ':' + snapshot.epoch + ':' + (preview ? preview.attempt_id + ':' + preview.revision : 'none');
       for (const message of messages) {
         if (BigInt(message.sequence) <= BigInt(after)) throw new TypeError('Observation history cursor did not advance');
         after = message.sequence;

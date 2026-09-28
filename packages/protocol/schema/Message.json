@@ -6,6 +6,55 @@
     {
       "type": "object",
       "properties": {
+        "group_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "opening_input": {
+          "type": "boolean"
+        },
+        "source": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "session_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "message_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "sequence": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,18})$",
+              "format": "counter"
+            }
+          },
+          "required": [
+            "session_id",
+            "message_id",
+            "sequence"
+          ],
+          "additionalProperties": false
+        },
+        "retired_by": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "retired_revision": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
         "id": {
           "type": "string",
           "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
@@ -15,7 +64,10 @@
           "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
         },
         "turn_id": {
-          "type": "string",
+          "type": [
+            "null",
+            "string"
+          ],
           "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
         },
         "input_id": {
@@ -120,6 +172,11 @@
         }
       },
       "required": [
+        "group_id",
+        "opening_input",
+        "source",
+        "retired_by",
+        "retired_revision",
         "id",
         "session_id",
         "turn_id",
@@ -135,6 +192,55 @@
     {
       "type": "object",
       "properties": {
+        "group_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "opening_input": {
+          "type": "boolean"
+        },
+        "source": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "session_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "message_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "sequence": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,18})$",
+              "format": "counter"
+            }
+          },
+          "required": [
+            "session_id",
+            "message_id",
+            "sequence"
+          ],
+          "additionalProperties": false
+        },
+        "retired_by": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "retired_revision": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
         "id": {
           "type": "string",
           "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
@@ -144,7 +250,10 @@
           "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
         },
         "turn_id": {
-          "type": "string",
+          "type": [
+            "null",
+            "string"
+          ],
           "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
         },
         "input_id": {
@@ -249,6 +358,11 @@
         }
       },
       "required": [
+        "group_id",
+        "opening_input",
+        "source",
+        "retired_by",
+        "retired_revision",
         "id",
         "session_id",
         "turn_id",
@@ -264,6 +378,55 @@
     {
       "type": "object",
       "properties": {
+        "group_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "opening_input": {
+          "type": "boolean"
+        },
+        "source": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "session_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "message_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "sequence": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,18})$",
+              "format": "counter"
+            }
+          },
+          "required": [
+            "session_id",
+            "message_id",
+            "sequence"
+          ],
+          "additionalProperties": false
+        },
+        "retired_by": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "retired_revision": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
         "id": {
           "type": "string",
           "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
@@ -273,7 +436,10 @@
           "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
         },
         "turn_id": {
-          "type": "string",
+          "type": [
+            "null",
+            "string"
+          ],
           "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
         },
         "input_id": {
@@ -417,6 +583,11 @@
         }
       },
       "required": [
+        "group_id",
+        "opening_input",
+        "source",
+        "retired_by",
+        "retired_revision",
         "id",
         "session_id",
         "turn_id",
@@ -432,6 +603,55 @@
     {
       "type": "object",
       "properties": {
+        "group_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "opening_input": {
+          "type": "boolean"
+        },
+        "source": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "session_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "message_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "sequence": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,18})$",
+              "format": "counter"
+            }
+          },
+          "required": [
+            "session_id",
+            "message_id",
+            "sequence"
+          ],
+          "additionalProperties": false
+        },
+        "retired_by": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "retired_revision": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
         "id": {
           "type": "string",
           "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
@@ -441,7 +661,10 @@
           "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
         },
         "turn_id": {
-          "type": "string",
+          "type": [
+            "null",
+            "string"
+          ],
           "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
         },
         "input_id": {
@@ -543,6 +766,11 @@
         }
       },
       "required": [
+        "group_id",
+        "opening_input",
+        "source",
+        "retired_by",
+        "retired_revision",
         "id",
         "session_id",
         "turn_id",

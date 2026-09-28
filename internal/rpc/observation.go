@@ -11,11 +11,11 @@ import (
 
 func dispatchObservation(ctx context.Context, r *runtime.Runtime, raw json.RawMessage) (any, error) {
 	return decode(raw, func(p protocol.HistoryParams) (any, error) {
-		value, err := r.Observe(ctx, session.SessionID(p.SessionID), int64(p.After), p.Limit)
+		value, err := r.ObserveRevision(ctx, session.SessionID(p.SessionID), int64(p.After), p.Limit, expectedHistoryRevision(p.ExpectedRevision))
 		if err != nil {
 			return nil, err
 		}
-		result := protocol.SessionObservation{Epoch: protocol.ID(value.Epoch), Messages: []protocol.Message{}}
+		result := protocol.SessionObservation{Snapshot: protocol.HistorySnapshotFromDomain(value.Snapshot), Epoch: protocol.ID(value.Epoch), Messages: []protocol.Message{}}
 		for _, message := range value.Messages {
 			result.Messages = append(result.Messages, protocol.MessageFromDomain(message))
 		}
@@ -27,4 +27,11 @@ func dispatchObservation(ctx context.Context, r *runtime.Runtime, raw json.RawMe
 		}
 		return result, nil
 	})
+}
+
+func expectedHistoryRevision(value *protocol.Counter) *session.Revision {
+	if value == nil {
+		return nil
+	}
+	return new(session.Revision(*value))
 }

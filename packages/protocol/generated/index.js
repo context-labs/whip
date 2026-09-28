@@ -345,6 +345,11 @@ export const manifest = {
       "result": "HistoryResult"
     },
     {
+      "name": "sessions.rewind",
+      "params": "RewindParams",
+      "result": "HistoryEdit"
+    },
+    {
       "name": "sessions.lifecycle",
       "params": "LifecycleParams",
       "result": "Session"
