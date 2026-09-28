@@ -224,3 +224,66 @@ func TestInstructionSourceHostIdentityAndClone(t *testing.T) {
 		t.Fatalf("workspace identity must remain explicit null: %s %v", raw, err)
 	}
 }
+
+func TestStandingInstructionSourceScopeAndBounds(t *testing.T) {
+	valid := InstructionSource{Kind: "standing_instructions", Scope: "host", RootID: new("standing"), Path: "me.md", Bytes: MaxInstructionSourceBytes, SHA256: strings.Repeat("ab", 32)}
+	if err := valid.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*InstructionSource){
+		"workspace":     func(s *InstructionSource) { s.Scope = "workspace"; s.RootID = nil },
+		"missing root":  func(s *InstructionSource) { s.RootID = nil },
+		"skill root":    func(s *InstructionSource) { s.RootID = new("team") },
+		"empty root":    func(s *InstructionSource) { s.RootID = new("") },
+		"nested path":   func(s *InstructionSource) { s.Path = "nested/me.md" },
+		"absolute path": func(s *InstructionSource) { s.Path = "/me.md" },
+		"dot":           func(s *InstructionSource) { s.Path = "." },
+		"parent":        func(s *InstructionSource) { s.Path = ".." },
+		"backslash":     func(s *InstructionSource) { s.Path = `nested\me.md` },
+		"invalid UTF8":  func(s *InstructionSource) { s.Path = "bad\xff" },
+		"nul":           func(s *InstructionSource) { s.Path = "bad\x00" },
+		"oversized":     func(s *InstructionSource) { s.Bytes++ },
+		"negative":      func(s *InstructionSource) { s.Bytes = -1 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			bad := valid
+			mutate(&bad)
+			if err := bad.Validate(); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("invalid standing source accepted=%+v %v", bad, err)
+			}
+		})
+	}
+	valid.Path = "個人.md"
+	valid.Bytes = 0
+	if err := valid.Validate(); err != nil {
+		t.Fatal("empty Unicode-named source rejected", err)
+	}
+}
+
+func TestStandingInstructionPolicyCaptureAndClear(t *testing.T) {
+	base := Configuration{Model: ModelSelection{Provider: "test", Name: "test"}, Instructions: Instructions{StandingInstructions: true}}
+	captured, err := Resolve(base, DefinitionDocument{}, ConfigPatch{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := Resolve(captured, DefinitionDocument{}, ConfigPatch{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clone := captured.Clone()
+	clone.Instructions.StandingInstructions = false
+	captured.Instructions.StandingInstructions = false
+	if !child.Instructions.StandingInstructions || !base.Instructions.StandingInstructions {
+		t.Fatal("standing selection aliases copied configuration")
+	}
+	for _, document := range []DefinitionDocument{{}, {Defaults: ConfigPatch{Instructions: &Instructions{StandingInstructions: true}}}} {
+		cleared, err := Resolve(base, document, ConfigPatch{Instructions: &Instructions{}})
+		if err != nil || cleared.Instructions.StandingInstructions {
+			t.Fatalf("whole-field override failed to clear standing selection: %+v %v", cleared.Instructions, err)
+		}
+	}
+	raw, err := json.Marshal(child.Instructions)
+	if err != nil || !strings.Contains(string(raw), `"standing_instructions":true`) {
+		t.Fatalf("standing selection missing from captured JSON: %s %v", raw, err)
+	}
+}

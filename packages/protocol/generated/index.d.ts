@@ -263,6 +263,7 @@ export interface CreateTreeParams {
       text: string;
       project_files: null | string[];
       discover_skills: boolean;
+      standing_instructions: boolean;
       skill_roots: null | string[];
     };
     tools?: {
@@ -331,6 +332,7 @@ export interface CreateTreeResult {
         text: string;
         project_files: null | string[];
         discover_skills: boolean;
+        standing_instructions: boolean;
         skill_roots: null | string[];
       };
       tools: {
@@ -387,6 +389,7 @@ export interface Definition {
         text: string;
         project_files: null | string[];
         discover_skills: boolean;
+        standing_instructions: boolean;
         skill_roots: null | string[];
       };
       tools?: {
@@ -438,6 +441,7 @@ export interface DefinitionDocument {
       text: string;
       project_files: null | string[];
       discover_skills: boolean;
+      standing_instructions: boolean;
       skill_roots: null | string[];
     };
     tools?: {
@@ -840,7 +844,7 @@ export interface InstructionManifestResult {
      * @maxItems 1152
      */
     sources: {
-      kind: "project_file" | "skill_metadata" | "invoked_skill";
+      kind: "project_file" | "skill_metadata" | "invoked_skill" | "standing_instructions";
       scope: "workspace" | "host";
       root_id: null | string;
       path: string;
@@ -937,6 +941,7 @@ export interface ListSessionsResult {
             text: string;
             project_files: null | string[];
             discover_skills: boolean;
+            standing_instructions: boolean;
             skill_roots: null | string[];
           };
           tools: {
@@ -981,7 +986,7 @@ export interface ListSkillsResult {
     description: string;
     disabled: boolean;
     source: {
-      kind: "project_file" | "skill_metadata" | "invoked_skill";
+      kind: "project_file" | "skill_metadata" | "invoked_skill" | "standing_instructions";
       scope: "workspace" | "host";
       root_id: null | string;
       path: string;
@@ -1547,6 +1552,7 @@ export interface Session {
       text: string;
       project_files: null | string[];
       discover_skills: boolean;
+      standing_instructions: boolean;
       skill_roots: null | string[];
     };
     tools: {
@@ -1820,6 +1826,7 @@ export interface SpawnSessionParams {
       text: string;
       project_files: null | string[];
       discover_skills: boolean;
+      standing_instructions: boolean;
       skill_roots: null | string[];
     };
     tools?: {
@@ -1923,6 +1930,7 @@ export interface SpawnSessionResult {
         text: string;
         project_files: null | string[];
         discover_skills: boolean;
+        standing_instructions: boolean;
         skill_roots: null | string[];
       };
       tools: {
@@ -2199,6 +2207,7 @@ export interface UpdateConfigurationParams {
       text: string;
       project_files: null | string[];
       discover_skills: boolean;
+      standing_instructions: boolean;
       skill_roots: null | string[];
     };
     tools?: {

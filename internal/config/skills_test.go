@@ -26,7 +26,7 @@ func TestHostSkillRootsExplicitValidationAndRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	loaded, err := Load(directory)
-	if err != nil || loaded.Version != 3 || !reflect.DeepEqual(loaded.SkillRoots, host.SkillRoots) || !reflect.DeepEqual(loaded.Defaults.Instructions.SkillRoots, host.Defaults.Instructions.SkillRoots) {
+	if err != nil || loaded.Version != Version || !reflect.DeepEqual(loaded.SkillRoots, host.SkillRoots) || !reflect.DeepEqual(loaded.Defaults.Instructions.SkillRoots, host.Defaults.Instructions.SkillRoots) {
 		t.Fatalf("host roots roundtrip=%+v %v", loaded, err)
 	}
 	loaded.SkillRoots["team"] = "/mutated"
@@ -64,7 +64,7 @@ func TestHostSkillRootsRejectInvalidDeclarations(t *testing.T) {
 			t.Fatalf("invalid root ID %q accepted: %v", id, err)
 		}
 	}
-	for _, version := range []int{1, 2} {
+	for _, version := range []int{1, 2, 3} {
 		host := Default()
 		host.Version = version
 		if err := host.Validate(); !errors.Is(err, session.ErrInvalid) {

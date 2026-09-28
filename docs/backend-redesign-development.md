@@ -1404,3 +1404,102 @@ The workspace instruction PR passed all hosted checks: Linux 10m26s, macOS
 14m31s, analysis 3m5s. Named roots deliberately reject legacy global symlinks that
 escape their root. Standing user instructions, authorized ancestors and all
 remaining Phase 5–7 obligations remain open.
+
+
+## Phase 5 standing user instructions
+
+Fresh host config version 4 names one optional standing instruction file; captured
+session policy selects it. Exact standing `instructions.read` authority for
+resource `standing` admits automatic reads. Disabled or ungranted sources cause
+no filesystem probes. No HOME lookup, template creation or source-file writes
+occur. Fresh schema 22 records the full raw source digest/size, while composed
+text retains the trimmed-line/comment-filtering convention. Active turns freeze
+their captured text; later turns and children recheck policy and authority.
+
+The reader anchors the parent directory and uses descriptor-relative `openat`
+with `O_NOFOLLOW`. Tests exposed that Go's `os.Root.OpenFile` resolves the final
+symlink internally even when passed that flag; the replacement rejects it at
+the actual open. Regular-file, complete-read, UTF-8/NUL, 64 KiB, cancellation,
+parent-retargeting and descriptor-cleanup checks pass. Runtime tests prove no
+provider attempt or source manifest on authorized-source failure, no probe on
+missing authority, raw-file audit and filtered text composition. Independent
+review found one host-validation/reader basename mismatch; both now reject a
+backslash in the basename. Its final focused config race test passed in 1.330 s,
+with zero scoped lint issues.
+
+The SDK acceptance passed after correcting a fixture's `config` property to the
+wire's `configuration`. It covers edits and revocation during a blocked request,
+frozen follow-up rounds, invalid disabled/ungranted sources, child inheritance,
+restart, raw hashes, pre-dispatch failure and maintenance/catalog isolation.
+`task check:phase` passed: store race 76.379 s, runtime race 80.742 s, runner
+race 1.985 s, instruction race 4.452 s, skills race 2.966 s, both engines,
+generated contracts/SDK, SDK process acceptance 13.319 s, retained acceptance
+2.372 s and required daemon regressions 2.701 s. `task check:analysis` reports
+zero lint issues and no reachable vulnerabilities after replacing one `errors.As`
+with the current idiom. The basename validation refinement was separately tested
+after that gate started.
+
+Hosted PR #210 passed Linux, macOS and analysis. PR #211 passed Linux and analysis,
+but its macOS SDK acceptance hit the 180-second fixture deadline; diagnosis is
+pending and it is not claimed green. No failure artifacts were uploaded. This is
+separate from the previously green Phase 4 revision.
+
+## Phase 4 completion audit correction
+
+The user challenged the Phase 4 completion claim. Rechecking the original plan
+(`a9e021723`, also matching the original checkout's seven Phase 4 criteria), the
+retained feature map and implementation found a missing collaboration capability.
+Phase 4 is reopened. Passing hosted checks at `cb80f1307` proves the implemented
+test scope, not complete coverage of the original retained feature requirements.
+
+Ordinary authored mail must carry scoped evidence. The retained feature map says
+evidence handles can be granted with a message, and
+`internal/legacy/session/mailbox_storage_test.go`'s
+`TestSiblingDigestPreservesUnicodeAndEvidenceAccess` proves recipient access and
+evidence-only mail. The new `session.MailSend` and generated `SendMailParams` have
+no content-reference field, require nonempty text, and `store.sendMail` performs
+no content-access transfer. Completion-generated evidence covers only automatic
+reports. No explicit retirement was recorded for authored-mail evidence.
+
+The immediate remaining Phase 4 work is an atomic authored-mail content-sharing
+path through store, host/guest API and generated SDK, with owner isolation,
+rejection rollback, idempotence, exact revision presentation, restart and sender
+deletion coverage. Keep existing content bodies immutable and share a recipient
+reference in the same mail transaction; a digest or a sender's reference ID must
+not itself grant access. Evidence-only mail must remain possible.
+
+The rest of the audit located implementation evidence rather than relying on
+checked boxes:
+
+| Original Phase 4 criterion | Evidence inspected |
+| --- | --- |
+| Atomic child admission and restart | `store/spawn_test.go` concurrent retry, rollback at each write, scoped reference copying and reopen; `runtime/recursion_test.go` unloaded-worker restart |
+| One root/child execution and lifecycle path | `runtime.execute`, ordinary store Claim/Finish/history, `runtime/lifecycle_test.go` root/child tables for cancellation, failure, recovery and deletion |
+| Ancestor reservations and narrowed authority | `store/budgets_test.go` independent-handle sibling contention and rollback; `store/delegation_test.go` exact direct-parent issuer chains and no approval widening |
+| Progress under saturated workers/kernels | Both-engine `runtime/recursion_test.go`; scoped permits, blocked queue/resumption and nested one-worker cases in `runtime/turn_permits_test.go` |
+| Explicit retry/report semantics | Host `Model.MaxAttempts`, common runner's confirmed/uncertain retry distinction, `runtime/provider_test.go`; captured report modes and transactional publication in store/runtime completion tests |
+| Mail inspection/acknowledgement and private/shared state | `store/mail_test.go` exact revisions, failure barrier at each depth and reopen, no inspection delivery; store/runtime state tests for CAS, isolation, large values and restart. Authored-mail evidence remains missing |
+| Distinct parent finish, child cancellation, deletion and eviction | Both-engine `runtime/detached_child_test.go` plus engine eviction/subtree disposal tests; parent-owned completion evidence retention |
+
+Subscriptions additionally have atomic value/cursor/mail/operation tests,
+restart, deferral, cancellation and quota rollback. These test families were
+present at the Phase 4 revision; later compact-turn exclusions do not replace
+their original evidence.
+
+The original guidance does not require a session-owned retry field or automatic
+whole-turn replay. Host route attempt limits and the shared runner implement an
+explicit safe-retry policy; full-turn replay retirement is already documented.
+Do not invent a missing configuration requirement from field absence alone.
+Client migration must also account for the documented array-append change:
+append now concatenates arrays, so appending one object uses a one-element array.
+
+Two capacity semantics also differ from the legacy implementation and must be
+described as design changes, not equivalent ports. `active_operations` now counts
+host operations; model execution is bounded separately by runnable-descendant
+permits and host worker capacity. A session's own turn is excluded from its
+proper-descendant permit count. `descendants` counts retained children, including
+stopped ones; stopping retains data and capacity, whereas deletion frees that
+retention capacity. Legacy `active_children` excluded stopped children. The
+existing resource tests deliberately assert the new behavior. These decisions
+are documented implementation choices, not evidence of separate user approval;
+they must remain visible in final scope reconciliation and client migration.

@@ -23,7 +23,8 @@
                 "enum": [
                   "project_file",
                   "skill_metadata",
-                  "invoked_skill"
+                  "invoked_skill",
+                  "standing_instructions"
                 ]
               },
               "scope": {

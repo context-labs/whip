@@ -21,10 +21,11 @@ type ModelSelection struct {
 }
 
 type Instructions struct {
-	SkillRoots     []string `json:"skill_roots"`
-	Text           string   `json:"text"`
-	ProjectFiles   []string `json:"project_files"`
-	DiscoverSkills bool     `json:"discover_skills"`
+	StandingInstructions bool     `json:"standing_instructions"`
+	SkillRoots           []string `json:"skill_roots"`
+	Text                 string   `json:"text"`
+	ProjectFiles         []string `json:"project_files"`
+	DiscoverSkills       bool     `json:"discover_skills"`
 }
 
 // ToolDeclaration advertises a contract, never authority or a live handler.
