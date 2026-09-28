@@ -121,6 +121,22 @@
                     },
                     "effort": {
                       "type": "string"
+                    },
+                    "temperature": {
+                      "type": [
+                        "null",
+                        "number"
+                      ],
+                      "minimum": 0,
+                      "maximum": 2
+                    },
+                    "top_p": {
+                      "type": [
+                        "null",
+                        "number"
+                      ],
+                      "minimum": 0,
+                      "maximum": 1
                     }
                   },
                   "required": [
@@ -162,6 +178,22 @@
                 },
                 "effort": {
                   "type": "string"
+                },
+                "temperature": {
+                  "type": [
+                    "null",
+                    "number"
+                  ],
+                  "minimum": 0,
+                  "maximum": 2
+                },
+                "top_p": {
+                  "type": [
+                    "null",
+                    "number"
+                  ],
+                  "minimum": 0,
+                  "maximum": 1
                 }
               },
               "required": [

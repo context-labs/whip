@@ -20,7 +20,7 @@ import (
 
 const (
 	FileName = "host.json"
-	Version  = 8
+	Version  = 9
 )
 
 var environmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -187,7 +187,7 @@ func (h Host) Validate() error {
 			return fmt.Errorf("%w: compaction provider route is absent", session.ErrInvalid)
 		}
 	}
-	if h.Defaults.Model == (session.ModelSelection{}) {
+	if h.Defaults.Model.Equal(session.ModelSelection{}) {
 		// Validate declarations while permitting the deliberate unconfigured state.
 		value := h.Defaults.Clone()
 		value.Model = session.ModelSelection{Provider: "unconfigured", Name: "unconfigured"}

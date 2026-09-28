@@ -881,7 +881,9 @@
             "model": {
               "provider": "fixture",
               "name": "model",
-              "effort": ""
+              "effort": "",
+              "temperature": 0,
+              "top_p": 0.9
             },
             "route": "https://provider.example/v1/chat/completions",
             "adapter": "openai-chat",
@@ -1241,6 +1243,104 @@
       "finished_at": null
     },
     "valid": true
+  },
+  {
+    "type": "UpdateConfigurationParams",
+    "value": {
+      "session_id": "session_child",
+      "expected_revision": "1",
+      "patch": {
+        "model": {
+          "provider": "p",
+          "name": "model",
+          "effort": "",
+          "temperature": null,
+          "top_p": null
+        }
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "UpdateConfigurationParams",
+    "value": {
+      "session_id": "session_child",
+      "expected_revision": "1",
+      "patch": {
+        "model": {
+          "provider": "p",
+          "name": "model",
+          "effort": "",
+          "temperature": 0,
+          "top_p": 1
+        }
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "UpdateConfigurationParams",
+    "value": {
+      "session_id": "session_child",
+      "expected_revision": "1",
+      "patch": {
+        "model": {
+          "provider": "p",
+          "name": "model",
+          "effort": "",
+          "temperature": 2.01
+        }
+      }
+    },
+    "valid": false
+  },
+  {
+    "type": "UpdateConfigurationParams",
+    "value": {
+      "session_id": "session_child",
+      "expected_revision": "1",
+      "patch": {
+        "model": {
+          "provider": "p",
+          "name": "model",
+          "effort": "",
+          "top_p": -0.01
+        }
+      }
+    },
+    "valid": false
+  },
+  {
+    "type": "UpdateConfigurationParams",
+    "value": {
+      "session_id": "session_child",
+      "expected_revision": "1",
+      "patch": {
+        "model": {
+          "provider": "p",
+          "name": "model",
+          "effort": "",
+          "top_p": 1.01
+        }
+      }
+    },
+    "valid": false
+  },
+  {
+    "type": "UpdateConfigurationParams",
+    "value": {
+      "session_id": "session_child",
+      "expected_revision": "1",
+      "patch": {
+        "model": {
+          "provider": "p",
+          "name": "model",
+          "effort": "",
+          "temperature": "0"
+        }
+      }
+    },
+    "valid": false
   },
   {
     "type": "HistoryParams",

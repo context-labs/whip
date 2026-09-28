@@ -67,6 +67,7 @@ type CallError struct {
 func (e *CallError) Error() string { return e.Message }
 
 func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) {
+	request.Selection = request.Selection.Clone()
 	if request.Purpose == "" {
 		request.Purpose = "turn"
 	}
@@ -76,9 +77,12 @@ func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) 
 	if err := request.Selection.Validate(); err != nil {
 		return Prepared{}, err
 	}
-	route, err := p.Resolve(ctx, request.Selection)
+	route, err := p.Resolve(ctx, request.Selection.Clone())
 	if err != nil {
 		return Prepared{}, err
+	}
+	if (route.Kind == "openai-responses" || route.Kind == "openai-codex") && (request.Selection.Temperature != nil || request.Selection.TopP != nil) {
+		return Prepared{}, fmt.Errorf("%w: temperature and top_p are unsupported by this Responses route", session.ErrInvalid)
 	}
 	if route.MaxAttempts < 1 || route.MaxAttempts > 5 {
 		return Prepared{}, fmt.Errorf("%w: invalid provider attempt limit", session.ErrInvalid)
@@ -145,7 +149,7 @@ func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) 
 	}
 	hash := sha256.Sum256(body)
 	snapshot := session.ModelRequestSnapshot{
-		Purpose: request.Purpose, Model: request.Selection,
+		Purpose: request.Purpose, Model: request.Selection.Clone(),
 		Route: baseURL + path, Adapter: adapter,
 		RequestDigest: hex.EncodeToString(hash[:]), Prices: route.Prices.Clone(),
 		MaxOutputTokens: route.MaxOutputTokens, TimeoutMillis: route.TimeoutMillis,
@@ -321,12 +325,14 @@ func encodeChat(request Request, baseURL string, maxTokens int64) ([]byte, error
 		Messages            []chatMessage     `json:"messages"`
 		MaxCompletionTokens int64             `json:"max_completion_tokens"`
 		ReasoningEffort     string            `json:"reasoning_effort,omitempty"`
+		Temperature         *float64          `json:"temperature,omitempty"`
+		TopP                *float64          `json:"top_p,omitempty"`
 		PromptCacheKey      string            `json:"prompt_cache_key,omitempty"`
 		Thinking            *chatThinking     `json:"thinking,omitempty"`
 		Tools               []chatTool        `json:"tools,omitempty"`
 		Stream              bool              `json:"stream"`
 		StreamOptions       chatStreamOptions `json:"stream_options"`
-	}{Model: request.Selection.Name, Messages: messages, MaxCompletionTokens: maxTokens, ReasoningEffort: effort, PromptCacheKey: cacheKey, Thinking: thinking, Tools: tools, Stream: true, StreamOptions: chatStreamOptions{IncludeUsage: true}})
+	}{Model: request.Selection.Name, Messages: messages, MaxCompletionTokens: maxTokens, ReasoningEffort: effort, Temperature: request.Selection.Temperature, TopP: request.Selection.TopP, PromptCacheKey: cacheKey, Thinking: thinking, Tools: tools, Stream: true, StreamOptions: chatStreamOptions{IncludeUsage: true}})
 	if err != nil {
 		return nil, err
 	}

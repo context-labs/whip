@@ -47,7 +47,7 @@ func Fixtures() ([]Fixture, error) {
 	})
 	attempt := ModelAttemptFromDomain(session.ModelAttempt{
 		ID: "attempt_fixture", TurnID: "turn_fixture", LogicalID: "call_fixture", Number: 1, State: session.AttemptSucceeded,
-		Request: session.ModelRequestSnapshot{Purpose: "turn", Model: session.ModelSelection{Provider: "fixture", Name: "model"}, Route: "https://provider.example/v1/chat/completions", Adapter: "openai-chat", RequestDigest: ref.Revision, MaxOutputTokens: 4096, TimeoutMillis: 30000},
+		Request: session.ModelRequestSnapshot{Purpose: "turn", Model: session.ModelSelection{Provider: "fixture", Name: "model", Temperature: new(0.0), TopP: new(0.9)}, Route: "https://provider.example/v1/chat/completions", Adapter: "openai-chat", RequestDigest: ref.Revision, MaxOutputTokens: 4096, TimeoutMillis: 30000},
 		Result:  &session.ModelAttemptResult{State: session.AttemptSucceeded, ReportedCostNanoUSD: new(int64(9007199254740993))}, CostNanoUSD: new(int64(9007199254740993)), CostSource: "provider", MessageID: new(session.MessageID(message.ID)), CreatedAt: created, DispatchedAt: &created, FinishedAt: &created,
 	})
 	contentDigest := sha256.Sum256([]byte("hello"))
@@ -136,6 +136,19 @@ func Fixtures() ([]Fixture, error) {
 			return nil, err
 		}
 		result = append(result, Fixture{Type: value.name, Value: raw, Valid: true})
+	}
+	for _, test := range []struct {
+		raw   string
+		valid bool
+	}{
+		{`{"session_id":"session_child","expected_revision":"1","patch":{"model":{"provider":"p","name":"model","effort":"","temperature":null,"top_p":null}}}`, true},
+		{`{"session_id":"session_child","expected_revision":"1","patch":{"model":{"provider":"p","name":"model","effort":"","temperature":0,"top_p":1}}}`, true},
+		{`{"session_id":"session_child","expected_revision":"1","patch":{"model":{"provider":"p","name":"model","effort":"","temperature":2.01}}}`, false},
+		{`{"session_id":"session_child","expected_revision":"1","patch":{"model":{"provider":"p","name":"model","effort":"","top_p":-0.01}}}`, false},
+		{`{"session_id":"session_child","expected_revision":"1","patch":{"model":{"provider":"p","name":"model","effort":"","top_p":1.01}}}`, false},
+		{`{"session_id":"session_child","expected_revision":"1","patch":{"model":{"provider":"p","name":"model","effort":"","temperature":"0"}}}`, false},
+	} {
+		result = append(result, Fixture{Type: "UpdateConfigurationParams", Value: json.RawMessage(test.raw), Valid: test.valid})
 	}
 	for _, raw := range []string{
 		`{"session_id":"session_child","after":9007199254740993,"limit":10}`,

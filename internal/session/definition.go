@@ -7,17 +7,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"strings"
 	"time"
 )
 
-// ModelSelection contains logical names only. Endpoints, credentials and client
-// instances belong to host configuration and execution resources.
+// ModelSelection captures logical names and generation preferences. Endpoints,
+// credentials and client instances belong to host execution resources. Nil sampling
+// values retain provider defaults; explicit zero is meaningful.
 type ModelSelection struct {
-	Provider string `json:"provider"`
-	Name     string `json:"name"`
-	Effort   string `json:"effort"`
+	Provider    string   `json:"provider"`
+	Name        string   `json:"name"`
+	Effort      string   `json:"effort"`
+	Temperature *float64 `json:"temperature"`
+	TopP        *float64 `json:"top_p"`
 }
 
 type Instructions struct {
@@ -137,8 +141,9 @@ func Builtins() []DefinitionDocument {
 }
 
 func (c Configuration) Clone() Configuration {
+	c.Model = c.Model.Clone()
 	if c.Compaction.Model != nil {
-		c.Compaction.Model = new(*c.Compaction.Model)
+		c.Compaction.Model = new(c.Compaction.Model.Clone())
 	}
 	if c.Instructions.ProjectRoot != nil {
 		c.Instructions.ProjectRoot = new(*c.Instructions.ProjectRoot)
@@ -209,6 +214,26 @@ func Resolve(base Configuration, definition DefinitionDocument, overrides Config
 	return resolved.Clone(), nil
 }
 
+// Clone gives the caller independent ownership of optional sampling values.
+func (m ModelSelection) Clone() ModelSelection {
+	if m.Temperature != nil {
+		m.Temperature = new(*m.Temperature)
+	}
+	if m.TopP != nil {
+		m.TopP = new(*m.TopP)
+	}
+	return m
+}
+
+// Equal compares captured values, including absent versus explicit zero.
+func (m ModelSelection) Equal(other ModelSelection) bool {
+	equal := func(a, b *float64) bool {
+		return a == nil && b == nil || a != nil && b != nil && *a == *b
+	}
+	return m.Provider == other.Provider && m.Name == other.Name && m.Effort == other.Effort &&
+		equal(m.Temperature, other.Temperature) && equal(m.TopP, other.TopP)
+}
+
 func (m ModelSelection) Validate() error {
 	if err := ValidateID(m.Provider); err != nil {
 		return err
@@ -218,6 +243,15 @@ func (m ModelSelection) Validate() error {
 	}
 	if len(m.Effort) > 64 || strings.ContainsRune(m.Effort, 0) {
 		return fmt.Errorf("%w: invalid model effort", ErrInvalid)
+	}
+	for _, field := range []struct {
+		name    string
+		value   *float64
+		maximum float64
+	}{{"temperature", m.Temperature, 2}, {"top_p", m.TopP, 1}} {
+		if field.value != nil && (math.IsNaN(*field.value) || math.IsInf(*field.value, 0) || *field.value < 0 || *field.value > field.maximum) {
+			return fmt.Errorf("%w: %s must be a finite number from 0 to %g", ErrInvalid, field.name, field.maximum)
+		}
 	}
 	return nil
 }
