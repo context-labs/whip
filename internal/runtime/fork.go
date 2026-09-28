@@ -19,8 +19,13 @@ func (r *Runtime) Fork(ctx context.Context, request session.ForkRequest) (sessio
 	if err != nil {
 		return session.ForkResult{}, err
 	}
+	mode, err := session.ResolvePermissionMode(current.Host.DefaultPermissionMode)
+	if err != nil {
+		return session.ForkResult{}, err
+	}
 	return r.store.Fork(ctx, request, session.ForkDefaults{
-		Resources: current.Host.Resources,
-		Budgets:   session.DefaultWriteBudgets(),
+		PermissionMode: mode,
+		Resources:      current.Host.Resources,
+		Budgets:        session.DefaultWriteBudgets(),
 	})
 }

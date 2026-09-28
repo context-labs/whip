@@ -21,6 +21,13 @@ func (r *Runtime) CreateTree(ctx context.Context, request store.CreateTree) (ses
 	}
 	request.Resources = resources
 	request.Defaults = current.Host.Defaults.Clone()
+	if request.PermissionMode == nil {
+		mode, err := session.ResolvePermissionMode(current.Host.DefaultPermissionMode)
+		if err != nil {
+			return session.Tree{}, session.Session{}, err
+		}
+		request.PermissionMode = &mode
+	}
 	return r.store.CreateTree(ctx, request)
 }
 

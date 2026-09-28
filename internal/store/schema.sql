@@ -13,6 +13,27 @@ CREATE TABLE session_trees (
  revision INTEGER NOT NULL CHECK(revision > 0),
  created_at INTEGER NOT NULL
 ) STRICT;
+CREATE TABLE permission_policies (
+ tree_id TEXT PRIMARY KEY REFERENCES session_trees(id) ON DELETE CASCADE,
+ mode TEXT NOT NULL CHECK(mode IN ('prompt','automatic')),
+ revision INTEGER NOT NULL CHECK(revision>0), updated_at INTEGER NOT NULL
+) STRICT;
+CREATE TRIGGER permission_policy_transition BEFORE UPDATE ON permission_policies
+ WHEN NEW.tree_id IS NOT OLD.tree_id OR NEW.mode IS OLD.mode OR NEW.revision<>OLD.revision+1
+ BEGIN SELECT RAISE(ABORT, 'permission policy requires a new revision'); END;
+-- Receipts outlive their tree; retrying an old edit cannot recreate authority.
+CREATE TABLE permission_mode_edits (
+ id TEXT PRIMARY KEY, digest TEXT NOT NULL, session_id TEXT NOT NULL,
+ tree_id TEXT NOT NULL, expected_revision INTEGER NOT NULL CHECK(expected_revision>0),
+ mode TEXT NOT NULL CHECK(mode IN ('prompt','automatic')),
+ previous_mode TEXT NOT NULL CHECK(previous_mode IN ('prompt','automatic')),
+ revision INTEGER NOT NULL CHECK(revision=expected_revision+(mode<>previous_mode)),
+ updated_at INTEGER NOT NULL, created_at INTEGER NOT NULL
+) STRICT;
+CREATE TRIGGER permission_mode_edit_immutable BEFORE UPDATE ON permission_mode_edits
+ BEGIN SELECT RAISE(ABORT, 'permission mode edit is immutable'); END;
+CREATE TRIGGER permission_mode_edit_retained BEFORE DELETE ON permission_mode_edits
+ BEGIN SELECT RAISE(ABORT, 'permission mode receipt must be retained'); END;
 CREATE TABLE sessions (
  id TEXT PRIMARY KEY, tree_id TEXT NOT NULL REFERENCES session_trees(id) ON DELETE CASCADE,
  parent_id TEXT, definition_id TEXT NOT NULL, definition_revision TEXT NOT NULL,
@@ -389,6 +410,7 @@ CREATE TABLE operations (
  arguments TEXT NOT NULL CHECK(json_valid(arguments) AND json_type(arguments)='object'),
  state TEXT NOT NULL CHECK(state IN ('waiting','ready','dispatched','succeeded','failed','denied','cancelled','uncertain')),
  grant_id TEXT REFERENCES grants(id) DEFERRABLE INITIALLY DEFERRED,
+ permission_revision INTEGER CHECK(permission_revision>0),
  result TEXT CHECK(result IS NULL OR json_valid(result)),
  created_at INTEGER NOT NULL, dispatched_at INTEGER, finished_at INTEGER,
  UNIQUE(cell_id,request_id),
@@ -396,8 +418,9 @@ CREATE TABLE operations (
  CHECK((result IS NULL) = (finished_at IS NULL)),
  CHECK(result IS NULL OR json_extract(result,'$.state') IS state),
  CHECK((state IN ('dispatched','succeeded','failed','uncertain')) = (dispatched_at IS NOT NULL)),
- CHECK(state <> 'waiting' OR grant_id IS NULL),
- CHECK(state NOT IN ('ready','dispatched','succeeded','failed','uncertain') OR grant_id IS NOT NULL OR capability='user.ask')
+ CHECK(state <> 'waiting' OR (grant_id IS NULL AND permission_revision IS NULL)),
+ CHECK(permission_revision IS NULL OR (grant_id IS NULL AND capability<>'user.ask')),
+ CHECK(state NOT IN ('ready','dispatched','succeeded','failed','uncertain') OR grant_id IS NOT NULL OR permission_revision IS NOT NULL OR capability='user.ask')
 ) STRICT;
 CREATE INDEX operations_by_cell ON operations(cell_id,id);
 CREATE INDEX operations_by_grant ON operations(grant_id,id) WHERE state='ready';
@@ -406,6 +429,7 @@ CREATE TRIGGER operation_transition BEFORE UPDATE ON operations
  WHEN NEW.id IS NOT OLD.id OR NEW.cell_id IS NOT OLD.cell_id OR NEW.request_id IS NOT OLD.request_id
  OR NEW.capability IS NOT OLD.capability OR NEW.resource IS NOT OLD.resource
  OR NEW.arguments IS NOT OLD.arguments OR NEW.created_at IS NOT OLD.created_at
+ OR NEW.permission_revision IS NOT OLD.permission_revision
  OR OLD.state NOT IN ('waiting','ready','dispatched')
  OR (OLD.state='waiting' AND NEW.state NOT IN ('ready','denied','cancelled'))
  OR (OLD.state='ready' AND NEW.state NOT IN ('dispatched','denied','cancelled'))

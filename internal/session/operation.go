@@ -62,14 +62,16 @@ type OperationSpec struct {
 // its cell. A dispatched but unsettled operation is never automatically replayed.
 type Operation struct {
 	OperationSpec
-	SessionID    SessionID
-	TurnID       TurnID
-	State        OperationState
-	GrantID      *GrantID
-	Result       *OperationResult
-	CreatedAt    time.Time
-	DispatchedAt *time.Time
-	FinishedAt   *time.Time
+	SessionID SessionID
+	TurnID    TurnID
+	State     OperationState
+	GrantID   *GrantID
+	// PermissionRevision captures root automatic authority at admission.
+	PermissionRevision *Revision
+	Result             *OperationResult
+	CreatedAt          time.Time
+	DispatchedAt       *time.Time
+	FinishedAt         *time.Time
 }
 
 type OperationResult struct {

@@ -13,7 +13,7 @@ import (
 )
 
 const operationSelect = `SELECT o.id,o.cell_id,o.request_id,o.capability,o.resource,o.arguments,
- t.session_id,c.turn_id,o.state,o.grant_id,o.result,o.created_at,o.dispatched_at,o.finished_at
+ t.session_id,c.turn_id,o.state,o.grant_id,o.permission_revision,o.result,o.created_at,o.dispatched_at,o.finished_at
  FROM operations o JOIN cells c ON c.id=o.cell_id JOIN turns t ON t.id=c.turn_id`
 
 const (
@@ -27,7 +27,7 @@ func scanOperation(row scanner) (value session.Operation, err error) {
 	var created int64
 	var dispatched, finished sql.NullInt64
 	err = row.Scan(&value.ID, &value.CellID, &value.RequestID, &value.Capability, &value.Resource, &arguments,
-		&value.SessionID, &value.TurnID, &value.State, &value.GrantID, &result, &created, &dispatched, &finished)
+		&value.SessionID, &value.TurnID, &value.State, &value.GrantID, &value.PermissionRevision, &result, &created, &dispatched, &finished)
 	if err != nil {
 		return value, found(err)
 	}
@@ -144,6 +144,7 @@ func (s *Store) admitOperation(ctx context.Context, spec session.OperationSpec, 
 			return ErrConflict
 		}
 		var grantID *session.GrantID
+		var permissionRevision *session.Revision
 		state := session.OperationWaiting
 		if spec.Capability == session.QuestionCapability {
 			if err := validateQuestionIntent(cell.SessionID, spec); err != nil {
@@ -170,6 +171,20 @@ func (s *Store) admitOperation(ctx context.Context, spec session.OperationSpec, 
 				grantID, state = &grant.ID, session.OperationReady
 			} else if !errors.Is(err, ErrNotFound) {
 				return err
+			} else {
+				owner, err := readSession(ctx, tx, cell.SessionID)
+				if err != nil {
+					return err
+				}
+				if owner.ParentID == nil {
+					policy, err := readPermissionPolicy(ctx, tx, owner.ID)
+					if err != nil {
+						return err
+					}
+					if policy.Mode == session.PermissionAutomatic {
+						permissionRevision, state = &policy.Revision, session.OperationReady
+					}
+				}
 			}
 		}
 		if standingOnly && grantID == nil {
@@ -177,8 +192,8 @@ func (s *Store) admitOperation(ctx context.Context, spec session.OperationSpec, 
 		}
 		created := now()
 		if _, err := tx.ExecContext(ctx, `INSERT INTO operations
- (id,cell_id,request_id,capability,resource,arguments,state,grant_id,created_at) VALUES (?,?,?,?,?,?,?,?,?)`,
-			spec.ID, spec.CellID, spec.RequestID, spec.Capability, spec.Resource, string(spec.Arguments), state, grantID, created); err != nil {
+ (id,cell_id,request_id,capability,resource,arguments,state,grant_id,permission_revision,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+			spec.ID, spec.CellID, spec.RequestID, spec.Capability, spec.Resource, string(spec.Arguments), state, grantID, permissionRevision, created); err != nil {
 			return err
 		}
 		if state == session.OperationWaiting {
@@ -256,7 +271,24 @@ func authorizeOperation(ctx context.Context, q querier, operation session.Operat
 		if err != nil {
 			return err
 		}
+		if owner.ParentID != nil || operation.GrantID != nil || operation.PermissionRevision != nil {
+			return ErrConflict
+		}
+		return nil
+	}
+	if operation.PermissionRevision != nil {
+		owner, err := readSession(ctx, q, operation.SessionID)
+		if err != nil {
+			return err
+		}
 		if owner.ParentID != nil || operation.GrantID != nil {
+			return ErrConflict
+		}
+		policy, err := readPermissionPolicy(ctx, q, operation.SessionID)
+		if err != nil {
+			return err
+		}
+		if policy.Mode != session.PermissionAutomatic || policy.Revision != *operation.PermissionRevision {
 			return ErrConflict
 		}
 		return nil
