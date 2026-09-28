@@ -38,11 +38,11 @@ async function fixture() {
     const timeout = setTimeout(() => child.kill('SIGKILL'), 10_000);
     try { await exit; } finally { clearTimeout(timeout); }
   };
-  const start = async (delay = '60ms') => {
+  const start = async (delay = '60ms', environment = {}) => {
     fixtureAbort.signal.throwIfAborted();
     const args = ['-directory', join(directory, 'state'), '-workers', '1'];
     if (delay !== null) args.push('-scripted', '-scripted-delay', delay);
-    child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...environment } });
     child.stderr.on('data', record);
     child.stdout.on('data', record);
     let buffer = '';
@@ -251,6 +251,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await stage('completion reports', () => completionAcceptance(runtime, client, createParams, evidence));
     await stage('HTTP provider', () => providerAcceptance(runtime, client, createParams, evidence));
     await stage('Responses provider', () => responsesAcceptance(runtime, client, createParams, evidence));
+    await stage('subscription admission', () => subscriptionAdmissionAcceptance(runtime, client, createParams, evidence));
     await stage('output contracts', () => outputAcceptance(runtime, client, createParams, evidence));
     await stage('context compaction', () => contextAcceptance(runtime, client, createParams, evidence));
     await stage('context recovery', () => contextRecoveryAcceptance(runtime, client, createParams, evidence), 150_000);
@@ -2092,4 +2093,57 @@ async function scheduleAcceptance(runtime, client, createParams, evidence) {
   const receipt = await client.call('receipts.get', latest.identity, deadline());
   assert.equal(receipt.input, null); assert.ok(receipt.receipt.deleted_at);
   evidence.push({ schedules: { retried, before, completed, upcoming, cancelled, deleted, receipt } });
+}
+
+
+// Successful subscription execution uses an injected transport in the Go runtime
+// acceptance. This shipping-process case proves admission with the fixed route;
+// a rejecting proxy guarantees a regression cannot contact the real provider.
+async function subscriptionAdmissionAcceptance(runtime, client, createParams, evidence) {
+  const connections = [];
+  const proxy = http.createServer((request, response) => {
+    connections.push(request.url);
+    response.writeHead(502); response.end();
+  });
+  proxy.on('connect', (request, socket) => {
+    connections.push(request.url);
+    socket.end('HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n');
+  });
+  proxy.listen(0, '127.0.0.1'); await once(proxy, 'listening');
+  const hostPath = join(runtime.directory, 'state', 'host.json');
+  const credentialPath = join(runtime.directory, 'state', 'openai-codex.json');
+  await runtime.stop();
+  const previous = await readFile(hostPath, 'utf8');
+  try {
+    const host = JSON.parse(previous);
+    host.providers.subscription = { kind: 'openai-codex', base_url: '', credential_env: '', models: { 'gpt-6-astra': { context_window_tokens: 400000, timeout_millis: 1000, max_attempts: 1 } } };
+    await writeFile(hostPath, JSON.stringify(host), { mode: 0o600 });
+    await writeFile(credentialPath, JSON.stringify({ accessToken: 'fixture-private-access', refreshToken: 'fixture-private-refresh', accountId: 'fixture-account', expiresAt: new Date(Date.now() + 3600000).toISOString() }), { mode: 0o600 });
+    const endpoint = `http://127.0.0.1:${proxy.address().port}`;
+    await runtime.start(null, { HTTPS_PROXY: endpoint, https_proxy: endpoint, NO_PROXY: '', no_proxy: '' });
+    for (const engine of ['starlark', 'quickjs']) {
+      for (const [kind, limit] of [['model_cost_nano_usd', '1'], ['model_tokens', '527999']]) {
+        const { root } = await client.call('trees.create', { ...createParams, engine, overrides: { ...createParams.overrides, model: { provider: 'subscription', name: 'gpt-6-astra', effort: '' } } }, deadline());
+        await client.call('budgets.set', { session_id: root.id, expected_revision: '0', budget: { kind, limit } }, deadline());
+        const id = `subscription:${engine}:${kind}`;
+        await client.submit(root.id, [{ type: 'text', text: 'must not contact provider' }], id, deadline());
+        const completed = await client.wait(id, deadline());
+        assert.equal(completed.turn.state, 'failed');
+        assert.match(completed.turn.failure, /admission limit/);
+        const attempts = await client.call('turns.attempts', { turn_id: completed.turn.id, limit: 100 }, deadline());
+        assert.deepEqual(attempts.items, []);
+        const history = await client.call('sessions.history', { session_id: root.id, after: '0', limit: 100 }, deadline());
+        assert.equal(JSON.stringify({ completed, attempts, history }).includes('fixture-private'), false);
+        evidence.push({ subscriptionAdmission: { engine, kind, completed, attempts, history } });
+      }
+    }
+    assert.deepEqual(connections, [], 'subscription refusal attempted external HTTP');
+  } finally {
+    await runtime.stop();
+    await writeFile(hostPath, previous, { mode: 0o600 });
+    await rm(credentialPath, { force: true });
+    proxy.closeAllConnections();
+    await new Promise((resolve, reject) => proxy.close(error => error ? reject(error) : resolve()));
+  }
+  await runtime.start();
 }

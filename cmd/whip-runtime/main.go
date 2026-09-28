@@ -15,6 +15,7 @@ import (
 
 	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/model"
+	"github.com/context-labs/whip/internal/openaiauth"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/rpc"
 	"github.com/context-labs/whip/internal/runner"
@@ -61,7 +62,9 @@ func run(parent context.Context, args []string, out, diagnostics io.Writer) (err
 	}
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
-	var provider runner.Provider = configuredProvider(*directory)
+	auth := openaiauth.New(ctx, *directory)
+	defer auth.Close() // Registered before runtime.Close: owned refreshes join last.
+	var provider runner.Provider = configuredProvider(*directory, auth)
 	if *scripted {
 		provider = model.Scripted{Delay: *delay}
 	}
