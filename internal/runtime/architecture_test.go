@@ -10,7 +10,7 @@ import (
 )
 
 func TestExecutionAndClientImportBoundaries(t *testing.T) {
-	command := exec.CommandContext(t.Context(), "go", "list", "-json", "./internal/model", "./internal/openaiauth", "./internal/runner", "./internal/tool", "./internal/instruction", "./internal/skills", "./internal/runtime", "./internal/rpc", "./internal/client")
+	command := exec.CommandContext(t.Context(), "go", "list", "-json", "./internal/model", "./internal/openaiauth", "./internal/account", "./internal/runner", "./internal/tool", "./internal/instruction", "./internal/skills", "./internal/runtime", "./internal/rpc", "./internal/client")
 	command.Dir = "../.."
 	raw, err := command.Output()
 	if err != nil {
@@ -22,11 +22,12 @@ func TestExecutionAndClientImportBoundaries(t *testing.T) {
 		"model": {"session": true, "openaiauth": true}, "runner": {"session": true, "model": true},
 		// Credentials remain a host-owned leaf, independent of session execution.
 		"openaiauth":  {},
+		"account":     {"config": true, "openaiauth": true},
 		"tool":        {"session": true, "capability": true},
 		"instruction": {"session": true, "skills": true},
 		"skills":      {"buildinfo": true},
 		"runtime":     {"model": true, "session": true, "store": true, "config": true, "content": true, "runner": true, "engine/process": true, "tool": true, "instruction": true},
-		"rpc":         {"session": true, "store": true, "protocol": true, "runtime": true},
+		"rpc":         {"account": true, "session": true, "store": true, "protocol": true, "runtime": true},
 		"client":      {"protocol": true},
 	}
 	for {

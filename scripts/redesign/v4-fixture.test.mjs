@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
-import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import net from 'node:net';
 import { basename, join, resolve } from 'node:path';
@@ -242,6 +242,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
       await assert.rejects(Client.connect(unixSocket(runtime.info.socket), { clientID: 'wrong', expectedRuntimeID: 'different', ...deadline() }), error => error instanceof RemoteError && error.kind === 'IDENTITY');
       return { client, createParams };
     });
+    await stage('host account projections', () => accountAcceptance(runtime, client, evidence));
     await stage('content owners', () => contentOwnerAcceptance(runtime, client, createParams, evidence));
     await stage('resources', () => resourceAcceptance(runtime, client, createParams, evidence));
     await stage('schedules', () => scheduleAcceptance(runtime, client, createParams, evidence));
@@ -2633,4 +2634,98 @@ async function contentOwnerAcceptance(runtime, client, createParams, evidence) {
   const remaining = await client.call('content.read', { session_id: owners[1].root.id, reference_id: referenceID }, deadline());
   assert.equal(Buffer.from(remaining.data_base64, 'base64').toString('utf8'), owners[1].text);
   evidence.push({ contentOwners: { referenceID, owners: owners.map(value => value.root.id), remaining } });
+}
+
+
+async function accountAcceptance(runtime, client, evidence) {
+  const path = join(runtime.directory, 'state', 'host.json');
+  const credentialsPath = join(runtime.directory, 'state', 'openai-codex.json');
+  const backupPath = join(runtime.directory, 'state', 'fixture-account-backup.json');
+  const previous = await readFile(path, 'utf8');
+  const oldID = 'A'.repeat(26) + ':' + 'B'.repeat(26);
+  const signedOut = await client.openAIAccountStatus(deadline());
+  assert.equal(signedOut.auth_state, 'signed_out');
+  assert.equal(signedOut.account_id, null); assert.equal(signedOut.expires_at, null);
+  assert.deepEqual((await client.listOpenAILogins(deadline())).items, []);
+  assert.deepEqual(await client.getOpenAILogin(oldID, deadline()), {
+    id: oldID, state: 'interrupted', verification_url: null, user_code: null, expires_at: null, failure: null,
+  });
+  await assert.rejects(client.cancelOpenAILogin(oldID, deadline()), error => error.kind === 'NOT_FOUND');
+  await assert.rejects(client.setupOpenAIAccount(deadline()), error => error.kind === 'ACCOUNT_CREDENTIALS');
+  const credentials = {
+    accessToken: 'fixture-private-access', refreshToken: 'fixture-private-refresh',
+    accountId: 'fixture-account', email: 'fixture@example.test', plan: 'fixture-plan',
+    expiresAt: '2001-02-03T04:05:06.123456789Z',
+  };
+  try {
+    // Synthetic expired credentials exercise local evidence without contacting
+    // the provider. Device approval itself is covered by intercepted Go tests.
+    await runtime.stop();
+    await writeFile(credentialsPath, JSON.stringify(credentials), { mode: 0o600 });
+    await runtime.start();
+    const stored = await client.openAIAccountStatus(deadline());
+    assert.equal(stored.auth_state, 'stored');
+    assert.equal(stored.account_id, credentials.accountId);
+    assert.equal(stored.email, credentials.email); assert.equal(stored.plan, credentials.plan);
+    assert.equal(stored.expires_at, credentials.expiresAt);
+    for (const secret of [credentials.accessToken, credentials.refreshToken]) assert.ok(!JSON.stringify(stored).includes(secret));
+    const configured = await client.setupOpenAIAccount(deadline());
+    assert.equal(configured.auth_state, 'stored'); assert.equal(configured.route_state, 'configured');
+    assert.deepEqual(JSON.parse(await readFile(credentialsPath, 'utf8')), credentials);
+    const setupHost = await readFile(path, 'utf8');
+    assert.deepEqual(JSON.parse(setupHost).defaults, JSON.parse(previous).defaults);
+    assert.deepEqual(await client.setupOpenAIAccount(deadline()), configured);
+    assert.equal(await readFile(path, 'utf8'), setupHost, 'idempotent setup rewrote the host declaration');
+    assert.deepEqual((await client.listOpenAILogins(deadline())).items, []);
+
+    // A conflicting custom route refuses login before any device request and
+    // preserves both the user's declaration and saved account.
+    const conflict = JSON.parse(setupHost);
+    conflict.providers['openai-codex'] = { kind: 'openai-chat', base_url: 'http://127.0.0.1:1/v1', credential_env: '', models: {} };
+    await writeFile(path, JSON.stringify(conflict), { mode: 0o600 });
+    assert.equal((await client.openAIAccountStatus(deadline())).route_state, 'conflict');
+    await assert.rejects(client.beginOpenAILogin(deadline()), error => error.kind === 'ACCOUNT_CONFIGURATION');
+    await assert.rejects(client.setupOpenAIAccount(deadline()), error => error.kind === 'ACCOUNT_SETUP');
+    assert.deepEqual((await client.listOpenAILogins(deadline())).items, []);
+    assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), conflict);
+    await writeFile(path, setupHost, { mode: 0o600 });
+
+    // Force a real removal failure after the manager has loaded credentials.
+    // Local authorization is revoked immediately, but status must keep the
+    // unresolved storage problem visible until explicit logout retry.
+    await rename(credentialsPath, backupPath);
+    await mkdir(credentialsPath, { mode: 0o700 });
+    await writeFile(join(credentialsPath, 'blocker'), 'fixture');
+    await assert.rejects(client.logoutOpenAIAccount(deadline()), error => error.kind === 'ACCOUNT_LOGOUT');
+    const unavailable = await client.openAIAccountStatus(deadline());
+    assert.equal(unavailable.auth_state, 'unavailable'); assert.ok(unavailable.failure);
+    assert.equal(unavailable.account_id, null);
+    await assert.rejects(client.setupOpenAIAccount(deadline()), error => error.kind === 'ACCOUNT_CREDENTIALS');
+    await rm(credentialsPath, { recursive: true });
+    await rename(backupPath, credentialsPath);
+    assert.equal((await client.openAIAccountStatus(deadline())).auth_state, 'unavailable');
+
+    const proxy = join(runtime.directory, 'account-logout-drop.sock');
+    let dropped;
+    const close = await dropAcknowledgement(proxy, runtime.info.socket, '', value => { dropped = value; }, response => response.result?.auth_state === 'signed_out');
+    try {
+      const unreliable = await Client.connect(unixSocket(proxy), { clientID: client.clientID, expectedRuntimeID: client.runtimeID, ...deadline() });
+      await assert.rejects(unreliable.logoutOpenAIAccount(deadline()), DeliveryError);
+    } finally { await close(); }
+    assert.equal(dropped.auth_state, 'signed_out'); assert.equal(dropped.route_state, 'configured');
+    assert.deepEqual(await client.openAIAccountStatus(deadline()), dropped);
+    assert.deepEqual(await client.logoutOpenAIAccount(deadline()), dropped);
+    await assert.rejects(readFile(credentialsPath), error => error.code === 'ENOENT');
+    assert.equal(await readFile(path, 'utf8'), setupHost, 'logout altered configured routes or defaults');
+    await runtime.stop(); await runtime.start();
+    assert.deepEqual(await client.openAIAccountStatus(deadline()), dropped);
+    assert.equal((await client.getOpenAILogin(oldID, deadline())).state, 'interrupted');
+    evidence.push({ hostAccounts: { signedOut, stored, configured, unavailable, loggedOut: dropped } });
+  } finally {
+    await runtime.stop();
+    await writeFile(path, previous, { mode: 0o600 });
+    await rm(credentialsPath, { recursive: true, force: true });
+    await rm(backupPath, { force: true });
+    if (!fixtureAbort.signal.aborted) await runtime.start();
+  }
 }

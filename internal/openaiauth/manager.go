@@ -44,14 +44,21 @@ type Manager struct {
 	loadErr    error
 	terminal   error
 	flight     *refresh
-	save       func(string, Credentials) error
+	read       func(string) (Credentials, error)
+	save       func(string, Credentials) (bool, error)
+	remove     func(string) error
 }
 
 func New(ctx context.Context, directory string) *Manager {
 	ctx, cancel := context.WithCancel(ctx)
 	return &Manager{
 		ctx: ctx, cancel: cancel, issuer: issuer,
-		path: filepath.Join(directory, "openai-codex.json"), save: saveCredentials,
+		path: filepath.Join(directory, "openai-codex.json"),
+		read: func(path string) (Credentials, error) { return readCredentials(path, (*os.File).Sync) },
+		save: func(path string, credentials Credentials) (bool, error) {
+			return saveCredentials(path, credentials, (*os.File).Sync)
+		},
+		remove: func(path string) error { return removeCredentials(path, os.Remove, (*os.File).Sync) },
 		http: &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		}},
@@ -68,7 +75,7 @@ func (m *Manager) Close() {
 
 func (m *Manager) load() error {
 	if !m.loaded {
-		m.credential, m.loadErr = readCredentials(m.path)
+		m.credential, m.loadErr = m.read(m.path)
 		m.loaded = m.loadErr == nil
 	}
 	return m.loadErr
@@ -81,6 +88,9 @@ func (m *Manager) Snapshot() (Credentials, error) {
 	defer m.mu.Unlock()
 	if err := m.load(); err != nil {
 		return Credentials{}, err
+	}
+	if m.dirty {
+		return m.credential, ErrPersistence
 	}
 	return m.credential, m.terminal
 }
@@ -104,12 +114,12 @@ func (m *Manager) Install(ctx context.Context, generation uint64, credentials Cr
 	if err := m.load(); err != nil {
 		return err
 	}
-	if err := m.save(m.path, credentials); err != nil {
-		return err
+	published, err := m.save(m.path, credentials)
+	if published {
+		m.generation++
+		m.credential, m.terminal, m.dirty = credentials, nil, err != nil
 	}
-	m.generation++
-	m.credential, m.terminal, m.dirty = credentials, nil, false
-	return nil
+	return err
 }
 
 func (m *Manager) Logout() error {
@@ -118,16 +128,38 @@ func (m *Manager) Logout() error {
 	m.generation++
 	m.credential, m.terminal, m.loadErr = Credentials{}, nil, nil
 	m.loaded, m.dirty = true, false
-	if err := os.Remove(m.path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return errors.New("could not remove OpenAI credentials; logout is not durable until the file is removed")
-	}
-	return nil
+	// Revocation is immediate even when removal fails. Keep that failure visible
+	// without reloading credentials that may still exist on disk.
+	m.terminal = m.remove(m.path)
+	return m.terminal
 }
 
 // Capture returns credentials and their generation from one locked state. Any
 // required refresh finishes and persists before the capture is published.
 func (m *Manager) Capture(ctx context.Context) (CapturedCredentials, error) {
 	return m.credentials(ctx, "", nil)
+}
+
+// PersistPending confirms only local credential persistence. It never refreshes
+// tokens and cannot complete a pending logout, which requires an explicit retry.
+func (m *Manager) PersistPending(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.check(ctx, nil); err != nil {
+		return err
+	}
+	return m.persistPending()
+}
+
+// persistPending requires mu and retains rotated tokens on every failed save.
+func (m *Manager) persistPending() error {
+	if m.dirty {
+		if _, err := m.save(m.path, m.credential); err != nil {
+			return err
+		}
+		m.dirty = false
+	}
+	return nil
 }
 
 // Check proves that the captured login is authorized at this check's locked
@@ -141,7 +173,7 @@ func (m *Manager) Check(ctx context.Context, captured CapturedCredentials) error
 		return err
 	}
 	if m.dirty {
-		return errors.New("OpenAI credential rotation is not persisted; retry credential capture")
+		return ErrPersistence
 	}
 	return nil
 }
@@ -203,12 +235,9 @@ func (m *Manager) credentials(ctx context.Context, rejectedToken string, capture
 		m.mu.Unlock()
 		return CapturedCredentials{}, err
 	}
-	if m.dirty {
-		if err := m.save(m.path, m.credential); err != nil {
-			m.mu.Unlock()
-			return CapturedCredentials{}, err
-		}
-		m.dirty = false
+	if err := m.persistPending(); err != nil {
+		m.mu.Unlock()
+		return CapturedCredentials{}, err
 	}
 	if time.Until(m.credential.ExpiresAt) > time.Minute &&
 		(rejectedToken == "" || rejectedToken != m.credential.AccessToken) {
@@ -259,7 +288,7 @@ func (m *Manager) runRefresh(flight *refresh, generation uint64, previous Creden
 		// Keep a rotated token in memory if persistence fails. A subsequent call
 		// retries saving it instead of reusing the now-invalid old refresh token.
 		m.credential = credentials
-		err = m.save(m.path, credentials)
+		_, err = m.save(m.path, credentials)
 		m.dirty = err != nil
 	} else {
 		var rejected *authError

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/context-labs/whip/internal/account"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/runtime"
 	"github.com/context-labs/whip/internal/session"
@@ -28,7 +29,7 @@ func decode[P any](raw json.RawMessage, fn func(P) (any, error)) (any, error) {
 	return fn(params)
 }
 
-func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.RawMessage) (any, error) {
+func Dispatch(ctx context.Context, r *runtime.Runtime, accounts *account.Service, method string, raw json.RawMessage) (any, error) {
 	found := false
 	for _, op := range protocol.Operations() {
 		if op.Name == method {
@@ -43,6 +44,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 		return nil, ErrMethod
 	}
 	switch method {
+	case "accounts.openai.begin", "accounts.openai.get", "accounts.openai.list", "accounts.openai.cancel", "accounts.openai.status", "accounts.openai.setup", "accounts.openai.logout":
+		return dispatchAccount(ctx, accounts, method, raw)
 	case "sessions.compact", "context.head", "context.compaction", "context.compactions", "context.select", "context.snapshot", "context.list", "context.read", "context.search":
 		return dispatchContext(ctx, r, method, raw)
 	case "turns.output":
@@ -342,6 +345,14 @@ func wireError(err error) *protocol.RPCError {
 		kind string
 	}{
 		{session.ErrInvalid, -32602, "INVALID"},
+		{account.ErrInvalid, -32602, "INVALID"},
+		{account.ErrNotFound, -32004, "NOT_FOUND"},
+		{account.ErrLimit, -32011, "LIMIT"},
+		{account.ErrClosed, -32013, "CLOSED"},
+		{account.ErrCredentials, -32020, "ACCOUNT_CREDENTIALS"},
+		{account.ErrSetupRequired, -32021, "ACCOUNT_SETUP"},
+		{account.ErrConfiguration, -32022, "ACCOUNT_CONFIGURATION"},
+		{account.ErrLogout, -32023, "ACCOUNT_LOGOUT"},
 		{store.ErrNotFound, -32004, "NOT_FOUND"},
 		{store.ErrConflict, -32009, "CONFLICT"},
 		{store.ErrBusy, -32010, "BUSY"},

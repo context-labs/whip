@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/context-labs/whip/internal/account"
+	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/model"
 	"github.com/context-labs/whip/internal/openaiauth"
@@ -73,7 +75,16 @@ func run(parent context.Context, args []string, out, diagnostics io.Writer) (err
 		return err
 	}
 	defer func() { err = errors.Join(err, r.Close()) }()
-	server, err := rpc.Listen(r)
+	authority, err := config.NewAuthority(*directory)
+	if err != nil {
+		return err
+	}
+	accounts, err := account.New(ctx, auth, authority)
+	if err != nil {
+		return err
+	}
+	defer accounts.Close() // Join device requests before closing the borrowed manager.
+	server, err := rpc.Listen(r, accounts)
 	if err != nil {
 		return err
 	}

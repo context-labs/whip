@@ -1,5 +1,74 @@
 [
   {
+    "type": "EmptyParams",
+    "value": {},
+    "valid": true
+  },
+  {
+    "type": "OpenAIFlowParams",
+    "value": {
+      "flow_id": "AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB"
+    },
+    "valid": true
+  },
+  {
+    "type": "OpenAILoginFlow",
+    "value": {
+      "id": "AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB",
+      "state": "authorizing",
+      "verification_url": "https://auth.openai.com/codex/device",
+      "user_code": "SAFE-CODE",
+      "expires_at": "2026-09-27T12:00:00.123456Z",
+      "failure": null
+    },
+    "valid": true
+  },
+  {
+    "type": "OpenAILoginFlow",
+    "value": {
+      "id": "AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB",
+      "state": "interrupted",
+      "verification_url": null,
+      "user_code": null,
+      "expires_at": null,
+      "failure": null
+    },
+    "valid": true
+  },
+  {
+    "type": "OpenAIFlowsResult",
+    "value": {
+      "items": []
+    },
+    "valid": true
+  },
+  {
+    "type": "OpenAIAccountStatus",
+    "value": {
+      "auth_state": "signed_out",
+      "route_state": "missing",
+      "account_id": null,
+      "email": null,
+      "plan": null,
+      "expires_at": null,
+      "failure": null
+    },
+    "valid": true
+  },
+  {
+    "type": "OpenAIAccountStatus",
+    "value": {
+      "auth_state": "stored",
+      "route_state": "configured",
+      "account_id": "account",
+      "email": "person@example.test",
+      "plan": "pro",
+      "expires_at": "2500-01-02T03:04:05.123456789Z",
+      "failure": null
+    },
+    "valid": true
+  },
+  {
     "type": "Admission",
     "value": {
       "receipt": {
@@ -1848,6 +1917,97 @@
     "type": "InitializeParams",
     "value": {
       "major": 3
+    },
+    "valid": false
+  },
+  {
+    "type": "OpenAIAccountStatus",
+    "value": {
+      "auth_state": "stored",
+      "route_state": "missing",
+      "account_id": null,
+      "email": null,
+      "plan": null,
+      "expires_at": "2026-02-29T12:00:00Z",
+      "failure": null
+    },
+    "valid": false
+  },
+  {
+    "type": "OpenAIAccountStatus",
+    "value": {
+      "auth_state": "stored",
+      "route_state": "missing",
+      "account_id": null,
+      "email": null,
+      "plan": null,
+      "expires_at": "2026-09-27T24:00:00Z",
+      "failure": null
+    },
+    "valid": false
+  },
+  {
+    "type": "OpenAIAccountStatus",
+    "value": {
+      "auth_state": "stored",
+      "route_state": "missing",
+      "account_id": null,
+      "email": null,
+      "plan": null,
+      "expires_at": "2026-09-27T12:00:00.1234567891Z",
+      "failure": null
+    },
+    "valid": false
+  },
+  {
+    "type": "OpenAIAccountStatus",
+    "value": {
+      "auth_state": "stored",
+      "route_state": "missing",
+      "account_id": null,
+      "email": null,
+      "plan": null,
+      "expires_at": "2026-09-27T12:00:00.10Z",
+      "failure": null
+    },
+    "valid": false
+  },
+  {
+    "type": "OpenAIAccountStatus",
+    "value": {
+      "auth_state": "stored",
+      "route_state": "missing",
+      "account_id": null,
+      "email": null,
+      "plan": null,
+      "expires_at": "2026-09-27T12:00:00+00:00",
+      "failure": null
+    },
+    "valid": false
+  },
+  {
+    "type": "OpenAIAccountStatus",
+    "value": {
+      "auth_state": "stored",
+      "route_state": "missing",
+      "account_id": null,
+      "email": null,
+      "plan": null,
+      "expires_at": "0000-01-01T00:00:00Z",
+      "failure": null
+    },
+    "valid": false
+  },
+  {
+    "type": "OpenAIAccountStatus",
+    "value": {
+      "auth_state": "stored",
+      "route_state": "missing",
+      "account_id": null,
+      "email": null,
+      "plan": null,
+      "expires_at": "not-a-time",
+      "failure": null
     },
     "valid": false
   }

@@ -5,6 +5,41 @@ export const manifest = {
   "minor": 0,
   "operations": [
     {
+      "name": "accounts.openai.begin",
+      "params": "EmptyParams",
+      "result": "OpenAILoginFlow"
+    },
+    {
+      "name": "accounts.openai.get",
+      "params": "OpenAIFlowParams",
+      "result": "OpenAILoginFlow"
+    },
+    {
+      "name": "accounts.openai.list",
+      "params": "EmptyParams",
+      "result": "OpenAIFlowsResult"
+    },
+    {
+      "name": "accounts.openai.cancel",
+      "params": "OpenAIFlowParams",
+      "result": "OpenAILoginFlow"
+    },
+    {
+      "name": "accounts.openai.status",
+      "params": "EmptyParams",
+      "result": "OpenAIAccountStatus"
+    },
+    {
+      "name": "accounts.openai.setup",
+      "params": "EmptyParams",
+      "result": "OpenAIAccountStatus"
+    },
+    {
+      "name": "accounts.openai.logout",
+      "params": "EmptyParams",
+      "result": "OpenAIAccountStatus"
+    },
+    {
       "name": "goals.formulate",
       "params": "FormulateGoalParams",
       "result": "Admission"

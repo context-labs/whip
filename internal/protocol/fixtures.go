@@ -59,6 +59,13 @@ func Fixtures() ([]Fixture, error) {
 		name  string
 		value any
 	}{
+		{"EmptyParams", EmptyParams{}},
+		{"OpenAIFlowParams", OpenAIFlowParams{FlowID: "AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB"}},
+		{"OpenAILoginFlow", OpenAILoginFlow{ID: "AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB", State: "authorizing", VerificationURL: new("https://auth.openai.com/codex/device"), UserCode: new("SAFE-CODE"), ExpiresAt: new(AccountTimestamp(created.Format(time.RFC3339Nano)))}},
+		{"OpenAILoginFlow", OpenAILoginFlow{ID: "AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB", State: "interrupted"}},
+		{"OpenAIFlowsResult", OpenAIFlowsResult{Items: []OpenAILoginFlow{}}},
+		{"OpenAIAccountStatus", OpenAIAccountStatus{AuthState: "signed_out", RouteState: "missing"}},
+		{"OpenAIAccountStatus", OpenAIAccountStatus{AuthState: "stored", RouteState: "configured", AccountID: new("account"), Email: new("person@example.test"), Plan: new("pro"), ExpiresAt: new(AccountTimestamp("2500-01-02T03:04:05.123456789Z"))}},
 		{"Admission", Admission{Receipt: Receipt{Identity: RequestIdentity{ClientID: "client", RequestID: "deleted"}, Digest: ref.Revision, CreatedAt: created.Format(time.RFC3339Nano), DeletedAt: new(created.Format(time.RFC3339Nano))}}},
 		{"CompactParams", CompactParams{Identity: RequestIdentity{ClientID: "client", RequestID: "compact"}, SessionID: child.ID}},
 		{"ScheduleAdmission", ScheduleAdmissionFromDomain(session.ScheduleAdmission{ID: "schedule_fixture", Schedule: &session.ScheduleMetadata{ID: "schedule_fixture", SessionID: "session_child", Expression: "@every 0.000000001s", FirstDue: created, NextDue: &created, CreatedAt: created, PartsBytes: 123, Latest: &session.ScheduleInput{ScheduleID: "schedule_fixture", ScheduledFor: created, InputID: "scheduled_input", ClientID: "schedule", RequestID: "slot_fixture"}}})},
@@ -209,5 +216,12 @@ func Fixtures() ([]Fixture, error) {
 		result = append(result, Fixture{Type: "Response", Value: json.RawMessage(raw), Valid: false})
 	}
 	result = append(result, Fixture{Type: "InitializeParams", Value: json.RawMessage(`{"major":3}`), Valid: false})
+	for _, expiry := range []string{"2026-02-29T12:00:00Z", "2026-09-27T24:00:00Z", "2026-09-27T12:00:00.1234567891Z", "2026-09-27T12:00:00.10Z", "2026-09-27T12:00:00+00:00", "0000-01-01T00:00:00Z", "not-a-time"} {
+		raw, err := json.Marshal(OpenAIAccountStatus{AuthState: "stored", RouteState: "missing", ExpiresAt: new(AccountTimestamp(expiry))})
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, Fixture{Type: "OpenAIAccountStatus", Value: raw, Valid: false})
+	}
 	return result, nil
 }

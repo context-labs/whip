@@ -19,6 +19,10 @@
         "CLOSED",
         "IDENTITY",
         "METHOD",
+        "ACCOUNT_CREDENTIALS",
+        "ACCOUNT_SETUP",
+        "ACCOUNT_CONFIGURATION",
+        "ACCOUNT_LOGOUT",
         "INTERNAL"
       ]
     }

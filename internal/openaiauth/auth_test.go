@@ -143,12 +143,13 @@ func TestRotatedTokenSaveFailureDoesNotReuseOldRefreshToken(t *testing.T) {
 		requests.Add(1)
 		refreshResponse(w)
 	})
-	m.save = func(string, Credentials) error { return errors.New("disk unavailable") }
+	save := m.save
+	m.save = func(string, Credentials) (bool, error) { return false, errors.New("disk unavailable") }
 	if _, err := m.Credentials(t.Context()); err == nil {
 		t.Fatal("reported success before persisting rotated token")
 	}
 	m.mu.Lock()
-	m.save = saveCredentials
+	m.save = save
 	m.mu.Unlock()
 	credentials, err := m.Credentials(t.Context())
 	if err != nil || credentials.RefreshToken != "new-refresh" || requests.Load() != 1 {

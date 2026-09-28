@@ -38,7 +38,7 @@ func fixture(t *testing.T) (*runtime.Runtime, *client.Client) {
 			t.Error(err)
 		}
 	})
-	server, err := rpc.Listen(r)
+	server, err := rpc.Listen(r, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestGoClientUsesGeneratedContractForUniformSessionOperations(t *testing.T) 
 
 func TestHandshakeRejectsWrongIdentityAndVersionBeforeOperations(t *testing.T) {
 	r, c := fixture(t)
-	if second, err := rpc.Listen(r); err == nil {
+	if second, err := rpc.Listen(r, nil); err == nil {
 		_ = second.Close()
 		t.Fatal("replaced live listener")
 	}
@@ -269,7 +269,7 @@ func TestSocketPathDoesNotReplaceFiles(t *testing.T) {
 	if err := os.WriteFile(path, []byte("retained"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if server, err := rpc.Listen(r); err == nil {
+	if server, err := rpc.Listen(r, nil); err == nil {
 		_ = server.Close()
 		t.Fatal("replaced ordinary file")
 	}

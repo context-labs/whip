@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { Client, RemoteError } from '../dist/index.js';
+import { Client, DeliveryError, RemoteError } from '../dist/index.js';
 
 const initial = { major: 4, minor: 0, runtime_id: 'runtime', builtins: [] };
 const success = (request, result) => ({ jsonrpc: '2.0', id: request.id, result });
@@ -177,4 +177,66 @@ test('formulation preserves receipt identity and historical acceptance independe
   assert.equal(calls.length, before);
   await client.formulateGoal({ ...params, request: { ...request, max_continuations: '0', tail_messages: 2 } }, 'zero');
   assert.equal(calls.at(-1).params.request.max_continuations, '0');
+});
+
+test('account helpers observe ephemeral flows without cache, polling, or timestamp coercion', async () => {
+  const id = 'AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB';
+  const expiry = '2500-01-02T03:04:05.123456789Z';
+  const flow = { id, state: 'authorizing', verification_url: 'https://auth.openai.com/codex/device', user_code: 'SAFE-CODE', expires_at: expiry, failure: null };
+  const status = { auth_state: 'stored', route_state: 'configured', account_id: 'account', email: null, plan: null, expires_at: expiry, failure: null };
+  const calls = [];
+  const client = await Client.connect(async request => {
+    if (request.method === 'initialize') return success(request, initial);
+    calls.push(request);
+    if (request.method === 'accounts.openai.list') return success(request, { items: [structuredClone(flow)] });
+    if (request.method === 'accounts.openai.get' || request.method === 'accounts.openai.begin') return success(request, structuredClone(flow));
+    if (request.method === 'accounts.openai.cancel') return success(request, { ...flow, state: 'cancelled', verification_url: null, user_code: null });
+    return success(request, status);
+  }, { clientID: 'account-observer' });
+  const accepted = await client.beginOpenAILogin();
+  accepted.user_code = 'local change';
+  assert.equal((await client.listOpenAILogins()).items[0].user_code, 'SAFE-CODE');
+  assert.equal((await client.getOpenAILogin(id)).expires_at, expiry);
+  assert.equal((await client.cancelOpenAILogin(id)).state, 'cancelled');
+  assert.equal((await client.openAIAccountStatus()).expires_at, expiry);
+  assert.deepEqual(await client.setupOpenAIAccount(), status);
+  assert.deepEqual(await client.logoutOpenAIAccount(), status);
+  assert.deepEqual(calls.map(call => call.method), ['accounts.openai.begin', 'accounts.openai.list', 'accounts.openai.get', 'accounts.openai.cancel', 'accounts.openai.status', 'accounts.openai.setup', 'accounts.openai.logout']);
+  assert.deepEqual(calls[0].params, {});
+  assert.deepEqual(calls[2].params, { flow_id: id });
+  await assert.rejects(client.getOpenAILogin('invalid'), TypeError);
+  const controller = new AbortController(); controller.abort();
+  await assert.rejects(client.beginOpenAILogin({ signal: controller.signal }), error => error.name === 'AbortError');
+  assert.equal(calls.length, 7);
+});
+
+test('account errors and interrupted epochs stay explicit; malformed expiry fails closed', async () => {
+  const id = 'AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB';
+  const interrupted = { id, state: 'interrupted', verification_url: null, user_code: null, expires_at: null, failure: null };
+  let response = interrupted;
+  const client = await Client.connect(async request => request.method === 'initialize' ? success(request, initial) : success(request, response), { clientID: 'account' });
+  assert.deepEqual(await client.getOpenAILogin(id), interrupted);
+  for (const expiry of ['2026-02-29T00:00:00Z', '2026-01-01T00:00:00.1234567891Z', '2026-01-01T00:00:00.10Z', '2026-01-01T00:00:00+00:00']) {
+    response = { ...interrupted, expires_at: expiry };
+    await assert.rejects(client.getOpenAILogin(id), TypeError);
+  }
+  const failed = await Client.connect(async request => request.method === 'initialize' ? success(request, initial) : { jsonrpc: '2.0', id: request.id, error: { code: -32021, kind: 'ACCOUNT_SETUP', message: 'Saved login needs route setup' } }, { clientID: 'account' });
+  await assert.rejects(failed.setupOpenAIAccount(), error => error instanceof RemoteError && error.kind === 'ACCOUNT_SETUP');
+});
+
+
+test('lost account begin acknowledgement requires explicit flow recovery, never a SQL receipt or automatic retry', async () => {
+  const flow = { id: 'AAAAAAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBB', state: 'authorizing', verification_url: null, user_code: null, expires_at: '2026-09-28T12:00:00.000000001Z', failure: null };
+  const calls = [];
+  const client = await Client.connect(async request => {
+    if (request.method === 'initialize') return success(request, initial);
+    calls.push(request.method);
+    if (request.method === 'accounts.openai.begin') throw new DeliveryError('acknowledgement lost');
+    return success(request, request.method === 'accounts.openai.list' ? { items: [flow] } : flow);
+  }, { clientID: 'account-recovery' });
+  await assert.rejects(client.beginOpenAILogin(), DeliveryError);
+  assert.deepEqual(calls, ['accounts.openai.begin']);
+  const found = await client.listOpenAILogins();
+  assert.equal((await client.getOpenAILogin(found.items[0].id)).id, flow.id);
+  assert.deepEqual(calls, ['accounts.openai.begin', 'accounts.openai.list', 'accounts.openai.get']);
 });
