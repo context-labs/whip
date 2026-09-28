@@ -85,7 +85,6 @@ func TestProvisionalTitlePersistsAcrossWritePaths(t *testing.T) {
 		if err := store.CommitRootTurn(context.Background(), RootTurnCommit{
 			RootID: rootID, AgentID: authority.AgentID, InboxSeq: item.InboxSeq,
 			Messages: []llm.Message{{Role: "user", Content: input, Authored: true}, {Role: "assistant", Content: "done"}},
-			Model:    "model", Provider: "provider",
 		}); err != nil {
 			t.Fatal(err)
 		}

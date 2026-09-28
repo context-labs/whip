@@ -37,6 +37,27 @@ disconnected -> reconnecting -> snapshotting -> live
 A retry with the same command ID retrieves the stored status or outcome. It
 does not execute the operation twice.
 
+### Session state ownership
+
+Saved facts (title, goal, archive state, directory, the selected model and
+effort) belong to the session store and are read there at the decision that
+needs them. The daemon `Session` keeps only immutable identity (ID, kind,
+execution engine, definition revision) and the installed runner's selection
+(model, provider, effort), which changes only when a runner is installed or
+its effort changes. No daemon object holds a copy of the sessions row.
+
+The root agent's `agents` row copies model, provider, effort and cwd at open;
+every agent read derives the root's values from `sessions` instead, so
+`agents.inspect` and root snapshots agree with `sessions.get` after a live
+change. Children keep the selection they were admitted with.
+
+Mutations persist before they apply: a rejected effort save leaves the runner
+at the previous level. `goal.set` and `goal.run` refuse while a client
+operation is busy, like effort, model and workspace changes, so a goal
+formulation and an explicit goal cannot overwrite each other. Turn completion
+no longer writes model or provider back to `sessions`; the selection commands
+own that row.
+
 ## Recursive agents
 
 Each live agent has one serialized kernel because its guest heap belongs

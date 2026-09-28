@@ -19,6 +19,9 @@
     "provider": {
       "type": "string"
     },
+    "effort": {
+      "type": "string"
+    },
     "permission_mode": {
       "type": "string"
     }

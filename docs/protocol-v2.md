@@ -17,6 +17,15 @@ files. Standalone validators require no runtime code generation or Ajv dependenc
 Typed RPC/runtime maps classify query, durable and ephemeral operations. The
 handwritten `@whip/sdk` consumes this contract; see [SDK usage](../packages/sdk/README.md).
 
+Protocol **6.9** adds `session.create.effort` and makes effort one vocabulary.
+An effort value is `off` or a catalog level everywhere; blank is not a value.
+A session stores a concrete effort from creation: the request, else the agent
+definition's default, else the configured default, resolved against the model's
+catalog entry. `session.effort.get` returns that saved value, which is also the
+value the runner applies. Sessions created before 6.9 are resolved the same way
+the first time the daemon opens them. Additive; 6.8 clients keep creating
+sessions with the resolved default.
+
 Protocol **6.8** adds optional versioned transcript `presentation` metadata,
 stream `part_id`, and allowlisted operation `display` fields. Durable presentation
 stays in existing raw JSON records, separate from opaque provider continuation.

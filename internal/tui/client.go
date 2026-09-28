@@ -139,7 +139,7 @@ func Run(cfg *config.Config, modelName, provName, resumeID string, cautious, yol
 		cfg: cfg, client: client, clientState: ClientDisconnected,
 		clientView: clientPresentation{
 			modelID: apiID, contextLimit: contextLimit,
-			effort:   DefaultEffortFor(catalogs, provName, apiID, cfg.DefaultEffort),
+			effort:   config.ResolveEffort(catalogs, provName, apiID, cfg.DefaultEffort),
 			messages: []llm.Message{{Role: "system"}},
 		},
 		modelName: modelName, provName: provName,
@@ -360,19 +360,10 @@ func (m *model) applyClientRoute(modelName, providerName string) {
 	}
 }
 
+// applyStoredEffort shows the session's saved effort. The daemon resolves a
+// concrete value at creation, so the saved value is the applied one.
 func (m *model) applyStoredEffort(stored string) {
-	switch stored {
-	case "off":
-		m.clientView.effort = ""
-	case "":
-		if m.cfg == nil {
-			m.clientView.effort = ""
-			return
-		}
-		m.clientView.effort = DefaultEffortFor(m.catalogs, m.provName, m.displayModelID(), m.cfg.DefaultEffort)
-	default:
-		m.clientView.effort = stored
-	}
+	m.clientView.effort = stored
 }
 
 func (m *model) rebuildClientTranscript() {
@@ -1604,7 +1595,7 @@ func (m *model) openThinPalette() {
 		commandItem("Model", "Agent", "/model", true),
 		{
 			title: "Reasoning effort", category: "Agent",
-			dynDesc: func(value *model) string { return "current: " + effortLabel(value.displayEffort()) },
+			dynDesc: func(value *model) string { return "current: " + value.displayEffort() },
 			dynHint: func(*model) string { return "/effort" },
 			run: func(value *model) (bubbletea.Model, bubbletea.Cmd) {
 				value.openThinEffortPalette()
@@ -1829,7 +1820,7 @@ func (m *model) openThinEffortPalette() {
 	items := make([]paletteItem, 0, len(m.effortsFor()))
 	for _, level := range m.effortsFor() {
 		items = append(items, paletteItem{
-			title: "Effort: " + effortLabel(level), category: "Agent",
+			title: "Effort: " + level, category: "Agent",
 			dynDesc: func(value *model) string {
 				if value.displayEffort() == level {
 					return "current"
@@ -1838,7 +1829,7 @@ func (m *model) openThinEffortPalette() {
 			},
 			run: func(value *model) (bubbletea.Model, bubbletea.Cmd) {
 				value.palette = nil
-				return value.submitClientAction("session.effort", protocol.EffortParams{Effort: effortLabel(level), PersistDefault: true}, "")
+				return value.submitClientAction("session.effort", protocol.EffortParams{Effort: level, PersistDefault: true}, "")
 			},
 		})
 	}
@@ -1936,12 +1927,12 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 			levels := m.effortsFor()
 			names := make([]string, len(levels))
 			for index := range levels {
-				names[index] = effortLabel(levels[index])
+				names[index] = levels[index]
 			}
 			m.append(errStyle.Render("unknown effort level; " + m.modelName + " supports: " + strings.Join(names, ", ")))
 			return m, nil
 		}
-		return m.submitClientAction("session.effort", protocol.EffortParams{Effort: effortLabel(level), PersistDefault: true}, "")
+		return m.submitClientAction("session.effort", protocol.EffortParams{Effort: level, PersistDefault: true}, "")
 	case "model", "model-for-session":
 		if m.beforeSession() {
 			return m, m.openProviderSetup()

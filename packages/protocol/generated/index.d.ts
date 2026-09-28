@@ -1083,6 +1083,7 @@ export interface CreateSessionParams {
   cwd: string;
   model: string;
   provider: string;
+  effort?: string;
   permission_mode?: string;
 }
 

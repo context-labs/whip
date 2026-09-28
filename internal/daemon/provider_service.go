@@ -283,7 +283,9 @@ func (s *ProviderService) UpdateConfiguration(p ConfigurationUpdate) (RuntimeCon
 		if p.MaxRetries != nil {
 			c.MaxRetries = *p.MaxRetries
 		}
-		if p.DefaultEffort != nil {
+		// A blank configured default is "not chosen": each new session resolves
+		// its own concrete effort against the model at creation.
+		if p.DefaultEffort != nil && *p.DefaultEffort != "" {
 			if err := validateConfiguredEffort(c, c.DefaultModel, c.DefaultProvider, *p.DefaultEffort); err != nil {
 				return err
 			}
@@ -293,7 +295,7 @@ func (s *ProviderService) UpdateConfiguration(p ConfigurationUpdate) (RuntimeCon
 			if !selection.Ready {
 				return errors.New("select a model available on a connected provider before saving defaults")
 			}
-			if p.DefaultEffort == nil && validateConfiguredEffort(c, c.DefaultModel, c.DefaultProvider, c.DefaultEffort) != nil {
+			if p.DefaultEffort == nil && c.DefaultEffort != "" && validateConfiguredEffort(c, c.DefaultModel, c.DefaultProvider, c.DefaultEffort) != nil {
 				c.DefaultEffort = ""
 			}
 		}

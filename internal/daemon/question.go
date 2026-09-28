@@ -182,12 +182,12 @@ func (r *questionRegistry) openLocked() []sessionstore.LifecycleEvent {
 }
 
 func (s *Session) emitQuestionEvent(ctx context.Context, kind string, event sessionstore.LifecycleEvent) error {
-	event.RootID = s.meta.ID
+	event.RootID = s.id
 	payload, err := json.Marshal(event)
 	if err != nil {
 		return err
 	}
-	_, err = s.store.AppendRootEvent(ctx, s.meta.ID, kind, sessionstore.RuntimePayload{Data: payload, MediaType: "application/json", Source: "actor event"})
+	_, err = s.store.AppendRootEvent(ctx, s.id, kind, sessionstore.RuntimePayload{Data: payload, MediaType: "application/json", Source: "actor event"})
 	return err
 }
 

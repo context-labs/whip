@@ -264,6 +264,18 @@ func (d *Daemon) open(meta session.Meta, history []llm.Message) (_ *Session, err
 	if err != nil {
 		return nil, err
 	}
+	if meta.Kind == session.SessionKindAgent && meta.Effort == "" {
+		// Rows saved before efforts were resolved at creation follow the same
+		// rule once, so the runner and every reader share one concrete value.
+		cfg, err := config.Load()
+		if err != nil {
+			cfg = config.Default()
+		}
+		meta.Effort = resolveEffort(cfg, meta.Model, meta.Provider, "", definition.Model.Effort)
+		if err := d.store.SetEffort(meta.ID, meta.Effort); err != nil {
+			return nil, err
+		}
+	}
 	authority, err := d.store.EnsureRootAuthority(d.ctx, meta.ID, rootGrants(definition, hasDefinition))
 	if err != nil {
 		return nil, err
@@ -333,7 +345,7 @@ func configureMCP(root *Session, components Components) {
 	if manager, ok := components.MCP.(interface {
 		SetProcessOptions(*capability.ProcessManager, string, string, map[string]string)
 	}); ok {
-		manager.SetProcessOptions(root.store.Processes(), root.meta.ID, root.meta.CWD, nil)
+		manager.SetProcessOptions(root.store.Processes(), root.id, root.WorkingDirectory(), nil)
 	}
 	if supervised, ok := components.MCP.(interface {
 		SetLauncher(func(string, func()) bool)

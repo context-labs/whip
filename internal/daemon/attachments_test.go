@@ -121,7 +121,7 @@ func TestAttachmentCorruptionAndCancellation(t *testing.T) {
 	directory := t.TempDir()
 	store := openStore(t, filepath.Join(directory, "sessions.db"))
 	rootID := createRoot(t, store)
-	node := &AgentSession{id: rootID, root: &Session{store: store, meta: session.Meta{ID: rootID}}}
+	node := &AgentSession{id: rootID, root: &Session{store: store, id: rootID}}
 	attachment := inputAttachment(t, node, "", "text", "text/plain", []byte("valid"))
 	payload := SubmitPayload{Attachments: []protocol.InputAttachment{attachment}}
 	ctx, cancel := context.WithCancel(t.Context())
@@ -181,7 +181,7 @@ func TestAttachmentChildUploadAndInboxAcrossTransports(t *testing.T) {
 					t.Fatalf("upload broadened scope to %q: %v", id, err)
 				}
 			}
-			root := &Session{store: f.store, meta: session.Meta{ID: f.rootID}}
+			root := &Session{store: f.store, id: f.rootID}
 			attachment := protocol.InputAttachment{Kind: "text", Content: handle}
 			for _, delivery := range []string{"queued", "steer"} {
 				output, err := root.clientAgentSubmitInput(t.Context(), "child", SubmitPayload{Attachments: []protocol.InputAttachment{attachment}}, delivery)

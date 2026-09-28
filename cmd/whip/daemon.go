@@ -31,7 +31,6 @@ import (
 	"github.com/context-labs/whip/internal/rlm"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/tools"
-	"github.com/context-labs/whip/internal/tui"
 	"github.com/context-labs/whip/internal/webgateway"
 )
 
@@ -141,11 +140,10 @@ func runDaemon(ctx context.Context, args []string) error {
 			})
 		}
 		ag.Vision = route.Vision
-		effort := meta.Effort
-		if effort == "" {
-			effort = definition.Model.Effort
-		}
-		ag.Effort = resolvedRuntimeEffort(providers.Catalogs(), route.Provider, route.Model, effort, runtimeCfg.DefaultEffort)
+		// The saved effort is concrete: the daemon resolves it at creation and
+		// upgrades older blank rows at open. "off" becomes an omitted parameter
+		// at the request boundary.
+		ag.Effort = meta.Effort
 		ag.ResolveModel = func(model, provider string) (agent.ModelRoute, error) {
 			currentCfg, loadErr := config.Load()
 			if loadErr != nil {
@@ -365,16 +363,6 @@ func daemonToolServices(cfg *config.Config, meta session.Meta, apiID string, cap
 	}
 	services.SetDiagnostics(lsp.NewManager(lsp.FromConfigMap(cfg.LSPServers)))
 	return services
-}
-
-func resolvedRuntimeEffort(catalogs map[string]config.Catalog, provider, modelID, stored, defaultEffort string) string {
-	if stored == "off" {
-		return ""
-	}
-	if stored != "" {
-		return stored
-	}
-	return tui.DefaultEffortFor(catalogs, provider, modelID, defaultEffort)
 }
 
 func rlmLimits(value config.RLMConfig) rlm.Limits {

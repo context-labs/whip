@@ -75,7 +75,7 @@ func createDefinitionSession(t *testing.T, store *Store, definition string) (str
 	if _, err := store.AdmitCommand(t.Context(), CommandAdmission{ClientID: "definitions", CommandID: id, Scope: CommandScopeDaemon, RequestDigest: id}); err != nil {
 		t.Fatal(err)
 	}
-	record, err := store.CreateSessionForCommandWithDefinition(t.Context(), "definitions", id, SessionKindAgent, t.TempDir(), "model", "provider", "", "", definition, "")
+	record, err := store.CreateSessionForCommandWithDefinition(t.Context(), "definitions", id, SessionKindAgent, t.TempDir(), "model", "provider", "", "", "", definition, "")
 	if err != nil {
 		return "", err
 	}
@@ -217,7 +217,7 @@ func TestRegisteredDefinitionsAreIdempotentAndPinned(t *testing.T) {
 	if _, err := store.AdmitCommand(t.Context(), CommandAdmission{ClientID: "definitions", CommandID: id, Scope: CommandScopeDaemon, RequestDigest: id}); err != nil {
 		t.Fatal(err)
 	}
-	created2, err := store.CreateSessionForCommandWithDefinition(t.Context(), "definitions", id, SessionKindAgent, t.TempDir(), "model", "provider", "", "", "support-bot", "rev-a")
+	created2, err := store.CreateSessionForCommandWithDefinition(t.Context(), "definitions", id, SessionKindAgent, t.TempDir(), "model", "provider", "", "", "", "support-bot", "rev-a")
 	if err != nil {
 		t.Fatal(err)
 	}

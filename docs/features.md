@@ -304,6 +304,16 @@ root prompt (`evals/rlm`).
   [agent-loop.md](agent-loop.md).
 - Model-to-provider routing, live catalog discovery, context/output limits,
   reasoning effort, vision flags, sampling parameters, and pricing.
+- Reasoning effort is one vocabulary, `off` or a catalog level, in the saved
+  session row, the runner, the TUI, the web app and the wire. A session stores
+  a concrete effort from creation: the `session.create.effort` request, else
+  the agent definition's default, else the configured default, resolved against
+  the model's catalog entry (`config.ResolveEffort`). Sessions saved before
+  this rule are resolved the first time the daemon opens them. `off` becomes an
+  omitted request parameter at the llm encoders. Switching to a model that does
+  not support the saved level sets the session to `off`. Coverage:
+  `TestSessionCreationStoresConcreteEffort`, `TestOpenResolvesLegacyBlankEffort`,
+  `TestOffEffortOmitsReasoningParameter`, `TestResolveEffortModelAware`.
 - `models.call` and `models.batch` provide stateless analysis without creating
   durable child identities; batch results retain input order.
 - Prompt-cache keys are stable per retained session: the daemon stamps

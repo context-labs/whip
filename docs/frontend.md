@@ -1498,9 +1498,10 @@ Provider rows grow for wrapped labels and mobile touch targets. Connection and
 model confirmation reuse the existing flows; completing setup returns focus to
 the preserved draft composer without sending it.
 
-Sending the first message is three commands through the runtime's command
-runner: `sessions.create`, an optional `session.effort` with `persist_default:
-false` when the draft chose an effort, then `submit`. Acceptance of the submit
+Sending the first message is two commands through the runtime's command
+runner: `sessions.create`, carrying `effort` when the draft chose one (the
+daemon otherwise resolves the configured default against the model, protocol
+6.9), then `submit`. Acceptance of the submit
 promotes the New Chat tab in place into the session's tab (`SessionTabs.promoteNew`);
 the router follows only when that draft route is still focused, so a background
 pane never steals focus. The draft is cleared only if its text is still what was

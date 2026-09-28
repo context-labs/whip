@@ -67,7 +67,7 @@ export function EffortPicker({ view, root, connected }: ModelProps) {
   const catalog = useProviderCatalog(view.session.client, connected);
   const models = useMemo(() => catalogModels(catalog.data?.result, root.meta.provider), [catalog.data, root.meta.provider]);
   const levels = modelEfforts(models, root.meta.model);
-  const current = root.meta.effort || 'off';
+  const current = root.meta.effort;
   return <Popover open={open} onOpenChange={value => { if (!pending) setOpen(value); }} xstyle={styles.popup}
     trigger={<Button variant="ghost" aria-label="Reasoning effort" disabled={!connected || !idle || pending}
       title={idle ? 'Reasoning effort' : 'Wait for active turns to finish before changing reasoning'}
@@ -220,7 +220,7 @@ export function ModelSelection({ view, root, connected }: ModelProps) {
   const runtime = useRuntime();
   const [model, setModel] = useState(root.meta.model);
   const [provider, setProvider] = useState(root.meta.provider);
-  const [effort, setEffort] = useState(root.meta.effort || 'off');
+  const [effort, setEffort] = useState(root.meta.effort);
   const idle = !Object.keys(root.active_turns ?? {}).length;
   const catalog = useProviderCatalog(view.session.client, connected);
   const models = useMemo(() => catalogModels(catalog.data?.result, root.meta.provider), [catalog.data, root.meta.provider]);

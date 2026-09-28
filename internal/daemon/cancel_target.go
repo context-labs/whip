@@ -11,7 +11,7 @@ func (s *Session) checkTurnTarget(ctx context.Context, agentID, turnID string) e
 	if agentID == "" || turnID == "" {
 		return rpcFailure(-32602, "cancellation requires a specific agent and turn ID")
 	}
-	active, err := s.store.ActiveTurn(ctx, s.meta.ID, agentID)
+	active, err := s.store.ActiveTurn(ctx, s.id, agentID)
 	if err != nil {
 		return err
 	}
@@ -22,7 +22,7 @@ func (s *Session) checkTurnTarget(ctx context.Context, agentID, turnID string) e
 }
 
 func (s *Session) cancelInputCommand(ctx context.Context, clientID, commandID string) error {
-	record, cancelled, err := s.store.CancelQueuedInput(ctx, s.meta.ID, clientID, commandID, encodeCommandOutcome("cancel", "", context.Canceled))
+	record, cancelled, err := s.store.CancelQueuedInput(ctx, s.id, clientID, commandID, encodeCommandOutcome("cancel", "", context.Canceled))
 	if errors.Is(err, sessionstore.ErrCommandTarget) {
 		return rpcFailure(-32009, err.Error())
 	}
@@ -39,7 +39,7 @@ func (s *Session) cancelInputCommand(ctx context.Context, clientID, commandID st
 	}
 	// The root actor owns one live model turn. Running root inbox rows are
 	// either its initial input or steering already claimed by that same turn.
-	turnID, err := s.store.ActiveTurn(ctx, s.meta.ID, s.authority.AgentID)
+	turnID, err := s.store.ActiveTurn(ctx, s.id, s.authority.AgentID)
 	if err != nil {
 		return err
 	}

@@ -269,9 +269,9 @@ func (runtime *RecursiveRuntime) Bind(ctx context.Context, root *Session) error 
 		runtime.mu.Unlock()
 		return errors.New("recursive runtime is closed")
 	}
-	if root.meta.ExecutionEngine != runtime.engine {
+	if root.engine != runtime.engine {
 		runtime.mu.Unlock()
-		return fmt.Errorf("session execution engine %s does not match runtime %s", root.meta.ExecutionEngine, runtime.engine)
+		return fmt.Errorf("session execution engine %s does not match runtime %s", root.engine, runtime.engine)
 	}
 	runtime.root = root
 	node := runtime.rootNode

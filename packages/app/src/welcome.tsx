@@ -154,14 +154,14 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
     setError('');
     const text = draft;
     try {
-      // Create, apply the chosen effort, then send. Each step runs through the
+      // Create with the chosen effort, then send. Each step runs through the
       // command runner, whose delivery tracking keeps a dropped connection from
       // sending twice and surfaces an unresolved send under the composer.
-      const created = await runtime.run(client.sessions.create({ cwd: cwd.trim(), model, provider, permission_mode: permission, execution_engine: executionEngine, ...(definitions.supported && tab.definition ? { definition: tab.definition } : {}) }), 'Create session', undefined, key);
+      const created = await runtime.run(client.sessions.create({ cwd: cwd.trim(), model, provider, ...(tab.effort !== undefined ? { effort } : {}), permission_mode: permission, execution_engine: executionEngine, ...(definitions.supported && tab.definition ? { definition: tab.definition } : {}) }), 'Create session', undefined, key);
       const rootId = created.result?.root_id;
       if (!rootId) throw new Error('Session creation returned no session.');
       if (attachments.length) {
-        // Once created, this session owns the draft. Upload/effort/send failures
+        // Once created, this session owns the draft. Upload/send failures
         // stay in its normal composer instead of creating another root on retry.
         const session = client.session(rootId);
         const destination = compositionKey(runtimeId, rootId, rootId);
@@ -173,7 +173,6 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
         const uploadToken = runtime.compositions.beginSubmission(destination)!;
         runtime.tabs.promoteNew(tab.id, runtimeId, rootId);
         try {
-          if (tab.effort !== undefined) await runtime.run(session.command('session.effort', { effort, persist_default: false }), 'Set initial reasoning effort', undefined, destination);
           await uploading;
         } catch (error) {
           runtime.report(error);
@@ -191,7 +190,6 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
         if (result.status === 'failed' && !result.delivery) runtime.report(result.error);
         return;
       }
-      if (tab.effort !== undefined) await runtime.run(client.session(rootId).command('session.effort', { effort, persist_default: false }), 'Set initial reasoning effort', undefined, key);
       // Acceptance is the handover: this tab becomes the session's and the turn runs there.
       await new Promise<void>((resolve, reject) => {
         let accepted = false;

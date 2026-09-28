@@ -354,11 +354,11 @@ func (s *Session) AcceptClientCommand(ctx context.Context, admission sessionstor
 }
 
 func (s *Session) clientCommand(ctx context.Context, admission sessionstore.CommandAdmission, operation string, payload json.RawMessage, wait bool) (CommandResult, error) {
-	if s.meta.Kind == sessionstore.SessionKindToolHost && !isToolHostOperation(operation) {
+	if s.kind == sessionstore.SessionKindToolHost && !isToolHostOperation(operation) {
 		return CommandResult{}, fmt.Errorf("tool-host sessions do not support %q", operation)
 	}
 	admission.Scope = sessionstore.CommandScopeRoot
-	admission.RootID = s.meta.ID
+	admission.RootID = s.id
 	admission.AgentID = s.authority.AgentID
 	admission.Kind = operation
 	admission.Payload.Data = slices.Clone(admission.Payload.Data)
@@ -382,7 +382,7 @@ func (s *Session) clientCommand(ctx context.Context, admission sessionstore.Comm
 			if admitted.Command.Status == "queued" || admitted.Command.Status == "running" || admitted.Command.Status == "waiting" {
 				return finish(nil)
 			}
-			body, resolveErr := s.store.ResolveRuntimeValue(actorCtx, s.meta.ID, admitted.Command.Outcome)
+			body, resolveErr := s.store.ResolveRuntimeValue(actorCtx, s.id, admitted.Command.Outcome)
 			if resolveErr != nil {
 				return finish(resolveErr)
 			}
@@ -448,7 +448,7 @@ func (s *Session) executeClientCommand(actorCtx context.Context, admission sessi
 		}
 		if operation == "session.reload" && (s.hasRunningAgent() || s.clientBusy) {
 			s.reloadPending = true
-			output, _ := marshalClientOutput(protocol.ModelResult{Model: s.meta.Model, Provider: s.meta.Provider, ReloadPending: true}, nil)
+			output, _ := marshalClientOutput(protocol.ModelResult{Model: s.model, Provider: s.provider, ReloadPending: true}, nil)
 			return finish(s.finishClientCommandInline(actorCtx, admission, operation, output, nil, &result))
 		}
 		if s.hasRunningAgent() || s.clientBusy || s.clientIntegrations > 0 {
@@ -456,15 +456,15 @@ func (s *Session) executeClientCommand(actorCtx context.Context, admission sessi
 		}
 		model, provider := action.Model, action.Provider
 		if operation == "session.reload" || operation == "compaction.configure" {
-			model, provider = s.meta.Model, s.meta.Provider
+			model, provider = s.model, s.provider
 		}
 		if provider == "" {
-			provider = s.meta.Provider
+			provider = s.provider
 		}
 		if model == "" {
 			return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("model is required"), &result))
 		}
-		if operation == "session.model" && model == s.meta.Model && provider == s.meta.Provider && action.Effort == "" {
+		if operation == "session.model" && model == s.model && provider == s.provider && action.Effort == "" {
 			var err error
 			if action.PersistDefault {
 				_, _, err = config.UpdateVersioned("", func(cfg *config.Config) error { cfg.DefaultModel, cfg.DefaultProvider = model, provider; return nil })
@@ -480,7 +480,7 @@ func (s *Session) executeClientCommand(actorCtx context.Context, admission sessi
 				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", fmt.Errorf("model cannot change while %w", err), &result))
 			}
 		}
-		factory, rootID := s.factory, s.meta.ID
+		factory, rootID := s.factory, s.id
 		s.clientBusy = true
 		s.clientPreparing = true
 		asyncReply = completionReply
@@ -694,7 +694,7 @@ func (s *Session) executeClientCommand(actorCtx context.Context, admission sessi
 		}
 		cut := action.Cut
 		if action.ExpectedRevision != nil {
-			if err := s.store.CheckHistoryRevision(actorCtx, s.meta.ID, *action.ExpectedRevision); err != nil {
+			if err := s.store.CheckHistoryRevision(actorCtx, s.id, *action.ExpectedRevision); err != nil {
 				return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", err, &result))
 			}
 		}
@@ -704,7 +704,7 @@ func (s *Session) executeClientCommand(actorCtx context.Context, admission sessi
 		if _, ok := s.runner.(clientHistoryRunner); !ok {
 			return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", errors.New("session runner does not support history replacement"), &result))
 		}
-		snapshots, err := s.store.WorkspaceSnapshotsFrom(actorCtx, s.meta.ID, cut)
+		snapshots, err := s.store.WorkspaceSnapshotsFrom(actorCtx, s.id, cut)
 		if err != nil {
 			return finish(s.finishClientCommandInline(actorCtx, admission, operation, "", err, &result))
 		}
@@ -806,14 +806,14 @@ func (s *Session) completeClientCommand(completion *clientCommandCompletion) (Co
 			})
 		}
 		if completion.output == "" {
-			completion.output, _ = marshalClientOutput(protocol.ModelResult{Model: s.meta.Model, Provider: s.meta.Provider, ReloadPending: s.reloadPending}, nil)
+			completion.output, _ = marshalClientOutput(protocol.ModelResult{Model: s.model, Provider: s.provider, ReloadPending: s.reloadPending}, nil)
 		}
 	}
 
 	if completion.automatic {
 		if completion.err != nil {
 			payload, _ := json.Marshal(sessionstore.LifecycleEvent{Error: completion.err.Error()})
-			_, err := s.store.AppendRootEvent(s.supervisor.ctx, s.meta.ID, "session.reload.failed", sessionstore.RuntimePayload{Data: payload, MediaType: "application/json", Source: "session reload failure"})
+			_, err := s.store.AppendRootEvent(s.supervisor.ctx, s.id, "session.reload.failed", sessionstore.RuntimePayload{Data: payload, MediaType: "application/json", Source: "session reload failure"})
 			return CommandResult{}, err
 		}
 		return CommandResult{}, nil
@@ -824,10 +824,10 @@ func (s *Session) completeClientCommand(completion *clientCommandCompletion) (Co
 		var err error
 		if compaction.rawCutoff != nil {
 			rawCutoff = *compaction.rawCutoff
-			err = s.store.RecordRawCompaction(s.supervisor.ctx, s.meta.ID, s.meta.ID, rawCutoff, compaction.summary, compaction.pinned)
+			err = s.store.RecordRawCompaction(s.supervisor.ctx, s.id, s.id, rawCutoff, compaction.summary, compaction.pinned)
 		} else {
 			rawCutoff = s.rawCompactionCutoff(compaction.cutoff, compaction.rawTailStart)
-			err = s.store.RecordCompaction(s.meta.ID, rawCutoff, compaction.summary)
+			err = s.store.RecordCompaction(s.id, rawCutoff, compaction.summary)
 		}
 		if err != nil {
 			if runner, ok := s.runner.(clientCompactRunner); ok {
@@ -839,14 +839,14 @@ func (s *Session) completeClientCommand(completion *clientCommandCompletion) (Co
 			}
 			completion.err = err
 		} else {
-			_ = s.store.SetUsage(s.meta.ID, compaction.usage.PromptTokens, compaction.usage.Cached(), compaction.usage.CompletionTokens)
+			_ = s.store.SetUsage(s.id, compaction.usage.PromptTokens, compaction.usage.Cached(), compaction.usage.CompletionTokens)
 			var outputErr error
 			completion.output, outputErr = marshalClientOutput(protocol.CompactionResult{Cutoff: rawCutoff, Model: compaction.model, Usage: compaction.usage}, nil)
 			completion.err = errors.Join(completion.err, outputErr)
 		}
 	}
 	if completion.rewind != nil && completion.err == nil {
-		history, err := s.store.RewindHistory(s.supervisor.ctx, s.meta.ID, completion.rewind.cut)
+		history, err := s.store.RewindHistory(s.supervisor.ctx, s.id, completion.rewind.cut)
 		if err != nil {
 			completion.err = err
 		} else {
@@ -856,15 +856,14 @@ func (s *Session) completeClientCommand(completion *clientCommandCompletion) (Co
 	}
 	if completion.goal != nil && completion.err == nil {
 		goal := completion.goal
-		if err := s.store.SetGoal(s.meta.ID, goal.text); err != nil {
+		if err := s.store.SetGoal(s.id, goal.text); err != nil {
 			completion.err = err
 		} else if _, err := s.enqueue(s.supervisor.ctx, "goal", goal.text, false); err != nil {
 			completion.err = err
 		} else {
-			s.meta.Goal = goal.text
 			s.goalRounds = 0
 			completion.output = goal.text
-			_ = s.store.SetUsage(s.meta.ID, goal.usage.PromptTokens, goal.usage.Cached(), goal.usage.CompletionTokens)
+			_ = s.store.SetUsage(s.id, goal.usage.PromptTokens, goal.usage.Cached(), goal.usage.CompletionTokens)
 		}
 	}
 	result := CommandResult{CommandID: completion.commandID, IngressSeq: completion.ingress}
@@ -875,9 +874,9 @@ func (s *Session) completeClientCommand(completion *clientCommandCompletion) (Co
 }
 
 func (s *Session) rawCompactionCutoff(cutoff, rawTailStart int) int {
-	events := s.store.Compactions(s.meta.ID)
+	events := s.store.Compactions(s.id)
 	if len(events) == 0 {
-		raw := s.store.RawMessages(s.meta.ID)
+		raw := s.store.RawMessages(s.id)
 		if len(raw) > 0 && raw[0].Role != "system" {
 			return cutoff - 1
 		}
@@ -912,7 +911,7 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		if !ok {
 			return "", errors.New("session runner does not support external permissions")
 		}
-		if err := s.store.SetPermissionMode(ctx, s.meta.ID, permissionModeLabel(payload.ExternalPermissions)); err != nil {
+		if err := s.store.SetPermissionMode(ctx, s.id, permissionModeLabel(payload.ExternalPermissions)); err != nil {
 			return "", err
 		}
 		runner.SetExternalPermissions(payload.ExternalPermissions)
@@ -952,7 +951,7 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		}
 		// Headless mode prevents waiting for new consent. Automatic mode is
 		// already a durable user authorization and keeps that same policy.
-		permissionMode, err := s.store.PermissionMode(ctx, s.meta.ID)
+		permissionMode, err := s.store.PermissionMode(ctx, s.id)
 		if err != nil {
 			return "", err
 		}
@@ -960,8 +959,8 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		s.applyRunConfiguration(runner, s.runtime, permissionMode)
 		return "configured", nil
 	case "inbox.steer", "inbox.remove":
-		result, err := s.store.ControlInbox(ctx, s.meta.ID, payload.ID, payload.InboxSeq, payload.TurnID, operation == "inbox.remove", []byte(`{"code":-32800,"message":"Queued message removed","data":{"kind":"queue_removed"}}`))
-		if err == nil && result.Status == "removed" && payload.ID == s.meta.ID {
+		result, err := s.store.ControlInbox(ctx, s.id, payload.ID, payload.InboxSeq, payload.TurnID, operation == "inbox.remove", []byte(`{"code":-32800,"message":"Queued message removed","data":{"kind":"queue_removed"}}`))
+		if err == nil && result.Status == "removed" && payload.ID == s.id {
 			s.settle(payload.InboxSeq, Completion{Sequence: payload.InboxSeq, Err: context.Canceled})
 		}
 		if err == nil {
@@ -981,11 +980,13 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		if !s.definition.Surface.GoalLoop {
 			return "", errors.New("this agent does not run goals")
 		}
+		if s.running != nil || s.clientBusy {
+			return "", errors.New("goal cannot change while a root operation is running")
+		}
 		goal := strings.TrimSpace(payload.Text)
-		if err := s.store.SetGoal(s.meta.ID, goal); err != nil {
+		if err := s.store.SetGoal(s.id, goal); err != nil {
 			return "", err
 		}
-		s.meta.Goal = goal
 		s.goalRounds = 0
 		if operation == "goal.run" && goal != "" {
 			if _, err := s.enqueue(ctx, "goal", goal, false); err != nil {
@@ -997,7 +998,7 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		return s.clientSchedule(ctx, operation, payload)
 	case "session.fork":
 		if payload.ExpectedRevision != nil {
-			if err := s.store.CheckHistoryRevision(ctx, s.meta.ID, *payload.ExpectedRevision); err != nil {
+			if err := s.store.CheckHistoryRevision(ctx, s.id, *payload.ExpectedRevision); err != nil {
 				return "", err
 			}
 		}
@@ -1007,7 +1008,7 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		}
 		title := strings.TrimSpace(payload.Title)
 		if title == "" {
-			source, err := s.store.LoadMeta(s.meta.ID)
+			source, err := s.store.LoadMeta(s.id)
 			if err != nil {
 				return "", err
 			}
@@ -1016,7 +1017,7 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 				return "", err
 			}
 		}
-		id, err := s.store.Fork(s.meta.ID, cut, title)
+		id, err := s.store.Fork(s.id, cut, title)
 		if err == nil {
 			s.notifyTitleChanged(id)
 		}
@@ -1025,7 +1026,7 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		if runner, ok := s.runner.(clientWorkspaceRunner); ok {
 			return runner.ResolveWorkingDirectory(".")
 		}
-		return s.meta.CWD, nil
+		return s.WorkingDirectory(), nil
 	case "workspace.set":
 		if s.running != nil || s.clientBusy {
 			return "", errors.New("working directory cannot change while the root agent is running")
@@ -1038,15 +1039,14 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		if err != nil {
 			return "", err
 		}
-		if err := s.store.SetWorkingDirectory(s.meta.ID, path); err != nil {
+		if err := s.store.SetWorkingDirectory(s.id, path); err != nil {
 			return "", err
 		}
 		runner.SetWorkingDirectory(path)
-		s.meta.CWD = path
 		s.emitSessionUpdate(ctx, "session.cwd.updated", SessionUpdateEvent{WorkingDir: path})
 		return path, nil
 	case "session.effort.get":
-		return daemonEffortLabel(s.meta.Effort), nil
+		return s.effort, nil
 	case "session.effort":
 		requested := strings.TrimSpace(payload.Effort)
 		if requested == "" {
@@ -1055,20 +1055,18 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		if s.running != nil || s.clientBusy {
 			return "", errors.New("effort cannot change while the root agent is running")
 		}
-		if err := validateEffort(s.meta.Model, s.meta.Provider, requested); err != nil {
+		if err := validateEffort(s.model, s.provider, requested); err != nil {
 			return "", err
 		}
-		level := requested
-		if level == "off" {
-			level = ""
+		// Persist first: a rejected save must leave the runner and every other
+		// client at the previous level.
+		if err := s.store.SetEffort(s.id, requested); err != nil {
+			return "", err
 		}
 		if setter, ok := s.runner.(interface{ SetEffort(string) }); ok {
-			setter.SetEffort(level)
+			setter.SetEffort(requested)
 		}
-		if err := s.store.SetEffort(s.meta.ID, requested); err != nil {
-			return "", err
-		}
-		s.meta.Effort = requested
+		s.effort = requested
 		if payload.PersistDefault {
 			if _, _, err := config.UpdateVersioned("", func(cfg *config.Config) error { cfg.DefaultEffort = requested; return nil }); err != nil {
 				return "", err
@@ -1076,9 +1074,9 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		}
 
 		s.emitSessionUpdate(ctx, "session.effort.updated", SessionUpdateEvent{Effort: requested, EffortChanged: true})
-		return daemonEffortLabel(requested), nil
+		return requested, nil
 	case "session.model.get":
-		return marshalClientOutput(protocol.ModelResult{Model: s.meta.Model, Provider: s.meta.Provider}, nil)
+		return marshalClientOutput(protocol.ModelResult{Model: s.model, Provider: s.provider}, nil)
 
 	case "session.list":
 		metas, err := s.store.RecentContext(ctx, 50)
@@ -1100,7 +1098,7 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		if title == "" {
 			return "", errors.New("session title is required")
 		}
-		if err := s.store.SetTitle(s.meta.ID, title); err != nil {
+		if err := s.store.SetTitle(s.id, title); err != nil {
 			return "", err
 		}
 		if s.titleWork != nil {
@@ -1109,15 +1107,14 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		}
 		return title, s.publishTitle(ctx, title)
 	case "session.archive":
-		if err := s.store.SetArchived(ctx, s.meta.ID, payload.Archived); err != nil {
+		if err := s.store.SetArchived(ctx, s.id, payload.Archived); err != nil {
 			return "", err
 		}
-		s.meta.Archived = payload.Archived
 		output, err := marshalClientOutput(protocol.ArchiveResult{Archived: payload.Archived}, nil)
 		if err != nil {
 			return "", err
 		}
-		_, err = s.store.AppendRootEvent(ctx, s.meta.ID, "session.archived.updated", sessionstore.RuntimePayload{
+		_, err = s.store.AppendRootEvent(ctx, s.id, "session.archived.updated", sessionstore.RuntimePayload{
 			Data: []byte(output), MediaType: "application/json", Source: "session.archive",
 		})
 		return output, err
@@ -1126,7 +1123,7 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 			return "", errors.New("history cannot change while a turn is running")
 		}
 		if payload.ExpectedRevision != nil {
-			if err := s.store.CheckHistoryRevision(ctx, s.meta.ID, *payload.ExpectedRevision); err != nil {
+			if err := s.store.CheckHistoryRevision(ctx, s.id, *payload.ExpectedRevision); err != nil {
 				return "", err
 			}
 		}
@@ -1134,7 +1131,7 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		if !ok {
 			return "", errors.New("session runner does not support history replacement")
 		}
-		snapshots, err := s.store.WorkspaceSnapshotsFrom(ctx, s.meta.ID, 1)
+		snapshots, err := s.store.WorkspaceSnapshotsFrom(ctx, s.id, 1)
 		if err != nil {
 			return "", err
 		}
@@ -1142,7 +1139,7 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		if len(snapshots) > 0 && !canDrop {
 			return "", errors.New("session runner cannot release workspace snapshots")
 		}
-		history, err := s.store.RewindHistory(ctx, s.meta.ID, 1)
+		history, err := s.store.RewindHistory(ctx, s.id, 1)
 		if err != nil {
 			return "", err
 		}
@@ -1161,20 +1158,20 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 	case "provider.catalogs":
 		return clientProviderCatalogs(ctx, s.providers, false)
 	case "history.compact.log":
-		return marshalClientOutput(s.store.Compactions(s.meta.ID), nil)
+		return marshalClientOutput(s.store.Compactions(s.id), nil)
 	case "history.compact.retry":
 		if s.running != nil || s.clientBusy {
 			return "", errors.New("history cannot change while a turn is running")
 		}
-		events := s.store.Compactions(s.meta.ID)
+		events := s.store.Compactions(s.id)
 		if len(events) == 0 {
 			return marshalClientOutput(protocol.CompactionRetryResult{}, nil)
 		}
 		last := events[len(events)-1]
-		if err := s.store.DeleteCompaction(s.meta.ID, last.Seq); err != nil {
+		if err := s.store.DeleteCompaction(s.id, last.Seq); err != nil {
 			return "", err
 		}
-		_, history, err := s.store.Load(s.meta.ID)
+		_, history, err := s.store.Load(s.id)
 		if err != nil {
 			return "", err
 		}
@@ -1184,7 +1181,7 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		return marshalClientOutput(protocol.CompactionRetryResult{Undone: true, Sequence: last.Seq}, nil)
 
 	case "agents.list":
-		agents, err := s.store.RootAgentViews(ctx, s.meta.ID)
+		agents, err := s.store.RootAgentViews(ctx, s.id)
 		return marshalClientOutput(agents, err)
 	case "agent.transcript":
 		return s.clientAgentTranscript(ctx, payload.ID)
@@ -1207,14 +1204,14 @@ func (s *Session) applyClientCommand(ctx context.Context, operation string, raw 
 		record, err := s.revokeCapability(ctx, s.authority.AgentID, strings.TrimSpace(payload.ID))
 		return marshalClientOutput(record, err)
 	case "permission.rules":
-		rules, err := s.store.ListPermissionRules(ctx, s.meta.ID)
+		rules, err := s.store.ListPermissionRules(ctx, s.id)
 		if err != nil {
 			return "", err
 		}
 		return marshalClientOutput(protocol.PermissionRulesResult{Rules: rules, Global: s.store.GlobalPermissionRules()}, nil)
 	case "permission.forget":
 		id := strings.TrimSpace(payload.ID)
-		if err := s.store.DeletePermissionRule(ctx, s.meta.ID, id); err != nil {
+		if err := s.store.DeletePermissionRule(ctx, s.id, id); err != nil {
 			return "", err
 		}
 		return "forgot rule " + id, nil
@@ -1529,14 +1526,14 @@ func (s *Session) installReplacement(ctx context.Context, replacement *clientRep
 	}
 	configureMCP(s, components)
 	if runner, ok := components.Runner.(clientRunRunner); ok && s.runConfig != nil {
-		permissionMode, err := s.store.PermissionMode(ctx, s.meta.ID)
+		permissionMode, err := s.store.PermissionMode(ctx, s.id)
 		if err != nil {
 			cleanup()
 			return "", err
 		}
 		s.applyRunConfiguration(runner, components.Runtime, permissionMode)
 	}
-	if err := s.store.SetModelSelection(s.meta.ID, model, provider, meta.Effort); err != nil {
+	if err := s.store.SetModelSelection(s.id, model, provider, meta.Effort); err != nil {
 		cleanup()
 		return "", err
 	}
@@ -1550,7 +1547,7 @@ func (s *Session) installReplacement(ctx context.Context, replacement *clientRep
 	s.mcpMu.Unlock()
 	s.runner, s.runtime = components.Runner, components.Runtime
 	replacement.installed = true
-	s.meta.Model, s.meta.Provider, s.meta.Effort = model, provider, meta.Effort
+	s.model, s.provider, s.effort = model, provider, meta.Effort
 	s.emitSessionUpdate(ctx, "session.model.updated", SessionUpdateEvent{
 		Model: model, Provider: provider, Effort: meta.Effort, EffortChanged: true,
 	})
@@ -1566,13 +1563,6 @@ func (s *Session) installReplacement(ctx context.Context, replacement *clientRep
 	return model + " @ " + provider, nil
 }
 
-func daemonEffortLabel(level string) string {
-	if level == "" {
-		return "off"
-	}
-	return level
-}
-
 func validateEffort(model, provider, requested string) error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -1582,7 +1572,7 @@ func validateEffort(model, provider, requested string) error {
 }
 
 func validateConfiguredEffort(cfg *config.Config, model, provider, requested string) error {
-	if requested == "off" || requested == "" {
+	if requested == "off" {
 		return nil
 	}
 	known := slices.Contains([]string{"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}, requested)
@@ -1607,10 +1597,6 @@ func validateConfiguredEffort(cfg *config.Config, model, provider, requested str
 }
 
 func compatibleEffort(model, provider, current string) string {
-	runtimeLevel := current
-	if runtimeLevel == "off" {
-		runtimeLevel = ""
-	}
 	cfg, err := config.Load()
 	if err != nil {
 		return current
@@ -1624,7 +1610,7 @@ func compatibleEffort(model, provider, current string) string {
 		return current
 	}
 	info := catalog.Find(apiID)
-	if info == nil || slices.Contains(append([]string{""}, info.ReasoningEfforts...), runtimeLevel) {
+	if info == nil || slices.Contains(append([]string{"off"}, info.ReasoningEfforts...), current) {
 		return current
 	}
 	return "off"
@@ -1646,7 +1632,7 @@ func (s *Session) emitSessionUpdate(ctx context.Context, kind string, event Sess
 	if err != nil {
 		return
 	}
-	_, _ = s.store.AppendRootEvent(ctx, s.meta.ID, kind, sessionstore.RuntimePayload{
+	_, _ = s.store.AppendRootEvent(ctx, s.id, kind, sessionstore.RuntimePayload{
 		Data: payload, MediaType: "application/json", Source: kind,
 	})
 }
@@ -1655,7 +1641,7 @@ func (r *AgentSession) SetEffort(level string) { r.agent.Effort = level }
 
 func (s *Session) clientSchedule(ctx context.Context, operation string, payload clientActionPayload) (string, error) {
 	if operation == "schedule.list" {
-		schedules, err := s.store.SchedulesContext(ctx, s.meta.ID)
+		schedules, err := s.store.SchedulesContext(ctx, s.id)
 		return marshalClientOutput(schedules, err)
 	}
 	if operation == "schedule.delete" {
@@ -1663,7 +1649,7 @@ func (s *Session) clientSchedule(ctx context.Context, operation string, payload 
 		if id < 1 {
 			return "", errors.New("schedule ID must be positive")
 		}
-		if err := s.store.DeleteSchedule(s.meta.ID, id); err != nil {
+		if err := s.store.DeleteSchedule(s.id, id); err != nil {
 			return "", err
 		}
 		return marshalClientOutput(protocol.ScheduleResult{ScheduleID: id}, nil)
@@ -1683,7 +1669,7 @@ func (s *Session) clientSchedule(ctx context.Context, operation string, payload 
 	})
 	var id int
 	err = s.consumeBudgets(ctx, s.authority.AgentID, reservations, func() error {
-		id, err = s.store.AddSchedule(s.meta.ID, parsed.String(), prompt, time.Now().UTC())
+		id, err = s.store.AddSchedule(s.id, parsed.String(), prompt, time.Now().UTC())
 		return err
 	})
 	if err != nil {
@@ -1711,11 +1697,11 @@ func (s *Session) clientAgentControl(ctx context.Context, id, status string) (st
 }
 
 func (s *Session) clientAgentTranscript(ctx context.Context, id string) (string, error) {
-	agentValue, err := s.store.LoadAgent(ctx, s.meta.ID, id)
+	agentValue, err := s.store.LoadAgent(ctx, s.id, id)
 	if err != nil {
 		return "", err
 	}
-	snapshot, err := s.store.SnapshotRootView(ctx, s.meta.ID, sessionstore.SnapshotViewOptions{RecentMessages: 1, CollectionLimit: 128, MaxBytes: 128 << 10})
+	snapshot, err := s.store.SnapshotRootView(ctx, s.id, sessionstore.SnapshotViewOptions{RecentMessages: 1, CollectionLimit: 128, MaxBytes: 128 << 10})
 	if err != nil {
 		return "", err
 	}
@@ -1725,13 +1711,13 @@ func (s *Session) clientAgentTranscript(ctx context.Context, id string) (string,
 			inbox = append(inbox, item)
 		}
 	}
-	page, err := s.store.ReadTranscriptPage(ctx, s.meta.ID, id, sessionstore.TranscriptReadOptions{
+	page, err := s.store.ReadTranscriptPage(ctx, s.id, id, sessionstore.TranscriptReadOptions{
 		Recent: true, ThroughSeq: -1, Revision: &snapshot.HistoryRevision, Limit: 64, MaxBytes: 256 << 10,
 	})
 	if err != nil {
 		return "", err
 	}
-	accounting, err := s.store.ModelAccounting(ctx, s.meta.ID, id, false)
+	accounting, err := s.store.ModelAccounting(ctx, s.id, id, false)
 	if err != nil {
 		return "", err
 	}
@@ -1763,7 +1749,7 @@ func (s *Session) clientAgentSubmitInput(ctx context.Context, id string, input S
 	if delivery == "steer" {
 		kind = "steer"
 	}
-	agentValue, err := s.store.LoadAgent(ctx, s.meta.ID, id)
+	agentValue, err := s.store.LoadAgent(ctx, s.id, id)
 	if err != nil {
 		return "", err
 	}
@@ -1782,7 +1768,7 @@ func (s *Session) clientAgentSubmitInput(ctx context.Context, id string, input S
 		kind += ".parts"
 		payload = sessionstore.RuntimePayload{Data: data, MediaType: "application/json", Source: "human child submission"}
 	}
-	item := sessionstore.InboxEnqueue{RootID: s.meta.ID, AgentID: id, Kind: kind, Payload: payload, Origin: "client"}
+	item := sessionstore.InboxEnqueue{RootID: s.id, AgentID: id, Kind: kind, Payload: payload, Origin: "client"}
 	if len(admissions) > 0 {
 		item.CommandClientID, item.CommandID = admissions[0].ClientID, admissions[0].CommandID
 	}
@@ -1812,7 +1798,7 @@ func (s *Session) clientBudget(ctx context.Context, id, kind string, limit int64
 		return "", errors.New("budget requires an agent, kind and nonnegative limit")
 	}
 
-	state, err := s.store.CapBudget(ctx, s.meta.ID, s.authority.AgentID, id, sessionstore.BudgetKind(kind), limit)
+	state, err := s.store.CapBudget(ctx, s.id, s.authority.AgentID, id, sessionstore.BudgetKind(kind), limit)
 	if err == nil {
 		// A raised cap can unblock queued descendants; re-derive readiness.
 		s.reconcileAgentWork()
@@ -1936,7 +1922,7 @@ func (s *Session) startPendingReload() {
 	s.reloadPending = false
 	s.clientBusy = true
 	s.clientPreparing = true
-	factory, rootID, model, provider := s.factory, s.meta.ID, s.meta.Model, s.meta.Provider
+	factory, rootID, model, provider := s.factory, s.id, s.model, s.provider
 	if !s.supervisor.launchWorker("prepare deferred reload", func() {
 		var replacement *clientReplacement
 		var err error

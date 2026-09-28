@@ -101,7 +101,7 @@ func TestTrustedClientPermissionDecisionsAreScopedAndIdempotent(t *testing.T) {
 			_, err = dispatcher.Dispatch(t.Context(), capability.Request{
 				RootID: rootID, AgentID: root.authority.AgentID, CapabilityID: root.authority.Files.ID,
 				CapabilityGeneration: root.authority.Files.Generation, OperationID: "pending-operation", Operation: "write",
-				Arguments: json.RawMessage(`{}`), TraceID: "trace", WorkingDirectory: root.meta.CWD,
+				Arguments: json.RawMessage(`{}`), TraceID: "trace", WorkingDirectory: root.WorkingDirectory(),
 			})
 			pending, ok := errors.AsType[*capability.PermissionPendingError](err)
 			if !ok {
@@ -150,7 +150,7 @@ func TestTrustedClientPermissionDecisionsAreScopedAndIdempotent(t *testing.T) {
 			if _, err := competing.DecidePermission(t.Context(), decision); err == nil {
 				t.Fatal("another client's command namespace reused a resolved permission")
 			}
-			if _, err := os.Stat(filepath.Join(root.meta.CWD, "approved.txt")); !os.IsNotExist(err) {
+			if _, err := os.Stat(filepath.Join(root.WorkingDirectory(), "approved.txt")); !os.IsNotExist(err) {
 				t.Fatalf("permission approval bypassed operation ownership: %v", err)
 			}
 		})
@@ -234,7 +234,7 @@ func TestRootSnapshotIsACompleteAuthoritativeClientView(t *testing.T) {
 	_, err = dispatcher.Dispatch(t.Context(), capability.Request{
 		RootID: rootID, AgentID: root.authority.AgentID, CapabilityID: root.authority.Files.ID,
 		CapabilityGeneration: root.authority.Files.Generation, OperationID: "snapshot-operation", Operation: "write",
-		Arguments: json.RawMessage(`{"secret":"` + secretArgument + `"}`), TraceID: "trace", WorkingDirectory: root.meta.CWD,
+		Arguments: json.RawMessage(`{"secret":"` + secretArgument + `"}`), TraceID: "trace", WorkingDirectory: root.WorkingDirectory(),
 	})
 	var pending *capability.PermissionPendingError
 	if !errors.As(err, &pending) {

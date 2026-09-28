@@ -880,7 +880,7 @@ func TestOpenBindsMCPProcesses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manager.processes != store.Processes() || manager.rootID != rootID || manager.cwd != root.meta.CWD {
+	if manager.processes != store.Processes() || manager.rootID != rootID || manager.cwd != root.WorkingDirectory() {
 		t.Fatalf("MCP process scope=%p %q %q", manager.processes, manager.rootID, manager.cwd)
 	}
 	if len(ag.AllTools()) != 0 {

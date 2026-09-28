@@ -98,7 +98,7 @@ func TestTitleAttachmentOnlyWaitsAcrossTurnAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := store.CommitRootTurn(t.Context(), RootTurnCommit{
-		RootID: root, AgentID: root, InboxSeq: first.Command.IngressSeq, Model: "model", Provider: "provider",
+		RootID: root, AgentID: root, InboxSeq: first.Command.IngressSeq,
 		Messages: []llm.Message{{Role: "user", Content: "expanded attachment text", Authored: true}, {Role: "assistant", Content: "done"}},
 	}); err != nil {
 		t.Fatal(err)
@@ -294,7 +294,7 @@ func TestTitleWaitsForQueuedTextAndSurvivesTurnFailure(t *testing.T) {
 				t.Fatal(err)
 			}
 			if err := store.CommitRootTurn(t.Context(), RootTurnCommit{
-				RootID: root, AgentID: agent, InboxSeq: first.Command.IngressSeq, Status: status, Model: "model", Provider: "provider",
+				RootID: root, AgentID: agent, InboxSeq: first.Command.IngressSeq, Status: status,
 				Messages: []llm.Message{{Role: "user", Content: "expanded text", Authored: true}},
 			}); err != nil {
 				t.Fatal(err)

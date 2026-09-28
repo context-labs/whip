@@ -171,7 +171,7 @@ func assertResumedWritePermission(t *testing.T, store *session.Store, root *Sess
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	path := filepath.Join(root.meta.CWD, "resumed.txt")
+	path := filepath.Join(root.WorkingDirectory(), "resumed.txt")
 	arguments, err := json.Marshal(map[string]string{"path": path, "content": "resumed write"})
 	if err != nil {
 		t.Fatal(err)

@@ -23,7 +23,7 @@ func transcriptCommit(t *testing.T, store *Store, rootID, agentID string, turn i
 		if err := store.StartRootTurn(t.Context(), rootID, agentID, item.InboxSeq); err != nil {
 			t.Fatal(err)
 		}
-		if err := store.CommitRootTurn(t.Context(), RootTurnCommit{RootID: rootID, AgentID: agentID, InboxSeq: item.InboxSeq, Messages: messages, Compactions: compactions, Model: "model", Provider: "provider"}); err != nil {
+		if err := store.CommitRootTurn(t.Context(), RootTurnCommit{RootID: rootID, AgentID: agentID, InboxSeq: item.InboxSeq, Messages: messages, Compactions: compactions}); err != nil {
 			t.Fatal(err)
 		}
 		return
@@ -318,7 +318,7 @@ func TestTranscriptRawCutoffUsesSequenceAndCompactionFailureIsAtomic(t *testing.
 		t.Fatal(err)
 	}
 	cutoff := 3
-	commit := RootTurnCommit{RootID: rootID, AgentID: rootAgentID, InboxSeq: item.InboxSeq, Messages: []llm.Message{{Role: "user", Content: "four"}}, Compactions: []RootCompaction{{Summary: "one and three", RawCutoff: &cutoff}}, Model: "model", Provider: "provider"}
+	commit := RootTurnCommit{RootID: rootID, AgentID: rootAgentID, InboxSeq: item.InboxSeq, Messages: []llm.Message{{Role: "user", Content: "four"}}, Compactions: []RootCompaction{{Summary: "one and three", RawCutoff: &cutoff}}}
 	commitFailure := errors.New("injected after all transcript writes")
 	if err := store.commitRootTurn(t.Context(), commit, func() error { return commitFailure }); !errors.Is(err, commitFailure) {
 		t.Fatalf("injected failure = %v", err)

@@ -85,7 +85,10 @@ type CreateSession struct {
 	CWD                string              `json:"cwd"`
 	Model              string              `json:"model"`
 	Provider           string              `json:"provider"`
-	PermissionMode     string              `json:"permission_mode,omitempty"`
+	// Effort is "off" or a catalog level. Blank asks the daemon to resolve the
+	// definition's default, else the configured default, against the model.
+	Effort         string `json:"effort,omitempty"`
+	PermissionMode string `json:"permission_mode,omitempty"`
 }
 
 func (c *Control) CreateSession(ctx context.Context, admission session.CommandAdmission, create CreateSession) (record session.CommandRecord, err error) {
@@ -104,7 +107,7 @@ func (c *Control) CreateSession(ctx context.Context, admission session.CommandAd
 		}
 		create, err = resolveSessionDefaults(actorCtx, c.store, create)
 		if err == nil {
-			record, err = c.store.CreateSessionForCommandWithDefinition(actorCtx, admission.ClientID, admission.CommandID, create.Kind, create.CWD, create.Model, create.Provider, create.PermissionMode, create.ExecutionEngine, create.Definition, create.DefinitionRevision)
+			record, err = c.store.CreateSessionForCommandWithDefinition(actorCtx, admission.ClientID, admission.CommandID, create.Kind, create.CWD, create.Model, create.Provider, create.Effort, create.PermissionMode, create.ExecutionEngine, create.Definition, create.DefinitionRevision)
 		}
 		if err != nil {
 			_, finishErr := c.store.FinishCommand(actorCtx, admission.ClientID, admission.CommandID, "failed", session.RuntimePayload{Data: encodeCommandOutcome("session.create", "", err), MediaType: "application/json"})
@@ -415,7 +418,8 @@ func sessionDefaults(create CreateSession, definition agentdef.Definition) (Crea
 	}
 	needRoute := create.Kind == session.SessionKindAgent && (create.Model == "" || create.Provider == "")
 	needPermissionMode := create.Kind == session.SessionKindAgent && create.PermissionMode == ""
-	if !needRoute && !needPermissionMode && create.ExecutionEngine != "" {
+	needEffort := create.Kind == session.SessionKindAgent
+	if !needRoute && !needPermissionMode && !needEffort && create.ExecutionEngine != "" {
 		return create, nil
 	}
 	cfg, _, err := config.ReadVersioned()
@@ -431,16 +435,43 @@ func sessionDefaults(create CreateSession, definition agentdef.Definition) (Crea
 	if create.ExecutionEngine != "starlark" && create.ExecutionEngine != "quickjs" {
 		return create, fmt.Errorf("unknown default execution engine %q", create.ExecutionEngine)
 	}
-	if !needRoute {
-		return create, nil
+	if needRoute {
+		provider, _, _, _, err := cfg.ResolveRoute(create.Model, create.Provider)
+		if err != nil {
+			return create, err
+		}
+		if create.Model == "" {
+			create.Model = cfg.DefaultModel
+		}
+		create.Provider = provider
 	}
-	provider, _, _, _, err := cfg.ResolveRoute(create.Model, create.Provider)
-	if err != nil {
-		return create, err
+	if needEffort {
+		if create.Effort != "" {
+			if err := validateConfiguredEffort(cfg, create.Model, create.Provider, create.Effort); err != nil {
+				return create, err
+			}
+		}
+		create.Effort = resolveEffort(cfg, create.Model, create.Provider, create.Effort, definition.Model.Effort)
 	}
-	if create.Model == "" {
-		create.Model = cfg.DefaultModel
-	}
-	create.Provider = provider
 	return create, nil
+}
+
+// resolveEffort turns a requested or inherited effort into the concrete value
+// a session stores: the explicit request, else the definition's default, else
+// the configured default, resolved against the model's catalog entry so a new
+// session never opens on a level its provider rejects. The result is "off" or
+// a level; blank is never stored.
+func resolveEffort(cfg *config.Config, model, provider, requested, definitionDefault string) string {
+	pinned := requested
+	if pinned == "" {
+		pinned = definitionDefault
+	}
+	if pinned == "" {
+		pinned = cfg.DefaultEffort
+	}
+	catalogProvider, modelID := provider, model
+	if resolved, _, _, apiID, err := cfg.ResolveRoute(model, provider); err == nil {
+		catalogProvider, modelID = resolved, apiID
+	}
+	return config.ResolveEffort(config.LoadCatalogs(), catalogProvider, modelID, pinned)
 }

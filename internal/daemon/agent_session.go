@@ -626,12 +626,12 @@ func (session *AgentSession) bind(root *Session) error {
 		return value.ReferenceID, nil
 	})
 	if root.executors != nil {
-		session.agent.Services.SetCustomTools(root.definition.ID, root.meta.DefinitionRevision, customTools(root.definition), root.executors)
+		session.agent.Services.SetCustomTools(root.definition.ID, root.definitionRevision, customTools(root.definition), root.executors)
 	}
 	if err := session.agent.Services.BindDispatcher(root.store, root.store.Workspaces(), root.store.Processes(), root.authority); err != nil {
 		return err
 	}
-	session.agent.SetSessionID(root.meta.ID)
+	session.agent.SetSessionID(root.id)
 	session.bindPresentation(root)
 	return nil
 }
