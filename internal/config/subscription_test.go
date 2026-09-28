@@ -40,7 +40,7 @@ func TestSubscriptionHostUsesNoConfigurableCredentialOrEndpoint(t *testing.T) {
 	}
 	p := Provider{Kind: "openai-codex", CredentialEnv: "TOKEN"}
 	lookups := 0
-	if _, err := p.Credential(func(string) (string, bool) { lookups++; return "private", true }); !errors.Is(err, session.ErrInvalid) || lookups != 0 {
+	if _, err := p.Credential(t.Context(), func(string) (string, bool) { lookups++; return "private", true }); !errors.Is(err, session.ErrInvalid) || lookups != 0 {
 		t.Fatalf("subscription consulted API credential: %v lookups=%d", err, lookups)
 	}
 }

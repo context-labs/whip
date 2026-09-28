@@ -44,7 +44,7 @@ func TestManagedInferenceRequiresExplicitExactGateway(t *testing.T) {
 				t.Fatalf("unsafe managed route accepted: %v", err)
 			}
 			lookups := 0
-			credential, err := provider.Credential(func(string) (string, bool) { lookups++; return "private-env", true })
+			credential, err := provider.Credential(t.Context(), func(string) (string, bool) { lookups++; return "private-env", true })
 			if test.source != "" && (lookups != 0 || credential != "" || test.valid != (err == nil)) {
 				t.Fatalf("managed source consulted an environment credential: lookups=%d err=%v", lookups, err)
 			}

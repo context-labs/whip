@@ -2567,3 +2567,35 @@ The v4 process fixture passed26.418s, retained fixture2.866s and daemon
 regressions2.771s. `task check:analysis` passed with zero lint findings and no
 reachable vulnerabilities. Logs are `/tmp/whip-managed-credentials-{phase,analysis}.log`.
 Hosted checks remain pending. No installed runtime was changed.
+
+
+## Explicit API credential sources
+
+Managed Inference.net binding is published in draft
+[PR238](https://github.com/context-labs/whip/pull/238) at `f1382213c`, stacked on
+history [PR237](https://github.com/context-labs/whip/pull/237). Both remain unmerged.
+The next increment integrates clean leaf `81d22f963` as `d153095b1` and advances
+fresh configuration to version11, with schema32/protocol major4 unchanged.
+
+Generic API routes now resolve an explicit environment, canonical private file,
+bounded command or no-auth source. The existing environment/no-auth shorthand is
+preserved without introducing implicit discovery. Source validation rejects
+ambiguous declarations, API credentials on subscription routes, and managed
+Inference.net credentials at another gateway. File reads anchor every path
+component; commands use a ten-second limit, 64 KiB combined output, explicit
+inherited environment names and joined process-group cleanup. Both adapters
+capture credentials once at preparation across retries and rotation/deletion.
+
+The isolated leaf passed unit checks config3.028s/model1.786s/command2.079s,
+focused races config3.712s/command1.551s, vet, pinned lint and diff checks. Tests
+cover cancellation, deadline, surviving descendant pipes, environment isolation,
+private files, safe errors and frozen request evidence. Integrated phase and
+analysis gates passed: store race155.454s, runtime169.207s, process115.860s,
+config4.984s, command7.125s, model10.424s, RPC18.262s and other package races,
+generated contracts and SDK checks. The v4 process fixture passed25.333s,
+retained fixture2.620s and daemon regressions2.743s. Analysis found zero lint
+issues and no reachable vulnerabilities. Logs are
+`/tmp/whip-credential-sources-{phase,analysis}.log`. Hosted validation is pending.
+Pasted/named-key publication, catalogs, readiness,
+route/default setup and product controls remain open; no real credentials or
+installed runtime were changed.

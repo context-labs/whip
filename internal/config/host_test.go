@@ -61,7 +61,7 @@ func TestCredentialsRemainHostReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	credential, err := read.Providers["test"].Credential(func(name string) (string, bool) {
+	credential, err := read.Providers["test"].Credential(t.Context(), func(name string) (string, bool) {
 		if name != "WHIP_TEST_KEY" {
 			t.Fatal(name)
 		}
@@ -77,7 +77,7 @@ func TestCredentialsRemainHostReferences(t *testing.T) {
 	if strings.Contains(string(raw), "secret-for-test") {
 		t.Fatal("resolved credential persisted")
 	}
-	if _, err := read.Providers["test"].Credential(func(string) (string, bool) { return "", false }); err == nil {
+	if _, err := read.Providers["test"].Credential(t.Context(), func(string) (string, bool) { return "", false }); err == nil {
 		t.Fatal("unset credential accepted")
 	}
 	again, err := Initialize(directory)
