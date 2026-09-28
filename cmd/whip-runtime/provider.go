@@ -40,7 +40,7 @@ func configuredProvider(directory string, auth model.SubscriptionAuth, inference
 		if err != nil {
 			return model.Route{}, err
 		}
-		credential, err := provider.Credential(os.LookupEnv)
+		credential, err := provider.Credential(ctx, os.LookupEnv)
 		if err != nil {
 			return model.Route{}, err
 		}
