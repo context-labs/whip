@@ -54,6 +54,8 @@ func Fixtures() ([]Fixture, error) {
 		name  string
 		value any
 	}{
+		{"SessionObservation", SessionObservation{Epoch: "boot_fixture", Messages: []Message{message}, Preview: &MessagePreview{AttemptID: "attempt_live", TurnID: "turn_fixture", MessageID: "message_live", Revision: 9007199254740993, Text: "In progress", Calls: []CallPreview{{Index: 0, ID: "call_partial", Name: "execute", Arguments: `{"code":"print(`}}}}},
+		{"SessionObservation", SessionObservation{Epoch: "boot_restarted", Messages: []Message{}, Preview: nil}},
 		{"Grant", GrantFromDomain(session.Grant{ID: "grant_fixture", SessionID: "session_child", Capability: "files.read", Resource: "/workspace", CreatedAt: created})},
 		{"HostOperation", OperationFromDomain(session.Operation{ID: "operation_fixture", CellID: "cell_fixture", RequestID: "1:1", Capability: "files.read", Resource: "/workspace", Arguments: json.RawMessage(`{"path":"example.txt","offset":1,"limit":2000}`), SessionID: "session_child", TurnID: "turn_fixture", State: session.OperationSucceeded, GrantID: new(session.GrantID("grant_fixture")), Result: &session.OperationResult{State: session.OperationSucceeded, Value: json.RawMessage(`{"output":"1: hello"}`)}, CreatedAt: created, DispatchedAt: &created, FinishedAt: &created})},
 		{"Permission", PermissionFromDomain(session.Permission{OperationID: "operation_fixture", State: session.PermissionApproved, CreatedAt: created, ResolvedAt: &created})},

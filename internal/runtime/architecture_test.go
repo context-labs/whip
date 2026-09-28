@@ -21,7 +21,7 @@ func TestExecutionAndClientImportBoundaries(t *testing.T) {
 	allowed := map[string]map[string]bool{
 		"model": {"session": true}, "runner": {"session": true, "model": true},
 		"tool":    {"session": true, "capability": true},
-		"runtime": {"session": true, "store": true, "config": true, "content": true, "runner": true, "engine/process": true, "tool": true},
+		"runtime": {"model": true, "session": true, "store": true, "config": true, "content": true, "runner": true, "engine/process": true, "tool": true},
 		"rpc":     {"session": true, "store": true, "protocol": true, "runtime": true},
 		"client":  {"protocol": true},
 	}

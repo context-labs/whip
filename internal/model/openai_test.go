@@ -62,7 +62,7 @@ func TestPreparedChatFreezesWireBodyAndAccountingEvidence(t *testing.T) {
 	}
 	request.Messages[0].Parts[0].Text = "changed after preparation"
 	price = 999
-	response, err := prepared.Execute(t.Context())
+	response, err := prepared.Execute(t.Context(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestChatFailuresDoNotLeakBodiesOrRetryInsideAdapter(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			response, err := prepared.Execute(t.Context())
+			response, err := prepared.Execute(t.Context(), nil)
 			failure, ok := errors.AsType[*CallError](err)
 			if !ok || failure.Retryable != tc.retryable || failure.Uncertain != tc.uncertain || calls.Load() != 1 {
 				t.Fatalf("response=%+v error=%+v calls=%d", response, err, calls.Load())
@@ -149,7 +149,7 @@ func TestChatRedirectDoesNotChangeRouteOrForwardCredential(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = prepared.Execute(t.Context())
+	_, err = prepared.Execute(t.Context(), nil)
 	failure, ok := errors.AsType[*CallError](err)
 	if !ok || failure.StatusCode != http.StatusTemporaryRedirect || failure.Retryable || redirected.Load() != 0 {
 		t.Fatalf("redirect: %v calls=%d", err, redirected.Load())
@@ -172,7 +172,7 @@ func TestChatCancellationReleasesTheRequest(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { _, err := prepared.Execute(ctx); done <- err }()
+	go func() { _, err := prepared.Execute(ctx, nil); done <- err }()
 	select {
 	case <-entered:
 	case <-time.After(2 * time.Second):

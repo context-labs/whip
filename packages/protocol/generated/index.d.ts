@@ -363,11 +363,17 @@ export interface HistoryResult {
     | null
     | (
         | {
+            id: string;
+            session_id: string;
+            turn_id: string;
+            input_id: null | string;
+            sequence: string;
+            role: "user";
             /**
              * @minItems 1
              * @maxItems 128
              */
-            parts?: [
+            parts: [
               (
                 | {
                     text: string;
@@ -389,15 +395,20 @@ export interface HistoryResult {
                   }
               )[]
             ];
-            role?: "user";
-            [k: string]: unknown;
+            created_at: string;
           }
         | {
+            id: string;
+            session_id: string;
+            turn_id: string;
+            input_id: null | string;
+            sequence: string;
+            role: "system";
             /**
              * @minItems 1
              * @maxItems 128
              */
-            parts?: [
+            parts: [
               (
                 | {
                     text: string;
@@ -419,15 +430,20 @@ export interface HistoryResult {
                   }
               )[]
             ];
-            role?: "system";
-            [k: string]: unknown;
+            created_at: string;
           }
         | {
+            id: string;
+            session_id: string;
+            turn_id: string;
+            input_id: null | string;
+            sequence: string;
+            role: "assistant";
             /**
              * @minItems 1
              * @maxItems 128
              */
-            parts?: [
+            parts: [
               (
                 | {
                     text: string;
@@ -469,15 +485,20 @@ export interface HistoryResult {
                   }
               )[]
             ];
-            role?: "assistant";
-            [k: string]: unknown;
+            created_at: string;
           }
         | {
+            id: string;
+            session_id: string;
+            turn_id: string;
+            input_id: null | string;
+            sequence: string;
+            role: "tool";
             /**
              * @minItems 1
              * @maxItems 1
              */
-            parts?: [
+            parts: [
               {
                 result: {
                   call_id: string;
@@ -487,8 +508,7 @@ export interface HistoryResult {
                 type: "tool_result";
               }
             ];
-            role?: "tool";
-            [k: string]: unknown;
+            created_at: string;
           }
       )[];
 }
@@ -655,6 +675,155 @@ export interface ListSessionsResult {
         created_at: string;
       }[];
 }
+export type Message =
+  | {
+      id: string;
+      session_id: string;
+      turn_id: string;
+      input_id: null | string;
+      sequence: string;
+      role: "user";
+      /**
+       * @minItems 1
+       * @maxItems 128
+       */
+      parts: [
+        (
+          | {
+              text: string;
+              type: "text";
+            }
+          | {
+              reference_id: string;
+              type: "content";
+            }
+        ),
+        ...(
+          | {
+              text: string;
+              type: "text";
+            }
+          | {
+              reference_id: string;
+              type: "content";
+            }
+        )[]
+      ];
+      created_at: string;
+    }
+  | {
+      id: string;
+      session_id: string;
+      turn_id: string;
+      input_id: null | string;
+      sequence: string;
+      role: "system";
+      /**
+       * @minItems 1
+       * @maxItems 128
+       */
+      parts: [
+        (
+          | {
+              text: string;
+              type: "text";
+            }
+          | {
+              reference_id: string;
+              type: "content";
+            }
+        ),
+        ...(
+          | {
+              text: string;
+              type: "text";
+            }
+          | {
+              reference_id: string;
+              type: "content";
+            }
+        )[]
+      ];
+      created_at: string;
+    }
+  | {
+      id: string;
+      session_id: string;
+      turn_id: string;
+      input_id: null | string;
+      sequence: string;
+      role: "assistant";
+      /**
+       * @minItems 1
+       * @maxItems 128
+       */
+      parts: [
+        (
+          | {
+              text: string;
+              type: "text";
+            }
+          | {
+              reference_id: string;
+              type: "content";
+            }
+          | {
+              call: {
+                arguments: {
+                  [k: string]: unknown;
+                };
+                id: string;
+                name: string;
+              };
+              type: "tool_call";
+            }
+        ),
+        ...(
+          | {
+              text: string;
+              type: "text";
+            }
+          | {
+              reference_id: string;
+              type: "content";
+            }
+          | {
+              call: {
+                arguments: {
+                  [k: string]: unknown;
+                };
+                id: string;
+                name: string;
+              };
+              type: "tool_call";
+            }
+        )[]
+      ];
+      created_at: string;
+    }
+  | {
+      id: string;
+      session_id: string;
+      turn_id: string;
+      input_id: null | string;
+      sequence: string;
+      role: "tool";
+      /**
+       * @minItems 1
+       * @maxItems 1
+       */
+      parts: [
+        {
+          result: {
+            call_id: string;
+            is_error: boolean;
+            output: string;
+          };
+          type: "tool_result";
+        }
+      ];
+      created_at: string;
+    };
 export interface ModelAttemptsParams {
   turn_id: string;
   after?: null | string;
@@ -868,6 +1037,177 @@ export interface Session {
   lifecycle: "active" | "stopped";
   created_at: string;
 }
+export interface SessionObservation {
+  epoch: string;
+  messages:
+    | null
+    | (
+        | {
+            id: string;
+            session_id: string;
+            turn_id: string;
+            input_id: null | string;
+            sequence: string;
+            role: "user";
+            /**
+             * @minItems 1
+             * @maxItems 128
+             */
+            parts: [
+              (
+                | {
+                    text: string;
+                    type: "text";
+                  }
+                | {
+                    reference_id: string;
+                    type: "content";
+                  }
+              ),
+              ...(
+                | {
+                    text: string;
+                    type: "text";
+                  }
+                | {
+                    reference_id: string;
+                    type: "content";
+                  }
+              )[]
+            ];
+            created_at: string;
+          }
+        | {
+            id: string;
+            session_id: string;
+            turn_id: string;
+            input_id: null | string;
+            sequence: string;
+            role: "system";
+            /**
+             * @minItems 1
+             * @maxItems 128
+             */
+            parts: [
+              (
+                | {
+                    text: string;
+                    type: "text";
+                  }
+                | {
+                    reference_id: string;
+                    type: "content";
+                  }
+              ),
+              ...(
+                | {
+                    text: string;
+                    type: "text";
+                  }
+                | {
+                    reference_id: string;
+                    type: "content";
+                  }
+              )[]
+            ];
+            created_at: string;
+          }
+        | {
+            id: string;
+            session_id: string;
+            turn_id: string;
+            input_id: null | string;
+            sequence: string;
+            role: "assistant";
+            /**
+             * @minItems 1
+             * @maxItems 128
+             */
+            parts: [
+              (
+                | {
+                    text: string;
+                    type: "text";
+                  }
+                | {
+                    reference_id: string;
+                    type: "content";
+                  }
+                | {
+                    call: {
+                      arguments: {
+                        [k: string]: unknown;
+                      };
+                      id: string;
+                      name: string;
+                    };
+                    type: "tool_call";
+                  }
+              ),
+              ...(
+                | {
+                    text: string;
+                    type: "text";
+                  }
+                | {
+                    reference_id: string;
+                    type: "content";
+                  }
+                | {
+                    call: {
+                      arguments: {
+                        [k: string]: unknown;
+                      };
+                      id: string;
+                      name: string;
+                    };
+                    type: "tool_call";
+                  }
+              )[]
+            ];
+            created_at: string;
+          }
+        | {
+            id: string;
+            session_id: string;
+            turn_id: string;
+            input_id: null | string;
+            sequence: string;
+            role: "tool";
+            /**
+             * @minItems 1
+             * @maxItems 1
+             */
+            parts: [
+              {
+                result: {
+                  call_id: string;
+                  is_error: boolean;
+                  output: string;
+                };
+                type: "tool_result";
+              }
+            ];
+            created_at: string;
+          }
+      )[];
+  preview: null | {
+    attempt_id: string;
+    turn_id: string;
+    message_id: string;
+    revision: string;
+    text: string;
+    calls:
+      | null
+      | {
+          index: number;
+          id: string;
+          name: string;
+          arguments: string;
+        }[];
+    truncated: boolean;
+  };
+}
 export interface SessionParams {
   session_id: string;
 }
@@ -1071,6 +1411,7 @@ export interface ContractTypes {
   LifecycleParams: LifecycleParams;
   ListSessionsParams: ListSessionsParams;
   ListSessionsResult: ListSessionsResult;
+  Message: Message;
   ModelAttemptsParams: ModelAttemptsParams;
   ModelAttemptsResult: ModelAttemptsResult;
   Part: Part;
@@ -1086,6 +1427,7 @@ export interface ContractTypes {
   ResolvePermissionParams: ResolvePermissionParams;
   Response: Response;
   Session: Session;
+  SessionObservation: SessionObservation;
   SessionParams: SessionParams;
   SpawnSessionParams: SpawnSessionParams;
   SubmitParams: SubmitParams;
@@ -1099,6 +1441,7 @@ export interface ContractTypes {
   UpdateTreeParams: UpdateTreeParams;
 }
 export interface Operations {
+  "sessions.observe": { params: HistoryParams; result: SessionObservation };
   "cells.get": { params: CellParams; result: Cell };
   "turns.cells": { params: CellsParams; result: CellsResult };
   "grants.create": { params: CreateGrantParams; result: Grant };

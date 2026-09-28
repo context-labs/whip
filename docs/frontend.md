@@ -92,8 +92,11 @@ During the backend redesign, the retained product clients use
 `@whip/legacy-sdk` and `@whip/legacy-protocol`. The new `@whip/sdk` now talks
 directly to `@whip/protocol` v4 over its Node transport. Its main entry point is
 transport-independent and validates generated request/response types. It keeps
-only connection identity, reading durable receipts and bounded transcript pages
-from Go. An aborted wait does not cancel execution. See [its example and recovery
+connection identity; its observation iterator retains only a history cursor and
+preview revision while reading bounded pages from Go. Provisional provider text
+is separate from committed messages: replace it by the matching message ID, and
+clear it on a null preview or changed process epoch. The iterator keeps no second
+transcript authority. An aborted wait or observation does not cancel execution. See [its example and recovery
 contract](../packages/sdk/README.md) and [the backend domain contract](backend-domain.md).
 Product clients continue to use the explicitly retained packages until their
 cutover. The package map below describes those retained clients.

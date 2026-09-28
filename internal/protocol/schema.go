@@ -20,6 +20,7 @@ type Operation struct {
 
 func Operations() []Operation {
 	return []Operation{
+		{"sessions.observe", reflect.TypeFor[HistoryParams](), reflect.TypeFor[SessionObservation]()},
 		{"cells.get", reflect.TypeFor[CellParams](), reflect.TypeFor[Cell]()},
 		{"turns.cells", reflect.TypeFor[CellsParams](), reflect.TypeFor[CellsResult]()},
 		{"grants.create", reflect.TypeFor[CreateGrantParams](), reflect.TypeFor[Grant]()},
@@ -59,6 +60,7 @@ func Types() map[string]reflect.Type {
 	result["Request"] = reflect.TypeFor[Request]()
 	result["Response"] = reflect.TypeFor[Response]()
 	result["Part"] = reflect.TypeFor[Part]()
+	result["Message"] = reflect.TypeFor[Message]()
 	result["ToolCall"] = reflect.TypeFor[ToolCall]()
 	result["ToolResult"] = reflect.TypeFor[ToolResult]()
 	for _, op := range Operations() {
@@ -133,6 +135,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 			schema.Properties["parts"].Items = partSchema("text", "content")
 		}
 		if t == reflect.TypeFor[Message]() {
+			var variants []*jsonschema.Schema
 			for _, role := range []string{"user", "system", "assistant", "tool"} {
 				items := partSchema("text", "content")
 				maxItems := 128
@@ -142,11 +145,14 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 				case "tool":
 					items, maxItems = partSchema("tool_result"), 1
 				}
-				schema.OneOf = append(schema.OneOf, &jsonschema.Schema{Properties: map[string]*jsonschema.Schema{
-					"role":  {Enum: []any{role}},
-					"parts": {Type: "array", MinItems: new(1), MaxItems: &maxItems, Items: items},
-				}})
+				// Keep common required fields in each variant. Conditional-only
+				// branches validate in JSON Schema but lose those fields in TS unions.
+				variant := schema.CloneSchemas()
+				variant.Properties["role"] = &jsonschema.Schema{Type: "string", Enum: []any{role}}
+				variant.Properties["parts"] = &jsonschema.Schema{Type: "array", MinItems: new(1), MaxItems: &maxItems, Items: items}
+				variants = append(variants, variant)
 			}
+			*schema = jsonschema.Schema{OneOf: variants}
 		}
 	case reflect.Slice:
 		if t != reflect.TypeFor[json.RawMessage]() && schema.Type == "array" {

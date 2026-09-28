@@ -43,6 +43,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 		return nil, ErrMethod
 	}
 	switch method {
+	case "sessions.observe":
+		return dispatchObservation(ctx, r, raw)
 	case "grants.create", "grants.list", "grants.revoke", "operations.get", "turns.operations", "permissions.list", "permissions.resolve", "cells.get", "turns.cells":
 		return dispatchOperation(ctx, r, method, raw)
 	case "content.put":

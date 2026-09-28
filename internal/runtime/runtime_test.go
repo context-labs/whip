@@ -20,7 +20,7 @@ type providerFunc func(context.Context, model.Request) (model.Response, error)
 
 func (f providerFunc) Prepare(ctx context.Context, request model.Request) (model.Prepared, error) {
 	prepared, err := (model.Scripted{}).Prepare(ctx, request)
-	prepared.Execute = func(ctx context.Context) (model.Response, error) { return f(ctx, request) }
+	prepared.Execute = func(ctx context.Context, _ func(model.Chunk)) (model.Response, error) { return f(ctx, request) }
 	return prepared, err
 }
 

@@ -31,6 +31,7 @@ separate legacy runtime and SDK until their client cutover.
 | Session access and declared media type | Immutable content-reference row |
 | Content bytes | Durable immutable blob file, verified when read |
 | Provider endpoint and credential reference | Explicit host configuration file |
+| Incomplete provider text and tool-call previews | Bounded runtime memory; never transcript rows |
 | Resolved credential, worker, interpreter, process or client | Execution memory; never session rows |
 
 Root and child sessions have the same records and store methods. Root lookup is
@@ -86,8 +87,8 @@ overrides. Working directories are absolute and fixed for a session's lifetime.
    Tool calls are assistant parts; tool results reference their call ID and
    occupy their own tool message. Input cannot inject either. Another assistant
    message cannot pass unanswered calls. Root and child use the same table.
-   Provider responses currently arrive as completed messages; provisional stream
-   delivery is still being ported.
+   Provider deltas are disposable previews keyed to the eventual message ID.
+   Only validated completed responses become transcript messages.
 4. **Finish:** optional completed messages and the terminal turn outcome commit
    together. Input and receipt observations join the turn rather than copying
    terminal states. A failed persistence attempt can retry this transaction; it
@@ -236,7 +237,8 @@ The SDK and Go client initially observe by polling receipts and reading bounded
 history pages. They keep no event log or duplicate transcript authority. Stable
 request identities recover lost acknowledgements; ambiguous transport failures
 do not imply rejection. Explicit input/turn cancellation is separate from local
-wait cancellation. Streaming and product-facing synchronized views come later.
+wait cancellation. Bounded preview observation is described below; product-facing
+synchronized views are part of the later client cutover.
 
 
 ## Code execution and checkpoint boundary
@@ -326,3 +328,38 @@ operations per turn. Lists use bounded 100-item/4 MiB pages.
 The SDK exposes `grants.create/list/revoke`, `permissions.list/resolve`,
 `operations.get`, `turns.operations`, `cells.get` and `turns.cells`. These views
 query durable records; they do not introduce another authority cache.
+
+
+## Provisional output and observation
+
+The provider owns response assembly; the runner owns dispatch and commit. A
+synchronous chunk callback publishes text and incomplete tool arguments into a
+runtime-owned preview for the active attempt. The runtime retains at most 64
+previews of 128 KiB each, uses UTF-8-safe truncation, and exposes truncation
+explicitly. It retains no completed preview cache or replay log. Preview callbacks
+cannot start effects, veto execution or inherit an observing client's lifetime.
+
+OpenAI-compatible requests ask for SSE and usage. The adapter also accepts bounded
+JSON responses. Streaming requires both a valid completion reason and the final
+transport marker; malformed, truncated or cancelled streams return no executable
+parts and are recorded as uncertain. Known usage/cost received before failure
+remains evidence. Each retry has its own attempt and preview identity. The prepared
+wire body, route and price snapshot remain frozen across retries.
+
+`sessions.observe` returns bounded committed history after a decimal cursor, a
+nullable preview and a fresh process epoch. A preview identifies its turn,
+attempt and eventual committed message, with its own revision. It is not a
+message and may contain incomplete JSON arguments. The runtime snapshots it before
+reading attempt/history state, suppressing it when its committed message is
+visible. SQL settlement retries keep the preview alive without redispatching.
+Success replaces it by the committed message ID; failure discards it without
+inventing an assistant message. Restart changes the epoch and drops all previews
+while the ordinary durable attempt/turn recovery records uncertainty.
+
+The SDK's `observe` async iterator drains history pages, then polls live state at
+100 ms. It retains only the exact history cursor and last preview revision. A
+slow or disconnected observer cannot block the provider or cancel accepted work.
+Consumers upsert completed messages by ID, replace matching previews, and clear
+a preview on null or epoch change. Polling reads current state, so losing a
+notification cannot leave a durable history gap. Aborting observation stops only
+the observer; execution cancellation remains an explicit operation.

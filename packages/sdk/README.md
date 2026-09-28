@@ -51,8 +51,7 @@ For configured HTTP providers, omit `-scripted` and use the host configuration
 described in [the development guide](../../docs/backend-redesign-development.md#openai-compatible-dispatch-increment).
 
 See [the runnable example](examples/session.mjs), [Go client](../../internal/client/client.go),
-and [real process acceptance](../../scripts/redesign/v4-fixture.test.mjs). Provisional
-streaming and product-client adoption remain in progress.
+and [real process acceptance](../../scripts/redesign/v4-fixture.test.mjs). Product-client adoption remains in progress.
 
 
 The v4 transcript now includes assistant `tool_call` parts with a stable call ID,
@@ -78,3 +77,13 @@ A completed write may coexist with an uncertain cell and no usable checkpoint.
 Restart cancels pending permissions and never repeats completed/uncertain effects.
 Do not interpret an interrupted turn or a failed connection as proof that a write
 did not happen. Permission approval after cancellation returns `CONFLICT`.
+
+
+`client.observe(sessionID, {after?: '0', signal?})` yields bounded committed pages
+and a disposable preview. The underlying `sessions.observe` result contains
+`messages`, nullable `preview`, and the current process `epoch`. Each preview has
+an attempt ID, eventual `message_id`, revision, text, incomplete call fragments,
+and a truncation flag. Never execute preview arguments. Upsert committed messages
+by ID; a matching committed ID replaces the preview. Clear provisional display
+when the preview is null or the epoch changes. Aborting this iterator stops
+observation only. It retains a cursor, not a transcript cache.

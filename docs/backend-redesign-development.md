@@ -548,3 +548,49 @@ This is preceding-revision evidence, not hosted validation of the operation slic
 Review also found a transient operation-read failure could strand an admitted
 permission; the dispatcher now cancels that waiter, and a fault-injection test
 proves cell and turn settlement can proceed without an effect.
+
+
+### Provisional observation increment
+
+The OpenAI-compatible adapter now requests bounded SSE with usage and supports
+validated JSON fallback. Provider assembly is separate from a capped runtime
+preview; only a complete validated response enters durable history. The runner
+keeps previews through SQL settlement retries. `sessions.observe` and the SDK's
+async iterator reconcile previews by eventual message identity and process epoch.
+See the [observation contract](backend-domain.md#provisional-output-and-observation).
+Generated message unions now carry their shared required fields in every variant,
+fixing TypeScript's loss of typed IDs/cursors without maintaining separate types.
+
+Model tests cover framed/fragmented streams, complete markers, usage snapshots,
+known accounting on later failure, cancellation, limits and JSON fallback. Runtime
+race tests cover committed replacement, cursor advancement, isolation, stale
+callbacks, UTF-8 bounds, observer cancellation, failed/restarted streams and actual
+SQL rollback with preview retention. The race-enabled command/socket/SDK fixture
+observes partial output, verifies exactly one committed replacement, sends SIGKILL
+during another stream and verifies epoch change/uncertain attempt/no partial
+message, and exercises both observer abort and explicit turn cancellation.
+
+A direct streaming smoke passed at **2026-09-28 04:13:39 UTC** through OpenRouter
+`openai/gpt-4.1-mini` and Starlark: four preview snapshots, one successful cell,
+answer `42`, and two succeeded attempts with 269/28 and 349/3 input/output tokens.
+Provider-reported costs were 152400 and 144400 nano-USD. Evidence is saved locally
+at `/tmp/whip-redesign-stream-live-evidence.json`; the successful runtime was removed.
+The first streaming smoke detected OpenRouter's additional content-free choice in
+its usage footer. That failed attempt preserved usage/cost as uncertain and ran
+no code. A fresh ledger-recorded diagnostic through a local relay captured the
+shape; a focused regression now accepts that
+[documented accounting footer](https://openrouter.ai/docs/api_reference/streaming#the-final-usage-chunk-chat-completions),
+while rejecting new post-completion content and still requiring `[DONE]`.
+Failure evidence remains in `/tmp/whip-redesign-stream-live-failure.json` and
+`/tmp/whip-redesign-stream-capture-evidence.json`; captured response data is in
+`/tmp/whip-stream-capture.sse`. No credential headers were captured.
+
+Hosted operation revision `852ee6570` failed both platforms only when the test's
+independent SQL connection tried to drop its injected trigger while settlement
+held the database lock. Revision `ed7fba842` gives that test connection a bounded
+SQLite busy timeout. Twenty-five targeted race repetitions pass; production
+transaction semantics are unchanged. The complete preview increment passes
+`task check:phase` and `task check:analysis`: isolated-process stress/race tests,
+active core checks, SDK fixtures, generated Go/TypeScript interchange, retained
+regressions, zero lint issues and no reachable vulnerabilities. Final hosted
+validation remains pending.

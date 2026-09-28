@@ -5,6 +5,11 @@ export const manifest = {
   "minor": 0,
   "operations": [
     {
+      "name": "sessions.observe",
+      "params": "HistoryParams",
+      "result": "SessionObservation"
+    },
+    {
       "name": "cells.get",
       "params": "CellParams",
       "result": "Cell"

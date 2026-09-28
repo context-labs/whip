@@ -1,7 +1,11 @@
 {
   "type": "object",
   "properties": {
-    "items": {
+    "epoch": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "messages": {
       "type": [
         "null",
         "array"
@@ -438,13 +442,88 @@
           }
         ]
       }
+    },
+    "preview": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "attempt_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "turn_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "message_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "revision": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "text": {
+          "type": "string"
+        },
+        "calls": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "object",
+            "properties": {
+              "index": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 15
+              },
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "arguments": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "index",
+              "id",
+              "name",
+              "arguments"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "attempt_id",
+        "turn_id",
+        "message_id",
+        "revision",
+        "text",
+        "calls",
+        "truncated"
+      ],
+      "additionalProperties": false
     }
   },
-  "$id": "https://whip.dev/protocol/v4/HistoryResult",
+  "$id": "https://whip.dev/protocol/v4/SessionObservation",
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "HistoryResult",
+  "title": "SessionObservation",
   "required": [
-    "items"
+    "epoch",
+    "messages",
+    "preview"
   ],
   "additionalProperties": false
 }

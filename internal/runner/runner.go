@@ -34,19 +34,26 @@ type Executor interface {
 	Execute(context.Context, session.Turn, session.MessageID, session.ToolCall) (session.ToolResult, error)
 }
 
+// Progress is ephemeral presentation, never transcript or execution authority.
+// The observer runs synchronously and cannot veto or own provider execution.
+type Progress interface {
+	BeginPreview(session.Turn, session.ModelAttemptID, session.MessageID) (func(model.Chunk), func())
+}
+
 type Runner struct {
 	provider   Provider
 	transcript Transcript
 	attempts   Attempts
 	content    ContentReader
 	executor   Executor
+	progress   Progress
 }
 
-func New(provider Provider, transcript Transcript, attempts Attempts, content ContentReader, executor Executor) (*Runner, error) {
+func New(provider Provider, transcript Transcript, attempts Attempts, content ContentReader, executor Executor, progress Progress) (*Runner, error) {
 	if provider == nil || transcript == nil || attempts == nil {
 		return nil, errors.New("runner requires provider, transcript and attempt ledger")
 	}
-	return &Runner{provider: provider, transcript: transcript, attempts: attempts, content: content, executor: executor}, nil
+	return &Runner{provider: provider, transcript: transcript, attempts: attempts, content: content, executor: executor, progress: progress}, nil
 }
 
 type Outcome struct {
@@ -281,8 +288,15 @@ func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.
 		}
 		return attemptOutcome{}, err
 	}
+	messageID := session.MessageID(logicalID + "_answer")
+	var emit func(model.Chunk)
+	if r.progress != nil {
+		var end func()
+		emit, end = r.progress.BeginPreview(turn, id, messageID)
+		defer end() // Keep the preview until settlement, including SQL-only retries.
+	}
 	callCtx, cancel := context.WithTimeout(ctx, time.Duration(prepared.Snapshot.TimeoutMillis)*time.Millisecond)
-	response, callErr := prepared.Execute(callCtx)
+	response, callErr := prepared.Execute(callCtx, emit)
 	cancel()
 	result := session.ModelAttemptResult{State: session.AttemptSucceeded, Usage: response.Usage, ReportedCostNanoUSD: response.ReportedCostNanoUSD, UsageNote: response.UsageNote}
 	if result.Usage.Validate() != nil {
@@ -306,7 +320,7 @@ func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.
 		}
 		result.Failure = Failure(callErr).Failure
 	} else {
-		message = &session.MessageDraft{ID: session.MessageID(logicalID + "_answer"), Role: session.Assistant, Parts: response.Parts}
+		message = &session.MessageDraft{ID: messageID, Role: session.Assistant, Parts: response.Parts}
 	}
 	if err := r.settleAttempt(ctx, id, result, message); err != nil {
 		return attemptOutcome{}, fmt.Errorf("settle model attempt: %w", err)

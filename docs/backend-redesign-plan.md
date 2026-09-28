@@ -1,8 +1,8 @@
 # Whip backend redesign and delivery plan
 
 Status: phases 0 and 1 complete and validated in PRs #197 and #199.
-Phase 2 is complete and validated in PR #200. Phase 3 is in progress;
-Phases 4–7 are pending.
+Phase 2 is complete and validated in PR #200. Phase 3 is implemented in PR #201
+with local acceptance passing; final hosted validation is pending. Phases 4–7 are pending.
 Written: 2026-09-27. Planning reference: `6f02507bf`.
 
 Execution baseline: `e3fed9c91918d9c36766dd47d878c1b5466238d1`. Commands,
@@ -504,7 +504,7 @@ Acceptance:
 - [x] Tool effects require scoped authority and have durable operation evidence.
       Denial/revocation prevents the relevant effect; unresolved effects are not
       blindly replayed after restart.
-- [ ] Completed messages survive a crash mid-turn; provisional output reconciles
+- [x] Completed messages survive a crash mid-turn; provisional output reconciles
       without becoming a second committed message.
 - [x] Checkpoint integrity, compatibility, execution boundary and failure policy
       are tested; restoration does not replay external effects.

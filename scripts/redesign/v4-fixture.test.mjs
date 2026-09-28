@@ -189,6 +189,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await providerAcceptance(runtime, client, createParams, evidence);
     await engineAcceptance(runtime, client, createParams, evidence);
     await operationAcceptance(runtime, client, createParams, evidence);
+    await streamAcceptance(runtime, client, createParams, evidence);
     passed = true;
   } finally {
     await proxyClose?.();
@@ -462,6 +463,108 @@ async function operationAcceptance(runtime, client, createParams, evidence) {
       assert.equal(requests.filter(prompt => prompt === requestID).length, 1);
       evidence.push({ engine, beforeKill, beforeCells, afterKill, afterCells, interrupted });
     }
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+}
+
+
+async function streamAcceptance(runtime, client, createParams, evidence) {
+  const completions = new Map();
+  const requests = [];
+  const server = http.createServer(async (request, response) => {
+    let raw = '';
+    for await (const chunk of request) raw += chunk;
+    const body = JSON.parse(raw);
+    requests.push(body);
+    const prompt = body.messages.findLast(item => item.role === 'user').content;
+    response.setHeader('content-type', 'text/event-stream');
+    response.write('data: ' + JSON.stringify({ choices: [{ index: 0, delta: { role: 'assistant', content: 'partial' }, finish_reason: null }] }) + '\n\n');
+    completions.set(prompt, () => {
+      response.write('data: ' + JSON.stringify({ choices: [{ index: 0, delta: { content: ' completed' }, finish_reason: 'stop' }] }) + '\n\n');
+      response.write('data: ' + JSON.stringify({ choices: [], usage: { prompt_tokens: 14, completion_tokens: 4, cost: 0 } }) + '\n\n');
+      response.end('data: [DONE]\n\n');
+      completions.delete(prompt);
+    });
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    await runtime.stop();
+    const path = join(runtime.directory, 'state', 'host.json');
+    const host = JSON.parse(await readFile(path, 'utf8'));
+    host.providers.stream = {
+      kind: 'openai-chat', base_url: `http://127.0.0.1:${server.address().port}/v1`, credential_env: '',
+      models: { stream: { max_output_tokens: 100, timeout_millis: 30000, max_attempts: 1 } },
+    };
+    await writeFile(path, JSON.stringify(host), { mode: 0o600 });
+    await runtime.start(null);
+    const { root } = await client.call('trees.create', {
+      ...createParams, overrides: { model: { provider: 'stream', name: 'stream', effort: '' } },
+    }, deadline());
+    const observe = () => client.call('sessions.observe', { session_id: root.id, after: '0', limit: 100 }, deadline());
+    await client.submit(root.id, [{ type: 'text', text: 'stream:complete' }], 'stream:complete', deadline());
+    const provisional = await until(observe, view => view.preview?.text === 'partial');
+    assert.deepEqual(provisional.messages.map(message => message.role), ['user']);
+    assert.equal(provisional.preview.truncated, false);
+    const iterator = client.observe(root.id);
+    const previewPage = (await iterator.next()).value;
+    assert.equal(previewPage.preview.attempt_id, provisional.preview.attempt_id);
+    completions.get('stream:complete')();
+    const completed = await client.wait('stream:complete', deadline());
+    assert.equal(completed.turn.state, 'succeeded');
+    let committed;
+    for (;;) {
+      const page = (await iterator.next()).value;
+      if (page.messages.some(message => message.id === provisional.preview.message_id)) { committed = page; break; }
+    }
+    await iterator.return();
+    assert.equal(committed.preview, null);
+    assert.equal(committed.messages.filter(message => message.id === provisional.preview.message_id).length, 1);
+    assert.equal(committed.messages.at(-1).parts[0].text, 'partial completed');
+    const ledger = await client.call('turns.attempts', { turn_id: completed.turn.id, limit: 100 }, deadline());
+    assert.equal(ledger.items[0].id, provisional.preview.attempt_id);
+    assert.equal(ledger.items[0].message_id, provisional.preview.message_id);
+    assert.equal(ledger.items[0].result.usage.input, '14');
+    assert.equal(ledger.items[0].cost_nano_usd, '0');
+
+    await client.submit(root.id, [{ type: 'text', text: 'stream:crash' }], 'stream:crash', deadline());
+    const beforeKill = await until(observe, view => view.preview?.text === 'partial');
+    await runtime.stop('SIGKILL');
+    await runtime.start(null);
+    const interrupted = await client.wait('stream:crash', deadline());
+    assert.equal(interrupted.turn.state, 'interrupted');
+    const afterKill = await observe();
+    assert.notEqual(afterKill.epoch, beforeKill.epoch);
+    assert.equal(afterKill.preview, null);
+    assert.deepEqual(afterKill.messages, beforeKill.messages);
+    assert.equal(afterKill.messages.some(message => message.id === beforeKill.preview.message_id), false);
+    const interruptedAttempts = await client.call('turns.attempts', { turn_id: interrupted.turn.id, limit: 100 }, deadline());
+    assert.equal(interruptedAttempts.items[0].state, 'uncertain');
+    assert.equal(interruptedAttempts.items[0].message_id, null);
+    assert.equal(requests.filter(request => request.messages.at(-1).content === 'stream:crash').length, 1);
+
+    await client.submit(root.id, [{ type: 'text', text: 'stream:observer-abort' }], 'stream:observer-abort', deadline());
+    await until(observe, view => view.preview?.text === 'partial');
+    const controller = new AbortController();
+    const observer = client.observe(root.id, { signal: controller.signal });
+    await observer.next();
+    controller.abort();
+    await assert.rejects(observer.next(), error => error.name === 'AbortError');
+    assert.equal((await client.recover('stream:observer-abort', deadline())).turn.state, 'running');
+    completions.get('stream:observer-abort')();
+    assert.equal((await client.wait('stream:observer-abort', deadline())).turn.state, 'succeeded');
+
+    await client.submit(root.id, [{ type: 'text', text: 'stream:cancel' }], 'stream:cancel', deadline());
+    const cancelling = await until(observe, view => view.preview?.text === 'partial');
+    await client.call('turns.cancel', { turn_id: cancelling.preview.turn_id }, { signal: AbortSignal.timeout(3000) });
+    assert.equal((await client.wait('stream:cancel', deadline())).turn.state, 'cancelled');
+    const afterCancel = await observe();
+    assert.equal(afterCancel.preview, null);
+    assert.equal(afterCancel.messages.some(message => message.id === cancelling.preview.message_id), false);
+    assert.ok(requests.every(request => request.stream === true && request.stream_options?.include_usage === true));
+    evidence.push({ provisional, committed, ledger, beforeKill, afterKill, interrupted, interruptedAttempts, afterCancel });
   } finally {
     server.closeAllConnections();
     await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));

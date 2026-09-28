@@ -43,7 +43,7 @@ func TestChatToolDeclarationsCallsAndResultsPreserveDurableMeaning(t *testing.T)
 	// body or the set of names accepted from its response.
 	request.Tools[0].Name = "different"
 	request.Tools[0].InputSchema[0] = '['
-	response, err := prepared.Execute(t.Context())
+	response, err := prepared.Execute(t.Context(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestChatRejectsInvalidCallsWithoutRetryOrLosingAccounting(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			response, err := prepared.Execute(t.Context())
+			response, err := prepared.Execute(t.Context(), nil)
 			failure, ok := errors.AsType[*CallError](err)
 			if !ok || failure.Retryable || len(response.Parts) != 0 || calls.Load() != 1 {
 				t.Fatalf("invalid call result=%+v err=%v calls=%d", response, err, calls.Load())

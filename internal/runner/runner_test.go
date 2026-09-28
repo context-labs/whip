@@ -15,7 +15,7 @@ type providerFunc func(context.Context, model.Request) (model.Response, error)
 
 func (f providerFunc) Prepare(ctx context.Context, request model.Request) (model.Prepared, error) {
 	prepared, err := (model.Scripted{}).Prepare(ctx, request)
-	prepared.Execute = func(ctx context.Context) (model.Response, error) { return f(ctx, request) }
+	prepared.Execute = func(ctx context.Context, _ func(model.Chunk)) (model.Response, error) { return f(ctx, request) }
 	return prepared, err
 }
 
@@ -61,7 +61,7 @@ func TestCompletedResponseWriteRetryDoesNotRedispatch(t *testing.T) {
 		calls++
 		cancel()
 		return model.Response{Parts: []session.Part{{Type: "text", Text: "already completed"}}}, nil
-	}), transcript, transcript, nil, nil)
+	}), transcript, transcript, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestMalformedUsageDoesNotEraseCompletedOutput(t *testing.T) {
 	transcript := &flakyTranscript{}
 	r, err := New(providerFunc(func(context.Context, model.Request) (model.Response, error) {
 		return model.Response{Parts: []session.Part{{Type: "text", Text: "completed"}}, Usage: session.ModelUsage{Input: new(int64(-1))}}, nil
-	}), transcript, transcript, nil, nil)
+	}), transcript, transcript, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,5 +1,58 @@
 [
   {
+    "type": "SessionObservation",
+    "value": {
+      "epoch": "boot_fixture",
+      "messages": [
+        {
+          "id": "message_fixture",
+          "session_id": "session_child",
+          "turn_id": "turn_fixture",
+          "input_id": null,
+          "sequence": "9007199254740993",
+          "role": "assistant",
+          "parts": [
+            {
+              "type": "text",
+              "text": "Completed."
+            },
+            {
+              "type": "content",
+              "reference_id": "content_fixture"
+            }
+          ],
+          "created_at": "2026-09-27T12:00:00.123456Z"
+        }
+      ],
+      "preview": {
+        "attempt_id": "attempt_live",
+        "turn_id": "turn_fixture",
+        "message_id": "message_live",
+        "revision": "9007199254740993",
+        "text": "In progress",
+        "calls": [
+          {
+            "index": 0,
+            "id": "call_partial",
+            "name": "execute",
+            "arguments": "{\"code\":\"print("
+          }
+        ],
+        "truncated": false
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "SessionObservation",
+    "value": {
+      "epoch": "boot_restarted",
+      "messages": [],
+      "preview": null
+    },
+    "valid": true
+  },
+  {
     "type": "Grant",
     "value": {
       "id": "grant_fixture",

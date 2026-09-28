@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"strconv"
 	"strings"
@@ -32,7 +33,7 @@ type ChatRoute struct {
 	MaxAttempts     int
 }
 
-// OpenAI implements non-streaming OpenAI-compatible chat completions. Retry
+// OpenAI implements streaming OpenAI-compatible chat completions. Retry
 // policy is enforced by the runner so every request has its own durable attempt.
 type OpenAI struct {
 	Resolve func(context.Context, session.ModelSelection) (ChatRoute, error)
@@ -95,8 +96,8 @@ func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) 
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return Prepared{
 		Snapshot: snapshot, MaxAttempts: route.MaxAttempts,
-		Execute: func(ctx context.Context) (Response, error) {
-			return executeChat(ctx, &client, snapshot.Route, route.Credential, body, allowedTools)
+		Execute: func(ctx context.Context, emit func(Chunk)) (Response, error) {
+			return executeChat(ctx, &client, snapshot.Route, route.Credential, body, allowedTools, emit)
 		},
 	}, nil
 }
@@ -115,6 +116,10 @@ type chatPart struct {
 }
 type chatImage struct {
 	URL string `json:"url"`
+}
+
+type chatStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 func encodeChat(request Request, maxTokens int64) ([]byte, error) {
@@ -209,12 +214,14 @@ func encodeChat(request Request, maxTokens int64) ([]byte, error) {
 		return nil, errors.New("model request has no messages")
 	}
 	body, err := json.Marshal(struct {
-		Model               string        `json:"model"`
-		Messages            []chatMessage `json:"messages"`
-		MaxCompletionTokens int64         `json:"max_completion_tokens"`
-		ReasoningEffort     string        `json:"reasoning_effort,omitempty"`
-		Tools               []chatTool    `json:"tools,omitempty"`
-	}{Model: request.Selection.Name, Messages: messages, MaxCompletionTokens: maxTokens, ReasoningEffort: request.Selection.Effort, Tools: tools})
+		Model               string            `json:"model"`
+		Messages            []chatMessage     `json:"messages"`
+		MaxCompletionTokens int64             `json:"max_completion_tokens"`
+		ReasoningEffort     string            `json:"reasoning_effort,omitempty"`
+		Tools               []chatTool        `json:"tools,omitempty"`
+		Stream              bool              `json:"stream"`
+		StreamOptions       chatStreamOptions `json:"stream_options"`
+	}{Model: request.Selection.Name, Messages: messages, MaxCompletionTokens: maxTokens, ReasoningEffort: request.Selection.Effort, Tools: tools, Stream: true, StreamOptions: chatStreamOptions{IncludeUsage: true}})
 	if err != nil {
 		return nil, err
 	}
@@ -224,13 +231,13 @@ func encodeChat(request Request, maxTokens int64) ([]byte, error) {
 	return body, nil
 }
 
-func executeChat(ctx context.Context, client *http.Client, url, credential string, body []byte, allowedTools map[string]bool) (Response, error) {
+func executeChat(ctx context.Context, client *http.Client, url, credential string, body []byte, allowedTools map[string]bool, emit func(Chunk)) (Response, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return Response{}, errors.New("could not construct provider request")
 	}
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Accept", "text/event-stream, application/json")
 	if credential != "" {
 		request.Header.Set("Authorization", "Bearer "+credential)
 	}
@@ -245,6 +252,10 @@ func executeChat(ctx context.Context, client *http.Client, url, credential strin
 		// The read result determines completion; closing only releases resources.
 		_ = response.Body.Close()
 	}()
+	mediaType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
+	if response.StatusCode >= 200 && response.StatusCode < 300 && strings.EqualFold(mediaType, "text/event-stream") {
+		return decodeChatStream(ctx, response.Body, allowedTools, emit)
+	}
 	raw, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
 	if err != nil || len(raw) > maxResponseBytes {
 		if ctx.Err() != nil {
@@ -294,6 +305,7 @@ func executeChat(ctx context.Context, client *http.Client, url, credential strin
 		return result, &CallError{Message: "provider returned invalid assistant content"}
 	}
 	result.Parts = parts
+	emitResponse(result, emit)
 	return result, nil
 }
 

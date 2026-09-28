@@ -4,6 +4,7 @@ package runtime
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"os"
@@ -59,6 +60,9 @@ type Runtime struct {
 	failure         error
 	closeOnce       sync.Once
 	closeErr        error
+	epoch           string
+	previewMu       sync.Mutex
+	previews        map[session.SessionID]*livePreview
 }
 
 // Open acquires exclusive execution ownership before opening fresh host/storage.
@@ -136,12 +140,13 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 		return nil, err
 	}
 	r := &Runtime{
+		epoch: "boot_" + rand.Text(), previews: map[session.SessionID]*livePreview{},
 		engineManager: process.NewManager(options.KernelWorkers), kernels: map[session.SessionID]*sessionKernel{},
 		store: database, content: bodies, owner: lock, directory: directory, host: host, options: options,
 		wake: make(chan struct{}, 1), done: make(chan struct{}), active: map[session.SessionID]execution{},
 	}
 	r.tools = tool.NewDispatcher(database, database)
-	r.runner, err = runner.New(provider, database, database, r, r)
+	r.runner, err = runner.New(provider, database, database, r, r, r)
 	if err != nil {
 		return nil, err
 	}
@@ -185,6 +190,9 @@ func (r *Runtime) Close() error {
 		for _, entry := range r.kernels {
 			entry.kernel.Close()
 		}
+		r.previewMu.Lock()
+		clear(r.previews)
+		r.previewMu.Unlock()
 		r.closeErr = errors.Join(r.store.Close(), r.owner.Close())
 	})
 	return r.closeErr
