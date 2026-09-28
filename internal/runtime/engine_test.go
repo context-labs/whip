@@ -212,7 +212,7 @@ func TestCheckpointMetadataCompatibilityIsVerified(t *testing.T) {
 		t.Fatal(err)
 	}
 	descriptor.Build = "incompatible"
-	adapter := cellCheckpoints{runtime: r, sessionID: root.ID, descriptor: descriptor}
+	adapter := cellCheckpoints{runtime: r, sessionID: root.ID, historyRevision: root.HistoryRevision, descriptor: descriptor}
 	if _, err := adapter.Load(t.Context()); err == nil || !strings.Contains(err.Error(), "incompatible") {
 		t.Fatalf("accepted incompatible image %s: %v", fmt.Sprint(latest.ID), err)
 	}

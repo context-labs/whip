@@ -183,7 +183,7 @@ func TestBothEnginesCancelPendingFilePermissionReleasesWorker(t *testing.T) {
 			// process cancellation wins. A correlated final result may retain its
 			// exact checkpoint; a terminated worker must never retain one.
 			if cell.Checkpoint != nil {
-				entry, err := r.kernel(t.Context(), current.ID)
+				entry, err := r.kernel(t.Context(), current.ID, finished.Turn.HistoryRevision)
 				if err != nil {
 					t.Fatal(err)
 				}

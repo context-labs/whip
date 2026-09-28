@@ -24,11 +24,14 @@ func (s *Store) HistoryGroup(ctx context.Context, owner session.SessionID, id se
 	return result, nil
 }
 
-// HistoryEdit is immutable evidence. This boundary does not expose an edit or
-// fork command; admission and atomic retirement belong to their own operation.
+// HistoryEdit reads immutable evidence without changing the current history.
 func (s *Store) HistoryEdit(ctx context.Context, owner session.SessionID, id session.HistoryEditID) (result session.HistoryEdit, err error) {
+	return readHistoryEdit(ctx, s.db, owner, id)
+}
+
+func readHistoryEdit(ctx context.Context, q querier, owner session.SessionID, id session.HistoryEditID) (result session.HistoryEdit, err error) {
 	var created int64
-	err = s.db.QueryRowContext(ctx, "SELECT id,session_id,digest,expected_revision,revision,observed_through,keep_through,created_at FROM history_edits WHERE session_id=? AND id=?", owner, id).
+	err = q.QueryRowContext(ctx, "SELECT id,session_id,digest,expected_revision,revision,observed_through,keep_through,created_at FROM history_edits WHERE session_id=? AND id=?", owner, id).
 		Scan(&result.ID, &result.SessionID, &result.Digest, &result.ExpectedRevision, &result.Revision, &result.ObservedThrough, &result.KeepThrough, &created)
 	result.CreatedAt = timestamp(created)
 	return result, found(err)

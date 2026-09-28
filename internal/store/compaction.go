@@ -206,7 +206,7 @@ func validateCompaction(ctx context.Context, tx *sql.Tx, turn session.Turn, draf
 		if err != nil {
 			return err
 		}
-		if err := activeCompactionCoverage(ctx, tx, turn.SessionID, base.HistoryRevision, base.ThroughSequence); err != nil {
+		if err := activeCompaction(ctx, tx, base); err != nil {
 			return err
 		}
 		if draft.ThroughSequence <= base.ThroughSequence {
@@ -285,6 +285,24 @@ func activeCompactionCoverage(ctx context.Context, q querier, owner session.Sess
 	return nil
 }
 
+func activeCompaction(ctx context.Context, q querier, value session.Compaction) error {
+	if err := activeCompactionCoverage(ctx, q, value.SessionID, value.HistoryRevision, value.ThroughSequence); err != nil {
+		return err
+	}
+	// Pin checks need only immutable identity, not potentially large input bodies.
+	for _, id := range value.PinnedMessageIDs {
+		var valid bool
+		if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM messages WHERE id=? AND session_id=?
+ AND opening_input=1 AND retired_revision IS NULL AND sequence<=?)`, id, value.SessionID, value.ThroughSequence).Scan(&valid); err != nil {
+			return err
+		}
+		if !valid {
+			return fmt.Errorf("%w: compaction pin is outside active history", ErrConflict)
+		}
+	}
+	return nil
+}
+
 func selectCompaction(ctx context.Context, tx *sql.Tx, head session.ContextHead, id *session.CompactionID) (session.ContextHead, error) {
 	if _, err := tx.ExecContext(ctx, `INSERT INTO context_heads (session_id,revision,compaction_id) VALUES (?,?,?)
  ON CONFLICT(session_id) DO UPDATE SET revision=excluded.revision,compaction_id=excluded.compaction_id`, head.SessionID, head.Revision+1, id); err != nil {
@@ -319,7 +337,7 @@ func (s *Store) SelectCompaction(ctx context.Context, owner session.SessionID, e
 			if err != nil {
 				return err
 			}
-			if err := activeCompactionCoverage(ctx, tx, owner, value.HistoryRevision, value.ThroughSequence); err != nil {
+			if err := activeCompaction(ctx, tx, value); err != nil {
 				return err
 			}
 		}

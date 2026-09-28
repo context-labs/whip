@@ -22,20 +22,22 @@ import (
 // A live kernel is a disposable cache owned by its session's runtime. The store
 // owns its last execution boundary; no worker image is authoritative in memory.
 type sessionKernel struct {
-	mu          sync.Mutex
-	kernel      *process.Kernel
-	checkpoints *cellCheckpoints
+	mu              sync.Mutex
+	historyRevision session.Revision
+	kernel          *process.Kernel
+	checkpoints     *cellCheckpoints
 }
 
 type cellCheckpoints struct {
-	runtime    *Runtime
-	sessionID  session.SessionID
-	descriptor process.EngineDescriptor
-	candidate  *session.Checkpoint
+	runtime         *Runtime
+	sessionID       session.SessionID
+	historyRevision session.Revision
+	descriptor      process.EngineDescriptor
+	candidate       *session.Checkpoint
 }
 
 func (c *cellCheckpoints) Load(ctx context.Context) (*process.Checkpoint, error) {
-	latest, err := c.runtime.store.LatestCell(ctx, c.sessionID)
+	latest, err := c.runtime.store.CheckpointCell(ctx, c.sessionID, c.historyRevision)
 	if err != nil || latest == nil {
 		return nil, err
 	}
@@ -87,16 +89,25 @@ func (c *cellCheckpoints) Save(ctx context.Context, checkpoint process.Checkpoin
 	return nil
 }
 
-func (r *Runtime) kernel(ctx context.Context, id session.SessionID) (*sessionKernel, error) {
+func (r *Runtime) kernel(ctx context.Context, id session.SessionID, revision session.Revision) (*sessionKernel, error) {
 	r.mu.Lock()
 	existing := r.kernels[id]
 	r.mu.Unlock()
 	if existing != nil {
-		return existing, nil
+		if existing.historyRevision == revision {
+			return existing, nil
+		}
+		if existing.historyRevision > revision {
+			return nil, errors.New("stale REPL history revision")
+		}
+		r.discardKernel(id, existing)
 	}
 	current, err := r.store.Session(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if current.HistoryRevision != revision {
+		return nil, errors.New("stale REPL history revision")
 	}
 	tree, err := r.store.Tree(ctx, current.TreeID)
 	if err != nil {
@@ -106,7 +117,7 @@ func (r *Runtime) kernel(ctx context.Context, id session.SessionID) (*sessionKer
 	if err != nil {
 		return nil, err
 	}
-	checkpoints := &cellCheckpoints{runtime: r, sessionID: id, descriptor: descriptor}
+	checkpoints := &cellCheckpoints{runtime: r, sessionID: id, historyRevision: revision, descriptor: descriptor}
 	kernel, err := process.NewKernel(process.KernelOptions{Engine: string(tree.Engine), Checkpoints: checkpoints, Manager: r.engineManager, Command: r.options.EngineCommand, Limits: process.Limits{OutputBytes: 64 << 10}, Host: process.HostFunc(func(ctx context.Context, module, operation string, arguments map[string]any) (any, error) {
 		call, ok := process.HostCallFromContext(ctx)
 		if !ok {
@@ -121,7 +132,7 @@ func (r *Runtime) kernel(ctx context.Context, id session.SessionID) (*sessionKer
 	if err != nil {
 		return nil, err
 	}
-	created := &sessionKernel{kernel: kernel, checkpoints: checkpoints}
+	created := &sessionKernel{historyRevision: revision, kernel: kernel, checkpoints: checkpoints}
 	r.mu.Lock()
 	if r.closed {
 		r.mu.Unlock()
@@ -134,6 +145,9 @@ func (r *Runtime) kernel(ctx context.Context, id session.SessionID) (*sessionKer
 	r.mu.Unlock()
 	if existing != nil {
 		kernel.Close()
+		if existing.historyRevision != revision {
+			return nil, errors.New("REPL history revision changed during creation")
+		}
 		return existing, nil
 	}
 	return created, nil
@@ -183,13 +197,13 @@ func (r *Runtime) executeCell(ctx context.Context, turn session.Turn, messageID 
 	if err := session.ValidateText(arguments.Code, 256<<10); err != nil {
 		return result, err
 	}
-	entry, err := r.kernel(ctx, turn.SessionID)
+	entry, err := r.kernel(ctx, turn.SessionID, turn.HistoryRevision)
 	if err != nil {
 		return result, err
 	}
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
-	latest, err := r.store.LatestCell(ctx, turn.SessionID)
+	latest, err := r.store.CheckpointCell(ctx, turn.SessionID, turn.HistoryRevision)
 	if err != nil {
 		return result, err
 	}
