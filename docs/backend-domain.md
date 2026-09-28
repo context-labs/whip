@@ -200,6 +200,19 @@ both Starlark and QuickJS subprocess engines. These are protocol/engine adapters
 not a hardcoded commercial model or credentials. The remaining provider families
 and product integrations are still being ported.
 
+Chat requests omit `reasoning_effort` when the captured selection is `off`.
+Their `prompt_cache_key` comes from the session ID, so it is stable across turns
+and retries without another stored value; IDs longer than 64 bytes use their
+SHA-256 hex digest. The pinned Cerebras, Groq, DeepSeek, Fireworks, Together and
+DeepInfra API roots omit this field. The exact `https://api.deepseek.com` root
+also requests `thinking: {type: "disabled"}` for `deepseek-v4-` models and omits
+the wire effort, because the current transcript cannot replay that provider's
+reasoning content. Only complete preset roots select these profiles after
+trailing-slash normalization; custom paths, ports and lookalike hosts retain the
+generic encoding. The attempt retains the original selected effort and a digest
+of the actual encoded body, frozen before admission. These are locally tested
+wire contracts, not live-provider availability claims.
+
 ## Verification and remaining scope
 
 The replacement implements persistence, runtime scheduling, RPC, SDK/Go clients,

@@ -86,7 +86,8 @@ func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) 
 	if strings.ContainsAny(route.Credential, "\r\n\x00") {
 		return Prepared{}, errors.New("provider credential contains invalid header characters")
 	}
-	body, err := encodeChat(request, route.MaxOutputTokens)
+	baseURL := strings.TrimRight(route.URL, "/")
+	body, err := encodeChat(request, baseURL, route.MaxOutputTokens)
 	if err != nil {
 		return Prepared{}, err
 	}
@@ -97,7 +98,7 @@ func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) 
 	hash := sha256.Sum256(body)
 	snapshot := session.ModelRequestSnapshot{
 		Purpose: request.Purpose, Model: request.Selection,
-		Route: strings.TrimRight(route.URL, "/") + "/chat/completions", Adapter: "openai-chat",
+		Route: baseURL + "/chat/completions", Adapter: "openai-chat",
 		RequestDigest: hex.EncodeToString(hash[:]), Prices: route.Prices.Clone(),
 		MaxOutputTokens: route.MaxOutputTokens, TimeoutMillis: route.TimeoutMillis,
 		InputTokenBound: inputBound,
@@ -140,7 +141,11 @@ type chatStreamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
 }
 
-func encodeChat(request Request, maxTokens int64) ([]byte, error) {
+type chatThinking struct {
+	Type string `json:"type"`
+}
+
+func encodeChat(request Request, baseURL string, maxTokens int64) ([]byte, error) {
 	if len(request.Messages) > 100 {
 		return nil, errors.New("model message count exceeds limit")
 	}
@@ -231,15 +236,40 @@ func encodeChat(request Request, maxTokens int64) ([]byte, error) {
 	if len(messages) == 0 {
 		return nil, errors.New("model request has no messages")
 	}
+	effort := request.Selection.Effort
+	if effort == "off" {
+		effort = ""
+	}
+	cacheKey := string(request.SessionID)
+	if len(cacheKey) > 64 {
+		digest := sha256.Sum256([]byte(cacheKey))
+		cacheKey = hex.EncodeToString(digest[:])
+	}
+	// Match complete preset roots, not hostnames: custom proxies retain the
+	// generic wire contract. These presets omit the explicit cache-key field.
+	switch baseURL {
+	case "https://api.cerebras.ai/v1", "https://api.groq.com/openai/v1", "https://api.deepseek.com",
+		"https://api.fireworks.ai/inference/v1", "https://api.together.ai/v1", "https://api.deepinfra.com/v1/openai":
+		cacheKey = ""
+	}
+	var thinking *chatThinking
+	if baseURL == "https://api.deepseek.com" && strings.HasPrefix(request.Selection.Name, "deepseek-v4-") {
+		// Thinking mode requires reasoning_content replay, which this transcript
+		// does not retain. Preserve the selected effort in the request snapshot.
+		effort = ""
+		thinking = &chatThinking{Type: "disabled"}
+	}
 	body, err := json.Marshal(struct {
 		Model               string            `json:"model"`
 		Messages            []chatMessage     `json:"messages"`
 		MaxCompletionTokens int64             `json:"max_completion_tokens"`
 		ReasoningEffort     string            `json:"reasoning_effort,omitempty"`
+		PromptCacheKey      string            `json:"prompt_cache_key,omitempty"`
+		Thinking            *chatThinking     `json:"thinking,omitempty"`
 		Tools               []chatTool        `json:"tools,omitempty"`
 		Stream              bool              `json:"stream"`
 		StreamOptions       chatStreamOptions `json:"stream_options"`
-	}{Model: request.Selection.Name, Messages: messages, MaxCompletionTokens: maxTokens, ReasoningEffort: request.Selection.Effort, Tools: tools, Stream: true, StreamOptions: chatStreamOptions{IncludeUsage: true}})
+	}{Model: request.Selection.Name, Messages: messages, MaxCompletionTokens: maxTokens, ReasoningEffort: effort, PromptCacheKey: cacheKey, Thinking: thinking, Tools: tools, Stream: true, StreamOptions: chatStreamOptions{IncludeUsage: true}})
 	if err != nil {
 		return nil, err
 	}
