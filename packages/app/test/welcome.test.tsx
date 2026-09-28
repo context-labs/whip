@@ -155,7 +155,8 @@ it('keeps an unsupported saved effort visible and requires an explicit replaceme
   fireEvent.click(await screen.findByRole('menuitem', { name: 'Default' }));
   fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
   await waitFor(() => expect(f.raw.sessions.create).toHaveBeenCalledOnce());
-  await waitFor(() => expect(f.raw.sessions.create).toHaveBeenCalledWith(expect.objectContaining({ effort: 'off' })));
+  // "Default" clears the draft choice; the daemon resolves the effort at creation.
+  expect(f.raw.sessions.create.mock.calls[0]![0]).not.toHaveProperty('effort');
 });
 
 it('preserves the collapsed provider top spacing while expanded and restores centering on collapse', async () => {
