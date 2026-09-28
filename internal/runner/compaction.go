@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/context-labs/whip/internal/model"
 	"github.com/context-labs/whip/internal/session"
@@ -368,31 +367,6 @@ func (t *compactionTarget) response(id session.ModelAttemptID, parts []session.P
 	return &draft, nil
 }
 
-func (r *Runner) settleResult(parent context.Context, id session.ModelAttemptID, result session.ModelAttemptResult, message *session.MessageDraft, target *compactionTarget, draft *session.CompactionDraft) error {
-	if target == nil {
-		return r.settleAttempt(parent, id, result, message)
-	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), 5*time.Second)
-	defer cancel()
-	ticker := time.NewTicker(20 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		settled, err := r.compactions.SettleCompaction(ctx, id, result, draft)
-		if err == nil {
-			target.settled = settled
-			return nil
-		}
-		if errors.Is(err, session.ErrInvalid) {
-			return err
-		}
-		select {
-		case <-ctx.Done():
-			return errors.Join(ctx.Err(), err)
-		case <-ticker.C:
-		}
-	}
-}
-
 func (r *Runner) foldHistory(ctx context.Context, turn session.Turn, configuration session.Configuration, selection contextSelection, keep int, folds *int) (contextSelection, error) {
 	boundary, err := r.compactions.ContextTail(ctx, turn.SessionID, selection.snapshot.ThroughSequence, keep)
 	if err != nil {
@@ -453,7 +427,7 @@ func (r *Runner) foldToBoundary(ctx context.Context, turn session.Turn, configur
 		}
 		target := &compactionTarget{draft: session.CompactionDraft{ExpectedRevision: selection.head.Revision, BaseID: selection.head.CompactionID, ThroughSequence: through, PinnedMessageIDs: pinIDs}, sourceBytes: sourceBytes, pinBytes: pinBytes}
 		*folds = *folds + 1
-		outcome, err := r.complete(ctx, turn, request, fmt.Sprintf("%s_compact_%d", turn.ID, *folds), target)
+		outcome, err := r.complete(ctx, turn, request, fmt.Sprintf("%s_compact_%d", turn.ID, *folds), &helperTarget{compaction: target})
 		if err != nil {
 			return selection, err
 		}
