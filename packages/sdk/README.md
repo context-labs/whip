@@ -105,7 +105,9 @@ upload up to 4 MiB. Generate and retain a unique reference ID before sending;
 retrying it with the same owner, bytes and media type returns the same reference.
 Submit `{type: 'content', reference_id}` parts alongside text. `content.read`
 takes the owning session and reference IDs and returns verified `data_base64`.
-References are session-scoped; a digest is not an access token. The runtime
+References are session-scoped: the same handle can identify different bytes in
+different sessions. Always keep the owner with a reference; a digest is not an
+access token. The runtime
 hydrates authorized bytes for the provider while history keeps the reference.
 Each session is limited to 1,024 references and 64 MiB of referenced bytes.
 

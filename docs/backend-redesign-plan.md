@@ -697,7 +697,7 @@ The goal-record foundation now implements immutable specifications, revisioned
 lifecycle, exact create/resume retries, current selection, atomic ordinary-input
 admission and deletion tombstones. Turn capture, durable continuation, recovery
 pause and authorized completion settlement are now implemented internally. Fresh
-config is 9 and schema 30. Generated input and turn projections preserve goal
+config is 9 and schema 31. Generated input and turn projections preserve goal
 provenance and exact decimal revisions. Runtime/guest/RPC/SDK controls now expose
 creation, inspection, resume, cancellation and authorized completion intents.
 Both-engine and process acceptance cover the controls. Formulation now has the
@@ -857,7 +857,13 @@ Fork, rewind and workspace implementation decisions (work remains open):
   lock does not freeze external editors. Retire the old compound restore-then-SQL
   rewind because external effects and database edits cannot commit atomically.
 
-Deliver content ownership, then history groups/revisions and REPL invalidation,
+Content ownership is now implemented: session-qualified identity/read/retry and
+permanent charges, digest body deduplication and recipient-constrained mail
+foreign keys pass real-SQL and runtime evidence tests. The SDK process scenario
+covers the same handle with different bytes, exact retry, conflicts, restart,
+foreign access and independent deletion. Fork/rewind itself remains open.
+
+Deliver history groups/revisions and REPL invalidation next,
 then fork imports, then separate workspace operations. Acceptance includes
 source deletion/double forks, opaque handles, exact retries, concurrent stale
 history edits, compaction pins, non-reused sequences, restart/reset boundaries,

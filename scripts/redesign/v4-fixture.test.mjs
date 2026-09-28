@@ -242,6 +242,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
       await assert.rejects(Client.connect(unixSocket(runtime.info.socket), { clientID: 'wrong', expectedRuntimeID: 'different', ...deadline() }), error => error instanceof RemoteError && error.kind === 'IDENTITY');
       return { client, createParams };
     });
+    await stage('content owners', () => contentOwnerAcceptance(runtime, client, createParams, evidence));
     await stage('resources', () => resourceAcceptance(runtime, client, createParams, evidence));
     await stage('schedules', () => scheduleAcceptance(runtime, client, createParams, evidence));
     await stage('goals', () => goalAcceptance(runtime, client, createParams, evidence));
@@ -2606,4 +2607,30 @@ async function goalFormulationAcceptance(runtime, client, createParams, evidence
     server.closeAllConnections(); await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     if (!fixtureAbort.signal.aborted) await runtime.start();
   }
+}
+
+
+async function contentOwnerAcceptance(runtime, client, createParams, evidence) {
+  const referenceID = 'same-opaque-handle';
+  const owners = [];
+  for (const text of ['first owner: café', 'second owner: 界🙂']) {
+    const { root } = await client.call('trees.create', createParams, deadline());
+    const params = { session_id: root.id, reference_id: referenceID, media_type: 'text/plain', data_base64: Buffer.from(text).toString('base64') };
+    const reference = await client.call('content.put', params, deadline());
+    assert.deepEqual(await client.call('content.put', params, deadline()), reference);
+    assert.equal(reference.id, referenceID);
+    const read = await client.call('content.read', { session_id: root.id, reference_id: referenceID }, deadline());
+    assert.equal(Buffer.from(read.data_base64, 'base64').toString('utf8'), text);
+    await assert.rejects(client.call('content.put', { ...params, data_base64: Buffer.from('conflicting bytes').toString('base64') }, deadline()), error => error.kind === 'CONFLICT');
+    owners.push({ root, params, reference, text });
+  }
+  const { root: unrelated } = await client.call('trees.create', createParams, deadline());
+  await assert.rejects(client.call('content.read', { session_id: unrelated.id, reference_id: referenceID }, deadline()), error => error.kind === 'NOT_FOUND');
+  await runtime.stop(); await runtime.start();
+  for (const value of owners) assert.deepEqual(await client.call('content.put', value.params, deadline()), value.reference);
+  await client.call('sessions.delete', { session_id: owners[0].root.id }, deadline());
+  await assert.rejects(client.call('content.read', { session_id: owners[0].root.id, reference_id: referenceID }, deadline()), error => error.kind === 'NOT_FOUND');
+  const remaining = await client.call('content.read', { session_id: owners[1].root.id, reference_id: referenceID }, deadline());
+  assert.equal(Buffer.from(remaining.data_base64, 'base64').toString('utf8'), owners[1].text);
+  evidence.push({ contentOwners: { referenceID, owners: owners.map(value => value.root.id), remaining } });
 }

@@ -144,6 +144,9 @@ payload for retry; do not replace its sender reference with the returned recipie
 reference. An empty body is valid with evidence. Show attachments from metadata
 and load bytes explicitly through scoped content reads; inspection does not
 acknowledge delivery. The recipient reference survives sender deletion and restart.
+Content handles are unique within their owning session. Preserve both owner and
+reference ID in attachment state, cache keys and reads; two sessions may use the
+same opaque handle for different bytes. A shared body digest grants no access.
 Explicit state uses immutable version handles and revision-checked writes.
 Client state reads return bounded base64 JSON bytes, preserving exact numbers;
 list/history calls return metadata. Mail provenance distinguishes session senders, state subscriptions, and child

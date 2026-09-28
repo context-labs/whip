@@ -269,6 +269,16 @@ methods for formulation, without a separate job cache or provider invocation.
 
 ## Content boundary
 
+Content-reference identity is `(owner_session_id, reference_id)`. The same opaque
+handle may name different bytes in different sessions. Every read, registration
+retry and permanent logical-write identity includes the owner; an exact retry in
+one owner remains free. Bodies are still deduplicated by digest. A digest or a
+handle belonging to another session does not grant access. Mail evidence binds
+the recipient and reference through composite foreign keys, so it cannot point
+at another owner's row. Explicit child/mail sharing still creates recipient
+aliases; this foundation permits a later fork to preserve handles without
+rewriting opaque text. It does not implement fork or rewind yet.
+
 `content.put` publishes bytes durably before registering body metadata and a
 session reference. A caller-supplied reference ID makes upload retries idempotent;
 changing its owner, bytes or media type conflicts. The body table owns digest and
@@ -302,7 +312,7 @@ must select a model/provider before creating a runnable session. API credentials
 use environment references resolved during request preparation. Subscription
 credentials belong to the independent host account manager and its private file.
 
-Current fresh host configuration is version 9; the SQLite schema is version 30.
+Current fresh host configuration is version 9; the SQLite schema is version 31.
 SQLite has an application identifier and schema version. Existing databases of
 another application/version are rejected, not imported. Reopening preserves the
 runtime identity and seeded revisions; separate databases receive distinct
