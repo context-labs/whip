@@ -350,11 +350,11 @@ func TestSkillReadAcquiredRootClosesOnEveryExit(t *testing.T) {
 					opened = execution.root
 					return release, err
 				},
-				Run: func(ctx context.Context) (any, error) {
+				Run: func(ctx context.Context, id session.OperationID) (any, error) {
 					if mode == "cancelled" {
 						cancel()
 					}
-					return execution.run(ctx)
+					return execution.run(ctx, id)
 				},
 			}
 			ledger := skillReadLedger{Store: r.store, dispatch: func(ctx context.Context, _ session.OperationID) error {

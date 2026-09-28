@@ -146,12 +146,12 @@ func (r *Runtime) ReadContentRange(ctx context.Context, owner session.SessionID,
 
 func (r *Runtime) prepareCompletionRead(current session.Session, call tool.Invocation) (tool.Prepared, error) {
 	var request any
-	var run func(context.Context) (any, error)
+	var run func(context.Context, session.OperationID) (any, error)
 	switch call.Name {
 	case "pending_reports":
 		args := &pendingReportsRequest{Limit: 20}
 		request = args
-		run = func(ctx context.Context) (any, error) {
+		run = func(ctx context.Context, _ session.OperationID) (any, error) {
 			items, err := r.ListPendingCompletions(ctx, current.ID, args.After, args.Limit)
 			if err != nil {
 				return nil, err
@@ -178,7 +178,7 @@ func (r *Runtime) prepareCompletionRead(current session.Session, call tool.Invoc
 	case "read_report":
 		args := &readReportRequest{Length: maxEvidenceReadBytes}
 		request = args
-		run = func(ctx context.Context) (any, error) {
+		run = func(ctx context.Context, _ session.OperationID) (any, error) {
 			return r.ReadPendingCompletion(ctx, current.ID, args.ChildID, args.TurnID, args.Offset, args.Length)
 		}
 	default:
@@ -242,7 +242,7 @@ func (r *Runtime) prepareArtifactRead(current session.Session, call tool.Invocat
 		Resource:   string(current.TreeID),
 		Arguments:  arguments,
 		Acquire:    func(ctx context.Context) (func(), error) { return func() {}, ctx.Err() },
-		Run: func(ctx context.Context) (any, error) {
+		Run: func(ctx context.Context, _ session.OperationID) (any, error) {
 			reference, data, err := r.ReadContentRange(ctx, current.ID, args.ID, args.Offset, args.Length)
 			if err != nil {
 				return nil, err

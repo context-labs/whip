@@ -28,7 +28,7 @@ func runFileTest(t *testing.T, prepared Prepared) (map[string]any, error) {
 		return nil, err
 	}
 	defer release()
-	value, err := prepared.Run(t.Context())
+	value, err := prepared.Run(t.Context(), "test_operation")
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +91,7 @@ func TestFilesReadWritePatchAndImmutableRequest(t *testing.T) {
 	if err != nil || result["output"] != "2\tchanged\n" || result["next_offset"] != 3 || result["truncated"] != true {
 		t.Fatalf("read result=%v error=%v", result, err)
 	}
-	if _, err := write.Run(t.Context()); err == nil {
+	if _, err := write.Run(t.Context(), "test_operation"); err == nil {
 		t.Fatal("one-use operation executed again")
 	}
 }
@@ -278,7 +278,7 @@ func TestFilesConfineSymlinksAndRejectSpecialFiles(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(directory, "inside")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := prepared.Run(t.Context()); err == nil {
+	if _, err := prepared.Run(t.Context(), "test_operation"); err == nil {
 		t.Fatal("post-acquisition symlink escaped root")
 	}
 	assertBytes(t, filepath.Join(outside, "file"), "outside")
