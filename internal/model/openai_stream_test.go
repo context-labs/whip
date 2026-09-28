@@ -94,7 +94,7 @@ func TestChatStreamSSEFramingAndSparseToolFragments(t *testing.T) {
 	stream := ": keepalive\r\nevent: message\r\nid: 1\r\n" +
 		"data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\r\n" +
 		"data: \"content\":\"Checking.\"}}]}\r\n\r\n" +
-		streamEvent(`{"choices":[{"delta":{"reasoning_content":"not presented"}}]}`) +
+		streamEvent(`{"choices":[{"delta":{"reasoning_content":"preview only"}}]}`) +
 		streamEvent(`{"choices":[{"delta":{"tool_calls":[{"index":7,"id":"call_","type":"function","function":{"name":"exe","arguments":"{\"co"}}]}}]}`) +
 		streamEvent(`{"choices":[{"delta":{"tool_calls":[{"index":2,"id":"second","function":{"name":"execute","arguments":"{\"code\":\"print(2)\"}"}}]}}]}`) +
 		streamEvent(`{"choices":[{"delta":{"tool_calls":[{"index":7,"id":"first","function":{"name":"cute","arguments":"de\":\"print(1)\"}"}}]}}]}`) +
@@ -104,13 +104,13 @@ func TestChatStreamSSEFramingAndSparseToolFragments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(chunks) != 4 || chunks[0].Text != "Checking." || chunks[1].Call.Index != 7 || chunks[1].Call.ID != "call_" || chunks[3].Call.ID != "first" || chunks[3].Call.Name != "cute" || chunks[3].Call.Arguments != `de":"print(1)"}` {
+	if len(chunks) != 5 || chunks[0].Text != "Checking." || chunks[1].Reasoning != "preview only" || chunks[2].Call.Index != 7 || chunks[2].Call.ID != "call_" || chunks[4].Call.ID != "first" || chunks[4].Call.Name != "cute" || chunks[4].Call.Arguments != `de":"print(1)"}` {
 		t.Fatalf("callbacks were not raw incremental fragments: %+v", chunks)
 	}
 	if len(response.Parts) != 3 || response.Parts[1].Call.ID != "call_first" || response.Parts[1].Call.Name != "execute" || string(response.Parts[1].Call.Arguments) != `{"code":"print(1)"}` || response.Parts[2].Call.ID != "second" {
 		t.Fatalf("sparse assembly: %+v", response.Parts)
 	}
-	chunks[1].Call.Name = "mutated callback"
+	chunks[2].Call.Name = "mutated callback"
 	if response.Parts[1].Call.Name != "execute" {
 		t.Fatal("callback aliases completed response")
 	}

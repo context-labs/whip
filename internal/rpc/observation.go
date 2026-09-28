@@ -20,7 +20,7 @@ func dispatchObservation(ctx context.Context, r *runtime.Runtime, raw json.RawMe
 			result.Messages = append(result.Messages, protocol.MessageFromDomain(message))
 		}
 		if preview := value.Preview; preview != nil {
-			result.Preview = &protocol.MessagePreview{AttemptID: protocol.ID(preview.AttemptID), TurnID: protocol.ID(preview.TurnID), MessageID: protocol.ID(preview.MessageID), Revision: protocol.Counter(preview.Revision), Text: preview.Text, Calls: []protocol.CallPreview{}, Truncated: preview.Truncated}
+			result.Preview = &protocol.MessagePreview{AttemptID: protocol.ID(preview.AttemptID), TurnID: protocol.ID(preview.TurnID), MessageID: protocol.ID(preview.MessageID), Revision: protocol.Counter(preview.Revision), Text: preview.Text, Reasoning: preview.Reasoning, Calls: []protocol.CallPreview{}, Truncated: preview.Truncated}
 			for _, call := range preview.Calls {
 				result.Preview.Calls = append(result.Preview.Calls, protocol.CallPreview{Index: call.Index, ID: call.ID, Name: call.Name, Arguments: call.Arguments})
 			}

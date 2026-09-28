@@ -2189,3 +2189,30 @@ Provider idle revision `fa8e28191` passed every hosted job in
 and prepared output-limit revision `a680d8ac3` passed every hosted job in
 [run 36477974198](https://github.com/context-labs/whip/actions/runs/36477974198).
 The earlier Linux fairness-test failures remain failed evidence.
+
+
+## Bounded provisional reasoning observations
+
+Integrated adapter/public-observation commits as `6e9b6b5d0` and `a7510d180`
+from isolated `022ca1220`/`28e40d63e`. Chat reasoning and Responses/subscription
+reasoning-summary deltas now reach `preview.reasoning` through the existing
+Runtime/RPC/SDK observation contract. Text, reasoning and tool-call fields share
+the existing 128 KiB UTF-8-safe budget; reasoning-only chunks advance revision.
+The SDK iterator still retains only cursor/revision and introduces no new cache.
+
+Reasoning fragments never enter completed message parts, private-continuation
+projections or later provider requests. Raw framing/event bounds remain in place
+without counting discarded reasoning against final-message bytes. Tests cover
+interleaving, nil callbacks, malformed/cancelled/failed streams, unknown and known
+accounting, shared truncation, retry replacement, settlement retry, final commit,
+cancellation and process restart. The real SDK streaming scenario verifies both
+reasoning display and its absence from later request/history payloads.
+
+The isolated slice passed observation race/shuffle three times (12.644s), full
+model/protocol/RPC race tests, vet, scoped lint, generated contract checks, SDK
+checks and its final full process fixture (18.548s). Integrated fast, contract
+interchange/drift, all eight SDK tests and the full process fixture passed
+(16.493s). Integrated analysis found zero lint issues and no reachable
+vulnerabilities. Logs are `/tmp/whip-reasoning-public-{fast,contract,sdk,fixture,analysis}.log`.
+Hosted validation is pending. Config8/schema29/protocol development major4 are
+unchanged. Product UI adoption remains a later client-cutover obligation.

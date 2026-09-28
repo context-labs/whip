@@ -29,14 +29,18 @@ type observationCall struct {
 }
 
 type observationProvider struct {
-	started chan observationCall
-	calls   atomic.Int32
+	started     chan observationCall
+	calls       atomic.Int32
+	maxAttempts int
 }
 
 func (p *observationProvider) Prepare(ctx context.Context, request model.Request) (model.Prepared, error) {
 	prepared, err := (model.Scripted{}).Prepare(ctx, request)
 	if err != nil {
 		return prepared, err
+	}
+	if p.maxAttempts > 0 {
+		prepared.MaxAttempts = p.maxAttempts
 	}
 	prepared.Execute = func(ctx context.Context, emit func(model.Chunk)) (model.Response, error) {
 		p.calls.Add(1)
@@ -85,10 +89,12 @@ func TestObservationReplacesPreviewWithoutGivingObserversExecutionOwnership(t *t
 	}
 	submitTest(t, r, current.ID, "first-preview")
 	first := nextObservationCall(t, provider)
+	first.emit(model.Chunk{Reasoning: "considering "})
 	first.emit(model.Chunk{Text: "partial "})
+	first.emit(model.Chunk{Reasoning: "the request"})
 	first.emit(model.Chunk{Text: "answer", Call: &model.CallChunk{Index: 0, ID: "call-1", Name: "execute", Arguments: `{"code":"print(`}})
 	live := observeTest(t, r, current.ID)
-	if live.Epoch == "" || live.Preview == nil || live.Preview.Text != "partial answer" || live.Preview.Revision != 2 || len(live.Preview.Calls) != 1 {
+	if live.Epoch == "" || live.Preview == nil || live.Preview.Text != "partial answer" || live.Preview.Reasoning != "considering the request" || live.Preview.Revision != 4 || len(live.Preview.Calls) != 1 {
 		t.Fatalf("missing provisional fragments: %+v", live)
 	}
 	if len(live.Messages) != 1 || live.Messages[0].Role != session.User {
@@ -129,10 +135,10 @@ func TestObservationReplacesPreviewWithoutGivingObserversExecutionOwnership(t *t
 	}
 	submitTest(t, r, current.ID, "second-preview")
 	second := nextObservationCall(t, provider)
-	second.emit(model.Chunk{Text: "fresh"})
-	first.emit(model.Chunk{Text: "late callback", Call: &model.CallChunk{Index: 1, Arguments: "stale"}})
+	second.emit(model.Chunk{Text: "fresh", Reasoning: "new reasoning"})
+	first.emit(model.Chunk{Text: "late callback", Reasoning: "stale reasoning", Call: &model.CallChunk{Index: 1, Arguments: "stale"}})
 	newer := observeTest(t, r, current.ID)
-	if newer.Preview == nil || newer.Preview.Text != "fresh" || newer.Preview.AttemptID == live.Preview.AttemptID || newer.Preview.Revision != 1 || len(newer.Preview.Calls) != 0 {
+	if newer.Preview == nil || newer.Preview.Text != "fresh" || newer.Preview.Reasoning != "new reasoning" || newer.Preview.AttemptID == live.Preview.AttemptID || newer.Preview.Revision != 1 || len(newer.Preview.Calls) != 0 {
 		t.Fatalf("old provider callback changed the next preview: %+v", newer.Preview)
 	}
 	second.complete <- observationResult{response: model.Response{Parts: []session.Part{{Type: "text", Text: "second answer"}}}}
@@ -151,10 +157,10 @@ func TestObservationDiscardsFailedCancelledAndRestartedPreviews(t *testing.T) {
 			}
 			submitTest(t, r, current.ID, ending)
 			call := nextObservationCall(t, provider)
-			call.emit(model.Chunk{Text: "never committed"})
+			call.emit(model.Chunk{Reasoning: "never committed"})
 			before := observeTest(t, r, current.ID)
-			if before.Preview == nil {
-				t.Fatal("provider preview did not appear")
+			if before.Preview == nil || before.Preview.Reasoning != "never committed" || before.Preview.Text != "" {
+				t.Fatal("reasoning-only provider preview did not appear")
 			}
 			want := session.Failed
 			switch ending {
@@ -179,7 +185,7 @@ func TestObservationDiscardsFailedCancelledAndRestartedPreviews(t *testing.T) {
 			if finished.Turn.State != want {
 				t.Fatalf("turn state=%s want=%s", finished.Turn.State, want)
 			}
-			call.emit(model.Chunk{Text: "late after termination"})
+			call.emit(model.Chunk{Reasoning: "late after termination"})
 			after := observeTest(t, r, current.ID)
 			if after.Preview != nil || len(after.Messages) != 1 || after.Messages[0].Role != session.User {
 				t.Fatalf("partial output survived %s: %+v", ending, after)
@@ -236,7 +242,7 @@ func TestObservationKeepsPreviewDuringSQLSettlementRetry(t *testing.T) {
 	}
 	submitTest(t, r, current.ID, "sql-retry")
 	call := nextObservationCall(t, provider)
-	call.emit(model.Chunk{Text: "visible until committed"})
+	call.emit(model.Chunk{Text: "visible until committed", Reasoning: "provisional reasoning"})
 	before := observeTest(t, r, current.ID)
 	if before.Preview == nil {
 		t.Fatal("missing active preview")
@@ -248,7 +254,7 @@ func TestObservationKeepsPreviewDuringSQLSettlementRetry(t *testing.T) {
 		t.Fatal("SQL settlement fault was not exercised")
 	}
 	during := observeTest(t, r, current.ID)
-	if during.Preview == nil || during.Preview.MessageID != before.Preview.MessageID || during.Preview.Text != before.Preview.Text || len(during.Messages) != 1 {
+	if during.Preview == nil || during.Preview.MessageID != before.Preview.MessageID || during.Preview.Text != before.Preview.Text || during.Preview.Reasoning != before.Preview.Reasoning || len(during.Messages) != 1 {
 		t.Fatalf("failed SQL settlement lost preview or leaked message: %+v", during)
 	}
 	if _, err := db.ExecContext(t.Context(), "DROP TRIGGER fail_preview_settlement"); err != nil {
@@ -264,31 +270,37 @@ func TestObservationKeepsPreviewDuringSQLSettlementRetry(t *testing.T) {
 	}
 }
 
-func TestObservationBoundsUTF8TextAndPartialToolArguments(t *testing.T) {
+func TestObservationSharesUTF8ByteBoundAcrossAllPreviewFields(t *testing.T) {
 	provider := &observationProvider{started: make(chan observationCall)}
 	r := openTest(t, t.TempDir(), provider)
 	if err := r.Start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{"text", "tool"} {
+	for _, field := range []string{"text", "tool", "reasoning", "mixed"} {
 		t.Run(field, func(t *testing.T) {
 			current := createTest(t, r)
 			submitTest(t, r, current.ID, field)
 			call := nextObservationCall(t, provider)
 			large := strings.Repeat("界", maxPreviewBytes/3+2)
-			if field == "text" {
+			switch field {
+			case "text":
 				call.emit(model.Chunk{Text: large})
-			} else {
+			case "tool":
 				call.emit(model.Chunk{Call: &model.CallChunk{Index: 0, ID: "id", Name: "execute", Arguments: large}})
+			case "reasoning":
+				call.emit(model.Chunk{Reasoning: large})
+			case "mixed":
+				call.emit(model.Chunk{Text: "partial", Call: &model.CallChunk{Index: 0, ID: "id", Name: "execute", Arguments: `{"code":"`}})
+				call.emit(model.Chunk{Reasoning: large})
 			}
 			view := observeTest(t, r, current.ID)
 			if view.Preview == nil || !view.Preview.Truncated || len(view.Messages) != 1 {
 				t.Fatalf("oversized preview was not bounded: %+v", view)
 			}
 			preview := view.Preview
-			size := len(preview.Text)
-			if !utf8.ValidString(preview.Text) {
-				t.Fatal("text truncation split a UTF-8 codepoint")
+			size := len(preview.Text) + len(preview.Reasoning)
+			if !utf8.ValidString(preview.Text) || !utf8.ValidString(preview.Reasoning) {
+				t.Fatal("preview truncation split a UTF-8 codepoint")
 			}
 			for _, fragment := range preview.Calls {
 				size += len(fragment.ID) + len(fragment.Name) + len(fragment.Arguments)
@@ -308,5 +320,45 @@ func TestObservationBoundsUTF8TextAndPartialToolArguments(t *testing.T) {
 				t.Fatal("preview truncation affected durable completion")
 			}
 		})
+	}
+}
+
+func TestObservationClearsReasoningBeforeConfirmedRetry(t *testing.T) {
+	provider := &observationProvider{started: make(chan observationCall), maxAttempts: 2}
+	r := openTest(t, t.TempDir(), provider)
+	current := createTest(t, r)
+	if err := r.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	submitTest(t, r, current.ID, "preview-retry")
+	first := nextObservationCall(t, provider)
+	first.emit(model.Chunk{Reasoning: "first attempt"})
+	before := observeTest(t, r, current.ID)
+	if before.Preview == nil || before.Preview.Reasoning != "first attempt" {
+		t.Fatal("missing first attempt preview")
+	}
+	// This controlled provider explicitly confirms that retry is safe. The HTTP
+	// adapters never classify an interrupted stream as a retryable response.
+	first.complete <- observationResult{err: &model.CallError{StatusCode: 429, Retryable: true, Message: "confirmed rejection"}}
+	second := nextObservationCall(t, provider)
+	fresh := observeTest(t, r, current.ID)
+	if fresh.Preview == nil || fresh.Preview.AttemptID == before.Preview.AttemptID || fresh.Preview.Reasoning != "" || fresh.Preview.Revision != 0 {
+		t.Fatalf("retry retained the previous preview: %+v", fresh.Preview)
+	}
+	second.emit(model.Chunk{Reasoning: "second attempt"})
+	first.emit(model.Chunk{Reasoning: "stale first callback"})
+	fresh = observeTest(t, r, current.ID)
+	if fresh.Preview == nil || fresh.Preview.Reasoning != "second attempt" || fresh.Preview.Revision != 1 {
+		t.Fatalf("retry preview was changed by a stale callback: %+v", fresh.Preview)
+	}
+	second.complete <- observationResult{response: model.Response{Parts: []session.Part{{Type: "text", Text: "completed retry"}}}}
+	finished := waitTest(t, r, "preview-retry", terminal)
+	after := observeTest(t, r, current.ID)
+	if finished.Turn.State != session.Succeeded || after.Preview != nil || len(after.Messages) != 2 || after.Messages[1].ID != fresh.Preview.MessageID || len(after.Messages[1].Parts) != 1 || after.Messages[1].Parts[0].Text != "completed retry" {
+		t.Fatalf("retry did not replace only its own preview: turn=%+v observation=%+v", finished.Turn, after)
+	}
+	attempts, err := r.ModelAttempts(t.Context(), finished.Turn.ID, "", 100)
+	if err != nil || len(attempts) != 2 || provider.calls.Load() != 2 {
+		t.Fatalf("retry evidence: attempts=%+v calls=%d err=%v", attempts, provider.calls.Load(), err)
 	}
 }

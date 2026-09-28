@@ -94,9 +94,13 @@ directly to `@whip/protocol` v4 over its Node transport. Its main entry point is
 transport-independent and validates generated request/response types. It keeps
 connection identity; its observation iterator retains only a history cursor and
 preview revision while reading bounded pages from Go. Provisional provider text
-is separate from committed messages: replace it by the matching message ID, and
+and `preview.reasoning` are separate from committed messages: replace the entire
+preview by the matching message ID, and
 clear it on a null preview or changed process epoch. The iterator keeps no second
-transcript authority. An aborted wait or observation does not cancel execution. See [its example and recovery
+transcript authority. Reasoning shares the 128 KiB preview budget with text and
+call fragments; `truncated` applies to their combined payload. It is disposable
+presentation, not assistant output or context, and has no persisted history.
+An aborted wait or observation does not cancel execution. See [its example and recovery
 contract](../packages/sdk/README.md) and [the backend domain contract](backend-domain.md).
 Reusable limits are session-scoped `resources.list/set` records, separate from
 permanent model budgets. Inspect all returned ancestor scopes before displaying

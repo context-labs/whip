@@ -593,6 +593,9 @@
         "text": {
           "type": "string"
         },
+        "reasoning": {
+          "type": "string"
+        },
         "calls": {
           "type": [
             "null",
@@ -635,6 +638,7 @@
         "message_id",
         "revision",
         "text",
+        "reasoning",
         "calls",
         "truncated"
       ],

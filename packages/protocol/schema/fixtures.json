@@ -743,6 +743,7 @@
         "message_id": "message_live",
         "revision": "9007199254740993",
         "text": "In progress",
+        "reasoning": "Considering the request",
         "calls": [
           {
             "index": 0,

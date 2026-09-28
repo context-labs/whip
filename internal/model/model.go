@@ -59,7 +59,10 @@ type Response struct {
 // incremental fragments, not snapshots or executable transcript parts.
 type Chunk struct {
 	Text string
-	Call *CallChunk
+	// Reasoning is an explicitly streamed reasoning preview, never final output
+	// or opaque provider continuation. Callers may discard it independently.
+	Reasoning string
+	Call      *CallChunk
 }
 
 type CallChunk struct {
