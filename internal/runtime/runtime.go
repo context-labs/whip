@@ -231,6 +231,7 @@ func (r *Runtime) run(ctx context.Context) {
 	defer close(r.done)
 	var workers sync.WaitGroup
 	var completionCursor session.SessionID
+	var scheduleCursor scheduleScan
 	ticker := time.NewTicker(r.options.PollInterval)
 	defer ticker.Stop()
 	defer workers.Wait()
@@ -238,7 +239,10 @@ func (r *Runtime) run(ctx context.Context) {
 		// Delivery progresses even when all execution slots are occupied. This
 		// cursor is disposable; pending outcomes remain authoritative in SQLite.
 		var err error
-		completionCursor, err = r.publishCompletions(ctx, completionCursor)
+		scheduleCursor, err = r.admitSchedules(ctx, scheduleCursor)
+		if err == nil {
+			completionCursor, err = r.publishCompletions(ctx, completionCursor)
+		}
 		if err == nil {
 			err = r.schedule(ctx, &workers)
 		}

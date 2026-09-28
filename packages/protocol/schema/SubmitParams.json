@@ -27,8 +27,7 @@
       "type": "string",
       "enum": [
         "user",
-        "agent",
-        "schedule"
+        "agent"
       ]
     },
     "parts": {

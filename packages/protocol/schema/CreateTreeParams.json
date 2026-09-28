@@ -47,7 +47,8 @@
               "queued_inputs",
               "active_operations",
               "subscriptions",
-              "runnable_descendants"
+              "runnable_descendants",
+              "schedules"
             ]
           },
           "limit": {

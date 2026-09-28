@@ -82,3 +82,22 @@ test('resource calls preserve exact limits and validate before transport', async
   await assert.rejects(client.call('resources.set', { ...params, resource: { kind: 'queued_inputs', limit: 1 } }), TypeError);
   assert.equal(calls.length, 2);
 });
+
+test('schedule retries retain caller identity and cursors retain exact nanoseconds', async () => {
+  const requests = [];
+  const client = await Client.connect(async request => {
+    if (request.method === 'initialize') return success(request, initial);
+    requests.push(request);
+    if (request.method === 'schedules.create') return success(request, { id: request.params.schedule_id, schedule: null, deleted_at: '2026-09-28T12:00:00Z' });
+    return success(request, { items: [], next_after: null, next_cursor: null });
+  }, { clientID: 'scheduler' });
+  const template = { session_id: 'session', expression: '@every 0.000000001s', parts: [{ type: 'text', text: 'exact' }] };
+  await client.createSchedule(template, 'stable'); await client.createSchedule(template, 'stable');
+  assert.deepEqual(requests[0].params, requests[1].params);
+  const cursor = { id: 'stable', due: '2500-01-02T03:04:05.123456789Z' };
+  await client.call('schedules.list', { session_id: 'session', upcoming: true, cursor, limit: 1 });
+  assert.deepEqual(requests[2].params.cursor, cursor);
+  await assert.rejects(client.call('schedules.list', { session_id: 'session', limit: 101 }), TypeError);
+  await assert.rejects(client.call('schedules.list', { session_id: 'session', upcoming: true, cursor: { ...cursor, due: cursor.due.replace('789Z', '7891Z') }, limit: 1 }), TypeError);
+  assert.equal(requests.length, 3);
+});

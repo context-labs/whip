@@ -45,6 +45,10 @@ export interface Admission {
         state: "queued" | "claimed" | "cancelled";
         turn_id: null | string;
         created_at: string;
+        schedule: null | {
+          schedule_id: string;
+          scheduled_for: string;
+        };
       }
     | {
         id: string;
@@ -58,6 +62,10 @@ export interface Admission {
         state: "queued" | "claimed" | "cancelled";
         turn_id: null | string;
         created_at: string;
+        schedule: null | {
+          schedule_id: string;
+          scheduled_for: string;
+        };
       }
     | null;
   turn: null | {
@@ -226,6 +234,73 @@ export interface CreateGrantParams {
   resource: string;
   issuer_id?: null | string;
 }
+export interface CreateScheduleParams {
+  session_id: string;
+  schedule_id: string;
+  expression: string;
+  /**
+   * @minItems 1
+   * @maxItems 128
+   */
+  parts: [
+    (
+      | {
+          text: string;
+          type: "text";
+        }
+      | {
+          reference_id: string;
+          type: "content";
+        }
+      | {
+          call: {
+            arguments: {
+              [k: string]: unknown;
+            };
+            id: string;
+            name: string;
+          };
+          type: "tool_call";
+        }
+      | {
+          result: {
+            call_id: string;
+            is_error: boolean;
+            output: string;
+          };
+          type: "tool_result";
+        }
+    ),
+    ...(
+      | {
+          text: string;
+          type: "text";
+        }
+      | {
+          reference_id: string;
+          type: "content";
+        }
+      | {
+          call: {
+            arguments: {
+              [k: string]: unknown;
+            };
+            id: string;
+            name: string;
+          };
+          type: "tool_call";
+        }
+      | {
+          result: {
+            call_id: string;
+            is_error: boolean;
+            output: string;
+          };
+          type: "tool_result";
+        }
+    )[]
+  ];
+}
 export interface CreateTreeParams {
   metadata: {
     title: null | string;
@@ -237,7 +312,13 @@ export interface CreateTreeParams {
     | null
     | {
         kind:
-          "depth" | "descendants" | "queued_inputs" | "active_operations" | "subscriptions" | "runnable_descendants";
+          | "depth"
+          | "descendants"
+          | "queued_inputs"
+          | "active_operations"
+          | "subscriptions"
+          | "runnable_descendants"
+          | "schedules";
         limit: null | string;
       }[];
   definition: {
@@ -823,6 +904,10 @@ export type Input =
       state: "queued" | "claimed" | "cancelled";
       turn_id: null | string;
       created_at: string;
+      schedule: null | {
+        schedule_id: string;
+        scheduled_for: string;
+      };
     }
   | {
       id: string;
@@ -836,6 +921,10 @@ export type Input =
       state: "queued" | "claimed" | "cancelled";
       turn_id: null | string;
       created_at: string;
+      schedule: null | {
+        schedule_id: string;
+        scheduled_for: string;
+      };
     };
 export interface InputParams {
   input_id: string;
@@ -909,6 +998,16 @@ export interface ListMailResult {
         created_at: string;
         revised_at: string;
       }[];
+}
+export interface ListSchedulesParams {
+  session_id: string;
+  after?: string;
+  upcoming?: boolean;
+  cursor?: null | {
+    due: string;
+    id: string;
+  };
+  limit: number;
 }
 export interface ListSessionsParams {
   tree_id: string;
@@ -1443,7 +1542,14 @@ export interface ResolvePermissionParams {
 }
 export interface ResourceUsage {
   session_id: string;
-  kind: "depth" | "descendants" | "queued_inputs" | "active_operations" | "subscriptions" | "runnable_descendants";
+  kind:
+    | "depth"
+    | "descendants"
+    | "queued_inputs"
+    | "active_operations"
+    | "subscriptions"
+    | "runnable_descendants"
+    | "schedules";
   revision: string;
   limit: null | string;
   used: string;
@@ -1454,7 +1560,13 @@ export interface ResourcesResult {
     | {
         session_id: string;
         kind:
-          "depth" | "descendants" | "queued_inputs" | "active_operations" | "subscriptions" | "runnable_descendants";
+          | "depth"
+          | "descendants"
+          | "queued_inputs"
+          | "active_operations"
+          | "subscriptions"
+          | "runnable_descendants"
+          | "schedules";
         revision: string;
         limit: null | string;
         used: string;
@@ -1482,6 +1594,153 @@ export type Response = {
 } & {
   [k: string]: unknown;
 };
+export interface ScheduleAdmission {
+  id: string;
+  schedule: null | {
+    id: string;
+    session_id: string;
+    expression: string;
+    first_due: string;
+    next_due: null | string;
+    cancelled_at: null | string;
+    failure: null | string;
+    created_at: string;
+    parts_bytes: string;
+    preview: string;
+    preview_truncated: boolean;
+    latest: null | {
+      schedule_id: string;
+      scheduled_for: string;
+      input_id: string;
+      identity: {
+        client_id: string;
+        request_id: string;
+      };
+    };
+  };
+  deleted_at: null | string;
+}
+export interface ScheduleParams {
+  session_id: string;
+  schedule_id: string;
+}
+export interface ScheduleResult {
+  schedule: {
+    id: string;
+    session_id: string;
+    expression: string;
+    first_due: string;
+    next_due: null | string;
+    cancelled_at: null | string;
+    failure: null | string;
+    created_at: string;
+    parts_bytes: string;
+    preview: string;
+    preview_truncated: boolean;
+    latest: null | {
+      schedule_id: string;
+      scheduled_for: string;
+      input_id: string;
+      identity: {
+        client_id: string;
+        request_id: string;
+      };
+    };
+  };
+  /**
+   * @minItems 1
+   * @maxItems 128
+   */
+  parts: [
+    (
+      | {
+          text: string;
+          type: "text";
+        }
+      | {
+          reference_id: string;
+          type: "content";
+        }
+      | {
+          call: {
+            arguments: {
+              [k: string]: unknown;
+            };
+            id: string;
+            name: string;
+          };
+          type: "tool_call";
+        }
+      | {
+          result: {
+            call_id: string;
+            is_error: boolean;
+            output: string;
+          };
+          type: "tool_result";
+        }
+    ),
+    ...(
+      | {
+          text: string;
+          type: "text";
+        }
+      | {
+          reference_id: string;
+          type: "content";
+        }
+      | {
+          call: {
+            arguments: {
+              [k: string]: unknown;
+            };
+            id: string;
+            name: string;
+          };
+          type: "tool_call";
+        }
+      | {
+          result: {
+            call_id: string;
+            is_error: boolean;
+            output: string;
+          };
+          type: "tool_result";
+        }
+    )[]
+  ];
+}
+export interface SchedulesResult {
+  items:
+    | null
+    | {
+        id: string;
+        session_id: string;
+        expression: string;
+        first_due: string;
+        next_due: null | string;
+        cancelled_at: null | string;
+        failure: null | string;
+        created_at: string;
+        parts_bytes: string;
+        preview: string;
+        preview_truncated: boolean;
+        latest: null | {
+          schedule_id: string;
+          scheduled_for: string;
+          input_id: string;
+          identity: {
+            client_id: string;
+            request_id: string;
+          };
+        };
+      }[];
+  next_after: null | string;
+  next_cursor: null | {
+    due: string;
+    id: string;
+  };
+}
 export interface SearchHistoryParams {
   session_id: string;
   after: string;
@@ -1803,7 +2062,14 @@ export interface SetResourceParams {
   session_id: string;
   expected_revision: string;
   resource: {
-    kind: "depth" | "descendants" | "queued_inputs" | "active_operations" | "subscriptions" | "runnable_descendants";
+    kind:
+      | "depth"
+      | "descendants"
+      | "queued_inputs"
+      | "active_operations"
+      | "subscriptions"
+      | "runnable_descendants"
+      | "schedules";
     limit: null | string;
   };
 }
@@ -1908,7 +2174,13 @@ export interface SpawnSessionParams {
     | null
     | {
         kind:
-          "depth" | "descendants" | "queued_inputs" | "active_operations" | "subscriptions" | "runnable_descendants";
+          | "depth"
+          | "descendants"
+          | "queued_inputs"
+          | "active_operations"
+          | "subscriptions"
+          | "runnable_descendants"
+          | "schedules";
         limit: null | string;
       }[];
 }
@@ -2017,6 +2289,10 @@ export interface SpawnSessionResult {
           state: "queued" | "claimed" | "cancelled";
           turn_id: null | string;
           created_at: string;
+          schedule: null | {
+            schedule_id: string;
+            scheduled_for: string;
+          };
         }
       | {
           id: string;
@@ -2030,6 +2306,10 @@ export interface SpawnSessionResult {
           state: "queued" | "claimed" | "cancelled";
           turn_id: null | string;
           created_at: string;
+          schedule: null | {
+            schedule_id: string;
+            scheduled_for: string;
+          };
         }
       | null;
     turn: null | {
@@ -2112,7 +2392,7 @@ export interface SubmitParams {
     request_id: string;
   };
   session_id: string;
-  source: "user" | "agent" | "schedule";
+  source: "user" | "agent";
   /**
    * @minItems 1
    * @maxItems 128
@@ -2283,6 +2563,7 @@ export interface ContractTypes {
   ContextHead: ContextHead;
   ContextHistoryParams: ContextHistoryParams;
   CreateGrantParams: CreateGrantParams;
+  CreateScheduleParams: CreateScheduleParams;
   CreateTreeParams: CreateTreeParams;
   CreateTreeResult: CreateTreeResult;
   Definition: Definition;
@@ -2312,6 +2593,7 @@ export interface ContractTypes {
   ListCompletionsResult: ListCompletionsResult;
   ListMailParams: ListMailParams;
   ListMailResult: ListMailResult;
+  ListSchedulesParams: ListSchedulesParams;
   ListSessionsParams: ListSessionsParams;
   ListSessionsResult: ListSessionsResult;
   ListSkillsParams: ListSkillsParams;
@@ -2343,6 +2625,10 @@ export interface ContractTypes {
   ResourceUsage: ResourceUsage;
   ResourcesResult: ResourcesResult;
   Response: Response;
+  ScheduleAdmission: ScheduleAdmission;
+  ScheduleParams: ScheduleParams;
+  ScheduleResult: ScheduleResult;
+  SchedulesResult: SchedulesResult;
   SearchHistoryParams: SearchHistoryParams;
   SearchHistoryResult: SearchHistoryResult;
   SelectCompactionParams: SelectCompactionParams;
@@ -2375,6 +2661,10 @@ export interface ContractTypes {
   WriteStateParams: WriteStateParams;
 }
 export interface Operations {
+  "schedules.create": { params: CreateScheduleParams; result: ScheduleAdmission };
+  "schedules.get": { params: ScheduleParams; result: ScheduleResult };
+  "schedules.list": { params: ListSchedulesParams; result: SchedulesResult };
+  "schedules.cancel": { params: ScheduleParams; result: ScheduleAdmission };
   "sessions.compact": { params: CompactParams; result: Admission };
   "context.head": { params: SessionParams; result: ContextHead };
   "context.compaction": { params: CompactionParams; result: CompactionResult };

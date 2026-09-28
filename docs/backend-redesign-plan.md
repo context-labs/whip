@@ -636,6 +636,10 @@ Acceptance:
       and prevents stale client history from being silently applied.
 - [ ] Goals/schedules admit ordinary inputs; due work is handled according to
       policy even when its session worker is not already loaded.
+      Schedules now have exact ordinary-input provenance, atomic cursor/charge
+      admission, bounded client-independent polling, stopped-owner/restart and
+      both-engine ownership coverage. Goal work remains separate; this combined
+      acceptance item stays open until its goal obligations are satisfied.
 - [ ] Integration reloads/model changes preserve unrelated children, grants,
       REPL and resource ownership.
 - [ ] Executor disconnect, required/optional hooks, tool schemas and output

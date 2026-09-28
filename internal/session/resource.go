@@ -11,6 +11,7 @@ const (
 	ResourceQueuedInputs        ResourceKind = "queued_inputs"
 	ResourceActiveOperations    ResourceKind = "active_operations"
 	ResourceSubscriptions       ResourceKind = "subscriptions"
+	ResourceSchedules           ResourceKind = "schedules"
 	// MaxSessionDepth bounds ancestry traversal, including delegated authority.
 	MaxSessionDepth = 128
 )
@@ -33,7 +34,7 @@ type ResourceUsage struct {
 }
 
 func ResourceKinds() []ResourceKind {
-	return []ResourceKind{ResourceDepth, ResourceDescendants, ResourceQueuedInputs, ResourceActiveOperations, ResourceSubscriptions, ResourceRunnableDescendants}
+	return []ResourceKind{ResourceDepth, ResourceDescendants, ResourceQueuedInputs, ResourceActiveOperations, ResourceSubscriptions, ResourceRunnableDescendants, ResourceSchedules}
 }
 
 func DefaultResourceLimits() []ResourceLimit {
@@ -44,12 +45,13 @@ func DefaultResourceLimits() []ResourceLimit {
 		{ResourceActiveOperations, new(int64(64))},
 		{ResourceSubscriptions, new(int64(1000))},
 		{ResourceRunnableDescendants, new(int64(64))},
+		{ResourceSchedules, new(int64(128))},
 	}
 }
 
 func (limit ResourceLimit) Validate() error {
 	switch limit.Kind {
-	case ResourceDepth, ResourceDescendants, ResourceQueuedInputs, ResourceActiveOperations, ResourceSubscriptions, ResourceRunnableDescendants:
+	case ResourceDepth, ResourceDescendants, ResourceQueuedInputs, ResourceActiveOperations, ResourceSubscriptions, ResourceRunnableDescendants, ResourceSchedules:
 	default:
 		return fmt.Errorf("%w: unsupported resource kind", ErrInvalid)
 	}

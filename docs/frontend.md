@@ -258,6 +258,18 @@ Node APIs, Electron IPC, filesystem access, and `@whip/legacy-sdk/node` stay in
 adapter calls that versioned bridge without importing Electron. Ordinary DOM,
 focus, layout, styling and file-input behavior remain shared.
 
+### New runtime schedule ownership
+
+The v4 SDK exposes `schedules.create/get/list/cancel`; `Client.createSchedule`
+retains a caller-chosen stable ID for uncertain retries. Schedule templates and
+pending slots belong to SQLite, while admitted work uses ordinary input receipts.
+Clients display `input.schedule` provenance and poll its exact receipt identity;
+they must not maintain a second fire ledger or infer a turn from a due time.
+Upcoming lists have an exact `(due,id)` cursor and bounded first-part previews;
+full templates use `schedules.get`. Cancellation retains already accepted inputs.
+These APIs are available in the new SDK; retained applications still use their
+legacy schedule surfaces until cutover. See [the implemented schedule contract](backend-domain.md#durable-schedules).
+
 ## Stack decisions and reasons
 
 | Tool | Use it for | Why this boundary exists |

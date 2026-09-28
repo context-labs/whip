@@ -57,6 +57,10 @@ func Fixtures() ([]Fixture, error) {
 	}{
 		{"Admission", Admission{Receipt: Receipt{Identity: RequestIdentity{ClientID: "client", RequestID: "deleted"}, Digest: ref.Revision, CreatedAt: created.Format(time.RFC3339Nano), DeletedAt: new(created.Format(time.RFC3339Nano))}}},
 		{"CompactParams", CompactParams{Identity: RequestIdentity{ClientID: "client", RequestID: "compact"}, SessionID: child.ID}},
+		{"ScheduleAdmission", ScheduleAdmissionFromDomain(session.ScheduleAdmission{ID: "schedule_fixture", Schedule: &session.ScheduleMetadata{ID: "schedule_fixture", SessionID: "session_child", Expression: "@every 0.000000001s", FirstDue: created, NextDue: &created, CreatedAt: created, PartsBytes: 123, Latest: &session.ScheduleInput{ScheduleID: "schedule_fixture", ScheduledFor: created, InputID: "scheduled_input", ClientID: "schedule", RequestID: "slot_fixture"}}})},
+		{"CreateScheduleParams", CreateScheduleParams{SessionID: "session_child", ScheduleID: "schedule_fixture", Expression: "@at 2500-01-02T03:04:05.123456789Z", Parts: []Part{{Type: "text", Text: "wake up"}}}},
+		{"SchedulesResult", SchedulesResult{Items: []ScheduleMetadata{}, NextCursor: &ScheduleCursor{ID: "schedule_fixture", Due: "2500-01-02T03:04:05.123456789Z"}}},
+		{"Input", InputFromDomain(session.Input{ID: "scheduled_input", SessionID: "session_child", Kind: session.PromptInput, Source: session.ScheduledInput, State: session.Queued, Parts: []session.Part{{Type: "text", Text: "wake"}}, CreatedAt: created, Schedule: &session.ScheduleOccurrence{ScheduleID: "schedule_fixture", ScheduledFor: created}})},
 		{"Input", Input{ID: "input_compact", SessionID: child.ID, Source: "user", Kind: "compact", State: "queued", Parts: []Part{}, CreatedAt: created.Format(time.RFC3339Nano)}},
 		{"ContextHead", ContextHeadFromDomain(session.ContextHead{SessionID: session.SessionID(child.ID), Revision: 9007199254740993, CompactionID: new(session.CompactionID("summary"))})},
 		{"ContextHead", ContextHeadFromDomain(session.ContextHead{SessionID: session.SessionID(child.ID)})},

@@ -5,6 +5,26 @@ export const manifest = {
   "minor": 0,
   "operations": [
     {
+      "name": "schedules.create",
+      "params": "CreateScheduleParams",
+      "result": "ScheduleAdmission"
+    },
+    {
+      "name": "schedules.get",
+      "params": "ScheduleParams",
+      "result": "ScheduleResult"
+    },
+    {
+      "name": "schedules.list",
+      "params": "ListSchedulesParams",
+      "result": "SchedulesResult"
+    },
+    {
+      "name": "schedules.cancel",
+      "params": "ScheduleParams",
+      "result": "ScheduleAdmission"
+    },
+    {
       "name": "sessions.compact",
       "params": "CompactParams",
       "result": "Admission"

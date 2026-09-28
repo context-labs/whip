@@ -3,13 +3,13 @@ package protocol
 import "github.com/context-labs/whip/internal/session"
 
 type ResourceLimit struct {
-	Kind  string   `json:"kind" enum:"depth,descendants,queued_inputs,active_operations,subscriptions,runnable_descendants"`
+	Kind  string   `json:"kind" enum:"depth,descendants,queued_inputs,active_operations,subscriptions,runnable_descendants,schedules"`
 	Limit *Counter `json:"limit"`
 }
 
 type ResourceUsage struct {
 	SessionID ID       `json:"session_id"`
-	Kind      string   `json:"kind" enum:"depth,descendants,queued_inputs,active_operations,subscriptions,runnable_descendants"`
+	Kind      string   `json:"kind" enum:"depth,descendants,queued_inputs,active_operations,subscriptions,runnable_descendants,schedules"`
 	Revision  Counter  `json:"revision"`
 	Limit     *Counter `json:"limit"`
 	Used      Counter  `json:"used"`

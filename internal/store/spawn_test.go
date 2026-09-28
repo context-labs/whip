@@ -289,6 +289,10 @@ func TestSpawnChildOperationAtomicDispatchAndRetry(t *testing.T) {
 			t.Fatal("native apply duplicated child")
 		}
 	}
+	read, err := s.Admission(t.Context(), session.RequestIdentity{ClientID: "operation", RequestID: string(spec.ID)})
+	if err != nil || read.Input == nil || read.Input.ID != first.Admission.Input.ID {
+		t.Fatalf("internal receipt inspection %+v %v", read, err)
+	}
 	settled, err := s.Operation(t.Context(), spec.ID)
 	if err != nil || settled.State != session.OperationSucceeded || settled.DispatchedAt == nil || settled.FinishedAt == nil || count(t, s, "sessions") != 2 {
 		t.Fatalf("native apply did not settle: %+v %v", settled, err)

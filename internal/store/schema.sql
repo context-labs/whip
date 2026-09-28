@@ -128,19 +128,54 @@ CREATE TRIGGER terminal_turn_no_permit BEFORE UPDATE ON turns
  WHEN NEW.finished_at IS NOT NULL AND EXISTS(SELECT 1 FROM turn_permits WHERE turn_id=NEW.id)
  BEGIN SELECT RAISE(ABORT, 'terminal turn must release execution permit'); END;
 
+-- Schedule identity/digest survives owner deletion as a retry tombstone. The
+-- only scheduling cursor is next_due; admitted work belongs to ordinary inputs.
+CREATE TABLE schedules (
+ id TEXT PRIMARY KEY, session_id TEXT NOT NULL, initial_digest TEXT NOT NULL,
+ first_due TEXT, every_ns INTEGER, next_due TEXT, parts TEXT, failure TEXT,
+ cancelled_at INTEGER, created_at INTEGER NOT NULL, deleted_at INTEGER,
+ UNIQUE(id,session_id),
+ CHECK((first_due IS NULL) = (deleted_at IS NOT NULL)),
+ CHECK((parts IS NULL) = (deleted_at IS NOT NULL)),
+ CHECK(first_due IS NULL OR length(first_due)=30),
+ CHECK(next_due IS NULL OR length(next_due)=30),
+ CHECK(every_ns IS NULL OR every_ns>0),
+ CHECK(parts IS NULL OR (json_valid(parts) AND length(CAST(parts AS BLOB))<=1048576)),
+ CHECK(failure IS NULL OR failure='successor_out_of_range'),
+ CHECK(failure IS NULL OR next_due IS NOT NULL),
+ CHECK(deleted_at IS NULL OR (every_ns IS NULL AND next_due IS NULL AND failure IS NULL AND cancelled_at IS NULL))
+) STRICT;
+CREATE INDEX schedule_owner ON schedules(session_id,id);
+CREATE INDEX schedules_due ON schedules(next_due,id)
+ WHERE next_due IS NOT NULL AND cancelled_at IS NULL AND deleted_at IS NULL AND failure IS NULL;
+CREATE TRIGGER schedule_identity_immutable BEFORE UPDATE ON schedules
+ WHEN NEW.id IS NOT OLD.id OR NEW.session_id IS NOT OLD.session_id
+ OR NEW.initial_digest IS NOT OLD.initial_digest OR NEW.created_at IS NOT OLD.created_at
+ OR OLD.deleted_at IS NOT NULL
+ OR (NEW.deleted_at IS NULL AND (NEW.first_due IS NOT OLD.first_due OR NEW.every_ns IS NOT OLD.every_ns OR NEW.parts IS NOT OLD.parts))
+ BEGIN SELECT RAISE(ABORT, 'schedule identity is immutable'); END;
+
 CREATE TABLE inputs (
  ordinal INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
  source TEXT NOT NULL CHECK(source IN ('user','agent','schedule')),
  kind TEXT NOT NULL DEFAULT 'prompt' CHECK(kind IN ('prompt','compact')),
  parts TEXT NOT NULL CHECK(json_valid(parts)), turn_id TEXT UNIQUE, cancelled_at INTEGER, created_at INTEGER NOT NULL,
+ schedule_id TEXT, scheduled_for TEXT,
+ CHECK((schedule_id IS NOT NULL) = (source='schedule')),
+ CHECK((scheduled_for IS NULL) = (schedule_id IS NULL)),
+ CHECK(scheduled_for IS NULL OR (length(scheduled_for)=30 AND kind='prompt')),
+ UNIQUE(schedule_id,scheduled_for),
+ FOREIGN KEY(schedule_id,session_id) REFERENCES schedules(id,session_id),
  CHECK(kind<>'compact' OR (json_type(parts)='array' AND json_array_length(parts)=0)),
  CHECK(turn_id IS NULL OR cancelled_at IS NULL), UNIQUE(id,turn_id,session_id),
  FOREIGN KEY(turn_id,session_id) REFERENCES turns(id,session_id) ON DELETE CASCADE
 ) STRICT;
+CREATE INDEX schedule_inputs ON inputs(schedule_id,ordinal DESC) WHERE schedule_id IS NOT NULL;
 CREATE INDEX queued_inputs ON inputs(session_id,ordinal) WHERE turn_id IS NULL AND cancelled_at IS NULL;
 CREATE TRIGGER input_immutable BEFORE UPDATE ON inputs
  WHEN NEW.id IS NOT OLD.id OR NEW.ordinal IS NOT OLD.ordinal OR NEW.session_id IS NOT OLD.session_id
+ OR NEW.schedule_id IS NOT OLD.schedule_id OR NEW.scheduled_for IS NOT OLD.scheduled_for
  OR NEW.source IS NOT OLD.source OR NEW.kind IS NOT OLD.kind OR NEW.parts IS NOT OLD.parts OR NEW.created_at IS NOT OLD.created_at
  OR OLD.turn_id IS NOT NULL OR OLD.cancelled_at IS NOT NULL
  BEGIN SELECT RAISE(ABORT, 'accepted input is immutable'); END;
@@ -359,7 +394,7 @@ CREATE TABLE context_heads (
 -- Reusable capacity derives usage from its owning rows and their lifecycle.
 CREATE TABLE resource_limits (
  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
- kind TEXT NOT NULL CHECK(kind IN ('depth','descendants','queued_inputs','active_operations','subscriptions','runnable_descendants')),
+ kind TEXT NOT NULL CHECK(kind IN ('depth','descendants','queued_inputs','active_operations','subscriptions','runnable_descendants','schedules')),
  revision INTEGER NOT NULL CHECK(revision>0),
  limit_value INTEGER CHECK(limit_value IS NULL OR limit_value>=0),
  PRIMARY KEY(session_id,kind)
@@ -389,7 +424,7 @@ CREATE TABLE logical_writes (
  id TEXT PRIMARY KEY,
  tree_id TEXT NOT NULL REFERENCES session_trees(id) ON DELETE CASCADE,
  author_id TEXT NOT NULL,
- source_kind TEXT NOT NULL CHECK(source_kind IN ('mail','input','content','state','subscription')),
+ source_kind TEXT NOT NULL CHECK(source_kind IN ('mail','input','content','state','subscription','schedule')),
  source_id TEXT NOT NULL, source_revision INTEGER NOT NULL CHECK(source_revision>=0),
  bytes INTEGER NOT NULL CHECK(bytes>=0), created_at INTEGER NOT NULL,
  UNIQUE(source_kind,source_id,source_revision)
