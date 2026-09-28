@@ -50,6 +50,11 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 			value, err := r.TurnOutput(ctx, session.TurnID(p.TurnID))
 			return protocol.TurnOutputFromDomain(value), err
 		})
+	case "turns.instructions":
+		return decode(raw, func(p protocol.TurnParams) (any, error) {
+			value, err := r.InstructionManifest(ctx, session.TurnID(p.TurnID))
+			return protocol.InstructionManifestFromDomain(value), err
+		})
 	case "completions.list", "completions.read":
 		return dispatchCompletion(ctx, r, method, raw)
 	case "state.subscribe", "state.subscriptions", "state.unsubscribe":

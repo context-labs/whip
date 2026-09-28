@@ -153,6 +153,13 @@ always expose 1–100. An active turn retains its captured policy; editing setti
 changes the next turn. Summary helpers have ordinary attempt billing but no
 conversation reply. Preserve a raw final answer even if a subsequent helper
 fails and the turn reports failure.
+`turns.instructions` returns the immutable source manifest for an ordinary turn.
+It is inspection metadata, not file contents or current filesystem authority.
+Null means no capture; a manifest with an empty source list still records captured
+base instructions. Display the saved paths/digests without rereading files or
+replacing the user's original input. Configuration edits refresh instructions on
+the next turn. Workspace project files and skill metadata require standing read
+authority; one-use file approvals do not enable automatic discovery.
 Product clients continue to use the explicitly retained packages until their
 cutover. The package map below describes those retained clients.
 

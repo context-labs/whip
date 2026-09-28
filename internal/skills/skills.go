@@ -132,27 +132,58 @@ func parse(path string) (Skill, error) {
 }
 
 func parseMetadata(path string, reader io.Reader) (Skill, error) {
+	return parseMetadataMode(path, reader, false)
+}
+
+func parseMetadataMode(path string, reader io.Reader, strict bool) (Skill, error) {
 	sc := bufio.NewScanner(reader)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	if !sc.Scan() || strings.TrimSpace(sc.Text()) != "---" {
 		return Skill{}, fmt.Errorf("%s: no frontmatter", path)
 	}
 	s := Skill{Path: path}
-	for sc.Scan() {
-		line := sc.Text()
-		if strings.TrimSpace(line) == "---" {
+	seen := map[string]bool{}
+	var pending string
+	hasPending := false
+	for {
+		line := pending
+		if hasPending {
+			hasPending = false
+		} else if sc.Scan() {
+			line = sc.Text()
+		} else {
+			break
+		}
+		if line == "---" {
 			break
 		}
 		key, v, ok := cutKey(line)
 		if !ok {
+			if strict && strings.TrimSpace(line) != "" && line[0] != ' ' && line[0] != '\t' && !strings.HasPrefix(line, "#") {
+				return Skill{}, fmt.Errorf("%s: malformed frontmatter mapping", path)
+			}
 			continue
+		}
+		known := key == "name" || key == "description" || key == "disable-model-invocation"
+		if strict && known {
+			if seen[key] {
+				return Skill{}, fmt.Errorf("%s: duplicate metadata key %s", path, key)
+			}
+			seen[key] = true
+			if err := validateMetadataScalar(key, v); err != nil {
+				return Skill{}, fmt.Errorf("%s: %w", path, err)
+			}
 		}
 		if isBlockScalarIndicator(v) {
 			// Block scalars are already plain values: no unquoting, and no
 			// TrimSpace — chomping indicators own the trailing newlines.
-			v = readBlockScalar(sc, v, indentOf(line))
+			v, pending, hasPending = readBlockScalar(sc, v, indentOf(line))
 		} else {
-			v = unquote(v)
+			if strict && known {
+				v, _ = decodeMetadataScalar(v) // Validated above before decoding.
+			} else {
+				v = unquote(v)
+			}
 		}
 		switch key {
 		case "name":
@@ -177,7 +208,7 @@ func cutKey(line string) (key, value string, ok bool) {
 	if !found {
 		return "", "", false
 	}
-	return k, v, true
+	return strings.TrimSpace(k), v, true
 }
 
 func indentOf(line string) int {
@@ -206,7 +237,7 @@ func isBlockScalarIndicator(v string) bool {
 // newline (folded into nothing at the edges), "-" strips it, "+" keeps it.
 // This is the common-case subset — indentation indicators are honored as
 // "more indented than the key", which is how skill files are actually written.
-func readBlockScalar(sc *bufio.Scanner, header string, keyIndent int) string {
+func readBlockScalar(sc *bufio.Scanner, header string, keyIndent int) (value, pending string, hasPending bool) {
 	indicator := strings.TrimSpace(header)
 	literal := indicator[0] == '|'
 	chomp := byte(0)
@@ -223,15 +254,14 @@ func readBlockScalar(sc *bufio.Scanner, header string, keyIndent int) string {
 	for sc.Scan() {
 		line := sc.Text()
 		trimmed := strings.TrimSpace(line)
-		if trimmed == "---" {
-			// Closing frontmatter delimiter consumed along with the scalar;
-			// parse's loop will just hit EOF. Skill files keep descriptions
-			// early in the frontmatter, so this stays theoretical.
+		if line == "---" {
+			pending, hasPending = line, true
 			break
 		}
 		ind := indentOf(line)
 		if trimmed != "" {
 			if ind <= keyIndent {
+				pending, hasPending = line, true
 				break
 			}
 			if bodyIndent == -1 {
@@ -240,15 +270,6 @@ func readBlockScalar(sc *bufio.Scanner, header string, keyIndent int) string {
 		}
 		lines = append(lines, line)
 	}
-	// Unread the terminator? bufio.Scanner can't push back — but the only
-	// terminators are the frontmatter close (loop is done anyway) or a
-	// sibling key. A sibling key after a block scalar IS valid YAML, so
-	// note the limitation rather than pretend: keys following a block
-	// scalar on a later line are lost. No known SKILL.md does this — the
-	// block scalar is always the last field of its file section — and a
-	// real YAML parser remains the answer if that changes.
-	_ = keyIndent
-
 	// Strip the common body indentation.
 	for i, line := range lines {
 		if strings.TrimSpace(line) == "" {
@@ -280,7 +301,7 @@ func readBlockScalar(sc *bufio.Scanner, header string, keyIndent int) string {
 	if chomp == '+' && len(lines) > 0 {
 		v += "\n" + strings.Repeat("\n", trailing)
 	}
-	return v
+	return v, pending, hasPending
 }
 
 func unquote(v string) string {

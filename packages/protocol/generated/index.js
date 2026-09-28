@@ -55,6 +55,11 @@ export const manifest = {
       "result": "TurnOutputResult"
     },
     {
+      "name": "turns.instructions",
+      "params": "TurnParams",
+      "result": "InstructionManifestResult"
+    },
+    {
       "name": "completions.list",
       "params": "ListCompletionsParams",
       "result": "ListCompletionsResult"

@@ -243,13 +243,8 @@ func (p ConfigPatch) Validate() error {
 		}
 	}
 	if p.Instructions != nil {
-		if len(p.Instructions.Text) > MaxDocumentBytes || len(p.Instructions.ProjectFiles) > 32 {
-			return fmt.Errorf("%w: instruction policy exceeds bounds", ErrInvalid)
-		}
-		for _, path := range p.Instructions.ProjectFiles {
-			if err := ValidateText(path, 4096); err != nil {
-				return err
-			}
+		if err := p.Instructions.Validate(); err != nil {
+			return err
 		}
 	}
 	if len(p.Tools) > 128 || len(p.Children) > 128 || len(p.Hooks) > 3 {

@@ -828,6 +828,22 @@ export type Input =
 export interface InputParams {
   input_id: string;
 }
+export interface InstructionManifestResult {
+  manifest: null | {
+    bytes: string;
+    sha256: string;
+    /**
+     * @maxItems 1152
+     */
+    sources: {
+      kind: "project_file" | "skill_metadata";
+      scope: "workspace";
+      path: string;
+      bytes: string;
+      sha256: string;
+    }[];
+  };
+}
 export interface LifecycleParams {
   session_id: string;
   lifecycle: "active" | "stopped";
@@ -2233,6 +2249,7 @@ export interface ContractTypes {
   InitializeResult: InitializeResult;
   Input: Input;
   InputParams: InputParams;
+  InstructionManifestResult: InstructionManifestResult;
   LifecycleParams: LifecycleParams;
   ListCompletionsParams: ListCompletionsParams;
   ListCompletionsResult: ListCompletionsResult;
@@ -2309,6 +2326,7 @@ export interface Operations {
   "context.read": { params: ReadHistoryParams; result: ReadHistoryResult };
   "context.search": { params: SearchHistoryParams; result: SearchHistoryResult };
   "turns.output": { params: TurnParams; result: TurnOutputResult };
+  "turns.instructions": { params: TurnParams; result: InstructionManifestResult };
   "completions.list": { params: ListCompletionsParams; result: ListCompletionsResult };
   "completions.read": { params: ReadCompletionParams; result: ReadCompletionResult };
   "state.subscribe": { params: SubscribeStateParams; result: StateSubscription };
