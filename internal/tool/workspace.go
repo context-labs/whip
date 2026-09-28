@@ -53,6 +53,7 @@ func NewFiles() *Files { return &Files{workspaces: capability.NewWorkspaces()} }
 
 type fileRequest struct {
 	path, content, oldText, newText string
+	query                           string
 	offset, limit                   int
 	replaceAll                      bool
 }
@@ -99,7 +100,7 @@ func (f *Files) Prepare(cwd, operation string, args map[string]any) (Prepared, e
 		request: request, operation: operation,
 	}
 	return Prepared{
-		Capability: operation, Resource: cwd, Arguments: normalized, Mutating: operation != "files.read",
+		Capability: operation, Resource: cwd, Arguments: normalized, Mutating: fileMutation(operation),
 		Acquire: execution.acquire, Run: execution.run,
 	}, nil
 }
@@ -119,6 +120,36 @@ func prepareFileRequest(operation string, args map[string]any) (fileRequest, jso
 	request := fileRequest{}
 	normalized := map[string]any{}
 	switch operation {
+	case "files.list", "files.search":
+		var scan struct {
+			Path  string `json:"path"`
+			Query string `json:"query,omitempty"`
+			Limit *int   `json:"limit,omitempty"`
+		}
+		if err := decoder.Decode(&scan); err != nil {
+			return request, nil, err
+		}
+		request.path, request.query, request.limit = scan.Path, scan.Query, 2000
+		if request.path == "" {
+			request.path = "."
+		}
+		maximum := 2000
+		if operation == "files.search" {
+			maximum, request.limit = 100, 100
+			if request.query == "" || len(request.query) > 4096 || strings.ContainsAny(request.query, "\x00\r\n") {
+				return request, nil, errors.New("query must be a nonempty literal single-line string of at most 4096 bytes")
+			}
+			normalized["query"] = request.query
+		} else if _, supplied := args["query"]; supplied {
+			return request, nil, errors.New("query is supported only by files.search")
+		}
+		if scan.Limit != nil {
+			request.limit = *scan.Limit
+		}
+		if request.limit < 1 || request.limit > maximum {
+			return request, nil, fmt.Errorf("limit must be from 1 to %d", maximum)
+		}
+		normalized["limit"] = request.limit
 	case "files.read":
 		var args struct {
 			Path   string `json:"path"`
@@ -179,7 +210,7 @@ func prepareFileRequest(operation string, args map[string]any) (fileRequest, jso
 		return request, nil, errors.New("path traversal is not allowed")
 	}
 	request.path = filepath.Clean(request.path)
-	if request.path == "." {
+	if request.path == "." && operation != "files.list" && operation != "files.search" {
 		return request, nil, errors.New("path must name a file")
 	}
 	normalized["path"] = request.path
@@ -190,6 +221,10 @@ func prepareFileRequest(operation string, args map[string]any) (fileRequest, jso
 	return request, raw, nil
 }
 
+func fileMutation(operation string) bool {
+	return operation == "files.write" || operation == "files.patch"
+}
+
 func (e *fileExecution) acquire(ctx context.Context) (func(), error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -198,7 +233,7 @@ func (e *fileExecution) acquire(ctx context.Context) (func(), error) {
 	}
 	e.attempted = true
 	release := func() {}
-	if e.operation != "files.read" {
+	if fileMutation(e.operation) {
 		path, unlock, err := e.workspace.LockPath(ctx, e.request.path)
 		if err != nil {
 			return nil, err
@@ -254,7 +289,12 @@ func (e *fileExecution) run(ctx context.Context, _ session.OperationID) (any, er
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if e.operation == "files.read" {
+	switch e.operation {
+	case "files.list":
+		return e.list(ctx)
+	case "files.search":
+		return e.search(ctx)
+	case "files.read":
 		return e.read()
 	}
 	parentPath := filepath.Dir(e.relative)
