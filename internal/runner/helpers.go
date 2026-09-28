@@ -92,9 +92,7 @@ func (r *Runner) CallModels(ctx context.Context, request ModelHelperRequest, adm
 		return nil, err
 	}
 	request.Prompts = slices.Clone(request.Prompts)
-	// Clone the captured model through its configuration ownership boundary, so
-	// future optional model settings retain the same copy semantics.
-	request.Model = (session.Configuration{Model: request.Model}).Clone().Model
+	request.Model = request.Model.Clone()
 	if request.MaxTokens != nil {
 		request.MaxTokens = new(*request.MaxTokens)
 	}

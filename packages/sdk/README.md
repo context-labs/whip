@@ -38,6 +38,22 @@ cursors. The client keeps no transcript cache or second execution state machine.
 Retries have separate attempt IDs, a shared logical-call ID, and a link to the
 completed response. Unknown usage/cost is `null`, independently of known zero.
 
+Stateless guest `models.call` and `models.batch` use that same ledger. Helper
+attempts have purpose `model_helper`, an `operation_id`, and a zero-based
+`batch_index`; retries retain both links and have distinct attempt IDs. Their
+`message_id` is null. Read the ordered aggregate through the ordinary operation
+result; no helper transcript or second accounting API exists.
+
+A single call returns one `{attempt_id, text, failure, content_ref, truncated,
+bytes}` item; a batch returns an array in prompt order. IDs, failures and content
+references are nullable, and byte counts are exact decimal strings. Large output
+has a bounded preview and a reference readable through the owner's `content.read`
+or authorized guest `artifacts.read`. A reference never grants access to another
+session. Publication failure reports unavailable output while preserving billing.
+On a crash before the aggregate commits, some attempts can be settled while the
+operation becomes uncertain and their response text is unavailable. Do not replay
+the helper call to fill that gap.
+
 Goal controls use the same durable input and turn lifecycle. Keep the goal ID
 and exact creation payload before sending:
 

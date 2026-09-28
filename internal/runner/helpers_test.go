@@ -558,16 +558,18 @@ func (p *helperPreview) BeginPreview(session.Turn, session.ModelAttemptID, sessi
 	return func(model.Chunk) {}, func() {}
 }
 
-func TestModelHelpersFreezePromptAndCapForLaterBatchMembers(t *testing.T) {
+func TestModelHelpersFreezePromptSelectionAndCapForLaterBatchMembers(t *testing.T) {
 	ledger := &helperMemoryLedger{}
 	request := helperTestRequest("0", "1", "2", "3", "4")
 	request.MaxTokens = new(int64(50))
+	request.Model.Temperature, request.Model.TopP = new(0.0), new(0.75)
+	wantModel := request.Model.Clone()
 	ready, release := make(chan struct{}), make(chan struct{})
 	var once sync.Once
 	provider := preparedProvider(func(ctx context.Context, value model.Request) (model.Prepared, error) {
 		once.Do(func() { close(ready) })
 		<-release
-		if value.Selection.Name != "scripted" || value.OutputTokenLimit == nil || *value.OutputTokenLimit != 50 || value.Messages[0].Parts[0].Text == "mutated" {
+		if !value.Selection.Equal(wantModel) || value.OutputTokenLimit == nil || *value.OutputTokenLimit != 50 || value.Messages[0].Parts[0].Text == "mutated" {
 			return model.Prepared{}, errors.New("captured helper request was aliased")
 		}
 		return (model.Scripted{}).Prepare(ctx, value)
@@ -588,12 +590,13 @@ func TestModelHelpersFreezePromptAndCapForLaterBatchMembers(t *testing.T) {
 	request.Prompts[4] = "mutated"
 	*request.MaxTokens = 99
 	request.Model.Name = "changed"
+	*request.Model.Temperature, *request.Model.TopP = 2, 1
 	close(release)
 	if err := receiveHelper(t, done); err != nil {
 		t.Fatal(err)
 	}
 	for _, spec := range ledger.specs {
-		if spec.Request.MaxOutputTokens != 50 || spec.Request.Model.Name != "scripted" {
+		if spec.Request.MaxOutputTokens != 50 || !spec.Request.Model.Equal(wantModel) {
 			t.Fatalf("captured snapshot changed: %+v", spec)
 		}
 	}
