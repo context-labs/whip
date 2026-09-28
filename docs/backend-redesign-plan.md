@@ -566,7 +566,8 @@ feature guidance were rechecked after the completion claim. The missing ordinary
 mail evidence path is demonstrated by the retained
 `TestSiblingDigestPreservesUnicodeAndEvidenceAccess` and the feature map's
 message-with-evidence guarantee. The original replacement `MailSend` contained only text and routing fields.
-The repair adds atomic recipient-owned references, evidence-only messages and
+The repair in [PR #213](https://github.com/context-labs/whip/pull/213) adds atomic
+recipient-owned references, evidence-only messages and
 replacement coverage through the store, both guest engines and generated SDK.
 Local phase and analysis gates pass. Keep Phase 4 open until hosted validation
 of the repair succeeds; passing checks for the earlier subset did not close

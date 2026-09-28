@@ -91,8 +91,13 @@ checks identity reuse/conflict, concurrent submissions, aborted observation,
 uniform root/child execution, and then kills an active process. Restart preserves
 completed history, interrupts its claimed turn, retains cancelled input, and
 executes queued input exactly once. A mismatched runtime identity fails attachment.
-Failures retain database/config, bounded process output and observations in
-`test-results/redesign/`; successful runs remove their temporary directory.
+Compilation, startup and each acceptance scenario have separate named deadlines;
+adding an independent scenario does not consume another scenario's time budget.
+Progress records identify the active scenario and elapsed times. A timeout aborts
+socket requests/observers, prevents another runtime start and performs bounded
+shutdown. Failures retain database/config, progress, bounded process output and
+observations in `test-results/redesign/`; successful runs remove their temporary
+directory. The workflow still has an overall job deadline.
 
 For manual v4 work, run `task dev:v4 -- -directory /tmp/whip-example/state`, then
 the [SDK example](../packages/sdk/examples/session.mjs) using its printed socket.
@@ -1543,3 +1548,33 @@ validation of the repair. A preceding host-skills macOS job hit the SDK fixture'
 aggregate 180-second timeout; that job is failed evidence, not a passing phase
 gate. A separate harness increment is adding named scenario budgets and retained
 timeout diagnostics without removing acceptance scenarios.
+
+
+## SDK fixture feedback repair
+
+The host-skills macOS run `36462714658` failed at the growing fixture's single
+180-second Node timeout. Linux passed the same revision in 113.970s. The failed
+run had neither scenario timing nor uploaded artifacts, so it does not establish
+which step stalled or whether the aggregate budget alone was responsible.
+
+The fixture now runs the same assertions and scenario functions under named
+stage deadlines. Compilation, readiness, scenario execution and cleanup have
+separate budgets; the existing job-wide CI bound remains. Each stage writes
+start/completion/failure and elapsed time to `progress.json`. A stage failure
+aborts all socket transport operations, including observers with no local
+deadline, prevents new process starts and reaps the runtime before copying
+failure state. No acceptance was removed or weakened.
+
+The isolated increment passed the normal fixture in 13.878s and the race fixture
+in 95.846s. A temporary fault probe replaced one resources operation with an
+indefinite real SDK observation and used a 100ms scenario budget. It failed in
+103ms, stopped the runtime, retained progress/log/observations/SQLite, passed
+SQLite `quick_check` and never entered the next scenario. The probe is not a new
+production test flag or a permanently duplicated acceptance suite.
+
+Integration preserved all 19 acceptance function bodies byte for byte, adding
+named stages for the newer standing-instruction and mail-evidence scenarios.
+The integrated race fixture passed in 102.496s. In that run context recovery
+took 24.022s and completion reports 17.837s; those measurements localize costs
+without claiming to explain the earlier hosted timeout. Hosted results for
+the harness revision remain pending.

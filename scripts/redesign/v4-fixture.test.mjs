@@ -9,10 +9,20 @@ import { basename, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { test } from 'node:test';
 import { Client, DeliveryError, RemoteError } from '../../packages/sdk/dist/index.js';
-import { unixSocket } from '../../packages/sdk/dist/node.js';
+import { unixSocket as socketTransport } from '../../packages/sdk/dist/node.js';
 
 const exec = promisify(execFile);
 const deadline = () => ({ signal: AbortSignal.timeout(15_000) });
+const fixtureAbort = new AbortController();
+
+// A stage timeout must also stop observers that deliberately have no RPC deadline.
+function unixSocket(path) {
+  const transport = socketTransport(path);
+  return (request, runtimeID, options = {}) => transport(request, runtimeID, {
+    ...options,
+    signal: AbortSignal.any([fixtureAbort.signal, ...(options.signal ? [options.signal] : [])]),
+  });
+}
 
 async function fixture() {
   const directory = await mkdtemp('/tmp/whip-v4-');
@@ -29,6 +39,7 @@ async function fixture() {
     try { await exit; } finally { clearTimeout(timeout); }
   };
   const start = async (delay = '60ms') => {
+    fixtureAbort.signal.throwIfAborted();
     const args = ['-directory', join(directory, 'state'), '-workers', '1'];
     if (delay !== null) args.push('-scripted', '-scripted-delay', delay);
     child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -36,8 +47,9 @@ async function fixture() {
     child.stdout.on('data', record);
     let buffer = '';
     info = await new Promise((resolve, reject) => {
-      const cleanup = () => { clearTimeout(timer); child.removeListener('error', failed); child.removeListener('exit', earlyExit); child.stdout.removeListener('data', data); };
+      const cleanup = () => { clearTimeout(timer); child.removeListener('error', failed); child.removeListener('exit', earlyExit); child.stdout.removeListener('data', data); fixtureAbort.signal.removeEventListener('abort', aborted); };
       const failed = error => { cleanup(); reject(error); };
+      const aborted = () => failed(fixtureAbort.signal.reason);
       const earlyExit = (code, signal) => failed(new Error(`Runtime exited before ready: ${code}/${signal}\n${output}`));
       const data = chunk => {
         buffer += chunk;
@@ -47,18 +59,21 @@ async function fixture() {
       };
       const timer = setTimeout(() => failed(new Error('Runtime readiness timed out\n' + output)), 25_000);
       child.once('error', failed); child.once('exit', earlyExit); child.stdout.on('data', data);
+      fixtureAbort.signal.addEventListener('abort', aborted, { once: true });
     });
     return info;
   };
-  try {
-    await exec('go', ['build', ...(process.env.WHIP_SDK_RACE === '1' ? ['-race'] : []), '-o', binary, './cmd/whip-runtime'], { cwd: resolve('.'), timeout: 120_000 });
-    await start();
-  } catch (error) {
-    await stop();
-    await writeFile(join(directory, 'runtime.log'), output);
-    throw new Error(`Fixture startup failed; retained ${directory}`, { cause: error });
-  }
-  return { directory, start, stop, get info() { return info; }, get pid() { return child.pid; }, get output() { return output; } };
+  const build = async () => {
+    try {
+      await exec('go', ['build', ...(process.env.WHIP_SDK_RACE === '1' ? ['-race'] : []), '-o', binary, './cmd/whip-runtime'], {
+        cwd: resolve('.'), timeout: 120_000, signal: fixtureAbort.signal,
+      });
+    } catch (error) {
+      record(error.stderr ?? '');
+      throw error;
+    }
+  };
+  return { directory, build, start, stop, get info() { return info; }, get pid() { return child?.pid; }, get output() { return output; } };
 }
 
 async function dropAcknowledgement(path, upstream, requestID, onDrop, matches = response => response.result?.receipt?.identity.request_id === requestID) {
@@ -94,136 +109,177 @@ async function until(read, predicate, timeout = 10_000) {
   }
 }
 
-test('v4 SDK executes, recovers lost acknowledgements, and preserves queued input across SIGKILL', { timeout: 180_000 }, async t => {
+test('v4 SDK executes, recovers lost acknowledgements, and preserves queued input across SIGKILL', async t => {
   const runtime = await fixture();
   const evidence = [];
-  let passed = false;
+  const artifacts = join('test-results/redesign', basename(runtime.directory));
+  await mkdir(artifacts, { recursive: true });
+  const progress = { directory: runtime.directory, stages: [] };
+  const saveProgress = () => writeFile(join(artifacts, 'progress.json'), JSON.stringify({ ...progress, pid: runtime.pid }, null, 2) + '\n');
+  const stage = async (name, run, timeout = 60_000) => {
+    const entry = { name, started_at: new Date().toISOString(), timeout_ms: timeout, status: 'running' };
+    progress.stages.push(entry);
+    await saveProgress();
+    console.log(`[v4 fixture] ${name}: started (${timeout}ms budget)`);
+    const started = performance.now();
+    let timer;
+    try {
+      const result = await Promise.race([run(), new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Stage ${name} timed out after ${timeout}ms`)), timeout);
+      })]);
+      entry.status = 'passed';
+      return result;
+    } catch (error) {
+      entry.status = 'failed';
+      entry.error = error.stack ?? String(error);
+      fixtureAbort.abort(error);
+      throw error;
+    } finally {
+      clearTimeout(timer);
+      entry.elapsed_ms = Math.round(performance.now() - started);
+      await saveProgress();
+      console.log(`[v4 fixture] ${name}: ${entry.status} (${entry.elapsed_ms}ms)`);
+    }
+  };
+  let failure;
   let proxyClose;
   try {
-    const client = await Client.connect(unixSocket(runtime.info.socket), { clientID: 'v4-fixture', ...deadline() });
-    assert.equal(client.runtimeID, runtime.info.runtime_id);
-    const createParams = {
-      metadata: { title: 'v4 acceptance', archived: false, pinned: false },
-      engine: 'starlark', resources: [{ kind: 'depth', limit: '8' }, { kind: 'descendants', limit: '99' }, { kind: 'queued_inputs', limit: '100' }],
-      definition: client.builtins[0], overrides: { report_mode: 'message', model: { provider: 'scripted', name: 'scripted', effort: '' } },
-      working_directory: runtime.directory,
-    };
-    const { root, tree } = await client.call('trees.create', createParams, deadline());
-    const page = () => client.call('sessions.history', { session_id: root.id, after: '0', limit: 100 }, deadline());
-    assert.deepEqual((await page()).items, []);
+    await stage('compile runtime', runtime.build, 125_000);
+    await stage('start runtime', runtime.start, 30_000);
+    const { client, createParams } = await stage('admission and crash recovery', async () => {
+      const client = await Client.connect(unixSocket(runtime.info.socket), { clientID: 'v4-fixture', ...deadline() });
+      assert.equal(client.runtimeID, runtime.info.runtime_id);
+      const createParams = {
+        metadata: { title: 'v4 acceptance', archived: false, pinned: false },
+        engine: 'starlark', resources: [{ kind: 'depth', limit: '8' }, { kind: 'descendants', limit: '99' }, { kind: 'queued_inputs', limit: '100' }],
+        definition: client.builtins[0], overrides: { report_mode: 'message', model: { provider: 'scripted', name: 'scripted', effort: '' } },
+        working_directory: runtime.directory,
+      };
+      const { root, tree } = await client.call('trees.create', createParams, deadline());
+      const page = () => client.call('sessions.history', { session_id: root.id, after: '0', limit: 100 }, deadline());
+      assert.deepEqual((await page()).items, []);
 
-    let dropped;
-    const proxy = join(runtime.directory, 'drop.sock');
-    proxyClose = await dropAcknowledgement(proxy, runtime.info.socket, 'lost-ack', value => { dropped = value; });
-    const unreliable = await Client.connect(unixSocket(proxy), { clientID: client.clientID, expectedRuntimeID: client.runtimeID, ...deadline() });
-    const parts = [{ type: 'text', text: 'durable hello' }];
-    await assert.rejects(unreliable.submit(root.id, parts, 'lost-ack', deadline()), DeliveryError);
-    assert.ok(dropped?.input.id, 'proxy did not observe committed admission');
-    await proxyClose(); proxyClose = undefined;
-    const retry = await client.submit(root.id, parts, 'lost-ack', deadline());
-    assert.equal(retry.input.id, dropped.input.id);
-    await assert.rejects(client.submit(root.id, [{ type: 'text', text: 'different' }], 'lost-ack', deadline()), error => error instanceof RemoteError && error.kind === 'CONFLICT');
-    const complete = await client.wait('lost-ack', deadline());
-    assert.equal(complete.turn.state, 'succeeded');
-    const ledger = await client.call('turns.attempts', { turn_id: complete.turn.id, limit: 100 }, deadline());
-    assert.equal(ledger.items.length, 1);
-    assert.equal(ledger.items[0].state, 'succeeded');
-    assert.equal(ledger.items[0].cost_nano_usd, '0');
-    assert.equal(ledger.items[0].result.usage.input, null, 'scripted provider does not invent token usage');
-    const firstHistory = await page();
-    assert.deepEqual(firstHistory.items.map(message => message.role), ['user', 'assistant']);
-    assert.equal(firstHistory.items[1].parts[0].text, 'ack: durable hello');
-    assert.equal(ledger.items[0].message_id, firstHistory.items[1].id);
-    evidence.push({ dropped, complete, firstHistory });
+      let dropped;
+      const proxy = join(runtime.directory, 'drop.sock');
+      proxyClose = await dropAcknowledgement(proxy, runtime.info.socket, 'lost-ack', value => { dropped = value; });
+      const unreliable = await Client.connect(unixSocket(proxy), { clientID: client.clientID, expectedRuntimeID: client.runtimeID, ...deadline() });
+      const parts = [{ type: 'text', text: 'durable hello' }];
+      await assert.rejects(unreliable.submit(root.id, parts, 'lost-ack', deadline()), DeliveryError);
+      assert.ok(dropped?.input.id, 'proxy did not observe committed admission');
+      await proxyClose(); proxyClose = undefined;
+      const retry = await client.submit(root.id, parts, 'lost-ack', deadline());
+      assert.equal(retry.input.id, dropped.input.id);
+      await assert.rejects(client.submit(root.id, [{ type: 'text', text: 'different' }], 'lost-ack', deadline()), error => error instanceof RemoteError && error.kind === 'CONFLICT');
+      const complete = await client.wait('lost-ack', deadline());
+      assert.equal(complete.turn.state, 'succeeded');
+      const ledger = await client.call('turns.attempts', { turn_id: complete.turn.id, limit: 100 }, deadline());
+      assert.equal(ledger.items.length, 1);
+      assert.equal(ledger.items[0].state, 'succeeded');
+      assert.equal(ledger.items[0].cost_nano_usd, '0');
+      assert.equal(ledger.items[0].result.usage.input, null, 'scripted provider does not invent token usage');
+      const firstHistory = await page();
+      assert.deepEqual(firstHistory.items.map(message => message.role), ['user', 'assistant']);
+      assert.equal(firstHistory.items[1].parts[0].text, 'ack: durable hello');
+      assert.equal(ledger.items[0].message_id, firstHistory.items[1].id);
+      evidence.push({ dropped, complete, firstHistory });
 
-    await Promise.all(Array.from({ length: 6 }, (_, index) => client.submit(root.id, [{ type: 'text', text: 'parallel-' + index }], 'parallel-' + index, deadline())));
-    await Promise.all(Array.from({ length: 6 }, (_, index) => client.wait('parallel-' + index, deadline())));
-    const concurrentHistory = await page();
-    assert.equal(concurrentHistory.items.length, 14);
-    assert.deepEqual(concurrentHistory.items.map(message => message.role), Array.from({ length: 7 }, () => ['user', 'assistant']).flat());
+      await Promise.all(Array.from({ length: 6 }, (_, index) => client.submit(root.id, [{ type: 'text', text: 'parallel-' + index }], 'parallel-' + index, deadline())));
+      await Promise.all(Array.from({ length: 6 }, (_, index) => client.wait('parallel-' + index, deadline())));
+      const concurrentHistory = await page();
+      assert.equal(concurrentHistory.items.length, 14);
+      assert.deepEqual(concurrentHistory.items.map(message => message.role), Array.from({ length: 7 }, () => ['user', 'assistant']).flat());
 
-    const abort = new AbortController();
-    await client.submit(root.id, [{ type: 'text', text: 'observer abort' }], 'abort-wait', deadline());
-    const waiting = client.wait('abort-wait', { signal: abort.signal }); abort.abort();
-    await assert.rejects(waiting, error => error.name === 'AbortError');
-    const detached = await Client.connect(unixSocket(runtime.info.socket), { clientID: client.clientID, expectedRuntimeID: client.runtimeID, ...deadline() });
-    assert.equal((await detached.wait('abort-wait', deadline())).turn.state, 'succeeded');
-    const beforeCrash = await page();
+      const abort = new AbortController();
+      await client.submit(root.id, [{ type: 'text', text: 'observer abort' }], 'abort-wait', deadline());
+      const waiting = client.wait('abort-wait', { signal: abort.signal }); abort.abort();
+      await assert.rejects(waiting, error => error.name === 'AbortError');
+      const detached = await Client.connect(unixSocket(runtime.info.socket), { clientID: client.clientID, expectedRuntimeID: client.runtimeID, ...deadline() });
+      assert.equal((await detached.wait('abort-wait', deadline())).turn.state, 'succeeded');
+      const beforeCrash = await page();
 
-    const configured = await client.call('sessions.configure', { session_id: root.id, expected_revision: root.config_revision, patch: { instructions: { text: 'inherit me', project_files: [], discover_skills: false, skill_roots: [], standing_instructions: false } } }, deadline());
-    const spawnParams = { parent_id: root.id, overrides: {}, parts: [{ type: 'text', text: 'child' }], grant_ids: null };
-    const spawned = await client.spawn(spawnParams, 'child', deadline());
-    const child = spawned.session;
-    assert.equal(spawned.admission.input.session_id, child.id);
-    assert.equal((await client.spawn(spawnParams, 'child', deadline())).admission.input.id, spawned.admission.input.id);
-    await assert.rejects(client.spawn({ ...spawnParams, grant_ids: [] }, 'child', deadline()), error => error.kind === 'CONFLICT');
-    assert.equal(child.configuration.instructions.text, configured.configuration.instructions.text);
-    const sessions = await client.call('sessions.list', { tree_id: tree.id, limit: 100 }, deadline());
-    assert.equal(sessions.items.length, 2);
-    assert.equal((await client.wait('child', deadline())).turn.state, 'succeeded');
+      const configured = await client.call('sessions.configure', { session_id: root.id, expected_revision: root.config_revision, patch: { instructions: { text: 'inherit me', project_files: [], discover_skills: false, skill_roots: [], standing_instructions: false } } }, deadline());
+      const spawnParams = { parent_id: root.id, overrides: {}, parts: [{ type: 'text', text: 'child' }], grant_ids: null };
+      const spawned = await client.spawn(spawnParams, 'child', deadline());
+      const child = spawned.session;
+      assert.equal(spawned.admission.input.session_id, child.id);
+      assert.equal((await client.spawn(spawnParams, 'child', deadline())).admission.input.id, spawned.admission.input.id);
+      await assert.rejects(client.spawn({ ...spawnParams, grant_ids: [] }, 'child', deadline()), error => error.kind === 'CONFLICT');
+      assert.equal(child.configuration.instructions.text, configured.configuration.instructions.text);
+      const sessions = await client.call('sessions.list', { tree_id: tree.id, limit: 100 }, deadline());
+      assert.equal(sessions.items.length, 2);
+      assert.equal((await client.wait('child', deadline())).turn.state, 'succeeded');
 
-    await runtime.stop(); await runtime.start('1h');
-    await client.submit(root.id, [{ type: 'text', text: 'interrupted' }], 'claimed-before-kill', deadline());
-    const claimed = await until(() => client.recover('claimed-before-kill', deadline()), value => value.turn?.state === 'running');
-    await until(() => client.call('turns.attempts', { turn_id: claimed.turn.id, limit: 100 }, deadline()), value => value.items.some(attempt => attempt.state === 'dispatched'));
-    const queued = await client.submit(root.id, [{ type: 'text', text: 'survives queue' }], 'queued-before-kill', deadline());
-    assert.equal(queued.input.state, 'queued'); assert.equal(queued.turn, null);
-    const cancelled = await client.submit(root.id, [{ type: 'text', text: 'cancel me' }], 'cancel-queue', deadline());
-    await client.call('inputs.cancel', { input_id: cancelled.input.id }, deadline());
-    assert.equal((await client.wait('cancel-queue', deadline())).input.state, 'cancelled');
-    const pid = runtime.pid;
-    await runtime.stop('SIGKILL'); await runtime.start('0');
-    assert.notEqual(runtime.pid, pid); assert.equal(runtime.info.runtime_id, client.runtimeID);
-    const interrupted = await client.wait('claimed-before-kill', deadline());
-    assert.equal(interrupted.turn.state, 'interrupted'); assert.equal(interrupted.turn.id, claimed.turn.id);
-    const interruptedLedger = await client.call('turns.attempts', { turn_id: interrupted.turn.id, limit: 100 }, deadline());
-    assert.equal(interruptedLedger.items.length, 1);
-    assert.equal(interruptedLedger.items[0].state, 'uncertain');
-    const resumed = await client.wait('queued-before-kill', deadline());
-    assert.equal(resumed.input.id, queued.input.id); assert.equal(resumed.turn.state, 'succeeded');
-    const afterCrash = await page();
-    assert.deepEqual(afterCrash.items.slice(0, beforeCrash.items.length), beforeCrash.items);
-    assert.deepEqual(afterCrash.items.slice(beforeCrash.items.length).map(message => message.role), ['user', 'user', 'assistant']);
-    assert.equal(afterCrash.items.at(-1).parts[0].text, 'ack: survives queue');
-    assert.equal((await client.submit(root.id, parts, 'lost-ack', deadline())).input.id, dropped.input.id);
-    evidence.push({ claimed, queued, interrupted, resumed, afterCrash });
+      await runtime.stop(); await runtime.start('1h');
+      await client.submit(root.id, [{ type: 'text', text: 'interrupted' }], 'claimed-before-kill', deadline());
+      const claimed = await until(() => client.recover('claimed-before-kill', deadline()), value => value.turn?.state === 'running');
+      await until(() => client.call('turns.attempts', { turn_id: claimed.turn.id, limit: 100 }, deadline()), value => value.items.some(attempt => attempt.state === 'dispatched'));
+      const queued = await client.submit(root.id, [{ type: 'text', text: 'survives queue' }], 'queued-before-kill', deadline());
+      assert.equal(queued.input.state, 'queued'); assert.equal(queued.turn, null);
+      const cancelled = await client.submit(root.id, [{ type: 'text', text: 'cancel me' }], 'cancel-queue', deadline());
+      await client.call('inputs.cancel', { input_id: cancelled.input.id }, deadline());
+      assert.equal((await client.wait('cancel-queue', deadline())).input.state, 'cancelled');
+      const pid = runtime.pid;
+      await runtime.stop('SIGKILL'); await runtime.start('0');
+      assert.notEqual(runtime.pid, pid); assert.equal(runtime.info.runtime_id, client.runtimeID);
+      const interrupted = await client.wait('claimed-before-kill', deadline());
+      assert.equal(interrupted.turn.state, 'interrupted'); assert.equal(interrupted.turn.id, claimed.turn.id);
+      const interruptedLedger = await client.call('turns.attempts', { turn_id: interrupted.turn.id, limit: 100 }, deadline());
+      assert.equal(interruptedLedger.items.length, 1);
+      assert.equal(interruptedLedger.items[0].state, 'uncertain');
+      const resumed = await client.wait('queued-before-kill', deadline());
+      assert.equal(resumed.input.id, queued.input.id); assert.equal(resumed.turn.state, 'succeeded');
+      const afterCrash = await page();
+      assert.deepEqual(afterCrash.items.slice(0, beforeCrash.items.length), beforeCrash.items);
+      assert.deepEqual(afterCrash.items.slice(beforeCrash.items.length).map(message => message.role), ['user', 'user', 'assistant']);
+      assert.equal(afterCrash.items.at(-1).parts[0].text, 'ack: survives queue');
+      assert.equal((await client.submit(root.id, parts, 'lost-ack', deadline())).input.id, dropped.input.id);
+      evidence.push({ claimed, queued, interrupted, resumed, afterCrash });
 
-    const example = await exec(process.execPath, ['packages/sdk/examples/session.mjs', runtime.info.socket], { timeout: 20_000 });
-    assert.equal(JSON.parse(example.stdout).completed.turn.state, 'succeeded');
-    await assert.rejects(Client.connect(unixSocket(runtime.info.socket), { clientID: 'wrong', expectedRuntimeID: 'different', ...deadline() }), error => error instanceof RemoteError && error.kind === 'IDENTITY');
-    await resourceAcceptance(runtime, client, createParams, evidence);
-    await budgetAcceptance(client, createParams, evidence);
-    await writeAllowanceAcceptance(runtime, client, createParams, evidence);
-    await mailAcceptance(runtime, client, createParams, evidence);
-    await mailEvidenceAcceptance(runtime, client, createParams, evidence);
-    await stateAcceptance(runtime, client, createParams, evidence);
-    await stateSubscriptionAcceptance(runtime, client, createParams, evidence);
-    await completionAcceptance(runtime, client, createParams, evidence);
-    await providerAcceptance(runtime, client, createParams, evidence);
-    await outputAcceptance(runtime, client, createParams, evidence);
-    await contextAcceptance(runtime, client, createParams, evidence);
-    await contextRecoveryAcceptance(runtime, client, createParams, evidence);
-    await contextPolicyAcceptance(runtime, client, createParams, evidence);
-    await instructionAcceptance(runtime, client, createParams, evidence);
-    await hostSkillAcceptance(runtime, client, createParams, evidence);
-    await standingInstructionAcceptance(runtime, client, createParams, evidence);
-    await engineAcceptance(runtime, client, createParams, evidence);
-    await operationAcceptance(runtime, client, createParams, evidence);
-    await streamAcceptance(runtime, client, createParams, evidence);
-    passed = true;
+      const example = await exec(process.execPath, ['packages/sdk/examples/session.mjs', runtime.info.socket], { timeout: 20_000 });
+      assert.equal(JSON.parse(example.stdout).completed.turn.state, 'succeeded');
+      await assert.rejects(Client.connect(unixSocket(runtime.info.socket), { clientID: 'wrong', expectedRuntimeID: 'different', ...deadline() }), error => error instanceof RemoteError && error.kind === 'IDENTITY');
+      return { client, createParams };
+    });
+    await stage('resources', () => resourceAcceptance(runtime, client, createParams, evidence));
+    await stage('budgets', () => budgetAcceptance(client, createParams, evidence));
+    await stage('logical write allowances', () => writeAllowanceAcceptance(runtime, client, createParams, evidence));
+    await stage('mail', () => mailAcceptance(runtime, client, createParams, evidence));
+    await stage('mail evidence', () => mailEvidenceAcceptance(runtime, client, createParams, evidence));
+    await stage('state', () => stateAcceptance(runtime, client, createParams, evidence));
+    await stage('state subscriptions', () => stateSubscriptionAcceptance(runtime, client, createParams, evidence));
+    await stage('completion reports', () => completionAcceptance(runtime, client, createParams, evidence));
+    await stage('HTTP provider', () => providerAcceptance(runtime, client, createParams, evidence));
+    await stage('output contracts', () => outputAcceptance(runtime, client, createParams, evidence));
+    await stage('context compaction', () => contextAcceptance(runtime, client, createParams, evidence));
+    await stage('context recovery', () => contextRecoveryAcceptance(runtime, client, createParams, evidence), 150_000);
+    await stage('context policy', () => contextPolicyAcceptance(runtime, client, createParams, evidence));
+    await stage('instructions', () => instructionAcceptance(runtime, client, createParams, evidence));
+    await stage('host skills', () => hostSkillAcceptance(runtime, client, createParams, evidence));
+    await stage('standing instructions', () => standingInstructionAcceptance(runtime, client, createParams, evidence));
+    await stage('engines', () => engineAcceptance(runtime, client, createParams, evidence));
+    await stage('operations', () => operationAcceptance(runtime, client, createParams, evidence));
+    await stage('streaming', () => streamAcceptance(runtime, client, createParams, evidence));
+  } catch (error) {
+    failure = error;
   } finally {
-    await proxyClose?.();
-    await runtime.stop();
-    if (passed) await rm(runtime.directory, { recursive: true, force: true });
-    else {
-      const artifacts = join('test-results/redesign', basename(runtime.directory));
-      await mkdir(artifacts, { recursive: true });
-      await cp(runtime.directory, artifacts, { recursive: true, filter: path => !path.endsWith('/runtime') && !path.endsWith('.sock') });
+    fixtureAbort.abort(failure ?? new Error('Fixture complete'));
+    try {
+      await stage('shutdown', async () => { await proxyClose?.(); await runtime.stop(); }, 15_000);
+    } catch (error) {
+      failure ??= error;
+    }
+    if (failure) {
+      // Write small diagnostics first so a failed snapshot copy cannot hide the stage.
       await writeFile(join(artifacts, 'runtime.log'), runtime.output);
       await writeFile(join(artifacts, 'observations.json'), JSON.stringify(evidence, null, 2) + '\n');
       t.diagnostic(`Failure artifacts: ${artifacts}; original: ${runtime.directory}`);
+      await cp(runtime.directory, artifacts, { recursive: true, filter: path => !path.endsWith('/runtime') && !path.endsWith('.sock') });
+    } else {
+      await rm(runtime.directory, { recursive: true, force: true });
+      await rm(artifacts, { recursive: true, force: true });
     }
   }
+  if (failure) throw failure;
 });
 
 // Exercise the real HTTP adapter through the command, socket and SDK. This is
