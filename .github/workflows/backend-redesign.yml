@@ -39,6 +39,8 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - name: Active scope and real-runtime acceptance
         env:
+          # The retained legacy fixture uses this; v4 acceptance builds the
+          # production binary. Required Go package suites still run with -race.
           WHIP_SDK_RACE: '1'
         run: task check:phase
       - name: Failure artifacts

@@ -65,7 +65,9 @@ async function fixture() {
   };
   const build = async () => {
     try {
-      await exec('go', ['build', ...(process.env.WHIP_SDK_RACE === '1' ? ['-race'] : []), '-o', binary, './cmd/whip-runtime'], {
+      // This is production-binary acceptance. The required Go suites separately
+      // run with -race; its worker RSS overhead is outside production limits.
+      await exec('go', ['build', '-race=false', '-o', binary, './cmd/whip-runtime'], {
         cwd: resolve('.'), timeout: 120_000, signal: fixtureAbort.signal,
       });
     } catch (error) {
@@ -114,7 +116,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
   const evidence = [];
   const artifacts = join('test-results/redesign', basename(runtime.directory));
   await mkdir(artifacts, { recursive: true });
-  const progress = { directory: runtime.directory, stages: [] };
+  const progress = { directory: runtime.directory, runtime_build: 'production', stages: [] };
   const saveProgress = () => writeFile(join(artifacts, 'progress.json'), JSON.stringify({ ...progress, pid: runtime.pid }, null, 2) + '\n');
   const stage = async (name, run, timeout = 60_000) => {
     const entry = { name, started_at: new Date().toISOString(), timeout_ms: timeout, status: 'running' };
