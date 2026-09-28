@@ -5,6 +5,36 @@ export const manifest = {
   "minor": 0,
   "operations": [
     {
+      "name": "workspace.capture",
+      "params": "WorkspaceActionParams",
+      "result": "WorkspaceResult"
+    },
+    {
+      "name": "workspace.restore",
+      "params": "WorkspaceActionParams",
+      "result": "WorkspaceResult"
+    },
+    {
+      "name": "workspace.release",
+      "params": "WorkspaceActionParams",
+      "result": "WorkspaceResult"
+    },
+    {
+      "name": "workspace.action",
+      "params": "ReadWorkspaceActionParams",
+      "result": "WorkspaceAction"
+    },
+    {
+      "name": "workspace.snapshot",
+      "params": "WorkspaceSnapshotParams",
+      "result": "WorkspaceSnapshot"
+    },
+    {
+      "name": "workspace.snapshots",
+      "params": "WorkspaceSnapshotsParams",
+      "result": "WorkspaceSnapshotsResult"
+    },
+    {
       "name": "accounts.openai.begin",
       "params": "EmptyParams",
       "result": "OpenAILoginFlow"

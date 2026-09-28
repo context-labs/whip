@@ -158,6 +158,35 @@ export class Client {
     return this.call('schedules.create', { ...params, schedule_id: scheduleID }, options);
   }
 
+  /** Keep both IDs and the exact payload. Delivery failure never authorizes a new capture automatically. */
+  captureWorkspace(sessionID: string, snapshotID: string, actionID: string, options: CallOptions = {}): Promise<Operations['workspace.capture']['result']> {
+    return this.call('workspace.capture', { session_id: sessionID, snapshot_id: snapshotID, action_id: actionID }, options);
+  }
+
+  /** Restores the captured tracked-path overlay. An uncertain action must be inspected, never automatically replayed. */
+  restoreWorkspace(sessionID: string, snapshotID: string, actionID: string, options: CallOptions = {}): Promise<Operations['workspace.restore']['result']> {
+    return this.call('workspace.restore', { session_id: sessionID, snapshot_id: snapshotID, action_id: actionID }, options);
+  }
+
+  /** Explicitly releases a retained pin. Preserve actionID for exact retries, including after session deletion. */
+  releaseWorkspace(sessionID: string, snapshotID: string, actionID: string, options: CallOptions = {}): Promise<Operations['workspace.release']['result']> {
+    return this.call('workspace.release', { session_id: sessionID, snapshot_id: snapshotID, action_id: actionID }, options);
+  }
+
+  /** Observation only: a claimed or uncertain action never triggers Git work. */
+  getWorkspaceAction(sessionID: string, actionID: string, options: CallOptions = {}): Promise<Operations['workspace.action']['result']> {
+    return this.call('workspace.action', { session_id: sessionID, action_id: actionID }, options);
+  }
+
+  getWorkspaceSnapshot(sessionID: string, snapshotID: string, options: CallOptions = {}): Promise<Operations['workspace.snapshot']['result']> {
+    return this.call('workspace.snapshot', { session_id: sessionID, snapshot_id: snapshotID }, options);
+  }
+
+  /** Bounded metadata, including released records. Continue with the last ID as after; no cache is retained here. */
+  listWorkspaceSnapshots(params: Operations['workspace.snapshots']['params'], options: CallOptions = {}): Promise<Operations['workspace.snapshots']['result']> {
+    return this.call('workspace.snapshots', params, options);
+  }
+
   /** Keep goalID and the exact creation payload after an uncertain acknowledgement. Current does not imply armed. */
   createGoal(params: Omit<Operations['goals.create']['params'], 'goal_id'>, goalID: string, options: CallOptions = {}): Promise<Operations['goals.create']['result']> {
     return this.call('goals.create', { ...params, goal_id: goalID }, options);

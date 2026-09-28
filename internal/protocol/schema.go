@@ -20,6 +20,12 @@ type Operation struct {
 
 func Operations() []Operation {
 	return []Operation{
+		{"workspace.capture", reflect.TypeFor[WorkspaceActionParams](), reflect.TypeFor[WorkspaceResult]()},
+		{"workspace.restore", reflect.TypeFor[WorkspaceActionParams](), reflect.TypeFor[WorkspaceResult]()},
+		{"workspace.release", reflect.TypeFor[WorkspaceActionParams](), reflect.TypeFor[WorkspaceResult]()},
+		{"workspace.action", reflect.TypeFor[ReadWorkspaceActionParams](), reflect.TypeFor[WorkspaceAction]()},
+		{"workspace.snapshot", reflect.TypeFor[WorkspaceSnapshotParams](), reflect.TypeFor[WorkspaceSnapshot]()},
+		{"workspace.snapshots", reflect.TypeFor[WorkspaceSnapshotsParams](), reflect.TypeFor[WorkspaceSnapshotsResult]()},
 		{"accounts.openai.begin", reflect.TypeFor[EmptyParams](), reflect.TypeFor[OpenAILoginFlow]()},
 		{"accounts.openai.get", reflect.TypeFor[OpenAIFlowParams](), reflect.TypeFor[OpenAILoginFlow]()},
 		{"accounts.openai.list", reflect.TypeFor[EmptyParams](), reflect.TypeFor[OpenAIFlowsResult]()},
@@ -200,6 +206,11 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 			}
 		}
 		accountSchema(schema, t)
+		if t == reflect.TypeFor[WorkspaceSnapshotsResult]() {
+			schema.Properties["items"].Type = "array"
+			schema.Properties["items"].Types = nil
+			schema.Properties["items"].MaxItems = new(100)
+		}
 		if t == reflect.TypeFor[GoalFormulationRequest]() {
 			schema.Properties["tail_messages"] = &jsonschema.Schema{OneOf: []*jsonschema.Schema{
 				{Type: "integer", Enum: []any{0}},

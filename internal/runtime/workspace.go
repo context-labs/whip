@@ -7,6 +7,12 @@ import (
 
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/store"
+	"github.com/context-labs/whip/internal/workspace"
+)
+
+var (
+	ErrWorkspaceChanged = workspace.ErrChanged
+	ErrWorkspaceLimit   = workspace.ErrOutputLimit
 )
 
 func (r *Runtime) CaptureWorkspace(ctx context.Context, request session.WorkspaceRequest) (session.WorkspaceResult, error) {
@@ -23,6 +29,10 @@ func (r *Runtime) ReleaseWorkspace(ctx context.Context, request session.Workspac
 
 func (r *Runtime) WorkspaceSnapshot(ctx context.Context, owner session.SessionID, id session.WorkspaceSnapshotID) (session.WorkspaceSnapshot, error) {
 	return r.store.WorkspaceSnapshot(ctx, owner, id)
+}
+
+func (r *Runtime) WorkspaceAction(ctx context.Context, owner session.SessionID, id session.WorkspaceActionID) (session.WorkspaceAction, error) {
+	return r.store.WorkspaceAction(ctx, owner, id)
 }
 
 func (r *Runtime) WorkspaceSnapshots(ctx context.Context, owner session.SessionID, after session.WorkspaceSnapshotID, limit int) ([]session.WorkspaceSnapshot, error) {

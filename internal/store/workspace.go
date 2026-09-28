@@ -79,6 +79,12 @@ func (s *Store) WorkspaceSnapshot(ctx context.Context, owner session.SessionID, 
 	return readWorkspaceSnapshot(ctx, s.db, owner, id)
 }
 
+// WorkspaceAction observes a durable action without inspecting or changing Git.
+// It remains available after explicit release and owner deletion.
+func (s *Store) WorkspaceAction(ctx context.Context, owner session.SessionID, id session.WorkspaceActionID) (session.WorkspaceAction, error) {
+	return scanWorkspaceAction(s.db.QueryRowContext(ctx, "SELECT "+workspaceActionColumns+" FROM workspace_actions WHERE id=? AND session_id=?", id, owner))
+}
+
 func (s *Store) WorkspaceSnapshots(ctx context.Context, owner session.SessionID, after session.WorkspaceSnapshotID, limit int) ([]session.WorkspaceSnapshot, error) {
 	if err := pageLimit(limit); err != nil {
 		return nil, err
