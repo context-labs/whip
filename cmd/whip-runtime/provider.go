@@ -12,8 +12,8 @@ import (
 
 // Host routes and credentials are refreshed at request preparation. The prepared
 // body, route and prices stay fixed across that logical call's recorded retries.
-func configuredProvider(directory string, auth model.SubscriptionAuth) model.OpenAI {
-	return model.OpenAI{Auth: auth, Resolve: func(ctx context.Context, selection session.ModelSelection) (model.Route, error) {
+func configuredProvider(directory string, auth model.SubscriptionAuth, inference model.InferenceAuth) model.OpenAI {
+	return model.OpenAI{Auth: auth, InferenceAuth: inference, Resolve: func(ctx context.Context, selection session.ModelSelection) (model.Route, error) {
 		if err := ctx.Err(); err != nil {
 			return model.Route{}, err
 		}
@@ -46,7 +46,8 @@ func configuredProvider(directory string, auth model.SubscriptionAuth) model.Ope
 		}
 		return model.Route{
 			Kind: provider.Kind, URL: provider.BaseURL, Credential: credential, Prices: settings.Prices,
-			MaxOutputTokens: settings.MaxOutputTokens, TimeoutMillis: settings.TimeoutMillis,
+			ManagedInference: provider.CredentialSource == "inference-net",
+			MaxOutputTokens:  settings.MaxOutputTokens, TimeoutMillis: settings.TimeoutMillis,
 			MaxAttempts: settings.MaxAttempts, ContextWindowTokens: settings.ContextWindowTokens,
 		}, nil
 	}}

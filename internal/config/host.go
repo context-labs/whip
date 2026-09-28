@@ -15,16 +15,19 @@ import (
 
 const (
 	FileName = "host.json"
-	Version  = 9
+	Version  = 10
 )
 
 var environmentName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 type Provider struct {
-	Kind          string           `json:"kind"`
-	BaseURL       string           `json:"base_url"`
-	CredentialEnv string           `json:"credential_env"`
-	Models        map[string]Model `json:"models,omitempty"`
+	Kind          string `json:"kind"`
+	BaseURL       string `json:"base_url"`
+	CredentialEnv string `json:"credential_env"`
+	// CredentialSource selects a managed credential owner explicitly. Empty
+	// retains environment/no-auth routing; the gateway URL never selects it.
+	CredentialSource string           `json:"credential_source,omitempty"`
+	Models           map[string]Model `json:"models,omitempty"`
 }
 
 // Model contains host-side dispatch limits and price evidence, not session
@@ -148,7 +151,7 @@ func (h Host) Validate() error {
 			return err
 		}
 		if provider.Kind == "openai-codex" {
-			if provider.BaseURL != "" || provider.CredentialEnv != "" {
+			if provider.BaseURL != "" || provider.CredentialEnv != "" || provider.CredentialSource != "" {
 				return fmt.Errorf("%w: subscription routes cannot configure an endpoint or API credential", session.ErrInvalid)
 			}
 		} else {
@@ -159,6 +162,9 @@ func (h Host) Validate() error {
 			}
 			if provider.CredentialEnv != "" && !environmentName.MatchString(provider.CredentialEnv) {
 				return fmt.Errorf("%w: invalid credential environment reference", session.ErrInvalid)
+			}
+			if err := provider.validateCredentialSource(); err != nil {
+				return err
 			}
 		}
 		if len(provider.Models) > 1024 {
@@ -197,6 +203,9 @@ func (h Host) Validate() error {
 // Credential resolves an environment reference only when the execution layer
 // constructs a client. Passing the lookup keeps tests and callers explicit.
 func (p Provider) Credential(lookup func(string) (string, bool)) (string, error) {
+	if err := p.validateCredentialSource(); err != nil {
+		return "", err
+	}
 	if p.Kind == "openai-codex" && p.CredentialEnv != "" {
 		return "", fmt.Errorf("%w: subscription routes cannot use API credentials", session.ErrInvalid)
 	}
@@ -211,4 +220,14 @@ func (p Provider) Credential(lookup func(string) (string, bool)) (string, error)
 		return "", fmt.Errorf("credential environment variable %q is unset", p.CredentialEnv)
 	}
 	return value, nil
+}
+
+func (p Provider) validateCredentialSource() error {
+	if p.CredentialSource == "" {
+		return nil
+	}
+	if p.CredentialSource != "inference-net" || p.Kind != "openai-chat" || p.BaseURL != "https://api.inference.net/v1" || p.CredentialEnv != "" {
+		return fmt.Errorf("%w: managed Inference.net credentials require their exact chat gateway and no environment credential", session.ErrInvalid)
+	}
+	return nil
 }

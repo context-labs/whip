@@ -2535,3 +2535,35 @@ configuration/import/refresh, shell jobs versus human PTYs, browser/computer/nat
 resources and host/gateway trust. Existing operation approvals and file read/write/
 patch alone do not replace those families. Every supported client and final core
 removal remain required under Phases6–7.
+
+
+## Managed Inference.net credential binding
+
+History and rewind are published in draft [PR237](https://github.com/context-labs/whip/pull/237)
+at `41bb99a5e`; hosted validation is pending. The next isolated stack increment
+reuses saved credential-manager checkpoint `3e04bfcae` via clean tested leaf
+`f054248c2` as `53dd639dc`, then integrates managed binding `296e5cee8` as
+`797e800b1`. Fresh configuration advances to version10; schema32 and development
+protocol major4 are unchanged.
+
+The command owns the manager after acquiring the runtime directory and injects it
+before starting execution. Loading is lazy, so unused malformed Inference.net
+credentials cannot block scripted or other-provider startup. Explicit managed
+routes accept only the pinned chat gateway and exclude environment credentials.
+Prepared requests capture one machine key/generation; replacement and logout
+invalidate later checks without exposing management tokens or keys in SQL.
+Publication, pending durability, local-only persistence retry and failed logout
+retain the checkpoint's exact ownership semantics. Onboarding/public HTTP account
+flows, other credential sources and account catalogs remain open.
+
+The isolated leaf passed race/shuffle for inferenceauth1.961s/config3.252s/
+model11.720s/command4.734s, architecture checks0.524s, focused build/vet,
+pinned lint with zero findings and a Linux amd64 command build. Fixtures use
+synthetic credentials and intercepted HTTP, with no real account changes.
+Integrated `task check:phase` passed: store race157.111s, runtime170.583s,
+process114.661s, inferenceauth4.505s, config5.140s, model8.932s, command7.428s,
+RPC13.725s and remaining package races, generated contracts and SDK checks.
+The v4 process fixture passed26.418s, retained fixture2.866s and daemon
+regressions2.771s. `task check:analysis` passed with zero lint findings and no
+reachable vulnerabilities. Logs are `/tmp/whip-managed-credentials-{phase,analysis}.log`.
+Hosted checks remain pending. No installed runtime was changed.

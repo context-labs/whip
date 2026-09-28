@@ -381,7 +381,7 @@ Maintain one compact table here as families are addressed:
 | Context and checkpointing | Raw history retained; checkpoint boundary and fidelity explicit | Both engines pass `runtime/engine_test.go`; durable compaction, raw-history access, captured helper routing, proactive thresholds and bounded context-rejection recovery implemented; fork/rewind remains pending | 3 complete; 5 in progress |
 | Provider execution | Preserve supported wire protocols and tool cycles; uncertain partial-stream regeneration is retired in favor of explicit no-replay accounting | Chat wire profiles, Responses/private continuation, subscription captures, idle-stall termination, captured sampling, reasoning previews and stateless helpers/batch implemented; live-provider smoke remains | 5 in progress |
 | Goals and schedules | Ordinary durable input admission; continuation/cursor state has one owner | Schedule store/runtime/guest/RPC/SDK and restart coverage implemented. Goal records, public controls, captured turns, atomic continuation and authorized completion settlement and durable formulation implemented; product-client adoption remains | 5 in progress |
-| Provider accounts and discovery | Host-owned credentials and setup flows, account-scoped catalogs, exact pricing and explicit defaults | ChatGPT manager, host-owned login flows, revisioned setup, public RPC/SDK and joined cancellation implemented; API credential sources, Inference.net team/project/key lifecycle, catalogs, readiness and product clients remain | 5–6 in progress |
+| Provider accounts and discovery | Host-owned credentials and setup flows, account-scoped catalogs, exact pricing and explicit defaults | ChatGPT manager, host-owned login flows, revisioned setup, public RPC/SDK and joined cancellation implemented; independent Inference.net credential manager and explicit gateway binding implemented. Other API credential sources, team/project/key flows, catalogs, readiness and product clients remain | 5–6 in progress |
 | Conversation titles | Preserve explicit titles and automatic title generation without mixing helper output into history | Tree metadata supports explicit titles; retained automatic-title admission and model helper behavior still need replacement evidence | 5 pending |
 | Fork/rewind/workspace | Revision/tail CAS, recoverable identities, scoped imports, empty REPL, separate uncertain workspace effects | History/rewind checkpoints and public rewind integrated; local phase/analysis gates pass, hosted validation pending. Fork and workspace restore remain | 5 in progress |
 | Definition modules and executors | Captured declarations, connection-bound handlers, schema validation and child authority | Retained `daemon/definition_test.go`, `tools_test.go`, agents SDK/examples; replacement pending | 5 |
@@ -870,10 +870,11 @@ Content ownership is now implemented: session-qualified identity/read/retry and
 permanent charges, digest body deduplication and recipient-constrained mail
 foreign keys pass real-SQL and runtime evidence tests. The SDK process scenario
 covers the same handle with different bytes, exact retry, conflicts, restart,
-foreign access and independent deletion. Fork/rewind itself remains open.
+foreign access and independent deletion. History groups, revision-aware pages,
+public rewind and REPL invalidation now pass the local phase and analysis gates.
+Fork imports and separate workspace operations remain open.
 
-Deliver history groups/revisions and REPL invalidation next,
-then fork imports, then separate workspace operations. Acceptance includes
+Continue with fork imports, then separate workspace operations. Acceptance includes
 source deletion/double forks, opaque handles, exact retries, concurrent stale
 history edits, compaction pins, non-reused sequences, restart/reset boundaries,
 and tracked/untracked/deleted/staged file behavior and partial restore failures.

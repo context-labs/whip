@@ -12,6 +12,7 @@ separate legacy runtime and SDK until their client cutover.
 | Runtime identity and schema version | Fresh SQLite database |
 | Host provider declarations | Revisioned host file; config authority reads fresh bytes and serializes publication |
 | ChatGPT credentials and login generation | One command-owned account manager and its private credential file |
+| Inference.net management credentials and machine key | One command-owned credential manager with separate lifetimes in its private file |
 | Pending account approval | Bounded host-service flow in memory; never session input or SQL execution state |
 | Definition defaults and declarations | Immutable definition revision document |
 | Tree metadata and common engine | Tree row |
@@ -316,12 +317,38 @@ must select a model/provider before creating a runnable session. API credentials
 use environment references resolved during request preparation. Subscription
 credentials belong to the independent host account manager and its private file.
 
-Current fresh host configuration is version 9; the SQLite schema is version 32.
+Current fresh host configuration is version 10; the SQLite schema is version 32.
 SQLite has an application identifier and schema version. Existing databases of
 another application/version are rejected, not imported. Reopening preserves the
 runtime identity and seeded revisions; separate databases receive distinct
 identities. Future versions of this fresh schema may have ordinary migrations.
 The store owns database transactions only, with no resource-manager construction.
+
+Inference.net routes select their private machine-key owner explicitly with
+`credential_source: "inference-net"`. Only `openai-chat` at the exact
+`https://api.inference.net/v1` gateway can use that source, and it cannot also
+supply `credential_env`. Matching a URL never implicitly selects credentials.
+Environment and unauthenticated routes remain independent. The command constructs
+one `inferenceauth.Manager` after acquiring runtime ownership, injects it before
+starting execution, and closes it after runtime work has joined. Construction
+anchors the explicit directory but does not read the private record; unrelated
+providers and scripted execution never load it.
+
+The manager stores management authorization separately from machine-key identity
+and team/project scope. Management expiry does not expire an otherwise available
+machine key. Preparation captures one key and generation for all recorded retries;
+checks after reservation and immediately before HTTP reject replacement or logout.
+Private keys and management tokens never enter request snapshots, session records
+or public projections. These checks prove authorization at each check, without
+claiming atomic revocation of an HTTP request already dispatched.
+
+The private record uses owned regular files, bounded reads, durable atomic
+publication and directory confirmation before first use. Visible replacements
+invalidate earlier captures even if durability confirmation fails. Known local
+publication failures retry persistence without minting another key. Logout revokes
+local captures before removal; unresolved removal blocks use until explicit retry.
+The independent manager and execution binding are implemented; Inference.net
+onboarding, team/project/key HTTP flows and public controls remain separate work.
 
 The new runtime implements the OpenAI-compatible Chat Completions, API Responses
 and ChatGPT subscription adapters and both Starlark and QuickJS subprocess engines. These are protocol/engine adapters,

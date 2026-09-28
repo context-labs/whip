@@ -26,13 +26,16 @@ const maxResponseBytes = 4 << 20
 // Route is a resolved host route. Credentials are ephemeral and deliberately
 // excluded from the durable request snapshot. The URL is an API base URL.
 type Route struct {
-	Kind            string
-	URL             string
-	Credential      string
-	Prices          session.ModelPrices
-	MaxOutputTokens int64
-	TimeoutMillis   int64
-	MaxAttempts     int
+	Kind       string
+	URL        string
+	Credential string
+	// ManagedInference uses the command's Inference.net credential manager.
+	// It never infers authorization from a matching URL.
+	ManagedInference bool
+	Prices           session.ModelPrices
+	MaxOutputTokens  int64
+	TimeoutMillis    int64
+	MaxAttempts      int
 	// ContextWindowTokens is the host-declared, provider-enforced maximum.
 	// Nil is unknown; this is not a token count for the encoded request.
 	ContextWindowTokens *int64
@@ -41,9 +44,10 @@ type Route struct {
 // OpenAI implements streaming Chat Completions and Responses. Retry
 // policy is enforced by the runner so every request has its own durable attempt.
 type OpenAI struct {
-	Resolve func(context.Context, session.ModelSelection) (Route, error)
-	Client  *http.Client
-	Auth    SubscriptionAuth
+	Resolve       func(context.Context, session.ModelSelection) (Route, error)
+	Client        *http.Client
+	Auth          SubscriptionAuth
+	InferenceAuth InferenceAuth
 	// IdleTimeout is adapter policy, frozen at Prepare. Zero selects two minutes
 	// for Chat or five minutes for Responses; the attempt ceiling still applies.
 	IdleTimeout time.Duration
@@ -112,6 +116,14 @@ func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) 
 		return Prepared{}, fmt.Errorf("%w: ChatGPT subscription cannot enforce a requested limit below its natural output ceiling", session.ErrInvalid)
 	}
 	route.MaxOutputTokens = outputLimit
+	var beforeDispatch func(context.Context) error
+	if route.ManagedInference {
+		credential, check, err := p.captureInference(ctx, route)
+		if err != nil {
+			return Prepared{}, err
+		}
+		route.Credential, beforeDispatch = credential, check
+	}
 	if strings.ContainsAny(route.Credential, "\r\n\x00") {
 		return Prepared{}, errors.New("provider credential contains invalid header characters")
 	}
@@ -177,7 +189,13 @@ func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) 
 	}
 	return Prepared{
 		Snapshot: snapshot, MaxAttempts: route.MaxAttempts, ContextWindowTokens: contextWindow,
+		BeforeDispatch: beforeDispatch,
 		Execute: func(ctx context.Context, emit func(Chunk)) (Response, error) {
+			if beforeDispatch != nil {
+				if err := beforeDispatch(ctx); err != nil {
+					return Response{}, err
+				}
+			}
 			if adapter == "openai-responses" {
 				return executeResponses(ctx, &client, snapshot.Route, responseAuth{credential: route.Credential}, scope, body, allowedTools, emit, idle)
 			}
