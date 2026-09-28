@@ -123,8 +123,12 @@ entry with `mail` provenance references an immutable mail revision and has no
 `input_id`; clients must preserve that distinction in views and recovery records.
 Explicit state uses immutable version handles and revision-checked writes.
 Client state reads return bounded base64 JSON bytes, preserving exact numbers;
-list/history calls return metadata. Mail provenance distinguishes a session sender
-from a state subscription. Subscriptions start from an explicit observed revision
+list/history calls return metadata. Mail provenance distinguishes session senders, state subscriptions, and child
+completion reports. A completion source identifies the child; its parent owns the
+immutable `evidence_ref`. `completions.list/read` inspect snapshots still awaiting
+publication and survive source-child deletion. Pin reads to the exact turn token,
+handle superseded-token conflicts by re-listing, and keep the 64 KiB JSON-byte
+pages in bounded consumer scope. These reads do not acknowledge mail. Subscriptions start from an explicit observed revision
 and deliver ordinary revisioned mail; their cursor does not acknowledge handling.
 Reconstruct requested values in bounded
 consumer scope rather than introducing a second authoritative state cache.

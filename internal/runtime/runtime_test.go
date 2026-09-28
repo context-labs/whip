@@ -47,7 +47,7 @@ func createTest(t *testing.T, r *Runtime) session.Session {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, s, err := r.CreateTree(t.Context(), store.CreateTree{Engine: session.Starlark, Definition: refs[0], WorkingDirectory: t.TempDir(), Overrides: session.ConfigPatch{Model: &session.ModelSelection{Provider: "scripted", Name: "scripted"}}})
+	_, s, err := r.CreateTree(t.Context(), store.CreateTree{Engine: session.Starlark, Definition: refs[0], WorkingDirectory: t.TempDir(), Overrides: session.ConfigPatch{ReportMode: new(session.ReportMessage), Model: &session.ModelSelection{Provider: "scripted", Name: "scripted"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

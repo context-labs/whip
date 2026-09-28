@@ -1,0 +1,118 @@
+{
+  "type": "object",
+  "properties": {
+    "completion": {
+      "type": "object",
+      "properties": {
+        "parent_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "child_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "turn_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "input_id": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "message_id": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "succeeded",
+            "failed",
+            "cancelled",
+            "interrupted"
+          ]
+        },
+        "failure": {
+          "type": [
+            "null",
+            "string"
+          ]
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "notice",
+            "inline",
+            "message"
+          ]
+        },
+        "finished_at": {
+          "type": "string"
+        },
+        "text_bytes": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "omitted_parts": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        }
+      },
+      "required": [
+        "parent_id",
+        "child_id",
+        "turn_id",
+        "input_id",
+        "message_id",
+        "state",
+        "failure",
+        "mode",
+        "finished_at",
+        "text_bytes",
+        "omitted_parts"
+      ],
+      "additionalProperties": false
+    },
+    "offset": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "total_bytes": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "data_base64": {
+      "type": "string"
+    },
+    "next_offset": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ReadCompletionResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ReadCompletionResult",
+  "required": [
+    "completion",
+    "offset",
+    "total_bytes",
+    "data_base64",
+    "next_offset"
+  ],
+  "additionalProperties": false
+}

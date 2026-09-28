@@ -25,7 +25,8 @@
                 "type": "string",
                 "enum": [
                   "session",
-                  "state"
+                  "state",
+                  "completion"
                 ]
               },
               "id": {

@@ -130,6 +130,9 @@ func (p ConfigPatch) Domain() (session.ConfigPatch, error) {
 
 func (p ConfigPatch) MarshalJSON() ([]byte, error) {
 	fields := map[string]any{}
+	if p.ReportMode != nil {
+		fields["report_mode"] = p.ReportMode
+	}
 	if p.Model != nil {
 		fields["model"] = p.Model
 	}

@@ -97,6 +97,7 @@ type OutputPolicy struct {
 	Schema json.RawMessage `json:"schema"`
 }
 type Configuration struct {
+	ReportMode   string                     `json:"report_mode" enum:"notice,inline,message"`
 	Model        ModelSelection             `json:"model"`
 	Instructions Instructions               `json:"instructions"`
 	Tools        map[string]ToolDeclaration `json:"tools"`
@@ -105,6 +106,7 @@ type Configuration struct {
 	OutputSchema json.RawMessage            `json:"output_schema"`
 }
 type ConfigPatch struct {
+	ReportMode   *string                    `json:"report_mode,omitempty" enum:"notice,inline,message"`
 	Model        *ModelSelection            `json:"model,omitempty"`
 	Instructions *Instructions              `json:"instructions,omitempty"`
 	Tools        map[string]ToolDeclaration `json:"tools,omitempty"`

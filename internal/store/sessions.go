@@ -159,6 +159,9 @@ func spawnSession(ctx context.Context, tx *sql.Tx, request SpawnSession) (sessio
 	if err != nil {
 		return child, err
 	}
+	if err := reserveCompletion(ctx, tx, parent.ID, child.ID); err != nil {
+		return child, err
+	}
 	return child, checkResources(ctx, tx, child.ID, session.ResourceDepth, session.ResourceDescendants)
 }
 

@@ -79,6 +79,33 @@ CREATE TRIGGER turn_transition BEFORE UPDATE ON turns
  OR NEW.state='running'
  BEGIN SELECT RAISE(ABORT, 'invalid turn transition'); END;
 
+-- A live child reserves one parent-owned completion slot. Source IDs deliberately
+-- have no cascading foreign key: pending evidence survives source deletion.
+CREATE TABLE completion_slots (
+ child_id TEXT PRIMARY KEY, parent_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+ turn_id TEXT, input_id TEXT, message_id TEXT, state TEXT, failure TEXT, mode TEXT,
+ finished_at INTEGER, text TEXT, omitted_parts INTEGER,
+ CHECK(child_id <> parent_id),
+ CHECK((turn_id IS NULL) = (state IS NULL)),
+ CHECK((turn_id IS NULL) = (mode IS NULL)),
+ CHECK((turn_id IS NULL) = (finished_at IS NULL)),
+ CHECK((turn_id IS NULL) = (text IS NULL)),
+ CHECK((turn_id IS NULL) = (omitted_parts IS NULL)),
+ CHECK(turn_id IS NOT NULL OR (input_id IS NULL AND message_id IS NULL AND failure IS NULL)),
+ CHECK(state IS NULL OR state IN ('succeeded','failed','cancelled','interrupted')),
+ CHECK(state <> 'succeeded' OR failure IS NULL),
+ CHECK(mode IS NULL OR mode IN ('notice','inline','message')),
+ CHECK(mode <> 'message' OR state <> 'succeeded'),
+ CHECK(text IS NULL OR length(CAST(text AS BLOB)) <= 1048576),
+ CHECK(failure IS NULL OR length(CAST(failure AS BLOB)) <= 16384),
+ CHECK(omitted_parts IS NULL OR omitted_parts >= 0)
+) STRICT;
+CREATE INDEX completion_parent ON completion_slots(parent_id,child_id);
+CREATE INDEX completion_pending ON completion_slots(child_id) WHERE turn_id IS NOT NULL;
+CREATE TRIGGER completion_identity_immutable BEFORE UPDATE ON completion_slots
+ WHEN NEW.child_id IS NOT OLD.child_id OR NEW.parent_id IS NOT OLD.parent_id
+ BEGIN SELECT RAISE(ABORT, 'completion slot identity is immutable'); END;
+
 -- Execution permission is separate from turn outcome: waiting turns retain
 -- their input and history without consuming runnable descendant capacity.
 CREATE TABLE turn_permits (
@@ -120,7 +147,7 @@ CREATE TRIGGER receipt_immutable BEFORE UPDATE ON receipts
  BEGIN SELECT RAISE(ABORT, 'receipt may only become a deletion marker'); END;
 -- Mail identity survives recipient deletion solely as a send-retry tombstone.
 CREATE TABLE mail (
- id TEXT PRIMARY KEY, source_kind TEXT NOT NULL CHECK(source_kind IN ('session','state')), source_id TEXT NOT NULL, recipient_id TEXT NOT NULL,
+ id TEXT PRIMARY KEY, source_kind TEXT NOT NULL CHECK(source_kind IN ('session','state','completion')), source_id TEXT NOT NULL, recipient_id TEXT NOT NULL,
  initial_digest TEXT NOT NULL, revision INTEGER, state TEXT,
  created_at INTEGER NOT NULL, deleted_at INTEGER,
  CHECK((revision IS NULL) = (deleted_at IS NOT NULL)),

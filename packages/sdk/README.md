@@ -235,7 +235,7 @@ shared versions survive their author's deletion until the tree is deleted.
 State handles never authorize ordinary content reads or access to another tree.
 
 
-Mail metadata uses `source: { kind: 'session' | 'state', id }`. For ordinary mail,
+Mail metadata uses `source: { kind: 'session' | 'state' | 'completion', id }`. For ordinary mail,
 `id` is the sender session; for a state notification it is the subscription ID.
 The send request still specifies `sender_id`. Its API cannot impersonate a state
 notification. A notification body identifies an immutable `version_id`, `key`,
@@ -260,3 +260,38 @@ Own writes advance it without self-notification. Cancellation stops future mail
 and retains existing notifications. A cancelled creation retry stays cancelled.
 If a notification cannot fit the bounded mailbox, the whole state write fails
 with a resource-limit error; no state change commits without its notifications.
+
+
+Child completion policy is `overrides.report_mode`: `notice` (default), `inline`,
+or `message`. It follows configuration inheritance and is captured per turn.
+Message mode suppresses successful automatic reports; failures still notify the
+parent. Automatic reports use queued mail and may wake an idle parent without
+creating an input. Reading them does not acknowledge them.
+
+Completion mail has source kind `completion` and a child ID. Parse its body for
+`turn_id`, `input_id`, `mode`, truncation flags and `evidence_ref`. The reference
+belongs to the parent and contains the full JSON outcome and last assistant text;
+use `content.read` with the parent's session ID. Evidence survives child deletion.
+
+Mailbox or content limits can delay publication while the child is already
+finished. Inspect these pending outcomes with bounded pages:
+
+```ts
+const pending = await client.call('completions.list', {
+  parent_id: parentID, limit: 20,
+});
+const item = pending.items?.[0];
+if (item) {
+  const chunk = await client.call('completions.read', {
+    parent_id: parentID, child_id: item.child_id, turn_id: item.turn_id,
+    offset: '0', length: 65536,
+  });
+  // Decode data_base64 as JSON bytes; follow next_offset until null.
+}
+```
+
+A conflict means the exact snapshot was published or superseded; re-list instead
+of joining bytes from different turns. Pending reads do not cause publication or
+acknowledge mail. Runtime restart retries delivery without replaying completed
+child work. A full retained mailbox can keep a report pending; clients should show
+that delivery state separately from the child's terminal outcome.

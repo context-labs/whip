@@ -106,6 +106,8 @@ func TestConfigurationValidation(t *testing.T) {
 		patch ConfigPatch
 	}{
 		{"missing provider", ConfigPatch{Model: &ModelSelection{Name: "model"}}},
+		{"empty report mode", ConfigPatch{ReportMode: new(ReportMode(""))}},
+		{"unknown report mode", ConfigPatch{ReportMode: new(ReportMode("automatic"))}},
 		{"malformed schema", ConfigPatch{Tools: map[string]ToolDeclaration{"read": {InputSchema: json.RawMessage(`[]`)}}}},
 		{"invalid schema type", ConfigPatch{Tools: map[string]ToolDeclaration{"read": {InputSchema: json.RawMessage(`{"type":17}`)}}}},
 		{"remote schema", ConfigPatch{Tools: map[string]ToolDeclaration{"read": {InputSchema: json.RawMessage(`{"$ref":"https://example.test/schema"}`)}}}},
@@ -133,5 +135,34 @@ func TestConfigurationValidation(t *testing.T) {
 	}
 	if !reflect.DeepEqual(valid.Model, decoded.Model) {
 		t.Fatal("model selection changed")
+	}
+}
+
+func TestReportModeResolution(t *testing.T) {
+	for _, tc := range []struct {
+		name                 string
+		base                 ReportMode
+		definition, override *ReportMode
+		want                 ReportMode
+	}{
+		{name: "default notice", want: ReportNotice},
+		{name: "parent inheritance", base: ReportInline, want: ReportInline},
+		{name: "definition overrides parent", base: ReportInline, definition: new(ReportMessage), want: ReportMessage},
+		{name: "session overrides definition", base: ReportMessage, definition: new(ReportInline), override: new(ReportNotice), want: ReportNotice},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base := Configuration{Model: ModelSelection{Provider: "local", Name: "model"}, ReportMode: tc.base}
+			document := DefinitionDocument{ID: "reporter", Name: "Reporter", Defaults: ConfigPatch{ReportMode: tc.definition}}
+			resolved, err := Resolve(base, document, ConfigPatch{ReportMode: tc.override})
+			if err != nil || resolved.ReportMode != tc.want {
+				t.Fatalf("report policy = %q, %v; want %q", resolved.ReportMode, err, tc.want)
+			}
+			if tc.override != nil {
+				*tc.override = ReportMessage
+			}
+			if resolved.ReportMode != tc.want || base.ReportMode != tc.base {
+				t.Fatal("resolved policy aliases or changes its source")
+			}
+		})
 	}
 }

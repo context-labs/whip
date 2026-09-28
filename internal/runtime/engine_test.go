@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -83,7 +84,7 @@ func createEngineSession(t *testing.T, r *Runtime, engine session.Engine) sessio
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, s, err := r.CreateTree(t.Context(), store.CreateTree{Engine: engine, Definition: refs[0], WorkingDirectory: t.TempDir(), Overrides: session.ConfigPatch{Model: &session.ModelSelection{Provider: "scripted", Name: "scripted"}}})
+	_, s, err := r.CreateTree(t.Context(), store.CreateTree{Engine: engine, Definition: refs[0], WorkingDirectory: t.TempDir(), Overrides: session.ConfigPatch{ReportMode: new(session.ReportMessage), Model: &session.ModelSelection{Provider: "scripted", Name: "scripted"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,38 +262,77 @@ func TestPartialRestoreReportSurvivesTurnLease(t *testing.T) {
 }
 
 func TestDeleteSubtreeClosesOnlyItsKernels(t *testing.T) {
-	r := openEngineTest(t, t.TempDir(), cellProvider(map[string]string{"root": "print(1)", "child": "print(2)", "other": "print(3)"}))
-	root := createEngineSession(t, r, session.Starlark)
-	other := createEngineSession(t, r, session.Starlark)
-	spawned, err := r.SpawnChild(t.Context(), session.RequestIdentity{ClientID: "test", RequestID: "child"}, store.ChildRequest{ParentID: root.ID, Parts: []session.Part{{Type: "text", Text: "child"}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	child := *spawned.Session
-	if result := waitTestWithin(t, r, "child", terminal, 30*time.Second); result.Turn.State != session.Succeeded {
-		t.Fatalf("child outcome: %+v", result.Turn)
-	}
-	runCellTurn(t, r, root.ID, "root", "1\n")
-	runCellTurn(t, r, other.ID, "other", "3\n")
-	r.mu.Lock()
-	rootKernel, childKernel, otherKernel := r.kernels[root.ID], r.kernels[child.ID], r.kernels[other.ID]
-	r.mu.Unlock()
-	if err := r.DeleteSubtree(t.Context(), child.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := childKernel.kernel.Exec(t.Context(), process.Cell{Code: "print(999)"}); !errors.Is(err, process.ErrKernelClosed) {
-		t.Fatalf("deleted child kept kernel: %v", err)
-	}
-	if err := r.DeleteSubtree(t.Context(), root.ID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := rootKernel.kernel.Exec(t.Context(), process.Cell{Code: "print(999)"}); !errors.Is(err, process.ErrKernelClosed) {
-		t.Fatalf("deleted root kept kernel: %v", err)
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if len(r.kernels) != 1 || r.kernels[other.ID] != otherKernel {
-		t.Fatal("deletion changed unrelated kernel ownership")
+	for _, engine := range []session.Engine{session.Starlark, session.QuickJS} {
+		t.Run(string(engine), func(t *testing.T) {
+			r := openEngineTest(t, t.TempDir(), cellProvider(map[string]string{"root": "print(1)", "child": "print(2)", "other": "print(3)"}))
+			root := createEngineSession(t, r, engine)
+			other := createEngineSession(t, r, engine)
+			// Keep automatic publication under real content pressure while the
+			// child executes. All references share one valid immutable body.
+			body, err := r.content.Put(bytes.Repeat([]byte{'x'}, session.MaxContentBytes))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i := range session.MaxSessionContentBytes / session.MaxContentBytes {
+				_, err := r.store.RegisterContent(t.Context(), session.ContentReference{ID: fmt.Sprintf("pressure_%d", i), SessionID: root.ID, Digest: body.Digest, Size: body.Size, MediaType: "application/octet-stream"})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			spawned, err := r.SpawnChild(t.Context(), session.RequestIdentity{ClientID: "test", RequestID: "child"}, store.ChildRequest{
+				ParentID: root.ID, Parts: []session.Part{{Type: "text", Text: "child"}}, Overrides: session.ConfigPatch{ReportMode: new(session.ReportNotice)},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			child := *spawned.Session
+			result := waitTestWithin(t, r, "child", terminal, 30*time.Second)
+			if result.Turn.State != session.Succeeded {
+				t.Fatalf("child outcome: %+v", result.Turn)
+			}
+			runCellTurn(t, r, root.ID, "root", "1\n")
+			runCellTurn(t, r, other.ID, "other", "3\n")
+			before, err := r.ReadPendingCompletion(t.Context(), root.ID, child.ID, result.Turn.ID, 0, maxEvidenceReadBytes)
+			if err != nil || before.Completion.ParentID != root.ID || before.Completion.ChildID != child.ID || before.Completion.TextBytes == 0 {
+				t.Fatalf("missing parent-owned completion: %+v %v", before, err)
+			}
+			r.mu.Lock()
+			rootKernel, childKernel, otherKernel := r.kernels[root.ID], r.kernels[child.ID], r.kernels[other.ID]
+			r.mu.Unlock()
+			if rootKernel == nil || childKernel == nil || otherKernel == nil {
+				t.Fatal("fixture did not initialize every kernel")
+			}
+			if err := r.DeleteSubtree(t.Context(), child.ID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := childKernel.kernel.Exec(t.Context(), process.Cell{Code: "print(999)"}); !errors.Is(err, process.ErrKernelClosed) {
+				t.Fatalf("deleted child kept kernel: %v", err)
+			}
+			after, err := r.ReadPendingCompletion(t.Context(), root.ID, child.ID, result.Turn.ID, 0, maxEvidenceReadBytes)
+			if err != nil || !bytes.Equal(before.Data, after.Data) || after.Completion.ParentID != root.ID {
+				t.Fatalf("source deletion changed pending evidence: %+v %v", after, err)
+			}
+			if _, err := r.ReadPendingCompletion(t.Context(), other.ID, child.ID, result.Turn.ID, 0, maxEvidenceReadBytes); !errors.Is(err, store.ErrConflict) {
+				t.Fatalf("pending evidence escaped parent ownership: %v", err)
+			}
+			r.mu.Lock()
+			retained := len(r.kernels) == 2 && r.kernels[root.ID] == rootKernel && r.kernels[other.ID] == otherKernel
+			r.mu.Unlock()
+			if !retained {
+				t.Fatal("child deletion changed surviving kernel ownership")
+			}
+			if err := r.DeleteSubtree(t.Context(), root.ID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := rootKernel.kernel.Exec(t.Context(), process.Cell{Code: "print(999)"}); !errors.Is(err, process.ErrKernelClosed) {
+				t.Fatalf("deleted root kept kernel: %v", err)
+			}
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			if len(r.kernels) != 1 || r.kernels[other.ID] != otherKernel {
+				t.Fatal("deletion changed unrelated kernel ownership")
+			}
+		})
 	}
 }
 

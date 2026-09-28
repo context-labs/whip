@@ -100,6 +100,14 @@
         "configuration": {
           "type": "object",
           "properties": {
+            "report_mode": {
+              "type": "string",
+              "enum": [
+                "notice",
+                "inline",
+                "message"
+              ]
+            },
             "model": {
               "type": "object",
               "properties": {
@@ -231,6 +239,7 @@
             "output_schema": true
           },
           "required": [
+            "report_mode",
             "model",
             "instructions",
             "tools",

@@ -2,7 +2,7 @@
 
 Status: phases 0 and 1 complete and validated in PRs #197 and #199.
 Phases 2 and 3 are complete and validated in PRs #200 and #201.
-Phase 4 is in progress in [PR #202](https://github.com/context-labs/whip/pull/202);
+Phase 4 is complete with passing local gates in [PR #202](https://github.com/context-labs/whip/pull/202);
 phases 5–7 are pending. The authorized execution scope
 is all phases, including client adoption and final removal of the retired core.
 Written: 2026-09-27. Planning reference: `6f02507bf`.
@@ -93,6 +93,7 @@ The implemented Phase 1 contract is [backend-domain.md](backend-domain.md).
 | Operation | Host-action admission, authority, dispatch, outcome and uncertainty | SQL; live handles remain in memory |
 | Budget / Grant | Enforced limits, reservations and scoped authority | SQL; derived totals have explicit owners |
 | SessionMail | Inter-session communication and delivery/acknowledgement state | SQL, distinct from execution inputs |
+| Completion | Parent-owned pending terminal snapshot; published full evidence | SQL slot until publication; immutable parent-owned content plus canonical mail afterward |
 | SessionState / TreeState | Explicit private/shared application state and relevant subscriptions | SQL, distinct from VM globals |
 | REPLCheckpoint | Opaque engine image, compatibility metadata, integrity and execution boundary | Durable storage; initially SQL binary payload is acceptable |
 | Content | Immutable bytes, metadata and scoped access references | Bodies in blob files; metadata/references/grants in SQL |
@@ -369,10 +370,10 @@ Maintain one compact table here as families are addressed:
 | Admission and client recovery | Stable request identity; accepted work survives lost acknowledgement | `scripts/redesign/v4-fixture.test.mjs`: lost acknowledgement, identical retry, SIGKILL and queue recovery | 2 complete |
 | Execution and crash recovery | Explicit interruption, durable completed evidence, no uncertain-effect replay | `store/cells_test.go`, `runtime/engine_test.go`, SDK process-kill fixture | 3 complete |
 | Accounting | Every dispatched attempt recorded; settlement retry does not redispatch | `store/attempts_test.go`, `runtime/provider_test.go`, `runtime/observation_test.go`; ancestor accounting in `store/budgets_test.go` | 3 complete; model limits implemented in 4 |
-| Recursion and authority | Uniform session behavior, scoped grants, shared limits | `runtime/recursion_test.go`, `store/delegation_test.go`, `store/budgets_test.go`, `store/resources_test.go`, child-control, turn-permit and root/child lifecycle suites; completion reports and final cleanup acceptance remain | 4 in progress |
+| Recursion and authority | Uniform session behavior, scoped grants, shared limits | `runtime/recursion_test.go`, `store/delegation_test.go`, `store/budgets_test.go`, `store/resources_test.go`, child-control, turn-permit, root/child lifecycle, completion-report and detached-child cleanup suites | 4 complete |
 | Reusable capacity | Shared subtree admission and lifecycle release; old per-target queue semantics intentionally replaced with ancestor aggregation | `store/resources_test.go`, `runtime/resources_test.go`, `rpc/resources_test.go`, turn-permit race tests, both-engine recursion and SDK restart fixture; counters derived rather than repaired | 4 implemented |
 | Cumulative write allowances | Explicit logical actions consume permanent ancestor allowance; initial child input now charged consistently with follow-up input | `store/logical_writes_test.go`, `runtime/state_allowances_test.go`, SDK cap/retry/restart/deletion fixture; accounting and derived notifications remain exempt | 4 implemented |
-| Mail and explicit state | Revisioned delivery distinct from inspection; private/shared isolation; immutable history and CAS | `store/mail_test.go`, `runtime/mail_test.go`, `store/state*_test.go`, `runtime/state_test.go`, RPC/SDK fixtures; `store/state_subscriptions_test.go` covers atomic coalescing, cursor/notification rollback and recipient deferral | 4 in progress |
+| Mail and explicit state | Revisioned delivery distinct from inspection; private/shared isolation; immutable history and CAS | `store/mail_test.go`, `runtime/mail_test.go`, `store/state*_test.go`, `runtime/state_test.go`, RPC/SDK fixtures; `store/state_subscriptions_test.go` covers atomic coalescing, cursor/notification rollback and recipient deferral | 4 complete |
 | Context and checkpointing | Raw history retained; checkpoint boundary and fidelity explicit | Both engines pass `runtime/engine_test.go`; compaction remains pending | 3 complete; 5 pending |
 | Integrations and product features | Preserve capability outcomes; inspect existing regression scenarios | Pending | 5 |
 | All client surfaces | Correct submission, observation, recovery and resource cleanup | New SDK/socket fixture passes; product clients remain on the retained implementation | 2 complete; 6 pending |
@@ -417,7 +418,7 @@ complete with a passing check or recorded manual evidence.
 | 1 | Domain contract, ownership, fresh storage/config | 0 | Complete |
 | 2 | Working database → runtime → protocol → SDK slice | 1 | Complete |
 | 3 | One provider, one engine, execution and recovery | 2 | Complete |
-| 4 | Recursion and shared coordination | 3 | In progress |
+| 4 | Recursion and shared coordination | 3 | Complete |
 | 5 | Remaining engines, integrations and product behavior | 4 | Pending |
 | 6 | Complete client adoption and product validation | Starts at 2; finishes after 5 | Pending |
 | 7 | Cutover, deletion and release readiness | All prior gates | Pending |
@@ -544,13 +545,13 @@ Acceptance:
       and captured ancestry, without blocking required execution settlement.
 - [x] Saturated worker/kernel capacity still permits required child progress;
       parent waits do not deadlock children. Queued work remains durable.
-- [ ] Retry and report behavior is explicit policy; failed/uncertain work follows
+- [x] Retry and report behavior is explicit policy; failed/uncertain work follows
       the selected retry semantics at every depth.
 - [x] Mail delivery/acknowledgement is distinct from human inspection and input
       admission. Private and shared state isolation is tested.
 - [x] Shared-state subscriptions atomically coalesce notifications with writes;
       subscription cursors and notification evidence survive restart.
-- [ ] Parent-turn completion, child cancellation, subtree deletion and worker
+- [x] Parent-turn completion, child cancellation, subtree deletion and worker
       eviction release the intended resources without implicit data loss.
 
 ### Phase 5 — Port retained product capabilities
@@ -560,6 +561,19 @@ fork/rewind/workspace snapshots, MCP, browser/computer, terminals, custom tools,
 hooks and output validation. Consult the feature map and existing regression
 tests for capabilities omitted from this initial list. Retain the native helper
 and host/gateway trust boundaries while replacing their orchestration callers.
+
+Start with final-output contracts: the configuration already stores a schema,
+but the runner must enforce it before declaring success. Retain raw assistant
+messages, allow one corrective model round through the ordinary recorded attempt
+path, and fail explicitly on a second mismatch. Expose validated output as a
+projection of the terminal message and captured schema, without another mutable
+turn-output store. Clearing a contract follows existing configuration patch rules.
+
+Then add context selection and compaction before broad integration work: the
+current explicit 100-message/4 MiB context limit is a temporary safety boundary.
+Compaction must retain raw history and exact covered sequence boundaries, and
+its model work must use ordinary attempt accounting. Both engines already run
+through the new core; extend their shared contract evidence as capabilities arrive.
 
 Acceptance:
 

@@ -22,6 +22,8 @@ separate legacy runtime and SDK until their client cutover.
 | Accepted payload | Input row |
 | Request identity and payload digest | Receipt row |
 | Execution outcome | Turn row; input and receipt outcomes are derived |
+| Automatic report awaiting publication | Parent-owned completion slot with exact terminal outcome snapshot |
+| Published completion report | Immutable parent-owned content plus canonical revisioned mail |
 | User transcript payload | Reference to the accepted input; no second body copy |
 | Assistant/tool transcript payload | Message row |
 | Provider dispatch, usage, price snapshot and cost | Model-attempt row, linked to its completed message |
@@ -547,7 +549,7 @@ Root limits cannot be null. Partial creation/configuration lists inherit the
 remaining built-in defaults; duplicate kinds are rejected. Limits use decimal
 strings, including host JSON and guest child-spawn arguments. Host edits never
 change existing root limits. `TreePolicy` and its duplicate JSON column no longer
-exist; this disposable database uses schema 13 and rejects previous schemas.
+exist; this disposable database uses schema 14 and rejects previous schemas.
 The absolute depth ceiling remains 128 for bounded hierarchy and grant traversal.
 
 Capacity reuse never replenishes permanent model spend. Deleting a child releases
@@ -647,8 +649,8 @@ allows 1024 retained mail identities, 256 pending items and 20 unfinished items
 from one source. Each source can create 30 identities in ten seconds. A mail ID
 has at most 128 revisions and a turn at most 1024 observed revisions. Exhaustion
 returns an explicit limit error; no body, revision or observation is silently
-dropped. General resource policies and report coalescing remain subsequent
-Phase 4 work.
+dropped. Completion publication leaves a pending outcome when these limits block
+delivery, as described below.
 
 ## Explicit state and immutable values
 
@@ -739,3 +741,51 @@ SQL retains subscriptions and mail, and scheduler reconciliation finds due work.
 Guest subscription admission/cancellation and operation outcomes share the same
 transaction as their generated notifications. No separate subscription runner
 or wakeup queue exists.
+
+
+## Child completion reports
+
+`Configuration.ReportMode` is a value copied through the same parent, pinned
+agent definition and explicit override precedence as other configuration fields.
+Omission resolves to `notice`; each turn uses its captured configuration revision.
+`notice` includes a 160-byte preview, `inline` includes up to 4 KiB, and `message`
+suppresses successful automatic reports so a child can report explicitly. Failed,
+cancelled and interrupted outcomes still report. Root turns have no report recipient.
+Ordinary inbox digests remain bounded to 2 KiB per item; full evidence is explicitly
+readable rather than silently admitted to the parent's model context.
+
+Each child admission reserves one `completion_slots` row owned by its parent.
+There are at most 128 slots per parent, including pending slots whose child has
+been deleted. Terminal settlement and restart recovery capture the exact turn,
+input, last assistant message identity, outcome, failure, policy and bounded text
+in that transaction. They perform no filesystem operation or mail/content admission.
+A later reported outcome replaces that child's pending snapshot; suppressed
+message-mode success leaves an older pending failure intact. Settling a terminal
+turn again cannot recreate a cleared report.
+
+A bounded runtime publisher visits four metadata candidates per scheduler pass,
+including when all turn workers are occupied. It advances past blocked children
+and wraps its disposable cursor. Immutable JSON content is published to disk first;
+parent-owned content registration, canonical queued mail and exact-slot clearing
+then commit together. Completion mail has source `{kind: "completion", id: childID}`.
+Pending mail from the same child coalesces by revision and preserves recipient
+deferral. Published revisions and evidence remain immutable. Delivery failure due
+to retention limits leaves inspectable pending evidence and never reruns the child.
+As with other staged content, files left by rejected publication are collected on
+runtime open. Automatic reports consume no logical-write allowance.
+
+Host `completions.list/read` and guest `agents.pending_reports/read_report` inspect
+pending snapshots; each read pins a child and exact turn token. Superseded or
+published tokens return conflict so readers re-list. Evidence reads page JSON bytes
+at up to 64 KiB; metadata lists exclude full text. Published mail contains an
+`evidence_ref` owned by the parent, readable via host `content.read` or scoped guest
+`artifacts.read`. Neither route acknowledges mail. Deleting the child retains
+pending and published parent evidence; deleting the parent removes its slots and
+owned content references. A full retained mailbox or content allowance can leave
+delivery pending indefinitely; no history is silently evicted to make room.
+
+Failed or uncertain turns require explicit new input. Confirmed retryable model
+attempts may retry within the active turn; retrying database settlement never
+redispatches the model or host effect. Restart interrupts active work and does not
+replay an entire turn. The failed-parent mail retry barrier also applies to
+completion mail.

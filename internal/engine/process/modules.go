@@ -27,7 +27,7 @@ var moduleRegistry = map[string][]string{
 	"browser":     {"list_tabs", "open", "attach", "run", "detach", "allow_preview_port"},
 	"computer":    {"run"},
 	"models":      {"call", "batch"},
-	"agents":      {"spawn", "submit", "wait", "wait_after_cell", "inspect", "list", "stop", "delete"},
+	"agents":      {"spawn", "submit", "wait", "wait_after_cell", "inspect", "list", "stop", "delete", "pending_reports", "read_report"},
 	"messages":    {"send", "list", "read", "complete", "ack", "defer"},
 	"mail":        {"send", "list", "read", "complete", "defer"},
 	"mcp":         {"list_servers", "list_tools", "search", "describe", "instructions", "call", "refresh", "reconnect"},

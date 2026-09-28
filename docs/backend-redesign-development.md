@@ -975,7 +975,7 @@ reports zero lint issues and no reachable vulnerabilities; independent review
 found no correctness blockers. The prior permit/control commit `eedc650bd` passed
 hosted Linux/macOS/analysis in run `36442791727`.
 
-## Next Phase 4 increment: completion reports
+## Phase 4 completion report design
 
 Keep completion publication separate from required terminal settlement. A bounded
 parent-owned slot reserved when a child is admitted can capture the latest exact
@@ -1002,3 +1002,66 @@ acceptance includes full inbox/content pressure, Finish/report rollback, restart
 replacement races, child deletion/GC, all modes and zero logical-write allowance.
 Phase 4 remains open until this and its final cleanup checks pass. Phases 5–7 remain
 fully authorized and pending.
+
+
+## Phase 4 completion report implementation
+
+Fresh schema 14 reserves at most 128 parent-owned completion slots when admitting
+children. Finish and Recover capture each newly terminal child's exact input,
+turn, last assistant message, outcome and policy atomically; they never require
+mail space, content publication or remaining logical-write allowance. Pending
+snapshots survive source-child deletion. Empty deleted-source slots release after
+publication, while deleting a parent cascades its owned slots.
+
+Reporting is an ordinary inherited `Configuration.ReportMode` value, defaulting
+to notice and captured by the turn's configuration revision. Notice and inline
+previews are bounded; message mode suppresses successful automatic reports.
+Failures/cancellation/interruption still notify, and a suppressed success does
+not erase an older pending failure. Report retries are delivery retries only.
+Whole-turn automatic replay remains intentionally retired.
+
+A four-candidate runtime pass advances past blocked parents, even when turn worker
+capacity is full. Parent-owned JSON content, canonical completion-provenance mail
+and exact pending-slot clearing commit together after blob publication. Mail
+coalescing preserves immutable revisions and recipient deferral. Retained quota
+pressure leaves a visible pending outcome; no evidence is silently dropped.
+Host `completions.list/read`, guest `agents.pending_reports/read_report`, and scoped
+`artifacts.read` supply metadata and exact-token, bounded-byte inspection. The new
+SDK validates these generated shapes without keeping another report authority.
+
+Store tests cover reserved capacity, atomic rollback, turn-captured configuration,
+all terminal modes, replacement races, deferral, recovery, deletion retention,
+mail/content pressure and escaped UTF-8 limits. Both real engines execute report
+and artifact inspection through grant-backed operations; the complete evidence
+exceeds the ordinary mail digest. The SDK fixture verifies automatic idle-parent
+wake, immutable evidence, source deletion, restart, and a report larger than one
+64 KiB page while the parent's 64 MiB content allowance is full. Existing unrelated
+success fixtures explicitly choose message mode; lifecycle counters now observe
+the target session so a legitimate parent failure-report turn is not mistaken for
+child replay. No lifecycle assertions were removed.
+
+The initial complete local phase gate passed (store race 57.747 s, runtime race
+90.896 s, generated contracts, SDK, both process engines and retained daemon
+regressions). Pinned analysis reports zero lint issues and no reachable
+vulnerabilities. An independent read-only review found no correctness blockers.
+The previous committed write-allowance revision also passed hosted Linux/macOS
+and analysis in run `36444502836`.
+
+
+Final cleanup acceptance now covers a detached child continuing after its parent
+finishes in both engines. The test proves runtime worker ownership and SQL permits
+transition from two to one to zero independently, then verifies exact-input
+cancellation produces the retained parent's report. Subtree deletion is also
+covered in both engines under pending-report pressure, checking affected kernels
+close, unrelated kernel identities remain unchanged, and parent-owned evidence
+survives child deletion.
+
+The final local `task check:phase` passed with these acceptance tests: store race
+68.886 s, runtime race 114.160 s, process engines 111.560 s, new SDK restart fixture
+7.054 s, retained fixture 2.652 s and required daemon regressions 2.755 s. Final
+`task check:analysis` again reports zero issues and no reachable vulnerabilities.
+A final assertion-strengthening change in the detached-child test also passed its
+targeted race/shuffle run (5.3 s), vet and scoped lint. No production files changed
+after the full gate started. Phase 4 acceptance is complete. Phase 5 begins with
+final-output validation, then context selection/compaction; Phases 5–7 remain
+fully authorized. This does not claim the entire retained legacy suite is green.

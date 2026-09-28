@@ -230,11 +230,19 @@ func (r *Runtime) cancelTurn(id session.TurnID) {
 func (r *Runtime) run(ctx context.Context) {
 	defer close(r.done)
 	var workers sync.WaitGroup
+	var completionCursor session.SessionID
 	ticker := time.NewTicker(r.options.PollInterval)
 	defer ticker.Stop()
 	defer workers.Wait()
 	for {
-		if err := r.schedule(ctx, &workers); err != nil && ctx.Err() == nil {
+		// Delivery progresses even when all execution slots are occupied. This
+		// cursor is disposable; pending outcomes remain authoritative in SQLite.
+		var err error
+		completionCursor, err = r.publishCompletions(ctx, completionCursor)
+		if err == nil {
+			err = r.schedule(ctx, &workers)
+		}
+		if err != nil && ctx.Err() == nil {
 			r.mu.Lock()
 			if r.failure == nil {
 				r.failure = err

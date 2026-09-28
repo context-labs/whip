@@ -43,6 +43,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 		return nil, ErrMethod
 	}
 	switch method {
+	case "completions.list", "completions.read":
+		return dispatchCompletion(ctx, r, method, raw)
 	case "state.subscribe", "state.subscriptions", "state.unsubscribe":
 		return dispatchStateSubscription(ctx, r, method, raw)
 	case "state.get", "state.write", "state.append", "state.read", "state.list", "state.history":

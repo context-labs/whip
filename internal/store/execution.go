@@ -436,6 +436,9 @@ func (s *Store) Finish(ctx context.Context, id session.TurnID, state session.Tur
 			}
 		}
 		result, err = readTurn(ctx, tx, id)
+		if err == nil && !current.State.Terminal() {
+			err = captureCompletion(ctx, tx, result)
+		}
 		return err
 	})
 	return

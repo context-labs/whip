@@ -54,6 +54,9 @@ func Fixtures() ([]Fixture, error) {
 		name  string
 		value any
 	}{
+		{"ListCompletionsResult", ListCompletionsResult{Items: []CompletionMetadata{{ParentID: "session_root", ChildID: "session_deleted", TurnID: "turn_fixture", InputID: new(ID("input_fixture")), State: "interrupted", Failure: new("runtime restarted"), Mode: "message", FinishedAt: created.Format(time.RFC3339Nano), TextBytes: 0, OmittedParts: 0}}}},
+		{"ReadCompletionParams", ReadCompletionParams{ParentID: "session_root", ChildID: "session_deleted", TurnID: "turn_fixture", Offset: 0, Length: 65536}},
+		{"ReadCompletionResult", ReadCompletionResult{Completion: CompletionMetadata{ParentID: "session_root", ChildID: "session_deleted", TurnID: "turn_fixture", State: "succeeded", Mode: "inline", FinishedAt: created.Format(time.RFC3339Nano), TextBytes: 70000}, Offset: 65536, TotalBytes: 71000, DataBase64: "e30="}},
 		{"MailAdmission", MailAdmission{MailID: "mail_deleted", DeletedAt: new(created.Format(time.RFC3339Nano))}},
 		{"ReadMailResult", ReadMailResult{Mail: MailMetadataFromDomain(session.MailMetadata{ID: "mail_fixture", Revision: 128, Source: session.MailSource{Kind: "session", ID: "session_root"}, RecipientID: "session_child", Delivery: session.MailNextTurn, Subject: "Subject", BodyBytes: 5, State: session.MailPending, AvailableAt: created, CreatedAt: created, RevisedAt: created}), Body: "hello"}},
 		{"Message", MessageFromDomain(session.Message{ID: "message_mail", SessionID: "session_child", TurnID: "turn_fixture", Sequence: 9007199254740995, Role: session.User, Mail: &session.MailRef{ID: "mail_fixture", Revision: 128, Presentation: session.MailDigest}, Parts: []session.Part{{Type: "text", Text: "Mail from session_root: Subject"}}, CreatedAt: created})},
@@ -85,7 +88,7 @@ func Fixtures() ([]Fixture, error) {
 		{"Part", toolMessage.Parts[0]},
 		{"SpawnSessionParams", SpawnSessionParams{Identity: RequestIdentity{ClientID: "client", RequestID: "spawn"}, ParentID: root.ID, Parts: []Part{{Type: "text", Text: "Child work"}}, GrantIDs: []ID{}}},
 		{"SubmitParams", SubmitParams{Identity: RequestIdentity{ClientID: "client", RequestID: "request"}, SessionID: child.ID, Source: "user", Parts: []Part{{Type: "text", Text: "Run this."}}}},
-		{"UpdateConfigurationParams", UpdateConfigurationParams{SessionID: child.ID, ExpectedRevision: 9007199254740993, Patch: ConfigPatch{Tools: map[string]ToolDeclaration{}, Output: &OutputPolicy{}}}},
+		{"UpdateConfigurationParams", UpdateConfigurationParams{SessionID: child.ID, ExpectedRevision: 9007199254740993, Patch: ConfigPatch{ReportMode: new("inline"), Tools: map[string]ToolDeclaration{}, Output: &OutputPolicy{}}}},
 		{"Turn", Turn{ID: "turn_fixture", SessionID: child.ID, ConfigRevision: 9007199254740993, State: "running", StartedAt: created.Format(time.RFC3339Nano)}},
 	}
 	result := make([]Fixture, 0, len(values)+8)

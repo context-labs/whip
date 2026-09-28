@@ -100,12 +100,42 @@ func (s *Store) Recover(ctx context.Context) (count int64, err error) {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM turn_permits"); err != nil {
 			return err
 		}
+		// Only newly interrupted child turns may create a report. Close this
+		// cursor before nested reads/writes on the transaction connection.
+		rows, err := tx.QueryContext(ctx, "SELECT t.id FROM turns t JOIN completion_slots c ON c.child_id=t.session_id WHERE t.state IN ('running','cancelling')")
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rows.Close() }()
+		var interrupted []session.TurnID
+		for rows.Next() {
+			var id session.TurnID
+			if err := rows.Scan(&id); err != nil {
+				return errors.Join(err, rows.Close())
+			}
+			interrupted = append(interrupted, id)
+		}
+		if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+			return err
+		}
 		result, err := tx.ExecContext(ctx, "UPDATE turns SET state='interrupted',failure='runtime restarted',finished_at=? WHERE state IN ('running','cancelling')", now())
 		if err != nil {
 			return err
 		}
 		count, err = result.RowsAffected()
-		return err
+		if err != nil {
+			return err
+		}
+		for _, id := range interrupted {
+			turn, err := readTurn(ctx, tx, id)
+			if err != nil {
+				return err
+			}
+			if err := captureCompletion(ctx, tx, turn); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	return
 }
@@ -148,5 +178,8 @@ func deleteSubtree(ctx context.Context, tx *sql.Tx, id session.SessionID) error 
 	} else {
 		_, err = tx.ExecContext(ctx, "DELETE FROM sessions WHERE id=?", id)
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	return releaseDeletedCompletionSlot(ctx, tx, id)
 }

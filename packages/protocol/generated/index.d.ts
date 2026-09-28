@@ -170,6 +170,7 @@ export interface CreateTreeParams {
     revision: string;
   };
   overrides: {
+    report_mode?: null | ("notice" | "inline" | "message");
     model?: null | {
       provider: string;
       name: string;
@@ -228,6 +229,7 @@ export interface CreateTreeResult {
     };
     config_revision: string;
     configuration: {
+      report_mode: "notice" | "inline" | "message";
       model: {
         provider: string;
         name: string;
@@ -274,6 +276,7 @@ export interface Definition {
     id: string;
     name: string;
     defaults: {
+      report_mode?: null | ("notice" | "inline" | "message");
       model?: null | {
         provider: string;
         name: string;
@@ -315,6 +318,7 @@ export interface DefinitionDocument {
   id: string;
   name: string;
   defaults: {
+    report_mode?: null | ("notice" | "inline" | "message");
     model?: null | {
       provider: string;
       name: string;
@@ -681,6 +685,28 @@ export interface LifecycleParams {
   session_id: string;
   lifecycle: "active" | "stopped";
 }
+export interface ListCompletionsParams {
+  parent_id: string;
+  after?: null | string;
+  limit: number;
+}
+export interface ListCompletionsResult {
+  items:
+    | null
+    | {
+        parent_id: string;
+        child_id: string;
+        turn_id: string;
+        input_id: null | string;
+        message_id: null | string;
+        state: "succeeded" | "failed" | "cancelled" | "interrupted";
+        failure: null | string;
+        mode: "notice" | "inline" | "message";
+        finished_at: string;
+        text_bytes: string;
+        omitted_parts: string;
+      }[];
+}
 export interface ListMailParams {
   session_id: string;
   state?: null | ("pending" | "delivered" | "done");
@@ -694,7 +720,7 @@ export interface ListMailResult {
         id: string;
         revision: string;
         source: {
-          kind: "session" | "state";
+          kind: "session" | "state" | "completion";
           id: string;
         };
         recipient_id: string;
@@ -725,6 +751,7 @@ export interface ListSessionsResult {
         };
         config_revision: string;
         configuration: {
+          report_mode: "notice" | "inline" | "message";
           model: {
             provider: string;
             name: string;
@@ -774,7 +801,7 @@ export interface MailAdmission {
     id: string;
     revision: string;
     source: {
-      kind: "session" | "state";
+      kind: "session" | "state" | "completion";
       id: string;
     };
     recipient_id: string;
@@ -1075,6 +1102,32 @@ export interface RPCError {
   kind:
     "INVALID" | "NOT_FOUND" | "CONFLICT" | "BUSY" | "LIMIT" | "STOPPED" | "CLOSED" | "IDENTITY" | "METHOD" | "INTERNAL";
 }
+export interface ReadCompletionParams {
+  parent_id: string;
+  child_id: string;
+  turn_id: string;
+  offset: string;
+  length: number;
+}
+export interface ReadCompletionResult {
+  completion: {
+    parent_id: string;
+    child_id: string;
+    turn_id: string;
+    input_id: null | string;
+    message_id: null | string;
+    state: "succeeded" | "failed" | "cancelled" | "interrupted";
+    failure: null | string;
+    mode: "notice" | "inline" | "message";
+    finished_at: string;
+    text_bytes: string;
+    omitted_parts: string;
+  };
+  offset: string;
+  total_bytes: string;
+  data_base64: string;
+  next_offset: null | string;
+}
 export interface ReadContentParams {
   session_id: string;
   reference_id: string;
@@ -1099,7 +1152,7 @@ export interface ReadMailResult {
     id: string;
     revision: string;
     source: {
-      kind: "session" | "state";
+      kind: "session" | "state" | "completion";
       id: string;
     };
     recipient_id: string;
@@ -1208,6 +1261,7 @@ export interface Session {
   };
   config_revision: string;
   configuration: {
+    report_mode: "notice" | "inline" | "message";
     model: {
       provider: string;
       name: string;
@@ -1471,6 +1525,7 @@ export interface SpawnSessionParams {
     revision: string;
   };
   overrides: {
+    report_mode?: null | ("notice" | "inline" | "message");
     model?: null | {
       provider: string;
       name: string;
@@ -1564,6 +1619,7 @@ export interface SpawnSessionResult {
     };
     config_revision: string;
     configuration: {
+      report_mode: "notice" | "inline" | "message";
       model: {
         provider: string;
         name: string;
@@ -1805,6 +1861,7 @@ export interface UpdateConfigurationParams {
   session_id: string;
   expected_revision: string;
   patch: {
+    report_mode?: null | ("notice" | "inline" | "message");
     model?: null | {
       provider: string;
       name: string;
@@ -1890,6 +1947,8 @@ export interface ContractTypes {
   Input: Input;
   InputParams: InputParams;
   LifecycleParams: LifecycleParams;
+  ListCompletionsParams: ListCompletionsParams;
+  ListCompletionsResult: ListCompletionsResult;
   ListMailParams: ListMailParams;
   ListMailResult: ListMailResult;
   ListSessionsParams: ListSessionsParams;
@@ -1905,6 +1964,8 @@ export interface ContractTypes {
   PermissionsResult: PermissionsResult;
   PutContentParams: PutContentParams;
   RPCError: RPCError;
+  ReadCompletionParams: ReadCompletionParams;
+  ReadCompletionResult: ReadCompletionResult;
   ReadContentParams: ReadContentParams;
   ReadContentResult: ReadContentResult;
   ReadMailParams: ReadMailParams;
@@ -1945,6 +2006,8 @@ export interface ContractTypes {
   WriteStateParams: WriteStateParams;
 }
 export interface Operations {
+  "completions.list": { params: ListCompletionsParams; result: ListCompletionsResult };
+  "completions.read": { params: ReadCompletionParams; result: ReadCompletionResult };
   "state.subscribe": { params: SubscribeStateParams; result: StateSubscription };
   "state.subscriptions": { params: StateSubscriptionsParams; result: StateSubscriptionsResult };
   "state.unsubscribe": { params: UnsubscribeStateParams; result: StateSubscription };

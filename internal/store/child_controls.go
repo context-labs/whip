@@ -4,9 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"strings"
 	"unicode/utf8"
 
 	"github.com/context-labs/whip/internal/session"
@@ -203,32 +201,11 @@ func inspectChild(ctx context.Context, q querier, owner session.SessionID, reque
 	}
 	result.TurnState = &turn.State
 	result.Failure = turn.Failure
-	var raw string
-	var messageID session.MessageID
-	err = q.QueryRowContext(ctx, "SELECT id,parts FROM messages WHERE turn_id=? AND role='assistant' ORDER BY sequence DESC LIMIT 1", turn.ID).Scan(&messageID, &raw)
-	if errors.Is(err, sql.ErrNoRows) {
-		if request.Offset != 0 {
-			return result, session.ErrInvalid
-		}
-		return result, nil
-	}
+	message, text, omitted, err := lastAssistantText(ctx, q, turn.ID)
 	if err != nil {
 		return result, err
 	}
-	result.MessageID = &messageID
-	var parts []session.Part
-	if err := json.Unmarshal([]byte(raw), &parts); err != nil {
-		return result, err
-	}
-	var full strings.Builder
-	for _, part := range parts {
-		if part.Type != "text" {
-			result.OmittedParts++
-			continue
-		}
-		full.WriteString(part.Text)
-	}
-	text := full.String()
+	result.MessageID, result.OmittedParts = message, omitted
 	result.TotalBytes = int64(len(text))
 	if request.Offset > result.TotalBytes || (request.Offset < result.TotalBytes && !utf8.RuneStart(text[request.Offset])) {
 		return result, fmt.Errorf("%w: offset must be a UTF-8 boundary within result text", session.ErrInvalid)

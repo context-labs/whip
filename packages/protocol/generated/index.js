@@ -5,6 +5,16 @@ export const manifest = {
   "minor": 0,
   "operations": [
     {
+      "name": "completions.list",
+      "params": "ListCompletionsParams",
+      "result": "ListCompletionsResult"
+    },
+    {
+      "name": "completions.read",
+      "params": "ReadCompletionParams",
+      "result": "ReadCompletionResult"
+    },
+    {
       "name": "state.subscribe",
       "params": "SubscribeStateParams",
       "result": "StateSubscription"

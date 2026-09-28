@@ -104,7 +104,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     const createParams = {
       metadata: { title: 'v4 acceptance', archived: false, pinned: false },
       engine: 'starlark', resources: [{ kind: 'depth', limit: '8' }, { kind: 'descendants', limit: '99' }, { kind: 'queued_inputs', limit: '100' }],
-      definition: client.builtins[0], overrides: { model: { provider: 'scripted', name: 'scripted', effort: '' } },
+      definition: client.builtins[0], overrides: { report_mode: 'message', model: { provider: 'scripted', name: 'scripted', effort: '' } },
       working_directory: runtime.directory,
     };
     const { root, tree } = await client.call('trees.create', createParams, deadline());
@@ -196,6 +196,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await mailAcceptance(runtime, client, createParams, evidence);
     await stateAcceptance(runtime, client, createParams, evidence);
     await stateSubscriptionAcceptance(runtime, client, createParams, evidence);
+    await completionAcceptance(runtime, client, createParams, evidence);
     await providerAcceptance(runtime, client, createParams, evidence);
     await engineAcceptance(runtime, client, createParams, evidence);
     await operationAcceptance(runtime, client, createParams, evidence);
@@ -835,4 +836,73 @@ async function resourceAcceptance(runtime, client, createParams, evidence) {
   const replacement = await client.spawn(spawnParams, 'resource-rejected', deadline());
   assert.equal((await client.wait('resource-rejected', deadline())).turn.state, 'succeeded');
   evidence.push({ resourceRoot: root.id, rootResources, childResources, cleared, exact, queued, resumed, reopened, released, replacement });
+}
+
+
+async function completionAcceptance(runtime, client, createParams, evidence) {
+  const { root } = await client.call('trees.create', { ...createParams, overrides: { ...createParams.overrides, report_mode: 'notice' } }, deadline());
+  const prompt = '🙂'.repeat(1800);
+  const child = await client.spawn({ parent_id: root.id, overrides: { report_mode: 'inline' }, parts: [{ type: 'text', text: prompt }], grant_ids: [] }, 'report-inline', deadline());
+  const finished = await client.wait('report-inline', deadline());
+  const inbox = await until(() => client.call('mail.list', { session_id: root.id, limit: 100 }, deadline()), value => value.items.some(item => item.source.kind === 'completion' && item.state === 'delivered'));
+  const delivered = inbox.items.find(item => item.source.id === child.session.id);
+  const report = await client.call('mail.read', { session_id: root.id, mail_id: delivered.id }, deadline());
+  const notice = JSON.parse(report.body);
+  assert.equal(notice.turn_id, finished.turn.id);
+  assert.equal(notice.input_id, finished.input.id);
+  assert.equal(notice.mode, 'inline');
+  assert.equal(notice.text_truncated, true);
+  assert.ok(Buffer.byteLength(notice.preview) <= 4096 && Buffer.byteLength(notice.preview) > 2048);
+  const full = await client.call('content.read', { session_id: root.id, reference_id: notice.evidence_ref }, deadline());
+  const snapshot = JSON.parse(Buffer.from(full.data_base64, 'base64'));
+  assert.equal(snapshot.text, 'ack: ' + prompt);
+  assert.equal(snapshot.text_bytes, String(Buffer.byteLength(snapshot.text)));
+  await assert.rejects(client.call('content.read', { session_id: child.session.id, reference_id: notice.evidence_ref }, deadline()), error => error.kind === 'NOT_FOUND');
+  await client.call('sessions.delete', { session_id: child.session.id }, deadline());
+  assert.deepEqual(await client.call('content.read', { session_id: root.id, reference_id: notice.evidence_ref }, deadline()), full);
+  const history = await client.call('sessions.history', { session_id: root.id, after: '0', limit: 100 }, deadline());
+  assert.equal(history.items.filter(item => item.mail?.id === delivered.id).length, 1);
+  assert.equal(history.items.filter(item => item.input_id !== null).length, 0, 'report wakes a normal mail turn without synthetic input');
+  assert.equal((await client.call('completions.list', { parent_id: root.id, limit: 100 }, deadline())).items.length, 0);
+  const quiet = await client.spawn({ parent_id: root.id, overrides: { report_mode: 'message' }, parts: [{ type: 'text', text: 'I report explicitly' }], grant_ids: [] }, 'report-message', deadline());
+  await client.wait('report-message', deadline());
+  assert.equal((await client.call('mail.list', { session_id: root.id, limit: 100 }, deadline())).items.length, 1);
+  await runtime.stop(); await runtime.start('0');
+  assert.equal((await client.call('mail.list', { session_id: root.id, limit: 100 }, deadline())).items.length, 1, 'restart must not regenerate already published reports');
+  assert.equal((await client.call('sessions.get', { session_id: quiet.session.id }, deadline())).configuration.report_mode, 'message');
+  await client.call('sessions.delete', { session_id: root.id }, deadline());
+
+  // Fill the parent's retained-content allowance. The child's completion still
+  // commits, remains independently inspectable, and survives source deletion.
+  const pressured = await client.call('trees.create', createParams, deadline());
+  const data = Buffer.alloc(4 << 20, 'p').toString('base64');
+  for (let i = 0; i < 16; i++) {
+    await client.call('content.put', { session_id: pressured.root.id, reference_id: 'report-fill-' + i, media_type: 'application/octet-stream', data_base64: data }, deadline());
+  }
+  const pendingPrompt = 'pending evidence '.repeat(5000);
+  const pendingChild = await client.spawn({ parent_id: pressured.root.id, overrides: { report_mode: 'notice' }, parts: [{ type: 'text', text: pendingPrompt }], grant_ids: [] }, 'report-pressure', deadline());
+  const pendingTurn = await client.wait('report-pressure', deadline());
+  const pending = await client.call('completions.list', { parent_id: pressured.root.id, limit: 100 }, deadline());
+  assert.equal(pending.items.length, 1);
+  assert.equal(pending.items[0].turn_id, pendingTurn.turn.id);
+  assert.equal(pending.items[0].state, 'succeeded');
+  await client.call('sessions.delete', { session_id: pendingChild.session.id }, deadline());
+  await runtime.stop(); await runtime.start('0');
+  assert.deepEqual(await client.call('completions.list', { parent_id: pressured.root.id, limit: 100 }, deadline()), pending);
+  const chunks = [];
+  let offset = '0';
+  do {
+    const part = await client.call('completions.read', { parent_id: pressured.root.id, child_id: pendingChild.session.id, turn_id: pendingTurn.turn.id, offset, length: 65536 }, deadline());
+    assert.equal(part.offset, offset);
+    const bytes = Buffer.from(part.data_base64, 'base64');
+    assert.ok(bytes.length <= 65536);
+    chunks.push(bytes);
+    offset = part.next_offset;
+  } while (offset !== null);
+  assert.ok(chunks.length > 1);
+  assert.equal(JSON.parse(Buffer.concat(chunks)).text, 'ack: ' + pendingPrompt);
+  await assert.rejects(client.call('completions.read', { parent_id: pressured.root.id, child_id: pendingChild.session.id, turn_id: 'superseded-turn', offset: '0', length: 1 }, deadline()), error => error.kind === 'CONFLICT');
+  assert.equal((await client.call('mail.list', { session_id: pressured.root.id, limit: 100 }, deadline())).items.length, 0);
+  await client.call('sessions.delete', { session_id: pressured.root.id }, deadline());
+  evidence.push({ completionReports: { notice, pending } });
 }

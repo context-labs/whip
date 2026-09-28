@@ -16,7 +16,7 @@ type MailRef struct {
 // MailMetadata is a bounded inbox entry. Reading the body is an explicit,
 // read-only operation; clients never acknowledge delivery by inspecting it.
 type MailSource struct {
-	Kind string `json:"kind" enum:"session,state"`
+	Kind string `json:"kind" enum:"session,state,completion"`
 	ID   ID     `json:"id"`
 }
 

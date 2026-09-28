@@ -31,7 +31,11 @@ func TestLifecycleDelayedStopCannotCancelNewExecution(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			entered := make(chan context.Context, 2)
 			release := make(chan struct{}, 1)
-			provider := providerFunc(func(ctx context.Context, _ model.Request) (model.Response, error) {
+			var targetID session.SessionID
+			provider := providerFunc(func(ctx context.Context, request model.Request) (model.Response, error) {
+				if request.SessionID != targetID {
+					return (model.Scripted{}).Complete(ctx, request)
+				}
 				entered <- ctx
 				select {
 				case <-ctx.Done():
@@ -42,6 +46,7 @@ func TestLifecycleDelayedStopCannotCancelNewExecution(t *testing.T) {
 			})
 			r := openTest(t, t.TempDir(), provider)
 			target, _ := lifecycleTarget(t, r, kind)
+			targetID = target.ID
 			if err := r.Start(t.Context()); err != nil {
 				t.Fatal(err)
 			}
@@ -98,7 +103,11 @@ func TestLifecycleRootAndChildStopResumePreservesQueuedWork(t *testing.T) {
 			entered, cancelled, settle := make(chan struct{}), make(chan struct{}), make(chan struct{})
 			var release sync.Once
 			var calls atomic.Int32
+			var targetID session.SessionID
 			provider := providerFunc(func(ctx context.Context, request model.Request) (model.Response, error) {
+				if request.SessionID != targetID {
+					return (model.Scripted{}).Complete(ctx, request)
+				}
 				calls.Add(1)
 				key := request.Messages[len(request.Messages)-1].Parts[0].Text
 				if key == "initial" {
@@ -113,6 +122,7 @@ func TestLifecycleRootAndChildStopResumePreservesQueuedWork(t *testing.T) {
 			r := openTest(t, t.TempDir(), provider)
 			t.Cleanup(func() { release.Do(func() { close(settle) }) })
 			target, original := lifecycleTarget(t, r, kind)
+			targetID = target.ID
 			queued := submitTest(t, r, target.ID, "queued")
 			discarded := submitTest(t, r, target.ID, "discarded")
 			if input, err := r.CancelInput(t.Context(), discarded.Input.ID); err != nil || input.State != session.InputCancelled {
@@ -220,7 +230,9 @@ func TestLifecycleRootAndChildRecoveryAndDeletion(t *testing.T) {
 			}
 			var calls atomic.Int32
 			r = openTest(t, directory, providerFunc(func(ctx context.Context, request model.Request) (model.Response, error) {
-				calls.Add(1)
+				if request.SessionID == target.ID {
+					calls.Add(1)
+				}
 				return (model.Scripted{}).Complete(ctx, request)
 			}))
 			before, err := r.Turn(t.Context(), claimed.Turn.ID)

@@ -1,5 +1,60 @@
 [
   {
+    "type": "ListCompletionsResult",
+    "value": {
+      "items": [
+        {
+          "parent_id": "session_root",
+          "child_id": "session_deleted",
+          "turn_id": "turn_fixture",
+          "input_id": "input_fixture",
+          "message_id": null,
+          "state": "interrupted",
+          "failure": "runtime restarted",
+          "mode": "message",
+          "finished_at": "2026-09-27T12:00:00.123456Z",
+          "text_bytes": "0",
+          "omitted_parts": "0"
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "type": "ReadCompletionParams",
+    "value": {
+      "parent_id": "session_root",
+      "child_id": "session_deleted",
+      "turn_id": "turn_fixture",
+      "offset": "0",
+      "length": 65536
+    },
+    "valid": true
+  },
+  {
+    "type": "ReadCompletionResult",
+    "value": {
+      "completion": {
+        "parent_id": "session_root",
+        "child_id": "session_deleted",
+        "turn_id": "turn_fixture",
+        "input_id": null,
+        "message_id": null,
+        "state": "succeeded",
+        "failure": null,
+        "mode": "inline",
+        "finished_at": "2026-09-27T12:00:00.123456Z",
+        "text_bytes": "70000",
+        "omitted_parts": "0"
+      },
+      "offset": "65536",
+      "total_bytes": "71000",
+      "data_base64": "e30=",
+      "next_offset": null
+    },
+    "valid": true
+  },
+  {
     "type": "MailAdmission",
     "value": {
       "mail_id": "mail_deleted",
@@ -221,7 +276,7 @@
       "state": "succeeded",
       "result_message_id": "message_result",
       "checkpoint": {
-        "digest": "8633cd0f58dfadf137ca203af9b760904da4fcf8de8a079a47542c051d38d1cb",
+        "digest": "f483ff5ad142cada6a49e2c4235de463c37fa4ba16e76b931319c8487c4f74ef",
         "size": "123",
         "engine": "starlark",
         "metadata": {
@@ -276,7 +331,7 @@
             },
             "route": "https://provider.example/v1/chat/completions",
             "adapter": "openai-chat",
-            "request_digest": "8633cd0f58dfadf137ca203af9b760904da4fcf8de8a079a47542c051d38d1cb",
+            "request_digest": "f483ff5ad142cada6a49e2c4235de463c37fa4ba16e76b931319c8487c4f74ef",
             "prices": {
               "input": null,
               "output": null,
@@ -332,7 +387,7 @@
       "builtins": [
         {
           "id": "assistant",
-          "revision": "8633cd0f58dfadf137ca203af9b760904da4fcf8de8a079a47542c051d38d1cb"
+          "revision": "f483ff5ad142cada6a49e2c4235de463c37fa4ba16e76b931319c8487c4f74ef"
         }
       ]
     },
@@ -382,10 +437,11 @@
       "parent_id": null,
       "definition": {
         "id": "assistant",
-        "revision": "8633cd0f58dfadf137ca203af9b760904da4fcf8de8a079a47542c051d38d1cb"
+        "revision": "f483ff5ad142cada6a49e2c4235de463c37fa4ba16e76b931319c8487c4f74ef"
       },
       "config_revision": "9007199254740993",
       "configuration": {
+        "report_mode": "notice",
         "model": {
           "provider": "fixture",
           "name": "scripted",
@@ -417,10 +473,11 @@
       "parent_id": "session_root",
       "definition": {
         "id": "assistant",
-        "revision": "8633cd0f58dfadf137ca203af9b760904da4fcf8de8a079a47542c051d38d1cb"
+        "revision": "f483ff5ad142cada6a49e2c4235de463c37fa4ba16e76b931319c8487c4f74ef"
       },
       "config_revision": "9007199254740993",
       "configuration": {
+        "report_mode": "notice",
         "model": {
           "provider": "fixture",
           "name": "scripted",
@@ -586,6 +643,7 @@
         "output": {
           "schema": null
         },
+        "report_mode": "inline",
         "tools": {}
       }
     },
