@@ -314,15 +314,45 @@ No live deletion can race the gap between publication and registration.
 Initialization takes explicit paths and never discovers an installed daemon or
 reads the retired home/config. A new host config is valid but unconfigured: users
 must select a model/provider before creating a runnable session. API credentials
-use environment references resolved during request preparation. Subscription
-credentials belong to the independent host account manager and its private file.
+use explicit sources resolved during request preparation. Subscription credentials
+belong to the independent host account manager and its private file.
 
-Current fresh host configuration is version 10; the SQLite schema is version 32.
+Current fresh host configuration is version 11; the SQLite schema is version 32.
 SQLite has an application identifier and schema version. Existing databases of
 another application/version are rejected, not imported. Reopening preserves the
 runtime identity and seeded revisions; separate databases receive distinct
 identities. Future versions of this fresh schema may have ordinary migrations.
 The store owns database transactions only, with no resource-manager construction.
+
+Generic API routes select one credential source. Configuration reads do not
+resolve credentials, and missing credentials never fall back to another source,
+the installed runtime or the retired `~/.inf/config`.
+
+| `credential_source` | Declaration and resolution |
+| --- | --- |
+| `env` | One `credential_env` name, resolved from the explicit host lookup |
+| `file` | One canonical absolute `credential_file` path to a bounded private regular file owned by the current user |
+| `command` | `credential_command` with an absolute executable, argument array and explicitly inherited environment-variable names |
+| `none` | No credential declaration or authorization header |
+| `inference-net` | The separately owned machine-key binding described below |
+
+An omitted source retains the existing environment-reference or no-auth shorthand;
+it cannot infer file or command intent. Subscription routes reject all API source
+fields. File resolution anchors every directory component without following
+symlinks; use canonical paths, including `/private/var` rather than `/var` on macOS.
+The immediate parent must belong to the current user and deny other-user writes;
+the file must deny other-user reads/writes. Reads check ownership, mode, size and
+modification stability and never return file contents in errors.
+
+Credential commands run without a shell, stdin or inherited ambient environment,
+in `/`, with only the named environment values. Arguments and environment are
+bounded, execution has a ten-second deadline, and combined stdout/stderr is
+limited to 64 KiB. Cancellation or completion kills remaining process-group
+members and joins the leader and bounded output readers. Diagnostics never echo
+arguments, environment, stdout or stderr. Resolution accepts one bounded printable
+key with surrounding whitespace removed. Both Chat and Responses freeze that key
+at preparation, so retries neither rerun commands nor reread replaced files.
+Private pasted/named-key installation and public provider setup remain separate work.
 
 Inference.net routes select their private machine-key owner explicitly with
 `credential_source: "inference-net"`. Only `openai-chat` at the exact
