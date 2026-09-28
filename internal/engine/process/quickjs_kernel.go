@@ -36,7 +36,7 @@ func (kernel *Kernel) completeHost(completion hostCompletion) {
 func (kernel *Kernel) evalQuickJSLocked(ctx context.Context, cell Cell) (Result, error) {
 	kernel.nextID++
 	id := kernel.nextID
-	if err := writeFrame(kernel.worker.input, kernel.limits.FrameBytes, frame{Type: "eval", ID: id, Code: cell.Code}); err != nil {
+	if err := kernel.write(ctx, frame{Type: "eval", ID: id, Code: cell.Code}); err != nil {
 		kernel.stop()
 		return Result{}, err
 	}
@@ -88,7 +88,7 @@ func (kernel *Kernel) evalQuickJSLocked(ctx context.Context, cell Cell) (Result,
 				reply.Value = nil
 				reply.Error = out.err.Error()
 			}
-			if err := writeFrame(process.input, kernel.limits.FrameBytes, reply); err != nil {
+			if err := kernel.write(ctx, reply); err != nil {
 				return fail(err)
 			}
 		case incoming := <-process.frames:

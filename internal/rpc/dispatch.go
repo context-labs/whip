@@ -43,6 +43,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 		return nil, ErrMethod
 	}
 	switch method {
+	case "sessions.compact", "context.head", "context.compaction", "context.compactions", "context.select", "context.snapshot", "context.list", "context.read", "context.search":
+		return dispatchContext(ctx, r, method, raw)
 	case "turns.output":
 		return decode(raw, func(p protocol.TurnParams) (any, error) {
 			value, err := r.TurnOutput(ctx, session.TurnID(p.TurnID))

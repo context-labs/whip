@@ -13,7 +13,9 @@ import (
 
 // A failed latest turn suppresses autonomous mail retries. Explicit input can
 // still claim; its successful finish restores autonomous delivery at every depth.
-const mailRetryAllowed = `COALESCE((SELECT state FROM turns WHERE session_id=m.recipient_id ORDER BY started_at DESC,rowid DESC LIMIT 1),'succeeded')='succeeded'`
+const mailRetryAllowed = `COALESCE((SELECT t.state FROM turns t LEFT JOIN inputs i ON i.turn_id=t.id
+ WHERE t.session_id=m.recipient_id AND COALESCE(i.kind,'prompt')='prompt'
+ ORDER BY t.started_at DESC,t.rowid DESC LIMIT 1),'succeeded')='succeeded'`
 
 func mailReady(ctx context.Context, q querier, owner session.SessionID) (bool, error) {
 	var ready bool
@@ -64,6 +66,9 @@ func observeMail(ctx context.Context, tx *sql.Tx, turn session.TurnID, receipt s
 func observeMailBoundary(ctx context.Context, tx *sql.Tx, turn session.Turn, steersOnly bool) ([]session.Message, error) {
 	if turn.State != session.Running {
 		return nil, ErrStopped
+	}
+	if turn.Kind == session.CompactInput {
+		return []session.Message{}, nil
 	}
 	_, pending, err := pendingCalls(ctx, tx, turn.ID)
 	if err != nil {

@@ -126,6 +126,7 @@ func (r *Runtime) Instructions(ctx context.Context, id session.SessionID) (strin
 		instructions += " Example: await mail.send({recipient_id:\"session_id\", body:\"update\", delivery:\"queued\"})."
 	}
 	instructions += " Your session ID is " + string(current.ID) + "."
+	instructions += " Raw history remains available through context.inspect/read/search using this session's authority only. inspect accepts optional decimal-string after and through_sequence plus limit (1 to 100); omit through_sequence on the first call to capture a fixed snapshot, then copy it and next_after unchanged while paging metadata. read accepts message id, decimal-string offset and length up to 65536; data_base64 contains exact serialized parts bytes. Concatenate decoded bytes before parsing JSON so large numbers and split UTF-8 remain intact. search accepts a literal case-sensitive query (maximum 256 bytes), after, through_sequence and limit. It searches text, tool arguments and outputs without reading content-reference bodies. Its next_after advances the bounded scan even when matches is empty; a null cursor means the snapshot is exhausted. Context grants use the tree ID as resource. These reads do not execute past code or acknowledge mail."
 	if current.ParentID != nil {
 		instructions += " Your parent session ID is " + string(*current.ParentID) + "."
 	}

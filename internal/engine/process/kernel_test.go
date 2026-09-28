@@ -16,6 +16,7 @@ import (
 	"sync"
 	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -687,8 +688,11 @@ func TestKernelReportsWorkerExit(t *testing.T) {
 					}
 					t.Cleanup(kernel.Close)
 					_, err = kernel.Exec(t.Context(), Cell{Code: "1"})
-					if !errors.Is(err, io.EOF) || !strings.Contains(err.Error(), engine+" worker exited during "+phase) {
-						t.Fatalf("missing exit context or underlying EOF: %v", err)
+					// Wait can close stdin before the parent writes its first frame,
+					// or the reader can observe EOF first. Both retain their I/O cause.
+					pipeFailure := errors.Is(err, io.EOF) || errors.Is(err, os.ErrClosed) || errors.Is(err, syscall.EPIPE)
+					if !pipeFailure || !strings.Contains(err.Error(), engine+" worker exited during "+phase) {
+						t.Fatalf("missing exit context or underlying pipe failure: %v", err)
 					}
 					var exit *exec.ExitError
 					switch outcome {
@@ -709,6 +713,112 @@ func TestKernelReportsWorkerExit(t *testing.T) {
 			}
 		}
 	}
+}
+
+type exitedWorkerInput struct{ cause error }
+
+func (w exitedWorkerInput) Write([]byte) (int, error) { return 0, w.cause }
+func (exitedWorkerInput) Close() error                { return nil }
+
+func TestKernelWriteReportsExitedWorker(t *testing.T) {
+	for _, engine := range []string{EngineStarlark, EngineQuickJS} {
+		for _, phase := range []string{"startup", "execution"} {
+			t.Run(engine+"/"+phase, func(t *testing.T) {
+				descriptor, err := ResolveExecutionEngine(engine)
+				if err != nil {
+					t.Fatal(err)
+				}
+				cause := &os.PathError{Op: "write", Path: "worker stdin", Err: os.ErrClosed}
+				worker := &workerProcess{
+					input: exitedWorkerInput{cause}, done: make(chan struct{}), readDone: make(chan struct{}),
+					ready: phase == "execution", stderr: &limitedBuffer{limit: 1024}, stopRead: func() {}, dir: t.TempDir(),
+				}
+				close(worker.done)
+				close(worker.readDone)
+				kernel := &Kernel{engine: descriptor, limits: DefaultLimits(), manager: NewManager(1), worker: worker}
+				if phase == "startup" {
+					_, err = kernel.roundTripLocked(t.Context(), frame{Type: "hello"})
+				} else {
+					_, err = kernel.evalLocked(t.Context(), Cell{Code: "1"})
+				}
+				if !errors.Is(err, cause) || errors.Is(err, io.EOF) || !strings.Contains(err.Error(), engine+" worker exited during "+phase+" (exit status 0)") {
+					t.Fatalf("write exit lost its actual cause or phase: %v", err)
+				}
+				if kernel.worker != nil {
+					t.Fatal("write failure did not retire the worker")
+				}
+			})
+		}
+	}
+}
+
+func TestKernelWorkerIOErrorWaitsForExitPublication(t *testing.T) {
+	for _, cause := range []error{io.EOF, io.ErrUnexpectedEOF, os.ErrClosed, io.ErrClosedPipe, syscall.EPIPE} {
+		for _, publication := range []string{"before", "after"} {
+			t.Run(cause.Error()+"/"+publication, func(t *testing.T) {
+				synctest.Test(t, func(t *testing.T) {
+					kernel := &Kernel{engine: EngineDescriptor{ID: EngineQuickJS}, limits: DefaultLimits()}
+					worker := &workerProcess{done: make(chan struct{}), stderr: &limitedBuffer{limit: 1024}}
+					exitCause := errors.New("worker exit status")
+					publish := func() {
+						worker.exitErr = exitCause
+						_, _ = worker.stderr.Write([]byte("worker failure detail"))
+						close(worker.done)
+					}
+					if publication == "before" {
+						publish()
+					}
+					done := make(chan error, 1)
+					go func() {
+						if errors.Is(cause, io.EOF) || errors.Is(cause, io.ErrUnexpectedEOF) {
+							done <- kernel.workerReadError(t.Context(), worker, cause)
+						} else {
+							done <- kernel.workerWriteError(t.Context(), worker, cause)
+						}
+					}()
+					synctest.Wait()
+					if publication == "after" {
+						select {
+						case err := <-done:
+							t.Fatalf("returned before exit status was published: %v", err)
+						default:
+						}
+						publish()
+					}
+					err := <-done
+					if !errors.Is(err, cause) || !errors.Is(err, exitCause) || !strings.Contains(err.Error(), "quickjs worker exited during startup") || !strings.Contains(err.Error(), "worker failure detail") {
+						t.Fatalf("lost I/O cause or published exit details: %v", err)
+					}
+				})
+			})
+		}
+	}
+}
+
+func TestKernelWorkerWriteErrorRemainsBounded(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		kernel := &Kernel{limits: Limits{Wall: time.Second}}
+		worker := &workerProcess{done: make(chan struct{}), ready: true}
+		for _, cause := range []error{ErrFrameLimit, os.ErrClosed, syscall.EPIPE} {
+			started := time.Now()
+			err := kernel.workerWriteError(t.Context(), worker, cause)
+			if !errors.Is(err, cause) || strings.Contains(err.Error(), "worker exited") {
+				t.Fatalf("live worker was reported exited or cause changed: %v", err)
+			}
+			want := time.Second
+			if errors.Is(cause, ErrFrameLimit) {
+				want = 0
+			}
+			if time.Since(started) != want {
+				t.Fatalf("wait = %s, want %s", time.Since(started), want)
+			}
+		}
+		ctx, cancel := context.WithTimeout(t.Context(), kernel.limits.Wall/2)
+		defer cancel()
+		if err := kernel.workerWriteError(ctx, worker, os.ErrClosed); !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("caller deadline lost to diagnostic wait: %v", err)
+		}
+	})
 }
 
 func TestKernelDrainsFinalFramesAfterWorkerExit(t *testing.T) {
@@ -812,8 +922,14 @@ func TestKernelWorkerExitPreservesCancellation(t *testing.T) {
 	if err := kernel.workerReadError(ctx, process, io.EOF); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
+	if err := kernel.workerWriteError(ctx, process, os.ErrClosed); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
 	close(process.done)
 	if err := kernel.workerReadError(ctx, process, io.EOF); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+	if err := kernel.workerWriteError(ctx, process, syscall.EPIPE); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
 }

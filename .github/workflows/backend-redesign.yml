@@ -2,7 +2,7 @@ name: backend-redesign
 
 on:
   pull_request:
-    branches: [codex/backend-redesign, codex/backend-redesign-phase-*]
+    branches: [codex/backend-redesign, codex/backend-redesign-*]
   push:
     branches: [codex/backend-redesign]
 

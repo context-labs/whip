@@ -5,6 +5,51 @@ export const manifest = {
   "minor": 0,
   "operations": [
     {
+      "name": "sessions.compact",
+      "params": "CompactParams",
+      "result": "Admission"
+    },
+    {
+      "name": "context.head",
+      "params": "SessionParams",
+      "result": "ContextHead"
+    },
+    {
+      "name": "context.compaction",
+      "params": "CompactionParams",
+      "result": "CompactionResult"
+    },
+    {
+      "name": "context.compactions",
+      "params": "CompactionsParams",
+      "result": "CompactionsResult"
+    },
+    {
+      "name": "context.select",
+      "params": "SelectCompactionParams",
+      "result": "ContextHead"
+    },
+    {
+      "name": "context.snapshot",
+      "params": "SessionParams",
+      "result": "HistorySnapshot"
+    },
+    {
+      "name": "context.list",
+      "params": "ContextHistoryParams",
+      "result": "HistoryMetadataResult"
+    },
+    {
+      "name": "context.read",
+      "params": "ReadHistoryParams",
+      "result": "ReadHistoryResult"
+    },
+    {
+      "name": "context.search",
+      "params": "SearchHistoryParams",
+      "result": "SearchHistoryResult"
+    },
+    {
       "name": "turns.output",
       "params": "TurnParams",
       "result": "TurnOutputResult"

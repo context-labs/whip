@@ -76,6 +76,9 @@ func (s *Store) ReserveModelAttempt(ctx context.Context, p session.ModelAttemptS
 		if turn.State != session.Running {
 			return ErrStopped
 		}
+		if turn.Kind == session.CompactInput && p.Request.Purpose != "compaction" {
+			return fmt.Errorf("%w: compact input requires a compaction model request", session.ErrInvalid)
+		}
 		if err := requireTurnPermit(ctx, tx, turn.ID); err != nil {
 			return err
 		}
@@ -172,6 +175,9 @@ func (s *Store) SettleModelAttempt(ctx context.Context, id session.ModelAttemptI
 }
 
 func settleAttempt(ctx context.Context, tx *sql.Tx, attempt session.ModelAttempt, outcome session.ModelAttemptResult, message *session.MessageDraft) (session.ModelAttempt, error) {
+	if attempt.Request.Purpose == "compaction" && message != nil {
+		return session.ModelAttempt{}, fmt.Errorf("%w: a compaction response is not a transcript message", session.ErrInvalid)
+	}
 	var messageID *session.MessageID
 	if message != nil {
 		messageID = &message.ID

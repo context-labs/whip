@@ -20,6 +20,15 @@ type Operation struct {
 
 func Operations() []Operation {
 	return []Operation{
+		{"sessions.compact", reflect.TypeFor[CompactParams](), reflect.TypeFor[Admission]()},
+		{"context.head", reflect.TypeFor[SessionParams](), reflect.TypeFor[ContextHead]()},
+		{"context.compaction", reflect.TypeFor[CompactionParams](), reflect.TypeFor[CompactionResult]()},
+		{"context.compactions", reflect.TypeFor[CompactionsParams](), reflect.TypeFor[CompactionsResult]()},
+		{"context.select", reflect.TypeFor[SelectCompactionParams](), reflect.TypeFor[ContextHead]()},
+		{"context.snapshot", reflect.TypeFor[SessionParams](), reflect.TypeFor[HistorySnapshot]()},
+		{"context.list", reflect.TypeFor[ContextHistoryParams](), reflect.TypeFor[HistoryMetadataResult]()},
+		{"context.read", reflect.TypeFor[ReadHistoryParams](), reflect.TypeFor[ReadHistoryResult]()},
+		{"context.search", reflect.TypeFor[SearchHistoryParams](), reflect.TypeFor[SearchHistoryResult]()},
 		{"turns.output", reflect.TypeFor[TurnParams](), reflect.TypeFor[TurnOutputResult]()},
 		{"completions.list", reflect.TypeFor[ListCompletionsParams](), reflect.TypeFor[ListCompletionsResult]()},
 		{"completions.read", reflect.TypeFor[ReadCompletionParams](), reflect.TypeFor[ReadCompletionResult]()},
@@ -115,7 +124,8 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 	if schema == nil {
 		return
 	}
-	if t.Kind() == reflect.Pointer {
+	nullable := t.Kind() == reflect.Pointer
+	if nullable {
 		t = t.Elem()
 	}
 	switch t.Kind() {
@@ -152,6 +162,19 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 		}
 		if t == reflect.TypeFor[Input]() || t == reflect.TypeFor[SubmitParams]() || t == reflect.TypeFor[SpawnSessionParams]() {
 			schema.Properties["parts"].Items = partSchema("text", "content")
+		}
+		if t == reflect.TypeFor[Input]() {
+			prompt := schema.CloneSchemas()
+			prompt.Type, prompt.Types = "object", nil
+			prompt.Properties["kind"] = &jsonschema.Schema{Type: "string", Enum: []any{"prompt"}}
+			compact := schema.CloneSchemas()
+			compact.Type, compact.Types = "object", nil
+			compact.Properties["kind"] = &jsonschema.Schema{Type: "string", Enum: []any{"compact"}}
+			compact.Properties["parts"] = &jsonschema.Schema{Type: "array", MaxItems: new(0), Items: partSchema("text", "content")}
+			*schema = jsonschema.Schema{OneOf: []*jsonschema.Schema{prompt, compact}}
+			if nullable {
+				schema.OneOf = append(schema.OneOf, &jsonschema.Schema{Type: "null"})
+			}
 		}
 		if t == reflect.TypeFor[Message]() {
 			var variants []*jsonschema.Schema

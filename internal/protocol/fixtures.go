@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"time"
@@ -54,6 +55,17 @@ func Fixtures() ([]Fixture, error) {
 		name  string
 		value any
 	}{
+		{"Admission", Admission{Receipt: Receipt{Identity: RequestIdentity{ClientID: "client", RequestID: "deleted"}, Digest: ref.Revision, CreatedAt: created.Format(time.RFC3339Nano), DeletedAt: new(created.Format(time.RFC3339Nano))}}},
+		{"CompactParams", CompactParams{Identity: RequestIdentity{ClientID: "client", RequestID: "compact"}, SessionID: child.ID}},
+		{"Input", Input{ID: "input_compact", SessionID: child.ID, Source: "user", Kind: "compact", State: "queued", Parts: []Part{}, CreatedAt: created.Format(time.RFC3339Nano)}},
+		{"ContextHead", ContextHeadFromDomain(session.ContextHead{SessionID: session.SessionID(child.ID), Revision: 9007199254740993, CompactionID: new(session.CompactionID("summary"))})},
+		{"ContextHead", ContextHeadFromDomain(session.ContextHead{SessionID: session.SessionID(child.ID)})},
+		{"CompactionResult", CompactionResult{Metadata: CompactionFromDomain(session.CompactionMetadata{ID: "summary", SessionID: session.SessionID(child.ID), TurnID: "turn", AttemptID: "attempt", ExpectedRevision: 9007199254740993, ThroughSequence: 9007199254740994, PinnedMessageIDs: []session.MessageID{"message"}, TextBytes: 14, CreatedAt: created}), Text: "Exact summary."}},
+		{"SelectCompactionParams", SelectCompactionParams{SessionID: child.ID, ExpectedRevision: 9007199254740993}},
+		{"HistorySnapshot", HistorySnapshot{SessionID: child.ID, ThroughSequence: 9007199254740993, MessageCount: 9007199254740993}},
+		{"ReadHistoryResult", ReadHistoryResult{Message: HistoryMetadata{ID: "message", SessionID: child.ID, TurnID: "turn", Sequence: 9007199254740993, Role: "assistant", PartsBytes: 88}, Offset: 1, NextOffset: new(Counter(6)), DataBase64: base64.StdEncoding.EncodeToString([]byte{0x9f, 0x8c, 0x8d, '\n', '9'})}},
+		{"HistoryMetadataResult", HistoryMetadataResult{Items: []HistoryMetadata{}, ThroughSequence: 9007199254740993}},
+		{"SearchHistoryResult", SearchHistoryResult{Matches: []HistoryMatch{}, ThroughSequence: 9007199254740993, NextAfter: new(Counter(100)), ScannedMessages: 100, ScannedBytes: 65536}},
 		{"TurnOutputResult", TurnOutputFromDomain(nil)},
 		{"TurnOutputResult", TurnOutputFromDomain(&session.StructuredOutput{TurnID: "turn_fixture", MessageID: "message_output", Value: json.RawMessage(`{"count":9007199254740993}`)})},
 		{"TurnOutputResult", TurnOutputFromDomain(&session.StructuredOutput{TurnID: "turn_null", MessageID: "message_null", Value: json.RawMessage(`null`)})},
@@ -92,7 +104,7 @@ func Fixtures() ([]Fixture, error) {
 		{"SpawnSessionParams", SpawnSessionParams{Identity: RequestIdentity{ClientID: "client", RequestID: "spawn"}, ParentID: root.ID, Parts: []Part{{Type: "text", Text: "Child work"}}, GrantIDs: []ID{}}},
 		{"SubmitParams", SubmitParams{Identity: RequestIdentity{ClientID: "client", RequestID: "request"}, SessionID: child.ID, Source: "user", Parts: []Part{{Type: "text", Text: "Run this."}}}},
 		{"UpdateConfigurationParams", UpdateConfigurationParams{SessionID: child.ID, ExpectedRevision: 9007199254740993, Patch: ConfigPatch{ReportMode: new("inline"), Tools: map[string]ToolDeclaration{}, Output: &OutputPolicy{}}}},
-		{"Turn", Turn{ID: "turn_fixture", SessionID: child.ID, ConfigRevision: 9007199254740993, State: "running", StartedAt: created.Format(time.RFC3339Nano)}},
+		{"Turn", Turn{ID: "turn_fixture", SessionID: child.ID, Kind: "prompt", ConfigRevision: 9007199254740993, State: "running", StartedAt: created.Format(time.RFC3339Nano)}},
 	}
 	result := make([]Fixture, 0, len(values)+8)
 	for _, value := range values {

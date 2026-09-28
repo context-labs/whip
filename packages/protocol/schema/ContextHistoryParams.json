@@ -1,0 +1,34 @@
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "after": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "through_sequence": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ContextHistoryParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ContextHistoryParams",
+  "required": [
+    "session_id",
+    "after",
+    "through_sequence",
+    "limit"
+  ],
+  "additionalProperties": false
+}

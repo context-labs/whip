@@ -374,7 +374,7 @@ Maintain one compact table here as families are addressed:
 | Reusable capacity | Shared subtree admission and lifecycle release; old per-target queue semantics intentionally replaced with ancestor aggregation | `store/resources_test.go`, `runtime/resources_test.go`, `rpc/resources_test.go`, turn-permit race tests, both-engine recursion and SDK restart fixture; counters derived rather than repaired | 4 implemented |
 | Cumulative write allowances | Explicit logical actions consume permanent ancestor allowance; initial child input now charged consistently with follow-up input | `store/logical_writes_test.go`, `runtime/state_allowances_test.go`, SDK cap/retry/restart/deletion fixture; accounting and derived notifications remain exempt | 4 implemented |
 | Mail and explicit state | Revisioned delivery distinct from inspection; private/shared isolation; immutable history and CAS | `store/mail_test.go`, `runtime/mail_test.go`, `store/state*_test.go`, `runtime/state_test.go`, RPC/SDK fixtures; `store/state_subscriptions_test.go` covers atomic coalescing, cursor/notification rollback and recipient deferral | 4 complete |
-| Context and checkpointing | Raw history retained; checkpoint boundary and fidelity explicit | Both engines pass `runtime/engine_test.go`; compaction remains pending | 3 complete; 5 pending |
+| Context and checkpointing | Raw history retained; checkpoint boundary and fidelity explicit | Both engines pass `runtime/engine_test.go`; initial durable compaction and raw-history access implemented, advanced context policy pending | 3 complete; 5 pending |
 | Integrations and product features | Preserve capability outcomes; inspect existing regression scenarios | Pending | 5 |
 | All client surfaces | Correct submission, observation, recovery and resource cleanup | New SDK/socket fixture passes; product clients remain on the retained implementation | 2 complete; 6 pending |
 | Old schemas/protocol/scratch compatibility | Retired by fresh-start scope | Delete with corresponding implementation | 1 through 7 |
@@ -619,6 +619,15 @@ Acceptance:
       reconnect does not silently restore revoked attachments or replay effects.
 - [ ] All retained feature families have replacement evidence and use the new
       core; no compatibility wrapper delegates execution to the retired runtime.
+
+Implementation progress: final-output contracts and the first context increment
+are implemented. Manual compaction, revisioned summary selection/undo, bounded
+own-history access, ordinary request reconstruction and automatic whole-turn
+folding have replacement evidence. The compaction acceptance item remains open:
+oversized current-turn splitting with exact input pins, reactive provider
+context-limit handling, token-aware policy and dynamic instruction refresh are
+still required. This progress does not retire retained capabilities or narrow
+Phases 5–7.
 
 ### Phase 6 — Complete SDK and client adoption
 

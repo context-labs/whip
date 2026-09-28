@@ -93,6 +93,15 @@ const (
 	ScheduledInput InputSource = "schedule"
 )
 
+// InputKind distinguishes conversation work from context maintenance. Source
+// still identifies who admitted that work; compact is never a synthetic prompt.
+type InputKind string
+
+const (
+	PromptInput  InputKind = "prompt"
+	CompactInput InputKind = "compact"
+)
+
 type InputState string
 
 const (
@@ -107,6 +116,7 @@ type Input struct {
 	ID        InputID
 	SessionID SessionID
 	Source    InputSource
+	Kind      InputKind
 	Parts     []Part
 	State     InputState
 	TurnID    *TurnID
@@ -153,8 +163,10 @@ func (s TurnState) CanTransitionTo(next TurnState) bool {
 }
 
 type Turn struct {
-	ID             TurnID
-	SessionID      SessionID
+	ID        TurnID
+	SessionID SessionID
+	// Kind is derived from the accepted input. Mail-only turns are prompt turns.
+	Kind           InputKind
 	ConfigRevision Revision
 	State          TurnState
 	Failure        *string

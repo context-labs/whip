@@ -137,6 +137,15 @@ assistant message. Its `data_base64` bytes preserve exact numbers; the SDK does
 not keep another mutable output value. A live turn reports busy. A null output
 record differs from a valid JSON-null payload. Contract corrections are normal
 recorded model rounds, and raw invalid replies remain in the transcript.
+`client.compact` admits a durable maintenance input with kind `compact`; its
+turn uses ordinary receipts, waits and cancellation but has no conversation reply.
+Keep summary selection separate from the displayed transcript. `context.head`
+owns the selected immutable summary and revision; `context.select` performs an
+idle revision-checked undo without changing history, files or REPL state.
+`context.snapshot/list/search/read` inspects raw history with a fixed sequence
+boundary and bounded exact byte reads. Follow search continuation even for empty
+match pages; concatenate bytes before decoding. Never replace client transcript
+history with a summary or acknowledge mail merely by inspecting it.
 Product clients continue to use the explicitly retained packages until their
 cutover. The package map below describes those retained clients.
 

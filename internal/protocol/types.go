@@ -179,6 +179,7 @@ type Input struct {
 	ID        ID     `json:"id"`
 	SessionID ID     `json:"session_id"`
 	Source    string `json:"source" enum:"user,agent,schedule"`
+	Kind      string `json:"kind" enum:"prompt,compact"`
 	Parts     []Part `json:"parts"`
 	State     string `json:"state" enum:"queued,claimed,cancelled"`
 	TurnID    *ID    `json:"turn_id"`
@@ -187,6 +188,7 @@ type Input struct {
 type Turn struct {
 	ID             ID      `json:"id"`
 	SessionID      ID      `json:"session_id"`
+	Kind           string  `json:"kind" enum:"prompt,compact"`
 	ConfigRevision Counter `json:"config_revision"`
 	State          string  `json:"state" enum:"running,cancelling,succeeded,failed,cancelled,interrupted"`
 	Failure        *string `json:"failure"`

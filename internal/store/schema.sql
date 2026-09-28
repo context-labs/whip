@@ -125,14 +125,16 @@ CREATE TABLE inputs (
  ordinal INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
  source TEXT NOT NULL CHECK(source IN ('user','agent','schedule')),
+ kind TEXT NOT NULL DEFAULT 'prompt' CHECK(kind IN ('prompt','compact')),
  parts TEXT NOT NULL CHECK(json_valid(parts)), turn_id TEXT UNIQUE, cancelled_at INTEGER, created_at INTEGER NOT NULL,
+ CHECK(kind<>'compact' OR (json_type(parts)='array' AND json_array_length(parts)=0)),
  CHECK(turn_id IS NULL OR cancelled_at IS NULL), UNIQUE(id,turn_id,session_id),
  FOREIGN KEY(turn_id,session_id) REFERENCES turns(id,session_id) ON DELETE CASCADE
 ) STRICT;
 CREATE INDEX queued_inputs ON inputs(session_id,ordinal) WHERE turn_id IS NULL AND cancelled_at IS NULL;
 CREATE TRIGGER input_immutable BEFORE UPDATE ON inputs
  WHEN NEW.id IS NOT OLD.id OR NEW.ordinal IS NOT OLD.ordinal OR NEW.session_id IS NOT OLD.session_id
- OR NEW.source IS NOT OLD.source OR NEW.parts IS NOT OLD.parts OR NEW.created_at IS NOT OLD.created_at
+ OR NEW.source IS NOT OLD.source OR NEW.kind IS NOT OLD.kind OR NEW.parts IS NOT OLD.parts OR NEW.created_at IS NOT OLD.created_at
  OR OLD.turn_id IS NOT NULL OR OLD.cancelled_at IS NOT NULL
  BEGIN SELECT RAISE(ABORT, 'accepted input is immutable'); END;
 CREATE TABLE receipts (
@@ -295,7 +297,7 @@ CREATE TABLE model_attempts (
  cost_note TEXT,
  message_id TEXT UNIQUE,
  created_at INTEGER NOT NULL, dispatched_at INTEGER, finished_at INTEGER,
- UNIQUE(turn_id,logical_id,number),
+ UNIQUE(turn_id,logical_id,number), UNIQUE(id,turn_id),
  CHECK((state IN ('reserved','dispatched')) = (finished_at IS NULL)),
  CHECK((result IS NULL) = (finished_at IS NULL)),
  CHECK(result IS NULL OR json_extract(result,'$.state') IS state),
@@ -303,7 +305,8 @@ CREATE TABLE model_attempts (
  CHECK(state NOT IN ('dispatched','succeeded','failed','uncertain') OR dispatched_at IS NOT NULL),
  CHECK(state <> 'reserved' OR dispatched_at IS NULL),
  CHECK(state <> 'cancelled' OR dispatched_at IS NULL),
- CHECK(message_id IS NULL OR finished_at IS NOT NULL)
+ CHECK(message_id IS NULL OR finished_at IS NOT NULL),
+ CHECK(message_id IS NULL OR json_extract(request,'$.purpose')<>'compaction')
 ) STRICT;
 CREATE INDEX attempts_by_turn ON model_attempts(turn_id,id);
 CREATE INDEX attempts_unfinished ON model_attempts(id) WHERE finished_at IS NULL;
@@ -314,6 +317,33 @@ CREATE TRIGGER attempt_transition BEFORE UPDATE ON model_attempts
  OR (OLD.state='reserved' AND NEW.state NOT IN ('dispatched','cancelled'))
  OR (OLD.state='dispatched' AND (NEW.state IN ('reserved','dispatched') OR NEW.dispatched_at IS NOT OLD.dispatched_at))
  BEGIN SELECT RAISE(ABORT, 'invalid model attempt transition'); END;
+
+CREATE TABLE compactions (
+ id TEXT PRIMARY KEY,
+ session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+ turn_id TEXT NOT NULL,
+ attempt_id TEXT NOT NULL UNIQUE,
+ base_id TEXT,
+ expected_revision INTEGER NOT NULL CHECK(expected_revision >= 0),
+ through_sequence INTEGER NOT NULL CHECK(through_sequence > 0),
+ pinned_message_ids TEXT NOT NULL CHECK(json_valid(pinned_message_ids) AND json_type(pinned_message_ids)='array' AND json_array_length(pinned_message_ids) <= 32),
+ text TEXT NOT NULL CHECK(length(CAST(text AS BLOB)) BETWEEN 1 AND 65536),
+ created_at INTEGER NOT NULL,
+ UNIQUE(id,session_id),
+ CHECK(base_id IS NULL OR base_id<>id),
+ FOREIGN KEY(turn_id,session_id) REFERENCES turns(id,session_id) ON DELETE CASCADE,
+ FOREIGN KEY(attempt_id,turn_id) REFERENCES model_attempts(id,turn_id) ON DELETE CASCADE,
+ FOREIGN KEY(base_id,session_id) REFERENCES compactions(id,session_id) DEFERRABLE INITIALLY DEFERRED
+) STRICT;
+CREATE INDEX compactions_by_session ON compactions(session_id,id);
+CREATE TRIGGER compaction_immutable BEFORE UPDATE ON compactions
+ BEGIN SELECT RAISE(ABORT,'compaction is immutable'); END;
+CREATE TABLE context_heads (
+ session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+ revision INTEGER NOT NULL CHECK(revision > 0),
+ compaction_id TEXT,
+ FOREIGN KEY(compaction_id,session_id) REFERENCES compactions(id,session_id) DEFERRABLE INITIALLY DEFERRED
+) STRICT;
 
 -- Reusable capacity derives usage from its owning rows and their lifecycle.
 CREATE TABLE resource_limits (

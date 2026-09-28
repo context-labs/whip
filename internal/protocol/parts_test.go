@@ -58,7 +58,7 @@ func TestMessageSchemasEnforceToolRoleOwnership(t *testing.T) {
 
 func TestAdmissionSchemaCannotSmuggleToolCallsInInput(t *testing.T) {
 	value := Admission{Input: &Input{
-		ID: "input", SessionID: "session", Source: "user", State: "queued", CreatedAt: "2026-09-27T00:00:00Z",
+		ID: "input", SessionID: "session", Source: "user", Kind: "prompt", State: "queued", CreatedAt: "2026-09-27T00:00:00Z",
 		Parts: []Part{{Type: "tool_call", Call: &ToolCall{ID: "call", Name: "execute", Arguments: json.RawMessage(`{}`)}}},
 	}, Receipt: Receipt{Identity: RequestIdentity{ClientID: "client", RequestID: "request"}, Digest: "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824", CreatedAt: "2026-09-27T00:00:00Z"}}
 	raw, err := json.Marshal(value)
@@ -67,5 +67,32 @@ func TestAdmissionSchemaCannotSmuggleToolCallsInInput(t *testing.T) {
 	}
 	if err := Validate("Admission", raw); err == nil {
 		t.Fatal("admission schema accepted a user-authored tool call")
+	}
+}
+
+func TestInputSchemaSeparatesPromptAndCompaction(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		kind  string
+		parts []Part
+		valid bool
+	}{
+		{"prompt", "prompt", []Part{{Type: "text", Text: "Work"}}, true},
+		{"empty prompt", "prompt", []Part{}, false},
+		{"compact", "compact", []Part{}, true},
+		{"compact with authored text", "compact", []Part{{Type: "text", Text: "Work"}}, false},
+		{"null compact parts", "compact", nil, false},
+		{"unknown kind", "other", []Part{}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			value := Input{ID: "input", SessionID: "session", Source: "user", Kind: tc.kind, State: "queued", Parts: tc.parts, CreatedAt: "2026-09-28T00:00:00Z"}
+			raw, err := json.Marshal(value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := Validate("Input", raw); (err == nil) != tc.valid {
+				t.Fatalf("valid=%v: %v", tc.valid, err)
+			}
+		})
 	}
 }
