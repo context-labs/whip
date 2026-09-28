@@ -52,7 +52,7 @@ func (s *Store) ContextTail(ctx context.Context, owner session.SessionID, throug
 const historyColumns = `COALESCE(m.id,''),COALESCE(m.turn_id,''),m.input_id,
 	COALESCE(m.sequence,0),COALESCE(m.role,''),COALESCE(length(CAST(COALESCE(m.parts,i.parts) AS BLOB)),0),
 	CASE WHEN ? THEN COALESCE(m.parts,i.parts) END,COALESCE(m.created_at,0),
-	m.mail_id,m.mail_revision,m.mail_presentation,r.subject,r.body,mail.source_kind,mail.source_id`
+	m.mail_id,m.mail_revision,m.mail_presentation,r.subject,r.body,mail.source_kind,mail.source_id,r.evidence_ref`
 
 const historyJoins = ` LEFT JOIN inputs i ON i.id=m.input_id
 	LEFT JOIN mail_revisions r ON r.mail_id=m.mail_id AND r.revision=m.mail_revision
@@ -70,15 +70,16 @@ func scanHistory(row scanner) (value historyRecord, err error) {
 	var mailID *session.MailID
 	var revision sql.NullInt64
 	var presentation, subject, body, sourceKind, sourceID sql.NullString
+	var evidence *string
 	err = row.Scan(&value.metadata.SessionID, &value.maximum, &value.metadata.ID, &value.metadata.TurnID, &value.metadata.InputID,
 		&value.metadata.Sequence, &value.metadata.Role, &value.metadata.PartsBytes, &raw, &value.created,
-		&mailID, &revision, &presentation, &subject, &body, &sourceKind, &sourceID)
+		&mailID, &revision, &presentation, &subject, &body, &sourceKind, &sourceID, &evidence)
 	if err != nil {
 		return value, err
 	}
 	if mailID != nil {
 		value.metadata.Mail = &session.MailRef{ID: *mailID, Revision: revision.Int64, Presentation: session.MailPresentation(presentation.String)}
-		value.parts, err = json.Marshal(mailParts(*value.metadata.Mail, session.MailSource{Kind: sourceKind.String, ID: sourceID.String}, subject.String, body.String))
+		value.parts, err = json.Marshal(mailParts(*value.metadata.Mail, session.MailSource{Kind: sourceKind.String, ID: sourceID.String}, subject.String, body.String, evidence))
 		value.metadata.PartsBytes = int64(len(value.parts))
 	} else if raw.Valid {
 		value.parts = []byte(raw.String)

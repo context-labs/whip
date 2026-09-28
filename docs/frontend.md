@@ -121,6 +121,13 @@ Mail uses a separate stable mail ID, and `mail.list`/`mail.read` are read-only
 inspection. They neither submit input nor acknowledge agent delivery. A transcript
 entry with `mail` provenance references an immutable mail revision and has no
 `input_id`; clients must preserve that distinction in views and recovery records.
+Ordinary mail accepts optional `evidence_ref`, naming content owned by its sender.
+Admission atomically creates a recipient-owned reference, returned as nullable
+`mail.evidence_ref` in admission, list and read responses. Keep the original send
+payload for retry; do not replace its sender reference with the returned recipient
+reference. An empty body is valid with evidence. Show attachments from metadata
+and load bytes explicitly through scoped content reads; inspection does not
+acknowledge delivery. The recipient reference survives sender deletion and restart.
 Explicit state uses immutable version handles and revision-checked writes.
 Client state reads return bounded base64 JSON bytes, preserving exact numbers;
 list/history calls return metadata. Mail provenance distinguishes session senders, state subscriptions, and child

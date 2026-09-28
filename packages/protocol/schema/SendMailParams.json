@@ -27,6 +27,13 @@
     "body": {
       "type": "string"
     },
+    "evidence_ref": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
     "available_at": {
       "type": [
         "null",

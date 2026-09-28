@@ -195,6 +195,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await budgetAcceptance(client, createParams, evidence);
     await writeAllowanceAcceptance(runtime, client, createParams, evidence);
     await mailAcceptance(runtime, client, createParams, evidence);
+    await mailEvidenceAcceptance(runtime, client, createParams, evidence);
     await stateAcceptance(runtime, client, createParams, evidence);
     await stateSubscriptionAcceptance(runtime, client, createParams, evidence);
     await completionAcceptance(runtime, client, createParams, evidence);
@@ -707,6 +708,66 @@ async function mailAcceptance(runtime, client, createParams, evidence) {
   assert.equal(deleted.mail, null);
   assert.ok(deleted.deleted_at);
   evidence.push({ mail: { admission, inbox, completed, history, dropped, retried, delivered, after, deleted } });
+}
+
+async function mailEvidenceAcceptance(runtime, client, createParams, evidence) {
+  const { root } = await client.call('trees.create', createParams, deadline());
+  const sender = await client.spawn({ parent_id: root.id, overrides: {}, parts: [{ type: 'text', text: 'evidence sender' }], grant_ids: [] }, 'evidence-sender', deadline());
+  const recipient = await client.spawn({ parent_id: root.id, overrides: {}, parts: [{ type: 'text', text: 'evidence recipient' }], grant_ids: [] }, 'evidence-recipient', deadline());
+  await client.wait('evidence-sender', deadline());
+  await client.wait('evidence-recipient', deadline());
+  const bytes = Buffer.from('MAIL_EVIDENCE_BYTES_STAY_LAZY 🌏\n'.repeat(2400));
+  const source = await client.call('content.put', { session_id: sender.session.id, reference_id: 'mail-evidence-source', media_type: 'text/plain', data_base64: bytes.toString('base64') }, deadline());
+  const params = { sender_id: sender.session.id, recipient_id: recipient.session.id, delivery: 'next_turn', subject: 'Full evidence', body: '', evidence_ref: source.id };
+  let dropped;
+  const proxyPath = join(runtime.directory, 'mail-evidence-drop.sock');
+  const close = await dropAcknowledgement(proxyPath, runtime.info.socket, 'mail-evidence', value => { dropped = value; }, response => response.result?.mail_id === 'mail-evidence');
+  try {
+    const unreliable = await Client.connect(unixSocket(proxyPath), { clientID: client.clientID, expectedRuntimeID: client.runtimeID, ...deadline() });
+    await assert.rejects(unreliable.sendMail(params, 'mail-evidence', deadline()), DeliveryError);
+  } finally { await close(); }
+  const admitted = await client.sendMail(params, 'mail-evidence', deadline());
+  assert.deepEqual(admitted, dropped);
+  const shared = admitted.mail.evidence_ref;
+  assert.ok(shared);
+  assert.notEqual(shared, source.id, 'recipient must receive its own authority identity');
+  const read = () => client.call('mail.read', { session_id: recipient.session.id, mail_id: admitted.mail_id }, deadline());
+  const content = () => client.call('content.read', { session_id: recipient.session.id, reference_id: shared }, deadline());
+  const initial = await read();
+  assert.equal(initial.body, '');
+  assert.equal(initial.mail.body_bytes, '0');
+  assert.equal(initial.mail.state, 'pending');
+  const inbox = await client.call('mail.list', { session_id: recipient.session.id, limit: 100 }, deadline());
+  assert.equal(inbox.items.find(mail => mail.id === admitted.mail_id).evidence_ref, shared);
+  const full = await content();
+  assert.equal(full.reference.session_id, recipient.session.id);
+  assert.equal(full.reference.digest, source.digest);
+  assert.deepEqual(Buffer.from(full.data_base64, 'base64'), bytes);
+  for (const [owner, reference] of [[root.id, shared], [sender.session.id, shared], [recipient.session.id, source.id]]) {
+    await assert.rejects(client.call('content.read', { session_id: owner, reference_id: reference }, deadline()), error => error.kind === 'NOT_FOUND');
+  }
+  await assert.rejects(client.sendMail({ ...params, evidence_ref: shared }, 'mail-evidence-foreign', deadline()), error => error.kind === 'NOT_FOUND');
+  await assert.rejects(client.sendMail({ ...params, evidence_ref: source.digest }, 'mail-evidence-digest', deadline()), error => error.kind === 'NOT_FOUND');
+  await assert.rejects(client.sendMail({ ...params, evidence_ref: null }, 'mail-evidence-empty', deadline()), error => error.kind === 'INVALID');
+  await assert.rejects(client.sendMail({ ...params, evidence_ref: shared }, admitted.mail_id, deadline()), error => error.kind === 'CONFLICT');
+  assert.equal((await read()).mail.state, 'pending', 'inspection and content reads must not acknowledge mail');
+  await client.call('sessions.delete', { session_id: sender.session.id }, deadline());
+  await runtime.stop(); await runtime.start('0');
+  assert.equal((await client.sendMail(params, 'mail-evidence', deadline())).mail.evidence_ref, shared);
+  assert.deepEqual(await content(), full);
+  await client.submit(recipient.session.id, [{ type: 'text', text: 'present scoped evidence metadata' }], 'mail-evidence-present', deadline());
+  const completed = await client.wait('mail-evidence-present', deadline());
+  assert.equal(completed.turn.state, 'succeeded', completed.turn.failure);
+  assert.equal((await read()).mail.state, 'delivered');
+  const history = await client.call('sessions.history', { session_id: recipient.session.id, after: '0', limit: 100 }, deadline());
+  const presented = history.items.filter(message => message.mail?.id === admitted.mail_id);
+  assert.equal(presented.length, 1);
+  assert.equal(presented[0].mail.revision, '1');
+  assert.ok(JSON.stringify(presented[0].parts).includes(shared));
+  assert.equal(JSON.stringify(history).includes('MAIL_EVIDENCE_BYTES_STAY_LAZY'), false, 'mail must not hydrate the evidence into context');
+  assert.equal((await client.sendMail(params, 'mail-evidence', deadline())).mail.evidence_ref, shared);
+  assert.deepEqual(await content(), full);
+  evidence.push({ mailEvidence: { source, admitted, initial, shared, completed, presented } });
 }
 
 async function stateAcceptance(runtime, client, createParams, evidence) {

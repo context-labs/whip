@@ -3,9 +3,9 @@
 Status: phases 0 and 1 complete and validated in PRs #197 and #199.
 Phases 2 and 3 are complete and validated in PRs #200 and #201.
 Phase 4 implementation in [PR #202](https://github.com/context-labs/whip/pull/202)
-passed its checks, but its completion is reopened: ordinary mail still lacks
-retained content-reference transfer. Phase 5 is in progress and phases 6–7 are
-pending. The authorized execution scope
+passed its checks, but its completion was reopened for missing ordinary-mail
+content-reference transfer. The repair now passes local phase and analysis gates;
+hosted validation is pending. Phase 5 is in progress and phases 6–7 are pending. The authorized execution scope
 is all phases, including client adoption and final removal of the retired core.
 Written: 2026-09-27. Planning reference: `6f02507bf`.
 
@@ -565,10 +565,12 @@ Completion audit correction: the original seven acceptance bullets and retained
 feature guidance were rechecked after the completion claim. The missing ordinary
 mail evidence path is demonstrated by the retained
 `TestSiblingDigestPreservesUnicodeAndEvidenceAccess` and the feature map's
-message-with-evidence guarantee. The replacement `MailSend` currently contains
-only text and routing fields. Keep Phase 4 open until replacement coverage proves
-that path through the store, guest operations and generated SDK. Passing checks
-for the implemented subset do not close this obligation. See the detailed
+message-with-evidence guarantee. The original replacement `MailSend` contained only text and routing fields.
+The repair adds atomic recipient-owned references, evidence-only messages and
+replacement coverage through the store, both guest engines and generated SDK.
+Local phase and analysis gates pass. Keep Phase 4 open until hosted validation
+of the repair succeeds; passing checks for the earlier subset did not close
+this obligation. See the detailed
 [audit correction](backend-redesign-development.md#phase-4-completion-audit-correction).
 
 ### Phase 5 — Port retained product capabilities

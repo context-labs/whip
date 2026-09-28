@@ -287,7 +287,7 @@ func (s *Store) Claim(ctx context.Context, id session.SessionID) (result Claim, 
 }
 
 const messageSelect = `SELECT m.id,m.session_id,m.turn_id,m.sequence,m.role,m.input_id,
- COALESCE(m.parts,i.parts),m.created_at,m.mail_id,m.mail_revision,m.mail_presentation,r.subject,r.body,mail.source_kind,mail.source_id
+ COALESCE(m.parts,i.parts),m.created_at,m.mail_id,m.mail_revision,m.mail_presentation,r.subject,r.body,mail.source_kind,mail.source_id,r.evidence_ref
  FROM messages m LEFT JOIN inputs i ON i.id=m.input_id
  LEFT JOIN mail_revisions r ON r.mail_id=m.mail_id AND r.revision=m.mail_revision
  LEFT JOIN mail ON mail.id=m.mail_id`
@@ -298,14 +298,15 @@ func scanMessage(row scanner) (result session.Message, err error) {
 	var mailID *session.MailID
 	var revision sql.NullInt64
 	var presentation, subject, body, sourceKind, sourceID sql.NullString
-	err = row.Scan(&result.ID, &result.SessionID, &result.TurnID, &result.Sequence, &result.Role, &result.InputID, &raw, &created, &mailID, &revision, &presentation, &subject, &body, &sourceKind, &sourceID)
+	var evidence *string
+	err = row.Scan(&result.ID, &result.SessionID, &result.TurnID, &result.Sequence, &result.Role, &result.InputID, &raw, &created, &mailID, &revision, &presentation, &subject, &body, &sourceKind, &sourceID, &evidence)
 	if err != nil {
 		return result, found(err)
 	}
 	result.CreatedAt = timestamp(created)
 	if mailID != nil {
 		result.Mail = &session.MailRef{ID: *mailID, Revision: revision.Int64, Presentation: session.MailPresentation(presentation.String)}
-		result.Parts = mailParts(*result.Mail, session.MailSource{Kind: sourceKind.String, ID: sourceID.String}, subject.String, body.String)
+		result.Parts = mailParts(*result.Mail, session.MailSource{Kind: sourceKind.String, ID: sourceID.String}, subject.String, body.String, evidence)
 	} else {
 		err = json.Unmarshal([]byte(raw.String), &result.Parts)
 	}

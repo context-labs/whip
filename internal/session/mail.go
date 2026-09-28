@@ -52,6 +52,7 @@ type MailMetadata struct {
 	Delivery    MailDelivery `json:"delivery"`
 	Subject     string       `json:"subject"`
 	BodyBytes   int64        `json:"body_bytes,string"`
+	EvidenceRef *string      `json:"evidence_ref"`
 	State       MailState    `json:"state"`
 	AvailableAt time.Time    `json:"available_at"`
 	CreatedAt   time.Time    `json:"created_at"`
@@ -68,6 +69,7 @@ type MailSend struct {
 	Delivery    MailDelivery `json:"delivery"`
 	Subject     string       `json:"subject"`
 	Body        string       `json:"body"`
+	EvidenceRef *string      `json:"evidence_ref"`
 	AvailableAt *time.Time   `json:"available_at"`
 }
 
@@ -112,8 +114,15 @@ func (s MailSend) Validate() error {
 			return err
 		}
 	}
-	if err := ValidateText(s.Body, MaxMailBodyBytes); err != nil {
-		return err
+	if s.EvidenceRef != nil {
+		if err := ValidateID(*s.EvidenceRef); err != nil {
+			return err
+		}
+	}
+	if s.Body != "" || s.EvidenceRef == nil {
+		if err := ValidateText(s.Body, MaxMailBodyBytes); err != nil {
+			return err
+		}
 	}
 	if !utf8.ValidString(s.Subject) || !utf8.ValidString(s.Body) {
 		return fmt.Errorf("%w: mail must be UTF-8", ErrInvalid)
