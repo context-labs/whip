@@ -7,18 +7,19 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"unicode/utf8"
 
 	"github.com/context-labs/whip/internal/session"
 )
 
-const attemptSelect = `SELECT id,turn_id,logical_id,number,request,state,result,cost_nano_usd,cost_source,cost_note,message_id,created_at,dispatched_at,finished_at FROM model_attempts`
+const attemptSelect = `SELECT id,turn_id,logical_id,number,request,operation_id,batch_index,state,result,cost_nano_usd,cost_source,cost_note,message_id,created_at,dispatched_at,finished_at FROM model_attempts`
 
 func scanAttempt(row interface{ Scan(...any) error }) (a session.ModelAttempt, err error) {
 	var request string
 	var result sql.NullString
 	var created int64
 	var dispatched, finished sql.NullInt64
-	err = row.Scan(&a.ID, &a.TurnID, &a.LogicalID, &a.Number, &request, &a.State, &result, &a.CostNanoUSD, &a.CostSource, &a.CostNote, &a.MessageID, &created, &dispatched, &finished)
+	err = row.Scan(&a.ID, &a.TurnID, &a.LogicalID, &a.Number, &request, &a.OperationID, &a.BatchIndex, &a.State, &result, &a.CostNanoUSD, &a.CostSource, &a.CostNote, &a.MessageID, &created, &dispatched, &finished)
 	if err != nil {
 		return a, found(err)
 	}
@@ -53,6 +54,18 @@ func (s *Store) ReserveModelAttempt(ctx context.Context, p session.ModelAttemptS
 	if err := p.Request.Validate(); err != nil {
 		return result, err
 	}
+	if (p.OperationID == nil) != (p.BatchIndex == nil) || (p.Request.Purpose == session.ModelHelperPurpose) != (p.OperationID != nil) {
+		return result, fmt.Errorf("%w: only model helpers require operation and item provenance", session.ErrInvalid)
+	}
+	if p.OperationID != nil {
+		logical, err := session.ModelHelperLogicalID(*p.OperationID, *p.BatchIndex)
+		if err != nil {
+			return result, err
+		}
+		if p.LogicalID != logical {
+			return result, fmt.Errorf("%w: model helper logical identity differs from its operation item", session.ErrInvalid)
+		}
+	}
 	raw, err := encode(p.Request)
 	if err != nil {
 		return result, err
@@ -60,7 +73,7 @@ func (s *Store) ReserveModelAttempt(ctx context.Context, p session.ModelAttemptS
 	err = s.write(ctx, func(tx *sql.Tx) error {
 		existing, err := readAttempt(ctx, tx, p.ID)
 		if err == nil {
-			if existing.TurnID != p.TurnID || existing.LogicalID != p.LogicalID || existing.Number != p.Number || !reflect.DeepEqual(existing.Request, p.Request) {
+			if existing.TurnID != p.TurnID || existing.LogicalID != p.LogicalID || existing.Number != p.Number || !reflect.DeepEqual(existing.Request, p.Request) || !reflect.DeepEqual(existing.OperationID, p.OperationID) || !reflect.DeepEqual(existing.BatchIndex, p.BatchIndex) {
 				return ErrConflict
 			}
 			result = existing
@@ -82,6 +95,11 @@ func (s *Store) ReserveModelAttempt(ctx context.Context, p session.ModelAttemptS
 		if err := requireTurnPermit(ctx, tx, turn.ID); err != nil {
 			return err
 		}
+		if p.OperationID != nil {
+			if err := validateHelperOperation(ctx, tx, turn, *p.OperationID, *p.BatchIndex, p.Request.MaxOutputTokens); err != nil {
+				return err
+			}
+		}
 		var count int
 		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM model_attempts WHERE turn_id=?", p.TurnID).Scan(&count); err != nil {
 			return err
@@ -100,7 +118,7 @@ func (s *Store) ReserveModelAttempt(ctx context.Context, p session.ModelAttemptS
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO model_attempts (id,turn_id,logical_id,number,request,state,cost_source,created_at) VALUES (?,?,?,?,?,'reserved','unknown',?)`, p.ID, p.TurnID, p.LogicalID, p.Number, raw, now()); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO model_attempts (id,turn_id,logical_id,number,request,operation_id,batch_index,state,cost_source,created_at) VALUES (?,?,?,?,?,?,?,'reserved','unknown',?)`, p.ID, p.TurnID, p.LogicalID, p.Number, raw, p.OperationID, p.BatchIndex, now()); err != nil {
 			return err
 		}
 		for _, ancestor := range ancestors {
@@ -112,6 +130,93 @@ func (s *Store) ReserveModelAttempt(ctx context.Context, p session.ModelAttemptS
 		return err
 	})
 	return
+}
+
+func validateHelperOperation(ctx context.Context, tx *sql.Tx, turn session.Turn, id session.OperationID, index int, outputCap int64) error {
+	operation, err := readOperation(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	if operation.State != session.OperationDispatched || operation.SessionID != turn.SessionID || operation.TurnID != turn.ID {
+		return ErrConflict
+	}
+	owner, err := readSession(ctx, tx, turn.SessionID)
+	if err != nil {
+		return err
+	}
+	if operation.Resource != string(owner.TreeID) {
+		return ErrConflict
+	}
+	field := "prompt"
+	switch operation.Capability {
+	case "models.call":
+	case "models.batch":
+		field = "prompts"
+	default:
+		return fmt.Errorf("%w: operation is not a stateless model request", session.ErrInvalid)
+	}
+	var arguments map[string]json.RawMessage
+	if err := json.Unmarshal(operation.Arguments, &arguments); err != nil {
+		return err
+	}
+	for key := range arguments {
+		if key != field && key != "max_tokens" {
+			return fmt.Errorf("%w: unsupported model helper argument", session.ErrInvalid)
+		}
+	}
+	var prompts []string
+	if field == "prompt" {
+		var prompt string
+		if err := json.Unmarshal(arguments[field], &prompt); err != nil {
+			return fmt.Errorf("%w: model helper requires a prompt string", session.ErrInvalid)
+		}
+		prompts = []string{prompt}
+	} else if err := json.Unmarshal(arguments[field], &prompts); err != nil {
+		return fmt.Errorf("%w: model helper requires a list of prompt strings", session.ErrInvalid)
+	}
+	if len(prompts) == 0 || len(prompts) > session.MaxModelBatchItems || index < 0 || index >= len(prompts) {
+		return fmt.Errorf("%w: model helper item is outside the admitted batch", session.ErrInvalid)
+	}
+	for _, prompt := range prompts {
+		if !utf8.ValidString(prompt) || session.ValidateText(prompt, session.MaxDocumentBytes) != nil {
+			return fmt.Errorf("%w: invalid model helper prompt", session.ErrInvalid)
+		}
+	}
+	if raw, ok := arguments["max_tokens"]; ok {
+		var requested int64
+		if err := json.Unmarshal(raw, &requested); err != nil || requested < 1 || requested > 1_000_000 || outputCap > requested {
+			return fmt.Errorf("%w: prepared output cap exceeds a valid requested limit", session.ErrInvalid)
+		}
+	}
+	return nil
+}
+
+// Current exposure already includes this reservation. A completed sibling can
+// increase it after admission; adding the candidate again would double count it.
+func checkAttemptBudgetExposure(ctx context.Context, tx *sql.Tx, owner session.SessionID) error {
+	ancestors, err := sessionAncestors(ctx, tx, owner)
+	if err != nil {
+		return err
+	}
+	for _, ancestor := range ancestors {
+		var finite bool
+		if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM budget_limits WHERE session_id=? AND kind IN ('model_calls','model_tokens','model_cost_nano_usd','model_elapsed_millis') AND limit_value IS NOT NULL)", ancestor).Scan(&finite); err != nil {
+			return err
+		}
+		if !finite {
+			continue
+		}
+		budgets, err := readModelBudgets(ctx, tx, ancestor)
+		if err != nil {
+			return err
+		}
+		for _, budget := range budgets {
+			if budget.Limit != nil && budgetExceeds(budget, *budget.Limit) {
+				return fmt.Errorf("%w: %s budget cannot dispatch reserved request", ErrLimit, budget.Kind)
+			}
+		}
+	}
+	return nil
 }
 
 // DispatchModelAttempt grants the one dispatch right. A false result means the
@@ -133,6 +238,14 @@ func (s *Store) DispatchModelAttempt(ctx context.Context, id session.ModelAttemp
 			return ErrStopped
 		}
 		if err := requireTurnPermit(ctx, tx, turn.ID); err != nil {
+			return err
+		}
+		if attempt.OperationID != nil {
+			if err := validateHelperOperation(ctx, tx, turn, *attempt.OperationID, *attempt.BatchIndex, attempt.Request.MaxOutputTokens); err != nil {
+				return err
+			}
+		}
+		if err := checkAttemptBudgetExposure(ctx, tx, turn.SessionID); err != nil {
 			return err
 		}
 		_, err = tx.ExecContext(ctx, "UPDATE model_attempts SET state='dispatched',dispatched_at=? WHERE id=?", now(), id)
@@ -175,8 +288,8 @@ func (s *Store) SettleModelAttempt(ctx context.Context, id session.ModelAttemptI
 }
 
 func settleAttempt(ctx context.Context, tx *sql.Tx, attempt session.ModelAttempt, outcome session.ModelAttemptResult, message *session.MessageDraft) (session.ModelAttempt, error) {
-	if attempt.Request.Purpose == "compaction" && message != nil {
-		return session.ModelAttempt{}, fmt.Errorf("%w: a compaction response is not a transcript message", session.ErrInvalid)
+	if (attempt.Request.Purpose == "compaction" || attempt.OperationID != nil) && message != nil {
+		return session.ModelAttempt{}, fmt.Errorf("%w: a helper response is not a transcript message", session.ErrInvalid)
 	}
 	var messageID *session.MessageID
 	if message != nil {

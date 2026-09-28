@@ -379,6 +379,8 @@ CREATE TABLE model_attempts (
  id TEXT PRIMARY KEY, turn_id TEXT NOT NULL,
  logical_id TEXT NOT NULL, number INTEGER NOT NULL CHECK(number BETWEEN 1 AND 100),
  request TEXT NOT NULL CHECK(json_valid(request)),
+ -- Provenance outlives deleted operations so ancestor accounting stays intact.
+ operation_id TEXT, batch_index INTEGER CHECK(batch_index IS NULL OR batch_index BETWEEN 0 AND 31),
  state TEXT NOT NULL CHECK(state IN ('reserved','dispatched','succeeded','failed','cancelled','uncertain')),
  result TEXT CHECK(result IS NULL OR json_valid(result)),
  cost_nano_usd INTEGER CHECK(cost_nano_usd IS NULL OR cost_nano_usd>=0),
@@ -387,6 +389,9 @@ CREATE TABLE model_attempts (
  message_id TEXT UNIQUE,
  created_at INTEGER NOT NULL, dispatched_at INTEGER, finished_at INTEGER,
  UNIQUE(turn_id,logical_id,number), UNIQUE(id,turn_id),
+ UNIQUE(operation_id,batch_index,number),
+ CHECK((operation_id IS NULL)=(batch_index IS NULL)),
+ CHECK((json_extract(request,'$.purpose')='model_helper')=(operation_id IS NOT NULL)),
  CHECK((state IN ('reserved','dispatched')) = (finished_at IS NULL)),
  CHECK((result IS NULL) = (finished_at IS NULL)),
  CHECK(result IS NULL OR json_extract(result,'$.state') IS state),
@@ -395,12 +400,13 @@ CREATE TABLE model_attempts (
  CHECK(state <> 'reserved' OR dispatched_at IS NULL),
  CHECK(state <> 'cancelled' OR dispatched_at IS NULL),
  CHECK(message_id IS NULL OR finished_at IS NOT NULL),
- CHECK(message_id IS NULL OR json_extract(request,'$.purpose')<>'compaction')
+ CHECK(message_id IS NULL OR json_extract(request,'$.purpose') NOT IN ('compaction','model_helper'))
 ) STRICT;
 CREATE INDEX attempts_by_turn ON model_attempts(turn_id,id);
 CREATE INDEX attempts_unfinished ON model_attempts(id) WHERE finished_at IS NULL;
 CREATE TRIGGER attempt_transition BEFORE UPDATE ON model_attempts
  WHEN NEW.id IS NOT OLD.id OR NEW.turn_id IS NOT OLD.turn_id OR NEW.logical_id IS NOT OLD.logical_id
+ OR NEW.operation_id IS NOT OLD.operation_id OR NEW.batch_index IS NOT OLD.batch_index
  OR NEW.number IS NOT OLD.number OR NEW.request IS NOT OLD.request OR NEW.created_at IS NOT OLD.created_at
  OR OLD.state NOT IN ('reserved','dispatched')
  OR (OLD.state='reserved' AND NEW.state NOT IN ('dispatched','cancelled'))

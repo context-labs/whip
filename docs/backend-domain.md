@@ -35,6 +35,7 @@ separate legacy runtime and SDK until their client cutover.
 | Derived context summary and exact raw coverage | Immutable compaction row, linked to its accounted model attempt |
 | Selected context summary | One revisioned context-head row per session |
 | Provider dispatch, usage, price snapshot and cost | Model-attempt row, linked to its completed message |
+| Stateless helper origin | Immutable operation ID and batch index on each model attempt; ordered output belongs to the operation result |
 | Code dispatch, outcome and exact REPL boundary | Cell row, linked to its assistant call and tool-result message |
 | Checkpoint compatibility metadata and body reference | Immutable terminal cell checkpoint |
 | Host-operation intent, dispatch and outcome | Operation row, owned through its cell and turn |
@@ -266,7 +267,7 @@ must select a model/provider before creating a runnable session. API credentials
 use environment references resolved during request preparation. Subscription
 credentials belong to the independent host account manager and its private file.
 
-Current fresh host configuration is version 8; the SQLite schema is version 28.
+Current fresh host configuration is version 8; the SQLite schema is version 29.
 SQLite has an application identifier and schema version. Existing databases of
 another application/version are rejected, not imported. Reopening preserves the
 runtime identity and seeded revisions; separate databases receive distinct
@@ -358,6 +359,30 @@ cannot enforce them. Equal or wider bounds retain the natural reservation and
 omit a wire cap. The scripted fixture records the narrowed reservation but does
 not simulate tokenization or truncate its deterministic acknowledgement. Public
 stateless helper execution remains pending.
+
+The stateless-helper ledger records paired `operation_id` and `batch_index`
+provenance on attempts with purpose `model_helper`. The logical call identity
+derives from those values; provider retries get separate attempt rows. Admission
+requires a dispatched `models.call` or `models.batch` operation in the same turn
+and tree scope, strict bounded arguments, a valid item index and a prepared cap
+within the admitted request. Helpers cannot publish assistant messages or private
+continuation. The operation owns aggregate output; there is no item-response
+table or second provider ledger.
+
+Operation settlement waits for every linked attempt, and cell settlement waits
+for operations. Recovery settles attempts before their dependent operations and
+cells in one transaction. Undispatched reservations become known-zero
+cancellations; dispatched work becomes uncertain without replay or invented
+output. Operation IDs on attempts are immutable provenance rather than cascading
+foreign keys: child deletion removes operations but preserves permanent ancestor
+charges and their origin until root deletion.
+
+Dispatch also rechecks current ancestor budget exposure after reservation,
+counting that reservation once. A sibling settling above its reservation, or
+revealing unbounded exposure, can prevent a later dispatch. Already dispatched
+requests retain their actual output and charges even if they exceed the estimate.
+Public attempt provenance projections, runner helper execution, bounded batch
+orchestration and guest acceptance remain pending.
 
 Provider attempts also have an idle deadline: two minutes for Chat and five
 minutes for API Responses or subscription requests. Response headers and positive

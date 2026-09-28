@@ -2154,3 +2154,38 @@ lint issues and no reachable vulnerabilities. Evidence is in
 `/tmp/whip-goal-api-{fast,contract,sdk,fixture,race,analysis}.log`.
 Fresh config8/schema28/protocol development major4 are unchanged. Hosted
 validation is pending. Goal formulation and product-client adoption remain open.
+
+
+## Stateless-helper accounting and dependency settlement
+
+Integrated isolated commit `6a1f10de0` as `ad4bab54c`. Fresh schema29 records
+immutable operation/item provenance on ordinary model attempts. Store admission
+validates the dispatched same-owner/same-turn helper operation, tree scope,
+strict arguments, item bounds and requested output ceiling. Helper attempts
+cannot publish assistant messages or private continuation. Operations wait for
+linked attempts before settlement; cells already wait for their operations.
+Recovery orders attempts, operations and cells in one atomic transaction, with
+known-zero undispatched cancellation and uncertain dispatched work without replay.
+
+Dispatch rechecks current ancestor exposure, counting its reservation once.
+Independent database handles exercise a sibling settling above its reservation,
+unknown exposure and unchanged retention of already completed output. Provenance
+is intentionally not a cascading operation foreign key: child deletion retains
+permanent ancestor charges and their origin, while root deletion releases them.
+Real-SQL tests also cover authorization/scope/argument rejection, exact retries,
+immutable provenance, settlement joins, fault rollback and repeated recovery.
+
+The integrated `WHIP_SDK_RACE=1 task check:phase` passed: store race112.392s,
+runtime107.115s, process engine100.985s, full v4 SDK fixture17.463s, retained crash
+fixture9.402s and daemon regressions2.739s. Analysis reported zero lint issues and
+no reachable vulnerabilities. Logs are `/tmp/whip-helper-ledger-phase.log` and
+`/tmp/whip-helper-ledger-analysis.log`. This combined gate also verifies the
+preceding public goal controls and scheduler test correction. Hosted validation
+of this revision is pending; public helper projections and execution are still
+separate work. Config8 and protocol development major4 are unchanged.
+
+Provider idle revision `fa8e28191` passed every hosted job in
+[run 36477743920](https://github.com/context-labs/whip/actions/runs/36477743920),
+and prepared output-limit revision `a680d8ac3` passed every hosted job in
+[run 36477974198](https://github.com/context-labs/whip/actions/runs/36477974198).
+The earlier Linux fairness-test failures remain failed evidence.
