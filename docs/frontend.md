@@ -98,7 +98,9 @@ is separate from committed messages: replace it by the matching message ID, and
 clear it on a null preview or changed process epoch. The iterator keeps no second
 transcript authority. An aborted wait or observation does not cancel execution. See [its example and recovery
 contract](../packages/sdk/README.md) and [the backend domain contract](backend-domain.md).
-Product clients continue to use the explicitly retained packages until their
+Child creation in v4 is a durable `client.spawn` request: its receipt covers the
+child, initial input and delegated authority together. Keep its identity and exact
+payload for recovery just as for submissions. Product clients continue to use the explicitly retained packages until their
 cutover. The package map below describes those retained clients.
 
 | Package | Responsibility | Internal dependencies and boundary |

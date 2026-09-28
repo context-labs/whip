@@ -1,8 +1,9 @@
 # Whip backend redesign and delivery plan
 
 Status: phases 0 and 1 complete and validated in PRs #197 and #199.
-Phase 2 is complete and validated in PR #200. Phase 3 is implemented in PR #201
-with local acceptance passing; final hosted validation is pending. Phases 4–7 are pending.
+Phases 2 and 3 are complete and validated in PRs #200 and #201.
+Phase 4 is in progress; phases 5–7 are pending. The authorized execution scope
+is all phases, including client adoption and final removal of the retired core.
 Written: 2026-09-27. Planning reference: `6f02507bf`.
 
 Execution baseline: `e3fed9c91918d9c36766dd47d878c1b5466238d1`. Commands,
@@ -406,10 +407,10 @@ complete with a passing check or recorded manual evidence.
 | Phase | Deliverable | Depends on | Status |
 | --- | --- | --- | --- |
 | 0 | Baseline, feedback gates and fixture foundation | None | Complete; [evidence](backend-redesign-development.md#baseline-and-phase-0-evidence) |
-| 1 | Domain contract, ownership, fresh storage/config | 0 | Pending |
+| 1 | Domain contract, ownership, fresh storage/config | 0 | Complete |
 | 2 | Working database → runtime → protocol → SDK slice | 1 | Complete |
-| 3 | One provider, one engine, execution and recovery | 2 | In progress |
-| 4 | Recursion and shared coordination | 3 | Pending |
+| 3 | One provider, one engine, execution and recovery | 2 | Complete |
+| 4 | Recursion and shared coordination | 3 | In progress |
 | 5 | Remaining engines, integrations and product behavior | 4 | Pending |
 | 6 | Complete client adoption and product validation | Starts at 2; finishes after 5 | Pending |
 | 7 | Cutover, deletion and release readiness | All prior gates | Pending |
@@ -524,13 +525,13 @@ session/tree state, retry/report policies, and subtree lifecycle operations.
 
 Acceptance:
 
-- [ ] Child creation atomically persists identity/config/authority and its
+- [x] Child creation atomically persists identity/config/authority and its
       initial input before scheduling; restart retains accepted child work.
 - [ ] Root and child pass the same applicable turn, history, cancel and recovery
       scenarios. No parallel child commit or transcript implementation exists.
 - [ ] Concurrent descendants cannot overspend shared reservations or widen
       authority. Unrelated sessions cannot alter each other's scoped state.
-- [ ] Saturated worker/kernel capacity still permits required child progress;
+- [x] Saturated worker/kernel capacity still permits required child progress;
       parent waits do not deadlock children. Queued work remains durable.
 - [ ] Retry and report behavior is explicit policy; failed/uncertain work follows
       the selected retry semantics at every depth.

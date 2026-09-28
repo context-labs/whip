@@ -594,3 +594,48 @@ transaction semantics are unchanged. The complete preview increment passes
 active core checks, SDK fixtures, generated Go/TypeScript interchange, retained
 regressions, zero lint issues and no reachable vulnerabilities. Final hosted
 validation remains pending.
+
+
+## Phase 3 final hosted evidence
+
+Revision `3f0b883a8838a89098c6659258065a1d449d8a5c` passed the complete
+[hosted run](https://github.com/context-labs/whip/actions/runs/36377036391):
+Linux/macOS active scope, process/SDK fixtures, analysis and aggregate gate.
+Phase 3 is complete in [PR #201](https://github.com/context-labs/whip/pull/201).
+
+## Phase 4 atomic child admission and boundary waits
+
+The first increment adds one transaction for child identity/configuration,
+scoped content reference copying, grant delegation, initial ordinary input and
+its stable request receipt. The production identity-only child creation API is
+removed. SQL-native `agents.spawn` also includes operation success in that
+transaction; injected failure of the final settlement leaves no child or input.
+Grant issuer chains enforce direct-parent exact scopes at every dispatch and
+propagate revocation to ready descendants without rewriting dispatched effects.
+
+The explicit new `agents.wait_after_cell` registers descendant inputs to await
+at a committed cell boundary. It replaces same-cell blocking joins; no suspended
+continuation is reconstructed. The bounded runtime distinguishes active ownership
+from runnable permits and alternates FIFO resumptions with fresh queued work.
+The existing engine manager can evict an idle parent after its checkpoint commits.
+
+Evidence includes store concurrent retries across two SQL handles, rollback,
+restart/deletion receipts, content isolation and delegated-authority tests;
+Go/TypeScript interchange and the SDK fixture exercise the new spawn contract.
+`TestRecursiveWaitReleasesWorkerAndKernelAtCommittedCell` passes under `-race` for
+both engines: root/child/grandchild run with one worker and one kernel slot,
+parent history and checkpoint precede the wait, and parent globals survive
+recursive eviction. `TestChildAdmissionSurvivesRestartWithoutLoadedWorker`
+checks queued child execution after a fresh runtime opens the database.
+
+This increment does not complete Phase 4. Ancestor budget reservations, mail,
+private/shared state, retry/report policies and subtree controls remain required.
+The user extended execution scope to all phases; full client cutover and final
+retired-core deletion remain subsequent gates.
+
+Local gate evidence for this increment: `task check:phase` passed, including the
+full process-engine race suite (97.972 s), active packages, generated contract
+checks, both SDK fixtures and retained cross-layer regressions. After final
+review fixes, affected runtime/store/RPC/tool race suites passed again and
+`task check:analysis` reported zero lint issues and no reachable vulnerabilities.
+The separate `WHIP_SDK_RACE=1` new-runtime fixture passed in 18.181 s.

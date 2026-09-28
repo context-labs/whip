@@ -1,6 +1,24 @@
 {
   "type": "object",
   "properties": {
+    "identity": {
+      "type": "object",
+      "properties": {
+        "client_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        }
+      },
+      "required": [
+        "client_id",
+        "request_id"
+      ],
+      "additionalProperties": false
+    },
     "parent_id": {
       "type": "string",
       "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
@@ -184,14 +202,76 @@
         "null",
         "string"
       ]
+    },
+    "parts": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "text": {
+                "type": "string",
+                "pattern": "^[\\s\\S]+$"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "text"
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "text"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "reference_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "content"
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "reference_id"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "minItems": 1,
+      "maxItems": 128
+    },
+    "grant_ids": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+      }
     }
   },
   "$id": "https://whip.dev/protocol/v4/SpawnSessionParams",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "SpawnSessionParams",
   "required": [
+    "identity",
     "parent_id",
-    "overrides"
+    "overrides",
+    "parts",
+    "grant_ids"
   ],
   "additionalProperties": false
 }

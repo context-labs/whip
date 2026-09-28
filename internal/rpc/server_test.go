@@ -90,7 +90,13 @@ func TestGoClientUsesGeneratedContractForUniformSessionOperations(t *testing.T) 
 	if err := c.Call(t.Context(), "sessions.configure", protocol.UpdateConfigurationParams{SessionID: tree.Root.ID, ExpectedRevision: tree.Root.ConfigRevision}, &stale); err == nil {
 		t.Fatal("accepted stale configuration")
 	}
-	child := call[protocol.Session](t, c, "sessions.spawn", protocol.SpawnSessionParams{ParentID: tree.Root.ID})
+	spawnParams := protocol.SpawnSessionParams{Identity: protocol.RequestIdentity{ClientID: "go", RequestID: "spawn"}, ParentID: tree.Root.ID, Parts: []protocol.Part{{Type: "text", Text: "initial child work"}}}
+	spawned := call[protocol.SpawnSessionResult](t, c, "sessions.spawn", spawnParams)
+	retried := call[protocol.SpawnSessionResult](t, c, "sessions.spawn", spawnParams)
+	if spawned.Session == nil || spawned.Admission.Input == nil || retried.Session.ID != spawned.Session.ID || retried.Admission.Input.ID != spawned.Admission.Input.ID {
+		t.Fatal("spawn did not return a stable child and initial input")
+	}
+	child := *spawned.Session
 	if child.ParentID == nil || *child.ParentID != tree.Root.ID || child.Configuration.Instructions.Text != "inherited" {
 		t.Fatalf("child=%+v", child)
 	}
@@ -130,7 +136,11 @@ func TestGoClientUsesGeneratedContractForUniformSessionOperations(t *testing.T) 
 			t.Fatalf("outcome=%+v", result.Turn)
 		}
 		history := call[protocol.HistoryResult](t, c, "sessions.history", protocol.HistoryParams{SessionID: id, Limit: 100})
-		if len(history.Items) != 2 || history.Items[1].Parts[0].Text != "ack: hello" {
+		expected := 2
+		if id == child.ID {
+			expected = 4
+		}
+		if len(history.Items) != expected || history.Items[len(history.Items)-1].Parts[0].Text != "ack: hello" {
 			t.Fatalf("history=%+v", history)
 		}
 	}
@@ -140,6 +150,10 @@ func TestGoClientUsesGeneratedContractForUniformSessionOperations(t *testing.T) 
 	}
 	call[protocol.DeleteResult](t, c, "sessions.delete", protocol.SessionParams{SessionID: child.ID})
 	tombstone := call[protocol.Admission](t, c, "receipts.get", protocol.RequestIdentity{ClientID: "go", RequestID: child.ID})
+	deletedSpawn := call[protocol.SpawnSessionResult](t, c, "sessions.spawn", spawnParams)
+	if deletedSpawn.Session != nil || deletedSpawn.Admission.Receipt.DeletedAt == nil {
+		t.Fatal("spawn retry resurrected deleted child")
+	}
 	if tombstone.Receipt.DeletedAt == nil || tombstone.Input != nil {
 		t.Fatal("deleted receipt lost tombstone")
 	}

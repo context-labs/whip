@@ -35,7 +35,7 @@ func Operations() []Operation {
 		{"trees.get", reflect.TypeFor[TreeParams](), reflect.TypeFor[Tree]()},
 		{"trees.update", reflect.TypeFor[UpdateTreeParams](), reflect.TypeFor[Tree]()},
 		{"sessions.get", reflect.TypeFor[SessionParams](), reflect.TypeFor[Session]()},
-		{"sessions.spawn", reflect.TypeFor[SpawnSessionParams](), reflect.TypeFor[Session]()},
+		{"sessions.spawn", reflect.TypeFor[SpawnSessionParams](), reflect.TypeFor[SpawnSessionResult]()},
 		{"sessions.list", reflect.TypeFor[ListSessionsParams](), reflect.TypeFor[ListSessionsResult]()},
 		{"sessions.configure", reflect.TypeFor[UpdateConfigurationParams](), reflect.TypeFor[Session]()},
 		{"sessions.submit", reflect.TypeFor[SubmitParams](), reflect.TypeFor[Admission]()},
@@ -131,7 +131,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 				child.MaxItems = new(128)
 			}
 		}
-		if t == reflect.TypeFor[Input]() || t == reflect.TypeFor[SubmitParams]() {
+		if t == reflect.TypeFor[Input]() || t == reflect.TypeFor[SubmitParams]() || t == reflect.TypeFor[SpawnSessionParams]() {
 			schema.Properties["parts"].Items = partSchema("text", "content")
 		}
 		if t == reflect.TypeFor[Message]() {

@@ -73,7 +73,7 @@ overrides. Working directories are absolute and fixed for a session's lifetime.
 ## Atomic transitions
 
 1. **Admission:** identity is (client_id, request_id) within one runtime.
-   The digest covers the typed submission, including recipient and source.
+   The digest covers operation kind and typed submission, including recipient and source.
    A receipt and input commit together. Equal retries return the same receipt;
    changed payload reuse conflicts. Queues are bounded. No worker starts here.
 2. **Claim:** one eligible queued input becomes associated with a new turn, the
@@ -132,7 +132,8 @@ must be an explicit future retention policy. Definition documents belong to the
 catalog, so deleting a session does not delete its template.
 Queued inputs in the deleted subtree are discarded, with the same receipt
 deletion markers. Stopping one session affects that session; it does not silently
-stop descendants. Phase 4 adds authorized subtree controls and child admission.
+stop descendants. Child admission is atomic; authorized subtree controls remain
+Phase 4 work.
 
 Collection queries accept 1–100 rows and also stop at a 4 MiB payload budget.
 Resume after the last returned session ID, definition ID/revision, or transcript
@@ -363,3 +364,50 @@ Consumers upsert completed messages by ID, replace matching previews, and clear
 a preview on null or epoch change. Polling reads current state, so losing a
 notification cannot leave a durable history gap. Aborting observation stops only
 the observer; execution cancellation remains an explicit operation.
+
+
+## Child admission, delegation and waits
+
+`sessions.spawn` requires a request identity, parent, initial text/content parts,
+configuration overrides and `grant_ids`. The result contains the child session
+and its ordinary input admission. Child identity, resolved configuration,
+parent-scoped content references copied into new child references, delegated
+grants, initial input and receipt commit together. No duplicate body bytes or
+child-specific transcript path exists. `grant_ids: null` inherits currently valid
+standing grants; `[]` delegates none. Retries preserve this original request and
+return the same child/input even if parent defaults or grants have since changed.
+A deleted receipt returns `session: null`; it cannot resurrect the child.
+
+A child standing grant names an `issuer_id` belonging to its direct parent with
+exactly the same capability/resource. One-use approvals cannot be delegated.
+Dispatch validates every issuer hop and revocation. Revoking an ancestor grant
+also denies ready descendant operations; it cannot undo effects already
+dispatched. A child lacking delegated authority records a denial, not a prompt
+that could widen its scope. The trusted client can explicitly delegate another
+standing parent grant later. Stopping only a parent does not revoke its grants.
+
+`agents.spawn(prompt=...)` normalizes the executing parent into immutable
+operation arguments. Its tree-scoped authorization, child admission and operation
+success commit in one transaction. The tool dispatcher distinguishes these
+SQL-only coordination operations from externally dispatched effects. A failed
+SQL commit cannot leave a child without its input or claim an operation succeeded.
+
+`agents.wait_after_cell(input_ids=[...])` registers a wait and returns immediately.
+Finish the cell; after its result/checkpoint commit and kernel lease release,
+the runtime waits before the next model step. This replaces same-cell blocking
+joins in the new runtime. Only descendant inputs can be targeted (never self,
+ancestors, siblings or another tree), preventing wait cycles. Failed, interrupted
+or cancelled child work resolves the wait as a durable outcome; it does not
+implicitly fail or retry the parent. Deleting a target makes it unavailable and
+fails that wait. A cell may register at most 128 distinct input targets. The
+successful operation rows are the durable registrations; there is no duplicate
+wait registry/table. Restart interrupts the parent turn rather than inventing a
+suspended interpreter continuation; queued child work survives independently.
+
+The runtime separately owns active turn cancellation handles and runnable worker
+permits. A boundary wait releases the runnable permit; FIFO resumptions alternate
+with new queued work and reacquire a permit before model execution resumes.
+`MaxActiveTurns` defaults to 1,024 and is limited to `Workers..1024`; at most
+`MaxActiveTurns - Workers` turns may wait, preserving admission capacity for
+progress. Limit exhaustion is explicit. One worker and one kernel slot can
+execute a recursive chain because no waiting parent holds either resource.

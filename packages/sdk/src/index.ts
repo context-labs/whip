@@ -38,6 +38,11 @@ export class Client {
     return this.call('sessions.submit', { session_id: sessionID, source: 'user', parts, identity: this.identity(requestID) }, options);
   }
 
+  /** Child identity, initial input and delegated authority share one recoverable admission. */
+  spawn(params: Omit<Operations['sessions.spawn']['params'], 'identity'>, requestID: string, options: CallOptions = {}): Promise<Operations['sessions.spawn']['result']> {
+    return this.call('sessions.spawn', { ...params, identity: this.identity(requestID) }, options);
+  }
+
   recover(requestID: string, options: CallOptions = {}): Promise<Admission> {
     return this.call('receipts.get', this.identity(requestID), options);
   }

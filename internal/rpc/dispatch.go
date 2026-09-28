@@ -116,7 +116,16 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 			if err != nil {
 				return nil, err
 			}
-			request := store.SpawnSession{ParentID: session.SessionID(p.ParentID), Overrides: patch}
+			request := store.ChildRequest{ParentID: session.SessionID(p.ParentID), Overrides: patch}
+			for _, part := range p.Parts {
+				request.Parts = append(request.Parts, part.Domain())
+			}
+			if p.GrantIDs != nil {
+				request.GrantIDs = make([]session.GrantID, len(p.GrantIDs))
+				for i, id := range p.GrantIDs {
+					request.GrantIDs[i] = session.GrantID(id)
+				}
+			}
 			if p.Definition != nil {
 				ref := definitionRef(*p.Definition)
 				request.Definition = &ref
@@ -124,11 +133,19 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 			if p.WorkingDirectory != nil {
 				request.WorkingDirectory = *p.WorkingDirectory
 			}
-			value, err := r.SpawnSession(ctx, request)
+			value, err := r.SpawnChild(ctx, identity(p.Identity), request)
 			if err != nil {
 				return nil, err
 			}
-			return protocol.SessionFromDomain(value)
+			result := protocol.SpawnSessionResult{Admission: admission(value.Admission)}
+			if value.Session != nil {
+				wire, err := protocol.SessionFromDomain(*value.Session)
+				if err != nil {
+					return nil, err
+				}
+				result.Session = &wire
+			}
+			return result, nil
 		})
 	case "sessions.list":
 		return decode(raw, func(p protocol.ListSessionsParams) (any, error) {

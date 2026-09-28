@@ -237,10 +237,17 @@ type SessionParams struct {
 	SessionID ID `json:"session_id"`
 }
 type SpawnSessionParams struct {
-	ParentID         ID             `json:"parent_id"`
-	Definition       *DefinitionRef `json:"definition,omitempty"`
-	Overrides        ConfigPatch    `json:"overrides"`
-	WorkingDirectory *string        `json:"working_directory,omitempty"`
+	Identity         RequestIdentity `json:"identity"`
+	ParentID         ID              `json:"parent_id"`
+	Definition       *DefinitionRef  `json:"definition,omitempty"`
+	Overrides        ConfigPatch     `json:"overrides"`
+	WorkingDirectory *string         `json:"working_directory,omitempty"`
+	Parts            []Part          `json:"parts"`
+	GrantIDs         []ID            `json:"grant_ids"`
+}
+type SpawnSessionResult struct {
+	Session   *Session  `json:"session"`
+	Admission Admission `json:"admission"`
 }
 type ListSessionsParams struct {
 	TreeID ID  `json:"tree_id"`

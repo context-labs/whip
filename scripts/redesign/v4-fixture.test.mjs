@@ -150,11 +150,15 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     const beforeCrash = await page();
 
     const configured = await client.call('sessions.configure', { session_id: root.id, expected_revision: root.config_revision, patch: { instructions: { text: 'inherit me', project_files: [], discover_skills: false } } }, deadline());
-    const child = await client.call('sessions.spawn', { parent_id: root.id, overrides: {} }, deadline());
+    const spawnParams = { parent_id: root.id, overrides: {}, parts: [{ type: 'text', text: 'child' }], grant_ids: null };
+    const spawned = await client.spawn(spawnParams, 'child', deadline());
+    const child = spawned.session;
+    assert.equal(spawned.admission.input.session_id, child.id);
+    assert.equal((await client.spawn(spawnParams, 'child', deadline())).admission.input.id, spawned.admission.input.id);
+    await assert.rejects(client.spawn({ ...spawnParams, grant_ids: [] }, 'child', deadline()), error => error.kind === 'CONFLICT');
     assert.equal(child.configuration.instructions.text, configured.configuration.instructions.text);
     const sessions = await client.call('sessions.list', { tree_id: tree.id, limit: 100 }, deadline());
     assert.equal(sessions.items.length, 2);
-    await client.submit(child.id, [{ type: 'text', text: 'child' }], 'child', deadline());
     assert.equal((await client.wait('child', deadline())).turn.state, 'succeeded');
 
     await runtime.stop(); await runtime.start('1h');

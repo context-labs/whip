@@ -15,8 +15,15 @@ func (r *Runtime) CreateTree(ctx context.Context, request store.CreateTree) (ses
 	return r.store.CreateTree(ctx, request)
 }
 
-func (r *Runtime) SpawnSession(ctx context.Context, request store.SpawnSession) (session.Session, error) {
-	return r.store.SpawnSession(ctx, request)
+func (r *Runtime) SpawnChild(ctx context.Context, identity session.RequestIdentity, request store.ChildRequest) (store.ChildAdmission, error) {
+	if err := r.Err(); err != nil {
+		return store.ChildAdmission{}, err
+	}
+	result, err := r.store.SpawnChild(ctx, identity, request)
+	if err == nil {
+		r.Wake()
+	}
+	return result, err
 }
 
 func (r *Runtime) Tree(ctx context.Context, id session.TreeID) (session.Tree, error) {

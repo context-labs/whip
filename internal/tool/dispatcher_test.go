@@ -47,7 +47,7 @@ func dispatchFixture(t *testing.T) (*store.Store, *Dispatcher, session.Session, 
 	if _, dispatch, err := db.BeginCell(t.Context(), session.CellSpec{ID: "cell", TurnID: claim.Turn.ID, CallMessageID: "call-message", CallID: "call"}); err != nil || !dispatch {
 		t.Fatalf("begin cell: %v %v", dispatch, err)
 	}
-	return db, NewDispatcher(db, db), root, claim.Turn, path
+	return db, NewDispatcher(db, db, nil), root, claim.Turn, path
 }
 
 func invokeWrite(root session.Session, request string) Invocation {

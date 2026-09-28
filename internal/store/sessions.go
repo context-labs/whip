@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"path/filepath"
@@ -95,59 +96,225 @@ func insertSession(ctx context.Context, tx *sql.Tx, tree session.TreeID, parent 
 }
 
 type SpawnSession struct {
-	ParentID session.SessionID
+	ParentID session.SessionID `json:"parent_id"`
 	// Nil inherits the parent's effective configuration and definition origin.
 	// A specified revision applies its defaults before explicit overrides.
-	Definition       *session.DefinitionRef
-	Overrides        session.ConfigPatch
-	WorkingDirectory string
+	Definition       *session.DefinitionRef `json:"definition"`
+	Overrides        session.ConfigPatch    `json:"overrides"`
+	WorkingDirectory string                 `json:"working_directory"`
 }
 
-func (s *Store) SpawnSession(ctx context.Context, request SpawnSession) (result session.Session, err error) {
-	err = s.write(ctx, func(tx *sql.Tx) error {
-		parent, err := readSession(ctx, tx, request.ParentID)
-		if err != nil {
-			return err
-		}
-		if parent.Lifecycle != session.Active {
-			return ErrStopped
-		}
-		tree, err := readTree(ctx, tx, parent.TreeID)
-		if err != nil {
-			return err
-		}
-		var count, depth int
-		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM sessions WHERE tree_id=?", tree.ID).Scan(&count); err != nil {
-			return err
-		}
-		if err := tx.QueryRowContext(ctx, `WITH RECURSIVE ancestors(id,parent_id) AS (
+// ChildRequest preserves the original request for idempotency. Nil GrantIDs
+// inherits live standing grants; an explicit empty slice delegates none.
+type ChildRequest struct {
+	SpawnSession
+	Parts    []session.Part    `json:"parts"`
+	GrantIDs []session.GrantID `json:"grant_ids"`
+}
+
+// ChildAdmission projects the child from its input. A deleted receipt has no child.
+type ChildAdmission struct {
+	Session   *session.Session
+	Admission Admission
+}
+
+func spawnSession(ctx context.Context, tx *sql.Tx, request SpawnSession) (session.Session, error) {
+	parent, err := readSession(ctx, tx, request.ParentID)
+	if err != nil {
+		return session.Session{}, err
+	}
+	if parent.Lifecycle != session.Active {
+		return session.Session{}, ErrStopped
+	}
+	tree, err := readTree(ctx, tx, parent.TreeID)
+	if err != nil {
+		return session.Session{}, err
+	}
+	var count, depth int
+	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM sessions WHERE tree_id=?", tree.ID).Scan(&count); err != nil {
+		return session.Session{}, err
+	}
+	if err := tx.QueryRowContext(ctx, `WITH RECURSIVE ancestors(id,parent_id) AS (
    SELECT id,parent_id FROM sessions WHERE id=? UNION ALL
    SELECT s.id,s.parent_id FROM sessions s JOIN ancestors a ON a.parent_id=s.id
   ) SELECT count(*) FROM ancestors`, parent.ID).Scan(&depth); err != nil {
+		return session.Session{}, err
+	}
+	if count >= tree.Policy.MaxSessions || depth > tree.Policy.MaxDepth {
+		return session.Session{}, ErrLimit
+	}
+	ref := parent.Definition
+	var doc session.DefinitionDocument
+	if request.Definition != nil {
+		ref = *request.Definition
+		def, err := definition(ctx, tx, ref)
+		if err != nil {
+			return session.Session{}, err
+		}
+		doc = def.Document
+	}
+	config, err := session.Resolve(parent.Config, doc, request.Overrides)
+	if err != nil {
+		return session.Session{}, err
+	}
+	cwd := request.WorkingDirectory
+	if cwd == "" {
+		cwd = parent.WorkingDirectory
+	}
+	return insertSession(ctx, tx, parent.TreeID, &parent.ID, ref, config, cwd)
+}
+
+func (s *Store) SpawnChild(ctx context.Context, identity session.RequestIdentity, request ChildRequest) (result ChildAdmission, err error) {
+	if err := validateChildRequest(identity, request); err != nil {
+		return result, err
+	}
+	err = s.write(ctx, func(tx *sql.Tx) error {
+		result, err = spawnChild(ctx, tx, identity, request)
+		return err
+	})
+	return
+}
+
+func validateChildRequest(identity session.RequestIdentity, request ChildRequest) error {
+	for _, id := range []string{identity.ClientID, identity.RequestID, string(request.ParentID)} {
+		if err := session.ValidateID(id); err != nil {
 			return err
 		}
-		if count >= tree.Policy.MaxSessions || depth > tree.Policy.MaxDepth {
-			return ErrLimit
+	}
+	if err := session.ValidateInputParts(request.Parts); err != nil {
+		return err
+	}
+	if len(request.GrantIDs) > session.MaxGrantsPerSession {
+		return ErrLimit
+	}
+	seen := make(map[session.GrantID]bool, len(request.GrantIDs))
+	for _, id := range request.GrantIDs {
+		if err := session.ValidateID(string(id)); err != nil {
+			return err
 		}
-		ref := parent.Definition
-		var doc session.DefinitionDocument
-		if request.Definition != nil {
-			ref = *request.Definition
-			def, err := definition(ctx, tx, ref)
-			if err != nil {
-				return err
-			}
-			doc = def.Document
+		if seen[id] {
+			return fmt.Errorf("%w: duplicate delegated grant", session.ErrInvalid)
 		}
-		config, err := session.Resolve(parent.Config, doc, request.Overrides)
+		seen[id] = true
+	}
+	return nil
+}
+
+func readChildAdmission(ctx context.Context, tx *sql.Tx, identity session.RequestIdentity) (result ChildAdmission, err error) {
+	result.Admission, err = readAdmission(ctx, tx, identity)
+	if err != nil || result.Admission.Input == nil {
+		return result, err
+	}
+	child, err := readSession(ctx, tx, result.Admission.Input.SessionID)
+	if err != nil {
+		return result, err
+	}
+	result.Session = &child
+	return result, nil
+}
+
+func spawnChild(ctx context.Context, tx *sql.Tx, identity session.RequestIdentity, request ChildRequest) (ChildAdmission, error) {
+	digest, err := requestDigest("spawn_child", request)
+	if err != nil {
+		return ChildAdmission{}, err
+	}
+	receipt, err := readReceipt(ctx, tx, identity)
+	if err == nil {
+		if receipt.Digest != digest {
+			return ChildAdmission{}, ErrConflict
+		}
+		return readChildAdmission(ctx, tx, identity)
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return ChildAdmission{}, err
+	}
+	issuers, err := delegatedGrants(ctx, tx, request.ParentID, request.GrantIDs)
+	if err != nil {
+		return ChildAdmission{}, err
+	}
+	child, err := spawnSession(ctx, tx, request.SpawnSession)
+	if err != nil {
+		return ChildAdmission{}, err
+	}
+	for _, issuer := range issuers {
+		grant := session.Grant{
+			ID: session.GrantID(newID("grant")), SessionID: child.ID,
+			Capability: issuer.Capability, Resource: issuer.Resource, IssuerID: &issuer.ID,
+		}
+		if err := insertGrant(ctx, tx, grant); err != nil {
+			return ChildAdmission{}, err
+		}
+	}
+	parts, err := shareChildContent(ctx, tx, request.ParentID, child.ID, request.Parts)
+	if err != nil {
+		return ChildAdmission{}, err
+	}
+	if err := session.ValidateInputParts(parts); err != nil {
+		return ChildAdmission{}, err
+	}
+	admission, err := admitInput(ctx, tx, identity, digest, Submission{SessionID: child.ID, Source: session.AgentInput, Parts: parts})
+	if err != nil {
+		return ChildAdmission{}, err
+	}
+	return ChildAdmission{Session: &child, Admission: admission}, nil
+}
+
+// SpawnChildOperation applies only persisted, authorized agents.spawn intent.
+// Dispatch, all child rows, the receipt and success are committed together.
+func (s *Store) SpawnChildOperation(ctx context.Context, id session.OperationID) (result ChildAdmission, err error) {
+	err = s.write(ctx, func(tx *sql.Tx) error {
+		operation, err := readOperation(ctx, tx, id)
 		if err != nil {
 			return err
 		}
-		cwd := request.WorkingDirectory
-		if cwd == "" {
-			cwd = parent.WorkingDirectory
+		if operation.Capability != "agents.spawn" {
+			return ErrConflict
 		}
-		result, err = insertSession(ctx, tx, parent.TreeID, &parent.ID, ref, config, cwd)
+		owner, err := readSession(ctx, tx, operation.SessionID)
+		if err != nil {
+			return err
+		}
+		if operation.Resource != string(owner.TreeID) {
+			return ErrConflict
+		}
+		identity := session.RequestIdentity{ClientID: "operation", RequestID: string(id)}
+		if operation.State == session.OperationSucceeded {
+			result, err = readChildAdmission(ctx, tx, identity)
+			return err
+		}
+		var request ChildRequest
+		if err := json.Unmarshal(operation.Arguments, &request); err != nil {
+			return err
+		}
+		if request.ParentID != owner.ID {
+			return ErrConflict
+		}
+		if err := validateChildRequest(identity, request); err != nil {
+			return err
+		}
+		dispatch, err := dispatchOperation(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if !dispatch {
+			return ErrConflict
+		}
+		result, err = spawnChild(ctx, tx, identity, request)
+		if err != nil {
+			return err
+		}
+		if result.Session == nil || result.Admission.Input == nil {
+			return ErrConflict
+		}
+		value, err := json.Marshal(struct {
+			SessionID session.SessionID `json:"session_id"`
+			InputID   session.InputID   `json:"input_id"`
+		}{result.Session.ID, result.Admission.Input.ID})
+		if err != nil {
+			return err
+		}
+		operation.State = session.OperationDispatched
+		_, err = settleOperation(ctx, tx, operation, session.OperationResult{State: session.OperationSucceeded, Value: value})
 		return err
 	})
 	return

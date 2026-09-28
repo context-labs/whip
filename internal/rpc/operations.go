@@ -13,7 +13,11 @@ func dispatchOperation(ctx context.Context, r *runtime.Runtime, method string, r
 	switch method {
 	case "grants.create":
 		return decode(raw, func(p protocol.CreateGrantParams) (any, error) {
-			value, err := r.CreateGrant(ctx, session.Grant{ID: session.GrantID(p.ID), SessionID: session.SessionID(p.SessionID), Capability: p.Capability, Resource: p.Resource})
+			grant := session.Grant{ID: session.GrantID(p.ID), SessionID: session.SessionID(p.SessionID), Capability: p.Capability, Resource: p.Resource}
+			if p.IssuerID != nil {
+				grant.IssuerID = new(session.GrantID(*p.IssuerID))
+			}
+			value, err := r.CreateGrant(ctx, grant)
 			return protocol.GrantFromDomain(value), err
 		})
 	case "grants.revoke":

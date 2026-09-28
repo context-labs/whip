@@ -87,3 +87,24 @@ and a truncation flag. Never execute preview arguments. Upsert committed message
 by ID; a matching committed ID replaces the preview. Clear provisional display
 when the preview is null or the epoch changes. Aborting this iterator stops
 observation only. It retains a cursor, not a transcript cache.
+
+
+`client.spawn({parent_id, parts, overrides: {}, grant_ids: null}, requestID)`
+atomically creates a child and accepts its initial input. It returns
+`{session, admission}`; use `client.wait(requestID)` and `client.recover(requestID)`
+for the same recovery behavior as submissions. Reusing the exact spawn identity
+and payload returns the same child; changed parameters conflict. After deletion,
+the receipt remains and `session` is null. Content parts must reference content
+owned by the parent; admission creates new scoped child references to those bytes.
+
+`grant_ids: null` inherits live standing parent grants; an explicit list selects
+a subset and `[]` grants none. `grants.create` for a child additionally requires
+`issuer_id` identifying a standing direct-parent grant with the exact same scope.
+Ancestor revocation invalidates descendant dispatch. Child permission decisions
+cannot widen delegated authority.
+
+In a REPL, `agents.spawn` accepts a prompt and returns `session_id`/`input_id`.
+`agents.wait_after_cell` accepts descendant input IDs and immediately returns a
+registration. Finish the cell to begin the wait; the runtime then releases worker
+and kernel capacity until those inputs finish. Same-cell blocking `agents.wait`
+is unavailable in the new runtime. Both operations use tree-ID grant resources.

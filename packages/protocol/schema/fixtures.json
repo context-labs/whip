@@ -60,6 +60,7 @@
       "capability": "files.read",
       "resource": "/workspace",
       "operation_id": null,
+      "issuer_id": "grant_parent",
       "created_at": "2026-09-27T12:00:00.123456Z",
       "revoked_at": null
     },
@@ -426,6 +427,25 @@
         "output": "1",
         "is_error": false
       }
+    },
+    "valid": true
+  },
+  {
+    "type": "SpawnSessionParams",
+    "value": {
+      "identity": {
+        "client_id": "client",
+        "request_id": "spawn"
+      },
+      "parent_id": "session_root",
+      "overrides": {},
+      "parts": [
+        {
+          "type": "text",
+          "text": "Child work"
+        }
+      ],
+      "grant_ids": []
     },
     "valid": true
   },

@@ -13,6 +13,7 @@ type Grant struct {
 	Capability  string  `json:"capability"`
 	Resource    string  `json:"resource"`
 	OperationID *ID     `json:"operation_id"`
+	IssuerID    *ID     `json:"issuer_id"`
 	CreatedAt   string  `json:"created_at"`
 	RevokedAt   *string `json:"revoked_at"`
 }
@@ -21,6 +22,7 @@ type CreateGrantParams struct {
 	SessionID  ID     `json:"session_id"`
 	Capability string `json:"capability"`
 	Resource   string `json:"resource"`
+	IssuerID   *ID    `json:"issuer_id,omitempty"`
 }
 type GrantParams struct {
 	GrantID ID `json:"grant_id"`
@@ -88,6 +90,9 @@ func GrantFromDomain(value session.Grant) Grant {
 	result := Grant{ID: ID(value.ID), SessionID: ID(value.SessionID), Capability: value.Capability, Resource: value.Resource, CreatedAt: value.CreatedAt.Format(time.RFC3339Nano), RevokedAt: timeString(value.RevokedAt)}
 	if value.OperationID != nil {
 		result.OperationID = new(ID(*value.OperationID))
+	}
+	if value.IssuerID != nil {
+		result.IssuerID = new(ID(*value.IssuerID))
 	}
 	return result
 }

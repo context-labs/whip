@@ -107,6 +107,12 @@ func (r *Runtime) Instructions(ctx context.Context, id session.SessionID) (strin
 		instructions += " Available workspace operations: await files.read({path: \"relative/path\", offset: 1, limit: 2000}), await files.write({path: \"relative/path\", content: \"text\"}), await files.patch({path: \"relative/path\", old_text: \"old\", new_text: \"new\", replace_all: false})."
 	}
 	instructions += " File operations are confined to the session workspace and may wait for an explicit permission decision. An approval authorizes that operation only."
+	if tree.Engine == session.Starlark {
+		instructions += " Spawn children with child=agents.spawn(prompt=\"work\"); register a wait with agents.wait_after_cell(input_ids=[child[\"input_id\"]])."
+	} else {
+		instructions += " Spawn children with const child=await agents.spawn({prompt:\"work\"}); register a wait with await agents.wait_after_cell({input_ids:[child.input_id]})."
+	}
+	instructions += " Spawn returns session_id and input_id after durable admission. A wait registration returns immediately: finish this cell, then the runtime waits for those descendant inputs before the next model step. Never poll or block inside the cell. Children use separate sessions and REPLs. Spawn inherits the current standing grants unless grant_ids is an explicit subset (an empty list delegates none). Child permissions cannot exceed that delegation. agents.spawn and agents.wait_after_cell grants use the tree ID as their resource."
 	return instructions, nil
 }
 
@@ -175,6 +181,19 @@ func (r *Runtime) discardKernel(id session.SessionID, entry *sessionKernel) {
 // holds capacity through SQL settlement, then releases it before another model
 // request or child wait can consume the turn's lifetime.
 func (r *Runtime) Execute(ctx context.Context, turn session.Turn, messageID session.MessageID, call session.ToolCall) (session.ToolResult, error) {
+	result, err := r.executeCell(ctx, turn, messageID, call)
+	if err == nil {
+		err = r.waitAfterCell(ctx, turn, cellID(messageID, call.ID))
+	}
+	return result, err
+}
+
+func cellID(message session.MessageID, call string) session.CellID {
+	digest := sha256.Sum256([]byte(string(message) + "\x00" + call))
+	return session.CellID("cell_" + hex.EncodeToString(digest[:]))
+}
+
+func (r *Runtime) executeCell(ctx context.Context, turn session.Turn, messageID session.MessageID, call session.ToolCall) (session.ToolResult, error) {
 	result := session.ToolResult{CallID: call.ID}
 	if call.Name != "execute" {
 		return result, errors.New("unsupported tool")
@@ -216,8 +235,7 @@ func (r *Runtime) Execute(ctx context.Context, turn session.Turn, messageID sess
 		return result, err
 	}
 	defer release()
-	digest := sha256.Sum256([]byte(string(messageID) + "\x00" + call.ID))
-	id := session.CellID("cell_" + hex.EncodeToString(digest[:]))
+	id := cellID(messageID, call.ID)
 	_, dispatch, err := r.store.BeginCell(ctx, session.CellSpec{ID: id, TurnID: turn.ID, CallMessageID: messageID, CallID: call.ID})
 	if err != nil || !dispatch {
 		if err == nil {

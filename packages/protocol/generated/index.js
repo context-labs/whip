@@ -82,7 +82,7 @@ export const manifest = {
     {
       "name": "sessions.spawn",
       "params": "SpawnSessionParams",
-      "result": "Session"
+      "result": "SpawnSessionResult"
     },
     {
       "name": "sessions.list",

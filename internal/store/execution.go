@@ -105,12 +105,10 @@ func (s *Store) Admit(ctx context.Context, identity session.RequestIdentity, req
 	if err := session.ValidateInputParts(request.Parts); err != nil {
 		return result, err
 	}
-	raw, err := json.Marshal(request)
+	digest, err := requestDigest("submit", request)
 	if err != nil {
 		return result, err
 	}
-	hash := sha256.Sum256(raw)
-	digest := hex.EncodeToString(hash[:])
 	err = s.write(ctx, func(tx *sql.Tx) error {
 		receipt, err := readReceipt(ctx, tx, identity)
 		if err == nil {
@@ -123,43 +121,60 @@ func (s *Store) Admit(ctx context.Context, identity session.RequestIdentity, req
 		if !errors.Is(err, ErrNotFound) {
 			return err
 		}
-		current, err := readSession(ctx, tx, request.SessionID)
-		if err != nil {
-			return err
-		}
-		if current.Lifecycle != session.Active {
-			return ErrStopped
-		}
-		if err := validateContentReferences(ctx, tx, current.ID, request.Parts); err != nil {
-			return err
-		}
-		tree, err := readTree(ctx, tx, current.TreeID)
-		if err != nil {
-			return err
-		}
-		var queued int
-		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM inputs WHERE session_id=? AND turn_id IS NULL AND cancelled_at IS NULL", current.ID).Scan(&queued); err != nil {
-			return err
-		}
-		if queued >= tree.Policy.MaxQueuedInputsPerSession {
-			return ErrLimit
-		}
-		parts, err := encode(request.Parts)
-		if err != nil {
-			return err
-		}
-		inputID := session.InputID(newID("input"))
-		created := now()
-		if _, err := tx.ExecContext(ctx, "INSERT INTO inputs (id,session_id,source,parts,created_at) VALUES (?,?,?,?,?)", inputID, current.ID, request.Source, parts, created); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, "INSERT INTO receipts VALUES (?,?,?,?,NULL,?)", identity.ClientID, identity.RequestID, digest, inputID, created); err != nil {
-			return err
-		}
-		result, err = readAdmission(ctx, tx, identity)
+		result, err = admitInput(ctx, tx, identity, digest, request)
 		return err
 	})
 	return
+}
+
+func requestDigest(kind string, request any) (string, error) {
+	raw, err := json.Marshal(struct {
+		Kind    string
+		Request any
+	}{kind, request})
+	if err != nil {
+		return "", err
+	}
+	hash := sha256.Sum256(raw)
+	return hex.EncodeToString(hash[:]), nil
+}
+
+func admitInput(ctx context.Context, tx *sql.Tx, identity session.RequestIdentity, digest string, request Submission) (result Admission, err error) {
+	current, err := readSession(ctx, tx, request.SessionID)
+	if err != nil {
+		return result, err
+	}
+	if current.Lifecycle != session.Active {
+		return result, ErrStopped
+	}
+	if err := validateContentReferences(ctx, tx, current.ID, request.Parts); err != nil {
+		return result, err
+	}
+	tree, err := readTree(ctx, tx, current.TreeID)
+	if err != nil {
+		return result, err
+	}
+	var queued int
+	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM inputs WHERE session_id=? AND turn_id IS NULL AND cancelled_at IS NULL", current.ID).Scan(&queued); err != nil {
+		return result, err
+	}
+	if queued >= tree.Policy.MaxQueuedInputsPerSession {
+		return result, ErrLimit
+	}
+	parts, err := encode(request.Parts)
+	if err != nil {
+		return result, err
+	}
+	inputID := session.InputID(newID("input"))
+	created := now()
+	if _, err := tx.ExecContext(ctx, "INSERT INTO inputs (id,session_id,source,parts,created_at) VALUES (?,?,?,?,?)", inputID, current.ID, request.Source, parts, created); err != nil {
+		return result, err
+	}
+	if _, err := tx.ExecContext(ctx, "INSERT INTO receipts VALUES (?,?,?,?,NULL,?)", identity.ClientID, identity.RequestID, digest, inputID, created); err != nil {
+		return result, err
+	}
+	result, err = readAdmission(ctx, tx, identity)
+	return result, err
 }
 
 func (s *Store) Admission(ctx context.Context, identity session.RequestIdentity) (result Admission, err error) {

@@ -264,12 +264,15 @@ func TestDeleteSubtreeClosesOnlyItsKernels(t *testing.T) {
 	r := openEngineTest(t, t.TempDir(), cellProvider(map[string]string{"root": "print(1)", "child": "print(2)", "other": "print(3)"}))
 	root := createEngineSession(t, r, session.Starlark)
 	other := createEngineSession(t, r, session.Starlark)
-	child, err := r.SpawnSession(t.Context(), store.SpawnSession{ParentID: root.ID})
+	spawned, err := r.SpawnChild(t.Context(), session.RequestIdentity{ClientID: "test", RequestID: "child"}, store.ChildRequest{ParentID: root.ID, Parts: []session.Part{{Type: "text", Text: "child"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
+	child := *spawned.Session
+	if result := waitTestWithin(t, r, "child", terminal, 30*time.Second); result.Turn.State != session.Succeeded {
+		t.Fatalf("child outcome: %+v", result.Turn)
+	}
 	runCellTurn(t, r, root.ID, "root", "1\n")
-	runCellTurn(t, r, child.ID, "child", "2\n")
 	runCellTurn(t, r, other.ID, "other", "3\n")
 	r.mu.Lock()
 	rootKernel, childKernel, otherKernel := r.kernels[root.ID], r.kernels[child.ID], r.kernels[other.ID]

@@ -175,15 +175,18 @@ CREATE TABLE grants (
  id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
  capability TEXT NOT NULL, resource TEXT NOT NULL,
  operation_id TEXT UNIQUE REFERENCES operations(id) ON DELETE CASCADE,
- created_at INTEGER NOT NULL, revoked_at INTEGER
+ issuer_id TEXT REFERENCES grants(id) ON DELETE CASCADE,
+ created_at INTEGER NOT NULL, revoked_at INTEGER,
+ CHECK(issuer_id IS NULL OR (operation_id IS NULL AND issuer_id<>id))
 ) STRICT;
 CREATE INDEX grants_by_session ON grants(session_id,id);
+CREATE INDEX grants_by_issuer ON grants(issuer_id,id);
 CREATE INDEX standing_grant_scope ON grants(session_id,capability,resource,id)
  WHERE operation_id IS NULL AND revoked_at IS NULL;
 CREATE TRIGGER grant_transition BEFORE UPDATE ON grants
  WHEN NEW.id IS NOT OLD.id OR NEW.session_id IS NOT OLD.session_id
  OR NEW.capability IS NOT OLD.capability OR NEW.resource IS NOT OLD.resource
- OR NEW.operation_id IS NOT OLD.operation_id OR NEW.created_at IS NOT OLD.created_at
+ OR NEW.operation_id IS NOT OLD.operation_id OR NEW.issuer_id IS NOT OLD.issuer_id OR NEW.created_at IS NOT OLD.created_at
  OR OLD.revoked_at IS NOT NULL OR NEW.revoked_at IS NULL
  BEGIN SELECT RAISE(ABORT, 'grant may only be revoked'); END;
 

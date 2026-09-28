@@ -113,6 +113,7 @@ export interface CreateGrantParams {
   session_id: string;
   capability: string;
   resource: string;
+  issuer_id?: null | string;
 }
 export interface CreateTreeParams {
   metadata: {
@@ -329,6 +330,7 @@ export interface Grant {
   capability: string;
   resource: string;
   operation_id: null | string;
+  issuer_id: null | string;
   created_at: string;
   revoked_at: null | string;
 }
@@ -349,6 +351,7 @@ export interface GrantsResult {
         capability: string;
         resource: string;
         operation_id: null | string;
+        issuer_id: null | string;
         created_at: string;
         revoked_at: null | string;
       }[];
@@ -1212,6 +1215,10 @@ export interface SessionParams {
   session_id: string;
 }
 export interface SpawnSessionParams {
+  identity: {
+    client_id: string;
+    request_id: string;
+  };
   parent_id: string;
   definition?: null | {
     id: string;
@@ -1253,6 +1260,136 @@ export interface SpawnSessionParams {
     };
   };
   working_directory?: null | string;
+  /**
+   * @minItems 1
+   * @maxItems 128
+   */
+  parts: [
+    (
+      | {
+          text: string;
+          type: "text";
+        }
+      | {
+          reference_id: string;
+          type: "content";
+        }
+    ),
+    ...(
+      | {
+          text: string;
+          type: "text";
+        }
+      | {
+          reference_id: string;
+          type: "content";
+        }
+    )[]
+  ];
+  grant_ids: null | string[];
+}
+export interface SpawnSessionResult {
+  session: null | {
+    id: string;
+    tree_id: string;
+    parent_id: null | string;
+    definition: {
+      id: string;
+      revision: string;
+    };
+    config_revision: string;
+    configuration: {
+      model: {
+        provider: string;
+        name: string;
+        effort: string;
+      };
+      instructions: {
+        text: string;
+        project_files: null | string[];
+        discover_skills: boolean;
+      };
+      tools: {
+        [k: string]: {
+          description: string;
+          input_schema: unknown;
+          output_schema: unknown;
+        };
+      } | null;
+      children: {
+        [k: string]: {
+          id: string;
+          revision: string;
+        };
+      } | null;
+      hooks: {
+        [k: string]: {
+          operations: null | string[];
+          optional: boolean;
+          timeout_millis: number;
+        };
+      } | null;
+      output_schema: unknown;
+    };
+    working_directory: string;
+    lifecycle: "active" | "stopped";
+    created_at: string;
+  };
+  admission: {
+    receipt: {
+      identity: {
+        client_id: string;
+        request_id: string;
+      };
+      digest: string;
+      input_id: null | string;
+      deleted_at: null | string;
+      created_at: string;
+    };
+    input: null | {
+      id: string;
+      session_id: string;
+      source: "user" | "agent" | "schedule";
+      /**
+       * @minItems 1
+       * @maxItems 128
+       */
+      parts: [
+        (
+          | {
+              text: string;
+              type: "text";
+            }
+          | {
+              reference_id: string;
+              type: "content";
+            }
+        ),
+        ...(
+          | {
+              text: string;
+              type: "text";
+            }
+          | {
+              reference_id: string;
+              type: "content";
+            }
+        )[]
+      ];
+      state: "queued" | "claimed" | "cancelled";
+      turn_id: null | string;
+      created_at: string;
+    };
+    turn: null | {
+      id: string;
+      session_id: string;
+      config_revision: string;
+      state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
+      failure: null | string;
+      started_at: string;
+      finished_at: null | string;
+    };
+  };
 }
 export interface SubmitParams {
   identity: {
@@ -1430,6 +1567,7 @@ export interface ContractTypes {
   SessionObservation: SessionObservation;
   SessionParams: SessionParams;
   SpawnSessionParams: SpawnSessionParams;
+  SpawnSessionResult: SpawnSessionResult;
   SubmitParams: SubmitParams;
   ToolCall: ToolCall;
   ToolResult: ToolResult;
@@ -1456,7 +1594,7 @@ export interface Operations {
   "trees.get": { params: TreeParams; result: Tree };
   "trees.update": { params: UpdateTreeParams; result: Tree };
   "sessions.get": { params: SessionParams; result: Session };
-  "sessions.spawn": { params: SpawnSessionParams; result: Session };
+  "sessions.spawn": { params: SpawnSessionParams; result: SpawnSessionResult };
   "sessions.list": { params: ListSessionsParams; result: ListSessionsResult };
   "sessions.configure": { params: UpdateConfigurationParams; result: Session };
   "sessions.submit": { params: SubmitParams; result: Admission };
