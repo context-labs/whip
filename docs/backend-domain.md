@@ -47,7 +47,7 @@ separate legacy runtime and SDK until their client cutover.
 | Content bytes | Durable immutable blob file, verified when read |
 | Provider endpoint and credential reference | Explicit host configuration file; subscription routing is adapter-owned |
 | Subscription credentials | Private host credential file; captures and refresh work live in manager memory |
-| Incomplete provider text and tool-call previews | Bounded runtime memory; never transcript rows |
+| Incomplete provider text, reasoning and tool-call previews | Bounded runtime memory; never transcript rows |
 | Resolved credential, worker, interpreter, process or client | Execution memory; never session rows |
 
 Root and child sessions have the same records and store methods. Root lookup is
@@ -542,11 +542,20 @@ query durable records; they do not introduce another authority cache.
 ## Provisional output and observation
 
 The provider owns response assembly; the runner owns dispatch and commit. A
-synchronous chunk callback publishes text and incomplete tool arguments into a
+synchronous chunk callback publishes text, reasoning and incomplete tool arguments into a
 runtime-owned preview for the active attempt. The runtime retains at most 64
-previews of 128 KiB each, uses UTF-8-safe truncation, and exposes truncation
+previews of 128 KiB each, shared across text, reasoning and call fields. It uses
+UTF-8-safe truncation and exposes truncation
 explicitly. It retains no completed preview cache or replay log. Preview callbacks
 cannot start effects, veto execution or inherit an observing client's lifetime.
+
+Chat `reasoning_content` and Responses/subscription reasoning-summary deltas
+populate `preview.reasoning`, independently from answer text. Reasoning-only
+chunks advance preview revision. These fragments are never transcript parts,
+assistant output or later provider context. Opaque private continuation remains
+separate and is not exposed by this field. The adapter's raw-response and event
+bounds still apply; discarded reasoning does not consume the final-message byte
+allowance. Completed messages replace the entire preview, including reasoning.
 
 OpenAI-compatible requests ask for SSE and usage. The adapter also accepts bounded
 JSON responses. Streaming requires both a valid completion reason and the final

@@ -115,8 +115,10 @@ did not happen. Permission approval after cancellation returns `CONFLICT`.
 `client.observe(sessionID, {after?: '0', signal?})` yields bounded committed pages
 and a disposable preview. The underlying `sessions.observe` result contains
 `messages`, nullable `preview`, and the current process `epoch`. Each preview has
-an attempt ID, eventual `message_id`, revision, text, incomplete call fragments,
-and a truncation flag. Never execute preview arguments. Upsert committed messages
+an attempt ID, eventual `message_id`, revision, text, reasoning, incomplete call
+fragments, and a truncation flag. Text, reasoning and calls share a 128 KiB bound.
+Reasoning is provisional display only; it is absent from durable history and
+later provider context. Never execute preview arguments. Upsert committed messages
 by ID; a matching committed ID replaces the preview. Clear provisional display
 when the preview is null or the epoch changes. Aborting this iterator stops
 observation only. It retains a cursor, not a transcript cache.

@@ -862,8 +862,10 @@ helpers and public history never receive opaque continuation. Subscription model
 execution and host-owned credential lifecycle now use the same recorded attempts,
 with fixed routing, generation checks and one settled 401 refresh. Provider idle
 stalls now terminate as uncertain without replay, preserving known accounting.
-Public account onboarding remains Phase 6 work. Stateless model helpers, captured
-sampling and reasoning-summary previews remain required. Legacy uncertain
+Reasoning deltas now flow through the existing bounded runtime/RPC/SDK preview,
+share its byte budget and disappear at the attempt boundary without persistence
+or replay into context. Public account onboarding remains Phase 6 work. Stateless
+model helpers and captured sampling remain required. Legacy uncertain
 partial-stream regeneration is explicitly retired under the new no-replay
 accounting policy; all dispatched attempts must still settle truthful evidence.
 This progress does not narrow Phases 5–7.
