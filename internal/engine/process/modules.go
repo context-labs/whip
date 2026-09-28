@@ -34,6 +34,7 @@ var moduleRegistry = map[string][]string{
 	"mcp":         {"list_servers", "list_tools", "search", "describe", "instructions", "call", "refresh", "reconnect"},
 	"state":       {"unsubscribe", "get", "read", "write", "append", "list", "history", "private_get", "private_set", "private_append", "private_cas", "private_list", "blackboard_get", "blackboard_set", "blackboard_append", "blackboard_cas", "blackboard_history", "subscribe", "subscriptions", "cancel_subscription"},
 	"artifacts":   {"put", "inspect", "read"},
+	"goals":       {"complete"},
 	"schedules":   {"create", "list", "cancel"},
 	"permissions": {"request", "status"},
 	"user":        {"ask"},

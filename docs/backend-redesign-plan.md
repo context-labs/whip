@@ -696,8 +696,10 @@ lifecycle, exact create/resume retries, current selection, atomic ordinary-input
 admission and deletion tombstones. Turn capture, durable continuation, recovery
 pause and authorized completion settlement are now implemented internally. Fresh
 config is 8 and schema 28. Generated input and turn projections preserve goal
-provenance and exact decimal revisions. Runtime/guest/RPC/SDK controls and
-formulation remain open; the public goal API is not yet exposed.
+provenance and exact decimal revisions. Runtime/guest/RPC/SDK controls now expose
+creation, inspection, resume, cancellation and authorized completion intents.
+Both-engine and process acceptance cover the controls. Formulation from context
+and product-client adoption remain open.
 
 Stateless model-helper implementation decisions (work remains open):
 

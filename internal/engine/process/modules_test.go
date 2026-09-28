@@ -3,7 +3,7 @@ package process
 import "testing"
 
 func TestModuleRegistryIsCompleteAndClosed(t *testing.T) {
-	want := []string{"context", "files", "shell", "browser", "computer", "models", "agents", "messages", "mail", "mcp", "state", "artifacts", "schedules", "permissions", "user"}
+	want := []string{"context", "files", "shell", "browser", "computer", "models", "agents", "messages", "mail", "mcp", "state", "artifacts", "goals", "schedules", "permissions", "user"}
 	modules := Modules()
 	for _, name := range want {
 		if len(modules[name]) == 0 {

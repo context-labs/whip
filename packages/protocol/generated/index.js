@@ -5,6 +5,31 @@ export const manifest = {
   "minor": 0,
   "operations": [
     {
+      "name": "goals.create",
+      "params": "CreateGoalParams",
+      "result": "GoalAdmission"
+    },
+    {
+      "name": "goals.current",
+      "params": "SessionParams",
+      "result": "CurrentGoalResult"
+    },
+    {
+      "name": "goals.get",
+      "params": "GoalParams",
+      "result": "Goal"
+    },
+    {
+      "name": "goals.resume",
+      "params": "ResumeGoalParams",
+      "result": "Admission"
+    },
+    {
+      "name": "goals.cancel",
+      "params": "GoalParams",
+      "result": "GoalChange"
+    },
+    {
       "name": "schedules.create",
       "params": "CreateScheduleParams",
       "result": "ScheduleAdmission"

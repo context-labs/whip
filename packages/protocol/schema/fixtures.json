@@ -59,6 +59,88 @@
     "valid": true
   },
   {
+    "type": "CreateGoalParams",
+    "value": {
+      "session_id": "session_child",
+      "goal_id": "goal_default",
+      "expected_current": null,
+      "spec": {
+        "text": "Objective"
+      },
+      "start": false
+    },
+    "valid": true
+  },
+  {
+    "type": "CreateGoalParams",
+    "value": {
+      "session_id": "session_child",
+      "goal_id": "goal_zero",
+      "expected_current": {
+        "id": "goal_default",
+        "revision": "9007199254740993"
+      },
+      "spec": {
+        "text": "Initial only",
+        "max_continuations": "0"
+      },
+      "start": true
+    },
+    "valid": true
+  },
+  {
+    "type": "Goal",
+    "value": {
+      "id": "goal_fixture",
+      "revision": "9007199254740993",
+      "session_id": "session_child",
+      "spec": {
+        "text": "Objective",
+        "max_continuations": "9007199254740994"
+      },
+      "state": "completed",
+      "continuations_used": "9007199254740993",
+      "stop_reason": null,
+      "completion_turn_id": "turn_fixture",
+      "completion_operation_id": "operation_fixture",
+      "created_at": "2026-09-27T12:00:00.123456Z"
+    },
+    "valid": true
+  },
+  {
+    "type": "CurrentGoalResult",
+    "value": {
+      "goal": null
+    },
+    "valid": true
+  },
+  {
+    "type": "GoalAdmission",
+    "value": {
+      "id": "goal_deleted",
+      "goal": null,
+      "current": false,
+      "initial": null,
+      "deleted_at": "2026-09-27T12:00:00.123456Z"
+    },
+    "valid": true
+  },
+  {
+    "type": "ResumeGoalParams",
+    "value": {
+      "identity": {
+        "client_id": "client",
+        "request_id": "resume"
+      },
+      "session_id": "session_child",
+      "goal": {
+        "id": "goal_fixture",
+        "revision": "9007199254740993"
+      }
+    },
+    "valid": true
+  },
+  {
     "type": "CreateScheduleParams",
     "value": {
       "session_id": "session_child",
