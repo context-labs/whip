@@ -4,6 +4,10 @@ vars:
   VERSION:
     sh: printf 'dev+%s' "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
   LDFLAGS: -X main.version={{.VERSION}}
+  # Phase 0 carryover: replace/expand these as new domain packages land.
+  # All tests in these packages are required; no test-name skip list.
+  REDESIGN_PACKAGES: ./internal/content ./internal/agentdef ./internal/protocol ./internal/session
+  REDESIGN_BASELINE: e3fed9c91918d9c36766dd47d878c1b5466238d1
 
 tasks:
   default:
@@ -92,6 +96,57 @@ tasks:
     desc: Run all tests
     cmds:
       - go test ./...
+
+  check:fast:
+    desc: Redesign active-package formatting and regression tests (no npm setup needed)
+    cmds:
+      - |
+        unformatted=$(gofmt -s -l {{.REDESIGN_PACKAGES}})
+        if [ -n "$unformatted" ]; then
+          echo "$unformatted"
+          exit 1
+        fi
+      - go test -timeout=2m {{.REDESIGN_PACKAGES}}
+
+  check:change:
+    desc: Redesign integration gate (run npm ci first)
+    cmds:
+      - task: check:fast
+      - go build {{.REDESIGN_PACKAGES}}
+      - go vet {{.REDESIGN_PACKAGES}}
+      - go test -race -shuffle=on -count=1 -timeout=10m {{.REDESIGN_PACKAGES}}
+      - task: contract
+      - task: sdk
+      - task: check:fixture
+
+  check:fixture:
+    desc: Real daemon, scripted provider, SDK admission and process-restart smoke
+    cmds:
+      - npm run build
+      - node --test --test-concurrency=1 scripts/redesign/fixture.test.mjs
+
+  check:analysis:
+    desc: Pinned lint and reachable-vulnerability checks for redesign active packages
+    vars:
+      REDESIGN_TOOLCHAIN:
+        sh: go env GOVERSION
+    env:
+      GOTOOLCHAIN: '{{.REDESIGN_TOOLCHAIN}}'
+    cmds:
+      - go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1 run --new-from-rev={{.REDESIGN_BASELINE}} {{.REDESIGN_PACKAGES}}
+      - go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 {{.REDESIGN_PACKAGES}}
+
+  check:phase:
+    desc: Redesign milestone gate; expands with supported capabilities
+    cmds:
+      - task: check:change
+      - go test -race -shuffle=on -count=1 -timeout=3m ./internal/daemon -run '^(TestClientAcceptancePrecedesProviderConstructionAndSurvivesDisconnect|TestQueuedInitialAgentPromptSurvivesRestartExactlyOnce|TestModelAccountingFailureRetriesSettlementWithoutProviderReplay|TestModelAdmissionWaitingForActorDoesNotHoldAccountingLock)$'
+
+  dev:redesign:
+    desc: Disposable real-runtime fixture with scripted provider (-- --minutes=1..30)
+    cmds:
+      - npm run build
+      - WHIP_SDK_AGENTS_FIXTURE=1 node apps/mobile/scripts/fixture.mjs {{.CLI_ARGS}}
 
   acceptance:
     desc: "Run the deterministic daemon, recursive-agent, client, and RLM release acceptance suite"
