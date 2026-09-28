@@ -1981,3 +1981,44 @@ formulation and client services remain required, and the combined goals/schedule
 acceptance criterion stays open. Hosted validation of this increment is pending.
 The plan now also records researched fork/rewind/workspace ownership and explicit
 restore semantics; those design entries are not implementation claims.
+
+
+## Captured goal execution and completion settlement
+
+Goal execution is integrated as `014956444` from isolated commit `8a8e26dfd`.
+Ordinary turns capture the eligible armed goal; maintenance compaction does not.
+Stale or disabled goal-owned queued inputs are cancelled in a committed cleanup,
+so they cannot block work behind them. The runner reads immutable goal context
+once and freezes it across correction and compaction. Helpers receive none.
+
+Finish atomically records success and either applies an exact authorized
+completion intent or admits one continuation with its durable count/revision.
+A savepoint permits semantic admission-limit rejection to pause continuation
+without losing terminal turn/accounting evidence; actual SQL faults roll back
+for SQL-only retry. An outstanding goal input suppresses duplicates. Failed,
+interrupted, cancelled, uncertain or invalid-output execution pauses the captured
+goal; resume never resets the allowance. A start=false goal already captured by
+an ordinary turn cannot receive another zero-allowance initial run.
+
+Typed completion uses the ordinary operation permission/dispatch/settlement
+transaction. Goal completion waits for successful, valid final output and the
+unchanged goal, and stores only links to the successful operation and turn.
+One-use permission, delegated issuer revocation, exact goal binding, rollback,
+replacement/cancellation timing and recovery are covered. No extra intent table
+or text-completion heuristic is introduced.
+
+The isolated slice passed full session/store/runner/protocol race/shuffle and vet
+(store 111.5s); final goal/output refinements passed their targeted race suite
+(17.6s), fast/analysis, generated interop/drift and SDK checks. Integrated
+`task check:fast`, `task contract`, `task sdk`, and `task check:fixture` passed;
+the v4 SDK fixture took 15.487s and the retained crash fixture 3.875s. Integrated
+`task check:analysis` reported zero lint issues and no reachable vulnerabilities
+(`/tmp/whip-goal-turns-analysis.log`). The focused and affected-package race
+results plus integrated checks precede the full hosted phase gate; this entry
+does not claim a second local full-phase race run for identical sources.
+
+Fresh config remains 8, schema is 28 and protocol development major remains 4.
+Runtime/guest/RPC/SDK goal controls and formulation remain pending. Hosted
+validation of this increment is pending. Subscription core revision `bd5182e21`
+has now passed Linux, macOS, analysis and the aggregate gate in
+[run 36474934637](https://github.com/context-labs/whip/actions/runs/36474934637).
