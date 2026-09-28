@@ -268,6 +268,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await stage('standing instructions', () => standingInstructionAcceptance(runtime, client, createParams, evidence));
     await stage('project ancestor instructions', () => projectInstructionAcceptance(runtime, client, createParams, evidence));
     await stage('engines', () => engineAcceptance(runtime, client, createParams, evidence));
+    await stage('history rewind', () => rewindAcceptance(runtime, client, createParams, evidence));
     await stage('operations', () => operationAcceptance(runtime, client, createParams, evidence));
     await stage('streaming', () => streamAcceptance(runtime, client, createParams, evidence));
   } catch (error) {
@@ -2727,5 +2728,111 @@ async function accountAcceptance(runtime, client, evidence) {
     await rm(credentialsPath, { recursive: true, force: true });
     await rm(backupPath, { force: true });
     if (!fixtureAbort.signal.aborted) await runtime.start();
+  }
+}
+
+
+async function rewindAcceptance(runtime, client, createParams, evidence) {
+  const requests = [];
+  const server = http.createServer(async (request, response) => {
+    let raw = ''; for await (const chunk of request) raw += chunk;
+    const body = JSON.parse(raw); requests.push(body);
+    const last = body.messages.at(-1);
+    const prompt = body.messages.findLast(item => item.role === 'user').content;
+    const [, engine, , action] = prompt.split(':');
+    let message;
+    if (last.role === 'tool') message = { role: 'assistant', content: last.content };
+    else {
+      const code = engine === 'starlark'
+        ? ({ seed: 'x = 41\nprint(x)', increment: 'x += 1\nprint(x)', probe: 'print(x)', fresh: 'x = 7\nprint(x)' })[action]
+        : ({ seed: 'var x = 41; console.log(x)', increment: 'x += 1; console.log(x)', probe: 'console.log(x)', fresh: 'var x = 7; console.log(x)' })[action];
+      assert.ok(code, `unknown rewind action: ${prompt}`);
+      message = { role: 'assistant', content: null, tool_calls: [{ id: 'rewind-call', type: 'function', function: { name: 'execute', arguments: JSON.stringify({ code }) } }] };
+    }
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify({ choices: [{ message, finish_reason: last.role === 'tool' ? 'stop' : 'tool_calls' }], usage: { prompt_tokens: 12, completion_tokens: 4, cost: 0 } }));
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  let closeProxy;
+  try {
+    await runtime.stop();
+    const path = join(runtime.directory, 'state', 'host.json');
+    const host = JSON.parse(await readFile(path, 'utf8'));
+    host.providers.rewind = {
+      kind: 'openai-chat', base_url: `http://127.0.0.1:${server.address().port}/v1`, credential_env: '',
+      models: { rewind: { max_output_tokens: 500, timeout_millis: 30000, max_attempts: 1 } },
+    };
+    await writeFile(path, JSON.stringify(host), { mode: 0o600 });
+    await runtime.start(null);
+    for (const engine of ['starlark', 'quickjs']) for (const kind of ['root', 'child']) {
+      const prefix = `rewind:${engine}:${kind}`;
+      const { root } = await client.call('trees.create', { ...createParams, engine, overrides: { model: { provider: 'rewind', name: 'rewind', effort: '' } } }, deadline());
+      let owner = root;
+      const seed = `${prefix}:seed`;
+      if (kind === 'child') {
+        const child = await client.spawn({ parent_id: root.id, parts: [{ type: 'text', text: seed }], overrides: { report_mode: 'message' }, grant_ids: [] }, seed, deadline());
+        owner = child.session;
+        await client.call('sessions.lifecycle', { session_id: root.id, lifecycle: 'stopped' }, deadline());
+      } else await client.submit(owner.id, [{ type: 'text', text: seed }], seed, deadline());
+      assert.equal((await client.wait(seed, deadline())).turn.state, 'succeeded');
+      const history = (extra = {}) => client.call('sessions.history', { session_id: owner.id, after: '0', limit: 100, ...extra }, deadline());
+      const first = await history();
+      assert.equal(first.snapshot.revision, '1'); assert.equal(first.snapshot.through_sequence, '4');
+      assert.ok(first.items.every(item => item.group_id === first.items[0].turn_id && item.source === null));
+      assert.deepEqual(first.items.map(item => item.opening_input), [true, false, false, false]);
+      const run = async (action, requestID = `${prefix}:${action}`) => {
+        await client.submit(owner.id, [{ type: 'text', text: `${prefix}:${action}` }], requestID, deadline());
+        const result = await client.wait(requestID, deadline());
+        assert.equal(result.turn.state, 'succeeded');
+        return result;
+      };
+      await run('increment');
+      const before = await history();
+      const stopped = () => client.call('sessions.lifecycle', { session_id: owner.id, lifecycle: 'stopped' }, deadline());
+      const active = () => client.call('sessions.lifecycle', { session_id: owner.id, lifecycle: 'active' }, deadline());
+      await stopped();
+      const request = { session_id: owner.id, expected_revision: before.snapshot.revision, observed_through: before.snapshot.through_sequence, keep_through: first.snapshot.through_sequence };
+      await assert.rejects(client.rewind({ ...request, observed_through: first.snapshot.through_sequence }, `${prefix}:unseen-tail`, deadline()), error => error instanceof RemoteError && error.kind === 'CONFLICT');
+      await assert.rejects(client.rewind({ ...request, keep_through: '3' }, `${prefix}:split`, deadline()), error => error instanceof RemoteError && error.kind === 'INVALID');
+      const editID = `${prefix}:edit`;
+      const proxy = join(runtime.directory, `rewind-${engine}-${kind}.sock`);
+      let dropped;
+      closeProxy = await dropAcknowledgement(proxy, runtime.info.socket, editID, value => { dropped = value; }, response => response.result?.id === editID);
+      const unreliable = await Client.connect(unixSocket(proxy), { clientID: client.clientID, expectedRuntimeID: client.runtimeID, ...deadline() });
+      await assert.rejects(unreliable.rewind(request, editID, deadline()), DeliveryError);
+      assert.equal(dropped?.revision, '2');
+      await closeProxy(); closeProxy = undefined;
+      await runtime.stop('SIGKILL'); await runtime.start(null);
+      assert.deepEqual(await client.rewind(request, editID, deadline()), dropped);
+      const after = await history();
+      assert.equal(after.snapshot.revision, '2'); assert.deepEqual(after.items, first.items);
+      await assert.rejects(history({ expected_revision: '1' }), error => error instanceof RemoteError && error.kind === 'CONFLICT');
+      await assert.rejects(client.call('context.list', { session_id: owner.id, after: '0', through_sequence: '8', expected_revision: '1', limit: 100 }, deadline()), error => error instanceof RemoteError && error.kind === 'CONFLICT');
+      await assert.rejects(client.rewind({ ...request, keep_through: '0' }, editID, deadline()), error => error instanceof RemoteError && error.kind === 'CONFLICT');
+      const retired = await client.call('context.read', { session_id: owner.id, message_id: before.items.at(-1).id, offset: '0', length: 65536 }, deadline());
+      assert.equal(retired.message.retired_by, editID); assert.equal(retired.message.retired_revision, '2');
+      const observation = client.observe(owner.id, { after: '8', expectedRevision: '1', ...deadline() });
+      const reset = await observation.next();
+      assert.equal(reset.value.snapshot.revision, '2'); assert.deepEqual(reset.value.messages, first.items);
+      await observation.return();
+      await active();
+      const probe = await run('probe');
+      assert.equal(probe.turn.history_revision, '2');
+      const cells = await client.call('turns.cells', { turn_id: probe.turn.id, limit: 100 }, deadline());
+      assert.equal(cells.items[0].state, 'failed', 'rewind must start an empty REPL even though seed history remains');
+      const probed = await history();
+      assert.equal(probed.items[4].sequence, '9', 'retired sequences cannot be reused');
+      await run('fresh');
+      assert.deepEqual(await client.rewind(request, editID, deadline()), dropped, 'old acknowledgement survives new active lifecycle');
+      await run('increment', `${prefix}:increment-after-retry`);
+      const final = await history();
+      assert.equal(JSON.parse(final.items.at(-1).parts[0].text).result.output, '8\n', 'exact edit retry cannot reset the new REPL');
+      await stopped();
+      evidence.push({ rewind: { engine, kind, first, before, edit: dropped, after, retired, probe, final } });
+    }
+  } finally {
+    await closeProxy?.();
+    server.closeAllConnections();
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   }
 }

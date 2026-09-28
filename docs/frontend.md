@@ -251,6 +251,23 @@ successfully billed provider attempt. Show those distinct outcomes rather than
 inferring activation from the turn or attempt status. Preserve nullable
 `origin_formulation_attempt_id` on goal records; clients own no formulation cache.
 
+The v4 history API returns each bounded page with its atomic history snapshot.
+Keep `snapshot.revision` with cursors and pass `expected_revision` to subsequent
+history, metadata and search reads. Rewind retires a suffix and advances that
+revision; ordinary appends advance only the sequence. SDK observation owns cursor
+reset on revision conflict. A consumer replaces its history and provisional
+preview when the emitted revision changes, including an empty replacement page.
+Do not implement another app reconciliation loop or infer local execution from
+imported message provenance: `turn_id` can be null while `group_id` and
+`opening_input` still identify a complete exchange.
+
+Rewind is an explicit stable-ID mutation after stopping execution and resolving
+queued inputs. Preserve its exact snapshot/boundary for uncertain retries. The
+returned edit is immutable acknowledgement, not current state. Every new edit
+resets the REPL; repeated acknowledgements do not. Independent state, mail, goals,
+spend and external files remain retained. Product history-action adoption and
+separate workspace restoration remain open.
+
 The v4 host account API is separate from session execution. Use the SDK's
 `beginOpenAILogin`, `getOpenAILogin`, `listOpenAILogins`, `cancelOpenAILogin`,
 `openAIAccountStatus`, `setupOpenAIAccount` and `logoutOpenAIAccount` methods.

@@ -383,7 +383,15 @@ Maintain one compact table here as families are addressed:
 | Goals and schedules | Ordinary durable input admission; continuation/cursor state has one owner | Schedule store/runtime/guest/RPC/SDK and restart coverage implemented. Goal records, public controls, captured turns, atomic continuation and authorized completion settlement and durable formulation implemented; product-client adoption remains | 5 in progress |
 | Provider accounts and discovery | Host-owned credentials and setup flows, account-scoped catalogs, exact pricing and explicit defaults | ChatGPT manager, host-owned login flows, revisioned setup, public RPC/SDK and joined cancellation implemented; API credential sources, Inference.net team/project/key lifecycle, catalogs, readiness and product clients remain | 5–6 in progress |
 | Conversation titles | Preserve explicit titles and automatic title generation without mixing helper output into history | Tree metadata supports explicit titles; retained automatic-title admission and model helper behavior still need replacement evidence | 5 pending |
-| Integrations and product features | Preserve capability outcomes; inspect existing regression scenarios | Pending | 5 |
+| Fork/rewind/workspace | Revision/tail CAS, recoverable identities, scoped imports, empty REPL, separate uncertain workspace effects | History/rewind checkpoints and public rewind integrated; local phase/analysis gates pass, hosted validation pending. Fork and workspace restore remain | 5 in progress |
+| Definition modules and executors | Captured declarations, connection-bound handlers, schema validation and child authority | Retained `daemon/definition_test.go`, `tools_test.go`, agents SDK/examples; replacement pending | 5 |
+| Required/optional hooks | Validated bounded rewrites and explicit disconnect/failure behavior | Retained `daemon/hooks_test.go`; replacement pending | 5 |
+| Human questions and permission modes | Questions/dismissal/cancellation, durable pending snapshots, saved Ask/Full Access semantics | Retained `daemon/question_test.go`, `question_snapshot_test.go`, legacy permission-mode tests; operation approvals alone are insufficient | 5 |
+| Workspace files and language services | List/search/read/write/patch, path revalidation and mutation ordering | Read/write/patch replaced; retained `tools` file/LSP tests remain obligations | 5 in progress |
+| Agent shell and human terminals | Background jobs and PTYs have separate ownership, bounded output, detach/replay and joined shutdown | Retained `tools/jobs*_test.go`, `tools/bashrun`, `terminal` and `daemon/terminal_rpc_test.go`; new-core wiring pending | 5 |
+| MCP | Configuration/import trust, bounded discovery, delegated catalogs, refresh/reconnect without unrelated state loss | Retained `mcp` and daemon MCP reload/refresh/recursive tests; new-core wiring pending | 5 |
+| Browser/computer/native helper | Human resource ownership separate from revocable agent access; no reconnect replay | Retained daemon browser-provider, tools browser-boundary and computer tests; new-core wiring pending | 5 |
+| Host/gateway trust | Socket execution owner, Host/Origin validation, network restrictions and scoped content | Retained `webgateway` tests; new-core contract/relay adoption pending | 5–6 |
 | All client surfaces | Correct submission, observation, recovery and resource cleanup | New SDK/socket fixture passes; product clients remain on the retained implementation | 2 complete; 6 pending |
 | Old schemas/protocol/scratch compatibility | Retired by fresh-start scope | Delete with corresponding implementation | 1 through 7 |
 
@@ -705,7 +713,8 @@ same helper attempt loop, atomic billing/candidate/activation settlement, bounde
 captured raw source, public maintenance receipts and immutable candidate reads.
 The SDK process scenario covers root/child ownership, lost acknowledgements,
 rejected activation, automatic initial input and dispatched crash recovery.
-Hosted formulation validation and product-client adoption remain open.
+Hosted formulation validation passed at `c47fefe96` in run `36484832748`;
+product-client adoption remains open.
 
 Stateless model-helper implementation decisions:
 
@@ -763,7 +772,7 @@ ancestor overages, reversed completion order, cancellation, restart, content
 ownership and publication failure. Real SDK/process acceptance covers roots and
 children, retries, positional failures and a SIGKILL after one batch item settles;
 restart retains billing and does not replay the batch. Hosted validation of this
-integrated increment remains pending.
+integrated increment passed at `b2a5be867` in run `36483835552`.
 
 
 Automatic-title implementation decisions (work remains open):
@@ -885,8 +894,8 @@ Acceptance:
       both-engine ownership coverage. Goals use the same durable admission path,
       captured turn ownership, continuation settlement and restart behavior;
       formulation uses ordinary maintenance receipts. Store/runtime/RPC/SDK and
-      full local phase acceptance pass. Hosted formulation validation remains
-      pending; product-client adoption belongs to phase 6.
+      full local phase acceptance pass. Hosted formulation validation passed in run `36484832748`;
+      product-client adoption belongs to phase 6.
 - [ ] Integration reloads/model changes preserve unrelated children, grants,
       REPL and resource ownership.
 - [ ] Executor disconnect, required/optional hooks, tool schemas and output

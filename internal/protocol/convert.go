@@ -70,8 +70,9 @@ func TurnFromDomain(value session.Turn) Turn {
 		goal = &GoalRef{ID: ID(value.Goal.ID), Revision: Counter(value.Goal.Revision)}
 	}
 	return Turn{
-		Goal: goal,
-		ID:   ID(value.ID), SessionID: ID(value.SessionID), Kind: string(value.Kind), ConfigRevision: Counter(value.ConfigRevision), State: string(value.State),
+		Goal: goal, HistoryRevision: Counter(value.HistoryRevision),
+		ID: ID(value.ID), SessionID: ID(value.SessionID), Kind: string(value.Kind),
+		ConfigRevision: Counter(value.ConfigRevision), State: string(value.State),
 		Failure: value.Failure, StartedAt: value.StartedAt.Format(time.RFC3339Nano), FinishedAt: timeString(value.FinishedAt),
 	}
 }
@@ -185,7 +186,9 @@ func SessionFromDomain(value session.Session) (Session, error) {
 	}
 	result := Session{
 		ID: ID(value.ID), TreeID: ID(value.TreeID), Definition: DefinitionRef{ID: ID(value.Definition.ID), Revision: value.Definition.Revision},
-		ConfigRevision: Counter(value.ConfigRevision), Configuration: configuration, WorkingDirectory: value.WorkingDirectory, Lifecycle: string(value.Lifecycle), CreatedAt: value.CreatedAt.Format(time.RFC3339Nano),
+		HistoryRevision: Counter(value.HistoryRevision), ConfigRevision: Counter(value.ConfigRevision),
+		Configuration: configuration, WorkingDirectory: value.WorkingDirectory,
+		Lifecycle: string(value.Lifecycle), CreatedAt: value.CreatedAt.Format(time.RFC3339Nano),
 	}
 	if value.ParentID != nil {
 		id := ID(*value.ParentID)
@@ -199,7 +202,13 @@ func MessageFromDomain(value session.Message) Message {
 	for i, part := range value.Parts {
 		parts[i] = PartFromDomain(part)
 	}
-	result := Message{ID: ID(value.ID), SessionID: ID(value.SessionID), TurnID: ID(value.TurnID), Sequence: Counter(value.Sequence), Role: string(value.Role), Parts: parts, CreatedAt: value.CreatedAt.Format(time.RFC3339Nano)}
+	result := Message{
+		GroupID: ID(value.GroupID), OpeningInput: value.OpeningInput, Source: messageSource(value.Source),
+		RetiredBy: historyEditID(value.RetiredBy), RetiredRevision: historyRevision(value.RetiredRevision),
+		ID: ID(value.ID), SessionID: ID(value.SessionID), TurnID: localID(string(value.TurnID)),
+		Sequence: Counter(value.Sequence), Role: string(value.Role), Parts: parts,
+		CreatedAt: value.CreatedAt.Format(time.RFC3339Nano),
+	}
 	if value.InputID != nil {
 		id := ID(*value.InputID)
 		result.InputID = &id

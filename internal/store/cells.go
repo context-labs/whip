@@ -62,11 +62,33 @@ func (s *Store) Cells(ctx context.Context, turn session.TurnID, after session.Ce
 	return result, rows.Err()
 }
 
-// LatestCell is the authoritative REPL boundary, including unavailable and
-// uncertain boundaries. Selecting the latest usable checkpoint instead would
-// silently forget execution that happened after that checkpoint.
+// LatestCell is the current history revision's REPL boundary, including
+// unavailable and uncertain boundaries. Rewind explicitly starts a fresh REPL;
+// exact Cell and Cells reads retain all prior execution evidence.
 func (s *Store) LatestCell(ctx context.Context, id session.SessionID) (*session.Cell, error) {
-	cell, err := scanCell(s.db.QueryRowContext(ctx, cellSelect+" WHERE t.session_id=? ORDER BY c.ordinal DESC LIMIT 1", id))
+	return s.checkpointCell(ctx, id, nil)
+}
+
+// CheckpointCell refuses stale cache loaders even if the current revision has no
+// cells. Selecting an older usable image would silently resurrect retired state.
+func (s *Store) CheckpointCell(ctx context.Context, id session.SessionID, revision session.Revision) (*session.Cell, error) {
+	return s.checkpointCell(ctx, id, &revision)
+}
+
+func (s *Store) checkpointCell(ctx context.Context, id session.SessionID, expected *session.Revision) (*session.Cell, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var revision session.Revision
+	if err := tx.QueryRowContext(ctx, "SELECT history_revision FROM sessions WHERE id=?", id).Scan(&revision); err != nil {
+		return nil, found(err)
+	}
+	if expected != nil && *expected != revision {
+		return nil, fmt.Errorf("%w: REPL history revision changed", ErrConflict)
+	}
+	cell, err := scanCell(tx.QueryRowContext(ctx, cellSelect+" WHERE t.session_id=? AND t.history_revision=? ORDER BY c.ordinal DESC LIMIT 1", id, revision))
 	if errors.Is(err, ErrNotFound) {
 		return nil, nil //nolint:nilnil // No prior cell is a valid empty REPL boundary, distinct from a cell with a missing checkpoint.
 	}

@@ -45,7 +45,7 @@ func TestMessageSchemasEnforceToolRoleOwnership(t *testing.T) {
 		{"tool", []Part{result, result}, false},
 		{"tool", []Part{{Type: "text", Text: "unstructured"}}, false},
 	} {
-		value := HistoryResult{Items: []Message{{ID: "message", SessionID: "session", TurnID: "turn", Sequence: 1, Role: tc.role, Parts: tc.parts, CreatedAt: "2026-09-27T00:00:00Z"}}}
+		value := HistoryResult{Snapshot: HistorySnapshot{SessionID: "session", Revision: 1, ThroughSequence: 1, MessageCount: 1}, Items: []Message{{ID: "message", SessionID: "session", GroupID: "turn", TurnID: new(ID("turn")), Sequence: 1, Role: tc.role, Parts: tc.parts, CreatedAt: "2026-09-27T00:00:00Z"}}}
 		raw, err := json.Marshal(value)
 		if err != nil {
 			t.Fatal(err)

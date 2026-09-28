@@ -34,6 +34,37 @@ Aborting the wait only stops observation; `inputs.cancel` or `turns.cancel`
 explicitly cancels execution. History uses bounded pages and exact decimal-string
 cursors. The client keeps no transcript cache or second execution state machine.
 
+`sessions.history` returns `items` and an atomic `snapshot` containing
+`revision`, `through_sequence` and `message_count`. Keep that revision with the
+sequence cursor and pass `expected_revision` on later history/metadata/search
+pages. A rewind returns `CONFLICT` for earlier revisions; appends keep the revision
+and advance sequences. `context.snapshot` returns the same boundary fields.
+Message `group_id` and `opening_input` describe whole conversation exchanges;
+nullable execution IDs and `source` distinguish copied history from local work.
+
+To rewind, stop the session explicitly, wait for active cancellation to settle,
+and cancel any unclaimed inputs. Obtain a fresh snapshot and select zero or the
+last sequence of a whole terminal group. Keep the edit ID and exact request before
+sending:
+
+```ts
+const snapshot = await client.call('context.snapshot', { session_id: sessionID });
+const edit = await client.rewind({
+  session_id: sessionID,
+  expected_revision: snapshot.revision,
+  observed_through: snapshot.through_sequence,
+  keep_through: selectedGroupEnd,
+}, editID);
+```
+
+An uncertain delivery retries this same ID and payload. The response is the
+original immutable edit, even after later execution; it is not a current history
+snapshot. Changed payload reuse conflicts. Every new edit resets the REPL,
+including keeping all messages. An exact retry never resets it again. Rewind
+retains exact old execution evidence, independent mail/goals/state/spend and
+external files. It does not restore a workspace. Active history hides the suffix,
+and later messages never reuse its sequences.
+
 `turns.attempts` reads bounded provider accounting with exact decimal counters.
 Retries have separate attempt IDs, a shared logical-call ID, and a link to the
 completed response. Unknown usage/cost is `null`, independently of known zero.
@@ -175,7 +206,7 @@ Do not interpret an interrupted turn or a failed connection as proof that a writ
 did not happen. Permission approval after cancellation returns `CONFLICT`.
 
 
-`client.observe(sessionID, {after?: '0', signal?})` yields bounded committed pages
+`client.observe(sessionID, {after?: '0', expectedRevision?, signal?})` yields bounded committed pages
 and a disposable preview. The underlying `sessions.observe` result contains
 `messages`, nullable `preview`, and the current process `epoch`. Each preview has
 an attempt ID, eventual `message_id`, revision, text, reasoning, incomplete call
@@ -184,7 +215,11 @@ Reasoning is provisional display only; it is absent from durable history and
 later provider context. Never execute preview arguments. Upsert committed messages
 by ID; a matching committed ID replaces the preview. Clear provisional display
 when the preview is null or the epoch changes. Aborting this iterator stops
-observation only. It retains a cursor, not a transcript cache.
+observation only. It retains a cursor and revision, not a transcript cache.
+Resuming with a nonzero cursor requires `expectedRevision`. On a revision
+conflict the iterator restarts at zero and emits the replacement snapshot,
+including empty history. Replace all displayed history and previews when its
+`snapshot.revision` changes; upserting alone cannot remove retired rows.
 
 
 `client.spawn({parent_id, parts, overrides: {}, grant_ids: null}, requestID)`

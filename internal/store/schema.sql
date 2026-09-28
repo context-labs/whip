@@ -18,6 +18,7 @@ CREATE TABLE sessions (
  parent_id TEXT, definition_id TEXT NOT NULL, definition_revision TEXT NOT NULL,
  config_revision INTEGER NOT NULL CHECK(config_revision > 0), working_directory TEXT NOT NULL,
  lifecycle TEXT NOT NULL CHECK(lifecycle IN ('active','stopped')), created_at INTEGER NOT NULL,
+ history_revision INTEGER NOT NULL DEFAULT 1 CHECK(history_revision>0),
  UNIQUE(id,tree_id), CHECK(parent_id IS NULL OR parent_id <> id),
  FOREIGN KEY(parent_id,tree_id) REFERENCES sessions(id,tree_id) ON DELETE CASCADE,
  FOREIGN KEY(definition_id,definition_revision) REFERENCES definition_revisions(id,revision),
@@ -34,6 +35,11 @@ CREATE TRIGGER session_identity_immutable BEFORE UPDATE ON sessions
  OR NEW.definition_id IS NOT OLD.definition_id OR NEW.definition_revision IS NOT OLD.definition_revision
  OR NEW.working_directory IS NOT OLD.working_directory OR NEW.created_at IS NOT OLD.created_at
  BEGIN SELECT RAISE(ABORT, 'session identity is immutable'); END;
+CREATE TRIGGER history_revision_transition BEFORE UPDATE OF history_revision ON sessions
+ WHEN NEW.history_revision IS NOT OLD.history_revision AND
+ (NEW.history_revision<>OLD.history_revision+1 OR NOT EXISTS(
+  SELECT 1 FROM history_edits WHERE session_id=OLD.id AND expected_revision=OLD.history_revision AND revision=NEW.history_revision))
+ BEGIN SELECT RAISE(ABORT, 'history revision requires an exact edit'); END;
 
 CREATE TABLE session_configurations (
  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -60,7 +66,7 @@ CREATE TRIGGER content_reference_immutable BEFORE UPDATE ON content_references
 
 CREATE TABLE turns (
  id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
- config_revision INTEGER NOT NULL, state TEXT NOT NULL
+ config_revision INTEGER NOT NULL, history_revision INTEGER NOT NULL CHECK(history_revision>0), state TEXT NOT NULL
  CHECK(state IN ('running','cancelling','succeeded','failed','cancelled','interrupted')),
  failure TEXT, started_at INTEGER NOT NULL, finished_at INTEGER,
  goal_id TEXT, goal_revision INTEGER,
@@ -75,9 +81,13 @@ CREATE TABLE turns (
 CREATE INDEX goal_turns ON turns(goal_id,id) WHERE goal_id IS NOT NULL;
 CREATE INDEX turns_by_session_start ON turns(session_id,started_at DESC);
 CREATE UNIQUE INDEX one_active_turn ON turns(session_id) WHERE state IN ('running','cancelling');
+CREATE TRIGGER turn_history_snapshot BEFORE INSERT ON turns
+ WHEN NOT EXISTS(SELECT 1 FROM sessions WHERE id=NEW.session_id AND history_revision=NEW.history_revision)
+ BEGIN SELECT RAISE(ABORT, 'turn must capture current history revision'); END;
 CREATE TRIGGER turn_transition BEFORE UPDATE ON turns
  WHEN NEW.id IS NOT OLD.id OR NEW.session_id IS NOT OLD.session_id
  OR NEW.config_revision IS NOT OLD.config_revision OR NEW.started_at IS NOT OLD.started_at
+ OR NEW.history_revision IS NOT OLD.history_revision
  OR NEW.goal_id IS NOT OLD.goal_id OR NEW.goal_revision IS NOT OLD.goal_revision
  OR OLD.state NOT IN ('running','cancelling')
  OR (OLD.state='cancelling' AND NEW.state NOT IN ('cancelled','interrupted'))
@@ -272,9 +282,35 @@ CREATE TABLE turn_mail_observations (
 CREATE TRIGGER mail_observation_immutable BEFORE UPDATE ON turn_mail_observations
  WHEN NEW.turn_id IS NOT OLD.turn_id OR NEW.mail_id IS NOT OLD.mail_id OR NEW.revision IS NOT OLD.revision OR NEW.presented<OLD.presented
  BEGIN SELECT RAISE(ABORT, 'invalid mail observation'); END;
+CREATE TABLE history_groups (
+ id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+ turn_id TEXT UNIQUE, source_session_id TEXT, source_group_id TEXT,
+ created_at INTEGER NOT NULL, UNIQUE(id,session_id),
+ CHECK((source_session_id IS NULL)=(source_group_id IS NULL)),
+ CHECK((turn_id IS NULL)=(source_session_id IS NOT NULL)),
+ CHECK(turn_id IS NULL OR id=turn_id),
+ FOREIGN KEY(turn_id,session_id) REFERENCES turns(id,session_id) ON DELETE CASCADE
+) STRICT;
+CREATE TRIGGER history_group_immutable BEFORE UPDATE ON history_groups
+ BEGIN SELECT RAISE(ABORT, 'history group is immutable'); END;
+CREATE TABLE history_edits (
+ id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+ digest TEXT NOT NULL CHECK(length(digest)=64 AND digest NOT GLOB '*[^0-9a-f]*'),
+ expected_revision INTEGER NOT NULL CHECK(expected_revision>0),
+ revision INTEGER NOT NULL CHECK(revision=expected_revision+1),
+ observed_through INTEGER NOT NULL CHECK(observed_through>=0),
+ keep_through INTEGER NOT NULL CHECK(keep_through BETWEEN 0 AND observed_through),
+ created_at INTEGER NOT NULL,
+ UNIQUE(session_id,revision), UNIQUE(id,session_id,revision)
+) STRICT;
+CREATE TRIGGER history_edit_immutable BEFORE UPDATE ON history_edits
+ BEGIN SELECT RAISE(ABORT, 'history edit is immutable'); END;
 CREATE TABLE messages (
  id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
- turn_id TEXT NOT NULL, sequence INTEGER NOT NULL CHECK(sequence > 0),
+ turn_id TEXT, group_id TEXT NOT NULL, sequence INTEGER NOT NULL CHECK(sequence > 0),
+ opening_input INTEGER NOT NULL DEFAULT 0 CHECK(opening_input IN (0,1)),
+ source_session_id TEXT, source_message_id TEXT, source_sequence INTEGER,
+ retired_by TEXT, retired_revision INTEGER,
  role TEXT NOT NULL CHECK(role IN ('system','user','assistant','tool')),
  input_id TEXT, parts TEXT CHECK(parts IS NULL OR json_valid(parts)), created_at INTEGER NOT NULL,
  model_continuation TEXT CHECK(model_continuation IS NULL OR
@@ -283,14 +319,45 @@ CREATE TABLE messages (
  UNIQUE(session_id,sequence), UNIQUE(input_id), UNIQUE(id,turn_id),
  CHECK((input_id IS NOT NULL)+(parts IS NOT NULL)+(mail_id IS NOT NULL)=1),
  CHECK((mail_id IS NULL)=(mail_revision IS NULL)), CHECK((mail_id IS NULL)=(mail_presentation IS NULL)),
- CHECK((role='user') = (input_id IS NOT NULL OR mail_id IS NOT NULL)),
+ CHECK((source_session_id IS NULL)=(source_message_id IS NULL)),
+ CHECK((source_session_id IS NULL)=(source_sequence IS NULL)),
+ CHECK(source_sequence IS NULL OR source_sequence>0),
+ CHECK((turn_id IS NULL)=(source_session_id IS NOT NULL)),
+ CHECK(source_session_id IS NULL OR (parts IS NOT NULL AND input_id IS NULL AND mail_id IS NULL)),
+ CHECK(source_session_id IS NOT NULL OR (role='user')=(input_id IS NOT NULL OR mail_id IS NOT NULL)),
+ CHECK(source_session_id IS NOT NULL OR opening_input=(input_id IS NOT NULL)),
+ CHECK(opening_input=0 OR role='user'),
+ CHECK((retired_by IS NULL)=(retired_revision IS NULL)),
+ FOREIGN KEY(group_id,session_id) REFERENCES history_groups(id,session_id) ON DELETE CASCADE,
+ FOREIGN KEY(retired_by,session_id,retired_revision) REFERENCES history_edits(id,session_id,revision),
  FOREIGN KEY(mail_id,mail_revision) REFERENCES mail_revisions(mail_id,revision) ON DELETE CASCADE,
  FOREIGN KEY(turn_id,session_id) REFERENCES turns(id,session_id) ON DELETE CASCADE,
  FOREIGN KEY(input_id,turn_id,session_id) REFERENCES inputs(id,turn_id,session_id) ON DELETE CASCADE
 ) STRICT;
 CREATE INDEX message_turn_role_sequence ON messages(turn_id,role,sequence DESC);
+CREATE INDEX message_group_sequence ON messages(group_id,sequence);
+CREATE INDEX active_history_sequence ON messages(session_id,sequence) WHERE retired_revision IS NULL;
+CREATE INDEX message_retirement ON messages(retired_by,session_id,retired_revision) WHERE retired_by IS NOT NULL;
+CREATE INDEX message_retired_coverage ON messages(session_id,retired_revision,sequence) WHERE retired_revision IS NOT NULL;
+CREATE UNIQUE INDEX group_opening_input ON messages(group_id) WHERE opening_input=1;
+CREATE TRIGGER message_group_owner BEFORE INSERT ON messages
+ WHEN NEW.retired_by IS NOT NULL
+ OR NOT EXISTS(SELECT 1 FROM history_groups WHERE id=NEW.group_id AND session_id=NEW.session_id AND turn_id IS NEW.turn_id)
+ OR (NEW.turn_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM turns t JOIN sessions s ON s.id=t.session_id
+  WHERE t.id=NEW.turn_id AND t.history_revision=s.history_revision))
+ BEGIN SELECT RAISE(ABORT, 'message must belong to its history group'); END;
 CREATE TRIGGER message_immutable BEFORE UPDATE ON messages
- BEGIN SELECT RAISE(ABORT, 'transcript entry is immutable'); END;
+ WHEN OLD.retired_by IS NOT NULL OR NEW.retired_by IS NULL
+ OR NEW.id IS NOT OLD.id OR NEW.session_id IS NOT OLD.session_id OR NEW.turn_id IS NOT OLD.turn_id
+ OR NEW.group_id IS NOT OLD.group_id OR NEW.sequence IS NOT OLD.sequence OR NEW.role IS NOT OLD.role
+ OR NEW.opening_input IS NOT OLD.opening_input OR NEW.source_session_id IS NOT OLD.source_session_id
+ OR NEW.source_message_id IS NOT OLD.source_message_id OR NEW.source_sequence IS NOT OLD.source_sequence
+ OR NEW.input_id IS NOT OLD.input_id OR NEW.parts IS NOT OLD.parts OR NEW.created_at IS NOT OLD.created_at
+ OR NEW.model_continuation IS NOT OLD.model_continuation OR NEW.mail_id IS NOT OLD.mail_id
+ OR NEW.mail_revision IS NOT OLD.mail_revision OR NEW.mail_presentation IS NOT OLD.mail_presentation
+ OR NOT EXISTS(SELECT 1 FROM history_edits e JOIN sessions s ON s.id=e.session_id WHERE e.id=NEW.retired_by AND e.session_id=NEW.session_id
+  AND e.revision=NEW.retired_revision AND s.history_revision=e.revision AND NEW.sequence>e.keep_through AND NEW.sequence<=e.observed_through)
+ BEGIN SELECT RAISE(ABORT, 'transcript entry only permits exact retirement'); END;
 
 CREATE TABLE cells (
  ordinal INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
@@ -419,8 +486,10 @@ CREATE TRIGGER attempt_transition BEFORE UPDATE ON model_attempts
 CREATE TABLE compactions (
  id TEXT PRIMARY KEY,
  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
- turn_id TEXT NOT NULL,
- attempt_id TEXT NOT NULL UNIQUE,
+ turn_id TEXT,
+ attempt_id TEXT UNIQUE,
+ history_revision INTEGER NOT NULL CHECK(history_revision>0),
+ source_session_id TEXT, source_compaction_id TEXT,
  base_id TEXT,
  expected_revision INTEGER NOT NULL CHECK(expected_revision >= 0),
  through_sequence INTEGER NOT NULL CHECK(through_sequence > 0),
@@ -429,6 +498,9 @@ CREATE TABLE compactions (
  created_at INTEGER NOT NULL,
  UNIQUE(id,session_id),
  CHECK(base_id IS NULL OR base_id<>id),
+ CHECK((source_session_id IS NULL)=(source_compaction_id IS NULL)),
+ CHECK((turn_id IS NULL)=(source_session_id IS NOT NULL)),
+ CHECK((attempt_id IS NULL)=(source_session_id IS NOT NULL)),
  FOREIGN KEY(turn_id,session_id) REFERENCES turns(id,session_id) ON DELETE CASCADE,
  FOREIGN KEY(attempt_id,turn_id) REFERENCES model_attempts(id,turn_id) ON DELETE CASCADE,
  FOREIGN KEY(base_id,session_id) REFERENCES compactions(id,session_id) DEFERRABLE INITIALLY DEFERRED

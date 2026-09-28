@@ -233,15 +233,24 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, accounts *account.Service
 		})
 	case "sessions.history":
 		return decode(raw, func(p protocol.HistoryParams) (any, error) {
-			values, err := r.History(ctx, session.SessionID(p.SessionID), int64(p.After), p.Limit)
+			snapshot, values, err := r.HistoryPage(ctx, session.SessionID(p.SessionID), int64(p.After), p.Limit, expectedHistoryRevision(p.ExpectedRevision))
 			if err != nil {
 				return nil, err
 			}
-			result := protocol.HistoryResult{Items: []protocol.Message{}}
+			result := protocol.HistoryResult{Snapshot: protocol.HistorySnapshotFromDomain(snapshot), Items: []protocol.Message{}}
 			for _, value := range values {
 				result.Items = append(result.Items, protocol.MessageFromDomain(value))
 			}
 			return result, nil
+		})
+	case "sessions.rewind":
+		return decode(raw, func(p protocol.RewindParams) (any, error) {
+			value, err := r.Rewind(ctx, session.RewindRequest{
+				ID: session.HistoryEditID(p.EditID), SessionID: session.SessionID(p.SessionID),
+				ExpectedRevision: session.Revision(p.ExpectedRevision), ObservedThrough: int64(p.ObservedThrough),
+				KeepThrough: int64(p.KeepThrough),
+			})
+			return protocol.HistoryEditFromDomain(value), err
 		})
 	case "sessions.lifecycle":
 		return decode(raw, func(p protocol.LifecycleParams) (any, error) {

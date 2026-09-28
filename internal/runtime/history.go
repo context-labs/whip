@@ -109,3 +109,15 @@ func (r *Runtime) prepareHistory(ctx context.Context, current session.Session, c
 		Acquire: func(ctx context.Context) (func(), error) { return func() {}, ctx.Err() }, Run: run,
 	}, nil
 }
+
+func (r *Runtime) HistoryPage(ctx context.Context, owner session.SessionID, after int64, limit int, expected *session.Revision) (session.HistorySnapshot, []session.Message, error) {
+	return r.store.HistoryPage(ctx, owner, after, limit, expected)
+}
+
+func (r *Runtime) HistoryMetadataAtRevision(ctx context.Context, owner session.SessionID, after, through int64, limit int, expected *session.Revision) (session.HistoryMetadataPage, error) {
+	return r.store.HistoryMetadataAtRevision(ctx, owner, after, through, limit, expected)
+}
+
+func (r *Runtime) SearchHistoryAtRevision(ctx context.Context, owner session.SessionID, after, through int64, query string, limit int, expected *session.Revision) (session.HistorySearchPage, error) {
+	return r.store.SearchHistoryAtRevision(ctx, owner, after, through, query, limit, expected)
+}

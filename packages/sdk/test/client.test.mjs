@@ -3,16 +3,17 @@ import { test } from 'node:test';
 import { Client, DeliveryError, RemoteError } from '../dist/index.js';
 
 const initial = { major: 4, minor: 0, runtime_id: 'runtime', builtins: [] };
+const historySnapshot = { session_id: 'session', revision: '1', through_sequence: '9007199254740993', message_count: '1' };
 const success = (request, result) => ({ jsonrpc: '2.0', id: request.id, result });
 test('core pins identity, validates before transport and rejects malformed responses', async () => {
   const calls = [];
   const client = await Client.connect(async (request, expected) => {
     calls.push({ request, expected });
     if (request.method === 'initialize') return success(request, initial);
-    return success(request, { items: [] });
+    return success(request, { snapshot: historySnapshot, items: [] });
   }, { clientID: 'test' });
   const history = await client.call('sessions.history', { session_id: 'session', after: '9007199254740993', limit: 10 });
-  assert.deepEqual(history, { items: [] });
+  assert.deepEqual(history, { snapshot: historySnapshot, items: [] });
   assert.equal(calls[1].expected, 'runtime');
   await assert.rejects(client.call('sessions.history', { session_id: 'session', after: 0, limit: 10 }), TypeError);
   assert.equal(calls.length, 2);
@@ -31,13 +32,13 @@ test('observation advances exact cursors, reconciles preview IDs, and clears on 
   const preview = { attempt_id: 'attempt', turn_id: 'turn', message_id: 'answer', revision: '1', text: 'partial', reasoning: 'considering', calls: [], truncated: false };
   const reasoning = { ...preview, revision: '2', reasoning: 'considering the request' };
   const retry = { ...preview, attempt_id: 'retry', message_id: 'retry_answer', reasoning: '', text: '', revision: '0' };
-  const message = { id: 'retry_answer', session_id: 'session', turn_id: 'turn', input_id: null, mail: null, sequence: '9007199254740993', role: 'assistant', parts: [{ type: 'text', text: 'completed' }], created_at: '2026-09-27T12:00:00Z' };
+  const message = { id: 'retry_answer', session_id: 'session', group_id: 'turn', opening_input: false, source: null, retired_by: null, retired_revision: null, turn_id: 'turn', input_id: null, mail: null, sequence: '9007199254740993', role: 'assistant', parts: [{ type: 'text', text: 'completed' }], created_at: '2026-09-27T12:00:00Z' };
   const pages = [
-    { epoch: 'boot_one', messages: [], preview },
-    { epoch: 'boot_one', messages: [], preview: reasoning },
-    { epoch: 'boot_one', messages: [], preview: retry },
-    { epoch: 'boot_one', messages: [message], preview: null },
-    { epoch: 'boot_two', messages: [], preview: null },
+    { snapshot: historySnapshot, epoch: 'boot_one', messages: [], preview },
+    { snapshot: historySnapshot, epoch: 'boot_one', messages: [], preview: reasoning },
+    { snapshot: historySnapshot, epoch: 'boot_one', messages: [], preview: retry },
+    { snapshot: historySnapshot, epoch: 'boot_one', messages: [message], preview: null },
+    { snapshot: historySnapshot, epoch: 'boot_two', messages: [], preview: null },
   ];
   const requests = [];
   const client = await Client.connect(async request => {
@@ -62,7 +63,7 @@ test('aborting a stalled observation stops polling and never sends execution can
   const calls = [];
   const client = await Client.connect(async request => {
     calls.push(request.method);
-    return success(request, request.method === 'initialize' ? initial : { epoch: 'boot', messages: [], preview: null });
+    return success(request, request.method === 'initialize' ? initial : { snapshot: historySnapshot, epoch: 'boot', messages: [], preview: null });
   }, { clientID: 'observer' });
   const observation = client.observe('session', { signal: controller.signal });
   await observation.next();
@@ -70,6 +71,67 @@ test('aborting a stalled observation stops polling and never sends execution can
   controller.abort();
   await assert.rejects(waiting, error => error.name === 'AbortError');
   assert.deepEqual(calls, ['initialize', 'sessions.observe']);
+});
+
+test('observation resets its bounded cursor on rewind and emits an empty new revision', async () => {
+  const requests = [];
+  const oldRevision = '9007199254740993';
+  const newRevision = '9007199254740994';
+  const retained = { id: 'retained', session_id: 'session', group_id: 'imported', opening_input: true, source: { session_id: 'source', message_id: 'original', sequence: '9007199254740993' }, retired_by: null, retired_revision: null, turn_id: null, input_id: null, mail: null, sequence: '1', role: 'user', parts: [{ type: 'text', text: 'retained' }], created_at: '2026-09-27T12:00:00Z' };
+  let requestNumber = 0;
+  const client = await Client.connect(async request => {
+    if (request.method === 'initialize') return success(request, initial);
+    requests.push(request.params);
+    requestNumber++;
+    if (requestNumber === 1 || requestNumber === 3) return { jsonrpc: '2.0', id: request.id, error: { code: -32009, message: 'history revision changed', kind: 'CONFLICT' } };
+    const revision = requestNumber === 2 ? newRevision : '9007199254740995';
+    const messages = requestNumber === 2 ? [retained] : [];
+    return success(request, { epoch: 'same_process', snapshot: { session_id: 'session', revision, through_sequence: messages.length ? '1' : '0', message_count: messages.length ? '1' : '0' }, messages, preview: null });
+  }, { clientID: 'observer' });
+  const observation = client.observe('session', { after: '9007199254740993', expectedRevision: oldRevision });
+  const rewound = (await observation.next()).value;
+  assert.equal(rewound.snapshot.revision, newRevision);
+  assert.deepEqual(rewound.messages, [retained]);
+  const cleared = (await observation.next()).value;
+  assert.equal(cleared.snapshot.revision, '9007199254740995');
+  assert.deepEqual(cleared.messages, []);
+  await observation.return();
+  assert.deepEqual(requests.map(value => [value.after, value.expected_revision]), [
+    ['9007199254740993', oldRevision], ['0', undefined], ['1', newRevision], ['0', undefined],
+  ]);
+});
+
+test('resuming observation requires its history revision and transport failures do not restart it', async () => {
+  const requests = [];
+  const failure = new DeliveryError('lost connection');
+  const client = await Client.connect(async request => {
+    if (request.method === 'initialize') return success(request, initial);
+    requests.push(request);
+    throw failure;
+  }, { clientID: 'observer' });
+  await assert.rejects(client.observe('session', { after: '2' }).next(), /history revision/);
+  assert.equal(requests.length, 0);
+  await assert.rejects(client.observe('session', { after: '2', expectedRevision: '1' }).next(), error => error === failure);
+  assert.equal(requests.length, 1);
+});
+
+test('rewind retries preserve the edit ID and exact observed snapshot after a lost acknowledgement', async () => {
+  const requests = [];
+  const params = { session_id: 'session', expected_revision: '9007199254740993', observed_through: '9007199254740994', keep_through: '0' };
+  const edit = { id: 'stable_edit', ...params, digest: 'a'.repeat(64), revision: '9007199254740994', created_at: '2026-09-28T12:00:00Z' };
+  const client = await Client.connect(async request => {
+    if (request.method === 'initialize') return success(request, initial);
+    requests.push(request);
+    if (requests.length === 1) throw new DeliveryError('lost acknowledgement');
+    return success(request, edit);
+  }, { clientID: 'history' });
+  await assert.rejects(client.rewind(params, 'stable_edit'), DeliveryError);
+  assert.deepEqual(await client.rewind(params, 'stable_edit'), edit);
+  assert.deepEqual(requests.map(value => value.method), ['sessions.rewind', 'sessions.rewind']);
+  assert.deepEqual(requests[0].params, { ...params, edit_id: 'stable_edit' });
+  assert.deepEqual(requests[1].params, requests[0].params);
+  await assert.rejects(client.rewind({ ...params, expected_revision: 9007199254740993 }, 'stable_edit'), TypeError);
+  assert.equal(requests.length, 2);
 });
 
 test('resource calls preserve exact limits and validate before transport', async () => {
@@ -137,7 +199,7 @@ test('goals preserve stable creation IDs, exact allowances, and ordinary resume 
 test('observation validators require a string reasoning preview', async () => {
   for (const reasoning of [undefined, null, 42, { text: 'not a string' }]) {
     const preview = { attempt_id: 'attempt', turn_id: 'turn', message_id: 'message', revision: '1', text: '', reasoning, calls: [], truncated: false };
-    const client = await Client.connect(async request => success(request, request.method === 'initialize' ? initial : { epoch: 'boot', messages: [], preview }), { clientID: 'observer' });
+    const client = await Client.connect(async request => success(request, request.method === 'initialize' ? initial : { snapshot: historySnapshot, epoch: 'boot', messages: [], preview }), { clientID: 'observer' });
     await assert.rejects(client.call('sessions.observe', { session_id: 'session', after: '0', limit: 100 }), TypeError);
   }
 });
@@ -147,9 +209,9 @@ test('formulation preserves receipt identity and historical acceptance independe
   const created = '2026-09-28T12:00:00Z';
   const request = { goal_id: 'goal', expected_current: null, max_continuations: '9007199254740993', start: false };
   const input = { id: 'input', session_id: 'session', source: 'user', kind: 'goal_formulation', parts: [], state: 'claimed', turn_id: 'turn', goal: null, schedule: null, created_at: created };
-  const turn = { id: 'turn', session_id: 'session', kind: 'goal_formulation', goal: null, config_revision: '1', state: 'interrupted', failure: 'runtime stopped', started_at: created, finished_at: created };
+  const turn = { id: 'turn', session_id: 'session', kind: 'goal_formulation', goal: null, history_revision: '1', config_revision: '1', state: 'interrupted', failure: 'runtime stopped', started_at: created, finished_at: created };
   const admission = { receipt: { identity: { client_id: 'test', request_id: 'stable' }, digest: 'a'.repeat(64), input_id: 'input', deleted_at: null, created_at: created }, input, turn };
-  const candidate = { input_id: 'input', session_id: 'session', request: { ...request, tail_messages: 8 }, after_sequence: '9007199254740993', through_sequence: '9007199254740994', turn_id: 'turn', attempt_id: 'attempt', text: 'Accepted objective', accepted: true, rejection: null, created_at: created };
+  const candidate = { history_revision: '1', input_id: 'input', session_id: 'session', request: { ...request, tail_messages: 8 }, after_sequence: '9007199254740993', through_sequence: '9007199254740994', turn_id: 'turn', attempt_id: 'attempt', text: 'Accepted objective', accepted: true, rejection: null, created_at: created };
   const client = await Client.connect(async message => {
     if (message.method === 'initialize') return success(message, initial);
     calls.push(message);

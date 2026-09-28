@@ -164,6 +164,7 @@
   {
     "type": "GoalFormulation",
     "value": {
+      "history_revision": "9007199254740993",
       "input_id": "input_formulate",
       "session_id": "session_child",
       "request": {
@@ -187,6 +188,7 @@
   {
     "type": "GoalFormulation",
     "value": {
+      "history_revision": "9007199254740993",
       "input_id": "input_rejected",
       "session_id": "session_child",
       "request": {
@@ -228,6 +230,7 @@
   {
     "type": "Turn",
     "value": {
+      "history_revision": "9007199254740993",
       "goal": null,
       "id": "turn_formulate",
       "session_id": "session_child",
@@ -436,6 +439,8 @@
     "type": "CompactionResult",
     "value": {
       "metadata": {
+        "history_revision": "9007199254740993",
+        "source": null,
         "id": "summary",
         "session_id": "session_child",
         "turn_id": "turn",
@@ -463,8 +468,87 @@
     "valid": true
   },
   {
+    "type": "RewindParams",
+    "value": {
+      "edit_id": "edit",
+      "session_id": "session_child",
+      "expected_revision": "9007199254740993",
+      "observed_through": "9007199254740995",
+      "keep_through": "0"
+    },
+    "valid": true
+  },
+  {
+    "type": "HistoryEdit",
+    "value": {
+      "id": "edit",
+      "session_id": "session_child",
+      "digest": "d284eb891663af117c0c727266b827d0504aa7309c3079cc37c87e21c76ff35a",
+      "expected_revision": "9007199254740993",
+      "revision": "9007199254740994",
+      "observed_through": "9007199254740995",
+      "keep_through": "0",
+      "created_at": "2026-09-27T12:00:00.123456Z"
+    },
+    "valid": true
+  },
+  {
+    "type": "Message",
+    "value": {
+      "group_id": "imported_group",
+      "opening_input": true,
+      "source": {
+        "session_id": "source",
+        "message_id": "original",
+        "sequence": "9007199254740993"
+      },
+      "retired_by": null,
+      "retired_revision": null,
+      "id": "imported",
+      "session_id": "session_child",
+      "turn_id": null,
+      "input_id": null,
+      "mail": null,
+      "sequence": "1",
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Imported authored input"
+        }
+      ],
+      "created_at": "2026-09-27T12:00:00.123456Z"
+    },
+    "valid": true
+  },
+  {
+    "type": "CompactionResult",
+    "value": {
+      "metadata": {
+        "history_revision": "1",
+        "source": {
+          "session_id": "source",
+          "compaction_id": "source_summary"
+        },
+        "id": "imported_summary",
+        "session_id": "session_child",
+        "turn_id": null,
+        "attempt_id": null,
+        "base_id": null,
+        "expected_revision": "0",
+        "through_sequence": "1",
+        "pinned_message_ids": [],
+        "text_bytes": "8",
+        "created_at": "2026-09-27T12:00:00.123456Z"
+      },
+      "text": "Summary."
+    },
+    "valid": true
+  },
+  {
     "type": "HistorySnapshot",
     "value": {
+      "revision": "9007199254740993",
       "session_id": "session_child",
       "through_sequence": "9007199254740993",
       "message_count": "9007199254740993"
@@ -475,6 +559,11 @@
     "type": "ReadHistoryResult",
     "value": {
       "message": {
+        "group_id": "turn",
+        "opening_input": false,
+        "source": null,
+        "retired_by": null,
+        "retired_revision": null,
         "id": "message",
         "session_id": "session_child",
         "turn_id": "turn",
@@ -493,6 +582,7 @@
   {
     "type": "HistoryMetadataResult",
     "value": {
+      "revision": "9007199254740993",
       "items": [],
       "through_sequence": "9007199254740993",
       "next_after": null
@@ -502,6 +592,7 @@
   {
     "type": "SearchHistoryResult",
     "value": {
+      "revision": "9007199254740993",
       "matches": [],
       "through_sequence": "9007199254740993",
       "next_after": "100",
@@ -825,6 +916,11 @@
   {
     "type": "Message",
     "value": {
+      "group_id": "turn_fixture",
+      "opening_input": false,
+      "source": null,
+      "retired_by": null,
+      "retired_revision": null,
       "id": "message_mail",
       "session_id": "session_child",
       "turn_id": "turn_fixture",
@@ -897,9 +993,20 @@
   {
     "type": "SessionObservation",
     "value": {
+      "snapshot": {
+        "revision": "9007199254740993",
+        "session_id": "session_child",
+        "through_sequence": "9007199254740995",
+        "message_count": "3"
+      },
       "epoch": "boot_fixture",
       "messages": [
         {
+          "group_id": "turn_fixture",
+          "opening_input": false,
+          "source": null,
+          "retired_by": null,
+          "retired_revision": null,
           "id": "message_fixture",
           "session_id": "session_child",
           "turn_id": "turn_fixture",
@@ -943,6 +1050,12 @@
   {
     "type": "SessionObservation",
     "value": {
+      "snapshot": {
+        "revision": "9007199254740993",
+        "session_id": "session_child",
+        "through_sequence": "9007199254740995",
+        "message_count": "3"
+      },
       "epoch": "boot_restarted",
       "messages": [],
       "preview": null
@@ -1234,6 +1347,7 @@
   {
     "type": "Session",
     "value": {
+      "history_revision": "9007199254740993",
       "id": "session_root",
       "tree_id": "tree_fixture",
       "parent_id": null,
@@ -1278,6 +1392,7 @@
   {
     "type": "Session",
     "value": {
+      "history_revision": "9007199254740993",
       "id": "session_child",
       "tree_id": "tree_fixture",
       "parent_id": "session_root",
@@ -1322,8 +1437,19 @@
   {
     "type": "HistoryResult",
     "value": {
+      "snapshot": {
+        "revision": "9007199254740993",
+        "session_id": "session_child",
+        "through_sequence": "9007199254740995",
+        "message_count": "3"
+      },
       "items": [
         {
+          "group_id": "turn_fixture",
+          "opening_input": false,
+          "source": null,
+          "retired_by": null,
+          "retired_revision": null,
           "id": "message_fixture",
           "session_id": "session_child",
           "turn_id": "turn_fixture",
@@ -1344,6 +1470,11 @@
           "created_at": "2026-09-27T12:00:00.123456Z"
         },
         {
+          "group_id": "turn_fixture",
+          "opening_input": false,
+          "source": null,
+          "retired_by": null,
+          "retired_revision": null,
           "id": "message_call",
           "session_id": "session_child",
           "turn_id": "turn_fixture",
@@ -1366,6 +1497,11 @@
           "created_at": "2026-09-27T12:00:00.123456Z"
         },
         {
+          "group_id": "turn_fixture",
+          "opening_input": false,
+          "source": null,
+          "retired_by": null,
+          "retired_revision": null,
           "id": "message_result",
           "session_id": "session_child",
           "turn_id": "turn_fixture",
@@ -1475,6 +1611,7 @@
   {
     "type": "Turn",
     "value": {
+      "history_revision": "9007199254740993",
       "goal": {
         "id": "goal_fixture",
         "revision": "9007199254740993"
@@ -1836,8 +1973,19 @@
   {
     "type": "HistoryResult",
     "value": {
+      "snapshot": {
+        "revision": "9007199254740993",
+        "session_id": "session_child",
+        "through_sequence": "9007199254740995",
+        "message_count": "3"
+      },
       "items": [
         {
+          "group_id": "turn_fixture",
+          "opening_input": false,
+          "source": null,
+          "retired_by": null,
+          "retired_revision": null,
           "id": "message_call",
           "session_id": "session_child",
           "turn_id": "turn_fixture",
@@ -1866,8 +2014,19 @@
   {
     "type": "HistoryResult",
     "value": {
+      "snapshot": {
+        "revision": "9007199254740993",
+        "session_id": "session_child",
+        "through_sequence": "9007199254740995",
+        "message_count": "3"
+      },
       "items": [
         {
+          "group_id": "turn_fixture",
+          "opening_input": false,
+          "source": null,
+          "retired_by": null,
+          "retired_revision": null,
           "id": "message_result",
           "session_id": "session_child",
           "turn_id": "turn_fixture",

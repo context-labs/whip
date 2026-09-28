@@ -26,6 +26,23 @@ test('TypeScript JSON re-encoding retains counters and agrees with Go', () => {
   });
   assert.equal(result.status, 0, result.error?.message ?? result.stderr);
 });
+test('history revisions and imported provenance retain exact counters and nullable execution links', () => {
+  const history = fixtures.find(f => f.type === 'HistoryResult' && f.valid).value;
+  assert.equal(history.snapshot.revision, '9007199254740993');
+  const edit = fixtures.find(f => f.type === 'HistoryEdit').value;
+  assert.equal(edit.expected_revision, '9007199254740993');
+  assert.equal(edit.revision, '9007199254740994');
+  const imported = fixtures.find(f => f.type === 'Message' && f.value.source).value;
+  assert.equal(imported.source.sequence, '9007199254740993');
+  assert.equal(imported.turn_id, null);
+  assert.equal(imported.input_id, null);
+  assert.equal(imported.opening_input, true);
+  assert.equal(imported.group_id, 'imported_group');
+  const summary = fixtures.find(f => f.type === 'CompactionResult' && f.value.metadata.source).value.metadata;
+  assert.equal(summary.turn_id, null);
+  assert.equal(summary.attempt_id, null);
+  assert.deepEqual(summary.source, { session_id: 'source', compaction_id: 'source_summary' });
+});
 test('unknown types and ambiguous parts fail closed', () => {
   assert.throws(() => validate('LegacyCommand', {}), /Unknown/);
   const submit = structuredClone(fixtures.find(f => f.type === 'SubmitParams' && f.valid).value);

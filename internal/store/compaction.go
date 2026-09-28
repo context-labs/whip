@@ -13,12 +13,14 @@ import (
 	"github.com/context-labs/whip/internal/session"
 )
 
-const compactionColumns = `id,session_id,turn_id,attempt_id,base_id,expected_revision,through_sequence,pinned_message_ids,length(CAST(text AS BLOB)),created_at`
+const compactionColumns = `id,session_id,COALESCE(turn_id,''),COALESCE(attempt_id,''),base_id,expected_revision,through_sequence,pinned_message_ids,length(CAST(text AS BLOB)),created_at,history_revision,source_session_id,source_compaction_id`
 
 func scanCompaction(row scanner, withText bool) (result session.Compaction, err error) {
 	var pins string
 	var created int64
-	args := []any{&result.ID, &result.SessionID, &result.TurnID, &result.AttemptID, &result.BaseID, &result.ExpectedRevision, &result.ThroughSequence, &pins, &result.TextBytes, &created}
+	var sourceOwner *session.SessionID
+	var sourceID *session.CompactionID
+	args := []any{&result.ID, &result.SessionID, &result.TurnID, &result.AttemptID, &result.BaseID, &result.ExpectedRevision, &result.ThroughSequence, &pins, &result.TextBytes, &created, &result.HistoryRevision, &sourceOwner, &sourceID}
 	if withText {
 		args = append(args, &result.Text)
 	}
@@ -26,6 +28,9 @@ func scanCompaction(row scanner, withText bool) (result session.Compaction, err 
 		return result, found(err)
 	}
 	result.CreatedAt = timestamp(created)
+	if sourceOwner != nil {
+		result.Source = &session.CompactionSource{SessionID: *sourceOwner, CompactionID: *sourceID}
+	}
 	err = json.Unmarshal([]byte(pins), &result.PinnedMessageIDs)
 	return
 }
@@ -148,8 +153,8 @@ func (s *Store) SettleCompaction(ctx context.Context, id session.ModelAttemptID,
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO compactions (id,session_id,turn_id,attempt_id,base_id,expected_revision,through_sequence,pinned_message_ids,text,created_at)
- VALUES (?,?,?,?,?,?,?,?,?,?)`, draft.ID, turn.SessionID, turn.ID, id, draft.BaseID, draft.ExpectedRevision, draft.ThroughSequence, pins, draft.Text, now()); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO compactions (id,session_id,turn_id,attempt_id,base_id,expected_revision,through_sequence,pinned_message_ids,text,created_at,history_revision)
+ VALUES (?,?,?,?,?,?,?,?,?,?,?)`, draft.ID, turn.SessionID, turn.ID, id, draft.BaseID, draft.ExpectedRevision, draft.ThroughSequence, pins, draft.Text, now(), turn.HistoryRevision); err != nil {
 			return err
 		}
 		value, err := readCompaction(ctx, tx, turn.SessionID, draft.ID)
@@ -179,6 +184,16 @@ func validateCompaction(ctx context.Context, tx *sql.Tx, turn session.Turn, draf
 	if turn.State != session.Running && turn.State != session.Cancelling {
 		return fmt.Errorf("%w: compaction requires an active turn", ErrConflict)
 	}
+	var revision session.Revision
+	if err := tx.QueryRowContext(ctx, "SELECT history_revision FROM sessions WHERE id=?", turn.SessionID).Scan(&revision); err != nil {
+		return found(err)
+	}
+	if revision != turn.HistoryRevision {
+		return fmt.Errorf("%w: compaction source history changed", ErrConflict)
+	}
+	if err := activeCompactionCoverage(ctx, tx, turn.SessionID, turn.HistoryRevision, draft.ThroughSequence); err != nil {
+		return err
+	}
 	var exists bool
 	if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM compactions WHERE id=?)", draft.ID).Scan(&exists); err != nil {
 		return err
@@ -189,6 +204,9 @@ func validateCompaction(ctx context.Context, tx *sql.Tx, turn session.Turn, draf
 	if draft.BaseID != nil {
 		base, err := readCompaction(ctx, tx, turn.SessionID, *draft.BaseID)
 		if err != nil {
+			return err
+		}
+		if err := activeCompaction(ctx, tx, base); err != nil {
 			return err
 		}
 		if draft.ThroughSequence <= base.ThroughSequence {
@@ -214,8 +232,8 @@ func validateCompaction(ctx context.Context, tx *sql.Tx, turn session.Turn, draf
 	return completeCompactionBoundary(ctx, tx, boundaryTurn, draft.ThroughSequence)
 }
 
-func completeCompactionBoundary(ctx context.Context, tx *sql.Tx, turn session.TurnID, through int64) error {
-	message, err := scanMessage(tx.QueryRowContext(ctx, messageSelect+" WHERE m.turn_id=? AND m.role='assistant' AND m.sequence<=? ORDER BY m.sequence DESC LIMIT 1", turn, through))
+func completeCompactionBoundary(ctx context.Context, tx *sql.Tx, group session.HistoryGroupID, through int64) error {
+	message, err := scanMessage(tx.QueryRowContext(ctx, messageSelect+" WHERE m.group_id=? AND m.retired_revision IS NULL AND m.role='assistant' AND m.sequence<=? ORDER BY m.sequence DESC LIMIT 1", group, through))
 	if errors.Is(err, ErrNotFound) {
 		return nil
 	}
@@ -231,7 +249,7 @@ func completeCompactionBoundary(ctx context.Context, tx *sql.Tx, turn session.Tu
 	if len(pending) == 0 {
 		return nil
 	}
-	rows, err := tx.QueryContext(ctx, messageSelect+" WHERE m.turn_id=? AND m.role='tool' AND m.sequence>? AND m.sequence<=? ORDER BY m.sequence", turn, message.Sequence, through)
+	rows, err := tx.QueryContext(ctx, messageSelect+" WHERE m.group_id=? AND m.retired_revision IS NULL AND m.role='tool' AND m.sequence>? AND m.sequence<=? ORDER BY m.sequence", group, message.Sequence, through)
 	if err != nil {
 		return err
 	}
@@ -252,6 +270,35 @@ func completeCompactionBoundary(ctx context.Context, tx *sql.Tx, turn session.Tu
 	}
 	if len(pending) != 0 {
 		return fmt.Errorf("%w: compaction boundary splits tool calls from their results", session.ErrInvalid)
+	}
+	return nil
+}
+
+func activeCompactionCoverage(ctx context.Context, q querier, owner session.SessionID, revision session.Revision, through int64) error {
+	var retired bool
+	if err := q.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM messages WHERE session_id=? AND sequence<=? AND retired_revision>?)", owner, through, revision).Scan(&retired); err != nil {
+		return err
+	}
+	if retired {
+		return fmt.Errorf("%w: compaction covers retired history", ErrConflict)
+	}
+	return nil
+}
+
+func activeCompaction(ctx context.Context, q querier, value session.Compaction) error {
+	if err := activeCompactionCoverage(ctx, q, value.SessionID, value.HistoryRevision, value.ThroughSequence); err != nil {
+		return err
+	}
+	// Pin checks need only immutable identity, not potentially large input bodies.
+	for _, id := range value.PinnedMessageIDs {
+		var valid bool
+		if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM messages WHERE id=? AND session_id=?
+ AND opening_input=1 AND retired_revision IS NULL AND sequence<=?)`, id, value.SessionID, value.ThroughSequence).Scan(&valid); err != nil {
+			return err
+		}
+		if !valid {
+			return fmt.Errorf("%w: compaction pin is outside active history", ErrConflict)
+		}
 	}
 	return nil
 }
@@ -284,6 +331,15 @@ func (s *Store) SelectCompaction(ctx context.Context, owner session.SessionID, e
 		}
 		if active {
 			return ErrBusy
+		}
+		if id != nil {
+			value, err := readCompaction(ctx, tx, owner, *id)
+			if err != nil {
+				return err
+			}
+			if err := activeCompaction(ctx, tx, value); err != nil {
+				return err
+			}
 		}
 		if reflect.DeepEqual(result.CompactionID, id) {
 			return nil

@@ -41,7 +41,7 @@ func readContextPins(ctx context.Context, q querier, owner session.SessionID, id
 		// A bounded series of primary-key lookups avoids SQLite choosing a
 		// session history scan to satisfy an IN-list query's chronological sort.
 		message, err := scanMessage(q.QueryRowContext(ctx, messageSelect+` WHERE m.id=? AND m.session_id=?
- AND m.role='user' AND i.kind='prompt'`, id, owner))
+ AND m.retired_revision IS NULL AND m.opening_input=1`, id, owner))
 		if err != nil {
 			return nil, err
 		}
@@ -66,24 +66,21 @@ func (s *Store) ContextBoundaryPin(ctx context.Context, owner session.SessionID,
 	return pin, err
 }
 
-func contextBoundaryPin(ctx context.Context, q querier, owner session.SessionID, through int64) (session.TurnID, *session.MessageID, error) {
+func contextBoundaryPin(ctx context.Context, q querier, owner session.SessionID, through int64) (session.HistoryGroupID, *session.MessageID, error) {
 	if through < 1 {
 		return "", nil, fmt.Errorf("%w: context boundary must identify a raw message", session.ErrInvalid)
 	}
-	var turn session.TurnID
+	var group session.HistoryGroupID
 	var pin *session.MessageID
 	var required bool
-	// Naming every role lets the existing turn/role/sequence index seek past
-	// the boundary without scanning this turn or later turns in the session.
-	err := q.QueryRowContext(ctx, `SELECT boundary.turn_id,opening.id,
- (t.state IN ('running','cancelling') OR EXISTS(SELECT 1 FROM messages later
-  WHERE later.turn_id=boundary.turn_id AND later.role IN ('system','user','assistant','tool') AND later.sequence>boundary.sequence))
- FROM messages boundary JOIN turns t ON t.id=boundary.turn_id
- LEFT JOIN inputs i ON i.turn_id=t.id AND i.kind='prompt'
- LEFT JOIN messages opening ON opening.input_id=i.id
- WHERE boundary.session_id=? AND boundary.sequence=?`, owner, through).Scan(&turn, &pin, &required)
+	err := q.QueryRowContext(ctx, `SELECT boundary.group_id,opening.id,
+ (COALESCE(t.state IN ('running','cancelling'),0) OR EXISTS(SELECT 1 FROM messages later
+  WHERE later.group_id=boundary.group_id AND later.retired_revision IS NULL AND later.sequence>boundary.sequence))
+ FROM messages boundary LEFT JOIN turns t ON t.id=boundary.turn_id
+ LEFT JOIN messages opening ON opening.group_id=boundary.group_id AND opening.opening_input=1 AND opening.retired_revision IS NULL
+ WHERE boundary.session_id=? AND boundary.sequence=? AND boundary.retired_revision IS NULL`, owner, through).Scan(&group, &pin, &required)
 	if !required {
 		pin = nil
 	}
-	return turn, pin, found(err)
+	return group, pin, found(err)
 }

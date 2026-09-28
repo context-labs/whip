@@ -79,6 +79,7 @@ type Session struct {
 	ParentID         *SessionID
 	Definition       DefinitionRef
 	ConfigRevision   Revision
+	HistoryRevision  Revision
 	Config           Configuration
 	WorkingDirectory string
 	Lifecycle        Lifecycle
@@ -171,12 +172,13 @@ type Turn struct {
 	ID        TurnID
 	SessionID SessionID
 	// Kind is derived from the accepted input. Mail-only turns are prompt turns.
-	Kind           InputKind
-	ConfigRevision Revision
-	State          TurnState
-	Failure        *string
-	StartedAt      time.Time
-	FinishedAt     *time.Time
+	Kind            InputKind
+	ConfigRevision  Revision
+	HistoryRevision Revision
+	State           TurnState
+	Failure         *string
+	StartedAt       time.Time
+	FinishedAt      *time.Time
 }
 
 type Role string
@@ -310,18 +312,24 @@ func ValidateMessage(role Role, parts []Part) error {
 
 func ValidateInputParts(parts []Part) error { return ValidateMessage(User, parts) }
 
-// Message is the common root/child transcript projection. User entries resolve
-// Parts through an input or immutable mail revision; authored entries own parts.
+// Message is the common root/child transcript projection. Native user entries
+// resolve Parts through an input or immutable mail revision; authored and
+// imported entries own their parts.
 type Message struct {
-	ID        MessageID
-	SessionID SessionID
-	TurnID    TurnID
-	InputID   *InputID
-	Mail      *MailRef
-	Sequence  int64
-	Role      Role
-	Parts     []Part
-	CreatedAt time.Time
+	GroupID         HistoryGroupID
+	OpeningInput    bool
+	Source          *MessageSource
+	RetiredBy       *HistoryEditID
+	RetiredRevision *Revision
+	ID              MessageID
+	SessionID       SessionID
+	TurnID          TurnID
+	InputID         *InputID
+	Mail            *MailRef
+	Sequence        int64
+	Role            Role
+	Parts           []Part
+	CreatedAt       time.Time
 }
 
 // MessageDraft describes one completed transcript entry. Its stable ID makes a

@@ -20,6 +20,7 @@ type CallPreview struct {
 	Arguments string `json:"arguments"`
 }
 type SessionObservation struct {
+	Snapshot HistorySnapshot `json:"snapshot"`
 	Epoch    ID              `json:"epoch"`
 	Messages []Message       `json:"messages"`
 	Preview  *MessagePreview `json:"preview"`

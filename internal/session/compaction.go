@@ -8,6 +8,11 @@ import (
 
 type CompactionID string
 
+type CompactionSource struct {
+	SessionID    SessionID    `json:"session_id"`
+	CompactionID CompactionID `json:"compaction_id"`
+}
+
 const (
 	MaxCompactionBytes = 64 << 10
 	MaxCompactionPins  = 32
@@ -42,16 +47,18 @@ type ContextHead struct {
 // CompactionMetadata identifies the exact raw prefix and pinned raw messages
 // used by an immutable summary. TextBytes is derived from the stored text.
 type CompactionMetadata struct {
-	ID               CompactionID   `json:"id"`
-	SessionID        SessionID      `json:"session_id"`
-	TurnID           TurnID         `json:"turn_id"`
-	AttemptID        ModelAttemptID `json:"attempt_id"`
-	BaseID           *CompactionID  `json:"base_id"`
-	ExpectedRevision int64          `json:"expected_revision,string"`
-	ThroughSequence  int64          `json:"through_sequence,string"`
-	PinnedMessageIDs []MessageID    `json:"pinned_message_ids"`
-	TextBytes        int64          `json:"text_bytes,string"`
-	CreatedAt        time.Time      `json:"created_at"`
+	HistoryRevision  Revision          `json:"history_revision,string"`
+	Source           *CompactionSource `json:"source"`
+	ID               CompactionID      `json:"id"`
+	SessionID        SessionID         `json:"session_id"`
+	TurnID           TurnID            `json:"turn_id"`
+	AttemptID        ModelAttemptID    `json:"attempt_id"`
+	BaseID           *CompactionID     `json:"base_id"`
+	ExpectedRevision int64             `json:"expected_revision,string"`
+	ThroughSequence  int64             `json:"through_sequence,string"`
+	PinnedMessageIDs []MessageID       `json:"pinned_message_ids"`
+	TextBytes        int64             `json:"text_bytes,string"`
+	CreatedAt        time.Time         `json:"created_at"`
 }
 
 type Compaction struct {

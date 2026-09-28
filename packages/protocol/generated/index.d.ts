@@ -77,6 +77,7 @@ export interface Admission {
       }
     | null;
   turn: null | {
+    history_revision: string;
     goal: null | {
       id: string;
       revision: string;
@@ -186,10 +187,15 @@ export interface CompactionParams {
 }
 export interface CompactionResult {
   metadata: {
+    history_revision: string;
+    source: null | {
+      session_id: string;
+      compaction_id: string;
+    };
     id: string;
     session_id: string;
-    turn_id: string;
-    attempt_id: string;
+    turn_id: null | string;
+    attempt_id: null | string;
     base_id: null | string;
     expected_revision: string;
     through_sequence: string;
@@ -208,10 +214,15 @@ export interface CompactionsResult {
   items:
     | null
     | {
+        history_revision: string;
+        source: null | {
+          session_id: string;
+          compaction_id: string;
+        };
         id: string;
         session_id: string;
-        turn_id: string;
-        attempt_id: string;
+        turn_id: null | string;
+        attempt_id: null | string;
         base_id: null | string;
         expected_revision: string;
         through_sequence: string;
@@ -234,6 +245,7 @@ export interface ContextHead {
   compaction_id: null | string;
 }
 export interface ContextHistoryParams {
+  expected_revision?: null | string;
   session_id: string;
   after: string;
   through_sequence: string;
@@ -417,6 +429,7 @@ export interface CreateTreeResult {
     created_at: string;
   };
   root: {
+    history_revision: string;
     id: string;
     tree_id: string;
     parent_id: null | string;
@@ -760,6 +773,7 @@ export interface GoalAdmission {
         }
       | null;
     turn: null | {
+      history_revision: string;
       goal: null | {
         id: string;
         revision: string;
@@ -796,6 +810,7 @@ export interface GoalChange {
   cancel_turn_id: null | string;
 }
 export interface GoalFormulation {
+  history_revision: string;
   input_id: string;
   session_id: string;
   request: {
@@ -857,13 +872,33 @@ export interface GrantsResult {
         revoked_at: null | string;
       }[];
 }
+export interface HistoryEdit {
+  id: string;
+  session_id: string;
+  digest: string;
+  expected_revision: string;
+  revision: string;
+  observed_through: string;
+  keep_through: string;
+  created_at: string;
+}
 export interface HistoryMetadataResult {
+  revision: string;
   items:
     | null
     | {
+        group_id: string;
+        opening_input: boolean;
+        source: null | {
+          session_id: string;
+          message_id: string;
+          sequence: string;
+        };
+        retired_by: null | string;
+        retired_revision: null | string;
         id: string;
         session_id: string;
-        turn_id: string;
+        turn_id: null | string;
         input_id: null | string;
         mail: null | {
           id: string;
@@ -878,18 +913,34 @@ export interface HistoryMetadataResult {
   next_after: null | string;
 }
 export interface HistoryParams {
+  expected_revision?: null | string;
   session_id: string;
   after: string;
   limit: number;
 }
 export interface HistoryResult {
+  snapshot: {
+    revision: string;
+    session_id: string;
+    through_sequence: string;
+    message_count: string;
+  };
   items:
     | null
     | (
         | {
+            group_id: string;
+            opening_input: boolean;
+            source: null | {
+              session_id: string;
+              message_id: string;
+              sequence: string;
+            };
+            retired_by: null | string;
+            retired_revision: null | string;
             id: string;
             session_id: string;
-            turn_id: string;
+            turn_id: null | string;
             input_id: null | string;
             mail: null | {
               id: string;
@@ -927,9 +978,18 @@ export interface HistoryResult {
             created_at: string;
           }
         | {
+            group_id: string;
+            opening_input: boolean;
+            source: null | {
+              session_id: string;
+              message_id: string;
+              sequence: string;
+            };
+            retired_by: null | string;
+            retired_revision: null | string;
             id: string;
             session_id: string;
-            turn_id: string;
+            turn_id: null | string;
             input_id: null | string;
             mail: null | {
               id: string;
@@ -967,9 +1027,18 @@ export interface HistoryResult {
             created_at: string;
           }
         | {
+            group_id: string;
+            opening_input: boolean;
+            source: null | {
+              session_id: string;
+              message_id: string;
+              sequence: string;
+            };
+            retired_by: null | string;
+            retired_revision: null | string;
             id: string;
             session_id: string;
-            turn_id: string;
+            turn_id: null | string;
             input_id: null | string;
             mail: null | {
               id: string;
@@ -1027,9 +1096,18 @@ export interface HistoryResult {
             created_at: string;
           }
         | {
+            group_id: string;
+            opening_input: boolean;
+            source: null | {
+              session_id: string;
+              message_id: string;
+              sequence: string;
+            };
+            retired_by: null | string;
+            retired_revision: null | string;
             id: string;
             session_id: string;
-            turn_id: string;
+            turn_id: null | string;
             input_id: null | string;
             mail: null | {
               id: string;
@@ -1057,6 +1135,7 @@ export interface HistoryResult {
       )[];
 }
 export interface HistorySnapshot {
+  revision: string;
   session_id: string;
   through_sequence: string;
   message_count: string;
@@ -1285,6 +1364,7 @@ export interface ListSessionsResult {
   items:
     | null
     | {
+        history_revision: string;
         id: string;
         tree_id: string;
         parent_id: null | string;
@@ -1402,9 +1482,18 @@ export interface MailAdmission {
 }
 export type Message =
   | {
+      group_id: string;
+      opening_input: boolean;
+      source: null | {
+        session_id: string;
+        message_id: string;
+        sequence: string;
+      };
+      retired_by: null | string;
+      retired_revision: null | string;
       id: string;
       session_id: string;
-      turn_id: string;
+      turn_id: null | string;
       input_id: null | string;
       mail: null | {
         id: string;
@@ -1442,9 +1531,18 @@ export type Message =
       created_at: string;
     }
   | {
+      group_id: string;
+      opening_input: boolean;
+      source: null | {
+        session_id: string;
+        message_id: string;
+        sequence: string;
+      };
+      retired_by: null | string;
+      retired_revision: null | string;
       id: string;
       session_id: string;
-      turn_id: string;
+      turn_id: null | string;
       input_id: null | string;
       mail: null | {
         id: string;
@@ -1482,9 +1580,18 @@ export type Message =
       created_at: string;
     }
   | {
+      group_id: string;
+      opening_input: boolean;
+      source: null | {
+        session_id: string;
+        message_id: string;
+        sequence: string;
+      };
+      retired_by: null | string;
+      retired_revision: null | string;
       id: string;
       session_id: string;
-      turn_id: string;
+      turn_id: null | string;
       input_id: null | string;
       mail: null | {
         id: string;
@@ -1542,9 +1649,18 @@ export type Message =
       created_at: string;
     }
   | {
+      group_id: string;
+      opening_input: boolean;
+      source: null | {
+        session_id: string;
+        message_id: string;
+        sequence: string;
+      };
+      retired_by: null | string;
+      retired_revision: null | string;
       id: string;
       session_id: string;
-      turn_id: string;
+      turn_id: null | string;
       input_id: null | string;
       mail: null | {
         id: string;
@@ -1786,9 +1902,18 @@ export interface ReadHistoryParams {
 }
 export interface ReadHistoryResult {
   message: {
+    group_id: string;
+    opening_input: boolean;
+    source: null | {
+      session_id: string;
+      message_id: string;
+      sequence: string;
+    };
+    retired_by: null | string;
+    retired_revision: null | string;
     id: string;
     session_id: string;
-    turn_id: string;
+    turn_id: null | string;
     input_id: null | string;
     mail: null | {
       id: string;
@@ -1930,6 +2055,13 @@ export interface ResumeGoalParams {
     id: string;
     revision: string;
   };
+}
+export interface RewindParams {
+  edit_id: string;
+  session_id: string;
+  expected_revision: string;
+  observed_through: string;
+  keep_through: string;
 }
 export interface ScheduleAdmission {
   id: string;
@@ -2079,6 +2211,7 @@ export interface SchedulesResult {
   };
 }
 export interface SearchHistoryParams {
+  expected_revision?: null | string;
   session_id: string;
   after: string;
   through_sequence: string;
@@ -2086,13 +2219,23 @@ export interface SearchHistoryParams {
   limit: number;
 }
 export interface SearchHistoryResult {
+  revision: string;
   matches:
     | null
     | {
         message: {
+          group_id: string;
+          opening_input: boolean;
+          source: null | {
+            session_id: string;
+            message_id: string;
+            sequence: string;
+          };
+          retired_by: null | string;
+          retired_revision: null | string;
           id: string;
           session_id: string;
-          turn_id: string;
+          turn_id: null | string;
           input_id: null | string;
           mail: null | {
             id: string;
@@ -2130,6 +2273,7 @@ export interface SendMailParams {
   available_at?: null | string;
 }
 export interface Session {
+  history_revision: string;
   id: string;
   tree_id: string;
   parent_id: null | string;
@@ -2193,14 +2337,29 @@ export interface Session {
   created_at: string;
 }
 export interface SessionObservation {
+  snapshot: {
+    revision: string;
+    session_id: string;
+    through_sequence: string;
+    message_count: string;
+  };
   epoch: string;
   messages:
     | null
     | (
         | {
+            group_id: string;
+            opening_input: boolean;
+            source: null | {
+              session_id: string;
+              message_id: string;
+              sequence: string;
+            };
+            retired_by: null | string;
+            retired_revision: null | string;
             id: string;
             session_id: string;
-            turn_id: string;
+            turn_id: null | string;
             input_id: null | string;
             mail: null | {
               id: string;
@@ -2238,9 +2397,18 @@ export interface SessionObservation {
             created_at: string;
           }
         | {
+            group_id: string;
+            opening_input: boolean;
+            source: null | {
+              session_id: string;
+              message_id: string;
+              sequence: string;
+            };
+            retired_by: null | string;
+            retired_revision: null | string;
             id: string;
             session_id: string;
-            turn_id: string;
+            turn_id: null | string;
             input_id: null | string;
             mail: null | {
               id: string;
@@ -2278,9 +2446,18 @@ export interface SessionObservation {
             created_at: string;
           }
         | {
+            group_id: string;
+            opening_input: boolean;
+            source: null | {
+              session_id: string;
+              message_id: string;
+              sequence: string;
+            };
+            retired_by: null | string;
+            retired_revision: null | string;
             id: string;
             session_id: string;
-            turn_id: string;
+            turn_id: null | string;
             input_id: null | string;
             mail: null | {
               id: string;
@@ -2338,9 +2515,18 @@ export interface SessionObservation {
             created_at: string;
           }
         | {
+            group_id: string;
+            opening_input: boolean;
+            source: null | {
+              session_id: string;
+              message_id: string;
+              sequence: string;
+            };
+            retired_by: null | string;
+            retired_revision: null | string;
             id: string;
             session_id: string;
-            turn_id: string;
+            turn_id: null | string;
             input_id: null | string;
             mail: null | {
               id: string;
@@ -2534,6 +2720,7 @@ export interface SpawnSessionParams {
 }
 export interface SpawnSessionResult {
   session: null | {
+    history_revision: string;
     id: string;
     tree_id: string;
     parent_id: null | string;
@@ -2674,6 +2861,7 @@ export interface SpawnSessionResult {
         }
       | null;
     turn: null | {
+      history_revision: string;
       goal: null | {
         id: string;
         revision: string;
@@ -2819,6 +3007,7 @@ export interface TreeParams {
   tree_id: string;
 }
 export interface Turn {
+  history_revision: string;
   goal: null | {
     id: string;
     revision: string;
@@ -2959,6 +3148,7 @@ export interface ContractTypes {
   GrantParams: GrantParams;
   GrantsParams: GrantsParams;
   GrantsResult: GrantsResult;
+  HistoryEdit: HistoryEdit;
   HistoryMetadataResult: HistoryMetadataResult;
   HistoryParams: HistoryParams;
   HistoryResult: HistoryResult;
@@ -3014,6 +3204,7 @@ export interface ContractTypes {
   ResourcesResult: ResourcesResult;
   Response: Response;
   ResumeGoalParams: ResumeGoalParams;
+  RewindParams: RewindParams;
   ScheduleAdmission: ScheduleAdmission;
   ScheduleParams: ScheduleParams;
   ScheduleResult: ScheduleResult;
@@ -3118,6 +3309,7 @@ export interface Operations {
   "sessions.configure": { params: UpdateConfigurationParams; result: Session };
   "sessions.submit": { params: SubmitParams; result: Admission };
   "sessions.history": { params: HistoryParams; result: HistoryResult };
+  "sessions.rewind": { params: RewindParams; result: HistoryEdit };
   "sessions.lifecycle": { params: LifecycleParams; result: Session };
   "sessions.delete": { params: SessionParams; result: DeleteResult };
   "turns.get": { params: TurnParams; result: Turn };
