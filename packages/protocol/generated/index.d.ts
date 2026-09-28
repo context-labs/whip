@@ -638,6 +638,105 @@ export interface DeleteResult {
   deleted: boolean;
 }
 export interface EmptyParams {}
+export interface ForkParams {
+  fork_id: string;
+  session_id: string;
+  expected_history_revision: string;
+  expected_config_revision: string;
+  observed_through: string;
+  keep_through: string;
+  title: null | string;
+}
+export interface ForkResult {
+  fork: {
+    id: string;
+    session_id: string;
+    expected_history_revision: string;
+    expected_config_revision: string;
+    observed_through: string;
+    keep_through: string;
+    title: null | string;
+    tree_id: string;
+    root_id: string;
+    created_at: string;
+  };
+  tree: null | {
+    id: string;
+    metadata: {
+      title: null | string;
+      archived: boolean;
+      pinned: boolean;
+    };
+    engine: "starlark" | "quickjs";
+    revision: string;
+    created_at: string;
+  };
+  root: null | {
+    history_revision: string;
+    id: string;
+    tree_id: string;
+    parent_id: null | string;
+    definition: {
+      id: string;
+      revision: string;
+    };
+    config_revision: string;
+    configuration: {
+      goals_enabled: boolean;
+      compaction: {
+        model: null | {
+          provider: string;
+          name: string;
+          effort: string;
+          temperature?: null | number;
+          top_p?: null | number;
+        };
+        threshold_percent: number;
+      };
+      report_mode: "notice" | "inline" | "message";
+      model: {
+        provider: string;
+        name: string;
+        effort: string;
+        temperature?: null | number;
+        top_p?: null | number;
+      };
+      instructions: {
+        project_root: null | string;
+        text: string;
+        project_files: null | string[];
+        discover_skills: boolean;
+        standing_instructions: boolean;
+        skill_roots: null | string[];
+      };
+      tools: {
+        [k: string]: {
+          description: string;
+          input_schema: unknown;
+          output_schema: unknown;
+        };
+      } | null;
+      children: {
+        [k: string]: {
+          id: string;
+          revision: string;
+        };
+      } | null;
+      hooks: {
+        [k: string]: {
+          operations: null | string[];
+          optional: boolean;
+          timeout_millis: number;
+        };
+      } | null;
+      output_schema: unknown;
+    };
+    working_directory: string;
+    lifecycle: "active" | "stopped";
+    created_at: string;
+  };
+  deleted: boolean;
+}
 export interface FormulateGoalParams {
   identity: {
     client_id: string;
@@ -3136,6 +3235,8 @@ export interface ContractTypes {
   DefinitionRef: DefinitionRef;
   DeleteResult: DeleteResult;
   EmptyParams: EmptyParams;
+  ForkParams: ForkParams;
+  ForkResult: ForkResult;
   FormulateGoalParams: FormulateGoalParams;
   GetStateParams: GetStateParams;
   Goal: Goal;
@@ -3310,6 +3411,7 @@ export interface Operations {
   "sessions.submit": { params: SubmitParams; result: Admission };
   "sessions.history": { params: HistoryParams; result: HistoryResult };
   "sessions.rewind": { params: RewindParams; result: HistoryEdit };
+  "sessions.fork": { params: ForkParams; result: ForkResult };
   "sessions.lifecycle": { params: LifecycleParams; result: Session };
   "sessions.delete": { params: SessionParams; result: DeleteResult };
   "turns.get": { params: TurnParams; result: Turn };

@@ -269,6 +269,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await stage('project ancestor instructions', () => projectInstructionAcceptance(runtime, client, createParams, evidence));
     await stage('engines', () => engineAcceptance(runtime, client, createParams, evidence));
     await stage('history rewind', () => rewindAcceptance(runtime, client, createParams, evidence));
+    await stage('conversation fork', () => forkAcceptance(runtime, client, createParams, evidence));
     await stage('operations', () => operationAcceptance(runtime, client, createParams, evidence));
     await stage('streaming', () => streamAcceptance(runtime, client, createParams, evidence));
   } catch (error) {
@@ -2834,5 +2835,71 @@ async function rewindAcceptance(runtime, client, createParams, evidence) {
     await closeProxy?.();
     server.closeAllConnections();
     await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+}
+
+async function forkAcceptance(runtime, client, createParams, evidence) {
+  await runtime.stop(); await runtime.start('0');
+  for (const engine of ['starlark', 'quickjs']) for (const kind of ['root', 'child']) {
+    const prefix = `fork:${engine}:${kind}`;
+    const referenceID = 'opaque-fork-handle';
+    const content = Buffer.from(`content belonging to ${prefix}: 界🙂`).toString('base64');
+    const { root } = await client.call('trees.create', { ...createParams, engine }, deadline());
+    await client.call('content.put', { session_id: root.id, reference_id: referenceID, media_type: 'text/plain', data_base64: content }, deadline());
+    const parts = [{ type: 'text', text: `${prefix} keeps ${referenceID} unchanged` }, { type: 'content', reference_id: referenceID }];
+    let source = root;
+    if (kind === 'child') {
+      source = (await client.spawn({ parent_id: root.id, parts, overrides: { report_mode: 'message' }, grant_ids: [] }, `${prefix}:seed`, deadline())).session;
+      await client.call('sessions.lifecycle', { session_id: root.id, lifecycle: 'stopped' }, deadline());
+      // Child admission aliases typed content. Also authorize the opaque handle
+      // embedded in text within the child; fork must preserve both scoped IDs.
+      await client.call('content.put', { session_id: source.id, reference_id: referenceID, media_type: 'text/plain', data_base64: content }, deadline());
+    } else await client.submit(source.id, parts, `${prefix}:seed`, deadline());
+    assert.equal((await client.wait(`${prefix}:seed`, deadline())).turn.state, 'succeeded');
+    const history = await client.call('sessions.history', { session_id: source.id, after: '0', limit: 100 }, deadline());
+    const params = { session_id: source.id, expected_history_revision: history.snapshot.revision, expected_config_revision: source.config_revision, observed_through: history.snapshot.through_sequence, keep_through: history.snapshot.through_sequence, title: 'Explicit fork title' };
+    const forkID = `${prefix}:admission`;
+    let dropped;
+    const proxy = join(runtime.directory, `fork-${engine}-${kind}.sock`);
+    const closeProxy = await dropAcknowledgement(proxy, runtime.info.socket, forkID, value => { dropped = value; }, response => response.result?.fork?.id === forkID);
+    try {
+      const unreliable = await Client.connect(unixSocket(proxy), { clientID: client.clientID, expectedRuntimeID: client.runtimeID, ...deadline() });
+      await assert.rejects(unreliable.fork(params, forkID, deadline()), DeliveryError);
+    } finally { await closeProxy(); }
+    assert.ok(dropped?.root);
+    await runtime.stop('SIGKILL'); await runtime.start('0');
+    const admitted = await client.fork(params, forkID, deadline());
+    assert.deepEqual(admitted, dropped);
+    assert.equal(admitted.root.parent_id, null); assert.equal(admitted.root.history_revision, '1');
+    assert.equal(admitted.tree.engine, engine); assert.equal(admitted.tree.metadata.title, params.title);
+    const imported = await client.call('sessions.history', { session_id: admitted.root.id, after: '0', limit: 100 }, deadline());
+    assert.equal(imported.items.length, history.items.length);
+    for (let i = 0; i < history.items.length; i++) {
+      const original = history.items[i], message = imported.items[i];
+      assert.deepEqual(message.parts, original.parts);
+      assert.equal(message.turn_id, null); assert.equal(message.input_id, null);
+      assert.notEqual(message.id, original.id); assert.notEqual(message.group_id, original.group_id);
+      assert.deepEqual(message.source, { session_id: source.id, message_id: original.id, sequence: original.sequence });
+    }
+    const budgets = await client.call('budgets.list', { session_id: admitted.root.id }, deadline());
+    assert.ok(budgets.items.every(value => value.used === '0' && value.reserved === '0' && value.uncertain === '0'));
+    await client.call('sessions.lifecycle', { session_id: source.id, lifecycle: 'stopped' }, deadline());
+    await client.call('sessions.delete', { session_id: source.id }, deadline());
+    await runtime.stop(); await runtime.start('0');
+    const retained = await client.call('content.read', { session_id: admitted.root.id, reference_id: referenceID }, deadline());
+    assert.equal(retained.data_base64, content);
+    assert.deepEqual((await client.fork(params, forkID, deadline())).fork, admitted.fork);
+    await client.submit(admitted.root.id, [{ type: 'text', text: `${prefix}:continue` }], `${prefix}:continue`, deadline());
+    assert.equal((await client.wait(`${prefix}:continue`, deadline())).turn.state, 'succeeded');
+    const continued = await client.call('sessions.history', { session_id: admitted.root.id, after: history.snapshot.through_sequence, limit: 100 }, deadline());
+    assert.equal(continued.items.length, 2); assert.ok(continued.items.every(message => message.source === null && message.turn_id !== null));
+    const second = await client.fork({ ...params, session_id: admitted.root.id, expected_history_revision: '1', expected_config_revision: '1', observed_through: continued.snapshot.through_sequence }, `${prefix}:second`, deadline());
+    await client.call('sessions.lifecycle', { session_id: admitted.root.id, lifecycle: 'stopped' }, deadline());
+    await client.call('sessions.delete', { session_id: admitted.root.id }, deadline());
+    const tombstone = await client.fork(params, forkID, deadline());
+    assert.deepEqual(tombstone, { fork: admitted.fork, root: null, tree: null, deleted: true });
+    assert.equal((await client.call('content.read', { session_id: second.root.id, reference_id: referenceID }, deadline())).data_base64, content);
+    await client.call('sessions.lifecycle', { session_id: second.root.id, lifecycle: 'stopped' }, deadline());
+    evidence.push({ fork: { engine, kind, history, admitted, imported, budgets, retained, continued, second, tombstone } });
   }
 }

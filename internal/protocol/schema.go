@@ -90,6 +90,7 @@ func Operations() []Operation {
 		{"sessions.submit", reflect.TypeFor[SubmitParams](), reflect.TypeFor[Admission]()},
 		{"sessions.history", reflect.TypeFor[HistoryParams](), reflect.TypeFor[HistoryResult]()},
 		{"sessions.rewind", reflect.TypeFor[RewindParams](), reflect.TypeFor[HistoryEdit]()},
+		{"sessions.fork", reflect.TypeFor[ForkParams](), reflect.TypeFor[ForkResult]()},
 		{"sessions.lifecycle", reflect.TypeFor[LifecycleParams](), reflect.TypeFor[Session]()},
 		{"sessions.delete", reflect.TypeFor[SessionParams](), reflect.TypeFor[DeleteResult]()},
 		{"turns.get", reflect.TypeFor[TurnParams](), reflect.TypeFor[Turn]()},
