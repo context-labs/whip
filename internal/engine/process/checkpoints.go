@@ -79,11 +79,11 @@ func (kernel *Kernel) restoreCheckpointLocked(ctx context.Context) (*RestoreRepo
 	}
 	kernel.nextID = max(kernel.nextID, checkpoint.Envelope.Sequence) + 1
 	request := frame{Type: "restore_checkpoint", ID: kernel.nextID, Bytes: len(checkpoint.Data), SHA256: checkpoint.Envelope.SHA256}
-	if err := writeFrame(kernel.worker.input, kernel.limits.FrameBytes, request); err != nil {
+	if err := kernel.write(loadCtx, request); err != nil {
 		return nil, true, err
 	}
 	if err := writeBlobChunks(kernel.worker.input, kernel.limits.FrameBytes, request.ID, checkpoint.Data); err != nil {
-		return nil, true, err
+		return nil, true, kernel.workerWriteError(loadCtx, kernel.worker, err)
 	}
 	response, err := kernel.read(loadCtx)
 	if err != nil {
@@ -123,7 +123,7 @@ func (kernel *Kernel) captureCheckpointLocked(ctx context.Context) *ScratchRepor
 	}
 	kernel.nextID++
 	id := kernel.nextID
-	if err := writeFrame(kernel.worker.input, kernel.limits.FrameBytes, frame{Type: "checkpoint", ID: id}); err != nil {
+	if err := kernel.write(ctx, frame{Type: "checkpoint", ID: id}); err != nil {
 		kernel.stop()
 		return warning(err)
 	}

@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 	"unicode/utf8"
 )
@@ -547,7 +548,7 @@ func (kernel *Kernel) evalLocked(ctx context.Context, cell Cell) (Result, error)
 	}
 	kernel.nextID++
 	id := kernel.nextID
-	if err := writeFrame(kernel.worker.input, kernel.limits.FrameBytes, frame{Type: "eval", ID: id, Code: cell.Code}); err != nil {
+	if err := kernel.write(ctx, frame{Type: "eval", ID: id, Code: cell.Code}); err != nil {
 		kernel.stop()
 		return Result{}, err
 	}
@@ -629,7 +630,7 @@ func (kernel *Kernel) evalLocked(ctx context.Context, cell Cell) (Result, error)
 				reply.Value = nil
 				reply.Error = callErr.Error()
 			}
-			if err := writeFrame(kernel.worker.input, kernel.limits.FrameBytes, reply); err != nil {
+			if err := kernel.write(ctx, reply); err != nil {
 				kernel.stop()
 				return Result{}, err
 			}
@@ -855,7 +856,7 @@ func (kernel *Kernel) snapshotLocked(ctx context.Context) *ScratchReport {
 func (kernel *Kernel) roundTripLocked(ctx context.Context, request frame) (frame, error) {
 	kernel.nextID++
 	request.ID = kernel.nextID
-	if err := writeFrame(kernel.worker.input, kernel.limits.FrameBytes, request); err != nil {
+	if err := kernel.write(ctx, request); err != nil {
 		kernel.stop()
 		return frame{}, err
 	}
@@ -916,6 +917,41 @@ func (kernel *Kernel) read(ctx context.Context) (frame, error) {
 			return frame{}, fmt.Errorf("RLM cell deadline: %w", ctx.Err())
 		}
 	}
+}
+
+func (kernel *Kernel) write(ctx context.Context, request frame) error {
+	if err := writeFrame(kernel.worker.input, kernel.limits.FrameBytes, request); err != nil {
+		return kernel.workerWriteError(ctx, kernel.worker, err)
+	}
+	return nil
+}
+
+// Wait closes StdinPipe before publishing done. A write can therefore observe
+// the same worker exit before its reader sees EOF. Preserve the actual write
+// error while giving Wait the existing startup/cell deadline to publish status.
+func (kernel *Kernel) workerWriteError(ctx context.Context, process *workerProcess, cause error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if errors.Is(cause, os.ErrClosed) || errors.Is(cause, io.ErrClosedPipe) || errors.Is(cause, syscall.EPIPE) {
+		timeout := kernel.limits.Wall
+		if !process.ready {
+			timeout = max(timeout, 5*time.Second)
+		}
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		select {
+		case <-process.done:
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			return cause
+		}
+	}
+	return kernel.workerReadError(ctx, process, cause)
 }
 
 // workerReadError reads exitErr only after Wait has published it through done.
