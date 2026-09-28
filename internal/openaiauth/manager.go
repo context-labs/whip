@@ -11,10 +11,18 @@ import (
 	"time"
 )
 
+// CapturedCredentials couples private credentials to the manager's login
+// generation. Token rotation preserves the generation; installation and logout
+// invalidate it. Captures are ephemeral host values, never public projections.
+type CapturedCredentials struct {
+	Credentials Credentials
+	Generation  uint64
+}
+
 type refresh struct {
-	done        chan struct{}
-	credentials Credentials
-	err         error
+	done     chan struct{}
+	captured CapturedCredentials
+	err      error
 }
 
 // Manager owns one host account and coalesces refreshes across all model clients.
@@ -116,49 +124,97 @@ func (m *Manager) Logout() error {
 	return nil
 }
 
+// Capture returns credentials and their generation from one locked state. Any
+// required refresh finishes and persists before the capture is published.
+func (m *Manager) Capture(ctx context.Context) (CapturedCredentials, error) {
+	return m.credentials(ctx, "", nil)
+}
+
+// Check proves that the captured login is authorized at this check's locked
+// linearization point. It is not atomic with a later HTTP request; callers must
+// check again at execution after any intervening admission wait. Token rotation
+// within the same login does not invalidate a capture. Check performs no refresh.
+func (m *Manager) Check(ctx context.Context, captured CapturedCredentials) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.check(ctx, &captured); err != nil {
+		return err
+	}
+	if m.dirty {
+		return errors.New("OpenAI credential rotation is not persisted; retry credential capture")
+	}
+	return nil
+}
+
+// RefreshCaptured replaces a rejected token only for its captured login. It may
+// reuse a newer token from a concurrent refresh, but never a replacement login.
+func (m *Manager) RefreshCaptured(ctx context.Context, captured CapturedCredentials) (CapturedCredentials, error) {
+	if captured.Credentials.AccessToken == "" {
+		return CapturedCredentials{}, ErrLoginChanged
+	}
+	return m.credentials(ctx, captured.Credentials.AccessToken, &captured)
+}
+
 func (m *Manager) Credentials(ctx context.Context) (Credentials, error) {
-	return m.credentials(ctx, "")
+	captured, err := m.Capture(ctx)
+	return captured.Credentials, err
 }
 
 // Refresh replaces a rejected access token. A newer token already obtained by
 // another request is reused, preventing a second refresh of a rotating token.
 func (m *Manager) Refresh(ctx context.Context, rejectedToken string) (Credentials, error) {
-	return m.credentials(ctx, rejectedToken)
+	captured, err := m.credentials(ctx, rejectedToken, nil)
+	return captured.Credentials, err
 }
 
-func (m *Manager) credentials(ctx context.Context, rejectedToken string) (Credentials, error) {
+// check requires mu. Check the generation before loading so stale captures
+// cannot read or refresh a replacement account's credentials.
+func (m *Manager) check(ctx context.Context, captured *CapturedCredentials) error {
 	if err := ctx.Err(); err != nil {
-		return Credentials{}, err
+		return err
 	}
-	m.mu.Lock()
 	if m.closed || m.ctx.Err() != nil {
-		m.mu.Unlock()
-		return Credentials{}, context.Canceled
+		return context.Canceled
+	}
+	if captured != nil && captured.Generation != m.generation {
+		return ErrLoginChanged
 	}
 	if err := m.load(); err != nil {
-		m.mu.Unlock()
-		return Credentials{}, err
+		return err
 	}
-	if m.terminal != nil || m.credential.AccessToken == "" {
-		err := m.terminal
-		if err == nil {
-			err = ErrSignInRequired
-		}
+	if captured != nil && (captured.Credentials.AccountID == "" || captured.Credentials.AccountID != m.credential.AccountID) {
+		return ErrLoginChanged
+	}
+	if m.terminal != nil {
+		return m.terminal
+	}
+	if m.credential.AccessToken == "" {
+		return ErrSignInRequired
+	}
+	return nil
+}
+
+func (m *Manager) credentials(ctx context.Context, rejectedToken string, captured *CapturedCredentials) (CapturedCredentials, error) {
+	if err := ctx.Err(); err != nil {
+		return CapturedCredentials{}, err
+	}
+	m.mu.Lock()
+	if err := m.check(ctx, captured); err != nil {
 		m.mu.Unlock()
-		return Credentials{}, err
+		return CapturedCredentials{}, err
 	}
 	if m.dirty {
 		if err := m.save(m.path, m.credential); err != nil {
 			m.mu.Unlock()
-			return Credentials{}, err
+			return CapturedCredentials{}, err
 		}
 		m.dirty = false
 	}
 	if time.Until(m.credential.ExpiresAt) > time.Minute &&
 		(rejectedToken == "" || rejectedToken != m.credential.AccessToken) {
-		credentials := m.credential
+		result := CapturedCredentials{Credentials: m.credential, Generation: m.generation}
 		m.mu.Unlock()
-		return credentials, nil
+		return result, nil
 	}
 	flight := m.flight
 	if flight == nil {
@@ -171,9 +227,20 @@ func (m *Manager) credentials(ctx context.Context, rejectedToken string) (Creden
 	m.mu.Unlock()
 	select {
 	case <-ctx.Done():
-		return Credentials{}, ctx.Err()
+		return CapturedCredentials{}, ctx.Err()
 	case <-flight.done:
-		return flight.credentials, flight.err
+		if err := ctx.Err(); err != nil {
+			return CapturedCredentials{}, err
+		}
+		if flight.err != nil {
+			return CapturedCredentials{}, flight.err
+		}
+		// The login can change after the refresh publishes but before this
+		// waiter resumes. Revalidate at the capture's own linearization point.
+		if err := m.Check(ctx, flight.captured); err != nil {
+			return CapturedCredentials{}, err
+		}
+		return flight.captured, nil
 	}
 }
 
@@ -201,7 +268,7 @@ func (m *Manager) runRefresh(flight *refresh, generation uint64, previous Creden
 		}
 	}
 	if err == nil {
-		flight.credentials = credentials
+		flight.captured = CapturedCredentials{Credentials: credentials, Generation: m.generation}
 	}
 	flight.err = err
 	m.flight = nil
