@@ -8,23 +8,25 @@ import (
 	"github.com/context-labs/whip/internal/session"
 )
 
-const contentSelect = `SELECT r.id,r.session_id,r.digest,b.size,r.media_type,r.created_at
+const contentSelect = `SELECT r.reference_id,r.owner_session_id,r.digest,b.size,r.media_type,r.created_at
  FROM content_references r JOIN content_bodies b ON b.digest=r.digest`
 
 // RegisterContent follows durable body publication. Retrying the same reference
-// is idempotent; SQL failure may leave an unreferenced file, never a missing body.
+// within its owner is idempotent; SQL failure may leave an unreferenced file,
+// never a missing body.
 func (s *Store) RegisterContent(ctx context.Context, reference session.ContentReference) (result session.ContentReference, err error) {
 	if err := reference.Validate(); err != nil {
 		return result, err
 	}
 	err = s.write(ctx, func(tx *sql.Tx) error {
 		var exists bool
-		if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM content_references WHERE id=?)", reference.ID).Scan(&exists); err != nil {
+		if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM content_references WHERE owner_session_id=? AND reference_id=?)", reference.SessionID, reference.ID).Scan(&exists); err != nil {
 			return err
 		}
 		result, err = registerContent(ctx, tx, reference)
 		if err == nil && !exists {
-			err = chargeWrite(ctx, tx, reference.SessionID, "content", reference.ID, 0, reference.Size)
+			// Valid IDs exclude NUL, making this a lossless owner/reference tuple.
+			err = chargeWrite(ctx, tx, reference.SessionID, "content", string(reference.SessionID)+"\x00"+reference.ID, 0, reference.Size)
 		}
 		return err
 	})
@@ -32,9 +34,9 @@ func (s *Store) RegisterContent(ctx context.Context, reference session.ContentRe
 }
 
 func registerContent(ctx context.Context, tx *sql.Tx, reference session.ContentReference) (result session.ContentReference, err error) {
-	existing, err := scanContent(tx.QueryRowContext(ctx, contentSelect+" WHERE r.id=?", reference.ID))
+	existing, err := readContent(ctx, tx, reference.SessionID, reference.ID)
 	if err == nil {
-		if existing.SessionID != reference.SessionID || existing.Digest != reference.Digest || existing.Size != reference.Size || existing.MediaType != reference.MediaType {
+		if existing.Digest != reference.Digest || existing.Size != reference.Size || existing.MediaType != reference.MediaType {
 			return result, ErrConflict
 		}
 		result = existing
@@ -49,7 +51,7 @@ func registerContent(ctx context.Context, tx *sql.Tx, reference session.ContentR
 	var count int
 	var size int64
 	if err := tx.QueryRowContext(ctx, `SELECT count(*),COALESCE(sum(b.size),0)
- FROM content_references r JOIN content_bodies b ON b.digest=r.digest WHERE r.session_id=?`, reference.SessionID).Scan(&count, &size); err != nil {
+ FROM content_references r JOIN content_bodies b ON b.digest=r.digest WHERE r.owner_session_id=?`, reference.SessionID).Scan(&count, &size); err != nil {
 		return result, err
 	}
 	if count >= session.MaxContentReferences || size+reference.Size > session.MaxSessionContentBytes {
@@ -81,7 +83,7 @@ func scanContent(row *sql.Row) (session.ContentReference, error) {
 }
 
 func readContent(ctx context.Context, q querier, owner session.SessionID, id string) (session.ContentReference, error) {
-	return scanContent(q.QueryRowContext(ctx, contentSelect+" WHERE r.session_id=? AND r.id=?", owner, id))
+	return scanContent(q.QueryRowContext(ctx, contentSelect+" WHERE r.owner_session_id=? AND r.reference_id=?", owner, id))
 }
 
 func (s *Store) ContentReference(ctx context.Context, owner session.SessionID, id string) (session.ContentReference, error) {

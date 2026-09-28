@@ -179,7 +179,7 @@ func insertMailRevision(ctx context.Context, tx *sql.Tx, spec session.MailSpec, 
 	if spec.AvailableAt != nil {
 		available = spec.AvailableAt.UTC().UnixMicro()
 	}
-	_, err := tx.ExecContext(ctx, "INSERT INTO mail_revisions (mail_id,revision,delivery,subject,body,available_at,created_at,evidence_ref) VALUES (?,?,?,?,?,?,?,?)", spec.ID, revision, spec.Delivery, spec.Subject, spec.Body, available, created, spec.EvidenceRef)
+	_, err := tx.ExecContext(ctx, "INSERT INTO mail_revisions (mail_id,revision,delivery,subject,body,available_at,created_at,evidence_ref,recipient_id) VALUES (?,?,?,?,?,?,?,?,?)", spec.ID, revision, spec.Delivery, spec.Subject, spec.Body, available, created, spec.EvidenceRef, spec.RecipientID)
 	return err
 }
 

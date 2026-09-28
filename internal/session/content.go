@@ -15,7 +15,8 @@ const (
 )
 
 // ContentReference projects immutable body metadata with a session's access
-// reference. Possession of the digest alone grants no access to the bytes.
+// reference. ID is unique only within SessionID; another owner may use the same
+// opaque ID for different bytes. Possession of the digest grants no access.
 type ContentReference struct {
 	ID        string
 	SessionID SessionID

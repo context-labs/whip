@@ -2383,3 +2383,35 @@ manual ownership, a single bounded helper request and catalog refresh obligation
 The plan now records its proposed maintenance ownership and deliberate timing,
 recovery and adapter-ceiling changes. Automatic naming is still unimplemented;
 explicit tree metadata alone is not counted as replacing it.
+
+
+## Session-owned opaque content identities
+
+Integrated isolated `f9c82bd86` as `0780f80c4`. Content references now have the
+composite identity `(owner_session_id, reference_id)`, while content bodies still
+deduplicate by digest. Registration, reads and exact retries include the owner;
+permanent logical-write identities encode both owner and reference so a second
+owner cannot accidentally avoid its charge. Mail revisions constrain their
+recipient through the canonical mail row and their evidence through the same
+recipient/reference pair. This keeps the additional FK coordinate derived and
+prevents independent ownership drift.
+
+Real-SQL tests cover identical handles with shared or different bodies, independent
+retry/conflict/charge behavior, charge-refusal rollback, reopening and deletion,
+forged mail recipient/evidence (including absent evidence), cleanup constraints
+and automatic completion/helper references already occupied by another owner.
+The SDK process scenario verifies two owners with different bytes under the same
+handle, an unrelated owner's denied access, exact retry, conflict, restart and
+independent deletion. Explicit child/mail sharing retains its recipient aliases;
+actual fork, history editing and REPL invalidation remain separate work.
+
+The isolated full store/session race suites passed (125.116s/5.129s), as did
+focused actual runtime/RPC acceptance, vet and pinned lint. Integrated fast checks
+passed; focused store/runtime race suites passed (40.210s/50.343s), followed by the
+full RPC race suite. The full v4 SDK process fixture passed in 26.875s, including
+the new ownership stage in 0.092s and all prior scenarios. Analysis reported zero
+lint findings and no reachable vulnerabilities. Logs are
+`/tmp/whip-content-owners-{fast,race,rpc,fixture,analysis}.log`.
+Fresh schema31 replaces schema30; config9 and development protocol major4 stay
+unchanged. Hosted validation is pending. This prerequisite does not close the
+fork/rewind acceptance item or Phase5.
