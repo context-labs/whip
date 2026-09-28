@@ -1608,3 +1608,33 @@ The preceding standing-instruction hosted run `36465298896` passed Linux and
 analysis but also hit the old aggregate 180-second SDK timeout on macOS. Its
 failed result remains recorded. The new named-scenario harness and these mail
 changes still need hosted evidence; Phase 4 remains reopened until that passes.
+
+
+## Phase 5 chat provider wire profiles
+
+The new Chat adapter now preserves the pinned compatible-provider profiles.
+Captured effort `off` omits the wire field. A cache key derives from the stable
+session ID, bounded to 64 bytes with SHA-256 for longer IDs; no cache-key column
+or in-memory session registry is added. Exact preset roots suppress unsupported
+cache-key fields, and the exact DeepSeek root selects non-thinking mode for its
+retained V4 profile. Custom paths, ports and lookalike hosts retain the generic
+contract. The immutable attempt snapshot records the original selection and the
+digest of the actual post-profile body; preparing freezes that body and route.
+
+The isolated change passed model, runner, config and command race tests, scoped
+vet and pinned lint. Integration passed `task check:fast`, `task check:analysis`
+(zero lint findings and no reachable vulnerabilities), and the complete actual-
+process v4 SDK fixture in 17.461s. Wire tests cover tool round trips, all pinned
+profiles, custom endpoints, stable and distinct session keys, frozen request
+preparation and credential exclusion. These are deterministic local contracts,
+not claims about current remote provider availability. Hosted gates are pending.
+
+The remaining provider execution order is Responses with private durable
+continuation, subscription execution with credential-generation checks, and
+stateless helper/batch calls through the ordinary attempt ledger. Sampling
+parameters require explicit copied configuration. Provider onboarding/account
+management UI remains a client-adoption obligation. Legacy partial-stream
+regeneration will not be restored: the new accounting contract forbids automatic
+replay after uncertainty. Idle-stall detection can terminate uncertain work but
+cannot itself authorize another dispatch. Each confirmed authentication retry
+must likewise be a separately recorded attempt.
