@@ -305,6 +305,12 @@ func executionInstructions(current session.Session, tree session.Tree) string {
 		instructions += " Available workspace operations: await files.read({path: \"relative/path\", offset: 1, limit: 2000}), await files.write({path: \"relative/path\", content: \"text\"}), await files.patch({path: \"relative/path\", old_text: \"old\", new_text: \"new\", replace_all: false})."
 	}
 	instructions += " File operations are confined to the session workspace and may wait for an explicit permission decision. An approval authorizes that operation only."
+	if tree.Engine == session.Starlark {
+		instructions += " Stateless model helpers: models.call(prompt=\"question\", max_tokens=1024) or models.batch(prompts=[\"first\", \"second\"], max_tokens=1024)."
+	} else {
+		instructions += " Stateless model helpers: await models.call({prompt:\"question\", max_tokens:1024}) or await models.batch({prompts:[\"first\", \"second\"], max_tokens:1024})."
+	}
+	instructions += " Helpers use this turn's captured model and sampling settings, with no conversation history, tools or child sessions. max_tokens is optional (1 to 1000000); batch accepts up to 32 prompts and returns results in input order. Each result has text, nullable failure, nullable attempt_id, nullable content_ref, truncated and decimal-string bytes. Failures belong to their item. Large text returns a head/tail preview and an owned content_ref readable with artifacts.read; if retention fails, failure says output unavailable while accounting remains recorded. models.call and models.batch each require their own grant with the tree ID as resource; artifacts.read requires its own grant."
 	instructions += " Read a catalog skill with skills.read using scope (workspace, host or project), root_id (null for workspace, otherwise the named root), name, decimal-string offset and length up to 65536. The first page returns the full-file sha256; copy it as sha256 on subsequent pages. data_base64 contains bytes: concatenate decoded pages before decoding UTF-8. A changed file fails the read rather than mixing revisions. Host roots grant access to skill files only, not neighboring files or scripts."
 	if tree.Engine == session.Starlark {
 		instructions += " Example: skills.read(scope=\"workspace\", root_id=None, name=\"review\", offset=\"0\", length=65536)."
