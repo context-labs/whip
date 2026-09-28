@@ -114,7 +114,7 @@ tasks:
       - task: check:fast
       - go build {{.REDESIGN_PACKAGES}}
       - go vet {{.REDESIGN_PACKAGES}}
-      - go test -race -shuffle=on -count=1 -timeout=3m {{.REDESIGN_PACKAGES}}
+      - go test -race -shuffle=on -count=1 -timeout=10m {{.REDESIGN_PACKAGES}}
       - task: contract
       - task: sdk
       - task: check:fixture

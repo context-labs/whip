@@ -100,6 +100,8 @@ semantics. Those remain explicit phase 2–3 acceptance obligations.
 [backend-redesign.yml](../.github/workflows/backend-redesign.yml) runs on PRs into
 the integration branch and pushes to it. Linux and macOS run the phase gate with
 a race-instrumented fixture; a separate job runs pinned lint/vulnerability tools.
+Their Go compiler caches have separate keys from each other and production CI,
+so the first successful run can save the tools and race builds it actually uses.
 The `redesign` aggregate requires every job to succeed, including after failure
 or cancellation. It has no percentage-coverage gate. The existing production CI
 and coverage floor remain intact.
@@ -162,3 +164,11 @@ deliberately introduced `TestRedesignGateCanary`. The test failed in both OS job
 analysis passed, and the required `redesign` aggregate failed. `gh pr checks 197
 --required` reported that failed context. The temporary test was then removed;
 the restored full phase gate must pass before phase 0 closes.
+
+The [first restored run](https://github.com/context-labs/whip/actions/runs/36364784940)
+exposed a too-small timeout: the complete storage race suite exceeded three
+minutes on both hosted OS runners, while advancing through different tests in
+SQLite. It had passed locally in 135 seconds. The race step now allows ten
+minutes per package, still under the job's twenty-minute limit. No tests or race
+instrumentation were dropped; the fast gate is unchanged. Hosted timing must be
+measured separately from the local warm measurements above.
