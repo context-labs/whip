@@ -54,6 +54,10 @@ func Fixtures() ([]Fixture, error) {
 		name  string
 		value any
 	}{
+		{"Grant", GrantFromDomain(session.Grant{ID: "grant_fixture", SessionID: "session_child", Capability: "files.read", Resource: "/workspace", CreatedAt: created})},
+		{"HostOperation", OperationFromDomain(session.Operation{ID: "operation_fixture", CellID: "cell_fixture", RequestID: "1:1", Capability: "files.read", Resource: "/workspace", Arguments: json.RawMessage(`{"path":"example.txt","offset":1,"limit":2000}`), SessionID: "session_child", TurnID: "turn_fixture", State: session.OperationSucceeded, GrantID: new(session.GrantID("grant_fixture")), Result: &session.OperationResult{State: session.OperationSucceeded, Value: json.RawMessage(`{"output":"1: hello"}`)}, CreatedAt: created, DispatchedAt: &created, FinishedAt: &created})},
+		{"Permission", PermissionFromDomain(session.Permission{OperationID: "operation_fixture", State: session.PermissionApproved, CreatedAt: created, ResolvedAt: &created})},
+		{"Cell", CellFromDomain(session.Cell{ID: "cell_fixture", SessionID: "session_child", TurnID: "turn_fixture", CallMessageID: "message_call", CallID: "call_fixture", State: session.CellSucceeded, ResultMessageID: new(session.MessageID("message_result")), Checkpoint: &session.Checkpoint{Digest: ref.Revision, Size: 123, Engine: session.Starlark, Metadata: json.RawMessage(`{"format_version":1}`)}, CreatedAt: created, FinishedAt: &created})},
 		{"PutContentParams", PutContentParams{SessionID: child.ID, ReferenceID: "content_fixture", MediaType: "text/plain", DataBase64: "aGVsbG8="}},
 		{"ReadContentResult", ReadContentResult{
 			Reference:  ContentReferenceFromDomain(session.ContentReference{ID: "content_fixture", SessionID: session.SessionID(child.ID), Digest: hex.EncodeToString(contentDigest[:]), Size: 5, MediaType: "text/plain", CreatedAt: created}),

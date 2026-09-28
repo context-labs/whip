@@ -20,6 +20,15 @@ type Operation struct {
 
 func Operations() []Operation {
 	return []Operation{
+		{"cells.get", reflect.TypeFor[CellParams](), reflect.TypeFor[Cell]()},
+		{"turns.cells", reflect.TypeFor[CellsParams](), reflect.TypeFor[CellsResult]()},
+		{"grants.create", reflect.TypeFor[CreateGrantParams](), reflect.TypeFor[Grant]()},
+		{"grants.list", reflect.TypeFor[GrantsParams](), reflect.TypeFor[GrantsResult]()},
+		{"grants.revoke", reflect.TypeFor[GrantParams](), reflect.TypeFor[Grant]()},
+		{"operations.get", reflect.TypeFor[HostOperationParams](), reflect.TypeFor[HostOperation]()},
+		{"turns.operations", reflect.TypeFor[HostOperationsParams](), reflect.TypeFor[HostOperationsResult]()},
+		{"permissions.list", reflect.TypeFor[PermissionsParams](), reflect.TypeFor[PermissionsResult]()},
+		{"permissions.resolve", reflect.TypeFor[ResolvePermissionParams](), reflect.TypeFor[Permission]()},
 		{"initialize", reflect.TypeFor[InitializeParams](), reflect.TypeFor[InitializeResult]()},
 		{"trees.create", reflect.TypeFor[CreateTreeParams](), reflect.TypeFor[CreateTreeResult]()},
 		{"trees.get", reflect.TypeFor[TreeParams](), reflect.TypeFor[Tree]()},

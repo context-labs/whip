@@ -54,6 +54,52 @@ export interface Admission {
     finished_at: null | string;
   };
 }
+export interface Cell {
+  id: string;
+  session_id: string;
+  turn_id: string;
+  call_message_id: string;
+  call_id: string;
+  state: "running" | "succeeded" | "failed" | "uncertain";
+  result_message_id: null | string;
+  checkpoint: null | {
+    digest: string;
+    size: string;
+    engine: "starlark" | "quickjs";
+    metadata: unknown;
+  };
+  created_at: string;
+  finished_at: null | string;
+}
+export interface CellParams {
+  cell_id: string;
+}
+export interface CellsParams {
+  turn_id: string;
+  after?: null | string;
+  limit: number;
+}
+export interface CellsResult {
+  items:
+    | null
+    | {
+        id: string;
+        session_id: string;
+        turn_id: string;
+        call_message_id: string;
+        call_id: string;
+        state: "running" | "succeeded" | "failed" | "uncertain";
+        result_message_id: null | string;
+        checkpoint: null | {
+          digest: string;
+          size: string;
+          engine: "starlark" | "quickjs";
+          metadata: unknown;
+        };
+        created_at: string;
+        finished_at: null | string;
+      }[];
+}
 export interface ContentReference {
   id: string;
   session_id: string;
@@ -61,6 +107,12 @@ export interface ContentReference {
   size: string;
   media_type: string;
   created_at: string;
+}
+export interface CreateGrantParams {
+  id: string;
+  session_id: string;
+  capability: string;
+  resource: string;
 }
 export interface CreateTreeParams {
   metadata: {
@@ -271,6 +323,36 @@ export interface DefinitionRef {
 export interface DeleteResult {
   deleted: boolean;
 }
+export interface Grant {
+  id: string;
+  session_id: string;
+  capability: string;
+  resource: string;
+  operation_id: null | string;
+  created_at: string;
+  revoked_at: null | string;
+}
+export interface GrantParams {
+  grant_id: string;
+}
+export interface GrantsParams {
+  session_id: string;
+  after?: null | string;
+  limit: number;
+}
+export interface GrantsResult {
+  items:
+    | null
+    | {
+        id: string;
+        session_id: string;
+        capability: string;
+        resource: string;
+        operation_id: null | string;
+        created_at: string;
+        revoked_at: null | string;
+      }[];
+}
 export interface HistoryParams {
   session_id: string;
   after: string;
@@ -409,6 +491,58 @@ export interface HistoryResult {
             [k: string]: unknown;
           }
       )[];
+}
+export interface HostOperation {
+  id: string;
+  session_id: string;
+  turn_id: string;
+  cell_id: string;
+  request_id: string;
+  capability: string;
+  resource: string;
+  arguments: unknown;
+  state: "waiting" | "ready" | "dispatched" | "succeeded" | "failed" | "denied" | "cancelled" | "uncertain";
+  grant_id: null | string;
+  result: null | {
+    state: "succeeded" | "failed" | "denied" | "cancelled" | "uncertain";
+    value?: unknown;
+    failure?: null | string;
+  };
+  created_at: string;
+  dispatched_at: null | string;
+  finished_at: null | string;
+}
+export interface HostOperationParams {
+  operation_id: string;
+}
+export interface HostOperationsParams {
+  turn_id: string;
+  after?: null | string;
+  limit: number;
+}
+export interface HostOperationsResult {
+  items:
+    | null
+    | {
+        id: string;
+        session_id: string;
+        turn_id: string;
+        cell_id: string;
+        request_id: string;
+        capability: string;
+        resource: string;
+        arguments: unknown;
+        state: "waiting" | "ready" | "dispatched" | "succeeded" | "failed" | "denied" | "cancelled" | "uncertain";
+        grant_id: null | string;
+        result: null | {
+          state: "succeeded" | "failed" | "denied" | "cancelled" | "uncertain";
+          value?: unknown;
+          failure?: null | string;
+        };
+        created_at: string;
+        dispatched_at: null | string;
+        finished_at: null | string;
+      }[];
 }
 export interface InitializeParams {
   major: number;
@@ -604,6 +738,27 @@ export type Part =
       };
       type: "tool_result";
     };
+export interface Permission {
+  operation_id: string;
+  state: "pending" | "approved" | "denied" | "cancelled";
+  created_at: string;
+  resolved_at: null | string;
+}
+export interface PermissionsParams {
+  session_id: string;
+  after?: null | string;
+  limit: number;
+}
+export interface PermissionsResult {
+  items:
+    | null
+    | {
+        operation_id: string;
+        state: "pending" | "approved" | "denied" | "cancelled";
+        created_at: string;
+        resolved_at: null | string;
+      }[];
+}
 export interface PutContentParams {
   session_id: string;
   reference_id: string;
@@ -640,6 +795,10 @@ export interface Request {
 export interface RequestIdentity {
   client_id: string;
   request_id: string;
+}
+export interface ResolvePermissionParams {
+  operation_id: string;
+  approved: boolean;
 }
 export type Response = {
   jsonrpc: "2.0";
@@ -883,15 +1042,28 @@ export interface UpdateTreeParams {
 
 export interface ContractTypes {
   Admission: Admission;
+  Cell: Cell;
+  CellParams: CellParams;
+  CellsParams: CellsParams;
+  CellsResult: CellsResult;
   ContentReference: ContentReference;
+  CreateGrantParams: CreateGrantParams;
   CreateTreeParams: CreateTreeParams;
   CreateTreeResult: CreateTreeResult;
   Definition: Definition;
   DefinitionDocument: DefinitionDocument;
   DefinitionRef: DefinitionRef;
   DeleteResult: DeleteResult;
+  Grant: Grant;
+  GrantParams: GrantParams;
+  GrantsParams: GrantsParams;
+  GrantsResult: GrantsResult;
   HistoryParams: HistoryParams;
   HistoryResult: HistoryResult;
+  HostOperation: HostOperation;
+  HostOperationParams: HostOperationParams;
+  HostOperationsParams: HostOperationsParams;
+  HostOperationsResult: HostOperationsResult;
   InitializeParams: InitializeParams;
   InitializeResult: InitializeResult;
   Input: Input;
@@ -902,12 +1074,16 @@ export interface ContractTypes {
   ModelAttemptsParams: ModelAttemptsParams;
   ModelAttemptsResult: ModelAttemptsResult;
   Part: Part;
+  Permission: Permission;
+  PermissionsParams: PermissionsParams;
+  PermissionsResult: PermissionsResult;
   PutContentParams: PutContentParams;
   RPCError: RPCError;
   ReadContentParams: ReadContentParams;
   ReadContentResult: ReadContentResult;
   Request: Request;
   RequestIdentity: RequestIdentity;
+  ResolvePermissionParams: ResolvePermissionParams;
   Response: Response;
   Session: Session;
   SessionParams: SessionParams;
@@ -923,6 +1099,15 @@ export interface ContractTypes {
   UpdateTreeParams: UpdateTreeParams;
 }
 export interface Operations {
+  "cells.get": { params: CellParams; result: Cell };
+  "turns.cells": { params: CellsParams; result: CellsResult };
+  "grants.create": { params: CreateGrantParams; result: Grant };
+  "grants.list": { params: GrantsParams; result: GrantsResult };
+  "grants.revoke": { params: GrantParams; result: Grant };
+  "operations.get": { params: HostOperationParams; result: HostOperation };
+  "turns.operations": { params: HostOperationsParams; result: HostOperationsResult };
+  "permissions.list": { params: PermissionsParams; result: PermissionsResult };
+  "permissions.resolve": { params: ResolvePermissionParams; result: Permission };
   "initialize": { params: InitializeParams; result: InitializeResult };
   "trees.create": { params: CreateTreeParams; result: CreateTreeResult };
   "trees.get": { params: TreeParams; result: Tree };

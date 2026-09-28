@@ -496,23 +496,23 @@ checkpointing. Establish failure behavior before broadening integrations.
 
 Acceptance:
 
-- [ ] The real runner executes model/code/tool work through injected boundaries.
+- [x] The real runner executes model/code/tool work through injected boundaries.
       A scripted provider exercises the same loop as the real provider.
-- [ ] Every dispatched model request, including retries/helpers, has an attempt
+- [x] Every dispatched model request, including retries/helpers, has an attempt
       record and truthful usage/cost/uncertainty; settlement failure cannot cause
       an automatic second provider dispatch.
-- [ ] Tool effects require scoped authority and have durable operation evidence.
+- [x] Tool effects require scoped authority and have durable operation evidence.
       Denial/revocation prevents the relevant effect; unresolved effects are not
       blindly replayed after restart.
 - [ ] Completed messages survive a crash mid-turn; provisional output reconciles
       without becoming a second committed message.
-- [ ] Checkpoint integrity, compatibility, execution boundary and failure policy
+- [x] Checkpoint integrity, compatibility, execution boundary and failure policy
       are tested; restoration does not replay external effects.
-- [ ] Injected transaction failures and selected real process kills yield the
+- [x] Injected transaction failures and selected real process kills yield the
       documented queued/interrupted/uncertain outcomes.
-- [ ] Explicit cancellation, deadlines and resource cleanup pass targeted race
+- [x] Explicit cancellation, deadlines and resource cleanup pass targeted race
       and lifecycle tests. Cancellation remains serviceable during slow calls.
-- [ ] A model/config change takes effect at its documented boundary while
+- [x] A model/config change takes effect at its documented boundary while
       preserving REPL, history and unrelated resource state.
 - [x] Content is authorized and bounded; provider encoding leaves durable
       references intact. One real-provider/engine smoke has recorded evidence.

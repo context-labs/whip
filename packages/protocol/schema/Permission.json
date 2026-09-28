@@ -1,0 +1,37 @@
+{
+  "type": "object",
+  "properties": {
+    "operation_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "approved",
+        "denied",
+        "cancelled"
+      ]
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "resolved_at": {
+      "type": [
+        "null",
+        "string"
+      ]
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/Permission",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Permission",
+  "required": [
+    "operation_id",
+    "state",
+    "created_at",
+    "resolved_at"
+  ],
+  "additionalProperties": false
+}

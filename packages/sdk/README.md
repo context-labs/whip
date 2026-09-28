@@ -51,8 +51,8 @@ For configured HTTP providers, omit `-scripted` and use the host configuration
 described in [the development guide](../../docs/backend-redesign-development.md#openai-compatible-dispatch-increment).
 
 See [the runnable example](examples/session.mjs), [Go client](../../internal/client/client.go),
-and [real process acceptance](../../scripts/redesign/v4-fixture.test.mjs). Streaming,
-effect authority, engines and product-client adoption follow in later phases.
+and [real process acceptance](../../scripts/redesign/v4-fixture.test.mjs). Provisional
+streaming and product-client adoption remain in progress.
 
 
 The v4 transcript now includes assistant `tool_call` parts with a stable call ID,
@@ -63,3 +63,18 @@ unfinished provider request is recorded as uncertain. The runtime executes both
 Starlark and QuickJS through the same durable code loop and restores committed
 REPL checkpoints across restart. Model changes apply to the next turn and retain
 that session's REPL state.
+
+
+`permissions.list` returns durable decisions for a session. For each pending
+operation, inspect `operations.get` for its exact capability, resource and
+arguments, then call `permissions.resolve` with `{operation_id, approved}`.
+Approval authorizes only that invocation. Explicit standing authority uses
+`grants.create` with a caller-generated ID, session ID, capability and resource;
+`grants.revoke` prevents future dispatches under it. A file grant's resource is
+the session's working directory. The local socket is a trusted-client boundary.
+
+Use `turns.operations` for effects and `turns.cells` for interpreter boundaries.
+A completed write may coexist with an uncertain cell and no usable checkpoint.
+Restart cancels pending permissions and never repeats completed/uncertain effects.
+Do not interpret an interrupted turn or a failed connection as proof that a write
+did not happen. Permission approval after cancellation returns `CONFLICT`.

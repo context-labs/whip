@@ -84,8 +84,8 @@ async function dropAcknowledgement(path, upstream, requestID, onDrop) {
   return async () => { for (const connection of connections) connection.destroy(); await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())); };
 }
 
-async function until(read, predicate) {
-  const signal = AbortSignal.timeout(10_000);
+async function until(read, predicate, timeout = 10_000) {
+  const signal = AbortSignal.timeout(timeout);
   for (;;) {
     signal.throwIfAborted();
     const value = await read(); if (predicate(value)) return value;
@@ -188,6 +188,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await assert.rejects(Client.connect(unixSocket(runtime.info.socket), { clientID: 'wrong', expectedRuntimeID: 'different', ...deadline() }), error => error instanceof RemoteError && error.kind === 'IDENTITY');
     await providerAcceptance(runtime, client, createParams, evidence);
     await engineAcceptance(runtime, client, createParams, evidence);
+    await operationAcceptance(runtime, client, createParams, evidence);
     passed = true;
   } finally {
     await proxyClose?.();
@@ -361,6 +362,106 @@ async function engineAcceptance(runtime, client, createParams, evidence) {
       evidence.push({ engine, first, attempts, beforeKill, interrupted, interruptedAttempts, after });
     }
     assert.ok(requests.every(request => request.tools?.[0]?.function.name === 'execute'));
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+}
+
+
+// A completed external write and an unapproved second write share one unfinished
+// cell. Killing the actual runtime must retain the first outcome, cancel the
+// second waiter, and mark only the lost interpreter boundary uncertain.
+async function operationAcceptance(runtime, client, createParams, evidence) {
+  const requests = [];
+  const server = http.createServer(async (request, response) => {
+    let raw = '';
+    for await (const chunk of request) raw += chunk;
+    const body = JSON.parse(raw);
+    const prompt = body.messages.findLast(item => item.role === 'user').content;
+    requests.push(prompt);
+    const engine = prompt.split(':')[0];
+    const code = engine === 'starlark'
+      ? 'files.write(path="completed.txt", content="effect completed")\nfiles.write(path="never.txt", content="must not happen")'
+      : 'await files.write({path:"completed.txt",content:"effect completed"}); await files.write({path:"never.txt",content:"must not happen"})';
+    const message = prompt.endsWith(':inspect-after-restart')
+      ? { role: 'assistant', content: 'history remains available' }
+      : { role: 'assistant', content: null, tool_calls: [{ id: 'files-call', type: 'function', function: { name: 'execute', arguments: JSON.stringify({ code }) } }] };
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify({ choices: [{ message, finish_reason: message.tool_calls ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 12, completion_tokens: 4, cost: 0 } }));
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    await runtime.stop();
+    const path = join(runtime.directory, 'state', 'host.json');
+    const host = JSON.parse(await readFile(path, 'utf8'));
+    host.providers.operations = {
+      kind: 'openai-chat', base_url: `http://127.0.0.1:${server.address().port}/v1`, credential_env: '',
+      models: { operations: { max_output_tokens: 500, timeout_millis: 30000, max_attempts: 1 } },
+    };
+    await writeFile(path, JSON.stringify(host), { mode: 0o600 });
+    await runtime.start(null);
+    for (const engine of ['starlark', 'quickjs']) {
+      const workspace = join(runtime.directory, engine + '-effects');
+      await mkdir(workspace);
+      const { root } = await client.call('trees.create', {
+        ...createParams, engine, working_directory: workspace,
+        overrides: { model: { provider: 'operations', name: 'operations', effort: '' } },
+      }, deadline());
+      const requestID = engine + ':kill-during-effects';
+      await client.submit(root.id, [{ type: 'text', text: requestID }], requestID, deadline());
+      const permissions = () => client.call('permissions.list', { session_id: root.id, limit: 100 }, deadline());
+      const pending = await until(permissions, page => page.items.some(item => item.state === 'pending'), 30_000);
+      const firstPermission = pending.items.find(item => item.state === 'pending');
+      const firstOperation = await client.call('operations.get', { operation_id: firstPermission.operation_id }, deadline());
+      assert.equal(firstOperation.session_id, root.id);
+      assert.equal(firstOperation.capability, 'files.write');
+      assert.equal(firstOperation.resource, workspace);
+      assert.equal(firstOperation.arguments.path, 'completed.txt');
+      assert.equal(firstOperation.dispatched_at, null);
+      await assert.rejects(readFile(join(workspace, 'completed.txt')), { code: 'ENOENT' });
+      await client.call('permissions.resolve', { operation_id: firstOperation.id, approved: true }, deadline());
+      const secondPage = await until(permissions, page => page.items.some(item => item.state === 'pending' && item.operation_id !== firstOperation.id));
+      const secondPermission = secondPage.items.find(item => item.state === 'pending');
+      const operations = () => client.call('turns.operations', { turn_id: firstOperation.turn_id, limit: 100 }, deadline());
+      const cells = () => client.call('turns.cells', { turn_id: firstOperation.turn_id, limit: 100 }, deadline());
+      const beforeKill = await operations();
+      assert.equal(beforeKill.items.find(item => item.id === firstOperation.id).state, 'succeeded');
+      assert.equal(beforeKill.items.find(item => item.id === secondPermission.operation_id).state, 'waiting');
+      assert.equal(await readFile(join(workspace, 'completed.txt'), 'utf8'), 'effect completed');
+      const grants = await client.call('grants.list', { session_id: root.id, limit: 100 }, deadline());
+      assert.equal(grants.items.length, 1);
+      assert.equal(grants.items[0].operation_id, firstOperation.id);
+      const beforeCells = await cells();
+      assert.equal(beforeCells.items.length, 1);
+      assert.equal(beforeCells.items[0].state, 'running');
+      assert.equal(beforeCells.items[0].checkpoint, null);
+      await runtime.stop('SIGKILL');
+      await writeFile(join(workspace, 'completed.txt'), 'external change after crash');
+      await runtime.start(null);
+      const interrupted = await client.wait(requestID, deadline());
+      assert.equal(interrupted.turn.state, 'interrupted');
+      const afterKill = await operations();
+      assert.deepEqual(afterKill.items.find(item => item.id === firstOperation.id), beforeKill.items.find(item => item.id === firstOperation.id));
+      const cancelled = afterKill.items.find(item => item.id === secondPermission.operation_id);
+      assert.equal(cancelled.state, 'cancelled');
+      assert.equal(cancelled.dispatched_at, null);
+      assert.equal((await permissions()).items.find(item => item.operation_id === cancelled.id).state, 'cancelled');
+      await assert.rejects(client.call('permissions.resolve', { operation_id: cancelled.id, approved: true }, deadline()), error => error instanceof RemoteError && error.kind === 'CONFLICT');
+      const afterCells = await cells();
+      assert.equal(afterCells.items[0].state, 'uncertain');
+      assert.equal(afterCells.items[0].checkpoint, null);
+      assert.ok(afterCells.items[0].result_message_id);
+      assert.deepEqual(await client.call('cells.get', { cell_id: afterCells.items[0].id }, deadline()), afterCells.items[0]);
+      const inspectID = engine + ':inspect-after-restart';
+      await client.submit(root.id, [{ type: 'text', text: inspectID }], inspectID, deadline());
+      assert.equal((await client.wait(inspectID, deadline())).turn.state, 'succeeded');
+      assert.equal(await readFile(join(workspace, 'completed.txt'), 'utf8'), 'external change after crash');
+      await assert.rejects(readFile(join(workspace, 'never.txt')), { code: 'ENOENT' });
+      assert.equal(requests.filter(prompt => prompt === requestID).length, 1);
+      evidence.push({ engine, beforeKill, beforeCells, afterKill, afterCells, interrupted });
+    }
   } finally {
     server.closeAllConnections();
     await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));

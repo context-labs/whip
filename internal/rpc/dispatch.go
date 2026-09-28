@@ -43,6 +43,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 		return nil, ErrMethod
 	}
 	switch method {
+	case "grants.create", "grants.list", "grants.revoke", "operations.get", "turns.operations", "permissions.list", "permissions.resolve", "cells.get", "turns.cells":
+		return dispatchOperation(ctx, r, method, raw)
 	case "content.put":
 		return decode(raw, func(p protocol.PutContentParams) (any, error) {
 			if len(p.DataBase64) > base64.StdEncoding.EncodedLen(session.MaxContentBytes) {

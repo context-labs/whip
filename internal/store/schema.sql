@@ -139,6 +139,65 @@ CREATE TRIGGER cell_transition BEFORE UPDATE ON cells
  OR NEW.created_at IS NOT OLD.created_at
  BEGIN SELECT RAISE(ABORT, 'invalid cell transition'); END;
 
+CREATE TABLE operations (
+ id TEXT PRIMARY KEY, cell_id TEXT NOT NULL REFERENCES cells(id) ON DELETE CASCADE,
+ request_id TEXT NOT NULL, capability TEXT NOT NULL, resource TEXT NOT NULL,
+ arguments TEXT NOT NULL CHECK(json_valid(arguments) AND json_type(arguments)='object'),
+ state TEXT NOT NULL CHECK(state IN ('waiting','ready','dispatched','succeeded','failed','denied','cancelled','uncertain')),
+ grant_id TEXT REFERENCES grants(id) DEFERRABLE INITIALLY DEFERRED,
+ result TEXT CHECK(result IS NULL OR json_valid(result)),
+ created_at INTEGER NOT NULL, dispatched_at INTEGER, finished_at INTEGER,
+ UNIQUE(cell_id,request_id),
+ CHECK((state IN ('waiting','ready','dispatched')) = (finished_at IS NULL)),
+ CHECK((result IS NULL) = (finished_at IS NULL)),
+ CHECK(result IS NULL OR json_extract(result,'$.state') IS state),
+ CHECK((state IN ('dispatched','succeeded','failed','uncertain')) = (dispatched_at IS NOT NULL)),
+ CHECK(state <> 'waiting' OR grant_id IS NULL),
+ CHECK(state NOT IN ('ready','dispatched','succeeded','failed','uncertain') OR grant_id IS NOT NULL)
+) STRICT;
+CREATE INDEX operations_by_cell ON operations(cell_id,id);
+CREATE INDEX operations_by_grant ON operations(grant_id,id) WHERE state='ready';
+CREATE INDEX operations_unfinished ON operations(id) WHERE finished_at IS NULL;
+CREATE TRIGGER operation_transition BEFORE UPDATE ON operations
+ WHEN NEW.id IS NOT OLD.id OR NEW.cell_id IS NOT OLD.cell_id OR NEW.request_id IS NOT OLD.request_id
+ OR NEW.capability IS NOT OLD.capability OR NEW.resource IS NOT OLD.resource
+ OR NEW.arguments IS NOT OLD.arguments OR NEW.created_at IS NOT OLD.created_at
+ OR OLD.state NOT IN ('waiting','ready','dispatched')
+ OR (OLD.state='waiting' AND NEW.state NOT IN ('ready','denied','cancelled'))
+ OR (OLD.state='ready' AND NEW.state NOT IN ('dispatched','denied','cancelled'))
+ OR (OLD.state='dispatched' AND NEW.state NOT IN ('succeeded','failed','uncertain'))
+ OR (OLD.state<>'waiting' AND NEW.grant_id IS NOT OLD.grant_id)
+ OR (OLD.state='waiting' AND NEW.state<>'ready' AND NEW.grant_id IS NOT OLD.grant_id)
+ OR (OLD.state='dispatched' AND NEW.dispatched_at IS NOT OLD.dispatched_at)
+ BEGIN SELECT RAISE(ABORT, 'invalid operation transition'); END;
+
+CREATE TABLE grants (
+ id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+ capability TEXT NOT NULL, resource TEXT NOT NULL,
+ operation_id TEXT UNIQUE REFERENCES operations(id) ON DELETE CASCADE,
+ created_at INTEGER NOT NULL, revoked_at INTEGER
+) STRICT;
+CREATE INDEX grants_by_session ON grants(session_id,id);
+CREATE INDEX standing_grant_scope ON grants(session_id,capability,resource,id)
+ WHERE operation_id IS NULL AND revoked_at IS NULL;
+CREATE TRIGGER grant_transition BEFORE UPDATE ON grants
+ WHEN NEW.id IS NOT OLD.id OR NEW.session_id IS NOT OLD.session_id
+ OR NEW.capability IS NOT OLD.capability OR NEW.resource IS NOT OLD.resource
+ OR NEW.operation_id IS NOT OLD.operation_id OR NEW.created_at IS NOT OLD.created_at
+ OR OLD.revoked_at IS NOT NULL OR NEW.revoked_at IS NULL
+ BEGIN SELECT RAISE(ABORT, 'grant may only be revoked'); END;
+
+CREATE TABLE permissions (
+ operation_id TEXT PRIMARY KEY REFERENCES operations(id) ON DELETE CASCADE,
+ state TEXT NOT NULL CHECK(state IN ('pending','approved','denied','cancelled')),
+ created_at INTEGER NOT NULL, resolved_at INTEGER,
+ CHECK((state='pending') = (resolved_at IS NULL))
+) STRICT;
+CREATE TRIGGER permission_transition BEFORE UPDATE ON permissions
+ WHEN NEW.operation_id IS NOT OLD.operation_id OR NEW.created_at IS NOT OLD.created_at
+ OR OLD.state<>'pending' OR NEW.state='pending'
+ BEGIN SELECT RAISE(ABORT, 'permission decision is immutable'); END;
+
 CREATE TABLE model_attempts (
  id TEXT PRIMARY KEY, turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,
  logical_id TEXT NOT NULL, number INTEGER NOT NULL CHECK(number BETWEEN 1 AND 100),

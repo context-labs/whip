@@ -23,6 +23,9 @@ separate legacy runtime and SDK until their client cutover.
 | Provider dispatch, usage, price snapshot and cost | Model-attempt row, linked to its completed message |
 | Code dispatch, outcome and exact REPL boundary | Cell row, linked to its assistant call and tool-result message |
 | Checkpoint compatibility metadata and body reference | Immutable terminal cell checkpoint |
+| Host-operation intent, dispatch and outcome | Operation row, owned through its cell and turn |
+| Exact session/capability/resource authority | Immutable grant row; revocation is a terminal fact |
+| One-use consent decision | Permission row, linked to its exact operation |
 | Checkpoint image bytes | Durable immutable blob file, verified before restore |
 | Content digest and size | Immutable content-body metadata row |
 | Session access and declared media type | Immutable content-reference row |
@@ -101,14 +104,17 @@ overrides. Working directories are absolute and fixed for a session's lifetime.
    linked to the interrupted turn and are never automatically requeued.
    In the same transaction, reserved attempts become cancelled with known zero
    cost and dispatched attempts become uncertain. A turn cannot finish while
-   an attempt or code cell remains unsettled. Recovery also records an uncertain
+   an attempt, operation or code cell remains unsettled. Waiting/ready operations
+   become cancelled; dispatched operations become uncertain. Pending permissions
+   are cancelled before cells settle, so a lost live waiter cannot resume.
+   Recovery also records an uncertain
    result for an admitted unfinished cell, and a not-dispatched result for an
    unanswered assistant call that never acquired a cell record.
 
 Turn transitions are running → cancelling → cancelled/interrupted or
 running → succeeded/failed/cancelled/interrupted. Terminal outcomes cannot
 change. Cancellation requests persist intent; they do not claim that an external
-effect has stopped. Phase 3 supplies dispatch evidence and effect uncertainty.
+effect has stopped. Operation dispatch and settlement record that evidence separately.
 
 Queued input cancellation removes its eligibility. Claimed input cancellation
 targets its turn. Stopping a session pauses admission/claims and requests
@@ -239,8 +245,8 @@ The runner advertises `execute` and repeats model → code → model through inj
 interfaces, with at most 32 logical model calls and 64 dispatched cells per turn.
 Each retry has its own attempt under the logical call. Completed assistant calls
 commit before code admission. Model tool declarations describe available syntax;
-they do not authorize host effects. Host operations currently fail closed while
-the new authority and operation dispatcher is being implemented.
+they do not authorize host effects. The tool dispatcher separately admits and
+authorizes supported host operations.
 
 A cell names its turn, committed assistant message and provider call ID. An atomic
 begin admits exactly one execution. The runtime serializes each session's kernel
@@ -270,3 +276,53 @@ failures are recorded in tool results. QuickJS checkpoints preserve the whole
 image within their resource contract. Restoration never evaluates past cells or
 reissues host calls. Both engines preserve state across model changes, eviction
 and restart through the same runtime and storage path.
+
+
+## Host operations and permission decisions
+
+`internal/tool` prepares bounded host requests and coordinates their durable
+admission, consent and dispatch through consumer-owned interfaces. It owns no SQL,
+interpreter or scheduler. The runtime binds each host invocation to its running
+cell; the store derives the owning turn and session from that cell. The operation
+keeps normalized immutable arguments. Its ID is stable for the cell/invocation
+identity; a repeated identity cannot execute the effect again.
+
+A standing grant matches one session, capability and resource exactly. Workspace
+file capabilities use the session's fixed working directory as their resource;
+`files.read`, `files.write` and `files.patch` are separate capabilities. Workspace
+scope permits relative paths within that directory, not arbitrary host paths.
+Creating standing authority is an explicit trusted-client operation. Templates,
+model instructions, child relationships and an existing workspace confer none.
+Resolving a permission as approved creates a grant bound to that exact operation,
+including its normalized arguments. The next invocation needs its own decision.
+
+An operation moves from waiting → ready → dispatched → succeeded/failed/uncertain.
+Waiting/ready operations can instead become denied/cancelled. Consent, one-use
+grant creation and readiness commit together. Filesystem locks and root handles
+are acquired after consent, then SQL rechecks the live owner and unrevoked grant
+at dispatch. Revocation committed before dispatch prevents the effect; revocation
+after dispatch cannot claim an already admitted effect stopped. No SQL transaction
+contains filesystem execution. A cell cannot settle with unfinished operations.
+
+The filesystem adapter uses rooted handles, canonical cancellable mutation locks,
+regular-file checks and bounded UTF-8 requests/results. Writes/patches publish with
+an atomic same-directory rename and sync; each prepared request executes once.
+Read pages default to 2,000 lines with a 256 KiB source cap and 32 KiB output cap.
+A null `next_offset` means an incomplete line/source cannot resume by line number.
+Mutation errors conservatively record uncertainty. Successful effects retain that
+outcome even when cancellation arrives before result presentation. SQL settlement
+may retry for five seconds without invoking the effect again. Dispatched calls
+have a 30-second execution context; waiting for consent remains cancellable.
+
+A permission is durable decision evidence, not a live waiter. Restart cancels
+undispatched operations and pending permissions, marks dispatched unsettled
+operations uncertain, then reconciles cells/turns in the same transaction.
+Completed operation evidence remains unchanged even if its cell's checkpoint was
+lost. Late approval of a cancelled permission conflicts. No effect is replayed to
+recover an interpreter image. Grants and operation evidence are retained until
+explicit owner deletion; current limits are 1,024 grants per session and 1,024
+operations per turn. Lists use bounded 100-item/4 MiB pages.
+
+The SDK exposes `grants.create/list/revoke`, `permissions.list/resolve`,
+`operations.get`, `turns.operations`, `cells.get` and `turns.cells`. These views
+query durable records; they do not introduce another authority cache.

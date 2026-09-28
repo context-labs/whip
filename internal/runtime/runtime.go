@@ -17,6 +17,7 @@ import (
 	"github.com/context-labs/whip/internal/runner"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/store"
+	"github.com/context-labs/whip/internal/tool"
 )
 
 var (
@@ -42,6 +43,7 @@ type Runtime struct {
 	store           *store.Store
 	content         *content.Store
 	runner          *runner.Runner
+	tools           *tool.Dispatcher
 	engineManager   *process.Manager
 	kernels         map[session.SessionID]*sessionKernel
 	owner           *owner
@@ -138,6 +140,7 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 		store: database, content: bodies, owner: lock, directory: directory, host: host, options: options,
 		wake: make(chan struct{}, 1), done: make(chan struct{}), active: map[session.SessionID]execution{},
 	}
+	r.tools = tool.NewDispatcher(database, database)
 	r.runner, err = runner.New(provider, database, database, r, r)
 	if err != nil {
 		return nil, err

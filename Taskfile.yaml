@@ -5,7 +5,7 @@ vars:
     sh: printf 'dev+%s' "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
   LDFLAGS: -X main.version={{.VERSION}}
   # Fast domain/runtime checks; all tests in these packages are required.
-  REDESIGN_PACKAGES: ./internal/content ./internal/session ./internal/store ./internal/config ./internal/protocol ./internal/model ./internal/runner ./internal/runtime ./internal/rpc ./internal/client ./internal/engine ./internal/engine/quickjs ./cmd/whip-contract ./cmd/whip-runtime
+  REDESIGN_PACKAGES: ./internal/content ./internal/session ./internal/store ./internal/config ./internal/protocol ./internal/model ./internal/runner ./internal/tool ./internal/runtime ./internal/rpc ./internal/client ./internal/engine ./internal/engine/quickjs ./cmd/whip-contract ./cmd/whip-runtime
   # Process containment stress tests run in full at the change/CI boundary.
   REDESIGN_INTEGRATION_PACKAGES: ./internal/engine/process
   REDESIGN_ALL_PACKAGES: '{{.REDESIGN_PACKAGES}} {{.REDESIGN_INTEGRATION_PACKAGES}}'

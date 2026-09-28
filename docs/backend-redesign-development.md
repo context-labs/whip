@@ -506,3 +506,45 @@ vulnerabilities. The phase gate includes full isolated-process stress/race tests
 new runtime/store race checks, both SDK process fixtures, generated contracts and
 the retained admission/accounting regressions. Targeted deletion cleanup checks
 also passed after the final mechanical map-clone adjustment.
+
+
+### Scoped host-operation increment
+
+Fresh schema version 5 adds operations, grants and permissions, with ownership
+and transition rules in the [domain contract](backend-domain.md#host-operations-and-permission-decisions).
+The independent filesystem adapter supports confined read/write/patch through
+rooted handles and shared mutation locks. The dispatcher records immutable intent,
+waits for scoped consent, rechecks revocation after resource acquisition, commits
+dispatch, executes once, and retries only outcome persistence. The SDK exposes
+permissions, grants, operation evidence and cell boundaries through generated v4
+contracts; no hand-maintained second schema was added.
+
+Targeted race tests pass for two-connection dispatch and consent/revocation/stop/
+recovery races, transactional rollback, scope isolation, quota/page bounds,
+one-use cascade deletion, cancellation while awaiting consent, revocation while
+waiting for a path lock, and a failed SQL settlement after a completed write.
+That last test changes the file externally during settlement retries and verifies
+that persistence recovery never overwrites it by repeating the effect.
+
+The actual command/socket/SDK fixture passed with `WHIP_SDK_RACE=1` for both
+engines. In one cell it approves a first write, observes its committed success,
+waits on a second permission, then sends SIGKILL. Restart preserves the first
+operation unchanged, cancels the second without dispatch, records the lost cell
+as uncertain without a checkpoint, rejects late approval and permits text-only
+history inspection. An external file change survives restart and the unapproved
+file is never created. This distinguishes effect evidence from interpreter state.
+`task check:phase` and `task check:analysis` pass for this increment, including
+full process stress/race coverage, both SDK fixtures and generated contract checks.
+Analysis reports zero issues and no reachable vulnerabilities. Hosted validation
+of this increment remains pending.
+
+
+The preceding code-loop revision `bb1acc960` passed Linux, macOS, analysis and the
+required aggregate in [run 36375596169](https://github.com/context-labs/whip/actions/runs/36375596169).
+Its initial Linux run exposed a five-second test deadline shorter than cold
+QuickJS startup under concurrent race testing. The fix raises only real-engine
+acceptance waits to thirty seconds; ordinary scripted waits remain unchanged.
+This is preceding-revision evidence, not hosted validation of the operation slice.
+Review also found a transient operation-read failure could strand an admitted
+permission; the dispatcher now cancels that waiter, and a fault-injection test
+proves cell and turn settlement can proceed without an effect.

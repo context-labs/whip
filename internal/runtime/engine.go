@@ -16,6 +16,7 @@ import (
 	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/runner"
 	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/tool"
 )
 
 // A live kernel is a disposable cache owned by its session's runtime. The store
@@ -99,7 +100,14 @@ func (r *Runtime) Instructions(ctx context.Context, id session.SessionID) (strin
 	if tree.Engine == session.QuickJS {
 		language = "JavaScript (QuickJS; top-level await is supported; console.log for output)"
 	}
-	return "The execute tool runs " + language + " in a persistent isolated REPL. Variables survive cells and turns. Host operations are separately authorized; no ambient filesystem, network, or process access is available. A failed cell can have partially changed variables or completed effects. Never replay effects merely because a checkpoint or connection failed.", nil
+	instructions := "The execute tool runs " + language + " in a persistent isolated REPL. Variables survive cells and turns. Host operations are separately authorized; no ambient filesystem, network, or process access is available. A failed cell can have partially changed variables or completed effects. Never replay effects merely because a checkpoint or connection failed."
+	if tree.Engine == session.Starlark {
+		instructions += " Available workspace operations: files.read(path=\"relative/path\", offset=1, limit=2000), files.write(path=\"relative/path\", content=\"text\"), files.patch(path=\"relative/path\", old_text=\"old\", new_text=\"new\", replace_all=False)."
+	} else {
+		instructions += " Available workspace operations: await files.read({path: \"relative/path\", offset: 1, limit: 2000}), await files.write({path: \"relative/path\", content: \"text\"}), await files.patch({path: \"relative/path\", old_text: \"old\", new_text: \"new\", replace_all: false})."
+	}
+	instructions += " File operations are confined to the session workspace and may wait for an explicit permission decision. An approval authorizes that operation only."
+	return instructions, nil
 }
 
 func (r *Runtime) kernel(ctx context.Context, id session.SessionID) (*sessionKernel, error) {
@@ -122,8 +130,16 @@ func (r *Runtime) kernel(ctx context.Context, id session.SessionID) (*sessionKer
 		return nil, err
 	}
 	checkpoints := &cellCheckpoints{runtime: r, sessionID: id, descriptor: descriptor}
-	kernel, err := process.NewKernel(process.KernelOptions{Engine: string(tree.Engine), Checkpoints: checkpoints, Manager: r.engineManager, Command: r.options.EngineCommand, Limits: process.Limits{OutputBytes: 64 << 10}, Host: process.HostFunc(func(context.Context, string, string, map[string]any) (any, error) {
-		return nil, errors.New("host operation is not authorized")
+	kernel, err := process.NewKernel(process.KernelOptions{Engine: string(tree.Engine), Checkpoints: checkpoints, Manager: r.engineManager, Command: r.options.EngineCommand, Limits: process.Limits{OutputBytes: 64 << 10}, Host: process.HostFunc(func(ctx context.Context, module, operation string, arguments map[string]any) (any, error) {
+		call, ok := process.HostCallFromContext(ctx)
+		if !ok {
+			return nil, errors.New("missing host invocation identity")
+		}
+		value, operationID, err := r.tools.Call(ctx, tool.Invocation{SessionID: id, CellID: session.CellID(call.CallID), RequestID: call.InvocationID, Module: module, Name: operation, Arguments: arguments})
+		if operationID != "" {
+			process.ReportHostOperation(ctx, string(operationID))
+		}
+		return value, err
 	})})
 	if err != nil {
 		return nil, err

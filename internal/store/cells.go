@@ -33,6 +33,35 @@ func (s *Store) Cell(ctx context.Context, id session.CellID) (session.Cell, erro
 	return scanCell(s.db.QueryRowContext(ctx, cellSelect+" WHERE c.id=?", id))
 }
 
+func (s *Store) Cells(ctx context.Context, turn session.TurnID, after session.CellID, limit int) ([]session.Cell, error) {
+	if err := pageLimit(limit); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, cellSelect+" WHERE c.turn_id=? AND c.id>? ORDER BY c.id LIMIT ?", turn, after, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	result := []session.Cell{}
+	size := 0
+	for rows.Next() {
+		value, err := scanCell(rows)
+		if err != nil {
+			return nil, err
+		}
+		raw, err := encode(value)
+		if err != nil {
+			return nil, err
+		}
+		size += len(raw)
+		if size > MaxPageBytes {
+			break
+		}
+		result = append(result, value)
+	}
+	return result, rows.Err()
+}
+
 // LatestCell is the authoritative REPL boundary, including unavailable and
 // uncertain boundaries. Selecting the latest usable checkpoint instead would
 // silently forget execution that happened after that checkpoint.
@@ -132,6 +161,13 @@ func (s *Store) SettleCell(ctx context.Context, id session.CellID, state session
 			}
 			result = cell
 			return nil
+		}
+		var pending int
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM operations WHERE cell_id=? AND finished_at IS NULL", id).Scan(&pending); err != nil {
+			return err
+		}
+		if pending != 0 {
+			return ErrBusy
 		}
 		turn, err := readTurn(ctx, tx, cell.TurnID)
 		if err != nil {

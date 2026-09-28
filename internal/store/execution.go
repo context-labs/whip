@@ -364,7 +364,10 @@ func (s *Store) Finish(ctx context.Context, id session.TurnID, state session.Tur
 			return ErrConflict
 		}
 		var pending int
-		if err := tx.QueryRowContext(ctx, "SELECT (SELECT count(*) FROM model_attempts WHERE turn_id=? AND finished_at IS NULL) + (SELECT count(*) FROM cells WHERE turn_id=? AND state='running')", id, id).Scan(&pending); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT
+ (SELECT count(*) FROM model_attempts WHERE turn_id=? AND finished_at IS NULL) +
+ (SELECT count(*) FROM cells WHERE turn_id=? AND state='running') +
+ (SELECT count(*) FROM operations o JOIN cells c ON c.id=o.cell_id WHERE c.turn_id=? AND o.finished_at IS NULL)`, id, id, id).Scan(&pending); err != nil {
 			return err
 		}
 		if pending != 0 {
