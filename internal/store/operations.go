@@ -335,6 +335,13 @@ func settleOperation(ctx context.Context, tx *sql.Tx, operation session.Operatio
 	} else if outcome.State != session.OperationCancelled && outcome.State != session.OperationDenied {
 		return session.Operation{}, ErrConflict
 	}
+	var pending bool
+	if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM model_attempts WHERE operation_id=? AND finished_at IS NULL)", operation.ID).Scan(&pending); err != nil {
+		return session.Operation{}, err
+	}
+	if pending {
+		return session.Operation{}, ErrBusy
+	}
 	raw, err := encode(outcome)
 	if err != nil {
 		return session.Operation{}, err

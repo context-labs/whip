@@ -240,11 +240,13 @@ func (r ModelAttemptResult) Validate() error {
 }
 
 type ModelAttemptSpec struct {
-	ID        ModelAttemptID
-	TurnID    TurnID
-	LogicalID string
-	Number    int
-	Request   ModelRequestSnapshot
+	ID          ModelAttemptID
+	TurnID      TurnID
+	LogicalID   string
+	Number      int
+	Request     ModelRequestSnapshot
+	OperationID *OperationID
+	BatchIndex  *int
 }
 
 type ModelAttempt struct {
@@ -253,6 +255,8 @@ type ModelAttempt struct {
 	LogicalID    string
 	Number       int
 	Request      ModelRequestSnapshot
+	OperationID  *OperationID
+	BatchIndex   *int
 	State        ModelAttemptState
 	Result       *ModelAttemptResult
 	CostNanoUSD  *int64
@@ -262,4 +266,22 @@ type ModelAttempt struct {
 	CreatedAt    time.Time
 	DispatchedAt *time.Time
 	FinishedAt   *time.Time
+}
+
+const (
+	ModelHelperPurpose = "model_helper"
+	MaxModelBatchItems = 32
+)
+
+// ModelHelperLogicalID identifies one stateless item independently of its
+// provider retries. Operation identity already binds the owning cell and turn.
+func ModelHelperLogicalID(operation OperationID, index int) (string, error) {
+	if err := ValidateID(string(operation)); err != nil {
+		return "", err
+	}
+	if index < 0 || index >= MaxModelBatchItems {
+		return "", fmt.Errorf("%w: model helper index is outside batch bounds", ErrInvalid)
+	}
+	digest := sha256.Sum256(fmt.Appendf(nil, "whip.model-helper.v1\x00%s\x00%d", operation, index))
+	return "helper_" + hex.EncodeToString(digest[:]), nil
 }
