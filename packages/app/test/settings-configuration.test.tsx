@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider, UIProvider } from '@whip/ui';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { WhipClient } from '@whip/sdk';
+import type { WhipClient } from '@whip/legacy-sdk';
 import type { ConfigurationUpdate, RuntimeConfiguration } from '@whip/legacy-protocol';
 import type { ReactNode } from 'react';
 import { RuntimeContext } from '../src/context';

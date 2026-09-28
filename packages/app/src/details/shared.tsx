@@ -1,8 +1,8 @@
 import { ErrorNotice } from '../error-feedback';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useSessionView, useWhipConnection } from '@whip/sdk/react';
-import type { DeepReadonly, SessionView } from '@whip/sdk/state';
+import { useSessionView, useWhipConnection } from '@whip/legacy-sdk/react';
+import type { DeepReadonly, SessionView } from '@whip/legacy-sdk/state';
 import type {
   ContentHandle,
   QueryOperation,

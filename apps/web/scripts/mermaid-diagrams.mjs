@@ -6,8 +6,8 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { _electron, chromium, expect, firefox } from '@playwright/test';
-import { createWhipClient } from '../../../packages/sdk/dist/index.js';
-import { eventually, startFixture } from '../../../packages/sdk/scripts/fixture.mjs';
+import { createWhipClient } from '../../../packages/legacy-sdk/dist/index.js';
+import { eventually, startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
 
 // npm run pack:web && node apps/web/scripts/mermaid-diagrams.mjs
 // Real packaged renderer + isolated daemon, never the person's running daemon.

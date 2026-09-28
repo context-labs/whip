@@ -3,8 +3,8 @@ import { createServer } from 'node:http';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium, firefox, expect } from '@playwright/test';
-import { createWhipClient } from '../../../packages/sdk/dist/index.js';
-import { eventually, startFixture } from '../../../packages/sdk/scripts/fixture.mjs';
+import { createWhipClient } from '../../../packages/legacy-sdk/dist/index.js';
+import { eventually, startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
 import { fileTransfer, checkDropOverlay } from './chat-file-drop.mjs';
 
 // Run after npm run pack:web. Real packaged renderer, isolated daemon, synthetic text/images only.

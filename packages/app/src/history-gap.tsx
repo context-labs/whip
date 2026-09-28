@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from 'react';
-import type { DeepReadonly, HistoryGap } from '@whip/sdk/state';
+import type { DeepReadonly, HistoryGap } from '@whip/legacy-sdk/state';
 import { Button } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { layout } from './styles';

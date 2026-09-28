@@ -1,4 +1,4 @@
-import type { RecoveryRecord, RecoveryStorage } from '@whip/sdk';
+import type { RecoveryRecord, RecoveryStorage } from '@whip/legacy-sdk';
 
 export type StorageBucket = 'hosts' | 'settings' | 'drafts' | 'bookmarks' | 'themes';
 export interface Draft { text: string; revision: string }

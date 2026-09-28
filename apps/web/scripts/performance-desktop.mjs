@@ -7,7 +7,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { _electron } from 'playwright';
-import { eventually, repository } from '../../../packages/sdk/scripts/fixture.mjs';
+import { eventually, repository } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
 
 const exec = promisify(execFile);
 

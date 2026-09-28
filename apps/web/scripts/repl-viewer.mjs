@@ -3,8 +3,8 @@ import { createRequire } from 'node:module';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium, firefox, expect } from '@playwright/test';
-import { createWhipClient } from '../../../packages/sdk/dist/index.js';
-import { eventually, startFixture } from '../../../packages/sdk/scripts/fixture.mjs';
+import { createWhipClient } from '../../../packages/legacy-sdk/dist/index.js';
+import { eventually, startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
 
 // Real packaged app, isolated synthetic history, and normal durable event delivery.
 process.env.WHIP_WEB_REPL_FIXTURE = '1';

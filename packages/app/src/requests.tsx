@@ -1,8 +1,8 @@
 import { typography } from '@whip/ui/tokens.stylex';
 import { useEffect, useId, useRef, useState } from 'react';
 import { ErrorNotice } from './error-feedback';
-import type { Session } from '@whip/sdk';
-import type { DeepReadonly } from '@whip/sdk/state';
+import type { Session } from '@whip/legacy-sdk';
+import type { DeepReadonly } from '@whip/legacy-sdk/state';
 import type { LifecycleEvent, RootSnapshot } from '@whip/legacy-protocol';
 import { Button, IconButton, Input, Select } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';

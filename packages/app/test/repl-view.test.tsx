@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
-import type { SessionView, SessionViewSnapshot } from '@whip/sdk/state';
+import type { SessionView, SessionViewSnapshot } from '@whip/legacy-sdk/state';
 import { ThemeProvider, UIProvider } from '@whip/ui';
 import { ReplView, outputPreview } from '../src/repl-view';
 import { RuntimeContext } from '../src/context';

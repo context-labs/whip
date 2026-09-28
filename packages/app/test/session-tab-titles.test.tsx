@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, expect, it, vi } from 'vitest';
 import { UIProvider } from '@whip/ui';
-import type { WhipClient } from '@whip/sdk';
+import type { WhipClient } from '@whip/legacy-sdk';
 import type { SessionSummariesResult } from '@whip/legacy-protocol';
 import { AppRuntime } from '../src/runtime';
 import { RuntimeContext } from '../src/context';
@@ -12,8 +12,8 @@ import { SessionActionsProvider, useSessionActions } from '../src/session-action
 
 const roots = vi.hoisted(() => vi.fn());
 const connection = vi.hoisted(() => ({ client: undefined as WhipClient | undefined }));
-vi.mock('@whip/sdk', async importOriginal => ({ ...await importOriginal<typeof import('@whip/sdk')>(), createWhipClient: () => connection.client }));
-vi.mock('@whip/sdk/state', async importOriginal => ({ ...await importOriginal<typeof import('@whip/sdk/state')>(), createSessionListView: () => ({ start: async () => {}, dispose: async () => {}, getSnapshot: () => ({}) }) }));
+vi.mock('@whip/legacy-sdk', async importOriginal => ({ ...await importOriginal<typeof import('@whip/legacy-sdk')>(), createWhipClient: () => connection.client }));
+vi.mock('@whip/legacy-sdk/state', async importOriginal => ({ ...await importOriginal<typeof import('@whip/legacy-sdk/state')>(), createSessionListView: () => ({ start: async () => {}, dispose: async () => {}, getSnapshot: () => ({}) }) }));
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children }: { children: ReactNode }) => <a>{children}</a>,
   useLocation: () => ({ pathname: '/h/mac/s/active' }), useNavigate: () => vi.fn(),

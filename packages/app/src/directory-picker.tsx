@@ -1,8 +1,8 @@
 import { RemoteDirectoryDialog, type RemoteDirectoryHost } from './remote-directory-dialog';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useWhipConnection } from '@whip/sdk/react';
-import type { WhipClient } from '@whip/sdk';
+import { useWhipConnection } from '@whip/legacy-sdk/react';
+import type { WhipClient } from '@whip/legacy-sdk';
 import { Button } from '@whip/ui';
 import { ChevronDown, Folder, FolderOpen } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';

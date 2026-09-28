@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import * as Clipboard from 'expo-clipboard';
-import { useSessionView } from '@whip/sdk/react';
-import type { SessionView } from '@whip/sdk/state';
+import { useSessionView } from '@whip/legacy-sdk/react';
+import type { SessionView } from '@whip/legacy-sdk/state';
 import { useRuntime, useRuntimeState } from '../runtime/context';
 import { useWorkspace, useWorkspaceState } from '../runtime/workspace-context';
 import { Button, ListRow, Notice, Stack, TextField } from '../ui';

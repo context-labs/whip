@@ -1,5 +1,5 @@
 import { act, fireEvent, render } from '@testing-library/react-native';
-import type { SessionView, SessionViewSnapshot } from '@whip/sdk/state';
+import type { SessionView, SessionViewSnapshot } from '@whip/legacy-sdk/state';
 import type { MobileRuntime } from '../runtime/runtime';
 import { SessionScreen } from '../app/session/[rootId]';
 
@@ -11,7 +11,7 @@ const mockRows = [{ id: 'first', seq: 10, role: 'user' }, { id: 'middle', seq: 2
 const mockScrollToIndex = jest.fn(async (_params: unknown) => {});
 jest.mock('@tanstack/react-query', () => ({ useQuery: () => ({ data: { result: { catalogs: { provider: { models: [{ id: 'changed', reasoning_efforts: ['low', 'high'] }] } } } }, isFetching: false }) }));
 jest.mock('../runtime/context', () => ({ useRuntime: () => mockRuntime, useRuntimeState: () => mockRuntime.getSnapshot(), useRootView: () => mockView }));
-jest.mock('@whip/sdk/react', () => ({ useSessionView: () => mockSnapshot }));
+jest.mock('@whip/legacy-sdk/react', () => ({ useSessionView: () => mockSnapshot }));
 jest.mock('@whip/app/presentation', () => ({ ...jest.requireActual('@whip/app/presentation'), conversationRows: () => mockRows }));
 jest.mock('expo-router', () => ({ Stack: { Screen: () => null }, router: { setParams() {} }, useIsFocused: () => true,
   useLocalSearchParams: () => ({ rootId: 'root', runtimeId: 'runtime' }) }));

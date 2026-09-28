@@ -1,5 +1,5 @@
-import { createWhipClient } from '@whip/sdk';
-import { unixSocket } from '@whip/sdk/node';
+import { createWhipClient } from '@whip/legacy-sdk';
+import { unixSocket } from '@whip/legacy-sdk/node';
 const [endpoint, cwd, ...words] = process.argv.slice(2);
 if (!endpoint || !cwd || !words.length) throw new Error('Usage: node examples/client/node.mjs <socket-path|http-url> <host-cwd> <prompt>');
 const client = createWhipClient({ endpoint: /^https?:|^wss?:/.test(endpoint) ? endpoint : unixSocket(endpoint), clientId: process.env.WHIP_CLIENT_ID ?? crypto.randomUUID() });

@@ -5,7 +5,7 @@ import { version } from '../../package.json';
 export function diagnostics(state: ReturnType<MobileRuntime['getSnapshot']>, platform: string, osVersion: string | number) {
   const connection = state.client?.getSnapshot();
   return {
-    app: `@whip/mobile:${version}`, sdk: '@whip/sdk:0.1.0', platform, osVersion,
+    app: `@whip/mobile:${version}`, sdk: '@whip/legacy-sdk:0.1.0', platform, osVersion,
     protocol: connection?.info ? `${connection.info.protocol_major}.${connection.info.protocol_minor}` : null,
     connection: connection?.state ?? (state.connecting ? 'connecting' : 'disconnected'),
     runtime: state.host?.runtimeId ?? null, active: state.active, ready: state.ready,

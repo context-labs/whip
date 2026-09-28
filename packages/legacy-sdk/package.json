@@ -1,5 +1,5 @@
 {
-  "name": "@whip/sdk",
+  "name": "@whip/legacy-sdk",
   "version": "0.1.0",
   "private": true,
   "type": "module",

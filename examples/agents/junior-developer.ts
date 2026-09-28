@@ -1,7 +1,7 @@
 // JuniorDeveloper, authored in TypeScript. Registered as `junior-developer-ts`
 // it composes the same prompt as the built-in Go definition; the test beside
 // this file pins that against the runtime's fixture.
-import { defineAgent } from '@whip/sdk/agents';
+import { defineAgent } from '@whip/legacy-sdk/agents';
 
 export const juniorDeveloper = defineAgent({
   id: 'junior-developer-ts',
@@ -26,7 +26,7 @@ export const juniorDeveloper = defineAgent({
 
 // Register it and start a session:
 //
-//   import { createWhipClient } from '@whip/sdk';
+//   import { createWhipClient } from '@whip/legacy-sdk';
 //   const client = createWhipClient({ endpoint: 'http://127.0.0.1:8080', clientId: 'agents-example' });
 //   await client.connect();
 //   const { revision } = await client.agents.register(juniorDeveloper);

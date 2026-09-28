@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { mkdir, readFile } from 'node:fs/promises';
 import { chromium, firefox, expect } from '@playwright/test';
-import { createWhipClient } from '../../../packages/sdk/dist/index.js';
-import { startFixture } from '../../../packages/sdk/scripts/fixture.mjs';
+import { createWhipClient } from '../../../packages/legacy-sdk/dist/index.js';
+import { startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
 
 const output = '/tmp/whip-claude-code-theme-results';
 await mkdir(output, { recursive: true });

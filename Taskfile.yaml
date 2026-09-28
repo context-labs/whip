@@ -175,7 +175,7 @@ tasks:
   sdk:
     desc: "Build and test the TypeScript SDK, synchronized views, and React example"
     cmds:
-      - npm run check -w @whip/sdk
+      - npm run check -w @whip/legacy-sdk
       - npm run build -w @whip/client-example
       - npm run check -w @whip/agents-example
 

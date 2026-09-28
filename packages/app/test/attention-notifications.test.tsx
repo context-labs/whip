@@ -3,7 +3,7 @@ import { act, render } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { UIProvider } from '@whip/ui';
-import type { WhipClient, ConnectionSnapshot } from '@whip/sdk';
+import type { WhipClient, ConnectionSnapshot } from '@whip/legacy-sdk';
 import type { HostAttentionResult } from '@whip/legacy-protocol';
 import { Attention, DesktopAttention } from '../src/attention';
 import { AttentionNotifications, scanAttention, type AttentionScan } from '../src/attention-notifications';

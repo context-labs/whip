@@ -1,6 +1,6 @@
 import { QueryClient } from '@tanstack/react-query';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { WhipClient } from '@whip/sdk';
+import type { WhipClient } from '@whip/legacy-sdk';
 import { directoryCache, directoryOptions } from '../src/directory-queries';
 
 afterEach(() => vi.useRealTimers());

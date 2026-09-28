@@ -1,4 +1,4 @@
-import type { BrowserSelection, WhipClient } from '@whip/sdk';
+import type { BrowserSelection, WhipClient } from '@whip/legacy-sdk';
 import type { BrowserAgentBridge, BrowserAgentEvent } from './browser-agent-types';
 import type { BrowserWorkspace } from './browser-workspace';
 import type { HostConnections } from './hosts';

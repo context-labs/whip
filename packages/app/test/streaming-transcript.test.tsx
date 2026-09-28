@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { act, fireEvent, render, renderHook } from '@testing-library/react';
-import type { ExecutionCell, HistoryView } from '@whip/sdk/state';
+import type { ExecutionCell, HistoryView } from '@whip/legacy-sdk/state';
 import { timelineRows } from '../src/conversation-rows';
 import { activityItems, activitySummary, conversationActivityRows, isActivityGroup, responseCopies } from '../src/chat-activity-rows';
 import { MarkdownBlock, markdownRows, streamingSource, useCoalescedTranscript, type MarkdownRow } from '../src/streaming-markdown';

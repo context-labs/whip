@@ -3,8 +3,8 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { chromium, firefox, expect } from '@playwright/test';
-import { startFixture } from '../../../packages/sdk/scripts/fixture.mjs';
-import { createWhipClient } from '../../../packages/sdk/dist/index.js';
+import { startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
+import { createWhipClient } from '../../../packages/legacy-sdk/dist/index.js';
 
 // Synthetic credentials only. The provider API below runs entirely on loopback.
 process.env.INFERENCE_API_KEY = '';

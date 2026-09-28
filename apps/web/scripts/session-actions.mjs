@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium, firefox, expect } from '@playwright/test';
-import { createWhipClient } from '../../../packages/sdk/dist/index.js';
-import { eventually, startFixture } from '../../../packages/sdk/scripts/fixture.mjs';
+import { createWhipClient } from '../../../packages/legacy-sdk/dist/index.js';
+import { eventually, startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
 
 const results = process.env.WHIP_SESSION_ACTION_RESULTS ?? '/tmp/whip-session-action-results';
 await mkdir(results, { recursive: true });

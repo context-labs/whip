@@ -1,5 +1,5 @@
 // Production app association + SDK + isolated real daemon + native preload/IPC.
-import { createWhipClient } from '@whip/sdk';
+import { createWhipClient } from '@whip/legacy-sdk';
 import { BrowserAssociations } from '../../../packages/app/src/browser-provider';
 import { BrowserWorkspace } from '../../../packages/app/src/browser-workspace';
 import { SessionTabs } from '../../../packages/app/src/session-tabs';

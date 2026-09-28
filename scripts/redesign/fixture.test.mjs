@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { cp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { test } from 'node:test';
-import { createWhipClient } from '../../packages/sdk/dist/index.js';
-import { unixSocket } from '../../packages/sdk/dist/node.js';
-import { startFixture } from '../../packages/sdk/dist/testing-node.js';
+import { createWhipClient } from '../../packages/legacy-sdk/dist/index.js';
+import { unixSocket } from '../../packages/legacy-sdk/dist/node.js';
+import { startFixture } from '../../packages/legacy-sdk/dist/testing-node.js';
 
 // This process owns one disposable fixture. Keep its files until assertions and
 // shutdown both succeed, so failures retain the actual SQLite/WAL and daemon log.

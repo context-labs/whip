@@ -1,4 +1,4 @@
-import type { DeepReadonly, SessionViewSnapshot } from '@whip/sdk/state';
+import type { DeepReadonly, SessionViewSnapshot } from '@whip/legacy-sdk/state';
 import type { CommandState } from '../runtime/runtime';
 import type { CreationModel } from './creation';
 

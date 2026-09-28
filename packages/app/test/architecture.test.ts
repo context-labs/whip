@@ -18,13 +18,13 @@ it('keeps the UI domain-free and the shared application browser-compatible', () 
     );
     for (const [, name] of imports)
       expect(name, file).not.toMatch(
-        /^(@whip\/(app|sdk|protocol)|node:|react-router|@tanstack\/react-query)/,
+        /^(@whip\/(app|(?:legacy-)?(?:sdk|protocol))|node:|react-router|@tanstack\/react-query)/,
       );
   }
   for (const file of files('packages/app/src')) {
     const source = readFileSync(file, 'utf8');
     expect(source, file).not.toMatch(
-      /(?:from\s*|import\s*\()\s*['"](?:electron(?:\/|['"])|node:|@base-ui\/|@whip\/sdk\/node)/,
+      /(?:from\s*|import\s*\()\s*['"](?:electron(?:\/|['"])|node:|@base-ui\/|@whip\/(?:legacy-)?sdk\/node)/,
     );
     expect(source, file).not.toMatch(
       /new\s+(?:WebSocket|Worker)\s*\(|\bfetch\s*\(/,

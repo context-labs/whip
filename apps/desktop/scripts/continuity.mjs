@@ -8,8 +8,8 @@ import { createServer } from 'node:http';
 import path from 'node:path';
 import { parseArgs, promisify } from 'node:util';
 import asar from '@electron/asar';
-import { createWhipClient } from '@whip/sdk';
-import { unixSocket } from '@whip/sdk/node';
+import { createWhipClient } from '@whip/legacy-sdk';
+import { unixSocket } from '@whip/legacy-sdk/node';
 import { fileDigest, LocalRuntime, readRuntimeManifest } from '../src/runtime.ts';
 import { repositoryRoot } from '../../../scripts/renderer-artifact.mjs';
 

@@ -11,7 +11,7 @@ import { promisify } from 'node:util';
 import { _electron } from 'playwright';
 import { fileDigest, LocalRuntime } from '../src/runtime.ts';
 import { repositoryRoot } from '../../../scripts/renderer-artifact.mjs';
-import { startFixture } from '../../../packages/sdk/scripts/fixture.mjs';
+import { startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
 
 const execute = promisify(execFile);
 const fixture = await mkdtemp('/tmp/whip-editor-ipc-');

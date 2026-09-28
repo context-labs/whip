@@ -7,10 +7,10 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { _electron } from 'playwright';
 import { expect } from '@playwright/test';
-import { createWhipClient } from '../../../packages/sdk/dist/index.js';
+import { createWhipClient } from '../../../packages/legacy-sdk/dist/index.js';
 import { fileDigest, LocalRuntime, readRuntimeManifest } from '../src/runtime.ts';
 import { repositoryRoot } from '../../../scripts/renderer-artifact.mjs';
-import { startFixture } from '../../../packages/sdk/scripts/fixture.mjs';
+import { startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
 
 const exec = promisify(execFile);
 // Keep both the runtime and its isolated TMPDIR below macOS's Unix socket limit.

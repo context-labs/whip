@@ -78,7 +78,7 @@ Open, attach and preview-port expansion use the existing permission policy
 attachment control is not implicit in a tab ID or generic browser capability.
 See [Browser lifecycle and helper constraints](browser-computer-use.md#desktop-browser-tabs)
 for the operation inventory, delegation and unsupported helpers, and the
-[SDK provider guide](../packages/sdk/README.md#experimental-native-browser-provider)
+[SDK provider guide](../packages/legacy-sdk/README.md#experimental-native-browser-provider)
 for explicit selection/release and transport ownership. Neither API discovery
 nor experimental enablement grants authority.
 

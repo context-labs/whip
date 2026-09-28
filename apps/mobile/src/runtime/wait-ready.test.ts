@@ -1,7 +1,7 @@
 /** @jest-environment node */
 import { waitForReady } from './wait-ready';
 import type { MobileRuntime } from './runtime';
-import type { WhipClient } from '@whip/sdk';
+import type { WhipClient } from '@whip/legacy-sdk';
 function fixture() {
   const client = {} as WhipClient; let state = { client, ready: false, active: false }; const listeners = new Set<() => void>();
   return { client, listeners, runtime: { getSnapshot: () => state, subscribe: (fn: () => void) => { listeners.add(fn); return () => listeners.delete(fn); } } as unknown as MobileRuntime,

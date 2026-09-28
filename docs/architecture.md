@@ -4,11 +4,11 @@ For the React application and component system, start with the canonical
 [frontend architecture and design guide](frontend.md). It explains frontend
 decisions, package boundaries, state ownership, and extension patterns.
 
-The TypeScript SDK in `packages/sdk` is another thin protocol client. Browser and
+The TypeScript SDK in `packages/legacy-sdk` is another thin protocol client. Browser and
 Node WebSockets and Node Unix sockets feed one request/command engine; optional
 framework-independent views reconstruct daemon state, and React subscribes to
 those views. It never starts a daemon, runs an agent loop, owns provider keys, or
-creates another history database. See [SDK usage](../packages/sdk/README.md) for
+creates another history database. See [SDK usage](../packages/legacy-sdk/README.md) for
 identity, cancellation, recovery, content and application ownership contracts.
 
 whip is organized around one recursive agent abstraction. A root and a child
@@ -149,7 +149,7 @@ budgets, and private transcript.
 | `internal/mcp` | external MCP connections and named tool calls |
 | `internal/agent` | provider loop, streaming, compaction, usage accounting |
 | `internal/tui`, `internal/acp` | presentation and protocol adapters only |
-| `packages/sdk` | attach-only transports, commands, subscriptions, bounded reconstructed views and optional React hooks |
+| `packages/legacy-sdk` | attach-only transports, commands, subscriptions, bounded reconstructed views and optional React hooks |
 | `packages/ui` | Base UI components, extracted StyleX tokens/styles, shared generated themes, fonts and read-only syntax rendering; no SDK or host state |
 | `packages/app` | React routes and workflows, SDK view leases, host query presentation, application drafts and preferences; no daemon/process ownership |
 | `apps/web` | browser entry, storage/clipboard/download/link adapters, Vite build and browser acceptance |

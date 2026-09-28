@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
-import type { WhipClient } from '@whip/sdk';
-import type { DeepReadonly } from '@whip/sdk/state';
+import type { WhipClient } from '@whip/legacy-sdk';
+import type { DeepReadonly } from '@whip/legacy-sdk/state';
 import type { DesignContext } from './browser-design-presentation';
 import type { InboxInput } from './input-presentation';
 import { BrowserDesignAttachment } from './browser-design-attachment';

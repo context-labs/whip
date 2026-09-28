@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import type { SessionViewSnapshot } from '@whip/sdk/state';
+import type { SessionViewSnapshot } from '@whip/legacy-sdk/state';
 import type { CommandState } from '../runtime/runtime';
 import { idleRootSettings, pendingRootSetting, sessionEfforts } from './session-settings';
 

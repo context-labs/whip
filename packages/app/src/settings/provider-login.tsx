@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { WhipClient } from '@whip/sdk';
+import type { WhipClient } from '@whip/legacy-sdk';
 import type { ProviderLoginStatus } from '@whip/legacy-protocol';
 import { Button, CopyButton, Field, Input, RadioGroup, ScrollArea, Spinner } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';

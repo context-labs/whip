@@ -9,7 +9,7 @@ const execute = promisify(execFile);
 const directory = await mkdtemp(join(tmpdir(), 'whip-sdk-consumer-'));
 try {
   const archives = {};
-  for (const name of ['legacy-protocol', 'sdk']) {
+  for (const name of ['legacy-protocol', 'legacy-sdk']) {
     const { stdout } = await execute('npm', ['pack', '--json', '--pack-destination', directory], { cwd: join(repository, 'packages', name) });
     const [packed] = JSON.parse(stdout);
     archives[`@whip/${name}`] = 'file:' + join(directory, packed.filename);
@@ -22,9 +22,9 @@ try {
   await writeFile(join(consumer, 'smoke.mjs'), `
 import assert from 'node:assert/strict';
 import * as protocol from '@whip/legacy-protocol';
-import { createWhipClient } from '@whip/sdk';
-import { unixSocket } from '@whip/sdk/node';
-import * as state from '@whip/sdk/state';
+import { createWhipClient } from '@whip/legacy-sdk';
+import { unixSocket } from '@whip/legacy-sdk/node';
+import * as state from '@whip/legacy-sdk/state';
 assert.equal(typeof createWhipClient, 'function');
 assert.equal(typeof unixSocket, 'function');
 assert.ok(Object.keys(protocol).length > 0);
@@ -33,8 +33,8 @@ console.log('Packed protocol, browser core, Node, and state entry points import 
 `);
   await run(process.execPath, ['smoke.mjs'], { cwd: consumer });
   await writeFile(join(consumer, 'smoke.ts'), `
-import { createWhipClient } from '@whip/sdk';
-import { unixSocket } from '@whip/sdk/node';
+import { createWhipClient } from '@whip/legacy-sdk';
+import { unixSocket } from '@whip/legacy-sdk/node';
 const client = createWhipClient({ endpoint: unixSocket('/tmp/whip.sock'), clientId: 'consumer', clientKind: 'automation' });
 async function check() {
   const ping = await client.call('daemon.ping', {});
@@ -48,7 +48,7 @@ async function check() {
 void check;
 `);
   await run(process.execPath, [join(repository, 'node_modules/typescript/bin/tsc'), '--noEmit', '--strict', '--target', 'es2022', '--module', 'nodenext', '--moduleResolution', 'nodenext', '--skipLibCheck', 'false', 'smoke.ts'], { cwd: consumer });
-  const installed = JSON.parse(await readFile(join(consumer, 'node_modules/@whip/sdk/package.json'), 'utf8'));
+  const installed = JSON.parse(await readFile(join(consumer, 'node_modules/@whip/legacy-sdk/package.json'), 'utf8'));
   if (!installed.private) throw new Error('SDK unexpectedly became public');
 } finally {
   await rm(directory, { recursive: true, force: true });

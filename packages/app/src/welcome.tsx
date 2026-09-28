@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { useWhipConnection } from '@whip/sdk/react';
+import { useWhipConnection } from '@whip/legacy-sdk/react';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Dialog, Field, IconButton, Select, Textarea } from '@whip/ui';
 import { ArrowUp, AtSign, Monitor, Paperclip } from 'lucide-react';
@@ -8,7 +8,7 @@ import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime } from './context';
 import { layout } from './styles';
-import type { WhipClient } from '@whip/sdk';
+import type { WhipClient } from '@whip/legacy-sdk';
 import { WelcomeHostPicker } from './welcome-host-picker';
 import { HostDialog, LocalRuntimeSetup } from './host-dialog';
 import type { HostConnection } from './hosts';

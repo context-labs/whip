@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium, firefox } from '@playwright/test';
-import { createWhipClient } from '../../../packages/sdk/dist/index.js';
-import { eventually, startFixture } from '../../../packages/sdk/scripts/fixture.mjs';
+import { createWhipClient } from '../../../packages/legacy-sdk/dist/index.js';
+import { eventually, startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
 
 // Run after npm run pack:web. Every host has its own daemon, database, config,
 // fake runner and endpoint. Only the explicit Local fixture origin is trusted.

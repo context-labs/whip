@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AppRuntime } from '../src/runtime';
-import type { WhipClient } from '@whip/sdk';
+import type { WhipClient } from '@whip/legacy-sdk';
 import { reconcileWorkspaceViews, workspaceRootKey, type WorkspaceLease } from '../src/workspace-views';
 
 type Lease = ReturnType<AppRuntime['acquireView']>;

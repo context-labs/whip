@@ -15,7 +15,7 @@ try {
     entryNames: '[name]', define: { __APP_VERSION__: '"native-test"', __APP_NAME__: '"Whip"' } });
   await build({ entryPoints: ['apps/desktop/scripts/browser-workspace-native-renderer.ts'], outfile: path.join(directory, 'workspace.js'), bundle: true, platform: 'browser', format: 'iife', target: 'es2022' });
   if (process.env.BROWSER_NATIVE_DAEMON === '1') {
-    const { startFixture } = await import('../../../packages/sdk/scripts/fixture.mjs');
+    const { startFixture } = await import('../../../packages/legacy-sdk/scripts/fixture.mjs');
     fixture = await startFixture({ env: { WHIP_SDK_AGENTS_FIXTURE: '1' } });
     await build({ entryPoints: ['apps/desktop/scripts/browser-discovery-native-renderer.ts'], outfile: path.join(directory, 'discovery.js'), bundle: true, platform: 'browser', format: 'iife', target: 'es2022' });
   }

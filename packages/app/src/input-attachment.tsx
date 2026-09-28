@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { WhipClient } from '@whip/sdk';
+import type { WhipClient } from '@whip/legacy-sdk';
 import type { ContentHandle } from '@whip/legacy-protocol';
 import { Button, Dialog, Spinner } from '@whip/ui';
 import { Paperclip } from 'lucide-react';

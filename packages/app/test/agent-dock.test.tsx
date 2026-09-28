@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { Profiler } from 'react';
 import type { RootSnapshot } from '@whip/legacy-protocol';
-import type { SessionViewSnapshot } from '@whip/sdk/state';
+import type { SessionViewSnapshot } from '@whip/legacy-sdk/state';
 import { AgentDock, type AgentDockProps } from '../src/agent-dock';
 
 type Agent = NonNullable<RootSnapshot['agents']>[number];

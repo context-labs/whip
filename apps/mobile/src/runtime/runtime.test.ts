@@ -1,8 +1,8 @@
 /// <reference types="node" />
 /** @jest-environment node */
 import { DatabaseSync } from 'node:sqlite';
-import { createWhipClient, type RecoveryRecord } from '@whip/sdk';
-import * as SessionState from '@whip/sdk/state';
+import { createWhipClient, type RecoveryRecord } from '@whip/legacy-sdk';
+import * as SessionState from '@whip/legacy-sdk/state';
 import { manifest, type RootSnapshot } from '@whip/legacy-protocol';
 import { conversationRows } from '@whip/app/presentation';
 import { MobileRuntime } from './runtime';

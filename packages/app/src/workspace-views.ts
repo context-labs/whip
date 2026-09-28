@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import type { WhipClient } from '@whip/sdk';
-import type { SessionView } from '@whip/sdk/state';
+import type { WhipClient } from '@whip/legacy-sdk';
+import type { SessionView } from '@whip/legacy-sdk/state';
 import type { AppRuntime } from './runtime';
 import type { HostConnection } from './hosts';
 

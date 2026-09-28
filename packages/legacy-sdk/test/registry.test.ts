@@ -19,7 +19,7 @@ interface WireRequest {
 }
 
 // This test reads the actual Go-produced fixture artifact. It runs after tsc, so
-// the relative path is from packages/sdk/build/test rather than this source file.
+// the relative path is from packages/legacy-sdk/build/test rather than this source file.
 const fixtures = JSON.parse(await readFile(new URL('../../../legacy-protocol/schema/fixtures.json', import.meta.url), 'utf8')) as { type: keyof ContractTypes; value: unknown }[];
 function fixture<T extends keyof ContractTypes>(type: T): ContractTypes[T] {
   const value: unknown = structuredClone(fixtures.find(item => item.type === type)?.value);

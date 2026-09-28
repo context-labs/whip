@@ -1,6 +1,6 @@
 import { createHostPrompts, localProfile, resolveURLConnection, type AppPlatform, type AppUpdateSnapshot, type ConnectionProfile } from '@whip/app/platform';
 import type { DesktopBridge } from '@whip/app/desktop-bridge';
-import type { TransportFactory } from '@whip/sdk';
+import type { TransportFactory } from '@whip/legacy-sdk';
 import { browserStorage } from './storage';
 
 const frameLimit = 1 << 20;

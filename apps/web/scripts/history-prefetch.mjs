@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { chromium, firefox } from '@playwright/test';
-import { eventually, startFixture } from '../../../packages/sdk/scripts/fixture.mjs';
+import { eventually, startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
 
 // npm run build && npm run pack:web && node apps/web/scripts/history-prefetch.mjs
 // Only an isolated daemon is used. The existing performance fixture seeds 10k

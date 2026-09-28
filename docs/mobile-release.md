@@ -99,9 +99,9 @@ See [Expo's local development commands](https://docs.expo.dev/more/expo-cli/).
 ## EAS profiles and reproducibility
 
 [eas.json](../apps/mobile/eas.json) pins EAS CLI 23.2.0 and Node 24.14.1. Always run
-EAS from `apps/mobile`. The app's `eas-build-post-install` hook builds `@whip/sdk`
+EAS from `apps/mobile`. The app's `eas-build-post-install` hook builds `@whip/legacy-sdk`
 before Metro uses its generated exports; a clean cloud checkout has no local
-`packages/sdk/dist`. Preserve the root lockfile and this workspace build step.
+`packages/legacy-sdk/dist`. Preserve the root lockfile and this workspace build step.
 See [monorepo setup](https://docs.expo.dev/build-reference/build-with-monorepos/)
 and [build lifecycle hooks](https://docs.expo.dev/build-reference/npm-hooks/).
 

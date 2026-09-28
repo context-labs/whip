@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import type { CommandOutcome } from '@whip/sdk';
+import type { CommandOutcome } from '@whip/legacy-sdk';
 import type { CommandState, MobileRuntime } from '../runtime/runtime';
 import { advanceCreation, creationDraftKey, creationModels, creationResultRecorded, nextCreationStep, reconcileCreation, validateWorkflow, type CreationWorkflow } from './creation';
 

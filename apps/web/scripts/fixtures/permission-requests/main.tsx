@@ -5,7 +5,7 @@ import { initializeTheme, ThemeProvider, UIProvider } from '@whip/ui';
 import { colors, scale, typography } from '@whip/ui/tokens.stylex';
 import '@whip/ui/reset.css';
 import '@whip/ui/fonts.css';
-import type { Session } from '@whip/sdk';
+import type { Session } from '@whip/legacy-sdk';
 import type { RootSnapshot } from '@whip/legacy-protocol';
 import { PendingRequests } from '../../../../../packages/app/src/requests';
 import { Composer } from '../../../../../packages/app/src/composer';

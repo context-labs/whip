@@ -1,5 +1,5 @@
-import { createWhipClient, type ConnectionState, type RecoveryStorage, type WhipClient } from '@whip/sdk';
-import { createSessionListView, type SessionListView } from '@whip/sdk/state';
+import { createWhipClient, type ConnectionState, type RecoveryStorage, type WhipClient } from '@whip/legacy-sdk';
+import { createSessionListView, type SessionListView } from '@whip/legacy-sdk/state';
 import type { RuntimeConfiguration } from '@whip/legacy-protocol';
 import { errorMessage, readPreference, type AppPlatform, type LocalRuntimeStatus } from './platform';
 import { daemonEndpoint, readConnections, saveConnections, urlProfile, validateProfile, type ConnectionProfile, type ResolvedConnection } from './connections';

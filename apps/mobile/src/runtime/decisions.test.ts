@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { RpcError } from '@whip/sdk';
+import { RpcError } from '@whip/legacy-sdk';
 import { DecisionStore } from './decisions';
 import type { MobileRuntime } from './runtime';
 import type { PermissionRecoveryRecord, StoredRecovery } from './storage';

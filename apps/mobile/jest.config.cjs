@@ -2,8 +2,8 @@ module.exports = {
   preset: 'jest-expo',
   moduleNameMapper: {
     '^lucide-react-native$': '<rootDir>/../../node_modules/lucide-react-native/dist/cjs/lucide-react-native.js',
-    '^@whip/sdk$': '<rootDir>/../../packages/sdk/dist/index.js',
-    '^@whip/sdk/(.*)$': '<rootDir>/../../packages/sdk/dist/$1.js',
+    '^@whip/legacy-sdk$': '<rootDir>/../../packages/legacy-sdk/dist/index.js',
+    '^@whip/legacy-sdk/(.*)$': '<rootDir>/../../packages/legacy-sdk/dist/$1.js',
     '^@whip/legacy-protocol$': '<rootDir>/../../packages/legacy-protocol/generated/index.js',
     '^@whip/app/presentation$': '<rootDir>/../../packages/app/src/presentation.ts',
   },

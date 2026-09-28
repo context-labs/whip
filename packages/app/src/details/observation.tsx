@@ -2,7 +2,7 @@ import { ErrorNotice } from '../error-feedback';
 import { useEffect, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSessionView } from '@whip/sdk/react';
+import { useSessionView } from '@whip/legacy-sdk/react';
 import type { MailboxPageParams } from '@whip/legacy-protocol';
 import { Badge, Button, CodeBlock, Select } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';

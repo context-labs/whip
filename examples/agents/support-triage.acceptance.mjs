@@ -5,8 +5,8 @@
 // the production path. Run with: npm run acceptance -w @whip/agents-example
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
-import { createWhipClient } from '@whip/sdk';
-import { startFixture } from '@whip/sdk/testing/node';
+import { createWhipClient } from '@whip/legacy-sdk';
+import { startFixture } from '@whip/legacy-sdk/testing/node';
 import { audit, supportTriage } from './dist/support-triage.js';
 
 let fixture;

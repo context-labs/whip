@@ -1,4 +1,4 @@
-import { RpcError, isTerminal, type PermissionDecisionStatus, type WhipClient } from '@whip/sdk';
+import { RpcError, isTerminal, type PermissionDecisionStatus, type WhipClient } from '@whip/legacy-sdk';
 import type { MobileRuntime } from './runtime';
 import type { CommandIntent, PermissionRecoveryRecord, StoredRecovery } from './storage';
 

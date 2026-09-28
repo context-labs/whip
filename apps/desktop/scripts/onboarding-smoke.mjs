@@ -10,8 +10,8 @@ import { promisify } from 'node:util';
 import { _electron } from 'playwright';
 import { expect } from '@playwright/test';
 import { parseConfigFileTextToJson } from 'typescript';
-import { createWhipClient } from '@whip/sdk';
-import { unixSocket } from '@whip/sdk/node';
+import { createWhipClient } from '@whip/legacy-sdk';
+import { unixSocket } from '@whip/legacy-sdk/node';
 import { fileDigest, readRuntimeManifest } from '../src/runtime.ts';
 import { repositoryRoot } from '../../../scripts/renderer-artifact.mjs';
 

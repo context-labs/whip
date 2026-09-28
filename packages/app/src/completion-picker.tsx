@@ -1,8 +1,8 @@
 import { ErrorNotice } from './error-feedback';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useWhipConnection } from '@whip/sdk/react';
-import type { Session } from '@whip/sdk';
+import { useWhipConnection } from '@whip/legacy-sdk/react';
+import type { Session } from '@whip/legacy-sdk';
 import { Button, Combobox, Dialog, Select } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { layout } from './styles';

@@ -2,7 +2,7 @@
 import { installAbortCheckpoint, installAbortReason } from './polyfills';
 import { AbortController as NativeAbortController, AbortSignal as NativeAbortSignal } from 'abort-controller';
 import { installAbortSignalPatch } from 'expo/src/winter/AbortSignal';
-import { createWhipClient } from '@whip/sdk';
+import { createWhipClient } from '@whip/legacy-sdk';
 
 const NativeController = NativeAbortController as unknown as typeof AbortController;
 const NativeSignal = NativeAbortSignal as unknown as typeof AbortSignal;

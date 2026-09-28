@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import type { DeepReadonly, SessionViewSnapshot } from '@whip/sdk/state';
+import type { DeepReadonly, SessionViewSnapshot } from '@whip/legacy-sdk/state';
 import type { RootSnapshot } from '@whip/legacy-protocol';
 import { Button, Spinner } from '@whip/ui';
 import { ChevronDown, ChevronRight, Circle, ShieldAlert } from 'lucide-react';

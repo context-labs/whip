@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ErrorNotice } from './error-feedback';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import type { WhipClient } from '@whip/sdk';
+import type { WhipClient } from '@whip/legacy-sdk';
 import { Button, Combobox, Field, Input, Menu, Popover, Select, Skeleton, Tooltip, type Styled } from '@whip/ui';
 import { Check, ChevronDown, Search, SlidersHorizontal } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useWhipConnection } from '@whip/sdk/react';
-import type { WhipClient } from '@whip/sdk';
-import type { SessionListView } from '@whip/sdk/state';
+import { useWhipConnection } from '@whip/legacy-sdk/react';
+import type { WhipClient } from '@whip/legacy-sdk';
+import type { SessionListView } from '@whip/legacy-sdk/state';
 import { Button, Checkbox, Dialog, IconButton, Input, Menu, Spinner } from '@whip/ui';
 import { ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, Folder, HardDrive, Home, Pencil, Search, Server } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';

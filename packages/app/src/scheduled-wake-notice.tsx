@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
-import type { DeepReadonly, SessionViewSnapshot } from '@whip/sdk/state';
+import type { DeepReadonly, SessionViewSnapshot } from '@whip/legacy-sdk/state';
 import { Button } from '@whip/ui';
 import { ChevronDown, ChevronRight, Clock } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';

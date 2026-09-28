@@ -93,7 +93,7 @@ attachment. See [desktop behavior](desktop.md#browser-tabs-experimental) and the
 Implementation: [`internal/tools/browser_desktop.go`](../internal/tools/browser_desktop.go),
 [`internal/browser/desktop.go`](../internal/browser/desktop.go),
 [`internal/daemon/browser_provider.go`](../internal/daemon/browser_provider.go),
-[`SDK provider transport`](../packages/sdk/src/browser.ts), and
+[`SDK provider transport`](../packages/legacy-sdk/src/browser.ts), and
 [`native control`](../apps/desktop/src/browser-control.ts).
 
 ## Computer use (macOS)

@@ -1,4 +1,4 @@
-import type { WhipClient } from '@whip/sdk';
+import type { WhipClient } from '@whip/legacy-sdk';
 import type { MobileRuntime } from './runtime';
 /** Native document pickers may background the app. Resume only the original host. */
 export function waitForReady(runtime: MobileRuntime, client: WhipClient, signal: AbortSignal) {

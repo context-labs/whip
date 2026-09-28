@@ -24,7 +24,7 @@ npm run test:package
 ```
 
 `@whip/legacy-protocol` contains generated Go-derived wire types and standalone
-validators. `@whip/sdk` is browser-safe; `/node` adds Unix sockets, `/state` adds
+validators. `@whip/legacy-sdk` is browser-safe; `/node` adds Unix sockets, `/state` adds
 optional synchronized views, and `/react` adds optional React subscriptions.
 Core and state do not import React or Node built-ins. React consumers supply
 React 19. Both packages remain private; package-archive installation is tested.
@@ -32,7 +32,7 @@ React 19. Both packages remain private; package-archive installation is tested.
 ## Attach and submit
 
 ```ts
-import { createWhipClient } from '@whip/sdk';
+import { createWhipClient } from '@whip/legacy-sdk';
 
 const client = createWhipClient({
   endpoint: 'http://127.0.0.1:8080', // accepts a WS URL or gateway HTTP base URL
@@ -58,7 +58,7 @@ try {
 Node scripts can attach directly without starting any gateway:
 
 ```ts
-import { createWhipClient, unixSocket } from '@whip/sdk/node';
+import { createWhipClient, unixSocket } from '@whip/legacy-sdk/node';
 const client = createWhipClient({ endpoint: unixSocket('/path/to/daemon.sock'), clientId: 'my-script' });
 ```
 
@@ -282,8 +282,8 @@ refresh authoritative pending requests after deciding.
 ## Optional synchronized state and React
 
 ```ts
-import { createSessionView, createSessionListView } from '@whip/sdk/state';
-import { useSessionView } from '@whip/sdk/react';
+import { createSessionView, createSessionListView } from '@whip/legacy-sdk/state';
+import { useSessionView } from '@whip/legacy-sdk/react';
 
 const view = createSessionView(client.session(rootId));
 await view.start();
@@ -368,7 +368,7 @@ explicitly marked. Call `closeAgent` when no longer inspecting a child. The
 catalog view polls revisions only while observed and never opens all roots.
 There are at most 16 active root subscriptions per connection.
 
-`executionRows(view.getSnapshot(), agentId)` from `@whip/sdk/state` projects
+`executionRows(view.getSnapshot(), agentId)` from `@whip/legacy-sdk/state` projects
 read-only Starlark or JavaScript cells and restart markers for one agent. It merges loaded
 history with `snapshot.executions`, which the existing session subscription
 maintains. Calls retain stable keys across commit; cumulative arguments/output
@@ -428,7 +428,7 @@ ends first, the entry keeps its ordinary queue position. Direct `session.steer`
 remains supported. Root input commands removed while queued settle as cancelled
 with failure kind `queue_removed`; completed child admission commands stay complete.
 
-`inboxItems(view.getSnapshot(), agentId)` from `@whip/sdk/state` returns scoped
+`inboxItems(view.getSnapshot(), agentId)` from `@whip/legacy-sdk/state` returns scoped
 rows with freshness and additional-page availability. Optional inbox metadata
 includes client origin/correlation, bounded text/attachment preview, pending
 steer target and delivery sequence. Snapshot omissions retain bounded unverified
@@ -550,7 +550,7 @@ inspect provider status after an uncertain acknowledgement before retrying.
 
 ## Author, serve, run
 
-`@whip/sdk/agents` authors the agents a daemon runs. A definition is data: what
+`@whip/legacy-sdk/agents` authors the agents a daemon runs. A definition is data: what
 the agent is told, which host modules and capabilities it receives, model and
 compaction defaults, MCP servers, custom tools, hooks, named children, an
 output contract, and surface flags. The daemon validates it, stores it under a
@@ -559,8 +559,8 @@ content revision, and sessions pin that revision. The program below is
 daemon and a live acceptance beside it.
 
 ```ts
-import { createWhipClient } from '@whip/sdk';
-import { defineAgent, tool } from '@whip/sdk/agents';
+import { createWhipClient } from '@whip/legacy-sdk';
+import { defineAgent, tool } from '@whip/legacy-sdk/agents';
 import { z } from 'zod';
 
 const lookupTicket = tool({
@@ -668,7 +668,7 @@ schema for sessions created through the runtime.
 
 ## Testing
 
-`@whip/sdk/testing` exports `scriptedDaemon()`: the in-memory transport the
+`@whip/legacy-sdk/testing` exports `scriptedDaemon()`: the in-memory transport the
 SDK's own tests use, with a reply table (`daemon.reply(method, handler)`),
 `daemon.emit(rootId, kind, payload)` for journal events, `serveSessions()` to
 answer registration, binding, snapshot, subscribe, submit, status, and
@@ -676,14 +676,14 @@ decisions with defaults, and `daemon.turn(rootId, script)` to play a whole
 turn so a consumer of `session.run` is tested without a daemon:
 
 ```ts
-import { scriptedDaemon } from '@whip/sdk/testing';
+import { scriptedDaemon } from '@whip/legacy-sdk/testing';
 const daemon = scriptedDaemon().serveSessions();
 const client = createWhipClient({ endpoint: daemon.factory, clientId: 'test' });
 await client.connect();
 void daemon.turn('root', { steps: [{ text: 'Hello' }, { question: { id: 'q', question: 'Ok?', options: [{ label: 'Yes' }] } }], text: 'Hello', output: { ok: true } });
 ```
 
-`@whip/sdk/testing/node` exports `liveDaemon()` (also `startFixture`): the
+`@whip/legacy-sdk/testing/node` exports `liveDaemon()` (also `startFixture`): the
 integration test binary serving a real daemon from an isolated home, behind a
 scripted model, as the SDK acceptance and `examples/agents` use. Node only; it
 builds and spawns Go.

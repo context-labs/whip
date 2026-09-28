@@ -18,8 +18,8 @@ import {
 import { renderMarkdownReact } from '@tanstack/markdown/react';
 import { streamingMarkdownExtension } from '@tanstack/markdown/extensions/streaming';
 import { useQuery } from '@tanstack/react-query';
-import type { WhipClient } from '@whip/sdk';
-import type { DeepReadonly, HistoryView } from '@whip/sdk/state';
+import type { WhipClient } from '@whip/legacy-sdk';
+import type { DeepReadonly, HistoryView } from '@whip/legacy-sdk/state';
 import type { RootSnapshot, StreamEvent } from '@whip/legacy-protocol';
 import { Button, CodeBlock, CopyButton, Dialog, IconButton, Menu, Spinner } from '@whip/ui';
 import {

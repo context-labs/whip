@@ -246,7 +246,7 @@ export class LocalRuntime {
         if (status.state !== 'running') return { ...base, state: status.state, clientBuild,
           message: `The selected daemon is ${status.state}. Attach mode never starts or repairs a daemon. Start it separately, or select another --home and --executable.` };
         // Check the service itself: the selected file may be newer than its live process.
-        const { createWhipClient, unixSocket } = await import('@whip/sdk/node');
+        const { createWhipClient, unixSocket } = await import('@whip/legacy-sdk/node');
         const client = createWhipClient({ endpoint: unixSocket(status.socket), clientId: 'desktop-dev-attach-probe', reconnect: false });
         try {
           await client.connect({ signal });

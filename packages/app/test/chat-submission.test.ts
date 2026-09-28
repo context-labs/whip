@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import type { Session } from '@whip/sdk';
+import type { Session } from '@whip/legacy-sdk';
 import { submitChatInput, type ChatSubmission } from '../src/chat-submission';
 import { CompositionStore, compositionKey, type CompositionAttachment } from '../src/compositions';
 import { SubmittedInputs } from '../src/input-presentation';

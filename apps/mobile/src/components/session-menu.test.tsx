@@ -1,11 +1,11 @@
 import { fireEvent, render } from '@testing-library/react-native';
-import type { SessionView } from '@whip/sdk/state';
+import type { SessionView } from '@whip/legacy-sdk/state';
 import { SessionMenu } from './session-menu';
 let mockRuntime: any; let mockClient: any;
 const mockPin = jest.fn(async () => {});
 jest.mock('../runtime/context', () => ({ useRuntime: () => mockRuntime, useRuntimeState: () => mockRuntime.getSnapshot() }));
 jest.mock('../runtime/workspace-context', () => ({ useWorkspace: () => ({ pin: mockPin }), useWorkspaceState: () => ({ pins: [] }) }));
-jest.mock('@whip/sdk/react', () => ({ useSessionView: () => ({ status: 'live', root: { meta: { title: 'Title', archived: false } } }) }));
+jest.mock('@whip/legacy-sdk/react', () => ({ useSessionView: () => ({ status: 'live', root: { meta: { title: 'Title', archived: false } } }) }));
 jest.mock('@expo/ui', () => ({ BottomSheet: () => null, RNHostView: require('react-native').View }));
 function fixture() {
   mockClient = { supports: () => true }; const run = jest.fn(async () => ({ status: 'succeeded' }));

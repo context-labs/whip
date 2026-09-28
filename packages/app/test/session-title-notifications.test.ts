@@ -1,12 +1,12 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { QueryObserver } from '@tanstack/react-query';
-import type { WhipClient } from '@whip/sdk';
+import type { WhipClient } from '@whip/legacy-sdk';
 import { AppRuntime } from '../src/runtime';
 import { createFallbackStorage } from '../src/platform';
 
 const clients = vi.hoisted(() => new Map<string, WhipClient>());
-vi.mock('@whip/sdk', async importOriginal => ({ ...await importOriginal<typeof import('@whip/sdk')>(), createWhipClient: (options: { endpoint: string }) => clients.get(new URL(options.endpoint).hostname) }));
-vi.mock('@whip/sdk/state', () => ({ createSessionListView: () => ({ start: async () => {}, dispose: async () => {} }) }));
+vi.mock('@whip/legacy-sdk', async importOriginal => ({ ...await importOriginal<typeof import('@whip/legacy-sdk')>(), createWhipClient: (options: { endpoint: string }) => clients.get(new URL(options.endpoint).hostname) }));
+vi.mock('@whip/legacy-sdk/state', () => ({ createSessionListView: () => ({ start: async () => {}, dispose: async () => {} }) }));
 const apps: AppRuntime[] = [];
 afterEach(() => { apps.splice(0).forEach(app => app.dispose()); clients.clear(); vi.useRealTimers(); });
 

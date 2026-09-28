@@ -4,7 +4,7 @@
 // definition is data the daemon stores. support-triage.test.ts drives it
 // through the scripted daemon and support-triage.acceptance.mjs through a
 // live one.
-import { defineAgent, tool } from '@whip/sdk/agents';
+import { defineAgent, tool } from '@whip/legacy-sdk/agents';
 import { z } from 'zod';
 
 const Ticket = z.object({
@@ -121,7 +121,7 @@ export const supportTriage = defineAgent({
 
 // Serve it and run a turn:
 //
-//   import { createWhipClient } from '@whip/sdk';
+//   import { createWhipClient } from '@whip/legacy-sdk';
 //   const client = createWhipClient({ endpoint: 'http://127.0.0.1:8080', clientId: 'support-triage' });
 //   await client.connect();
 //   const runtime = await client.agents.serve(supportTriage);       // register, bind tools and hooks, serve until close()

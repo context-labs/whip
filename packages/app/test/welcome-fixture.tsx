@@ -3,7 +3,7 @@ import { afterEach, beforeEach, vi } from 'vitest';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from '@tanstack/react-router';
 import { ThemeProvider, UIProvider } from '@whip/ui';
-import type { WhipClient } from '@whip/sdk';
+import type { WhipClient } from '@whip/legacy-sdk';
 import { AppRuntime } from '../src/runtime';
 import { RuntimeContext, useSessionTabs } from '../src/context';
 import { Welcome } from '../src/welcome';

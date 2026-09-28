@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createWhipClient } from '@whip/sdk';
-import { tool, type ToolContext } from '@whip/sdk/agents';
-import { scriptedDaemon } from '@whip/sdk/testing';
+import { createWhipClient } from '@whip/legacy-sdk';
+import { tool, type ToolContext } from '@whip/legacy-sdk/agents';
+import { scriptedDaemon } from '@whip/legacy-sdk/testing';
 import { z } from 'zod';
 import { audit, escalate, escalations, lookupTicket, supportTriage } from './support-triage.js';
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { WhipClient } from '@whip/sdk';
+import type { WhipClient } from '@whip/legacy-sdk';
 import type { HostSkillCompletionParams } from '@whip/legacy-protocol';
 import { Button, useTextareaSuggestions } from '@whip/ui';
 import { ErrorNotice } from './error-feedback';

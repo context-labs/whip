@@ -1,5 +1,5 @@
 import { parseArgs } from 'node:util';
-import { fixtureExternalOrigin, startFixture } from '../../../packages/sdk/scripts/fixture.mjs';
+import { fixtureExternalOrigin, startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
 
 const { values } = parseArgs({
   options: { minutes: { type: 'string', default: '30' }, origin: { type: 'string' }, help: { type: 'boolean' } },
