@@ -243,7 +243,7 @@ func TestManualCompactionSettlesOnlyHelperAndRestoresSelectedContext(t *testing.
 	mail := mailFunc(func(context.Context, session.TurnID) ([]session.Message, error) {
 		return nil, errors.New("manual compaction observed mail")
 	})
-	r, err := New(provider, ledger, ledger, nil, forbiddenExecutor{}, preview, mail, ledger)
+	r, err := New(provider, ledger, ledger, nil, forbiddenExecutor{}, preview, mail, ledger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +266,7 @@ func TestManualCompactionSettlesOnlyHelperAndRestoresSelectedContext(t *testing.
 			return model.Response{}, errors.New("restart did not project selected summary and exact raw tail")
 		}
 		return model.Response{Parts: []session.Part{{Type: "text", Text: "next reply"}}}, nil
-	}), ledger, ledger, nil, nil, nil, nil, ledger)
+	}), ledger, ledger, nil, nil, nil, nil, ledger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +291,7 @@ func TestCompactionNoFold(t *testing.T) {
 			r, err := New(providerFunc(func(context.Context, model.Request) (model.Response, error) {
 				t.Error("unexpected model dispatch")
 				return model.Response{}, nil
-			}), ledger, ledger, nil, nil, nil, nil, ledger)
+			}), ledger, ledger, nil, nil, nil, nil, ledger, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -318,7 +318,7 @@ func TestAutomaticCompactionRebuildsWithinMessageBound(t *testing.T) {
 			return model.Response{}, errors.New("automatic compaction dropped retained turns")
 		}
 		return model.Response{Parts: []session.Part{{Type: "text", Text: "answer"}}}, nil
-	}), ledger, ledger, nil, nil, nil, nil, ledger)
+	}), ledger, ledger, nil, nil, nil, nil, ledger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +366,7 @@ func TestCompactionPreservesToolBatchesAcrossIncrementalFolds(t *testing.T) {
 			return model.Response{}, errors.New("assistant batch cut before all results")
 		}
 		return model.Response{Parts: []session.Part{{Type: "text", Text: "summary"}}}, nil
-	}), ledger, ledger, nil, nil, nil, nil, ledger)
+	}), ledger, ledger, nil, nil, nil, nil, ledger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -409,7 +409,7 @@ func TestCompactionFailureNeverRedispatchesOrPublishesTranscript(t *testing.T) {
 					default:
 						return model.Response{Parts: []session.Part{{Type: "text", Text: "summary"}}}, nil
 					}
-				}), ledger, ledger, nil, nil, nil, nil, ledger)
+				}), ledger, ledger, nil, nil, nil, nil, ledger, nil)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -446,7 +446,7 @@ func TestCompactionRestoresExactPinsAndDropsCompletedOnes(t *testing.T) {
 				return model.Response{}, errors.New("summary or exact pin missing from helper input")
 			}
 			return model.Response{Parts: []session.Part{{Type: "text", Text: "summary"}}}, nil
-		}), ledger, ledger, nil, nil, nil, nil, ledger)
+		}), ledger, ledger, nil, nil, nil, nil, ledger, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -485,7 +485,7 @@ func TestCompactionRetriesOnlyExplicitProviderFailureWithFreshAttempt(t *testing
 			}
 			return prepared, err
 		})
-		r, err := New(provider, ledger, ledger, nil, nil, nil, nil, ledger)
+		r, err := New(provider, ledger, ledger, nil, nil, nil, nil, ledger, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -517,7 +517,7 @@ func TestCompactionRejectsOneOversizedToolBatchBeforeDispatch(t *testing.T) {
 	r, err := New(providerFunc(func(context.Context, model.Request) (model.Response, error) {
 		t.Error("oversized tool batch dispatched")
 		return model.Response{}, nil
-	}), ledger, ledger, nil, nil, nil, nil, ledger)
+	}), ledger, ledger, nil, nil, nil, nil, ledger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -575,7 +575,7 @@ func TestCompactionRebuildsAfterDurableToolBatchOrOutputCorrection(t *testing.T)
 			}
 			return model.Response{Parts: []session.Part{{Type: "text", Text: `"done"`}}}, nil
 		})
-		r, err := New(provider, ledger, ledger, nil, executor, nil, nil, ledger)
+		r, err := New(provider, ledger, ledger, nil, executor, nil, nil, ledger, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -606,7 +606,7 @@ func TestCompactionDropsOldPinsWhenMeasuringProjection(t *testing.T) {
 	ledger.head.Revision = 1
 	r, err := New(providerFunc(func(context.Context, model.Request) (model.Response, error) {
 		return model.Response{Parts: []session.Part{{Type: "text", Text: strings.Repeat("x", 1000)}}}, nil
-	}), ledger, ledger, nil, nil, nil, nil, ledger)
+	}), ledger, ledger, nil, nil, nil, nil, ledger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -640,7 +640,7 @@ func TestCompactionFoldIdentityPersistsAcrossModelBoundaries(t *testing.T) {
 			parts = append(parts, session.Part{Type: "tool_call", Call: &session.ToolCall{ID: fmt.Sprintf("round%d_call%d", ordinary, i), Name: "execute", Arguments: json.RawMessage(`{}`)}})
 		}
 		return model.Response{Parts: parts}, nil
-	}), ledger, ledger, nil, executor, nil, nil, ledger)
+	}), ledger, ledger, nil, executor, nil, nil, ledger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

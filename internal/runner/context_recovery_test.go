@@ -73,7 +73,7 @@ func TestLongTurnSplitPinsInputAndRetainsWholeNewestExchange(t *testing.T) {
 				}
 				return model.Response{Parts: []session.Part{{Type: "text", Text: "done"}}}, nil
 			})
-			r, err := New(provider, ledger, ledger, nil, nil, nil, nil, ledger)
+			r, err := New(provider, ledger, ledger, nil, nil, nil, nil, ledger, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -126,7 +126,7 @@ func TestProviderContextRejectionReplansOnceAfterSettledEvidence(t *testing.T) {
 			}
 			return model.Response{Parts: []session.Part{{Type: "text", Text: "done"}}}, nil
 		})
-		r, err := New(provider, ledger, ledger, nil, nil, nil, nil, ledger)
+		r, err := New(provider, ledger, ledger, nil, nil, nil, nil, ledger, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -178,7 +178,7 @@ func TestProviderContextRejectionCannotBypassCertaintyOrSettlement(t *testing.T)
 					}
 					return prepared, err
 				})
-				r, err := New(provider, ledger, ledger, nil, nil, nil, nil, ledger)
+				r, err := New(provider, ledger, ledger, nil, nil, nil, nil, ledger, nil)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -227,7 +227,7 @@ func TestContextReplanKeepsOutputCorrectionAndCompletedEffects(t *testing.T) {
 		default:
 			return model.Response{}, errors.New("unexpected third correction")
 		}
-	}), ledger, ledger, nil, executor, nil, nil, ledger)
+	}), ledger, ledger, nil, executor, nil, nil, ledger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +247,7 @@ func TestLongTurnFoldsKeepOneTurnBudget(t *testing.T) {
 		}
 		helperCalls++
 		return model.Response{Parts: []session.Part{{Type: "text", Text: "summary"}}}, nil
-	}), ledger, ledger, nil, nil, nil, nil, ledger)
+	}), ledger, ledger, nil, nil, nil, nil, ledger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +272,7 @@ func TestLongTurnPinCannotSubsidizeSummaryGrowth(t *testing.T) {
 	ledger.head.Revision = 1
 	r, err := New(providerFunc(func(context.Context, model.Request) (model.Response, error) {
 		return model.Response{Parts: []session.Part{{Type: "text", Text: strings.Repeat("x", 1000)}}}, nil
-	}), ledger, ledger, nil, nil, nil, nil, ledger)
+	}), ledger, ledger, nil, nil, nil, nil, ledger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,7 +299,7 @@ func TestManualCompactionRepairsOversizedRecentTurnWithoutOrdinaryWork(t *testin
 	})
 	r, err := New(provider, ledger, ledger, nil, forbiddenExecutor{}, nil, mailFunc(func(context.Context, session.TurnID) ([]session.Message, error) {
 		return nil, errors.New("manual repair consumed mail")
-	}), ledger)
+	}), ledger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

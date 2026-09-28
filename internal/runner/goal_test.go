@@ -52,7 +52,7 @@ func TestGoalContextFrozenAcrossCorrectionCompactionAndSQLRetry(t *testing.T) {
 			return model.Response{Parts: []session.Part{{Type: "text", Text: `"invalid"`}}}, nil
 		}
 		return model.Response{Parts: []session.Part{{Type: "text", Text: `42`}}}, nil
-	}), ledger, ledger, nil, nil, nil, nil, ledger)
+	}), ledger, ledger, nil, nil, nil, nil, ledger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestGoalContextFailsBeforeProviderAndCompactNeverLoadsIt(t *testing.T) {
 					t.Fatal("compact inherited goal")
 				}
 				return model.Response{Parts: []session.Part{{Type: "text", Text: "summary"}}}, nil
-			}), ledger, ledger, nil, nil, nil, nil, ledger)
+			}), ledger, ledger, nil, nil, nil, nil, ledger, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

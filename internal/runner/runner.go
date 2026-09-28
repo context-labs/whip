@@ -52,21 +52,22 @@ type Progress interface {
 }
 
 type Runner struct {
-	provider    Provider
-	transcript  Transcript
-	attempts    Attempts
-	content     ContentReader
-	executor    Executor
-	progress    Progress
-	mail        Mail
-	compactions Compactions
+	provider     Provider
+	transcript   Transcript
+	attempts     Attempts
+	content      ContentReader
+	executor     Executor
+	progress     Progress
+	mail         Mail
+	compactions  Compactions
+	formulations GoalFormulations
 }
 
-func New(provider Provider, transcript Transcript, attempts Attempts, content ContentReader, executor Executor, progress Progress, mail Mail, compactions Compactions) (*Runner, error) {
+func New(provider Provider, transcript Transcript, attempts Attempts, content ContentReader, executor Executor, progress Progress, mail Mail, compactions Compactions, formulations GoalFormulations) (*Runner, error) {
 	if provider == nil || transcript == nil || attempts == nil {
 		return nil, errors.New("runner requires provider, transcript and attempt ledger")
 	}
-	return &Runner{provider: provider, transcript: transcript, attempts: attempts, content: content, executor: executor, progress: progress, mail: mail, compactions: compactions}, nil
+	return &Runner{provider: provider, transcript: transcript, attempts: attempts, content: content, executor: executor, progress: progress, mail: mail, compactions: compactions, formulations: formulations}, nil
 }
 
 type Outcome struct {
@@ -92,6 +93,9 @@ func Failure(err error) Outcome {
 // Run persists completed output under a stable message ID. The caller settles
 // the turn separately; retrying that settlement must never call Run again.
 func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration session.Configuration) (Outcome, error) {
+	if turn.Kind == session.GoalFormulationInputKind {
+		return r.formulateGoal(ctx, turn, configuration)
+	}
 	if turn.Kind == session.CompactInput {
 		return r.compactTurn(ctx, turn, configuration)
 	}
@@ -271,7 +275,7 @@ func (r *Runner) hydrate(ctx context.Context, request *model.Request) error {
 	return nil
 }
 
-func (r *Runner) settleResult(parent context.Context, id session.ModelAttemptID, result session.ModelAttemptResult, message *session.MessageDraft, target *helperTarget, draft *session.CompactionDraft) error {
+func (r *Runner) settleResult(parent context.Context, id session.ModelAttemptID, result session.ModelAttemptResult, message *session.MessageDraft, target *helperTarget, draft helperDraft) error {
 	// A completed response survives observer cancellation. Retry only the write,
 	// using its stable identity; never send a second provider request.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), 5*time.Second)
@@ -281,7 +285,9 @@ func (r *Runner) settleResult(parent context.Context, id session.ModelAttemptID,
 	for {
 		var err error
 		if target != nil && target.compaction != nil {
-			target.compaction.settled, err = r.compactions.SettleCompaction(ctx, id, result, draft)
+			target.compaction.settled, err = r.compactions.SettleCompaction(ctx, id, result, draft.compaction)
+		} else if target != nil && target.formulation != nil {
+			*target.formulation, err = r.formulations.SettleGoalFormulation(ctx, id, result, draft.formulation)
 		} else {
 			_, err = r.attempts.SettleModelAttempt(ctx, id, result, message)
 		}
@@ -397,7 +403,7 @@ type attemptOutcome struct {
 func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.Prepared, logicalID string, number int, target *helperTarget) (attemptOutcome, error) {
 	id := session.ModelAttemptID(fmt.Sprintf("%s_try_%d", logicalID, number))
 	spec := session.ModelAttemptSpec{ID: id, TurnID: turn.ID, LogicalID: logicalID, Number: number, Request: prepared.Snapshot}
-	if target != nil && target.compaction == nil {
+	if target.stateless() {
 		spec.OperationID, spec.BatchIndex = &target.operationID, &target.index
 	}
 	attempt, err := r.attempts.ReserveModelAttempt(ctx, spec)
@@ -413,7 +419,7 @@ func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.
 	if prepared.BeforeDispatch != nil {
 		if err := prepared.BeforeDispatch(ctx); err != nil {
 			cancelled := session.ModelAttemptResult{State: session.AttemptCancelled, Failure: Failure(err).Failure}
-			if settleErr := r.settleResult(ctx, id, cancelled, nil, target, nil); settleErr != nil {
+			if settleErr := r.settleResult(ctx, id, cancelled, nil, target, helperDraft{}); settleErr != nil {
 				return attemptOutcome{}, accountingError(target, errors.Join(err, settleErr))
 			}
 			return attemptOutcome{failure: err}, nil
@@ -427,7 +433,7 @@ func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.
 		// Only a confirmed reserved attempt can become a no-dispatch cancellation.
 		// Ambiguous dispatch failures stay pending and fault settlement/recovery.
 		cancelled := session.ModelAttemptResult{State: session.AttemptCancelled}
-		if settleErr := r.settleResult(ctx, id, cancelled, nil, target, nil); settleErr != nil {
+		if settleErr := r.settleResult(ctx, id, cancelled, nil, target, helperDraft{}); settleErr != nil {
 			return attemptOutcome{}, accountingError(target, errors.Join(err, settleErr))
 		}
 		if target.refused(err) {
@@ -461,7 +467,7 @@ func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.
 		result.UsageNote = new("provider returned invalid cost; reported cost unavailable")
 	}
 	var message *session.MessageDraft
-	var draft *session.CompactionDraft
+	var draft helperDraft
 	if callErr == nil {
 		callErr = session.ValidateMessage(session.Assistant, response.Parts)
 	}
@@ -498,6 +504,12 @@ func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.
 		outcome.failure = errors.New("compaction was not selected")
 		if target.compaction.settled.Rejection != nil {
 			outcome.failure = errors.New(*target.compaction.settled.Rejection)
+		}
+	}
+	if callErr == nil && target != nil && target.formulation != nil && !target.formulation.Accepted {
+		outcome.failure = errors.New("goal formulation was not accepted")
+		if target.formulation.Rejection != nil {
+			outcome.failure = errors.New(*target.formulation.Rejection)
 		}
 	}
 	if message != nil {

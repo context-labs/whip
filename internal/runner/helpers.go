@@ -40,9 +40,11 @@ func (e *AccountingError) Error() string { return e.Err.Error() }
 func (e *AccountingError) Unwrap() error { return e.Err }
 
 // helperTarget keeps non-transcript responses on the ordinary attempt path.
-// A compaction commits its draft; a stateless item commits accounting only.
+// Compaction and formulation commit derived evidence; stateless items commit
+// accounting only.
 type helperTarget struct {
 	compaction       *compactionTarget
+	formulation      *session.GoalFormulationSettlement
 	operationID      session.OperationID
 	index            int
 	admissionRefused func(error) bool
@@ -50,27 +52,43 @@ type helperTarget struct {
 	attemptID        session.ModelAttemptID
 }
 
-func (t *helperTarget) response(id session.ModelAttemptID, parts []session.Part) (*session.CompactionDraft, error) {
+type helperDraft struct {
+	compaction  *session.CompactionDraft
+	formulation *session.GoalFormulationDraft
+}
+
+func (t *helperTarget) stateless() bool {
+	return t != nil && t.compaction == nil && t.formulation == nil
+}
+
+func (t *helperTarget) response(id session.ModelAttemptID, parts []session.Part) (helperDraft, error) {
 	if t.compaction != nil {
-		return t.compaction.response(id, parts)
+		draft, err := t.compaction.response(id, parts)
+		return helperDraft{compaction: draft}, err
 	}
 	var text strings.Builder
 	for _, part := range parts {
 		if part.Type != "text" || len(part.Text) > session.MaxDocumentBytes-text.Len() {
-			return nil, errors.New("stateless model response requires bounded text only")
+			return helperDraft{}, errors.New("model helper response requires bounded text only")
 		}
 		text.WriteString(part.Text)
 	}
+	if t.formulation != nil {
+		if _, err := (session.GoalRequest{Text: text.String()}).Resolve(); err != nil {
+			return helperDraft{}, err
+		}
+		return helperDraft{formulation: &session.GoalFormulationDraft{Text: text.String()}}, nil
+	}
 	t.text = text.String()
-	return nil, nil //nolint:nilnil // Stateless responses intentionally have no compaction draft.
+	return helperDraft{}, nil
 }
 
 func (t *helperTarget) refused(err error) bool {
-	return t != nil && t.compaction == nil && t.admissionRefused != nil && t.admissionRefused(err)
+	return t.stateless() && t.admissionRefused != nil && t.admissionRefused(err)
 }
 
 func accountingError(target *helperTarget, err error) error {
-	if target != nil && target.compaction == nil {
+	if target.stateless() {
 		return &AccountingError{Err: err}
 	}
 	return err

@@ -43,7 +43,7 @@ func TestContinuationBytesTriggerCompactionWithoutEnteringHelperContext(t *testi
 		}
 		return model.Response{Parts: []session.Part{{Type: "text", Text: "done"}}}, nil
 	})
-	runner, err := New(provider, ledger, ledger, nil, nil, nil, nil, ledger)
+	runner, err := New(provider, ledger, ledger, nil, nil, nil, nil, ledger, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestInvalidContinuationStillSettlesKnownAccountingWithoutMessage(t *testing
 				Usage: session.ModelUsage{Input: new(int64(17)), Output: new(int64(3))}, ReportedCostNanoUSD: new(int64(23)),
 			}, nil
 		})
-		runner, err := New(provider, ledger, ledger, nil, nil, nil, nil, nil)
+		runner, err := New(provider, ledger, ledger, nil, nil, nil, nil, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
