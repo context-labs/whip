@@ -695,7 +695,7 @@ The goal-record foundation now implements immutable specifications, revisioned
 lifecycle, exact create/resume retries, current selection, atomic ordinary-input
 admission and deletion tombstones. Turn capture, durable continuation, recovery
 pause and authorized completion settlement are now implemented internally. Fresh
-config is 8 and schema 28. Generated input and turn projections preserve goal
+config is 8 and schema 29. Generated input and turn projections preserve goal
 provenance and exact decimal revisions. Runtime/guest/RPC/SDK controls now expose
 creation, inspection, resume, cancellation and authorized completion intents.
 Both-engine and process acceptance cover the controls. Formulation from context
@@ -746,6 +746,13 @@ Deliver helper accounting/join/fatal boundaries, then single-call execution,
 then bounded batch orchestration and both-engine SDK acceptance. Retain tests
 for caught host failures, exact attempt/HTTP counts, ancestor overages, output
 preservation, reversed completion order, cancellation, restart and large content.
+
+The helper ledger foundation now records operation/item provenance, validates
+the admitted helper scope and output cap, joins attempt settlement before
+operation/cell settlement, and preserves permanent charges after child deletion.
+Dispatch rechecks ancestor exposure after sibling settlement. The public
+projection, fatal guest boundary and shared runner call/batch execution remain
+open; this foundation does not make guest model helpers available yet.
 
 
 Fork, rewind and workspace implementation decisions (work remains open):
