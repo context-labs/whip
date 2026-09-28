@@ -20,6 +20,8 @@ type Operation struct {
 
 func Operations() []Operation {
 	return []Operation{
+		{"budgets.list", reflect.TypeFor[SessionParams](), reflect.TypeFor[BudgetsResult]()},
+		{"budgets.set", reflect.TypeFor[SetBudgetParams](), reflect.TypeFor[Budget]()},
 		{"sessions.observe", reflect.TypeFor[HistoryParams](), reflect.TypeFor[SessionObservation]()},
 		{"cells.get", reflect.TypeFor[CellParams](), reflect.TypeFor[Cell]()},
 		{"turns.cells", reflect.TypeFor[CellsParams](), reflect.TypeFor[CellsResult]()},

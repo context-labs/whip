@@ -31,6 +31,9 @@ type ChatRoute struct {
 	MaxOutputTokens int64
 	TimeoutMillis   int64
 	MaxAttempts     int
+	// ContextWindowTokens is the host-declared, provider-enforced maximum.
+	// Nil is unknown; this is not a token count for the encoded request.
+	ContextWindowTokens *int64
 }
 
 // OpenAI implements streaming OpenAI-compatible chat completions. Retry
@@ -66,6 +69,13 @@ func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) 
 	if route.MaxAttempts < 1 || route.MaxAttempts > 5 {
 		return Prepared{}, fmt.Errorf("%w: invalid provider attempt limit", session.ErrInvalid)
 	}
+	var inputBound *int64
+	if route.ContextWindowTokens != nil {
+		if *route.ContextWindowTokens < 1 || *route.ContextWindowTokens > 1000000000 || route.MaxOutputTokens > *route.ContextWindowTokens {
+			return Prepared{}, fmt.Errorf("%w: context window must be 1–1000000000 tokens and at least the output limit", session.ErrInvalid)
+		}
+		inputBound = new(*route.ContextWindowTokens)
+	}
 	if strings.ContainsAny(route.Credential, "\r\n\x00") {
 		return Prepared{}, errors.New("provider credential contains invalid header characters")
 	}
@@ -83,6 +93,7 @@ func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) 
 		Route: strings.TrimRight(route.URL, "/") + "/chat/completions", Adapter: "openai-chat",
 		RequestDigest: hex.EncodeToString(hash[:]), Prices: route.Prices.Clone(),
 		MaxOutputTokens: route.MaxOutputTokens, TimeoutMillis: route.TimeoutMillis,
+		InputTokenBound: inputBound,
 	}
 	if err := snapshot.Validate(); err != nil {
 		return Prepared{}, err

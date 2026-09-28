@@ -244,6 +244,7 @@ type SpawnSessionParams struct {
 	WorkingDirectory *string         `json:"working_directory,omitempty"`
 	Parts            []Part          `json:"parts"`
 	GrantIDs         []ID            `json:"grant_ids"`
+	Budgets          []BudgetLimit   `json:"budgets,omitempty"`
 }
 type SpawnSessionResult struct {
 	Session   *Session  `json:"session"`
@@ -301,6 +302,7 @@ type ModelRequestSnapshot struct {
 	RequestDigest   string         `json:"request_digest" pattern:"^[a-f0-9]{64}$"`
 	Prices          ModelPrices    `json:"prices"`
 	MaxOutputTokens Counter        `json:"max_output_tokens"`
+	InputTokenBound *Counter       `json:"input_token_bound"`
 	TimeoutMillis   Counter        `json:"timeout_millis"`
 }
 type ModelAttemptResult struct {
@@ -309,6 +311,7 @@ type ModelAttemptResult struct {
 	ReportedCostNanoUSD *Counter   `json:"reported_cost_nano_usd"`
 	Failure             *string    `json:"failure"`
 	UsageNote           *string    `json:"usage_note"`
+	ElapsedMillis       *Counter   `json:"elapsed_millis"`
 }
 type ModelAttempt struct {
 	ID           ID                   `json:"id"`

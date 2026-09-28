@@ -117,6 +117,9 @@ func (s *Store) DeleteSubtree(ctx context.Context, id session.SessionID) error {
 			return err
 		}
 		if target.ParentID == nil {
+			if _, err := tx.ExecContext(ctx, "DELETE FROM model_attempts WHERE id IN (SELECT attempt_id FROM attempt_budget_ancestors WHERE session_id=?)", target.ID); err != nil {
+				return err
+			}
 			_, err = tx.ExecContext(ctx, "DELETE FROM session_trees WHERE id=?", target.TreeID)
 		} else {
 			_, err = tx.ExecContext(ctx, "DELETE FROM sessions WHERE id=?", id)

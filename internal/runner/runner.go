@@ -296,9 +296,15 @@ func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.
 		defer end() // Keep the preview until settlement, including SQL-only retries.
 	}
 	callCtx, cancel := context.WithTimeout(ctx, time.Duration(prepared.Snapshot.TimeoutMillis)*time.Millisecond)
+	started := time.Now()
 	response, callErr := prepared.Execute(callCtx, emit)
+	elapsed := time.Since(started)
+	elapsedMillis := elapsed.Milliseconds()
+	if elapsed%time.Millisecond != 0 {
+		elapsedMillis++
+	}
 	cancel()
-	result := session.ModelAttemptResult{State: session.AttemptSucceeded, Usage: response.Usage, ReportedCostNanoUSD: response.ReportedCostNanoUSD, UsageNote: response.UsageNote}
+	result := session.ModelAttemptResult{State: session.AttemptSucceeded, Usage: response.Usage, ReportedCostNanoUSD: response.ReportedCostNanoUSD, UsageNote: response.UsageNote, ElapsedMillis: &elapsedMillis}
 	if result.Usage.Validate() != nil {
 		result.Usage = session.ModelUsage{}
 		result.UsageNote = new("provider returned invalid usage; counts unavailable")

@@ -108,3 +108,17 @@ In a REPL, `agents.spawn` accepts a prompt and returns `session_id`/`input_id`.
 registration. Finish the cell to begin the wait; the runtime then releases worker
 and kernel capacity until those inputs finish. Same-cell blocking `agents.wait`
 is unavailable in the new runtime. Both operations use tree-ID grant resources.
+
+
+`budgets.list({session_id})` returns local model-call, token, nano-USD and elapsed
+millisecond scopes with exact decimal-string counters. `limit: null` is locally
+unlimited; ancestor caps still apply. `budgets.set` takes
+`{session_id, expected_revision, budget: {kind, limit}}`; revision `'0'` creates an
+initial cap. Spawning may include a `budgets` array of narrower child caps.
+
+Read `used`, `reserved`, `uncertain` and `incomplete` separately. Unknown accounting
+is not zero. Finite limits cannot be set below allocated exposure, and requests
+without enough bounded allowance fail before dispatch. Deleting a child retains
+its accounting against ancestors. Original turn/message IDs in accounting may
+therefore refer to deleted history. A root budget denial fails that turn without
+stopping unrelated sessions.

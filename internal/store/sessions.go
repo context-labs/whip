@@ -108,8 +108,9 @@ type SpawnSession struct {
 // inherits live standing grants; an explicit empty slice delegates none.
 type ChildRequest struct {
 	SpawnSession
-	Parts    []session.Part    `json:"parts"`
-	GrantIDs []session.GrantID `json:"grant_ids"`
+	Parts    []session.Part        `json:"parts"`
+	GrantIDs []session.GrantID     `json:"grant_ids"`
+	Budgets  []session.BudgetLimit `json:"budgets"`
 }
 
 // ChildAdmission projects the child from its input. A deleted receipt has no child.
@@ -197,6 +198,16 @@ func validateChildRequest(identity session.RequestIdentity, request ChildRequest
 		}
 		seen[id] = true
 	}
+	seenBudgets := make(map[session.BudgetKind]bool, len(request.Budgets))
+	for _, limit := range request.Budgets {
+		if err := limit.Validate(); err != nil {
+			return err
+		}
+		if seenBudgets[limit.Kind] {
+			return fmt.Errorf("%w: duplicate child budget", session.ErrInvalid)
+		}
+		seenBudgets[limit.Kind] = true
+	}
 	return nil
 }
 
@@ -235,6 +246,11 @@ func spawnChild(ctx context.Context, tx *sql.Tx, identity session.RequestIdentit
 	child, err := spawnSession(ctx, tx, request.SpawnSession)
 	if err != nil {
 		return ChildAdmission{}, err
+	}
+	for _, limit := range request.Budgets {
+		if _, err := setBudget(ctx, tx, child.ID, 0, limit); err != nil {
+			return ChildAdmission{}, err
+		}
 	}
 	for _, issuer := range issuers {
 		grant := session.Grant{

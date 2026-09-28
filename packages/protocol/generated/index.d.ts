@@ -54,6 +54,30 @@ export interface Admission {
     finished_at: null | string;
   };
 }
+export interface Budget {
+  session_id: string;
+  kind: "model_calls" | "model_tokens" | "model_cost_nano_usd" | "model_elapsed_millis";
+  revision: string;
+  limit: null | string;
+  used: string;
+  reserved: string;
+  uncertain: string;
+  incomplete: boolean;
+}
+export interface BudgetsResult {
+  items:
+    | null
+    | {
+        session_id: string;
+        kind: "model_calls" | "model_tokens" | "model_cost_nano_usd" | "model_elapsed_millis";
+        revision: string;
+        limit: null | string;
+        used: string;
+        reserved: string;
+        uncertain: string;
+        incomplete: boolean;
+      }[];
+}
 export interface Cell {
   id: string;
   session_id: string;
@@ -858,6 +882,7 @@ export interface ModelAttemptsResult {
             cached_output: null | string;
           };
           max_output_tokens: string;
+          input_token_bound: null | string;
           timeout_millis: string;
         };
         state: "reserved" | "dispatched" | "succeeded" | "failed" | "cancelled" | "uncertain";
@@ -873,6 +898,7 @@ export interface ModelAttemptsResult {
           reported_cost_nano_usd: null | string;
           failure: null | string;
           usage_note: null | string;
+          elapsed_millis: null | string;
         };
         cost_nano_usd: null | string;
         cost_source: "unknown" | "provider" | "prices" | "not_dispatched";
@@ -1214,6 +1240,14 @@ export interface SessionObservation {
 export interface SessionParams {
   session_id: string;
 }
+export interface SetBudgetParams {
+  session_id: string;
+  expected_revision: string;
+  budget: {
+    kind: "model_calls" | "model_tokens" | "model_cost_nano_usd" | "model_elapsed_millis";
+    limit: null | string;
+  };
+}
 export interface SpawnSessionParams {
   identity: {
     client_id: string;
@@ -1287,6 +1321,12 @@ export interface SpawnSessionParams {
     )[]
   ];
   grant_ids: null | string[];
+  budgets?:
+    | null
+    | {
+        kind: "model_calls" | "model_tokens" | "model_cost_nano_usd" | "model_elapsed_millis";
+        limit: null | string;
+      }[];
 }
 export interface SpawnSessionResult {
   session: null | {
@@ -1519,6 +1559,8 @@ export interface UpdateTreeParams {
 
 export interface ContractTypes {
   Admission: Admission;
+  Budget: Budget;
+  BudgetsResult: BudgetsResult;
   Cell: Cell;
   CellParams: CellParams;
   CellsParams: CellsParams;
@@ -1566,6 +1608,7 @@ export interface ContractTypes {
   Session: Session;
   SessionObservation: SessionObservation;
   SessionParams: SessionParams;
+  SetBudgetParams: SetBudgetParams;
   SpawnSessionParams: SpawnSessionParams;
   SpawnSessionResult: SpawnSessionResult;
   SubmitParams: SubmitParams;
@@ -1579,6 +1622,8 @@ export interface ContractTypes {
   UpdateTreeParams: UpdateTreeParams;
 }
 export interface Operations {
+  "budgets.list": { params: SessionParams; result: BudgetsResult };
+  "budgets.set": { params: SetBudgetParams; result: Budget };
   "sessions.observe": { params: HistoryParams; result: SessionObservation };
   "cells.get": { params: CellParams; result: Cell };
   "turns.cells": { params: CellsParams; result: CellsResult };

@@ -1,5 +1,19 @@
 [
   {
+    "type": "Budget",
+    "value": {
+      "session_id": "session_root",
+      "kind": "model_tokens",
+      "revision": "9007199254740993",
+      "limit": "9007199254740994",
+      "used": "9007199254740993",
+      "reserved": "1",
+      "uncertain": "0",
+      "incomplete": false
+    },
+    "valid": true
+  },
+  {
     "type": "SessionObservation",
     "value": {
       "epoch": "boot_fixture",
@@ -180,6 +194,7 @@
               "cached_output": null
             },
             "max_output_tokens": "4096",
+            "input_token_bound": null,
             "timeout_millis": "30000"
           },
           "state": "succeeded",
@@ -194,7 +209,8 @@
             },
             "reported_cost_nano_usd": "9007199254740993",
             "failure": null,
-            "usage_note": null
+            "usage_note": null,
+            "elapsed_millis": null
           },
           "cost_nano_usd": "9007199254740993",
           "cost_source": "provider",

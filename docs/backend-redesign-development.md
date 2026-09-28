@@ -395,6 +395,7 @@ added while preserving the other initialized host fields:
     "models": {
       "your-model": {
         "max_output_tokens": 4096,
+        "context_window_tokens": 128000,
         "timeout_millis": 120000,
         "max_attempts": 3
       }
@@ -408,7 +409,11 @@ session override or host defaults. Missing model settings use the limits above;
 missing prices remain unknown. Optional `prices` fields use the ledger's
 nano-USD-per-million-token units, with independent input/output/reasoning/cache
 rates. Provider-reported USD charges are converted exactly to nano-USD, rounding
-up once. No price is inferred from a model name.
+up once. No price is inferred from a model name. `context_window_tokens` is
+optional: configure the actual provider maximum for that model rather than
+copying this illustrative value. It provides a conservative input reservation
+bound for finite budgets; absent limits/prices remain unknown. Actual provider
+overages are recorded, never clamped to the host declaration.
 
 Routes and credentials refresh when preparing a logical call. Its body, endpoint,
 limits and price snapshot remain fixed for its retries. The adapter performs one
@@ -628,8 +633,9 @@ parent history and checkpoint precede the wait, and parent globals survive
 recursive eviction. `TestChildAdmissionSurvivesRestartWithoutLoadedWorker`
 checks queued child execution after a fresh runtime opens the database.
 
-This increment does not complete Phase 4. Ancestor budget reservations, mail,
-private/shared state, retry/report policies and subtree controls remain required.
+This increment does not complete Phase 4. Model budgets follow below; mail,
+private/shared state, resource limits, retry/report policies and subtree controls
+remain required.
 The user extended execution scope to all phases; full client cutover and final
 retired-core deletion remain subsequent gates.
 
@@ -639,3 +645,33 @@ checks, both SDK fixtures and retained cross-layer regressions. After final
 review fixes, affected runtime/store/RPC/tool race suites passed again and
 `task check:analysis` reported zero lint issues and no reachable vulnerabilities.
 The separate `WHIP_SDK_RACE=1` new-runtime fixture passed in 18.181 s.
+
+
+## Phase 4 model budgets increment
+
+Model budgets share the canonical attempt ledger. Fresh schema 7 adds revisioned
+local limits and immutable attempt-to-ancestor associations; request snapshots
+already own reservation bounds, so no extra mutable accounting counters or
+reservation-value copies are needed. Child deletion retains its attempts and
+charges; whole-tree deletion explicitly clears them. Ancestors without finite
+limits do not scan historical usage during each reservation.
+
+The generated contract/SDK expose budget inspection, revision-checked cap updates,
+optional child limits, input reservation bounds and measured execution duration.
+The SDK subprocess fixture proves shared parent/child allowance, deletion without
+replenishment, stale cap conflicts and denial before another provider attempt.
+`TestAncestorModelCallBudgetDenialLeavesRuntimeAvailable` checks the same isolation
+across an unrelated tree. Config/model/runner tests cover immutable host bounds,
+truthful usage overages, missing evidence and execution duration excluding SQL
+settlement retries. Resource-count/byte/depth limits and the remaining Phase 4
+coordination policies remain distinct subsequent work.
+
+Budget validation: `task check:fast`, active build/vet and `task check:analysis`
+passed (zero lint issues and no reachable vulnerabilities). Final session/store/
+runtime/RPC/protocol/command race suites passed; store took 17.684 s and runtime
+39.382 s. Generated protocol and SDK checks passed, and the race-enabled SDK
+fixture passed in 19.073 s. Projection regressions cover partial usage beyond
+reserved bounds, dispatched-call accounting, unknown evidence and saturation.
+
+The preceding child/wait increment at `70bce08a7` passed the complete
+[Linux/macOS hosted gate](https://github.com/context-labs/whip/actions/runs/36378062536).

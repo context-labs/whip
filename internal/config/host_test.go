@@ -85,7 +85,7 @@ func TestCredentialsRemainHostReferences(t *testing.T) {
 
 func TestProviderDispatchLimitsAndUnknownPrices(t *testing.T) {
 	settings, err := (Model{}).Resolve()
-	if err != nil || settings.MaxOutputTokens != 4096 || settings.TimeoutMillis != 120000 || settings.MaxAttempts != 3 || settings.Prices.Input != nil {
+	if err != nil || settings.MaxOutputTokens != 4096 || settings.TimeoutMillis != 120000 || settings.MaxAttempts != 3 || settings.Prices.Input != nil || settings.ContextWindowTokens != nil {
 		t.Fatalf("resolved defaults: %+v %v", settings, err)
 	}
 	for _, settings := range []Model{
@@ -95,11 +95,42 @@ func TestProviderDispatchLimitsAndUnknownPrices(t *testing.T) {
 		{TimeoutMillis: 600001},
 		{MaxAttempts: -1},
 		{MaxAttempts: 6},
+		{ContextWindowTokens: new(int64(0))},
+		{ContextWindowTokens: new(int64(-1))},
+		{ContextWindowTokens: new(int64(1000000001))},
+		{ContextWindowTokens: new(int64(4095))},
 		{Prices: session.ModelPrices{Input: new(int64(-1))}},
 	} {
 		if _, err := settings.Resolve(); err == nil {
 			t.Fatalf("accepted invalid dispatch configuration: %+v", settings)
 		}
+	}
+}
+
+func TestResolvedContextWindowIsIndependentHostEvidence(t *testing.T) {
+	window := int64(1000000000)
+	settings := Model{ContextWindowTokens: &window}
+	resolved, err := settings.Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	window = 8192
+	if resolved.ContextWindowTokens == nil || *resolved.ContextWindowTokens != 1000000000 {
+		t.Fatal("resolved context window aliases mutable host settings")
+	}
+	host := Default()
+	host.Providers["fixture"] = Provider{Kind: "openai-chat", BaseURL: "https://example.test/v1", Models: map[string]Model{"model": settings}}
+	directory := t.TempDir()
+	if err := Save(directory, host); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := loaded.Providers["fixture"].Models["model"].ContextWindowTokens
+	if got == nil || *got != 8192 {
+		t.Fatalf("context window did not survive host persistence: %v", got)
 	}
 }
 

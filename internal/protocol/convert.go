@@ -37,7 +37,8 @@ func ModelAttemptFromDomain(value session.ModelAttempt) ModelAttempt {
 		ID: ID(value.ID), TurnID: ID(value.TurnID), LogicalID: ID(value.LogicalID), Number: value.Number, State: string(value.State),
 		CostNanoUSD: counter(value.CostNanoUSD), CostSource: value.CostSource, CostNote: value.CostNote, CreatedAt: value.CreatedAt.Format(time.RFC3339Nano), DispatchedAt: timeString(value.DispatchedAt), FinishedAt: timeString(value.FinishedAt),
 		Request: ModelRequestSnapshot{
-			Purpose: ID(r.Purpose), Model: ModelSelection{Provider: ID(r.Model.Provider), Name: r.Model.Name, Effort: r.Model.Effort}, Route: r.Route, Adapter: ID(r.Adapter), RequestDigest: r.RequestDigest, MaxOutputTokens: Counter(r.MaxOutputTokens), TimeoutMillis: Counter(r.TimeoutMillis),
+			InputTokenBound: counter(r.InputTokenBound),
+			Purpose:         ID(r.Purpose), Model: ModelSelection{Provider: ID(r.Model.Provider), Name: r.Model.Name, Effort: r.Model.Effort}, Route: r.Route, Adapter: ID(r.Adapter), RequestDigest: r.RequestDigest, MaxOutputTokens: Counter(r.MaxOutputTokens), TimeoutMillis: Counter(r.TimeoutMillis),
 			Prices: ModelPrices{Input: counter(r.Prices.Input), Output: counter(r.Prices.Output), Reasoning: counter(r.Prices.Reasoning), CachedInput: counter(r.Prices.CachedInput), CachedOutput: counter(r.Prices.CachedOutput)},
 		},
 	}
@@ -48,7 +49,8 @@ func ModelAttemptFromDomain(value session.ModelAttempt) ModelAttempt {
 	if value.Result != nil {
 		u := value.Result.Usage
 		result.Result = &ModelAttemptResult{
-			State: string(value.Result.State), Failure: value.Result.Failure, UsageNote: value.Result.UsageNote, ReportedCostNanoUSD: counter(value.Result.ReportedCostNanoUSD),
+			ElapsedMillis: counter(value.Result.ElapsedMillis),
+			State:         string(value.Result.State), Failure: value.Result.Failure, UsageNote: value.Result.UsageNote, ReportedCostNanoUSD: counter(value.Result.ReportedCostNanoUSD),
 			Usage: ModelUsage{Input: counter(u.Input), Output: counter(u.Output), Reasoning: counter(u.Reasoning), CachedInput: counter(u.CachedInput), CachedOutput: counter(u.CachedOutput)},
 		}
 	}

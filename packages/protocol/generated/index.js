@@ -5,6 +5,16 @@ export const manifest = {
   "minor": 0,
   "operations": [
     {
+      "name": "budgets.list",
+      "params": "SessionParams",
+      "result": "BudgetsResult"
+    },
+    {
+      "name": "budgets.set",
+      "params": "SetBudgetParams",
+      "result": "Budget"
+    },
+    {
       "name": "sessions.observe",
       "params": "HistoryParams",
       "result": "SessionObservation"

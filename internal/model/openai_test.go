@@ -44,16 +44,19 @@ func TestPreparedChatFreezesWireBodyAndAccountingEvidence(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
-		_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"completed"},"finish_reason":"stop"}],"usage":{"prompt_tokens":20,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":8},"completion_tokens_details":{"reasoning_tokens":2},"cost":0.0000000001}}`)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"completed"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2000,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":8},"completion_tokens_details":{"reasoning_tokens":2},"cost":0.0000000001}}`)
 	}))
 	defer server.Close()
 	request := chatRequest()
 	provider := chatProvider(server.URL + "/v1/")
 	price := int64(123)
+	window := int64(1000)
+	contextWindow := &window
 	resolve := provider.Resolve
 	provider.Resolve = func(ctx context.Context, selection session.ModelSelection) (ChatRoute, error) {
 		route, err := resolve(ctx, selection)
 		route.Prices.Input = &price
+		route.ContextWindowTokens = contextWindow
 		return route, err
 	}
 	prepared, err := provider.Prepare(t.Context(), request)
@@ -62,13 +65,22 @@ func TestPreparedChatFreezesWireBodyAndAccountingEvidence(t *testing.T) {
 	}
 	request.Messages[0].Parts[0].Text = "changed after preparation"
 	price = 999
+	window = 9000
+	contextWindow = nil
+	unbounded, err := provider.Prepare(t.Context(), chatRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unbounded.Snapshot.InputTokenBound != nil || unbounded.Snapshot.RequestDigest != prepared.Snapshot.RequestDigest || unbounded.Snapshot.MaxOutputTokens != prepared.Snapshot.MaxOutputTokens {
+		t.Fatal("host accounting bound changed the wire request or missing bound became known")
+	}
 	response, err := prepared.Execute(t.Context(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	hash := sha256.Sum256(received)
-	if prepared.Snapshot.RequestDigest != hex.EncodeToString(hash[:]) || *prepared.Snapshot.Prices.Input != 123 {
-		t.Fatal("prepared body or prices were not frozen")
+	if prepared.Snapshot.RequestDigest != hex.EncodeToString(hash[:]) || *prepared.Snapshot.Prices.Input != 123 || prepared.Snapshot.InputTokenBound == nil || *prepared.Snapshot.InputTokenBound != 1000 {
+		t.Fatal("prepared body, prices or input bound were not frozen")
 	}
 	var body struct {
 		Model    string        `json:"model"`
@@ -82,12 +94,31 @@ func TestPreparedChatFreezesWireBodyAndAccountingEvidence(t *testing.T) {
 	if body.Model != "model" || body.Limit != 100 || body.Effort != "low" || len(body.Messages) != 2 || body.Messages[1].Content != "question" {
 		t.Fatalf("encoded request: %+v", body)
 	}
-	if response.Parts[0].Text != "completed" || *response.Usage.Input != 20 || *response.Usage.CachedInput != 8 || *response.Usage.Reasoning != 2 || response.Usage.CachedOutput != nil || *response.ReportedCostNanoUSD != 1 {
+	// A host-declared maximum cannot erase actual usage when a provider or host
+	// configuration violates it. This fixture deliberately reports an overage.
+	if response.Parts[0].Text != "completed" || *response.Usage.Input != 2000 || *response.Usage.CachedInput != 8 || *response.Usage.Reasoning != 2 || response.Usage.CachedOutput != nil || *response.ReportedCostNanoUSD != 1 {
 		t.Fatalf("response accounting: %+v", response)
 	}
 	raw, err := json.Marshal(prepared.Snapshot)
 	if err != nil || strings.Contains(string(raw), "test-secret") {
 		t.Fatal("credential entered durable evidence")
+	}
+}
+
+func TestChatRejectsInvalidHostContextMaximumBeforeDispatch(t *testing.T) {
+	for _, bound := range []int64{-1, 0, 99, 1000000001} {
+		t.Run(strconv.FormatInt(bound, 10), func(t *testing.T) {
+			provider := chatProvider("https://example.test/v1")
+			resolve := provider.Resolve
+			provider.Resolve = func(ctx context.Context, selection session.ModelSelection) (ChatRoute, error) {
+				route, err := resolve(ctx, selection)
+				route.ContextWindowTokens = &bound
+				return route, err
+			}
+			if _, err := provider.Prepare(t.Context(), chatRequest()); !errors.Is(err, session.ErrInvalid) {
+				t.Fatalf("invalid host context bound accepted: %v", err)
+			}
+		})
 	}
 }
 

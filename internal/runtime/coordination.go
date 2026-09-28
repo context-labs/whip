@@ -38,6 +38,7 @@ func (r *Runtime) PrepareCoordination(_ context.Context, current session.Session
 		Overrides        session.ConfigPatch    `json:"overrides"`
 		WorkingDirectory string                 `json:"working_directory,omitempty"`
 		GrantIDs         []session.GrantID      `json:"grant_ids"`
+		Budgets          []session.BudgetLimit  `json:"budgets,omitempty"`
 	}
 	if err := decodeArguments(call.Arguments, &args); err != nil {
 		return tool.Prepared{}, err
@@ -45,7 +46,7 @@ func (r *Runtime) PrepareCoordination(_ context.Context, current session.Session
 	if err := session.ValidateText(args.Prompt, session.MaxDocumentBytes/2); err != nil {
 		return tool.Prepared{}, err
 	}
-	request := store.ChildRequest{ParentID: current.ID, Definition: args.Definition, Overrides: args.Overrides, WorkingDirectory: args.WorkingDirectory, Parts: []session.Part{{Type: "text", Text: args.Prompt}}, GrantIDs: args.GrantIDs}
+	request := store.ChildRequest{ParentID: current.ID, Definition: args.Definition, Overrides: args.Overrides, WorkingDirectory: args.WorkingDirectory, Parts: []session.Part{{Type: "text", Text: args.Prompt}}, GrantIDs: args.GrantIDs, Budgets: args.Budgets}
 	arguments, err := json.Marshal(request)
 	if err != nil {
 		return tool.Prepared{}, err

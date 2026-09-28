@@ -202,7 +202,7 @@ CREATE TRIGGER permission_transition BEFORE UPDATE ON permissions
  BEGIN SELECT RAISE(ABORT, 'permission decision is immutable'); END;
 
 CREATE TABLE model_attempts (
- id TEXT PRIMARY KEY, turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,
+ id TEXT PRIMARY KEY, turn_id TEXT NOT NULL,
  logical_id TEXT NOT NULL, number INTEGER NOT NULL CHECK(number BETWEEN 1 AND 100),
  request TEXT NOT NULL CHECK(json_valid(request)),
  state TEXT NOT NULL CHECK(state IN ('reserved','dispatched','succeeded','failed','cancelled','uncertain')),
@@ -213,7 +213,6 @@ CREATE TABLE model_attempts (
  message_id TEXT UNIQUE,
  created_at INTEGER NOT NULL, dispatched_at INTEGER, finished_at INTEGER,
  UNIQUE(turn_id,logical_id,number),
- FOREIGN KEY(message_id,turn_id) REFERENCES messages(id,turn_id) DEFERRABLE INITIALLY DEFERRED,
  CHECK((state IN ('reserved','dispatched')) = (finished_at IS NULL)),
  CHECK((result IS NULL) = (finished_at IS NULL)),
  CHECK(result IS NULL OR json_extract(result,'$.state') IS state),
@@ -232,3 +231,21 @@ CREATE TRIGGER attempt_transition BEFORE UPDATE ON model_attempts
  OR (OLD.state='reserved' AND NEW.state NOT IN ('dispatched','cancelled'))
  OR (OLD.state='dispatched' AND (NEW.state IN ('reserved','dispatched') OR NEW.dispatched_at IS NOT OLD.dispatched_at))
  BEGIN SELECT RAISE(ABORT, 'invalid model attempt transition'); END;
+
+-- Limits are mutable policy. Accounting is derived from attempts, including
+-- attempts whose original session/turn/transcript has been deleted.
+CREATE TABLE budget_limits (
+ session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+ kind TEXT NOT NULL CHECK(kind IN ('model_calls','model_tokens','model_cost_nano_usd','model_elapsed_millis')),
+ revision INTEGER NOT NULL CHECK(revision>0),
+ limit_value INTEGER CHECK(limit_value IS NULL OR limit_value>=0),
+ PRIMARY KEY(session_id,kind)
+) STRICT;
+CREATE TABLE attempt_budget_ancestors (
+ attempt_id TEXT NOT NULL REFERENCES model_attempts(id) ON DELETE CASCADE,
+ session_id TEXT NOT NULL,
+ PRIMARY KEY(attempt_id,session_id)
+) STRICT;
+CREATE INDEX budget_attempts_by_session ON attempt_budget_ancestors(session_id,attempt_id);
+CREATE TRIGGER attempt_budget_ancestors_immutable BEFORE UPDATE ON attempt_budget_ancestors
+ BEGIN SELECT RAISE(ABORT, 'attempt budget ancestry is immutable'); END;

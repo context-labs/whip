@@ -411,3 +411,53 @@ with new queued work and reacquire a permit before model execution resumes.
 `MaxActiveTurns - Workers` turns may wait, preserving admission capacity for
 progress. Limit exhaustion is explicit. One worker and one kernel slot can
 execute a recursive chain because no waiting parent holds either resource.
+
+
+## Model budgets and retained accounting
+
+`budgets.list(session_id)` projects four local scopes: `model_calls`,
+`model_tokens` (input plus output totals), `model_cost_nano_usd`, and
+`model_elapsed_millis`. Each scope has a nullable limit and a compare-and-set
+revision. An absent limit is unlimited locally; every ancestor's live cap still
+applies. `budgets.set` requires the current revision (zero for an unset scope).
+Child admission may include explicit narrower `budgets`; limits are not copied
+into each descendant. A child cannot explicitly widen a finite ancestor cap.
+Changing a parent cap immediately constrains subsequent descendant reservations.
+
+Reservation checks and attempt insertion commit together across every ancestor.
+The request snapshot owns the input bound, output maximum, prices and timeout;
+there is no separate mutable copy of these bounds or of consumed usage. Each
+attempt captures immutable ancestor associations for accounting. Concurrent
+siblings therefore cannot reserve the same remaining allowance. Frozen requests
+are admitted or rejected as a whole; reservation never silently clamps their
+output tokens after request encoding/digest calculation.
+
+The projection distinguishes known `used`, unfinished `reserved`, and quantified
+unresolved `uncertain` exposure. `incomplete` means some exposure cannot be bounded
+from available evidence or represented in an int64 aggregate; finite limits
+reject that uncertainty. Unknown usage/cost remains distinct from known zero.
+Confirmed undispatched cancellation releases its reservation. Dispatched requests
+count as calls even if their response is lost. Restart preserves unresolved
+exposure, and retries are distinct actual attempts. Known overages remain visible
+and prevent further admission. Setting a finite cap below already allocated
+used/reserved/uncertain amounts is rejected. Overflow never wraps counters; exact
+individual evidence remains in the ledger and a saturated aggregate is incomplete.
+
+Attempt records outlive deletion of their child session/transcript, retaining
+original turn/message identities as historical references. Captured ancestor
+associations keep their usage charged to surviving ancestors. Deleting a whole
+tree explicitly removes its accounting; deleting and recreating a child cannot
+replenish allowance. Usage is stored once in the attempt ledger and budget views
+are derived. Ancestors without finite limits skip historical aggregation during
+reservation, while retaining associations for later inspection or limit changes.
+
+For HTTP models, optional host `context_window_tokens` declares the provider's
+maximum context, used as a conservative input bound rather than an estimated
+request token count. It must be positive, at most one billion, and at least the
+configured output maximum. Missing bounds/prices prevent finite token/cost
+reservation when required; unlimited scopes can still execute with explicit
+unknown evidence. This is a trusted host declaration, not independent proof of
+a provider limit. Actual usage, charges and timeout overruns are never clamped
+to it. Elapsed usage is monotonic execution time rounded up to milliseconds;
+SQL settlement retries do not add execution usage. Provider timeouts are
+cooperative, so an actual duration may exceed its reserved timeout.

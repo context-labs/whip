@@ -37,6 +37,11 @@ type Model struct {
 	MaxOutputTokens int64               `json:"max_output_tokens"`
 	TimeoutMillis   int64               `json:"timeout_millis"`
 	MaxAttempts     int                 `json:"max_attempts"`
+	// ContextWindowTokens is the host-declared provider context maximum, from
+	// 1 to 1 billion tokens. It bounds input for reservation, not measured usage.
+	// Nil is unknown. The provider must enforce this maximum; actual overages
+	// are still recorded, including when the host declaration was inaccurate.
+	ContextWindowTokens *int64 `json:"context_window_tokens,omitempty"`
 }
 
 func (m Model) Resolve() (Model, error) {
@@ -51,6 +56,12 @@ func (m Model) Resolve() (Model, error) {
 	}
 	if m.MaxOutputTokens < 1 || m.MaxOutputTokens > 1000000 {
 		return Model{}, fmt.Errorf("%w: output token limit must be 1–1000000", session.ErrInvalid)
+	}
+	if m.ContextWindowTokens != nil {
+		if *m.ContextWindowTokens < 1 || *m.ContextWindowTokens > 1000000000 || m.MaxOutputTokens > *m.ContextWindowTokens {
+			return Model{}, fmt.Errorf("%w: context window must be 1–1000000000 tokens and at least the output limit", session.ErrInvalid)
+		}
+		m.ContextWindowTokens = new(*m.ContextWindowTokens)
 	}
 	if m.TimeoutMillis < 1 || m.TimeoutMillis > 600000 {
 		return Model{}, fmt.Errorf("%w: provider timeout must be 1–600000 milliseconds", session.ErrInvalid)

@@ -43,6 +43,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 		return nil, ErrMethod
 	}
 	switch method {
+	case "budgets.list", "budgets.set":
+		return dispatchBudget(ctx, r, method, raw)
 	case "sessions.observe":
 		return dispatchObservation(ctx, r, raw)
 	case "grants.create", "grants.list", "grants.revoke", "operations.get", "turns.operations", "permissions.list", "permissions.resolve", "cells.get", "turns.cells":
@@ -117,6 +119,9 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, method string, raw json.R
 				return nil, err
 			}
 			request := store.ChildRequest{ParentID: session.SessionID(p.ParentID), Overrides: patch}
+			for _, limit := range p.Budgets {
+				request.Budgets = append(request.Budgets, limit.Domain())
+			}
 			for _, part := range p.Parts {
 				request.Parts = append(request.Parts, part.Domain())
 			}

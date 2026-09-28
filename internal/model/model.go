@@ -85,6 +85,7 @@ func (s Scripted) Prepare(_ context.Context, request Request) (Prepared, error) 
 	return Prepared{Snapshot: session.ModelRequestSnapshot{
 		Purpose: "turn", Model: request.Selection, Route: "scripted://fixture", Adapter: "scripted", RequestDigest: hex.EncodeToString(hash[:]),
 		Prices: session.ModelPrices{Input: zero, Output: zero, Reasoning: zero, CachedInput: zero, CachedOutput: zero}, MaxOutputTokens: 4096, TimeoutMillis: 600000,
+		InputTokenBound: new(int64(0)), // Scripted execution bills no model input tokens.
 	}, Execute: func(ctx context.Context, emit func(Chunk)) (Response, error) {
 		response, err := s.Complete(ctx, request)
 		if err == nil {

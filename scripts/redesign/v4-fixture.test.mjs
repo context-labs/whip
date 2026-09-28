@@ -190,6 +190,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     const example = await exec(process.execPath, ['packages/sdk/examples/session.mjs', runtime.info.socket], { timeout: 20_000 });
     assert.equal(JSON.parse(example.stdout).completed.turn.state, 'succeeded');
     await assert.rejects(Client.connect(unixSocket(runtime.info.socket), { clientID: 'wrong', expectedRuntimeID: 'different', ...deadline() }), error => error instanceof RemoteError && error.kind === 'IDENTITY');
+    await budgetAcceptance(client, createParams, evidence);
     await providerAcceptance(runtime, client, createParams, evidence);
     await engineAcceptance(runtime, client, createParams, evidence);
     await operationAcceptance(runtime, client, createParams, evidence);
@@ -573,4 +574,30 @@ async function streamAcceptance(runtime, client, createParams, evidence) {
     server.closeAllConnections();
     await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   }
+}
+
+
+async function budgetAcceptance(client, createParams, evidence) {
+  const { root } = await client.call('trees.create', createParams, deadline());
+  const initial = await client.call('budgets.list', { session_id: root.id }, deadline());
+  assert.equal(initial.items.length, 4);
+  assert.ok(initial.items.every(budget => budget.limit === null && budget.revision === '0' && budget.used === '0'));
+  const limited = await client.call('budgets.set', { session_id: root.id, expected_revision: '0', budget: { kind: 'model_calls', limit: '2' } }, deadline());
+  assert.equal(limited.revision, '1');
+  await assert.rejects(client.call('budgets.set', { session_id: root.id, expected_revision: '0', budget: { kind: 'model_calls', limit: '3' } }, deadline()), error => error.kind === 'CONFLICT');
+  await client.submit(root.id, [{ type: 'text', text: 'one parent request' }], 'budget:parent', deadline());
+  assert.equal((await client.wait('budget:parent', deadline())).turn.state, 'succeeded');
+  const child = await client.spawn({ parent_id: root.id, overrides: {}, parts: [{ type: 'text', text: 'one child request' }], grant_ids: [], budgets: [{ kind: 'model_calls', limit: '1' }] }, 'budget:child', deadline());
+  assert.equal((await client.wait('budget:child', deadline())).turn.state, 'succeeded');
+  const inspect = () => client.call('budgets.list', { session_id: root.id }, deadline());
+  const charged = await inspect();
+  const calls = charged.items.find(budget => budget.kind === 'model_calls');
+  assert.equal(calls.used, '2'); assert.equal(calls.reserved, '0'); assert.equal(calls.uncertain, '0');
+  await client.call('sessions.delete', { session_id: child.session.id }, deadline());
+  assert.equal((await inspect()).items.find(budget => budget.kind === 'model_calls').used, '2', 'deleting a child replenished ancestor allowance');
+  await client.submit(root.id, [{ type: 'text', text: 'must not dispatch' }], 'budget:exhausted', deadline());
+  const blocked = await client.wait('budget:exhausted', deadline());
+  assert.equal(blocked.turn.state, 'failed');
+  assert.deepEqual((await client.call('turns.attempts', { turn_id: blocked.turn.id, limit: 100 }, deadline())).items, []);
+  evidence.push({ budgetInitial: initial, budgetCharged: charged, budgetBlocked: blocked });
 }

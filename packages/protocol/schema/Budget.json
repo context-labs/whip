@@ -1,0 +1,63 @@
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "model_calls",
+        "model_tokens",
+        "model_cost_nano_usd",
+        "model_elapsed_millis"
+      ]
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "limit": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "used": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "reserved": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "uncertain": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "incomplete": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/Budget",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Budget",
+  "required": [
+    "session_id",
+    "kind",
+    "revision",
+    "limit",
+    "used",
+    "reserved",
+    "uncertain",
+    "incomplete"
+  ],
+  "additionalProperties": false
+}

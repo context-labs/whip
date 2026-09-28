@@ -2,7 +2,8 @@
 
 Status: phases 0 and 1 complete and validated in PRs #197 and #199.
 Phases 2 and 3 are complete and validated in PRs #200 and #201.
-Phase 4 is in progress; phases 5–7 are pending. The authorized execution scope
+Phase 4 is in progress in [PR #202](https://github.com/context-labs/whip/pull/202);
+phases 5–7 are pending. The authorized execution scope
 is all phases, including client adoption and final removal of the retired core.
 Written: 2026-09-27. Planning reference: `6f02507bf`.
 
