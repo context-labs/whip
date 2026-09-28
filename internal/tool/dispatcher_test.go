@@ -192,7 +192,7 @@ func TestEffectSettlementRetryDoesNotRepeatFilesystemMutation(t *testing.T) {
 	if _, err := db.CreateGrant(t.Context(), session.Grant{ID: "standing", SessionID: root.ID, Capability: "files.write", Resource: root.WorkingDirectory}); err != nil {
 		t.Fatal(err)
 	}
-	fault, err := sql.Open("sqlite", path)
+	fault, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		t.Fatal(err)
 	}
