@@ -249,4 +249,12 @@ admission/claim/finish transactions are never automatically replayed.
 
 The new persistence contract is ready for the Phase 2 runner/RPC/SDK slice.
 No claim is made that the existing SDK or applications already use this store.
-Hosted validation for the Phase 1 review is recorded after its workflow completes.
+The [hosted Phase 1 run](https://github.com/context-labs/whip/actions/runs/36368729721)
+passed the phase gate on revision 76505c4ca7ef60ba324f4b75d3184351a8cb47de:
+167 seconds on Linux and 202 seconds on macOS. Analysis passed too. These are
+hosted gate measurements with restored dependency caches and newly compiled
+relocated packages, not the local warm measurements above.
+
+Phase 1 is complete in [PR #199](https://github.com/context-labs/whip/pull/199),
+stacked on Phase 0's PR #197. The final documentation commit is checked by the
+same workflow; the PR records the current head's result.

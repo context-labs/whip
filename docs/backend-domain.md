@@ -137,9 +137,10 @@ stack belong to Phase 2. Model attempts, effects, checkpoint bytes, grants,
 budgets, mail and shared state are added by their owning later phases; no empty
 repositories or speculative tables are created for them here.
 
-Completion requires tests against real temporary SQLite for constraints,
+Passing tests against real temporary SQLite cover constraints,
 transaction rollback, concurrent claims across connections, pinned configuration,
-root/child history, cancellation, restart and deletion. Contract checks must
+root/child history, cancellation, restart and deletion. Contract checks
 validate actual Go JSON in TypeScript, including counters above JavaScript's
 safe-integer range. Import checks prevent new core packages reaching the retired
-orchestration. The phase checklist remains uncompleted until this evidence exists.
+orchestration. The [development guide](backend-redesign-development.md#phase-1-behavior-ownership-and-evidence)
+maps every acceptance criterion to its tests and records local/hosted results.
