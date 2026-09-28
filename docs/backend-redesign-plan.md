@@ -379,7 +379,8 @@ Maintain one compact table here as families are addressed:
 | Cumulative write allowances | Explicit logical actions consume permanent ancestor allowance; initial child input now charged consistently with follow-up input | `store/logical_writes_test.go`, `runtime/state_allowances_test.go`, SDK cap/retry/restart/deletion fixture; accounting and derived notifications remain exempt | 4 implemented |
 | Mail and explicit state | Revisioned delivery distinct from inspection; private/shared isolation; immutable history and CAS | `store/mail_test.go`, `runtime/mail_test.go`, `store/state*_test.go`, `runtime/state_test.go`, RPC/SDK fixtures; `store/state_subscriptions_test.go` covers atomic coalescing, cursor/notification rollback and recipient deferral; `store/mail_evidence_test.go`, `runtime/mail_evidence_test.go` and SDK cover the audited evidence-sharing obligation | 4 complete; repair passes local and hosted Linux/macOS gates |
 | Context and checkpointing | Raw history retained; checkpoint boundary and fidelity explicit | Both engines pass `runtime/engine_test.go`; durable compaction, raw-history access, captured helper routing, proactive thresholds and bounded context-rejection recovery implemented; fork/rewind remains pending | 3 complete; 5 in progress |
-| Provider execution | Preserve supported wire protocols and tool cycles; uncertain partial-stream regeneration is retired in favor of explicit no-replay accounting | Chat wire profiles and Responses/private continuation implemented; subscription generation guards, captured sampling and stateless helpers/batch remain | 5 in progress |
+| Provider execution | Preserve supported wire protocols and tool cycles; uncertain partial-stream regeneration is retired in favor of explicit no-replay accounting | Chat wire profiles, Responses/private continuation, subscription captures and idle-stall termination implemented; captured sampling, reasoning previews and stateless helpers/batch remain | 5 in progress |
+| Goals and schedules | Ordinary durable input admission; continuation/cursor state has one owner | Schedule store/runtime/guest/RPC/SDK and restart coverage implemented. Goal records, captured turns, atomic continuation and authorized completion settlement implemented internally; public controls and formulation remain | 5 in progress |
 | Integrations and product features | Preserve capability outcomes; inspect existing regression scenarios | Pending | 5 |
 | All client surfaces | Correct submission, observation, recovery and resource cleanup | New SDK/socket fixture passes; product clients remain on the retained implementation | 2 complete; 6 pending |
 | Old schemas/protocol/scratch compatibility | Retired by fresh-start scope | Delete with corresponding implementation | 1 through 7 |
@@ -850,9 +851,10 @@ path and stores bounded private continuation with immutable assistant messages.
 Replay requires the same route, credential, model and visible message parts;
 helpers and public history never receive opaque continuation. Subscription model
 execution and host-owned credential lifecycle now use the same recorded attempts,
-with fixed routing, generation checks and one settled 401 refresh. Public account
-onboarding remains Phase 6 work. Stateless model helpers and captured sampling
-remain required. Legacy uncertain
+with fixed routing, generation checks and one settled 401 refresh. Provider idle
+stalls now terminate as uncertain without replay, preserving known accounting.
+Public account onboarding remains Phase 6 work. Stateless model helpers, captured
+sampling and reasoning-summary previews remain required. Legacy uncertain
 partial-stream regeneration is explicitly retired under the new no-replay
 accounting policy; all dispatched attempts must still settle truthful evidence.
 This progress does not narrow Phases 5–7.
@@ -862,7 +864,11 @@ This progress does not narrow Phases 5–7.
 Finish the uniform services and views, shared app, web gateway, desktop native
 bridges, mobile, Go client, CLI/TUI and ACP. Update examples and canonical docs.
 Preserve app-owned drafts, selection and reading behavior without duplicating
-daemon state in a second client store.
+daemon state in a second client store. Host login/status/logout and device-flow
+onboarding must use the command-owned account manager already used by model
+execution; a second manager would have divergent login generations and refresh
+state. Public status exposes safe metadata, never private credential captures.
+Retain the host/gateway authorization boundary for these account operations.
 
 Acceptance:
 
@@ -936,7 +942,8 @@ results, relevant manual checks, remaining limitations, and links to replacement
 tests/artifacts. Keep implementation detail in code and canonical guides; this
 file owns the migration sequence, unresolved decisions and acceptance status.
 
-No implementation or runtime validation is claimed by this planning document.
+Implementation claims above require the linked revision and validation evidence
+in the development record; unchecked acceptance criteria remain outstanding.
 
 Useful starting references:
 

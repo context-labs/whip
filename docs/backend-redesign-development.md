@@ -2022,3 +2022,40 @@ Runtime/guest/RPC/SDK goal controls and formulation remain pending. Hosted
 validation of this increment is pending. Subscription core revision `bd5182e21`
 has now passed Linux, macOS, analysis and the aggregate gate in
 [run 36474934637](https://github.com/context-labs/whip/actions/runs/36474934637).
+
+
+## Provider idle termination without replay
+
+Idle termination is integrated as `27652d6bc` from isolated commit `3fa5c5e69`.
+The adapter retains two-minute Chat and five-minute Responses/subscription idle
+limits, separately from the absolute attempt deadline. Headers and positive body
+reads advance the deadline. Preparation freezes the optional adapter-only timing
+override, including across credential refresh. One owned timer goroutine cancels
+stalled HTTP and joins before Execute returns; completion or caller cancellation
+also joins it. A confirmed completed response wins a simultaneous idle expiry.
+
+Interrupted I/O returns a sanitized uncertain, non-retryable failure. Already
+reported usage and cost survive; absent accounting remains unknown. Provisional
+text does not become completed transcript or executable tools. Local HTTP and
+synthetic-time tests cover headers, SSE and JSON stalls across all three adapters,
+active heartbeat streams beyond the idle period, cancellation/deadline, captured
+policy, completed-response races and watchdog cleanup. Runtime tests set
+MaxAttempts to three and prove exactly one actual HTTP request, one durable
+uncertain attempt, a failed turn, preserved known/unknown accounting, and stable
+same-input retries.
+
+The isolated slice passed full model race/shuffle five times (15.489s), full
+runner race (6.853s), runtime idle acceptance five times (5.177s), vet and pinned
+lint. The integrated `WHIP_SDK_RACE=1 task check:phase` passed, including store
+race 103.037s, runtime 100.366s, process engine 100.909s, v4 SDK fixture 15.594s,
+retained crash fixture 4.007s and daemon acceptance 2.767s. This combined gate also
+covers the preceding captured-goal execution increment. Integrated analysis
+reported zero lint issues and no reachable vulnerabilities. Logs are
+`/tmp/whip-idle-streams-phase.log` and
+`/tmp/whip-idle-streams-analysis.log`. Config8/schema28/protocol development
+major4 are unchanged. Hosted validation remains pending.
+
+The plan's feature table now reflects subscription and goal progress without
+closing the remaining capability families. Host account controls must reuse the
+same command-owned manager to keep login generation and refresh ownership
+coherent; their public client implementation remains pending.

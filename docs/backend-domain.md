@@ -44,7 +44,8 @@ separate legacy runtime and SDK until their client cutover.
 | Content digest and size | Immutable content-body metadata row |
 | Session access and declared media type | Immutable content-reference row |
 | Content bytes | Durable immutable blob file, verified when read |
-| Provider endpoint and credential reference | Explicit host configuration file |
+| Provider endpoint and credential reference | Explicit host configuration file; subscription routing is adapter-owned |
+| Subscription credentials | Private host credential file; captures and refresh work live in manager memory |
 | Incomplete provider text and tool-call previews | Bounded runtime memory; never transcript rows |
 | Resolved credential, worker, interpreter, process or client | Execution memory; never session rows |
 
@@ -251,8 +252,9 @@ No live deletion can race the gap between publication and registration.
 
 Initialization takes explicit paths and never discovers an installed daemon or
 reads the retired home/config. A new host config is valid but unconfigured: users
-must select a model/provider before creating a runnable session. Credentials are
-environment references resolved only when constructing a provider client.
+must select a model/provider before creating a runnable session. API credentials
+use environment references resolved during request preparation. Subscription
+credentials belong to the independent host account manager and its private file.
 
 Current fresh host configuration is version 8; the SQLite schema is version 28.
 SQLite has an application identifier and schema version. Existing databases of
@@ -335,6 +337,17 @@ account/model uses visible transcript reconstruction. Helpers receive no opaque
 state. Public login/status/logout, device-flow onboarding and account catalogs
 remain client-adoption work; this adapter is not a live-provider availability
 verification.
+
+Provider attempts also have an idle deadline: two minutes for Chat and five
+minutes for API Responses or subscription requests. Response headers and positive
+body reads count as progress. Active streams may exceed that interval, subject
+to their existing absolute attempt deadline. The adapter freezes any internal
+`IdleTimeout` override at preparation, including across credential refresh; this
+is not a host-config field. One owned watchdog cancels a stalled request and joins
+before execution returns. A confirmed completed response wins a simultaneous
+idle expiry. Interrupted I/O remains uncertain, preserves independently reported
+usage/cost, and cannot trigger automatic replay. Provisional text remains a
+bounded preview and never becomes a completed transcript on a stall.
 
 ## Verification and remaining scope
 
