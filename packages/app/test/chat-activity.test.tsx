@@ -6,6 +6,7 @@ import {
   conversationActivityRows,
   activitySummary,
   fileOperationPath,
+  operationSubject,
   isActivityGroup,
   responseCopies,
   type ActivityGroup,
@@ -90,6 +91,36 @@ it('does not turn missing or malformed file paths or unrelated tool arguments in
     groupId="group" open={false} toggle={vi.fn()} connected last />));
   expect(screen.getByTitle('/workspace')).toBeTruthy();
 });
+it.each([
+  ['shell.run', { command: 'git status --short', secret: 'never show this' }, 'git status --short'],
+  ['files.search', { path: 'src', pattern: 'createRoot' }, 'src · createRoot'],
+  ['browser.navigate', { url: 'https://example.com/docs' }, 'https://example.com/docs'],
+  ['browser.search', { query: 'Whip documentation' }, 'Whip documentation'],
+] as const)('uses the captured %s subject instead of a generic permission scope', (capability, arguments_, subject) => {
+  const host = { ...operation('op', 'succeeded', capability), resource: '/workspace', arguments: arguments_ };
+  const item = { id: host.id, kind: 'operation' as const, host };
+  render(wrap(<ActivityStep item={item} groupId="group" open={false} toggle={vi.fn()} connected last />));
+  expect(screen.getByTitle(subject)).toBeTruthy();
+  expect(screen.queryByText('never show this')).toBeNull();
+  expect(screen.getByText('Done')).toBeTruthy();
+});
+it.each([
+  ['denied', 'Denied'], ['uncertain', 'Outcome uncertain'], ['waiting', 'Needs approval'],
+] as const)('keeps a %s operation outcome distinct from successful parent work', (state, label) => {
+  const host = operation('op', state);
+  render(wrap(<ActivityStep item={{ id: host.id, kind: 'operation', host }} groupId="group" open={false} toggle={vi.fn()} connected last />));
+  expect(screen.getByText(label)).toBeTruthy();
+  expect(screen.queryByText('Done')).toBeNull();
+});
+
+it('bounds identifying excerpts by UTF-8 bytes and excludes unrelated argument fields', () => {
+  const host = { ...operation('op', 'succeeded', 'shell.run'), arguments: { command: '🙂'.repeat(300), prompt: 'private prompt' } };
+  const subject = operationSubject(host);
+  expect(subject).toBe('🙂'.repeat(128) + '…');
+  expect(subject).not.toContain('�');
+  expect(operationSubject({ ...host, capability: 'models.call' })).toBe(host.resource);
+});
+
 it('counts distinct edited paths within the same workspace and keeps unknown edits honest', () => {
   const hosts = [
     { ...operation('a', 'succeeded', 'files.write'), resource: '/workspace', arguments: { path: 'a.txt' } },
@@ -397,6 +428,7 @@ it('launch records use canonical result identity and do not reinterpret later ch
   expect(open).toHaveBeenCalledWith('child');
 });
 it.each([
+  ['denied', 'Launch denied'],
   ['failed', 'Failed to launch'],
   ['cancelled', 'Launch cancelled'],
   ['uncertain', 'Launch outcome uncertain'],

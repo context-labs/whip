@@ -6070,3 +6070,14 @@ ownership. Go/race, generated protocol, SDK and terminal UI checks pass; the
 [restoration record](frontend-ux-restoration-progress.md) distinguishes this
 checkpoint from still-pending desktop comparative acceptance. A disposable
 HOME remains disposable; no running installation is changed.
+
+
+## 2026-09-29 — restore readable approvals and activity subjects
+
+The next UX slice keeps normal pending permission/question replies in place,
+retains exact uncertain decisions, and restores requester/command/path subjects.
+Activity uses the reference's bounded allowlisted display rules; raw records stay
+in details. Native child delegation remains distinct from root-only approval.
+Seven new product assertions reproduced the regressions; 55 focused tests and
+app TypeScript pass. See the [restoration record](frontend-ux-restoration-progress.md)
+for remaining comparative gates and the explicit Remember-scope exception.

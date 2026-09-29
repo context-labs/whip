@@ -58,6 +58,25 @@ App TypeScript passes in the leaf. Real desktop comparison remains in final A11.
 
 Opening slice is draft [#288](https://github.com/context-labs/whip/pull/288).
 
+## Increment 3 — approval and activity presentation (A4 / A7)
+
+Approval and question replies keep ordinary pending controls in place. Recovery
+controls appear after a failed/uncertain reply and retry only the original
+choice. Root approvals show the requester and actual command/path; exact raw
+evidence remains in details. Child operations use native delegation, as required
+by A4. Two old native fixtures invented directly approvable child operations;
+those were corrected to root operations, with separate child non-approval and
+foreign-owner rejection coverage. No backend authority changed.
+
+File/search/shell/browser/agent subjects now come from an allowlisted bounded
+projection of actual arguments. Raw arguments/results move behind disclosure.
+Denied, waiting and uncertain outcomes remain distinct from successful work.
+Seven new product assertions failed before this change. Focused request,
+activity and permission-mode tests pass (55 tests across three files), and app
+TypeScript passes. Browser/keyboard comparison is still in final acceptance.
+
+Terminal slice is draft [#289](https://github.com/context-labs/whip/pull/289).
+
 ## Remaining work
 
 Backend/provider/settings/terminal and durable presentation prerequisites are

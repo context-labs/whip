@@ -15,10 +15,12 @@ import * as stylex from '@stylexjs/stylex';
 import { CircleHelp, PenLine, ShieldAlert, X } from 'lucide-react';
 import { colors, surface, scale } from '@whip/ui/tokens.stylex';
 import { layout } from './styles';
+import { operationSubject } from './chat-activity-rows';
 
 function captureAnswerFocus() {
   const previous = document.activeElement;
-  const composer = document.querySelector<HTMLTextAreaElement>(
+  const scope = previous instanceof Element ? previous.closest('[data-workspace-view]') ?? document : document;
+  const composer = scope.querySelector<HTMLTextAreaElement>(
     '[data-whip-composer]',
   );
   return () => {
@@ -31,7 +33,7 @@ function captureAnswerFocus() {
   };
 }
 
-/** Only the visible session's approval and the root's intrinsic questions are read.
+/** Only root operations can ask for human approval. Child effects use delegation.
  * Counts come from session activity; list pages and operation bodies stay bounded. */
 export function PendingRequests({
   session,
@@ -60,7 +62,9 @@ export function PendingRequests({
     ],
     queryFn: async ({ signal }) => {
       const [permissions, questions] = await Promise.all([
-        session.permissions.list({ pending_only: true, limit: 1 }, { signal }),
+        session.id === root.id
+          ? session.permissions.list({ pending_only: true, limit: 1 }, { signal })
+          : Promise.resolve({ items: [] }),
         root.questions.list({ pending_only: true, limit: 4 }, { signal }),
       ]);
       if (
@@ -153,6 +157,10 @@ export function PermissionRequest({
   refresh(): Promise<void>;
 }) {
   const titleId = useId();
+  const args = operation.arguments;
+  const command = operation.capability.startsWith('shell.') && args &&
+    typeof args === 'object' && !Array.isArray(args) && 'command' in args &&
+    typeof args.command === 'string' ? args.command : operationSubject(operation);
   const [pending, setPending] = useState(false);
   const [attempt, setAttempt] = useState<boolean>();
   const [error, setError] = useState<unknown>();
@@ -202,33 +210,31 @@ export function PermissionRequest({
           )}
         </div>
         <div {...stylex.props(permissionStyles.identity)}>
-          <span {...stylex.props(permissionStyles.agent)}>{session.id}</span>
+          <span {...stylex.props(permissionStyles.agent)}>Root agent</span>
           <span aria-hidden>·</span>
           <span {...stylex.props(permissionStyles.operation)}>
             {operation.capability}
           </span>
         </div>
         <pre
-          aria-label="Requested resource"
+          aria-label="Requested operation"
           tabIndex={0}
           {...stylex.props(layout.pre, permissionStyles.command)}
         >
-          {operation.resource}
+          {command}
         </pre>
         <details>
-          <summary>Exact operation arguments</summary>
+          <summary>Operation details</summary>
+          <p {...stylex.props(permissionStyles.rule)}>This decision applies to this operation only.</p>
+          <pre aria-label="Requested resource" {...stylex.props(layout.pre)}>{operation.resource}</pre>
           <pre
-            aria-label="Requested operation"
+            aria-label="Exact operation arguments"
             tabIndex={0}
             {...stylex.props(layout.pre, permissionStyles.command)}
           >
             {JSON.stringify(operation.arguments, null, 2)}
           </pre>
         </details>
-        <p {...stylex.props(permissionStyles.rule)}>
-          This decision applies to this operation. Manage standing resource
-          grants in Session details → Permissions.
-        </p>
         {error !== undefined && (
           <ErrorNotice
             type="action"
@@ -238,7 +244,7 @@ export function PermissionRequest({
             tone="warning"
           />
         )}
-        {attempt !== undefined ? (
+        {attempt !== undefined && error !== undefined ? (
           <div {...stylex.props(permissionStyles.footer)}>
             <Button
               disabled={disabled || pending}
@@ -262,14 +268,14 @@ export function PermissionRequest({
           <div {...stylex.props(permissionStyles.footer)}>
             <Button
               xstyle={permissionStyles.control}
-              disabled={disabled || pending}
+              disabled={disabled || pending || attempt !== undefined}
               onClick={() => void decide(true)}
             >
               Allow once
             </Button>
             <Button
               xstyle={permissionStyles.control}
-              disabled={disabled || pending}
+              disabled={disabled || pending || attempt !== undefined}
               onClick={() => void decide(false)}
             >
               Deny
@@ -616,7 +622,7 @@ export function QuestionRequest({
             title="Could not submit response"
           />
         )}
-        {attempt && (
+        {attempt && error !== undefined && (
           <div {...stylex.props(layout.row, layout.wrap)}>
             <Button
               disabled={disabled || pending}
