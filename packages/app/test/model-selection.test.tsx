@@ -104,25 +104,46 @@ it('preserves the model selection popup for an action failure and closes on succ
   expect(change).toHaveBeenCalledTimes(2);
 });
 
-it('configures the selected child with its exact revision and resets effort on a model route change', async () => {
+it('configures the idle root with its exact revision and resets effort on a model route change', async () => {
   const { createSessionView } = await import('@whip/sdk/state');
   const { sessionRecord } = await import('./provider-fixture');
-  const { ModelPicker } = await import('../src/model-selection');
+  const { SessionModelPicker } = await import('../src/model-selection');
   const f = await providerFixture(); f.data.inventory.routes.push(route('openai-codex'));
-  const selected = sessionRecord(); const session = f.client.session(selected.id); const view = createSessionView(session);
+  const selected = sessionRecord('root'); const session = f.client.session(selected.id); const view = createSessionView(session);
   const current = view.getSnapshot(); vi.spyOn(view, 'getSnapshot').mockReturnValue({ ...current, activity: { session_id: selected.id, lifecycle: 'active', active_turn: null, active_input_id: null, queued_input_count: '0', pending_permission_count: '0', pending_question_count: '0', execution_permit: false, active_workspace_action_id: null } });
   const refresh = vi.spyOn(view, 'refresh').mockResolvedValue();
   f.data.handlers['sessions.configure'] = () => ({ ...selected, config_revision: '9007199254740994' });
-  const root = createRootRoute({ component: () => f.wrap(<ModelPicker client={f.client} session={session} selected={selected} view={view} connected />) });
+  const root = createRootRoute({ component: () => f.wrap(<SessionModelPicker client={f.client} session={session} selected={selected} view={view} connected />) });
   render(<RouterProvider router={createRouter({ routeTree: root, history: createMemoryHistory() })} />);
+  expect((await screen.findByRole('button', { name: 'Reasoning effort' })).hasAttribute('disabled')).toBe(false);
   fireEvent.click(await screen.findByRole('button', { name: 'Model' })); fireEvent.click(await screen.findByRole('option', { name: 'fixture · openai-codex' }));
   await waitFor(() => expect(f.count('sessions.configure')).toBe(1));
-  expect(f.calls.find(call => call.method === 'sessions.configure')?.params).toEqual({ session_id: 'child', expected_revision: '9007199254740993', patch: { model: { name: 'fixture', provider: 'openai-codex', effort: '' } } });
+  expect(f.calls.find(call => call.method === 'sessions.configure')?.params).toEqual({ session_id: 'root', expected_revision: '9007199254740993', patch: { model: { name: 'fixture', provider: 'openai-codex', effort: '' } } });
   await waitFor(() => expect(refresh).toHaveBeenCalledOnce()); expect(f.count('providers.defaults')).toBe(0);
 });
 it('unknown activity disables model effects without treating a missing observation as idle', async () => {
   const { createSessionView } = await import('@whip/sdk/state'); const { sessionRecord } = await import('./provider-fixture'); const { ModelPicker } = await import('../src/model-selection');
-  const f = await providerFixture(); const selected = sessionRecord(); const session = f.client.session(selected.id); const view = createSessionView(session);
+  const f = await providerFixture(); const selected = sessionRecord('root'); const session = f.client.session(selected.id); const view = createSessionView(session);
   f.mount(<ModelPicker client={f.client} session={session} selected={selected} view={view} connected />);
   expect(screen.getByRole('button', { name: 'Model' }).hasAttribute('disabled')).toBe(true); expect(f.count('sessions.configure')).toBe(0);
+});
+
+it('child composer and inspector display their own model and effort without offering mutations', async () => {
+  const { createSessionView } = await import('@whip/sdk/state');
+  const { sessionRecord } = await import('./provider-fixture');
+  const { SessionModelPicker, ModelSelection } = await import('../src/model-selection');
+  const f = await providerFixture();
+  const selected = sessionRecord('child');
+  selected.configuration.model = { name: 'child-specific-model', provider: 'child-provider', effort: 'high', temperature: null, top_p: null };
+  const session = f.client.session(selected.id), view = createSessionView(session);
+  const props = { client: f.client, session, selected, view, connected: true };
+  const mounted = f.mount(<><SessionModelPicker {...props} /><ModelSelection {...props} /></>);
+  expect(screen.getAllByTitle('Child agent model and reasoning are read-only here')).toHaveLength(2);
+  expect(screen.getAllByText('child-specific-model · child-provider · High')).toHaveLength(2);
+  expect(screen.queryByRole('button')).toBeNull(); expect(screen.queryByRole('combobox')).toBeNull();
+  const changed = { ...selected, configuration: { ...selected.configuration, model: { ...selected.configuration.model, name: 'updated-child-model', effort: 'low' } } };
+  mounted.rerender(f.wrap(<><SessionModelPicker {...props} selected={changed} /><ModelSelection {...props} selected={changed} /></>));
+  expect(screen.getAllByText('updated-child-model · child-provider · Low')).toHaveLength(2);
+  expect(f.count('sessions.configure')).toBe(0); expect(f.count('providers.list')).toBe(0);
+  await view.dispose();
 });

@@ -16,7 +16,7 @@ import { modelOptions, priceLabel, readModelCatalog, type ModelCatalog as Catalo
 
 export interface ModelProps { client: Client; session: Session; selected: DeepReadonly<SessionRecord>; view: SessionView; connected: boolean }
 async function configure(props: ModelProps, model: SessionRecord['configuration']['model']) {
-  if (props.session.id !== props.selected.id || props.session.client !== props.client) throw new Error('Session configuration scope changed');
+  if (props.selected.parent_id !== null || props.session.id !== props.selected.id || props.session.client !== props.client) throw new Error('Session configuration scope changed');
   try { await props.session.configure(props.selected.config_revision, { model }); }
   finally { await props.view.refresh(); }
 }
@@ -203,9 +203,16 @@ export function CatalogModelPicker({ catalog, loading, error, model, provider, d
   </Popover>;
 }
 
-/** Composer toolbar controls: model picker + effort menu for the viewed agent. */
+function ChildModel({ selected }: ModelProps) {
+  const model = selected.configuration.model;
+  return <span title="Child agent model and reasoning are read-only here" {...stylex.props(styles.childModel)}>
+    {model.name} · {model.provider} · {effortLabel(model.effort)}
+  </span>;
+}
+
+/** Root controls edit the idle root; child composers show their own configuration. */
 export function SessionModelPicker(props: ModelProps) {
-  return <><ModelPicker {...props} /><EffortPicker {...props} /></>;
+  return props.selected.parent_id !== null ? <ChildModel {...props} /> : <><ModelPicker {...props} /><EffortPicker {...props} /></>;
 }
 
 /** Holds the mode/model/effort footprint while a session or provider inventory is still opening. */
@@ -215,6 +222,10 @@ export function PickerSkeletons({ count = 3 }: { count?: number }) {
 
 /** Shared by the session inspector; the composer uses ModelPicker/EffortPicker. */
 export function ModelSelection(props: ModelProps) {
+  return props.selected.parent_id !== null ? <ChildModel {...props} /> : <EditableModelSelection {...props} />;
+}
+
+function EditableModelSelection(props: ModelProps) {
   const { client, selected, view, connected } = props;
   const [model, setModel] = useState(selected.configuration.model.name);
   const [provider, setProvider] = useState(selected.configuration.model.provider);
