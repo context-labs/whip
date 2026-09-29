@@ -1,11 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium, firefox } from '@playwright/test';
-import { createWhipClient } from '../../../packages/legacy-sdk/dist/index.js';
-import { eventually, startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
+import { deadline, eventually, startFixture } from './native-fixture.mjs';
 
-// Production assets, isolated host, synthetic sessions. Never touches a user daemon.
+// Production assets and native catalog in an isolated runtime. No user runtime.
 const directory = process.env.WHIP_WEB_SIDEBAR_RESULTS ?? '/tmp/whip-sidebar-results';
 await mkdir(directory, { recursive: true });
 const results = {};
@@ -15,11 +14,11 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
   const context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
   context.setDefaultTimeout(10_000);
   const page = await context.newPage();
-  const client = createWhipClient({ endpoint: fixture.info.endpoint, clientId: `sidebar-${crypto.randomUUID()}`, clientKind: 'human' });
-  const origin = fixture.info.endpoint.replace(/^ws/, 'http').replace('/api/v3/ws', '');
+  const client = await fixture.connect(`sidebar-${crypto.randomUUID()}`);
+  const origin = fixture.info.web;
   const route = id => `/h/${fixture.info.runtime_id}/s/${id}`;
   const frames = [], errors = [], checks = [];
-  page.on('pageerror', error => errors.push(error.message));
+  page.on('pageerror', error => errors.push({ message: error.message, stack: error.stack }));
   page.on('console', event => { if (event.type() === 'error' && /content.security.policy|violates.*directive|refused to (execute|apply|load)/i.test(event.text())) errors.push(event.text()); });
   page.on('websocket', socket => socket.on('framesent', ({ payload }) => { try { frames.push(JSON.parse(String(payload))); } catch {} }));
   const sidebar = () => page.locator('aside[aria-label="Session navigation"]');
@@ -28,25 +27,28 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
   const group = cwd => sidebar().getByRole('button', { name: cwd, exact: true });
   const ready = () => page.getByLabel('Message WHIP', { exact: true }).waitFor();
   try {
-    await client.connect();
     const paths = [join(fixture.directory, 'repo/main'), join(fixture.directory, 'worktrees/main'), join(fixture.directory, 'sdk')];
     for (const path of paths) await mkdir(path, { recursive: true });
-    const roots = [];
-    for (let i = 0; i < 140; i++) {
-      // Catalog recency has one-second precision. Keep directory groups in
-      // separate seconds so random session IDs cannot reorder the fixture.
-      if (i === 130 || i === 135) await new Promise(resolve => setTimeout(resolve, 1100));
-      const result = await client.sessions.create({ cwd: paths[i < 130 ? 0 : i < 135 ? 1 : 2], model: 'model', provider: 'provider' }).result();
-      assert.equal(result.status, 'succeeded'); roots.push(result.result.root_id);
-      await client.session(roots[i]).rename(`Session ${String(i).padStart(3, '0')}${i === 139 ? ' — a long session title to verify clipping without expanding the navigation' : ''}`).result();
+    for (const [index, path] of paths.entries()) paths[index] = await realpath(path);
+    const created = [];
+    for (let i = 0; i < 140; i++) created.push(await fixture.createRoot(client));
+    // Native catalog pages have immutable ID order. Assign test roles after
+    // allocation so the first page contains both small groups and part of the
+    // large group; do not fabricate recency or depend on random ID placement.
+    created.sort((a, b) => a.tree.id < b.tree.id ? 1 : -1);
+    const roots = created.map(item => item.root.id);
+    for (const [i, item] of created.entries()) {
+      await client.setWorkingDirectory({ id: crypto.randomUUID(), session_id: item.root.id, expected_revision: item.root.config_revision, path: paths[i < 130 ? 0 : i < 135 ? 1 : 2] }, deadline());
+      await client.trees.update(item.tree.id, item.tree.revision, { ...item.tree.metadata,
+        title: `Session ${String(i).padStart(3, '0')}${i === 139 ? ' — a long session title to verify clipping without expanding the navigation' : ''}` }, deadline());
     }
     await page.goto(origin + route(roots[139])); await ready();
     await group(paths[2]).waitFor();
     assert.equal((await sidebar().boundingBox()).width, 320);
     assert.equal(await page.locator(`[data-sidebar-session="${roots[139]}"]`).evaluate(node => node.getBoundingClientRect().height), 28);
-    assert.equal(frames.filter(frame => frame.method === 'root.snapshot').length, 1);
-    await eventually(() => frames.some(frame => frame.method === 'sessions.summaries' && frame.params.root_ids.length > 1), { description: 'visible sidebar activity is requested' });
-    const summaryRequests = frames.filter(frame => frame.method === 'sessions.summaries');
+    assert.equal(frames.filter(frame => frame.method === 'sessions.history_page').length, 1);
+    await eventually(() => frames.some(frame => frame.method === 'trees.summaries' && frame.params.root_ids.length > 1), { description: 'visible sidebar activity is requested' });
+    const summaryRequests = frames.filter(frame => frame.method === 'trees.summaries');
     assert.ok(summaryRequests.every(frame => frame.params.root_ids.length <= 32), 'Summary requests exceed the daemon limit');
     assert.ok(new Set(summaryRequests.flatMap(frame => frame.params.root_ids)).size < 128, 'Sidebar polled the entire catalog instead of rendered rows');
     assert.equal(await sidebar().getByRole('link', { name: 'Settings', exact: true }).count(), 1);
@@ -85,11 +87,19 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await less.click();
     await saved().evaluate(node => { node.scrollTop = 0; });
     await more().waitFor();
-    assert.equal(await sidebar().locator(`[data-sidebar-session][data-sidebar-cwd="${paths[0]}"]`).count(), 7);
-    assert.equal(await sidebar().locator('[data-sidebar-session]').count(), 17);
+    // The native ID page puts the small groups first; the virtual list may
+    // omit the last two collapsed rows at this height. Inspect both positions
+    // to prove the logical seven-row limit without demanding offscreen DOM.
+    const collapsedRows = await sidebar().locator('[data-sidebar-session]').evaluateAll(rows => rows.map(row => ({ id: row.dataset.sidebarSession, cwd: row.dataset.sidebarCwd })));
+    await saved().evaluate(node => { node.scrollTop = node.scrollHeight; });
+    await eventually(async () => await sidebar().locator(`[data-sidebar-session][data-sidebar-cwd="${paths[0]}"]`).count() === 7);
+    for (const row of await sidebar().locator('[data-sidebar-session]').evaluateAll(rows => rows.map(row => ({ id: row.dataset.sidebarSession, cwd: row.dataset.sidebarCwd })))) if (!collapsedRows.some(item => item.id === row.id)) collapsedRows.push(row);
+    assert.equal(collapsedRows.filter(row => row.cwd === paths[0]).length, 7);
+    assert.equal(collapsedRows.length, 17);
+    await saved().evaluate(node => { node.scrollTop = 0; });
     checks.push('seven sessions per directory, keyboard More, and Less');
 
-    const action = id => page.locator(`[data-sidebar-session="${id}"]`).getByRole('button');
+    const action = id => page.locator(`[data-sidebar-session="${id}"]`).getByRole('button', { name: /^Actions for / });
     const caret = path => group(path).locator('[data-directory-caret]');
     const opacity = locator => locator.evaluate(node => getComputedStyle(node).opacity);
     const rowFill = id => page.locator(`[data-sidebar-session="${id}"] a`).evaluate(node => getComputedStyle(node.parentElement).backgroundColor);
@@ -157,29 +167,37 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     checks.push('pointer/keyboard resize, viewport cap, hide/restore and focus');
 
     await sidebar().getByRole('link', { name: `New session in ${paths[1]}`, exact: true }).click();
-    const cwd = page.getByLabel('Working directory on Local', { exact: true });
-    await eventually(async () => await cwd.inputValue() === paths[1], { description: 'directory prefill after handshake' });
-    await cwd.fill('/typed/unsent'); await page.waitForTimeout(2200); assert.equal(await cwd.inputValue(), '/typed/unsent');
-    await page.reload(); await eventually(async () => await cwd.inputValue() === paths[1], { description: 'reload directory prefill' });
-    await sidebar().getByRole('link', { name: 'New session', exact: true }).click(); assert.equal(await cwd.inputValue(), '');
-    assert.equal(frames.filter(frame => frame.method === 'command.submit').length, 0);
+    const cwd = page.getByRole('button', { name: 'Project folder', exact: true });
+    await eventually(async () => await cwd.getAttribute('title') === paths[1], { description: 'directory prefill after handshake' });
+    await cwd.click();
+    const chooser = page.getByRole('dialog', { name: 'Choose a folder', exact: true });
+    await chooser.getByRole('button', { name: 'Edit path', exact: true }).click();
+    const typed = chooser.getByRole('textbox', { name: 'Remote path', exact: true });
+    await typed.fill(paths[0]); await page.waitForTimeout(2200); assert.equal(await typed.inputValue(), paths[0]);
+    await typed.press('Enter');
+    await chooser.getByRole('button', { name: 'Choose folder', exact: true }).click();
+    await eventually(async () => await cwd.getAttribute('title') === paths[0], { description: 'explicit selected directory' });
+    await page.reload(); await eventually(async () => await cwd.getAttribute('title') === paths[0], { description: 'edited draft directory survives reload' });
+    await sidebar().getByRole('link', { name: 'New session', exact: true }).click();
+    await eventually(async () => await cwd.getAttribute('title') === 'Choose a project folder', { description: 'fresh global draft starts without directory' });
+    assert.equal(frames.filter(frame => ['trees.create', 'sessions.submit', 'sessions.spawn', 'sessions.configure', 'sessions.delete'].includes(frame.method)).length, 0);
     await page.goto(origin + route(roots[133]) + '?panel=execution');
     await page.getByRole('dialog', { name: 'Session details', exact: true }).waitFor();
     await page.goto(`${origin}/?cwd=${encodeURIComponent(paths[0])}&runtimeId=another-host`);
-    await page.getByText('Select or add a remote host to begin.', { exact: true }).waitFor();
+    await page.getByText('Select or add an execution host to begin.', { exact: true }).waitFor();
     assert.equal(await cwd.count(), 0);
     console.log(`${name}: completed workflow ${checks.length + 1}`);
-    checks.push('directory prefill survives reload, preserves edits, clears globally, keeps an unknown host explicit and submits nothing');
+    checks.push('directory prefill, native chooser fallback, edited draft persistence, fresh global folder, explicit unknown host and no admitted work');
 
     await page.getByRole('button', { name: 'Hide navigation', exact: true }).focus();
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+k' : 'Control+k');
-    await page.getByRole('dialog', { name: 'Commands', exact: true }).getByRole('combobox').fill('Browse sessions');
-    await page.getByRole('option', { name: 'Browse sessions', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Commands', exact: true }).getByRole('combobox').fill('Search sessions');
+    await page.getByRole('option', { name: 'Search sessions', exact: true }).click();
     const input = page.getByLabel('Search sessions on this host', { exact: true });
-    assert.equal(await input.evaluate(node => node === document.activeElement), true);
+    await eventually(() => input.evaluate(node => node === document.activeElement), { description: 'search dialog receives keyboard focus' });
     await input.fill('Session 133');
-    await page.getByLabel('Session search results', { exact: true }).getByRole('link', { name: new RegExp('Session 133') }).waitFor();
-    const resultLink = page.getByLabel('Session search results', { exact: true }).getByRole('link', { name: /Session 133/ });
+    await page.getByRole('dialog', { name: 'Search sessions', exact: true }).getByRole('link', { name: new RegExp('Session 133') }).waitFor();
+    const resultLink = page.getByRole('dialog', { name: 'Search sessions', exact: true }).getByRole('link', { name: /Session 133/ });
     assert.ok((await resultLink.getAttribute('href')).includes('panel=execution'), 'Sidebar lost saved inspector location');
     const popupPromise = context.waitForEvent('page');
     await resultLink.click({ button: 'middle' });
@@ -191,13 +209,13 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await popup.getByRole('separator', { name: 'Resize session navigation' }).focus(); await popup.keyboard.press('Home');
     assert.equal((await sidebar().boundingBox()).width, originalWidth, 'Window layouts were shared');
     await popup.close();
-    const count = frames.filter(frame => frame.method === 'root.snapshot').length;
-    await page.getByLabel('Session search results', { exact: true }).getByRole('link', { name: /Session 133/ }).hover();
-    await page.waitForTimeout(300); assert.equal(frames.filter(frame => frame.method === 'root.snapshot').length, count);
+    const count = frames.filter(frame => frame.method === 'sessions.history_page').length, backgroundOrigin = page.url();
+    await page.getByRole('dialog', { name: 'Search sessions', exact: true }).getByRole('link', { name: /Session 133/ }).hover();
+    await page.waitForTimeout(300); assert.equal(frames.filter(frame => frame.method === 'sessions.history_page').length, count);
     await page.getByRole('button', { name: 'Actions for Session 133 on Local', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Open in background tab', exact: true }).click();
-    assert.equal(frames.filter(frame => frame.method === 'root.snapshot').length, count);
-    assert.equal(new URL(page.url()).pathname, '/');
+    assert.equal(frames.filter(frame => frame.method === 'sessions.history_page').length, count);
+    assert.equal(page.url(), backgroundOrigin, 'Opening a background session changed the current draft route');
     await input.focus(); await page.keyboard.press('Escape');
     assert.equal(await input.count(), 0);
     await eventually(async () => await page.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Hide navigation'), { description: 'restore focus to command opener or persistent navigation fallback' });
@@ -214,8 +232,10 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
       const row = [...node.querySelectorAll('[data-sidebar-session]')].find(row => row.getBoundingClientRect().bottom > top);
       return { id: row.dataset.sidebarSession, y: row.getBoundingClientRect().top - top };
     });
-    // A rename moves an old row to the front of its directory in server order.
-    await client.session(roots[0]).rename('Moved by catalog refresh').result();
+    // Native metadata edits preserve ID ordering. Moving an existing root
+    // between directories changes the grouped rows before the reading anchor.
+    const moved = await client.session(roots[138]).get(deadline());
+    await client.setWorkingDirectory({ id: crypto.randomUUID(), session_id: moved.id, expected_revision: moved.config_revision, path: paths[0] }, deadline());
     await page.waitForTimeout(2500);
     const after = await page.locator(`[data-sidebar-session="${anchor.id}"]`).evaluate(node => node.getBoundingClientRect().top - node.closest('[aria-label="Saved sessions"]').getBoundingClientRect().top);
     assert.ok(Math.abs(after - anchor.y) < 2, `Reading anchor moved: ${anchor.y} -> ${after}`);
@@ -242,7 +262,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
         assert.equal((await sidebar().boundingBox()).width, 420);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
         await sidebar().getByRole('button', { name: 'Search sessions', exact: true }).click();
-        assert.equal(await input.evaluate(node => node === document.activeElement), true);
+        await eventually(() => input.evaluate(node => node === document.activeElement), { description: 'search dialog receives keyboard focus' });
         await page.keyboard.press('Escape');
       }
       assert.equal(ids.length, 66);
@@ -275,6 +295,6 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await page.screenshot({ path: join(directory, `${name}-failure.png`) }).catch(() => {});
     await writeFile(join(directory, `${name}-failure.txt`), `${error.stack}\n\n${await page.locator('body').innerText().catch(() => '')}\n\n${JSON.stringify(errors)}`);
     throw error;
-  } finally { client.close(); await browser.close(); await fixture.close(); }
+  } finally { await browser.close(); await fixture.close(); }
 }
 await writeFile(join(directory, 'sidebar.json'), JSON.stringify(results, null, 2));
