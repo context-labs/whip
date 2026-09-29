@@ -2,77 +2,73 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium, firefox, expect } from '@playwright/test';
-import { createWhipClient } from '../../../packages/legacy-sdk/dist/index.js';
-import { startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
+import { deadline, startFixture } from './native-fixture.mjs';
 
-// Real renderer + daemon/WebSocket, with two-second polling lengthened only in
-// this fixture so passing cannot be attributed to the fallback sync path.
+// Native catalog revisions replace the retired title-notification event. Keep
+// the actual inactive-tab and unopened-sidebar guarantees without hydrating an
+// unopened transcript or inventing a legacy subscription/capability.
 const output = process.env.WHIP_TITLE_NOTIFICATION_RESULTS ?? '/tmp/whip-title-notifications-browser';
 await mkdir(output, { recursive: true });
 for (const engine of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split(',')) {
-  const fixture = await startFixture();
-  const browser = await ({ chromium, firefox }[engine]).launch();
-  const client = createWhipClient({ endpoint: fixture.info.endpoint, clientId: crypto.randomUUID(), clientKind: 'human' });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-  const sent = [], received = [], errors = [];
-  page.on('pageerror', error => errors.push(error.message));
-  page.on('websocket', socket => {
-    socket.on('framesent', ({ payload }) => { try { sent.push(JSON.parse(String(payload))); } catch {} });
-    socket.on('framereceived', ({ payload }) => { try { received.push(JSON.parse(String(payload))); } catch {} });
-  });
-  await page.addInitScript(() => {
-    const timeout = window.setTimeout.bind(window), interval = window.setInterval.bind(window);
-    window.setTimeout = (handler, delay, ...args) => timeout(handler, delay === 2000 ? 60000 : delay, ...args);
-    window.setInterval = (handler, delay, ...args) => interval(handler, delay === 2000 ? 60000 : delay, ...args);
-  });
-  const origin = fixture.info.endpoint.replace(/^ws/, 'http').replace('/api/v3/ws', '');
-  const route = id => origin + '/h/' + fixture.info.runtime_id + '/s/' + id;
-  const row = id => page.locator('[data-sidebar-session="' + id + '"]');
+  assert(['chromium', 'firefox'].includes(engine));
+  let fixture, browser, page;
+  const sent = [], errors = [];
+  const recordError = error => { if (errors.length < 32) errors.push(String(error.stack ?? error).slice(0, 4096)); };
   try {
-    await client.connect();
-    assert(client.getSnapshot().info.negotiated_capabilities.includes('session_title_notifications'));
-    const active = fixture.info.root_id;
-    const roots = [];
-    for (const title of ['Inactive old title', 'Unopened old title']) {
-      const result = await client.sessions.create({ cwd: fixture.directory, model: 'model', provider: 'provider' }).result();
-      assert.equal(result.status, 'succeeded');
-      roots.push(result.result.root_id);
-      assert.equal((await client.session(roots.at(-1)).rename(title).result()).status, 'succeeded');
-    }
-    const [inactive, unopened] = roots;
-    await page.goto(route(inactive));
-    await expect(row(inactive)).toBeVisible({ timeout: 15000 });
-    await row(active).getByRole('link').click();
-    await expect(page).toHaveURL(route(active));
+    fixture = await startFixture();
+    const client = await fixture.connect(`titles-${crypto.randomUUID()}`);
+    const active = await fixture.createRoot(client, { title: 'Active title' });
+    const inactive = await fixture.createRoot(client, { title: 'Inactive old title' });
+    const unopened = await fixture.createRoot(client, { title: 'Unopened old title' });
+    browser = await ({ chromium, firefox }[engine]).launch();
+    page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    page.setDefaultTimeout(15_000);
+    page.on('pageerror', recordError);
+    await page.exposeFunction('titleCSP', recordError);
+    await page.addInitScript(() => document.addEventListener('securitypolicyviolation', event => { void window.titleCSP(event.violatedDirective); }));
+    page.on('websocket', socket => socket.on('framesent', ({ payload }) => {
+      try {
+        assert(Buffer.byteLength(payload) <= (8 << 20));
+        const frame = JSON.parse(String(payload));
+        assert(sent.length < 2048, 'Title probe frame bound exceeded');
+        sent.push({ method: frame.method, session_id: frame.params?.session_id, root_ids: frame.params?.root_ids });
+      } catch (error) { recordError(error); }
+    }));
+    const route = id => `${fixture.info.web}/h/${fixture.info.runtime_id}/s/${id}`;
+    const row = id => page.locator(`[data-sidebar-session="${id}"]`);
+    await page.goto(route(inactive.root.id));
+    await expect(row(inactive.root.id)).toBeVisible();
+    await row(active.root.id).getByRole('link').click();
+    await expect(page).toHaveURL(route(active.root.id));
     await expect(page.getByRole('tab', { name: /Inactive old title/ }).first()).toBeVisible();
-    await expect(row(unopened)).toContainText('Unopened old title');
-    received.length = 0;
+    await expect(row(unopened.root.id)).toContainText('Unopened old title');
+    const prior = await client.trees.catalog(deadline());
     const started = performance.now();
-    assert.equal((await client.session(inactive).rename('Inactive new title').result()).status, 'succeeded');
-    assert.equal((await client.session(unopened).rename('Unopened new title').result()).status, 'succeeded');
+    for (const [item, title] of [[inactive, 'Inactive new title'], [unopened, 'Unopened new title']]) {
+      await client.trees.update(item.tree.id, item.tree.revision, { ...item.tree.metadata, title }, deadline());
+    }
     await expect(page.getByRole('tab', { name: /Inactive new title/ }).first()).toBeVisible({ timeout: 3000 });
-    await expect(row(inactive)).toContainText('Inactive new title', { timeout: 3000 });
-    await expect(row(unopened)).toContainText('Unopened new title', { timeout: 3000 });
-    assert(received.some(frame => frame.method === 'sessions.title.changed' && frame.params.root_id === inactive));
-    assert(received.some(frame => frame.method === 'sessions.title.changed' && frame.params.root_id === unopened));
-    // The formerly active view may remain leased for 30 seconds; existing root
-    // events can still refresh it. The never-opened session is the strict proof
-    // that a host notification needs no root hydration.
-    assert(!sent.some(frame => ['events.subscribe', 'root.snapshot'].includes(frame.method) && frame.params.root_id === unopened), 'Unopened root was hydrated');
+    await expect(row(inactive.root.id)).toContainText('Inactive new title', { timeout: 3000 });
+    await expect(row(unopened.root.id)).toContainText('Unopened new title', { timeout: 3000 });
+    const current = await client.trees.catalog(deadline());
+    assert.notEqual(current.revision, prior.revision);
+    assert(sent.some(frame => frame.method === 'trees.catalog'));
+    assert(sent.some(frame => frame.method === 'trees.summaries'));
+    assert(!sent.some(frame => ['sessions.history_page', 'sessions.history', 'sessions.observe', 'sessions.turns'].includes(frame.method) && frame.session_id === unopened.root.id), 'Unopened root was hydrated');
+    assert(!sent.some(frame => ['events.subscribe', 'root.snapshot'].includes(frame.method)));
     assert.deepEqual(errors, []);
     await page.screenshot({ path: join(output, engine + '.png') });
     await writeFile(join(output, engine + '.json'), JSON.stringify({
-      engine, changedWithinMs: performance.now() - started, pollingIntervalInFixtureMs: 60000,
-      notificationRoots: received.filter(frame => frame.method === 'sessions.title.changed').map(frame => frame.params.root_id),
+      engine, browser: browser.version(), changedWithinMs: performance.now() - started,
+      catalogRevisions: [prior.revision, current.revision], defaultNativePolling: true,
       unopenedRootNeverHydrated: true, inactiveTabUpdated: true, errors,
     }, null, 2));
-    console.log(engine + ': title notification updates inactive tab and unopened sidebar session');
+    console.log(`${engine}: native catalog title updates inactive tab and unopened sidebar session`);
   } catch (error) {
-    await writeFile(join(output, engine + "-failure.json"), JSON.stringify({ sent, received, errors }, null, 2));
+    await page?.screenshot({ path: join(output, engine + '-failure.png') }).catch(() => {});
+    await writeFile(join(output, engine + '-failure.json'), JSON.stringify({ error: String(error.stack ?? error), sent, errors }, null, 2));
     throw error;
   } finally {
-    client.close();
-    await browser.close();
-    await fixture.close();
+    try { await browser?.close(); } finally { await fixture?.close(); }
   }
 }

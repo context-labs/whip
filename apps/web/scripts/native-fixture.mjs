@@ -142,9 +142,12 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
         message = { role: 'assistant', content: null };
       } else {
         if (text === 'hold:thinking-response') await wait('thinking-first-token', signal);
-        if (stream) { delta({ role: 'assistant', content: text.slice(0, Math.ceil(text.length / 2)) }); delta({ content: text.slice(Math.ceil(text.length / 2)) }); }
+        // A real image-only first message has no authored text to echo. The
+        // provider still returns a valid nonempty answer after receiving images.
+        const reply = text || (Array.isArray(authored?.content) && authored.content.some(part => part.type === 'image_url') ? 'Received fixture images.' : text);
+        if (stream) { delta({ role: 'assistant', content: reply.slice(0, Math.ceil(reply.length / 2)) }); delta({ content: reply.slice(Math.ceil(reply.length / 2)) }); }
         if (text.startsWith('hold:')) await wait(text.slice(5), signal);
-        message = { role: 'assistant', content: text };
+        message = { role: 'assistant', content: reply };
         if (stream) message = { role: 'assistant', content: null };
       }
       if (stream) {
