@@ -97,14 +97,14 @@
       "compaction_percent": 0,
       "goal_max_continuations": "9007199254740993",
       "max_attempts": 3,
-      "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+      "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18"
     },
     "valid": true
   },
   {
     "type": "SetExecutionDefaultsParams",
     "value": {
-      "expected_revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "expected_revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
       "defaults": {
         "engine": "starlark",
         "effort": "",
@@ -445,7 +445,7 @@
   {
     "type": "HostSkillRoots",
     "value": {
-      "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
       "roots": [
         {
           "id": "personal",
@@ -461,7 +461,7 @@
   {
     "type": "PublishSkillRootParams",
     "value": {
-      "expected_revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "expected_revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
       "id": "personal",
       "path": "/skills"
     },
@@ -470,7 +470,7 @@
   {
     "type": "SetDefaultSkillRootsParams",
     "value": {
-      "expected_revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "expected_revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
       "roots": []
     },
     "valid": true
@@ -478,7 +478,7 @@
   {
     "type": "HostProfiles",
     "value": {
-      "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
       "profiles": [
         {
           "id": "remote",
@@ -494,7 +494,7 @@
   {
     "type": "SetHostProfilesParams",
     "value": {
-      "expected_revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "expected_revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
       "profiles": []
     },
     "valid": true
@@ -531,7 +531,7 @@
       },
       "definition": {
         "id": "assistant",
-        "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+        "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18"
       },
       "overrides": {
         "model": {
@@ -1030,7 +1030,6 @@
           "goals",
           "mail",
           "mcp",
-          "messages",
           "models",
           "permissions",
           "schedules",
@@ -1089,7 +1088,7 @@
         "parent_id": null,
         "definition": {
           "id": "assistant",
-          "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+          "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18"
         },
         "config_revision": "9007199254740993",
         "configuration": {
@@ -1108,7 +1107,6 @@
             "goals",
             "mail",
             "mcp",
-            "messages",
             "models",
             "permissions",
             "schedules",
@@ -1299,7 +1297,7 @@
     "value": {
       "definition": {
         "id": "custom",
-        "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+        "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18"
       },
       "tools": [
         "lookup"
@@ -1314,7 +1312,7 @@
       "epoch": "executor_fixture",
       "definition": {
         "id": "custom",
-        "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+        "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18"
       },
       "generation": "9007199254740993",
       "tools": [
@@ -1330,7 +1328,7 @@
       "epoch": "executor_fixture",
       "definition": {
         "id": "custom",
-        "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+        "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18"
       },
       "generation": "9007199254740993",
       "after": null
@@ -1348,7 +1346,7 @@
             "epoch": "executor_fixture",
             "definition": {
               "id": "custom",
-              "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+              "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18"
             },
             "generation": "9007199254740993",
             "tools": [
@@ -1432,7 +1430,7 @@
           "epoch": "executor_fixture",
           "definition": {
             "id": "custom",
-            "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+            "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18"
           },
           "generation": "9007199254740993",
           "tools": [
@@ -1527,7 +1525,7 @@
   {
     "type": "ComputerStatus",
     "value": {
-      "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
       "configuration": {
         "enabled": false,
         "helper_executable": "",
@@ -1546,14 +1544,14 @@
   {
     "type": "UseBundledComputerParams",
     "value": {
-      "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+      "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18"
     },
     "valid": true
   },
   {
     "type": "MCPConfiguration",
     "value": {
-      "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
       "servers": [],
       "imports": {
         "claude": null,
@@ -1569,10 +1567,10 @@
   {
     "type": "MCPImportCandidatesResult",
     "value": {
-      "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
       "candidates": [
         {
-          "fingerprint": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+          "fingerprint": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
           "name": "candidate",
           "source": "codex",
           "state": "importable",
@@ -1590,9 +1588,9 @@
     "type": "MCPImportParams",
     "value": {
       "session_id": null,
-      "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
       "fingerprints": {
-        "candidate": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+        "candidate": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18"
       }
     },
     "valid": true
@@ -1600,7 +1598,7 @@
   {
     "type": "ConfigureMCPParams",
     "value": {
-      "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
       "name": "fixture",
       "server": {
         "command": [],
@@ -1762,7 +1760,7 @@
   {
     "type": "ProviderInventory",
     "value": {
-      "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
       "routes": [],
       "defaults": null,
       "compaction_model": null
@@ -1772,7 +1770,7 @@
   {
     "type": "ChangeProviderParams",
     "value": {
-      "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
       "provider": "custom",
       "declaration": {
         "kind": "openai-chat",
@@ -1796,7 +1794,7 @@
   {
     "type": "ProviderDefaultsParams",
     "value": {
-      "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
       "defaults": {
         "selection": {
           "provider": "custom",
@@ -1824,7 +1822,7 @@
   {
     "type": "RemoveProviderParams",
     "value": {
-      "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
       "provider": "custom",
       "replacement": {
         "selection": null,
@@ -2141,7 +2139,7 @@
           "client_id": "client",
           "request_id": "deleted"
         },
-        "digest": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+        "digest": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
         "input_id": null,
         "deleted_at": "2026-09-27T12:00:00.123456Z",
         "created_at": "2026-09-27T12:00:00.123456Z"
@@ -2181,7 +2179,7 @@
       "engine": "quickjs",
       "definition": {
         "id": "assistant",
-        "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+        "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18"
       },
       "overrides": {},
       "working_directory": "/workspace"
@@ -2199,7 +2197,7 @@
       },
       "definition": {
         "id": "assistant",
-        "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+        "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18"
       },
       "overrides": {},
       "working_directory": "/workspace"
@@ -2233,7 +2231,7 @@
         "parent_id": null,
         "definition": {
           "id": "assistant",
-          "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+          "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18"
         },
         "config_revision": "9007199254740993",
         "configuration": {
@@ -2252,7 +2250,6 @@
             "goals",
             "mail",
             "mcp",
-            "messages",
             "models",
             "permissions",
             "schedules",
@@ -2449,7 +2446,7 @@
     "value": {
       "after": {
         "id": "assistant",
-        "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+        "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18"
       },
       "limit": 1
     },
@@ -2462,7 +2459,7 @@
         {
           "ref": {
             "id": "assistant",
-            "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+            "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18"
           },
           "name": "Assistant",
           "created_at": "2026-09-27T12:00:00.123456Z"
@@ -3012,7 +3009,7 @@
     "value": {
       "id": "edit",
       "session_id": "session_child",
-      "digest": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "digest": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
       "expected_revision": "9007199254740993",
       "revision": "9007199254740994",
       "observed_through": "9007199254740995",
@@ -3171,7 +3168,7 @@
             "root_id": null,
             "path": ".agents/skills/my-skill/SKILL.md",
             "bytes": "40",
-            "sha256": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+            "sha256": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18"
           }
         }
       ],
@@ -3184,7 +3181,7 @@
     "value": {
       "manifest": {
         "bytes": "80000",
-        "sha256": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+        "sha256": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
         "sources": [
           {
             "kind": "invoked_skill",
@@ -3192,7 +3189,7 @@
             "root_id": null,
             "path": ".agents/skills/my-skill/SKILL.md",
             "bytes": "70000",
-            "sha256": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+            "sha256": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18"
           }
         ]
       }
@@ -3204,7 +3201,7 @@
     "value": {
       "manifest": {
         "bytes": "100",
-        "sha256": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+        "sha256": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
         "sources": [
           {
             "kind": "skill_metadata",
@@ -3212,7 +3209,7 @@
             "root_id": "team",
             "path": "review/SKILL.md",
             "bytes": "40",
-            "sha256": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+            "sha256": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18"
           }
         ]
       }
@@ -3224,7 +3221,7 @@
     "value": {
       "manifest": {
         "bytes": "100",
-        "sha256": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+        "sha256": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
         "sources": [
           {
             "kind": "standing_instructions",
@@ -3232,7 +3229,7 @@
             "root_id": "standing",
             "path": "me.md",
             "bytes": "40",
-            "sha256": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+            "sha256": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18"
           }
         ]
       }
@@ -3244,7 +3241,7 @@
     "value": {
       "manifest": {
         "bytes": "100",
-        "sha256": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+        "sha256": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
         "sources": [
           {
             "kind": "project_file",
@@ -3252,7 +3249,7 @@
             "root_id": "project",
             "path": "app/AGENTS.md",
             "bytes": "40",
-            "sha256": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+            "sha256": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18"
           }
         ]
       }
@@ -3271,7 +3268,7 @@
     "value": {
       "manifest": {
         "bytes": "40",
-        "sha256": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+        "sha256": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
         "sources": [
           {
             "kind": "project_file",
@@ -3291,7 +3288,7 @@
     "value": {
       "manifest": {
         "bytes": "20",
-        "sha256": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+        "sha256": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
         "sources": []
       }
     },
@@ -3855,7 +3852,7 @@
       "state": "succeeded",
       "result_message_id": "message_result",
       "checkpoint": {
-        "digest": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+        "digest": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
         "size": "123",
         "engine": "starlark",
         "metadata": {
@@ -3923,7 +3920,7 @@
             },
             "route": "https://provider.example/v1/chat/completions",
             "adapter": "openai-chat",
-            "request_digest": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+            "request_digest": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
             "prices": {
               "input": null,
               "output": null,
@@ -3993,7 +3990,7 @@
             },
             "route": "https://provider.example/v1/chat/completions",
             "adapter": "openai-chat",
-            "request_digest": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+            "request_digest": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
             "prices": {
               "input": null,
               "output": null,
@@ -4063,7 +4060,7 @@
             },
             "route": "https://provider.example/v1/chat/completions",
             "adapter": "openai-chat",
-            "request_digest": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+            "request_digest": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
             "prices": {
               "input": null,
               "output": null,
@@ -4121,7 +4118,7 @@
       "builtins": [
         {
           "id": "assistant",
-          "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+          "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18"
         }
       ]
     },
@@ -4172,7 +4169,7 @@
       "parent_id": null,
       "definition": {
         "id": "assistant",
-        "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+        "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18"
       },
       "config_revision": "9007199254740993",
       "configuration": {
@@ -4191,7 +4188,6 @@
           "goals",
           "mail",
           "mcp",
-          "messages",
           "models",
           "permissions",
           "schedules",
@@ -4244,7 +4240,7 @@
       "parent_id": "session_root",
       "definition": {
         "id": "assistant",
-        "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+        "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18"
       },
       "config_revision": "9007199254740993",
       "configuration": {
@@ -4263,7 +4259,6 @@
           "goals",
           "mail",
           "mcp",
-          "messages",
           "models",
           "permissions",
           "schedules",
@@ -4368,7 +4363,7 @@
       "parent_id": null,
       "definition": {
         "id": "assistant",
-        "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+        "revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18"
       },
       "config_revision": "9007199254740993",
       "configuration": {
@@ -4387,7 +4382,6 @@
           "goals",
           "mail",
           "mcp",
-          "messages",
           "models",
           "permissions",
           "schedules",
@@ -4849,7 +4843,7 @@
   {
     "type": "SetHostProfilesParams",
     "value": {
-      "expected_revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "expected_revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
       "profiles": null
     },
     "valid": false
@@ -4857,7 +4851,7 @@
   {
     "type": "SetHostProfilesParams",
     "value": {
-      "expected_revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "expected_revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
       "profiles": [
         {
           "id": "remote",
@@ -4985,7 +4979,7 @@
   {
     "type": "SetHostProfilesParams",
     "value": {
-      "expected_revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "expected_revision": "f1c4458f40dc0392acd1a503af1aa7a8d09784d8ca73385f79bab07483cc3b18",
       "profiles": [
         {
           "id": "remote",

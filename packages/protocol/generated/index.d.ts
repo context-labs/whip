@@ -1150,7 +1150,7 @@ export interface ControlEdit {
         servers: string[];
       };
       /**
-       * @maxItems 17
+       * @maxItems 16
        */
       modules: (
         | "agents"
@@ -1162,7 +1162,6 @@ export interface ControlEdit {
         | "goals"
         | "mail"
         | "mcp"
-        | "messages"
         | "models"
         | "permissions"
         | "schedules"
@@ -1365,7 +1364,7 @@ export interface CreateTreeParams {
       servers: string[];
     };
     /**
-     * @maxItems 17
+     * @maxItems 16
      */
     modules?:
       | null
@@ -1379,7 +1378,6 @@ export interface CreateTreeParams {
           | "goals"
           | "mail"
           | "mcp"
-          | "messages"
           | "models"
           | "permissions"
           | "schedules"
@@ -1494,7 +1492,7 @@ export interface CreateTreeResult {
         servers: string[];
       };
       /**
-       * @maxItems 17
+       * @maxItems 16
        */
       modules: (
         | "agents"
@@ -1506,7 +1504,6 @@ export interface CreateTreeResult {
         | "goals"
         | "mail"
         | "mcp"
-        | "messages"
         | "models"
         | "permissions"
         | "schedules"
@@ -1627,7 +1624,7 @@ export interface Definition {
         servers: string[];
       };
       /**
-       * @maxItems 17
+       * @maxItems 16
        */
       modules?:
         | null
@@ -1641,7 +1638,6 @@ export interface Definition {
             | "goals"
             | "mail"
             | "mcp"
-            | "messages"
             | "models"
             | "permissions"
             | "schedules"
@@ -1726,7 +1722,7 @@ export interface DefinitionDocument {
       servers: string[];
     };
     /**
-     * @maxItems 17
+     * @maxItems 16
      */
     modules?:
       | null
@@ -1740,7 +1736,6 @@ export interface DefinitionDocument {
           | "goals"
           | "mail"
           | "mcp"
-          | "messages"
           | "models"
           | "permissions"
           | "schedules"
@@ -2483,7 +2478,7 @@ export interface ForkResult {
         servers: string[];
       };
       /**
-       * @maxItems 17
+       * @maxItems 16
        */
       modules: (
         | "agents"
@@ -2495,7 +2490,6 @@ export interface ForkResult {
         | "goals"
         | "mail"
         | "mcp"
-        | "messages"
         | "models"
         | "permissions"
         | "schedules"
@@ -4597,7 +4591,7 @@ export interface ListSessionsResult {
             servers: string[];
           };
           /**
-           * @maxItems 17
+           * @maxItems 16
            */
           modules: (
             | "agents"
@@ -4609,7 +4603,6 @@ export interface ListSessionsResult {
             | "goals"
             | "mail"
             | "mcp"
-            | "messages"
             | "models"
             | "permissions"
             | "schedules"
@@ -8501,7 +8494,7 @@ export interface ReloadEdit {
       servers: string[];
     };
     /**
-     * @maxItems 17
+     * @maxItems 16
      */
     modules: (
       | "agents"
@@ -8513,7 +8506,6 @@ export interface ReloadEdit {
       | "goals"
       | "mail"
       | "mcp"
-      | "messages"
       | "models"
       | "permissions"
       | "schedules"
@@ -8994,7 +8986,7 @@ export interface Session {
       servers: string[];
     };
     /**
-     * @maxItems 17
+     * @maxItems 16
      */
     modules: (
       | "agents"
@@ -9006,7 +8998,6 @@ export interface Session {
       | "goals"
       | "mail"
       | "mcp"
-      | "messages"
       | "models"
       | "permissions"
       | "schedules"
@@ -9558,7 +9549,7 @@ export interface SpawnSessionParams {
       servers: string[];
     };
     /**
-     * @maxItems 17
+     * @maxItems 16
      */
     modules?:
       | null
@@ -9572,7 +9563,6 @@ export interface SpawnSessionParams {
           | "goals"
           | "mail"
           | "mcp"
-          | "messages"
           | "models"
           | "permissions"
           | "schedules"
@@ -9722,7 +9712,7 @@ export interface SpawnSessionResult {
         servers: string[];
       };
       /**
-       * @maxItems 17
+       * @maxItems 16
        */
       modules: (
         | "agents"
@@ -9734,7 +9724,6 @@ export interface SpawnSessionResult {
         | "goals"
         | "mail"
         | "mcp"
-        | "messages"
         | "models"
         | "permissions"
         | "schedules"
@@ -10526,7 +10515,7 @@ export interface UpdateConfigurationParams {
       servers: string[];
     };
     /**
-     * @maxItems 17
+     * @maxItems 16
      */
     modules?:
       | null
@@ -10540,7 +10529,6 @@ export interface UpdateConfigurationParams {
           | "goals"
           | "mail"
           | "mcp"
-          | "messages"
           | "models"
           | "permissions"
           | "schedules"

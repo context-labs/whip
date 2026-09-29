@@ -139,7 +139,6 @@
                   "goals",
                   "mail",
                   "mcp",
-                  "messages",
                   "models",
                   "permissions",
                   "schedules",
@@ -150,7 +149,7 @@
                 ],
                 "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
               },
-              "maxItems": 17,
+              "maxItems": 16,
               "uniqueItems": true
             },
             "tools_definition": {
