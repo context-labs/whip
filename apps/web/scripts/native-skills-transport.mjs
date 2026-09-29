@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-/** Delays real metadata replies only; never fabricates candidates or repeats a request. */
+/** Delays real metadata replies only; observes submission ACKs without replay. */
 export async function skillsTransport(page, { delayMs = 1500 } = {}) {
   assert(Number.isSafeInteger(delayMs) && delayMs >= 1 && delayMs <= 1500);
   const frames = [], responses = [], errors = [], connections = new Set();
@@ -30,7 +30,7 @@ export async function skillsTransport(page, { delayMs = 1500 } = {}) {
         const request = JSON.parse(String(message));
         const record = { connection, id: request.id, method: request.method, params: request.params, sentAt: Date.now() };
         retain(frames, record);
-        if (skillMethods.has(request.method)) { assert(pending.size < 64); assert(!pending.has(request.id)); pending.set(request.id, record); }
+        if (skillMethods.has(request.method) || request.method === 'sessions.submit') { assert(pending.size < 64); assert(!pending.has(request.id)); pending.set(request.id, record); }
         upstream.send(message);
       } catch (error) { fail(error); retire(); }
     });
@@ -40,7 +40,11 @@ export async function skillsTransport(page, { delayMs = 1500 } = {}) {
         assert(Buffer.byteLength(message) <= 8 << 20);
         const reply = JSON.parse(String(message)), request = pending.get(reply.id);
         if (!request) { socket.send(message); return; }
-        pending.delete(reply.id); assert(timers < 64); timers++;
+        pending.delete(reply.id);
+        if (request.method === 'sessions.submit') {
+          retain(responses, { ...request, deliveredAt: Date.now(), frame: reply }); socket.send(message); return;
+        }
+        assert(timers < 64); timers++;
         const timer = setTimeout(() => {
           delayed.delete(timer); timers--;
           if (!live || closed) return;

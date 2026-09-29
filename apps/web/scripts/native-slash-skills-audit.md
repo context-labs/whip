@@ -74,3 +74,30 @@ native roots. No installed state or user browser is changed.
 
 This is actual Chromium/Firefox web acceptance. It makes no Safari, native
 Desktop, signed-release, model-quality or quantitative performance claim.
+
+
+## Hosted admission-readiness regression (2026-09-29)
+
+Hosted PR276 conversation validation exposed a harness ordering error at the first
+`receipts.get`: the proxy had observed the outgoing `sessions.submit` frame, but
+that observation did not establish that the runtime had committed admission.
+The immediate read could correctly return `NOT_FOUND`. Terminal turn inspection
+and the immutable instruction-manifest assertions occur later and are retained.
+
+The proxy now also records genuine submission acknowledgements without delaying
+or retrying them. The runner waits for the exact connection plus wire request ID
+and `sessions.submit` method, rejects an error acknowledgement, then uses the
+existing SDK receipt wait with the original client/request identity. A queued
+acknowledgement may have no turn yet; the wait observes claim and settlement
+without sending. It checks the acknowledged input ID, resulting input/turn join,
+exact root owner and any turn ID already present in the acknowledgement.
+No `NOT_FOUND` error is swallowed and no mutation is retried. Existing count,
+byte, lifetime and browser deadlines remain unchanged.
+
+The focused regression holds the real reply boundary in the proxy double: an
+outgoing request supplies no acceptance evidence, another connection's identical
+wire ID cannot supply readiness, and the matching acknowledgement is forwarded
+once without another submission. It fails against the preceding transport and
+passes after the repair; all3 transport tests pass.
+
+Actual repaired matrix: `WHIP_SLASH_SKILLS_RESULTS=/tmp/whip-native-slash-readiness-results node apps/web/scripts/slash-skills.mjs` passed all14workflow groups in both Chromium153.0.8010.12 and Firefox155.0. Production renderer digest remained `85b21e7e63c3226d8f683ca46cfe6e4c43ba527466a228730fb8c60f00d934d9`; no product source changed. Both browsers report zero page/CSP/proxy errors and retained metadata within the existing bound. All owned browser/runtime processes joined. This repairs the observed admission-readiness assumption; it does not claim unrelated hosted timing issues are fixed.

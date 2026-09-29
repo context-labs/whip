@@ -209,13 +209,24 @@ for (const name of names) {
     const submission = commands('sessions.submit')[0], root = submission.params.session_id;
     assert.match(new URL(page.url()).pathname, /\/s\//);
     assert.deepEqual(submission.params.parts, [{ type: 'text', text: '$accept-alpha Synthetic first message' }]);
-    const admitted = await client.call('receipts.get', submission.params.identity, deadline());
-    const firstTurn = await eventually(async () => { const turn = await client.session(root).turns.get(admitted.turn.id, deadline()); return ['succeeded', 'failed', 'cancelled', 'interrupted'].includes(turn.state) ? turn : false; });
-    const firstDone = { turn: firstTurn }; assert.equal(firstTurn.state, 'succeeded'); assert.equal(firstTurn.session_id, root);
+    // Observing the outgoing frame does not mean admission has committed. Wait
+    // for this connection's exact ACK before inspecting its durable receipt.
+    const acknowledged = await eventually(() => responses.find(response => response.connection === submission.connection && response.id === submission.id && response.method === 'sessions.submit'), { description: 'the exact first submission acknowledgement' });
+    assert.equal(acknowledged.frame.error, undefined, 'First submission must be acknowledged successfully');
+    assert.deepEqual(acknowledged.frame.result.receipt.identity, submission.params.identity);
+    assert.equal(acknowledged.frame.result.input.session_id, root);
+    // A queued ACK legitimately has no turn yet. The existing SDK receipt wait
+    // observes this exact client/request until claim and settlement; it never sends.
+    const submitter = await fixture.connect(submission.params.identity.client_id);
+    const firstDone = await submitter.wait(submission.params.identity.request_id, deadline());
+    assert.equal(firstDone.input.id, acknowledged.frame.result.input.id);
+    assert.equal(firstDone.turn.state, 'succeeded'); assert.equal(firstDone.turn.session_id, root);
+    assert.equal(firstDone.input.turn_id, firstDone.turn.id);
+    if (acknowledged.frame.result.turn) assert.equal(firstDone.turn.id, acknowledged.frame.result.turn.id);
     const ungranted = await client.call('turns.instructions', { turn_id: firstDone.turn.id }, deadline());
     assert(!ungranted.manifest.sources.some(source => ['skill_metadata', 'invoked_skill'].includes(source.kind)), 'Ungrantable sources omitted before any file read');
     assert.equal((await client.call('skills.list', { session_id: root, prefix: '', limit: 100 }, deadline())).items.length, 0);
-    assert.equal(admitted.input.session_id, root);
+    assert.equal(firstDone.input.session_id, root);
     checks.push('only explicit Send creates and submits once; an ungranted skill remains literal, with no captured skill catalog or body');
     await seed.grant(root);
     const command = client.session(root).submission([{ type: 'text', text: '$accept-alpha Explicitly granted fresh invocation' }], randomUUID());
