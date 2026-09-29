@@ -3470,3 +3470,8 @@ and race package/job deadlines remain unchanged. This targets the growing
 package's cumulative cost rather than extending a stalled scenario. The full
 local build check and new hosted result are pending below. Failed-run evidence:
 `/tmp/whip-pr258-linux-build-failure.log`.
+
+The repaired #258 build gate passed locally at 35793114b, including the complete
+runtime suite in 84.853s, all other fast packages, active builds and vet. Exact
+log: `/tmp/whip-pr258-build-repair.log`. The prior complete race/client passes
+remain evidence for unchanged runtime code; the new hosted run is pending.
