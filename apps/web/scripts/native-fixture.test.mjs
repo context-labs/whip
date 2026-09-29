@@ -55,3 +55,32 @@ test('production web fixture executes both engines, scopes consent and preserves
     const policy = response.headers.get('content-security-policy'); assert.ok(policy && !policy.includes("'unsafe-eval'") && !policy.includes("'unsafe-inline'"));
   } finally { await fixture.close(); }
 });
+
+test('opt-in agent responses use real execution evidence and explicit structured final blocks', { timeout: 120000 }, async () => {
+  const fixture = await startFixture({ executeCode: true, agentResponses: true });
+  try {
+    const client = await fixture.connect('agent-response-check');
+    const { root } = await fixture.createRoot(client, { overrides: { output: { schema: { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'], additionalProperties: false } } } });
+    const session = client.session(root.id), key = 'agent-structured';
+    const run = session.submission([{ type: 'text', text: `hold:${key}
+\`\`\`starlark
+print("executed")
+\`\`\`
+\`\`\`final
+{"answer":"captured"}
+\`\`\`` }], 'structured');
+    await run.send(deadline());
+    await eventually(async () => (await session.history.page({ direction: 'forward' }, deadline())).messages.some(message => message.parts.some(part => part.type === 'tool_result')), { description: 'real committed execution before held final' });
+    fixture.release(key);
+    const settled = await run.wait(deadline()); assert.equal(settled.turn.state, 'succeeded');
+    const output = await session.turns.output(settled.turn.id, deadline());
+    assert.deepEqual(JSON.parse(Buffer.from(output.output.data_base64, 'base64')), { answer: 'captured' });
+    const { root: plain } = await fixture.createRoot(client);
+    await client.session(plain.id).submit([{ type: 'text', text: `\`\`\`starlark
+print("evidence")
+\`\`\`` }], 'plain', deadline());
+    assert.equal((await client.wait('plain', deadline())).turn.state, 'succeeded');
+    const history = await client.session(plain.id).history.page({ direction: 'forward' }, deadline());
+    assert.ok(history.messages.some(message => message.parts.some(part => part.type === 'text' && part.text.startsWith('done: ') && part.text.includes('evidence'))));
+  } finally { await fixture.close(); }
+});

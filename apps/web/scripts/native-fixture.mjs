@@ -25,7 +25,7 @@ export async function eventually(check, { timeout = 15_000, interval = 25, descr
 
 /** Owns the real production runtime, engines and gateway, a local fake HTTP
  * provider and one explicit fixture executor lease. No legacy runtime or DTOs. */
-export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 240_000, executeCode = false, rejectInput } = {}) {
+export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 240_000, executeCode = false, agentResponses = false, rejectInput } = {}) {
   if (rejectInput !== undefined && (typeof rejectInput !== 'string' || rejectInput.length < 1 || rejectInput.length > 256)) throw new RangeError('Rejected fixture input must contain 1..256 characters');
   if (!Number.isInteger(lifetimeMs) || lifetimeMs < 1 || lifetimeMs > 1_800_000) throw new RangeError('Fixture lifetime must be within 1..1800000ms');
   const directory = await mkdtemp('/tmp/whip-web-native-'), state = join(directory, 'state');
@@ -76,12 +76,18 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
       const stream = !!body.stream;
       response.setHeader('Content-Type', stream ? 'text/event-stream' : 'application/json');
       const delta = value => response.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: value, finish_reason: null }] })}\n\n`);
+      // Opt-in agent acceptance: explicit final text follows actual execution.
+      const final = agentResponses ? text.match(/```final\n([\s\S]*?)\n```/)?.[1] : undefined;
+      if (final !== undefined && Buffer.byteLength(final) > 65536) throw new RangeError('Fixture final response exceeds 64KiB');
+      if (agentResponses && last.role === 'tool' && text.startsWith('hold:agent-')) await wait(text.slice(5).split('\n')[0], signal);
       let message;
-      if (last.role === 'tool') message = { role: 'assistant', content: text.startsWith('hold:tool-stream') ? 'Completed held tools.' : text };
+      if (agentResponses && last.role === 'tool') message = { role: 'assistant', content: final ?? `done: ${typeof last.content === 'string' ? last.content : JSON.stringify(last.content)}` };
+      else if (last.role === 'tool') message = { role: 'assistant', content: text.startsWith('hold:tool-stream') ? 'Completed held tools.' : text };
       else if (executeCode && /```(?:starlark|python|javascript|js)\n([\s\S]*?)\n```/.test(text)) {
         const code = text.match(/```(?:starlark|python|javascript|js)\n([\s\S]*?)\n```/)[1];
         message = { role: 'assistant', content: null, tool_calls: [{ id: randomUUID(), type: 'function', function: { name: 'execute', arguments: JSON.stringify({ code }) } }] };
-      } else if (text.startsWith('permission:')) {
+      } else if (final !== undefined) message = { role: 'assistant', content: final };
+      else if (text.startsWith('permission:')) {
         const code = `files.write(path=${JSON.stringify('permission-' + randomUUID() + '.txt')},content=${JSON.stringify(text)})`;
         message = { role: 'assistant', content: null, tool_calls: [{ id: randomUUID(), type: 'function', function: { name: 'execute', arguments: JSON.stringify({ code }) } }] };
       } else if (text.startsWith('hold:tool-stream')) {
