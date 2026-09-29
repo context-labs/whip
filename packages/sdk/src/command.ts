@@ -7,7 +7,7 @@ import { boundedInteger, bytes, delay, freeze, utf8Base64, withSignal } from './
 
 const methods = [
   'sessions.submit', 'sessions.compact', 'sessions.spawn', 'goals.formulate', 'goals.resume', 'tool.call', 'shell.run',
-  'trees.create', 'sessions.fork', 'sessions.rewind', 'permissions.set_mode',
+  'trees.create', 'sessions.reload', 'sessions.fork', 'sessions.rewind', 'permissions.set_mode', 'permissions.set_denial',
   'workspace.capture', 'workspace.restore', 'workspace.release', 'inputs.steer',
   'goals.create', 'schedules.create', 'mail.send', 'state.write', 'state.append', 'state.subscribe',
 ] as const;
@@ -24,7 +24,7 @@ export interface RecoveryRecord {
   readonly request: string;
   readonly accepted: boolean;
 }
-export type RecoveryEvidence = Admission | Operations['trees.creation']['result'] | Operations['permissions.mode_edit']['result'] | Operations['workspace.action']['result'] | Operations['inputs.steering']['result'];
+export type RecoveryEvidence = Admission | Operations['sessions.reload_edit']['result'] | Operations['trees.creation']['result'] | Operations['permissions.mode_edit']['result'] | Operations['permissions.denial_edit']['result'] | Operations['workspace.action']['result'] | Operations['inputs.steering']['result'];
 export type RecoveryCheck = { state: 'found'; evidence: RecoveryEvidence } | { state: 'identity_only'; evidence: RecoveryEvidence } | { state: 'missing' } | { state: 'unavailable' };
 export class RecoveryError extends Error {
   constructor(message: string) { super(message); this.name = 'RecoveryError'; }
@@ -174,6 +174,18 @@ export class DurableCommand<M extends DurableMethod> {
         case 'inputs.steer': {
           evidence = await this.client.session(request.params.session_id).inputs.steering(request.params.edit_id, options);
           if (evidence.input_id !== request.params.input_id || evidence.turn_id !== request.params.turn_id) throw new TypeError('Steering receipt mismatch');
+          matchesRequest = true;
+          break;
+        }
+        case 'sessions.reload': {
+          evidence = await this.client.getReloadEdit(request.params.session_id, request.params.edit_id, options);
+          if (evidence.expected_revision !== request.params.expected_revision) throw new TypeError('Reload receipt request mismatch');
+          matchesRequest = true;
+          break;
+        }
+        case 'permissions.set_denial': {
+          evidence = await this.client.getPermissionDenialEdit(request.params.session_id, request.params.edit_id, options);
+          if (evidence.id !== request.params.edit_id || evidence.session_id !== request.params.session_id || evidence.deny_interactive !== request.params.deny_interactive || evidence.expected_revision !== request.params.expected_revision) throw new TypeError('Permission denial receipt mismatch');
           matchesRequest = true;
           break;
         }

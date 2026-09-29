@@ -31,6 +31,9 @@
     "policy": {
       "type": "object",
       "properties": {
+        "deny_interactive": {
+          "type": "boolean"
+        },
         "tree_id": {
           "type": "string",
           "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
@@ -52,6 +55,7 @@
         }
       },
       "required": [
+        "deny_interactive",
         "tree_id",
         "mode",
         "revision",

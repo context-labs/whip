@@ -235,6 +235,7 @@ type Turn struct {
 	FinishedAt      *string  `json:"finished_at"`
 }
 type Message struct {
+	InputIdentity   *RequestIdentity           `json:"input_identity"`
 	DesignContext   *DesignContextPresentation `json:"design_context,omitempty"`
 	GroupID         ID                         `json:"group_id"`
 	OpeningInput    bool                       `json:"opening_input"`

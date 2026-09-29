@@ -42,6 +42,27 @@
           {
             "type": "object",
             "properties": {
+              "input_identity": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "client_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "request_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  }
+                },
+                "required": [
+                  "client_id",
+                  "request_id"
+                ],
+                "additionalProperties": false
+              },
               "design_context": {
                 "type": [
                   "null",
@@ -275,6 +296,7 @@
               }
             },
             "required": [
+              "input_identity",
               "group_id",
               "opening_input",
               "source",
@@ -295,6 +317,27 @@
           {
             "type": "object",
             "properties": {
+              "input_identity": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "client_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "request_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  }
+                },
+                "required": [
+                  "client_id",
+                  "request_id"
+                ],
+                "additionalProperties": false
+              },
               "design_context": {
                 "type": [
                   "null",
@@ -528,6 +571,7 @@
               }
             },
             "required": [
+              "input_identity",
               "group_id",
               "opening_input",
               "source",
@@ -548,6 +592,27 @@
           {
             "type": "object",
             "properties": {
+              "input_identity": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "client_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "request_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  }
+                },
+                "required": [
+                  "client_id",
+                  "request_id"
+                ],
+                "additionalProperties": false
+              },
               "design_context": {
                 "type": [
                   "null",
@@ -820,6 +885,7 @@
               }
             },
             "required": [
+              "input_identity",
               "group_id",
               "opening_input",
               "source",
@@ -840,6 +906,27 @@
           {
             "type": "object",
             "properties": {
+              "input_identity": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "client_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "request_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  }
+                },
+                "required": [
+                  "client_id",
+                  "request_id"
+                ],
+                "additionalProperties": false
+              },
               "design_context": {
                 "type": [
                   "null",
@@ -1097,6 +1184,7 @@
               }
             },
             "required": [
+              "input_identity",
               "group_id",
               "opening_input",
               "source",

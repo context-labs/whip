@@ -60,7 +60,7 @@ func TestPermissionModeRPCExactReceiptsStoppedEditingAndHostDefaults(t *testing.
 	if _, err := tx.ExecContext(t.Context(), "DELETE FROM permission_policies WHERE tree_id=?", first.Tree.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tx.ExecContext(t.Context(), "INSERT INTO permission_policies VALUES (?,'prompt',9007199254740993,1)", first.Tree.ID); err != nil {
+	if _, err := tx.ExecContext(t.Context(), "INSERT INTO permission_policies (tree_id,mode,revision,updated_at) VALUES (?,'prompt',9007199254740993,1)", first.Tree.ID); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

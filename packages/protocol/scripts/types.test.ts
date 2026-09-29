@@ -38,3 +38,8 @@ if (trace.span) {
     void key; void count; void text; void flag;
   }
 }
+
+// Conditional validation does not make closed reload DTOs arbitrary records.
+type ReloadIsClosed = string extends keyof import('../generated/index.js').ReloadEdit ? never : true;
+const reloadIsClosed: ReloadIsClosed = true;
+void reloadIsClosed;

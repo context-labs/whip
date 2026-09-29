@@ -328,6 +328,8 @@ func ValidateInputParts(parts []Part) error { return ValidateMessage(User, parts
 // resolve Parts through an input or immutable mail revision; authored and
 // imported entries own their parts.
 type Message struct {
+	// InputIdentity is derived from this owner's local input, never imported provenance.
+	InputIdentity   *RequestIdentity
 	DesignContext   *DesignContextPresentation
 	GroupID         HistoryGroupID
 	OpeningInput    bool

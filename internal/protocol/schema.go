@@ -22,6 +22,9 @@ type Operation struct {
 
 func Operations() []Operation {
 	return []Operation{
+		{"sessions.reload", reflect.TypeFor[ReloadSessionParams](), reflect.TypeFor[ReloadEdit]()},
+		{"sessions.reload_edit", reflect.TypeFor[ReloadEditParams](), reflect.TypeFor[ReloadEdit]()},
+		{"sessions.cancel_reload", reflect.TypeFor[ReloadEditParams](), reflect.TypeFor[ReloadEdit]()},
 		{"host.status", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostStatus]()},
 		{"host.stop", reflect.TypeFor[StopHostParams](), reflect.TypeFor[HostStopAccepted]()},
 		{"workspace.complete", reflect.TypeFor[WorkspaceCompletionParams](), reflect.TypeFor[WorkspaceCompletionResult]()},
@@ -91,6 +94,7 @@ func Operations() []Operation {
 		{"providers.presets", reflect.TypeFor[EmptyParams](), reflect.TypeFor[ProviderPresetsResult]()},
 		{"providers.bundled", reflect.TypeFor[ProviderParams](), reflect.TypeFor[ProviderModelsResult]()},
 		{"providers.list", reflect.TypeFor[EmptyParams](), reflect.TypeFor[ProviderInventory]()},
+		{"providers.setup_key", reflect.TypeFor[ProviderKeySetup](), reflect.TypeFor[ProviderInventory]()},
 		{"providers.create", reflect.TypeFor[ChangeProviderParams](), reflect.TypeFor[ProviderInventory]()},
 		{"providers.update", reflect.TypeFor[ChangeProviderParams](), reflect.TypeFor[ProviderInventory]()},
 		{"providers.remove", reflect.TypeFor[RemoveProviderParams](), reflect.TypeFor[ProviderInventory]()},
@@ -177,8 +181,12 @@ func Operations() []Operation {
 		{"permissions.resolve", reflect.TypeFor[ResolvePermissionParams](), reflect.TypeFor[Permission]()},
 		{"permissions.policy", reflect.TypeFor[SessionParams](), reflect.TypeFor[PermissionPolicy]()},
 		{"permissions.set_mode", reflect.TypeFor[SetPermissionModeParams](), reflect.TypeFor[PermissionModeEdit]()},
+		{"permissions.set_denial", reflect.TypeFor[SetPermissionDenialParams](), reflect.TypeFor[PermissionDenialEdit]()},
+		{"permissions.denial_edit", reflect.TypeFor[PermissionModeEditParams](), reflect.TypeFor[PermissionDenialEdit]()},
 		{"permissions.mode_edit", reflect.TypeFor[PermissionModeEditParams](), reflect.TypeFor[PermissionModeEdit]()},
 		{"host.profiles", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostProfiles]()},
+		{"host.browser_driver", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostBrowserDriver]()},
+		{"host.set_browser_driver", reflect.TypeFor[SetBrowserDriverParams](), reflect.TypeFor[HostBrowserDriver]()},
 		{"host.execution_defaults", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostExecutionDefaults]()},
 		{"host.set_execution_defaults", reflect.TypeFor[SetExecutionDefaultsParams](), reflect.TypeFor[HostExecutionDefaults]()},
 		{"host.set_profiles", reflect.TypeFor[SetHostProfilesParams](), reflect.TypeFor[HostProfiles]()},

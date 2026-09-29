@@ -10,7 +10,11 @@ import (
 
 func browserOperation(t *testing.T, owner session.Session, cell session.Cell, id, kind string, scope session.BrowserScope, previous string) session.OperationSpec {
 	t.Helper()
-	raw, err := json.Marshal(session.BrowserIntent{SessionID: owner.ID, TreeID: owner.TreeID, ConfigRevision: owner.ConfigRevision, Kind: kind, Scope: scope, PreviousResource: previous, Arguments: json.RawMessage(`{}`)})
+	driver := ""
+	if kind == "run" {
+		driver = "rod"
+	}
+	raw, err := json.Marshal(session.BrowserIntent{Driver: driver, SessionID: owner.ID, TreeID: owner.TreeID, ConfigRevision: owner.ConfigRevision, Kind: kind, Scope: scope, PreviousResource: previous, Arguments: json.RawMessage(`{}`)})
 	if err != nil {
 		t.Fatal(err)
 	}

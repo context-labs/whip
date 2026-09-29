@@ -6,121 +6,119 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 
-	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/inferencenet"
-	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/protocol"
+
+	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/inferenceauth"
 )
 
 func TestAuthInferenceNetDispatch(t *testing.T) {
-	t.Setenv("WHIPCODE_HOME", t.TempDir())
-	// Unknown subcommand is rejected.
-	if err := authCLI([]string{"inference-net", "bogus"}); err == nil {
-		t.Error("unknown subcommand should error")
+	for _, args := range [][]string{{"bogus"}, {"key"}, {"key", "rotate", "extra"}, {"status", "extra"}, {"logout", "extra"}, {"login", "--key", "x", "--env"}, {"flow", "bad", "id"}} {
+		if err := authInferenceNetCLI(args); err == nil {
+			t.Fatalf("invalid args accepted: %v", args)
+		}
 	}
-	// key without "rotate" is rejected.
-	if err := authCLI([]string{"inference-net", "key"}); err == nil {
-		t.Error("`key` without rotate should error")
-	}
-	// The legacy "inference" provider name still routes.
 	if err := authCLI([]string{"inference", "bogus"}); err == nil {
-		t.Error("legacy alias should route to inference-net handler")
+		t.Fatal("invalid alias operation accepted")
 	}
 }
 
 func TestAuthInferenceNetBYOKNoKey(t *testing.T) {
-	t.Setenv("WHIPCODE_HOME", t.TempDir())
-	t.Setenv(config.InferenceNetEnvVar, "")
+	t.Setenv(inferenceEnvironment, "")
 	if err := authCLI([]string{"inference-net", "login", "--key", ""}); err == nil {
-		t.Error("BYOK with no key should error")
+		t.Fatal("empty key accepted")
 	}
 }
 
 func TestAuthInferenceNetStatusAndLogoutUnsigned(t *testing.T) {
-	useTestDaemon(t)
-	t.Setenv("WHIPCODE_HOME", t.TempDir())
+	useNativeAuth(t, nil)
 	if err := authCLI([]string{"inference-net", "status"}); err != nil {
-		t.Errorf("status on a fresh home should not error: %v", err)
+		t.Fatal(err)
 	}
-	// Logout with nothing stored is a clean no-op.
 	if err := authCLI([]string{"inference-net", "logout"}); err != nil {
-		t.Errorf("logout with no session should not error: %v", err)
+		t.Fatal(err)
 	}
-	// Rotate without a session tells the user to log in first.
-	if err := authCLI([]string{"inference-net", "key", "rotate"}); err == nil ||
-		!strings.Contains(err.Error(), "login") {
-		t.Errorf("rotate without session should point at login, got %v", err)
+	if err := authCLI([]string{"inference-net", "key", "rotate"}); err == nil {
+		t.Fatal("unsigned rotation accepted")
 	}
 }
 
-func TestAuthInferenceNetLogoutClearsStoredAuth(t *testing.T) {
-	useTestDaemon(t)
-	t.Setenv("WHIPCODE_HOME", t.TempDir())
-	// Point the remote calls at a dead local port so they fail fast (and the
-	// test never reaches the real relay); the local state is still cleared.
-	defer inferencenet.SetURLsForTest("http://127.0.0.1:1", "", "")()
-	if err := inferencenet.SaveAuth(inferencenet.Auth{SessionToken: "tok", MachineKey: "mk"}); err != nil {
+func TestAuthInferenceNetLogoutClearsStoredAuthAndReportsPendingCleanup(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "private-remote-failure", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	redirectAuthRequests(t, server.URL, "observability-api.inference.net", "")
+	directory := useNativeAuth(t, func(directory string) {
+		manager, err := inferenceauth.New(t.Context(), directory)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = manager.Close() }()
+		if err := manager.Install(t.Context(), manager.Generation(), inferenceauth.Credentials{Management: inferenceauth.Management{Token: "private-session", UserID: "user", Email: "dev@example.com"}, Scope: inferenceauth.Scope{TeamID: "team", ProjectID: "project"}, MachineKey: inferenceauth.MachineKey{ID: "key", Value: "private-key"}}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	output := invokeMain(t, "auth", "inference-net", "logout")
+	if !strings.Contains(output, "Remote cleanup pending") || strings.Contains(output, "private-") {
+		t.Fatal(output)
+	}
+	manager, err := inferenceauth.New(t.Context(), directory)
+	if err != nil {
 		t.Fatal(err)
 	}
-	// Logout's remote calls fail soft (warnings); the local state is cleared.
-	if err := authCLI([]string{"inference-net", "logout"}); err != nil {
-		t.Errorf("logout should clear local state even when remote calls fail: %v", err)
+	defer func() { _ = manager.Close() }()
+	auth, err := manager.Snapshot()
+	if err != nil || auth.Management.Token != "" || auth.MachineKey.Value != "" {
+		t.Fatal("local logout failed", err)
 	}
-	a, _ := inferencenet.LoadAuth()
-	if a != (inferencenet.Auth{}) {
-		t.Errorf("logout should clear stored auth, got %+v", a)
+	cleanup := invokeMain(t, "auth", "inference-net", "cleanup")
+	if !strings.Contains(cleanup, "key=pending") || !strings.Contains(cleanup, "session=pending") {
+		t.Fatal(cleanup)
 	}
 }
 
 func TestAuthInferenceNetBYOKValidatesAndPersists(t *testing.T) {
-	t.Setenv("WHIPCODE_HOME", t.TempDir())
-	t.Setenv(config.InferenceNetEnvVar, "")
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	t.Setenv(inferenceEnvironment, "")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/models" || r.Header.Get("Authorization") != "Bearer good" {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, `{"data":[{"id":"kimi-k3-fast"}]}`)
 	}))
-	t.Cleanup(srv.Close)
-	defer inferencenet.SetURLsForTest("", "", srv.URL)()
-	redirectAuthRequests(t, srv.URL, "api.inference.net", "/v1")
-	useTestDaemon(t)
-
+	defer server.Close()
+	redirectAuthRequests(t, server.URL, "api.inference.net", "/v1")
+	directory := useNativeAuth(t, nil)
 	if err := authCLI([]string{"inference-net", "login", "--key", "bad"}); err == nil {
-		t.Fatal("rejected key was accepted")
+		t.Fatal("bad key accepted")
 	}
 	if err := authCLI([]string{"inference-net", "login", "--key", " good\n"}); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := config.Load()
+	host, err := config.Load(directory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	provider := cfg.Providers[config.InferenceNetProvider]
-	if provider.APIKey != "good" || provider.APIKeyEnv != "" {
-		t.Fatalf("persisted provider = %+v", provider)
+	p := host.Providers[inferenceProvider]
+	key, err := os.ReadFile(p.CredentialFile)
+	if err != nil || string(key) != "good" || p.CredentialSource != "file" {
+		t.Fatal("private key missing", err)
 	}
-
-	t.Setenv(config.InferenceNetEnvVar, "good")
+	t.Setenv(inferenceEnvironment, "good")
 	if err := authCLI([]string{"inference-net", "login", "--env"}); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err = config.Load()
+	host, err = config.Load(directory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	provider = cfg.Providers[config.InferenceNetProvider]
-	if provider.APIKey != "" || provider.APIKeyEnv != config.InferenceNetEnvVar {
-		t.Fatalf("persisted env provider = %+v", provider)
-	}
-	if err := inferencenet.SaveAuth(inferencenet.Auth{UserEmail: "user@example.com", ProjectID: "project", ProjectName: "Project", MachineKey: "key", MachineKeyName: "whip-test"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := inferenceNetStatusCLI(); err != nil {
-		t.Fatal(err)
+	p = host.Providers[inferenceProvider]
+	if p.CredentialEnv != inferenceEnvironment || p.CredentialFile != "" || p.CredentialSource != "env" {
+		t.Fatal("environment reference lost")
 	}
 }
 
@@ -173,14 +171,14 @@ func TestCLIChooser(t *testing.T) {
 func TestProviderChoiceUsesStableIDsWithDuplicateNames(t *testing.T) {
 	for _, test := range []struct {
 		name, input, want string
-		choices           []daemon.ProviderChoice
+		choices           []providerChoice
 		wantErr           bool
 	}{
 		{name: "no workspaces", wantErr: true},
-		{name: "one workspace", choices: []daemon.ProviderChoice{{ID: "team-1", Name: "Work"}}, want: "team-1"},
-		{name: "duplicate names", input: "2\n", choices: []daemon.ProviderChoice{{ID: "team-1", Name: "Work"}, {ID: "team-2", Name: "Work"}}, want: "team-2"},
-		{name: "new project", input: "2\n", choices: []daemon.ProviderChoice{{ID: "project-1", Name: "Existing"}, {Name: "+ Create new project"}}},
-		{name: "invalid choice", input: "3\n", choices: []daemon.ProviderChoice{{ID: "team-1"}, {ID: "team-2"}}, wantErr: true},
+		{name: "one workspace", choices: []providerChoice{{ID: "team-1", Name: "Work"}}, want: "team-1"},
+		{name: "duplicate names", input: "2\n", choices: []providerChoice{{ID: "team-1", Name: "Work"}, {ID: "team-2", Name: "Work"}}, want: "team-2"},
+		{name: "new project", input: "2\n", choices: []providerChoice{{ID: "project-1", Name: "Existing"}, {Name: "+ Create new project"}}},
+		{name: "invalid choice", input: "3\n", choices: []providerChoice{{ID: "team-1"}, {ID: "team-2"}}, wantErr: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			reader, writer, err := os.Pipe()
@@ -203,8 +201,7 @@ func TestProviderChoiceUsesStableIDsWithDuplicateNames(t *testing.T) {
 }
 
 func TestAuthInferenceNetDeviceLoginAndKeyRotation(t *testing.T) {
-	t.Setenv(config.InferenceNetEnvVar, "")
-	useTestDaemon(t)
+	t.Setenv(inferenceEnvironment, "")
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/auth/device/code", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, `{"device_code":"device","user_code":"CODE","expires_in":30,"interval":1}`)
@@ -232,8 +229,8 @@ func TestAuthInferenceNetDeviceLoginAndKeyRotation(t *testing.T) {
 	})
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
-	defer inferencenet.SetURLsForTest(server.URL, server.URL, server.URL)()
-	t.Setenv("WHIPCODE_HOME", t.TempDir())
+	redirectAuthRequests(t, server.URL, "observability-api.inference.net", "")
+	directory := useNativeAuth(t, nil)
 	t.Setenv("PATH", t.TempDir()) // openBrowser reports false without launching an app
 
 	reader, writer, err := os.Pipe()
@@ -254,19 +251,86 @@ func TestAuthInferenceNetDeviceLoginAndKeyRotation(t *testing.T) {
 	if err := authCLI([]string{"inference-net", "login"}); err != nil {
 		t.Fatal(err)
 	}
-	auth, err := inferencenet.LoadAuth()
-	if err != nil || auth.ProjectID != "project-1" || auth.MachineKey != "machine-secret" {
-		t.Fatalf("device auth = %+v, %v", auth, err)
+	manager, err := inferenceauth.New(t.Context(), directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth, err := manager.Snapshot()
+	_ = manager.Close()
+	if err != nil || auth.Scope.ProjectID != "project-1" || auth.MachineKey.Value != "machine-secret" {
+		t.Fatal("device credential not published", err)
 	}
 	if err := authCLI([]string{"inference-net", "key", "rotate"}); err != nil {
 		t.Fatal(err)
 	}
-	rotated, err := inferencenet.LoadAuth()
-	if err != nil || rotated.MachineKeyID != "key-1" || rotated.MachineKey == "" {
-		t.Fatalf("rotated auth = %+v, %v", rotated, err)
+	manager, err = inferenceauth.New(t.Context(), directory)
+	if err != nil {
+		t.Fatal(err)
 	}
-	cfg, err := config.Load()
-	if err != nil || cfg.Providers[config.InferenceNetProvider].BaseURL == "" {
-		t.Fatalf("inference provider = %+v, %v", cfg.Providers[config.InferenceNetProvider], err)
+	rotated, err := manager.Snapshot()
+	_ = manager.Close()
+	if err != nil || rotated.MachineKey.ID != "key-1" || rotated.MachineKey.Value == "" {
+		t.Fatal("rotated credential missing", err)
+	}
+	host, err := config.Load(directory)
+	if err != nil || host.Providers[inferenceProvider].CredentialSource != "inference-net" {
+		t.Fatal("managed route missing", err)
+	}
+}
+
+func TestAuthInferenceUncertainCreationIsInspectableWithoutAutomaticReplay(t *testing.T) {
+	t.Setenv(inferenceEnvironment, "")
+	t.Setenv("PATH", t.TempDir())
+	var creations atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		responses := map[string]string{
+			"/api/auth/device/code":             `{"device_code":"device","user_code":"CODE","expires_in":30,"interval":1}`,
+			"/api/auth/device/token":            `{"access_token":"session-token"}`,
+			"/api/auth/get-session":             `{"user":{"id":"user","email":"dev@example.com"}}`,
+			"/api/auth/organization/list":       `[{"id":"team","name":"Team"}]`,
+			"/api/auth/organization/set-active": `{}`,
+			"/api/rest/projects":                `[{"id":"project","name":"Project"}]`,
+		}
+		if r.URL.Path == "/api/rest/api-keys" {
+			creations.Add(1)
+			fmt.Fprint(w, `{"id":"created-but-secret-response-lost"}`)
+			return
+		}
+		if body, ok := responses[r.URL.Path]; ok {
+			fmt.Fprint(w, body)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+	redirectAuthRequests(t, server.URL, "observability-api.inference.net", "")
+	useNativeAuth(t, nil)
+	withStdin(t, "\n")
+	var loginErr error
+	captureStdout(t, func() { loginErr = authCLI([]string{"inference-net", "login"}) })
+	if loginErr == nil || !strings.Contains(loginErr.Error(), "uncertain") || creations.Load() != 1 {
+		t.Fatal(loginErr, creations.Load())
+	}
+	c, err := connectNativeRuntime(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	var flows protocol.InferenceFlowsResult
+	if err := c.Call(t.Context(), "accounts.inference.list", protocol.EmptyParams{}, &flows); err != nil || len(flows.Items) != 1 || flows.Items[0].State != "uncertain" {
+		t.Fatal(flows, err)
+	}
+	id := flows.Items[0].ID
+	if err := authInferenceNetCLI([]string{"flow", "get", id}); err != nil {
+		t.Fatal(err)
+	}
+	if err := authInferenceNetCLI([]string{"flow", "wait", id}); err == nil || !strings.Contains(err.Error(), "uncertain") {
+		t.Fatal(err)
+	}
+	if err := authInferenceNetCLI([]string{"flow", "retry", id}); err == nil {
+		t.Fatal("uncertain remote creation retried")
+	}
+	if creations.Load() != 1 {
+		t.Fatal("inspection or explicit unavailable retry repeated key creation")
 	}
 }

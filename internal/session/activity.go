@@ -18,6 +18,8 @@ type Activity struct {
 
 // InputSummary keeps queue discovery separate from explicit payload reads.
 type InputSummary struct {
+	// Identity is the immutable admission receipt, absent for inputs without one.
+	Identity         *RequestIdentity
 	Steering         *InputSteeringRef
 	ID               InputID
 	SessionID        SessionID

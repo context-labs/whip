@@ -51,6 +51,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return nil, ErrMethod
 	}
 	switch method {
+	case "sessions.reload", "sessions.reload_edit", "sessions.cancel_reload":
+		return dispatchReload(ctx, r, method, raw)
 	case "browser.tabs", "browser.attachments":
 		return dispatchBrowserRead(ctx, r, method, raw)
 	case "receipts.match":
@@ -96,7 +98,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return terminalDispatch(ctx, r, host, method, raw)
 	case "workspace.capture", "workspace.restore", "workspace.release", "workspace.action", "workspace.snapshot", "workspace.snapshots":
 		return dispatchWorkspace(ctx, r, method, raw)
-	case "providers.presets", "providers.bundled", "providers.list", "providers.create", "providers.update", "providers.remove", "providers.defaults", "providers.compaction", "providers.catalog", "providers.refresh", "providers.readiness":
+	case "providers.presets", "providers.bundled", "providers.list", "providers.setup_key", "providers.create", "providers.update", "providers.remove", "providers.defaults", "providers.compaction", "providers.catalog", "providers.refresh", "providers.readiness":
 		return dispatchProvider(ctx, host.ProviderHost, method, raw)
 	case "lsp.status":
 		return decode(raw, func(p protocol.SessionParams) (any, error) {
@@ -148,9 +150,11 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return dispatchObservation(ctx, r, raw)
 	case "host.profiles", "host.set_profiles":
 		return dispatchHostProfiles(ctx, r, method, raw)
+	case "host.browser_driver", "host.set_browser_driver":
+		return dispatchBrowserDriver(ctx, r, method, raw)
 	case "host.execution_defaults", "host.set_execution_defaults":
 		return dispatchExecutionDefaults(ctx, r, method, raw)
-	case "permissions.policy", "permissions.set_mode", "permissions.mode_edit", "host.permission_default", "host.set_permission_default":
+	case "permissions.set_denial", "permissions.denial_edit", "permissions.policy", "permissions.set_mode", "permissions.mode_edit", "host.permission_default", "host.set_permission_default":
 		return dispatchPermissionMode(ctx, r, method, raw)
 	case "questions.get", "questions.list", "questions.answer":
 		return dispatchQuestion(ctx, r, method, raw)

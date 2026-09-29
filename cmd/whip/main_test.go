@@ -153,11 +153,14 @@ func TestMainDispatchesHeadlessCommands(t *testing.T) {
 			t.Fatalf("sessions output = %q", output)
 		}
 	})
-	t.Run("mcp and auth", func(t *testing.T) {
+	t.Run("mcp", func(t *testing.T) {
 		legacyRunFixture(t, "main reply", nil)
 		if output := invokeMain(t, "mcp", "list"); output == "" {
 			t.Fatal("mcp list produced no output")
 		}
+	})
+	t.Run("auth", func(t *testing.T) {
+		useNativeAuth(t, nil)
 		if output := invokeMain(t, "auth", "inference-net", "status"); !strings.Contains(output, "Inference.net") {
 			t.Fatalf("auth output = %q", output)
 		}

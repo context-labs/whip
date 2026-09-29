@@ -46,6 +46,7 @@ func (v BrowserScope) Resource() string {
 // BrowserIntent is assigned by host preparation, never accepted as guest scope.
 // PreviousResource names the narrower scope retired by preview expansion.
 type BrowserIntent struct {
+	Driver           string          `json:"driver,omitempty"`
 	SessionID        SessionID       `json:"session_id"`
 	TreeID           TreeID          `json:"tree_id"`
 	ConfigRevision   Revision        `json:"config_revision"`
@@ -85,6 +86,9 @@ func (s BrowserScope) Validate() error {
 }
 
 func (r BrowserIntent) Validate() error {
+	if (r.Kind == "run" && r.Driver != "rod" && r.Driver != "chromedp") || (r.Kind != "run" && r.Driver != "") {
+		return ErrInvalid
+	}
 	if err := ValidateID(string(r.SessionID)); err != nil {
 		return err
 	}

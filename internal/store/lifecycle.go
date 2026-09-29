@@ -188,6 +188,9 @@ func deleteSubtree(ctx context.Context, tx *sql.Tx, id session.SessionID) error 
 	if err := deleteRecipientMail(ctx, tx, id); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, "UPDATE session_reloads SET state='unavailable',settled_at=? WHERE session_id=? AND state='pending'", now(), id); err != nil {
+		return err
+	}
 	if target.ParentID == nil {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM model_attempts WHERE id IN (SELECT attempt_id FROM attempt_budget_ancestors WHERE session_id=?)", target.ID); err != nil {
 			return err

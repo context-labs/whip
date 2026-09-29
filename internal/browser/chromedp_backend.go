@@ -27,6 +27,7 @@ import (
 // chromedpBackend holds a chromedp allocator (browser-level) plus a
 // target-bound context for the controlled tab.
 type chromedpBackend struct {
+	executor  cdp.Executor
 	mode      Mode
 	allocCtx  context.Context
 	allocStop context.CancelFunc
@@ -92,6 +93,9 @@ func openChromedp(ctx context.Context, mode Mode, sessionName string, env []stri
 }
 
 func (b *chromedpBackend) run(ctx context.Context, actions ...chromedp.Action) error {
+	if b.executor != nil {
+		return chromedp.Tasks(actions).Do(cdp.WithExecutor(ctx, b.executor))
+	}
 	// chromedp.Run executes on the target-bound context; the caller's ctx
 	// bounds it via a deadline wrap when present.
 	c := b.targetCtx
@@ -144,6 +148,9 @@ func (b *chromedpBackend) Back(ctx context.Context) error {
 	}
 	if current <= 0 {
 		return nil
+	}
+	if current >= len(entries) || entries[current-1] == nil {
+		return errors.New("invalid browser navigation history")
 	}
 	prev := entries[current-1]
 	return b.run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
@@ -377,6 +384,9 @@ func (b *chromedpBackend) AXTree(ctx context.Context) (string, error) {
 	}
 	out := make([]node, 0, len(nodes))
 	for _, n := range nodes {
+		if n == nil {
+			return "", errors.New("invalid browser accessibility node")
+		}
 		if n.Ignored {
 			continue
 		}
@@ -406,6 +416,9 @@ func (b *chromedpBackend) BoxModel(ctx context.Context, backendNodeID int) (floa
 	if err != nil {
 		return 0, 0, err
 	}
+	if model == nil || len(model.Content) != 8 {
+		return 0, 0, errors.New("invalid browser box model")
+	}
 	q := model.Content
 	var sx, sy float64
 	for i := range 4 {
@@ -427,6 +440,9 @@ func (b *chromedpBackend) Tabs(ctx context.Context) ([]Tab, error) {
 	}
 	var out []Tab
 	for _, ti := range infos {
+		if ti == nil {
+			return nil, errors.New("invalid browser target")
+		}
 		if ti.Type != "page" {
 			continue
 		}

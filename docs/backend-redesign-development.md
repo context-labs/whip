@@ -3757,3 +3757,36 @@ platform. The regression failed before the fix and passed under race afterward
 fixture passed locally. The existing Linux scenario is retained unchanged; new hosted
 validation is pending. Logs: `/tmp/whip-host-unavailable-{before,after}.log` and
 `/tmp/whip-desktop-ci-{contract,computer}.log`.
+
+## Native retained controls integration — 2026-09-29
+
+This checkpoint adds validated provider-key setup and the native account CLI,
+independent durable tree-wide interactive permission denial (schema53), captured
+idle-boundary session reload and exact recovery receipts (schema54), derived
+admitted-input identity in queue/history, and captured Rod/ChromeDP selection
+(config20). It reuses the tested leaf commits; it creates no replacement runtime
+or installed application state. Pending reload acceptance remains distinct from
+application, and browser settings cannot reinterpret accepted batches.
+
+At `3cf771fae`, active build/vet/fast and the complete package race suites passed
+(store323.609s, runtime393.702s). The phase command then failed the native CLI
+client gate: the retained combined MCP/auth dispatch test invoked native auth
+through a legacy fixture whose temporary socket exceeded macOS's100-byte bound.
+A verbose repeat identified the exact `mcp_and_auth` subtest. The test now keeps
+MCP in its retained fixture and uses the existing short native auth fixture,
+preserving both assertions and the production path limit. The independently
+reproduced missing `HOST_UNAVAILABLE` contract error is also repaired.
+
+At repaired code head `14315f2ee`, the complete client gate passes (native CLI
+race48.242s, compiled CLI and all production/retained fixtures), and analysis
+reports0 new lint issues against frozen `e3fed9c91918d9c36766dd47d878c1b5466238d1`
+and no vulnerabilities. Runtime/store implementation is unchanged by these two
+repairs; their complete preceding race coverage is retained. Logs:
+`/tmp/whip-parity-phase.log`, `/tmp/whip-parity-native-cli-verbose.log`,
+`/tmp/whip-parity-clients-repaired.log`, `/tmp/whip-parity-analysis.log`.
+
+Desktop draft262 repaired head `0e6930680` is now fully green in hosted run
+36533998513, including Linux/macOS/analysis/aggregate. Its earlier run36532327797
+remains a recorded failure. The new parity draft's hosted gates are pending.
+Phases5–7 remain in progress: ACP/TUI, final renderer integration, acceptance
+artifacts and retirement of the old core still have work outstanding.

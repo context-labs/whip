@@ -12,6 +12,16 @@ import (
 
 func dispatchPermissionMode(ctx context.Context, r *runtime.Runtime, method string, raw json.RawMessage) (any, error) {
 	switch method {
+	case "permissions.set_denial":
+		return decode(raw, func(p protocol.SetPermissionDenialParams) (any, error) {
+			value, err := r.SetPermissionDenial(ctx, session.PermissionDenialRequest{ID: string(p.EditID), SessionID: session.SessionID(p.SessionID), ExpectedRevision: session.Revision(p.ExpectedRevision), DenyInteractive: p.DenyInteractive})
+			return protocol.PermissionDenialEditFromDomain(value), err
+		})
+	case "permissions.denial_edit":
+		return decode(raw, func(p protocol.PermissionModeEditParams) (any, error) {
+			value, err := r.PermissionDenialEdit(ctx, session.SessionID(p.SessionID), string(p.EditID))
+			return protocol.PermissionDenialEditFromDomain(value), err
+		})
 	case "permissions.policy":
 		return decode(raw, func(p protocol.SessionParams) (any, error) {
 			value, err := r.PermissionPolicy(ctx, session.SessionID(p.SessionID))

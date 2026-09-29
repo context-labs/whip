@@ -23,13 +23,14 @@ import (
 )
 
 type browserFixture struct {
-	peer             *BrowserPeer
-	commands         atomic.Int64
-	screenshots      atomic.Int64
-	blocked          chan struct{}
-	block            atomic.Bool
-	transferBlock    atomic.Bool
-	transferObserved chan *browserhost.Command
+	peer               *BrowserPeer
+	commands           atomic.Int64
+	screenshots        atomic.Int64
+	clippedScreenshots atomic.Int64
+	blocked            chan struct{}
+	block              atomic.Bool
+	transferBlock      atomic.Bool
+	transferObserved   chan *browserhost.Command
 }
 
 func startBrowserFixture(t *testing.T, r *Runtime, owner session.Session) *browserFixture {
@@ -90,6 +91,9 @@ func startBrowserFixture(t *testing.T, r *Runtime, owner session.Session) *brows
 			if cmd.Kind == "cdp" {
 				var params struct {
 					Method string `json:"method"`
+					Params struct {
+						Clip json.RawMessage `json:"clip"`
+					} `json:"params"`
 				}
 				if err := json.Unmarshal(cmd.Arguments, &params); err != nil {
 					done <- err
@@ -109,6 +113,9 @@ func startBrowserFixture(t *testing.T, r *Runtime, owner session.Session) *brows
 					result.Result = json.RawMessage(`{"cssLayoutViewport":{"clientWidth":2,"clientHeight":2}}`)
 				case "Page.captureScreenshot":
 					f.screenshots.Add(1)
+					if len(params.Params.Clip) > 0 {
+						f.clippedScreenshots.Add(1)
+					}
 					data := jpg.Bytes()
 					if err := peer.UploadScreenshot(cmd.CommandID, cmd.Identity.RootID, cmd.Scope.ProviderEpoch, cmd.Scope.AttachmentGeneration, 0, data); err != nil {
 						done <- err
@@ -242,44 +249,55 @@ func TestBrowserRunUsesCapturedControlAndTypedImages(t *testing.T) {
 }
 
 func TestBrowserRevocationCancelsInflightNativeCallAndDoesNotReplay(t *testing.T) {
-	r, owner, cell := modelHelperFixture(t, model.Scripted{})
-	fake := startBrowserFixture(t, r, owner)
-	attachment := attachBrowserFixture(t, r, owner, cell)
-	fake.block.Store(true)
-	done := make(chan session.OperationID, 1)
-	go func() {
-		_, id, _ := r.tools.Call(t.Context(), browserCall(owner, cell, "block", "run", map[string]any{"attachment_id": attachment.Scope.AttachmentID, "code": `type("block"); screenshot()`}))
-		done <- id
-	}()
-	select {
-	case <-fake.blocked:
-	case <-time.After(5 * time.Second):
-		t.Fatal("native call did not block")
-	}
-	grants, err := r.Grants(t.Context(), owner.ID, "", 100)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, grant := range grants {
-		if grant.Capability == "browser.control" && grant.OperationID == nil {
-			if _, err := r.RevokeGrant(t.Context(), grant.ID); err != nil {
+	for _, driver := range []string{"rod", "chromedp"} {
+		t.Run(driver, func(t *testing.T) {
+			r, owner, cell := modelHelperFixture(t, model.Scripted{})
+			selection, err := r.BrowserDriver(t.Context())
+			if err != nil {
 				t.Fatal(err)
 			}
-		}
-	}
-	var id session.OperationID
-	select {
-	case id = <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("revocation did not join browser call")
-	}
-	op, err := r.Operation(t.Context(), id)
-	if err != nil || op.State != session.OperationUncertain || fake.screenshots.Load() != 0 {
-		t.Fatal(op, err)
-	}
-	entries, err := r.BrowserAttachments(t.Context(), owner.ID)
-	if err != nil || len(entries) != 0 {
-		t.Fatal(entries, err)
+			if _, err = r.SetBrowserDriver(t.Context(), selection.Revision, driver); err != nil {
+				t.Fatal(err)
+			}
+			fake := startBrowserFixture(t, r, owner)
+			attachment := attachBrowserFixture(t, r, owner, cell)
+			fake.block.Store(true)
+			done := make(chan session.OperationID, 1)
+			go func() {
+				_, id, _ := r.tools.Call(t.Context(), browserCall(owner, cell, "block", "run", map[string]any{"attachment_id": attachment.Scope.AttachmentID, "code": `type("block"); screenshot()`}))
+				done <- id
+			}()
+			select {
+			case <-fake.blocked:
+			case <-time.After(5 * time.Second):
+				t.Fatal("native call did not block")
+			}
+			grants, err := r.Grants(t.Context(), owner.ID, "", 100)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, grant := range grants {
+				if grant.Capability == "browser.control" && grant.OperationID == nil {
+					if _, err := r.RevokeGrant(t.Context(), grant.ID); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			var id session.OperationID
+			select {
+			case id = <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("revocation did not join browser call")
+			}
+			op, err := r.Operation(t.Context(), id)
+			if err != nil || op.State != session.OperationUncertain || fake.screenshots.Load() != 0 {
+				t.Fatal(op, err)
+			}
+			entries, err := r.BrowserAttachments(t.Context(), owner.ID)
+			if err != nil || len(entries) != 0 {
+				t.Fatal(entries, err)
+			}
+		})
 	}
 }
 
@@ -339,60 +357,69 @@ func TestBrowserRejectsExpansionAndForeignTargetBeforeNativeEffect(t *testing.T)
 }
 
 func TestBothEnginesBrowserBindingsImagesAndRestartDoNotRestoreControl(t *testing.T) {
-	for _, engine := range []session.Engine{session.Starlark, session.QuickJS} {
-		t.Run(string(engine), func(t *testing.T) {
-			codes := map[string]string{
-				"attach": `a=browser.attach(tab_id="human-tab"); print(a["tab_id"])`,
-				"run":    `v=browser.run(attachment_id=a["attachment_id"],code='print("done"); screenshot()'); print(v["output"])`,
-				"read":   `print(a["tab_id"])`,
-			}
-			if engine == session.QuickJS {
-				codes = map[string]string{
-					"attach": `var a=await browser.attach({tab_id:"human-tab"}); console.log(a.tab_id)`,
-					"run":    `var v=await browser.run({attachment_id:a.attachment_id,code:'print("done"); screenshot()'}); console.log(v.output)`,
-					"read":   `console.log(a.tab_id)`,
+	for _, driver := range []string{"rod", "chromedp"} {
+		for _, engine := range []session.Engine{session.Starlark, session.QuickJS} {
+			t.Run(driver+"/"+string(engine), func(t *testing.T) {
+				codes := map[string]string{
+					"attach": `a=browser.attach(tab_id="human-tab"); print(a["tab_id"])`,
+					"run":    `v=browser.run(attachment_id=a["attachment_id"],code='print("done"); screenshot()'); print(v["output"])`,
+					"read":   `print(a["tab_id"])`,
 				}
-			}
-			directory := t.TempDir()
-			provider := cellProvider(codes)
-			r := openEngineTest(t, directory, provider)
-			root := createEngineSession(t, r, engine)
-			fake := startBrowserFixture(t, r, root)
-			if _, err := r.SetPermissionMode(t.Context(), session.PermissionModeRequest{ID: "auto", SessionID: root.ID, ExpectedRevision: 1, Mode: session.PermissionAutomatic}); err != nil {
-				t.Fatal(err)
-			}
-			runCellTurn(t, r, root.ID, "attach", "human-tab\n")
-			if _, err := r.UpdateConfiguration(t.Context(), root.ID, root.ConfigRevision, session.ConfigPatch{Model: &session.ModelSelection{Provider: "scripted", Name: "different"}}); err != nil {
-				t.Fatal(err)
-			}
-			runCellTurn(t, r, root.ID, "run", "done\n(screenshot captured: 597 bytes, jpeg, ≤1568px)\n\n")
-			latest, err := r.store.LatestCell(t.Context(), root.ID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			parts, err := r.store.CellResultParts(t.Context(), root.ID, latest.ID)
-			if err != nil || len(parts) != 2 || fake.screenshots.Load() != 1 {
-				t.Fatal(parts, err)
-			}
-			// Closing the connection retires control, while checkpoint values remain
-			// ordinary data. Restart cannot turn a saved attachment ID back into access.
-			fake.peer.Close()
-			if err := r.Close(); err != nil {
-				t.Fatal(err)
-			}
-			restarted := openEngineTest(t, directory, provider)
-			runCellTurn(t, restarted, root.ID, "read", "human-tab\n")
-			if entries, err := restarted.BrowserAttachments(t.Context(), root.ID); err != nil || len(entries) != 0 {
-				t.Fatal(entries, err)
-			}
-			owner, err := restarted.store.Session(t.Context(), root.ID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := restarted.prepareBrowser(t.Context(), owner, tool.Invocation{Name: "run", Arguments: map[string]any{"attachment_id": "saved", "code": "info()"}}); err == nil {
-				t.Fatal("checkpoint restored browser authority")
-			}
-		})
+				if engine == session.QuickJS {
+					codes = map[string]string{
+						"attach": `var a=await browser.attach({tab_id:"human-tab"}); console.log(a.tab_id)`,
+						"run":    `var v=await browser.run({attachment_id:a.attachment_id,code:'print("done"); screenshot()'}); console.log(v.output)`,
+						"read":   `console.log(a.tab_id)`,
+					}
+				}
+				directory := t.TempDir()
+				provider := cellProvider(codes)
+				r := openEngineTest(t, directory, provider)
+				selection, err := r.BrowserDriver(t.Context())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err = r.SetBrowserDriver(t.Context(), selection.Revision, driver); err != nil {
+					t.Fatal(err)
+				}
+				root := createEngineSession(t, r, engine)
+				fake := startBrowserFixture(t, r, root)
+				if _, err := r.SetPermissionMode(t.Context(), session.PermissionModeRequest{ID: "auto", SessionID: root.ID, ExpectedRevision: 1, Mode: session.PermissionAutomatic}); err != nil {
+					t.Fatal(err)
+				}
+				runCellTurn(t, r, root.ID, "attach", "human-tab\n")
+				if _, err := r.UpdateConfiguration(t.Context(), root.ID, root.ConfigRevision, session.ConfigPatch{Model: &session.ModelSelection{Provider: "scripted", Name: "different"}}); err != nil {
+					t.Fatal(err)
+				}
+				runCellTurn(t, r, root.ID, "run", "done\n(screenshot captured: 597 bytes, jpeg, ≤1568px)\n\n")
+				latest, err := r.store.LatestCell(t.Context(), root.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				parts, err := r.store.CellResultParts(t.Context(), root.ID, latest.ID)
+				if err != nil || len(parts) != 2 || fake.screenshots.Load() != 1 {
+					t.Fatal(parts, err)
+				}
+				// Closing the connection retires control, while checkpoint values remain
+				// ordinary data. Restart cannot turn a saved attachment ID back into access.
+				fake.peer.Close()
+				if err := r.Close(); err != nil {
+					t.Fatal(err)
+				}
+				restarted := openEngineTest(t, directory, provider)
+				runCellTurn(t, restarted, root.ID, "read", "human-tab\n")
+				if entries, err := restarted.BrowserAttachments(t.Context(), root.ID); err != nil || len(entries) != 0 {
+					t.Fatal(entries, err)
+				}
+				owner, err := restarted.store.Session(t.Context(), root.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := restarted.prepareBrowser(t.Context(), owner, tool.Invocation{Name: "run", Arguments: map[string]any{"attachment_id": "saved", "code": "info()"}}); err == nil {
+					t.Fatal("checkpoint restored browser authority")
+				}
+			})
+		}
 	}
 }
 

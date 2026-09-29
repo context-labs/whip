@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,7 +13,10 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/client"
+
+	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/creack/pty"
 )
 
@@ -47,130 +52,115 @@ func fakeOpenRouter(t *testing.T, goodKey string) *httptest.Server {
 		})
 	}))
 	redirectAuthRequests(t, server.URL, "openrouter.ai", "/api/v1")
-	useTestDaemon(t)
 	return server
 }
 
 func TestAuthOpenRouterGoodKey(t *testing.T) {
-	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	srv := fakeOpenRouter(t, "sk-or-good")
 	defer srv.Close()
-
+	directory := useNativeAuth(t, nil)
 	if err := authOpenRouter("sk-or-good", false); err != nil {
-		t.Fatalf("auth failed: %v", err)
+		t.Fatal(err)
 	}
-
-	cfg, err := config.Load()
+	host, err := config.Load(directory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, ok := cfg.Providers["openrouter"]
-	if !ok {
-		t.Fatal("openrouter provider not saved")
+	p, ok := host.Providers["openrouter"]
+	if !ok || p.CredentialSource != "file" || p.BaseURL != "https://openrouter.ai/api/v1" {
+		t.Fatal("provider not published", p)
 	}
-	if p.APIKey != "sk-or-good" || p.BaseURL != config.OpenRouterBaseURL {
-		t.Errorf("unexpected provider: %+v", p)
+	raw, err := os.ReadFile(p.CredentialFile)
+	if err != nil || string(raw) != "sk-or-good" {
+		t.Fatal("private credential not saved", err)
 	}
-
-	cats := config.LoadCatalogs()
-	cat, ok := cats["openrouter"]
-	if !ok || len(cat.Models) != 2 {
-		t.Fatalf("catalog not prefetched: %+v", cats)
-	}
-	if got := cat.ContextLength("openai/gpt-5"); got != 400000 {
-		t.Errorf("context length not carried into catalog: %d", got)
-	}
-	if pricing := cat.ModelPricing("openai/gpt-5"); pricing.Prompt != "0.00000125" || pricing.Completion != "0.00001" {
-		t.Errorf("pricing not carried into catalog: %+v", pricing)
-	}
-	if vis, found := cat.SupportsVision("openai/gpt-5"); !found || !vis {
-		t.Errorf("vision modality not carried into catalog: %v %v", vis, found)
-	}
-
-	// Compatible catalog-only models resolve without a manual config entry.
-	_, m, _, err := cfg.Resolve("anthropic/claude-sonnet-4.5", "")
+	c, err := connectNativeRuntime(t.Context())
 	if err != nil {
-		t.Fatalf("catalog model should resolve: %v", err)
+		t.Fatal(err)
 	}
-	if len(m.Providers) != 1 || m.Providers[0] != "openrouter" {
-		t.Errorf("catalog model should route to openrouter: %+v", m)
+	defer func() { _ = c.Close() }()
+	var cat protocol.ProviderCatalog
+	if err := c.Call(t.Context(), "providers.catalog", protocol.ProviderParams{Provider: "openrouter"}, &cat); err != nil {
+		t.Fatal(err)
+	}
+	if len(cat.Models) != 2 || cat.Discovery != "authenticated_catalog" {
+		t.Fatal(cat)
+	}
+	var found bool
+	for _, m := range cat.Models {
+		if m.ID == "openai/gpt-5" {
+			found = true
+			if m.ContextWindowTokens == nil || *m.ContextWindowTokens != 400000 || m.Prices.Input == nil || *m.Prices.Input != 1250000000 {
+				t.Fatal(m)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("model metadata lost")
+	}
+	if host.Defaults.Model.Name != "" {
+		t.Fatal("setup silently selected a model")
 	}
 }
 
 func TestAuthOpenRouterBadKeyWritesNothing(t *testing.T) {
-	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	srv := fakeOpenRouter(t, "sk-or-good")
 	defer srv.Close()
-
-	err := authOpenRouter("sk-or-bad", false)
-	if err == nil {
-		t.Fatal("expected rejection for a bad key")
+	directory := useNativeAuth(t, nil)
+	if err := authOpenRouter("sk-or-bad", false); err == nil {
+		t.Fatal("bad key accepted")
 	}
-
-	cfg, lerr := config.Load()
-	if lerr != nil {
-		t.Fatal(lerr)
+	host, err := config.Load(directory)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, ok := cfg.Providers["openrouter"]; ok {
-		t.Error("a rejected key must not leave a provider entry behind")
+	if len(host.Providers) != 0 {
+		t.Fatal("bad key changed provider routes")
 	}
-	if cats := config.LoadCatalogs(); len(cats) != 0 {
-		t.Errorf("a rejected key must not write the catalog: %+v", cats)
+	paths, err := filepath.Glob(filepath.Join(directory, "provider-key-*"))
+	if err != nil || len(paths) != 0 {
+		t.Fatal("bad key published", err)
 	}
 }
 
-func TestAuthOpenRouterEnvironmentModeUsesNamedFileWithoutPrompt(t *testing.T) {
-	t.Setenv("WHIPCODE_HOME", t.TempDir())
-	t.Setenv(config.OpenRouterEnvVar, "")
-	keyPath := filepath.Join(t.TempDir(), "openrouter.key")
-	if err := os.WriteFile(keyPath, []byte("sk-or-file\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	_, _, err := config.UpdateVersioned("", func(cfg *config.Config) error {
-		cfg.ProviderKeySources.KeyFiles = map[string]string{config.OpenRouterEnvVar: keyPath}
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := fakeOpenRouter(t, "sk-or-file")
-	defer server.Close()
+func TestAuthOpenRouterEnvironmentModeUsesHostReferenceWithoutPrompt(t *testing.T) {
+	t.Setenv(openRouterEnvironment, "sk-or-env")
+	srv := fakeOpenRouter(t, "sk-or-env")
+	defer srv.Close()
+	directory := useNativeAuth(t, nil)
 	if err := authOpenRouterCLI([]string{"--env"}); err != nil {
-		t.Fatalf("named file setup failed: %v", err)
+		t.Fatal(err)
 	}
-	cfg, err := config.Load()
+	host, err := config.Load(directory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	provider := cfg.Providers["openrouter"]
-	if provider.APIKey != "" || provider.APIKeyEnv != config.OpenRouterEnvVar {
-		t.Fatal("CLI copied a file credential instead of retaining its named reference")
+	p := host.Providers["openrouter"]
+	if p.CredentialEnv != openRouterEnvironment || p.CredentialSource != "env" || p.CredentialFile != "" {
+		t.Fatal("host environment copied", p)
 	}
 }
 
 func TestAuthOpenRouterReauthKeepsOtherState(t *testing.T) {
-	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	srv := fakeOpenRouter(t, "sk-or-new")
 	defer srv.Close()
-
-	cfg, _ := config.Load() // first run: default inference.net config
-	cfg.UpsertOpenRouter("sk-or-old", false)
-	if err := cfg.Save(); err != nil {
+	directory := useNativeAuth(t, func(directory string) {
+		host := config.Default()
+		host.Providers["other"] = config.Provider{Kind: "openai-chat", BaseURL: "http://127.0.0.1:1", CredentialSource: "none"}
+		host.Providers["openrouter"] = config.Provider{Kind: "openai-chat", BaseURL: "https://openrouter.ai/api/v1", CredentialSource: "env", CredentialEnv: "OLD", Models: map[string]config.Model{"explicit": {MaxOutputTokens: 1234}}}
+		if err := config.Save(directory, host); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if err := authOpenRouter("sk-or-new", false); err != nil {
 		t.Fatal(err)
 	}
-
-	if err := authOpenRouter("sk-or-new", false); err != nil {
-		t.Fatalf("re-auth failed: %v", err)
+	host, err := config.Load(directory)
+	if err != nil {
+		t.Fatal(err)
 	}
-	cfg, _ = config.Load()
-	if cfg.Providers["openrouter"].APIKey != "sk-or-new" {
-		t.Error("re-auth should replace the key")
-	}
-	if _, ok := cfg.Providers["inference-net"]; !ok {
-		t.Error("re-auth clobbered the default provider")
-	}
-	if len(cfg.Models) == 0 {
-		t.Error("re-auth clobbered the model routes")
+	if len(host.Providers) != 2 || host.Providers["openrouter"].Models["explicit"].MaxOutputTokens != 1234 {
+		t.Fatal("reauth changed unrelated state")
 	}
 }
 
@@ -184,7 +174,7 @@ func TestAuthCLIDispatch(t *testing.T) {
 	// openrouter with no key anywhere errors cleanly (no prompt in tests:
 	// stdin isn't a terminal, so the piped read hits EOF).
 	t.Setenv("WHIPCODE_HOME", t.TempDir())
-	t.Setenv(config.OpenRouterEnvVar, "")
+	t.Setenv(openRouterEnvironment, "")
 	if err := authCLI([]string{"openrouter"}); err == nil {
 		t.Error("openrouter with no key should error, not hang or write config")
 	}
@@ -243,7 +233,7 @@ func withStdin(t *testing.T, data string) {
 // answer at the prompt reports the missing key rather than calling the API.
 func TestAuthOpenRouterCLIArgs(t *testing.T) {
 	t.Setenv("WHIPCODE_HOME", t.TempDir())
-	t.Setenv(config.OpenRouterEnvVar, "")
+	t.Setenv(openRouterEnvironment, "")
 
 	if err := authOpenRouterCLI([]string{"-nosuchflag"}); err == nil {
 		t.Error("an unknown flag should error")
@@ -254,38 +244,14 @@ func TestAuthOpenRouterCLIArgs(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "no API key provided") {
 		t.Errorf("an empty key should be reported, got %v", err)
 	}
-	if cfg, lerr := config.Load(); lerr == nil {
-		if _, ok := cfg.Providers["openrouter"]; ok {
-			t.Error("an empty key must not write a provider entry")
-		}
-	}
 }
 
-// A valid key still fails cleanly when the config can't be read, and nothing
-// is written.
-func TestAuthOpenRouterUnreadableConfig(t *testing.T) {
-	srv := fakeOpenRouter(t, "sk-or-good")
-	defer srv.Close()
-	unusableHome(t)
-
+func TestAuthOpenRouterUnavailableHostDoesNotFallback(t *testing.T) {
+	previous := connectNativeRuntime
+	connectNativeRuntime = func(context.Context) (*client.Client, error) { return nil, errors.New("host unavailable") }
+	t.Cleanup(func() { connectNativeRuntime = previous })
 	if err := authOpenRouter("sk-or-good", false); err == nil {
-		t.Error("an unusable config dir should surface as an error")
-	}
-}
-
-// A validated key that can't be persisted is an error, not a silent no-op.
-func TestAuthOpenRouterUnwritableConfig(t *testing.T) {
-	srv := fakeOpenRouter(t, "sk-or-good")
-	defer srv.Close()
-	home := t.TempDir()
-	t.Setenv("WHIPCODE_HOME", home)
-	if _, err := config.Load(); err != nil { // materialize the default config
-		t.Fatal(err)
-	}
-	freezeHome(t, home)
-
-	if err := authOpenRouter("sk-or-good", false); err == nil {
-		t.Error("an unwritable config dir should surface as an error")
+		t.Fatal("host failure ignored")
 	}
 }
 
@@ -318,4 +284,35 @@ func redirectAuthRequests(t *testing.T, endpoint, host, prefix string) {
 	previous := http.DefaultTransport
 	http.DefaultTransport = authRedirectTransport{next: previous, endpoint: parsed, host: host, prefix: prefix}
 	t.Cleanup(func() { http.DefaultTransport = previous })
+}
+
+func TestAuthOpenRouterUnreadableConfig(t *testing.T) {
+	server := fakeOpenRouter(t, "sk-or-good")
+	defer server.Close()
+	directory := useNativeAuth(t, nil)
+	path := filepath.Join(directory, config.FileName)
+	if err := os.Chmod(path, 0o666); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+	if err := authOpenRouter("sk-or-good", false); err == nil {
+		t.Fatal("unsafe configuration accepted")
+	}
+}
+
+func TestAuthOpenRouterUnwritableConfig(t *testing.T) {
+	server := fakeOpenRouter(t, "sk-or-good")
+	defer server.Close()
+	directory := useNativeAuth(t, nil)
+	if err := os.Chmod(directory, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(directory, 0o700) })
+	if err := authOpenRouter("sk-or-good", false); err == nil {
+		t.Fatal("private credential publication failure ignored")
+	}
+	host, err := config.Load(directory)
+	if err != nil || len(host.Providers) != 0 {
+		t.Fatal("failed publication changed route", err)
+	}
 }

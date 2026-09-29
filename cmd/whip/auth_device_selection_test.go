@@ -12,14 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/context-labs/whip/internal/inferencenet"
-	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/inferenceauth"
 )
 
 func TestDeviceLoginChoosesWorkspaceAndCreatesProject(t *testing.T) {
 	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
-	useTestDaemon(t)
 	mux := http.NewServeMux()
 	for path, body := range map[string]string{
 		"/api/auth/device/code":       `{"device_code":"device","user_code":"CODE","expires_in":30,"interval":1}`,
@@ -53,17 +51,23 @@ func TestDeviceLoginChoosesWorkspaceAndCreatesProject(t *testing.T) {
 	})
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
-	defer inferencenet.SetURLsForTest(server.URL, server.URL, server.URL)()
+	redirectAuthRequests(t, server.URL, "observability-api.inference.net", "")
+	directory := useNativeAuth(t, nil)
 
 	output := answerDeviceLoginPrompts(t, func() error {
-		return providerDeviceLogin(config.InferenceNetProvider, 10*time.Second)
+		return providerDeviceLogin(inferenceProvider, 10*time.Second)
 	})
 	if !strings.Contains(output, "Signed in as dev@example.com") || !strings.Contains(output, "Project new-project") {
 		t.Fatalf("login did not report the new project: %s", output)
 	}
-	stored, err := inferencenet.LoadAuth()
-	if err != nil || stored.TeamID != "team-2" || stored.ProjectID != "new-project" || stored.ProjectName != "Created from CLI" || stored.MachineKey != "machine-secret" {
-		t.Fatalf("login did not persist selected workspace and new project: %+v %v", stored, err)
+	manager, err := inferenceauth.New(t.Context(), directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = manager.Close() }()
+	stored, err := manager.Snapshot()
+	if err != nil || stored.Scope.TeamID != "team-2" || stored.Scope.ProjectID != "new-project" || stored.Scope.ProjectName != "Created from CLI" || stored.MachineKey.Value != "machine-secret" {
+		t.Fatalf("selected account scope not persisted: %v", err)
 	}
 }
 

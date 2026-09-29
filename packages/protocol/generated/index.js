@@ -5,6 +5,21 @@ export const manifest = {
   "minor": 0,
   "operations": [
     {
+      "name": "sessions.reload",
+      "params": "ReloadSessionParams",
+      "result": "ReloadEdit"
+    },
+    {
+      "name": "sessions.reload_edit",
+      "params": "ReloadEditParams",
+      "result": "ReloadEdit"
+    },
+    {
+      "name": "sessions.cancel_reload",
+      "params": "ReloadEditParams",
+      "result": "ReloadEdit"
+    },
+    {
       "name": "host.status",
       "params": "EmptyParams",
       "result": "HostStatus"
@@ -342,6 +357,11 @@ export const manifest = {
     {
       "name": "providers.list",
       "params": "EmptyParams",
+      "result": "ProviderInventory"
+    },
+    {
+      "name": "providers.setup_key",
+      "params": "ProviderKeySetup",
       "result": "ProviderInventory"
     },
     {
@@ -765,6 +785,16 @@ export const manifest = {
       "result": "PermissionModeEdit"
     },
     {
+      "name": "permissions.set_denial",
+      "params": "SetPermissionDenialParams",
+      "result": "PermissionDenialEdit"
+    },
+    {
+      "name": "permissions.denial_edit",
+      "params": "PermissionModeEditParams",
+      "result": "PermissionDenialEdit"
+    },
+    {
       "name": "permissions.mode_edit",
       "params": "PermissionModeEditParams",
       "result": "PermissionModeEdit"
@@ -773,6 +803,16 @@ export const manifest = {
       "name": "host.profiles",
       "params": "EmptyParams",
       "result": "HostProfiles"
+    },
+    {
+      "name": "host.browser_driver",
+      "params": "EmptyParams",
+      "result": "HostBrowserDriver"
+    },
+    {
+      "name": "host.set_browser_driver",
+      "params": "SetBrowserDriverParams",
+      "result": "HostBrowserDriver"
     },
     {
       "name": "host.execution_defaults",

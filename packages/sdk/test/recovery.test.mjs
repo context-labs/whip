@@ -217,3 +217,111 @@ test('browser transfer recovery preserves exact scoped attachment payload when a
   assert.equal(sends.length, 2);
   assert.deepEqual(sends[0].params, sends[1].params);
 });
+
+
+test('permission denial recovery proves exact false clearing without replay or changing mode', async () => {
+  const receipt = fixture('PermissionDenialEdit');
+  const input = { edit_id: receipt.id, session_id: receipt.session_id, expected_revision: receipt.expected_revision, deny_interactive: false };
+  const storage = memoryStorage(), journal = new RecoveryJournal(storage);
+  let accepted = false;
+  const { client, calls } = await clientFixture(request => {
+    if (request.method === 'permissions.denial_edit') {
+      assert.deepEqual(request.params, { session_id: input.session_id, edit_id: input.edit_id });
+      return accepted ? { jsonrpc: '2.0', id: request.id, result: receipt } : missing(request.id);
+    }
+    assert.equal(request.method, 'permissions.set_denial');
+    assert.deepEqual(request.params, input);
+    assert.equal(storage.records.size, 1);
+    if (!accepted) { accepted = true; throw new DeliveryError('denial acknowledgement lost'); }
+    return { jsonrpc: '2.0', id: request.id, result: receipt };
+  });
+  const command = client.command('permissions.set_denial', input, { journal });
+  await assert.rejects(command.send(), DeliveryError);
+  assert.equal(calls.length, 1);
+  const recovered = DurableCommand.recover(client, (await journal.list())[0], { journal });
+  const check = await recovered.check();
+  assert.equal(check.state, 'found');
+  assert.equal(check.evidence.policy.mode, 'automatic');
+  assert.equal(check.evidence.policy.deny_interactive, false);
+  assert.equal(check.evidence.policy.revision, '9007199254740994');
+  assert.equal(recovered.record.accepted, true);
+  assert.equal(calls.filter(call => call.method === 'permissions.set_denial').length, 1);
+  assert.deepEqual(await recovered.retry(), receipt);
+  const sends = calls.filter(call => call.method === 'permissions.set_denial');
+  assert.equal(sends.length, 2); assert.deepEqual(sends[0].params, sends[1].params);
+  for (const changed of [{ deny_interactive: true }, { expected_revision: '9007199254740992' }, { edit_id: 'Other' }, { session_id: 'child' }]) {
+    const foreign = await clientFixture(request => ({ jsonrpc: '2.0', id: request.id, result: receipt }));
+    const collision = foreign.client.command('permissions.set_denial', { ...input, ...changed });
+    await assert.rejects(collision.check(), /receipt mismatch/);
+    await assert.rejects(collision.retry(), /receipt mismatch/);
+    assert.equal(collision.record.accepted, false);
+    assert.ok(foreign.calls.every(call => call.method === 'permissions.denial_edit'));
+  }
+});
+
+test('session permission denial methods preserve owner and reject malformed policies before transport', async () => {
+  const receipt = fixture('PermissionDenialEdit');
+  const { client, calls } = await clientFixture(request => ({ jsonrpc: '2.0', id: request.id, result: receipt }));
+  const root = client.session(receipt.session_id);
+  assert.deepEqual(await root.permissions.setDenial({ expected_revision: receipt.expected_revision, deny_interactive: false }, receipt.id), receipt);
+  assert.deepEqual(calls[0].params, { session_id: receipt.session_id, edit_id: receipt.id, expected_revision: receipt.expected_revision, deny_interactive: false });
+  assert.deepEqual(await root.permissions.denialEdit(receipt.id), receipt);
+  assert.deepEqual(calls[1].params, { session_id: receipt.session_id, edit_id: receipt.id });
+  for (const deny_interactive of [undefined, null, 'false', 0]) await assert.rejects(root.permissions.setDenial({ expected_revision: '1', deny_interactive }, receipt.id), TypeError);
+  for (const expected_revision of [0, '0', '01', '9223372036854775808']) await assert.rejects(root.permissions.setDenial({ expected_revision, deny_interactive: false }, receipt.id), TypeError);
+  assert.equal(calls.length, 2);
+});
+
+test('reload recovery retains captured settings and distinguishes acceptance from application', async () => {
+  const captured = fixture('ReloadEdit');
+  const storage = memoryStorage(), journal = new RecoveryJournal(storage);
+  let admitted = false, result = captured;
+  const { client, calls } = await clientFixture(request => {
+    if (request.method === 'sessions.reload_edit') return admitted ? { jsonrpc: '2.0', id: request.id, result } : missing(request.id);
+    assert.equal(request.method, 'sessions.reload');
+    assert.deepEqual(request.params, { session_id: captured.session_id, edit_id: captured.id, expected_revision: captured.expected_revision });
+    if (!admitted) { admitted = true; throw new DeliveryError('lost reload acknowledgement'); }
+    return { jsonrpc: '2.0', id: request.id, result };
+  });
+  const command = client.session(captured.session_id).reloads.prepare(captured.expected_revision, captured.id, { journal });
+  await assert.rejects(command.send(), DeliveryError);
+  const recovered = DurableCommand.recover(client, (await journal.list())[0], { journal });
+  const pending = await recovered.check();
+  assert.equal(pending.state, 'found'); assert.equal(pending.evidence.state, 'pending'); assert.equal(pending.evidence.revision, null);
+  assert.equal(recovered.record.accepted, true);
+  assert.equal(calls.filter(call => call.method === 'sessions.reload').length, 1);
+  for (const state of ['conflicted', 'interrupted', 'unavailable']) {
+    result = { ...captured, state, settled_at: captured.created_at };
+    const check = await recovered.check(); assert.equal(check.state, 'found'); assert.equal(check.evidence.state, state);
+    assert.equal(check.evidence.configuration.compaction.threshold_percent, captured.configuration.compaction.threshold_percent);
+  }
+  result = { ...captured, state: 'applied', revision: '9007199254740994', settled_at: captured.created_at };
+  assert.equal((await recovered.check()).evidence.revision, '9007199254740994');
+  assert.deepEqual(await recovered.retry(), result);
+  const sends = calls.filter(call => call.method === 'sessions.reload'); assert.equal(sends.length, 2); assert.deepEqual(sends[0].params, sends[1].params);
+  const collision = client.command('sessions.reload', { ...command.params, expected_revision: '9007199254740992' });
+  await assert.rejects(collision.check(), /request mismatch/); await assert.rejects(collision.retry(), /request mismatch/);
+  assert.equal(collision.record.accepted, false);
+  assert.equal(calls.filter(call => call.method === 'sessions.reload').length, 2);
+});
+
+test('reload session services enforce exact identity and honest terminal shape', async () => {
+  const captured = fixture('ReloadEdit'); let result = captured;
+  const { client, calls } = await clientFixture(request => ({ jsonrpc: '2.0', id: request.id, result }));
+  const reloads = client.session(captured.session_id).reloads;
+  assert.deepEqual(await reloads.request(captured.expected_revision, captured.id), captured);
+  assert.deepEqual(await reloads.get(captured.id), captured);
+  result = { ...captured, state: 'interrupted', settled_at: captured.created_at };
+  assert.deepEqual(await reloads.cancel(captured.id), result);
+  assert.deepEqual(calls[2].params, { session_id: captured.session_id, edit_id: captured.id });
+  for (const changed of [
+    { id: 'foreign' }, { session_id: 'foreign' }, { revision: '1' },
+    { state: 'applied', revision: '9007199254740994' },
+    { state: 'applied', revision: '9007199254740993', settled_at: captured.created_at },
+    { state: 'conflicted' },
+  ]) { result = { ...captured, ...changed }; await assert.rejects(reloads.get(captured.id), TypeError); }
+  const count = calls.length;
+  for (const revision of [0, '0', '01', '9223372036854775808']) await assert.rejects(reloads.request(revision, captured.id), TypeError);
+  await assert.rejects(reloads.get(captured.id, { signal: AbortSignal.abort() }), error => error.name === 'AbortError');
+  assert.equal(calls.length, count);
+});

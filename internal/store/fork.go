@@ -92,7 +92,11 @@ func (s *Store) Fork(ctx context.Context, request session.ForkRequest, defaults 
 		if _, err := tx.ExecContext(ctx, "INSERT INTO session_trees VALUES (?,?,?,1,?)", treeID, metadata, tree.Engine, now()); err != nil {
 			return err
 		}
-		root, err := insertSession(ctx, tx, treeID, nil, source.Definition, source.Config, source.WorkingDirectory)
+		fields, err := reloadOverrides(ctx, tx, source.ID, source.ConfigRevision)
+		if err != nil {
+			return err
+		}
+		root, err := insertSession(ctx, tx, treeID, nil, source.Definition, source.Config, source.WorkingDirectory, fields)
 		if err != nil {
 			return err
 		}

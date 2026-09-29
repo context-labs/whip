@@ -45,7 +45,7 @@ func TestDesktopScreenshotRejectsInvalidAndCancelled(t *testing.T) {
 }
 
 func TestDesktopScreenshotBatchCapRejectsBeforeCapture(t *testing.T) {
-	for _, backend := range []*desktopBackend{{screenshots: 8}, {screenshotBytes: 16 << 20}} {
+	for _, backend := range []*desktopBackend{{media: desktopMedia{screenshots: 8}}, {media: desktopMedia{screenshotBytes: 16 << 20}}} {
 		if _, err := backend.Screenshot(t.Context(), 640); err == nil {
 			t.Fatal("batch cap admitted screenshot")
 		}

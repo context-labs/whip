@@ -50,14 +50,15 @@ func (s *Store) ContextTail(ctx context.Context, owner session.SessionID, throug
 // Ordinary metadata reads ask SQLite for byte lengths without loading payloads.
 // Mail parts are a deterministic projection of their immutable revision, so only
 // those bounded source bodies must be rendered to obtain an exact byte count.
-const historyProvenanceColumns = `COALESCE(m.group_id,''),COALESCE(m.opening_input,0),m.source_session_id,m.source_message_id,m.source_sequence,m.retired_by,m.retired_revision`
+const historyProvenanceColumns = `COALESCE(m.group_id,''),COALESCE(m.opening_input,0),m.source_session_id,m.source_message_id,m.source_sequence,m.retired_by,m.retired_revision,receipt.client_id,receipt.request_id`
 
 const historyColumns = `COALESCE(m.id,''),COALESCE(m.turn_id,''),m.input_id,
 	COALESCE(m.sequence,0),COALESCE(m.role,''),COALESCE(length(CAST(COALESCE(m.parts,i.parts) AS BLOB)),0),
 	CASE WHEN ? THEN COALESCE(m.parts,i.parts) END,COALESCE(m.created_at,0),
 	m.mail_id,m.mail_revision,m.mail_presentation,r.subject,r.body,mail.source_kind,mail.source_id,r.evidence_ref,COALESCE(m.design_context,i.design_context),` + historyProvenanceColumns
 
-const historyJoins = ` LEFT JOIN inputs i ON i.id=m.input_id
+const historyJoins = ` LEFT JOIN inputs i ON i.id=m.input_id AND i.session_id=m.session_id
+	LEFT JOIN receipts receipt ON receipt.input_id=i.id
 	LEFT JOIN mail_revisions r ON r.mail_id=m.mail_id AND r.revision=m.mail_revision
 	LEFT JOIN mail ON mail.id=m.mail_id`
 
@@ -79,11 +80,12 @@ func scanHistory(row scanner, withSnapshot bool) (value historyRecord, err error
 	var sourceOwner *session.SessionID
 	var sourceMessage *session.MessageID
 	var sourceSequence sql.NullInt64
+	var clientID, requestID *string
 	destinations := []any{
 		&value.metadata.SessionID, &value.maximum, &value.metadata.ID, &value.metadata.TurnID, &value.metadata.InputID,
 		&value.metadata.Sequence, &value.metadata.Role, &value.metadata.PartsBytes, &raw, &value.created,
 		&mailID, &revision, &presentation, &subject, &body, &sourceKind, &sourceID, &evidence, &value.design,
-		&value.metadata.GroupID, &value.metadata.OpeningInput, &sourceOwner, &sourceMessage, &sourceSequence, &value.metadata.RetiredBy, &value.metadata.RetiredRevision,
+		&value.metadata.GroupID, &value.metadata.OpeningInput, &sourceOwner, &sourceMessage, &sourceSequence, &value.metadata.RetiredBy, &value.metadata.RetiredRevision, &clientID, &requestID,
 	}
 	if withSnapshot {
 		destinations = append([]any{&value.snapshot.Revision, &value.snapshot.ThroughSequence, &value.snapshot.MessageCount}, destinations...)
@@ -93,6 +95,7 @@ func scanHistory(row scanner, withSnapshot bool) (value historyRecord, err error
 	if err != nil {
 		return value, err
 	}
+	value.metadata.InputIdentity = inputIdentity(clientID, requestID)
 	if sourceOwner != nil {
 		value.metadata.Source = &session.MessageSource{SessionID: *sourceOwner, MessageID: *sourceMessage, Sequence: sourceSequence.Int64}
 	}
@@ -181,7 +184,8 @@ func (s *Store) HistoryPage(ctx context.Context, owner session.SessionID, after 
 
 func historyMessage(value historyRecord) (session.Message, error) {
 	message := session.Message{
-		GroupID: value.metadata.GroupID, OpeningInput: value.metadata.OpeningInput, Source: value.metadata.Source,
+		InputIdentity: value.metadata.InputIdentity,
+		GroupID:       value.metadata.GroupID, OpeningInput: value.metadata.OpeningInput, Source: value.metadata.Source,
 		RetiredBy: value.metadata.RetiredBy, RetiredRevision: value.metadata.RetiredRevision,
 		ID: value.metadata.ID, SessionID: value.metadata.SessionID, TurnID: value.metadata.TurnID, InputID: value.metadata.InputID,
 		Mail: value.metadata.Mail, Sequence: value.metadata.Sequence, Role: value.metadata.Role, CreatedAt: timestamp(value.created),

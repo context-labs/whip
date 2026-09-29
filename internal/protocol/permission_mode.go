@@ -7,10 +7,11 @@ import (
 )
 
 type PermissionPolicy struct {
-	TreeID    ID      `json:"tree_id"`
-	Mode      string  `json:"mode" enum:"prompt,automatic"`
-	Revision  Counter `json:"revision" pattern:"^[1-9][0-9]{0,18}$"`
-	UpdatedAt string  `json:"updated_at"`
+	DenyInteractive bool    `json:"deny_interactive"`
+	TreeID          ID      `json:"tree_id"`
+	Mode            string  `json:"mode" enum:"prompt,automatic"`
+	Revision        Counter `json:"revision" pattern:"^[1-9][0-9]{0,18}$"`
+	UpdatedAt       string  `json:"updated_at"`
 }
 
 type SetPermissionModeParams struct {
@@ -48,7 +49,7 @@ type SetDefaultPermissionModeParams struct {
 }
 
 func PermissionPolicyFromDomain(value session.PermissionPolicy) PermissionPolicy {
-	return PermissionPolicy{TreeID: ID(value.TreeID), Mode: string(value.Mode), Revision: Counter(value.Revision), UpdatedAt: value.UpdatedAt.Format(time.RFC3339Nano)}
+	return PermissionPolicy{DenyInteractive: value.DenyInteractive, TreeID: ID(value.TreeID), Mode: string(value.Mode), Revision: Counter(value.Revision), UpdatedAt: value.UpdatedAt.Format(time.RFC3339Nano)}
 }
 
 func PermissionModeEditFromDomain(value session.PermissionModeEdit) PermissionModeEdit {
@@ -60,4 +61,25 @@ func (p CreateTreeParams) DomainPermissionMode() *session.PermissionMode {
 		return nil
 	}
 	return new(session.PermissionMode(*p.PermissionMode))
+}
+
+type SetPermissionDenialParams struct {
+	EditID           ID      `json:"edit_id"`
+	SessionID        ID      `json:"session_id"`
+	ExpectedRevision Counter `json:"expected_revision" pattern:"^[1-9][0-9]{0,18}$"`
+	DenyInteractive  bool    `json:"deny_interactive"`
+}
+
+type PermissionDenialEdit struct {
+	ID               ID               `json:"id"`
+	SessionID        ID               `json:"session_id"`
+	ExpectedRevision Counter          `json:"expected_revision" pattern:"^[1-9][0-9]{0,18}$"`
+	DenyInteractive  bool             `json:"deny_interactive"`
+	PreviousDenial   bool             `json:"previous_denial"`
+	Policy           PermissionPolicy `json:"policy"`
+	CreatedAt        string           `json:"created_at"`
+}
+
+func PermissionDenialEditFromDomain(value session.PermissionDenialEdit) PermissionDenialEdit {
+	return PermissionDenialEdit{ID: ID(value.ID), SessionID: ID(value.SessionID), ExpectedRevision: Counter(value.ExpectedRevision), DenyInteractive: value.DenyInteractive, PreviousDenial: value.PreviousDenial, Policy: PermissionPolicyFromDomain(value.Policy), CreatedAt: value.CreatedAt.Format(time.RFC3339Nano)}
 }

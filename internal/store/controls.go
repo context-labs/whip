@@ -185,7 +185,7 @@ func commitControl(ctx context.Context, tx *sql.Tx, id, kind, digest string, cur
 		return session.ControlEdit{}, err
 	}
 	current.ConfigRevision++
-	if _, err := tx.ExecContext(ctx, "INSERT INTO session_configurations VALUES (?,?,?,?,?)", current.ID, current.ConfigRevision, raw, current.WorkingDirectory, now()); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO session_configurations VALUES (?,?,?,?,?,(SELECT override_fields FROM session_configurations WHERE session_id=? AND revision=?))`, current.ID, current.ConfigRevision, raw, current.WorkingDirectory, now(), current.ID, current.ConfigRevision-1); err != nil {
 		return session.ControlEdit{}, err
 	}
 	if _, err := tx.ExecContext(ctx, "INSERT INTO session_control_edits VALUES (?,?,?,?,?,?)", id, current.ID, kind, digest, current.ConfigRevision, now()); err != nil {

@@ -1,6 +1,9 @@
 {
   "type": "object",
   "properties": {
+    "deny_interactive": {
+      "type": "boolean"
+    },
     "tree_id": {
       "type": "string",
       "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
@@ -25,6 +28,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "PermissionPolicy",
   "required": [
+    "deny_interactive",
     "tree_id",
     "mode",
     "revision",

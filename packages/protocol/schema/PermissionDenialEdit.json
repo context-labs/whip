@@ -1,0 +1,75 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "expected_revision": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,18}$",
+      "format": "counter"
+    },
+    "deny_interactive": {
+      "type": "boolean"
+    },
+    "previous_denial": {
+      "type": "boolean"
+    },
+    "policy": {
+      "type": "object",
+      "properties": {
+        "deny_interactive": {
+          "type": "boolean"
+        },
+        "tree_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "prompt",
+            "automatic"
+          ]
+        },
+        "revision": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,18}$",
+          "format": "counter"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "deny_interactive",
+        "tree_id",
+        "mode",
+        "revision",
+        "updated_at"
+      ],
+      "additionalProperties": false
+    },
+    "created_at": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/PermissionDenialEdit",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PermissionDenialEdit",
+  "required": [
+    "id",
+    "session_id",
+    "expected_revision",
+    "deny_interactive",
+    "previous_denial",
+    "policy",
+    "created_at"
+  ],
+  "additionalProperties": false
+}

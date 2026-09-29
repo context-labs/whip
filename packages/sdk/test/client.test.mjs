@@ -32,7 +32,7 @@ test('observation advances exact cursors, reconciles preview IDs, and clears on 
   const preview = { attempt_id: 'attempt', turn_id: 'turn', message_id: 'answer', revision: '1', text: 'partial', reasoning: 'considering', calls: [], truncated: false };
   const reasoning = { ...preview, revision: '2', reasoning: 'considering the request' };
   const retry = { ...preview, attempt_id: 'retry', message_id: 'retry_answer', reasoning: '', text: '', revision: '0' };
-  const message = { id: 'retry_answer', session_id: 'session', group_id: 'turn', opening_input: false, source: null, retired_by: null, retired_revision: null, turn_id: 'turn', input_id: null, mail: null, sequence: '9007199254740993', role: 'assistant', parts: [{ type: 'text', text: 'completed' }], created_at: '2026-09-27T12:00:00Z' };
+  const message = { id: 'retry_answer', session_id: 'session', group_id: 'turn', opening_input: false, source: null, retired_by: null, retired_revision: null, turn_id: 'turn', input_id: null, input_identity: null, mail: null, sequence: '9007199254740993', role: 'assistant', parts: [{ type: 'text', text: 'completed' }], created_at: '2026-09-27T12:00:00Z' };
   const pages = [
     { snapshot: historySnapshot, epoch: 'boot_one', messages: [], preview },
     { snapshot: historySnapshot, epoch: 'boot_one', messages: [], preview: reasoning },
@@ -77,7 +77,7 @@ test('observation resets its bounded cursor on rewind and emits an empty new rev
   const requests = [];
   const oldRevision = '9007199254740993';
   const newRevision = '9007199254740994';
-  const retained = { id: 'retained', session_id: 'session', group_id: 'imported', opening_input: true, source: { session_id: 'source', message_id: 'original', sequence: '9007199254740993' }, retired_by: null, retired_revision: null, turn_id: null, input_id: null, mail: null, sequence: '1', role: 'user', parts: [{ type: 'text', text: 'retained' }], created_at: '2026-09-27T12:00:00Z' };
+  const retained = { id: 'retained', session_id: 'session', group_id: 'imported', opening_input: true, source: { session_id: 'source', message_id: 'original', sequence: '9007199254740993' }, retired_by: null, retired_revision: null, turn_id: null, input_id: null, input_identity: null, mail: null, sequence: '1', role: 'user', parts: [{ type: 'text', text: 'retained' }], created_at: '2026-09-27T12:00:00Z' };
   let requestNumber = 0;
   const client = await Client.connect(async request => {
     if (request.method === 'initialize') return success(request, initial);
@@ -428,7 +428,7 @@ test('human question reads and answers preserve exact identity and delivery unce
 });
 
 test('permission mode edits preserve exact receipts and never replay delivery automatically', async () => {
-  const policy = { tree_id: 'tree', mode: 'automatic', revision: '9007199254740994', updated_at: '2026-09-28T00:00:00Z' };
+  const policy = { tree_id: 'tree', deny_interactive: false, mode: 'automatic', revision: '9007199254740994', updated_at: '2026-09-28T00:00:00Z' };
   const params = { session_id: 'root', expected_revision: '9007199254740993', mode: 'automatic' };
   const receipt = { id: 'Edit.Mixed-Case', ...params, previous_mode: 'prompt', policy, created_at: policy.updated_at };
   const calls = [];

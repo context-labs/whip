@@ -101,6 +101,15 @@ type ChangeProviderParams struct {
 	KeepCredential bool                    `json:"keep_credential"`
 	Key            *ProviderKeyPublication `json:"key"`
 }
+
+// ProviderKeySetup validates canonical provider discovery before publishing a route.
+type ProviderKeySetup struct {
+	Revision    string                  `json:"revision" pattern:"^[a-f0-9]{64}$"`
+	Provider    string                  `json:"provider" enum:"openrouter,inference-net"`
+	Environment bool                    `json:"environment"`
+	Key         *ProviderKeyPublication `json:"key"`
+}
+
 type ProviderDefaults struct {
 	Selection *ModelSelection        `json:"selection"`
 	Settings  *ProviderModelSettings `json:"settings"`
@@ -164,6 +173,10 @@ func providerSchema(schema *jsonschema.Schema, t reflect.Type) {
 		arrays = map[string]int{"arguments": 64, "environment": 64}
 		schema.Properties["arguments"].Items.MaxLength = new(4096)
 		schema.Properties["environment"].Items.MaxLength = new(256)
+	case reflect.TypeFor[ProviderKeySetup]():
+		schema.If = &jsonschema.Schema{Properties: map[string]*jsonschema.Schema{"environment": {Const: new(any(true))}}}
+		schema.Then = &jsonschema.Schema{Properties: map[string]*jsonschema.Schema{"key": {Type: "null"}}}
+		schema.Else = &jsonschema.Schema{Properties: map[string]*jsonschema.Schema{"key": {Type: "object"}}}
 	case reflect.TypeFor[ProviderKeyPublication]():
 		schema.Properties["key"].Pattern = `^[!-~]+$`
 		texts["key"] = 64 << 10

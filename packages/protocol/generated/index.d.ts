@@ -1094,7 +1094,11 @@ export interface ControlEdit {
         cache_key: string;
       };
       mcp_servers: {
-        [k: string]: unknown;
+        all: boolean;
+        /**
+         * @maxItems 64
+         */
+        servers: string[];
       };
       /**
        * @maxItems 17
@@ -1304,15 +1308,13 @@ export interface CreateTreeParams {
     revision: string;
   };
   overrides: {
-    mcp_servers?: {
-      [k: string]: unknown;
-    } & (null | {
+    mcp_servers?: null | {
       all: boolean;
       /**
        * @maxItems 64
        */
       servers: string[];
-    });
+    };
     /**
      * @maxItems 17
      */
@@ -1428,7 +1430,11 @@ export interface CreateTreeResult {
         cache_key: string;
       };
       mcp_servers: {
-        [k: string]: unknown;
+        all: boolean;
+        /**
+         * @maxItems 64
+         */
+        servers: string[];
       };
       /**
        * @maxItems 17
@@ -1556,15 +1562,13 @@ export interface Definition {
     id: string;
     name: string;
     defaults: {
-      mcp_servers?: {
-        [k: string]: unknown;
-      } & (null | {
+      mcp_servers?: null | {
         all: boolean;
         /**
          * @maxItems 64
          */
         servers: string[];
-      });
+      };
       /**
        * @maxItems 17
        */
@@ -1649,15 +1653,13 @@ export interface DefinitionDocument {
   id: string;
   name: string;
   defaults: {
-    mcp_servers?: {
-      [k: string]: unknown;
-    } & (null | {
+    mcp_servers?: null | {
       all: boolean;
       /**
        * @maxItems 64
        */
       servers: string[];
-    });
+    };
     /**
      * @maxItems 17
      */
@@ -2270,7 +2272,11 @@ export interface ForkResult {
         cache_key: string;
       };
       mcp_servers: {
-        [k: string]: unknown;
+        all: boolean;
+        /**
+         * @maxItems 64
+         */
+        servers: string[];
       };
       /**
        * @maxItems 17
@@ -2707,6 +2713,10 @@ export interface HistoryMetadataResult {
   items:
     | null
     | {
+        input_identity: null | {
+          client_id: string;
+          request_id: string;
+        };
         group_id: string;
         opening_input: boolean;
         source: null | {
@@ -2750,6 +2760,10 @@ export interface HistoryPageResult {
     | null
     | (
         | {
+            input_identity: null | {
+              client_id: string;
+              request_id: string;
+            };
             design_context?: null | {
               context_attachment_id: string;
               screenshot_attachment_id?: null | string;
@@ -2814,6 +2828,10 @@ export interface HistoryPageResult {
             created_at: string;
           }
         | {
+            input_identity: null | {
+              client_id: string;
+              request_id: string;
+            };
             design_context?: null | {
               context_attachment_id: string;
               screenshot_attachment_id?: null | string;
@@ -2878,6 +2896,10 @@ export interface HistoryPageResult {
             created_at: string;
           }
         | {
+            input_identity: null | {
+              client_id: string;
+              request_id: string;
+            };
             design_context?: null | {
               context_attachment_id: string;
               screenshot_attachment_id?: null | string;
@@ -2962,6 +2984,10 @@ export interface HistoryPageResult {
             created_at: string;
           }
         | {
+            input_identity: null | {
+              client_id: string;
+              request_id: string;
+            };
             design_context?: null | {
               context_attachment_id: string;
               screenshot_attachment_id?: null | string;
@@ -3037,6 +3063,10 @@ export interface HistoryResult {
     | null
     | (
         | {
+            input_identity: null | {
+              client_id: string;
+              request_id: string;
+            };
             design_context?: null | {
               context_attachment_id: string;
               screenshot_attachment_id?: null | string;
@@ -3101,6 +3131,10 @@ export interface HistoryResult {
             created_at: string;
           }
         | {
+            input_identity: null | {
+              client_id: string;
+              request_id: string;
+            };
             design_context?: null | {
               context_attachment_id: string;
               screenshot_attachment_id?: null | string;
@@ -3165,6 +3199,10 @@ export interface HistoryResult {
             created_at: string;
           }
         | {
+            input_identity: null | {
+              client_id: string;
+              request_id: string;
+            };
             design_context?: null | {
               context_attachment_id: string;
               screenshot_attachment_id?: null | string;
@@ -3249,6 +3287,10 @@ export interface HistoryResult {
             created_at: string;
           }
         | {
+            input_identity: null | {
+              client_id: string;
+              request_id: string;
+            };
             design_context?: null | {
               context_attachment_id: string;
               screenshot_attachment_id?: null | string;
@@ -3359,6 +3401,12 @@ export interface HostAttentionResult {
     tree_id: string;
     session_id: string;
   };
+}
+export interface HostBrowserDriver {
+  revision: string;
+  configured_driver: "rod" | "chromedp";
+  driver: "rod" | "chromedp";
+  pinned: boolean;
 }
 export interface HostDirectoriesParams {
   path: string;
@@ -3960,6 +4008,10 @@ export interface InputPageResult {
   items:
     | null
     | {
+        identity: null | {
+          client_id: string;
+          request_id: string;
+        };
         steering?: null | {
           id: string;
           turn_id: string;
@@ -4283,7 +4335,11 @@ export interface ListSessionsResult {
             cache_key: string;
           };
           mcp_servers: {
-            [k: string]: unknown;
+            all: boolean;
+            /**
+             * @maxItems 64
+             */
+            servers: string[];
           };
           /**
            * @maxItems 17
@@ -4851,6 +4907,10 @@ export interface MatchReceiptParams {
 }
 export type Message =
   | {
+      input_identity: null | {
+        client_id: string;
+        request_id: string;
+      };
       design_context?: null | {
         context_attachment_id: string;
         screenshot_attachment_id?: null | string;
@@ -4915,6 +4975,10 @@ export type Message =
       created_at: string;
     }
   | {
+      input_identity: null | {
+        client_id: string;
+        request_id: string;
+      };
       design_context?: null | {
         context_attachment_id: string;
         screenshot_attachment_id?: null | string;
@@ -4979,6 +5043,10 @@ export type Message =
       created_at: string;
     }
   | {
+      input_identity: null | {
+        client_id: string;
+        request_id: string;
+      };
       design_context?: null | {
         context_attachment_id: string;
         screenshot_attachment_id?: null | string;
@@ -5063,6 +5131,10 @@ export type Message =
       created_at: string;
     }
   | {
+      input_identity: null | {
+        client_id: string;
+        request_id: string;
+      };
       design_context?: null | {
         context_attachment_id: string;
         screenshot_attachment_id?: null | string;
@@ -5485,6 +5557,21 @@ export interface Permission {
   created_at: string;
   resolved_at: null | string;
 }
+export interface PermissionDenialEdit {
+  id: string;
+  session_id: string;
+  expected_revision: string;
+  deny_interactive: boolean;
+  previous_denial: boolean;
+  policy: {
+    deny_interactive: boolean;
+    tree_id: string;
+    mode: "prompt" | "automatic";
+    revision: string;
+    updated_at: string;
+  };
+  created_at: string;
+}
 export interface PermissionModeEdit {
   id: string;
   session_id: string;
@@ -5492,6 +5579,7 @@ export interface PermissionModeEdit {
   mode: "prompt" | "automatic";
   previous_mode: "prompt" | "automatic";
   policy: {
+    deny_interactive: boolean;
     tree_id: string;
     mode: "prompt" | "automatic";
     revision: string;
@@ -5504,6 +5592,7 @@ export interface PermissionModeEditParams {
   edit_id: string;
 }
 export interface PermissionPolicy {
+  deny_interactive: boolean;
   tree_id: string;
   mode: "prompt" | "automatic";
   revision: string;
@@ -5636,6 +5725,15 @@ export interface ProviderInventory {
     effort: string;
     temperature?: null | number;
     top_p?: null | number;
+  };
+}
+export interface ProviderKeySetup {
+  revision: string;
+  provider: "openrouter" | "inference-net";
+  environment: boolean;
+  key: null | {
+    id: string;
+    key: string;
   };
 }
 export interface ProviderModelsResult {
@@ -7997,6 +8095,10 @@ export interface ReadHistoryParams {
 }
 export interface ReadHistoryResult {
   message: {
+    input_identity: null | {
+      client_id: string;
+      request_id: string;
+    };
     group_id: string;
     opening_input: boolean;
     source: null | {
@@ -8104,6 +8206,129 @@ export interface RecentTreesResult {
     last_activity_at: string;
   }[];
   has_more: boolean;
+}
+export interface ReloadEdit {
+  id: string;
+  session_id: string;
+  tree_id: string;
+  expected_revision: string;
+  host_revision: string;
+  configuration: {
+    run: null | {
+      system: string;
+      max_turns: number;
+      headless: boolean;
+      cache_key: string;
+    };
+    mcp_servers: {
+      all: boolean;
+      /**
+       * @maxItems 64
+       */
+      servers: string[];
+    };
+    /**
+     * @maxItems 17
+     */
+    modules: (
+      | "agents"
+      | "artifacts"
+      | "browser"
+      | "computer"
+      | "context"
+      | "files"
+      | "goals"
+      | "mail"
+      | "mcp"
+      | "messages"
+      | "models"
+      | "permissions"
+      | "schedules"
+      | "shell"
+      | "skills"
+      | "state"
+      | "user"
+    )[];
+    tools_definition: null | {
+      id: string;
+      revision: string;
+    };
+    hooks_definition: null | {
+      id: string;
+      revision: string;
+    };
+    automatic_title: boolean;
+    goals_enabled: boolean;
+    compaction: {
+      model: null | {
+        provider: string;
+        name: string;
+        effort: string;
+        temperature?: null | number;
+        top_p?: null | number;
+      };
+      threshold_percent: number;
+    };
+    report_mode: "notice" | "inline" | "message";
+    model:
+      | {
+          provider: string;
+          name: string;
+          effort: string;
+          temperature?: null | number;
+          top_p?: null | number;
+        }
+      | {
+          provider: "";
+          name: "";
+          effort: "";
+          temperature?: null | number;
+          top_p?: null | number;
+        };
+    instructions: {
+      project_root: null | string;
+      text: string;
+      project_files: null | string[];
+      discover_skills: boolean;
+      standing_instructions: boolean;
+      skill_roots: null | string[];
+    };
+    tools: {
+      [k: string]: {
+        timeout_millis: number;
+        description: string;
+        input_schema: unknown;
+        output_schema: unknown;
+      };
+    } | null;
+    children: {
+      [k: string]: {
+        id: string;
+        revision: string;
+      };
+    } | null;
+    hooks: {
+      [k: string]: {
+        operations: null | string[];
+        optional: boolean;
+        timeout_millis: number;
+      };
+    } | null;
+    output_schema: unknown;
+  };
+  state: "pending" | "applied" | "conflicted" | "interrupted" | "unavailable";
+  revision: null | string;
+  created_at: string;
+  settled_at: null | string;
+}
+export interface ReloadEditParams {
+  session_id: string;
+  edit_id: string;
+}
+export interface ReloadSessionParams {
+  edit_id: string;
+  session_id: string;
+  expected_revision: string;
 }
 export interface RemoveProviderParams {
   revision: string;
@@ -8419,6 +8644,10 @@ export interface SearchHistoryResult {
     | null
     | {
         message: {
+          input_identity: null | {
+            client_id: string;
+            request_id: string;
+          };
           group_id: string;
           opening_input: boolean;
           source: null | {
@@ -8485,7 +8714,11 @@ export interface Session {
       cache_key: string;
     };
     mcp_servers: {
-      [k: string]: unknown;
+      all: boolean;
+      /**
+       * @maxItems 64
+       */
+      servers: string[];
     };
     /**
      * @maxItems 17
@@ -8621,6 +8854,10 @@ export interface SessionObservation {
     | null
     | (
         | {
+            input_identity: null | {
+              client_id: string;
+              request_id: string;
+            };
             design_context?: null | {
               context_attachment_id: string;
               screenshot_attachment_id?: null | string;
@@ -8685,6 +8922,10 @@ export interface SessionObservation {
             created_at: string;
           }
         | {
+            input_identity: null | {
+              client_id: string;
+              request_id: string;
+            };
             design_context?: null | {
               context_attachment_id: string;
               screenshot_attachment_id?: null | string;
@@ -8749,6 +8990,10 @@ export interface SessionObservation {
             created_at: string;
           }
         | {
+            input_identity: null | {
+              client_id: string;
+              request_id: string;
+            };
             design_context?: null | {
               context_attachment_id: string;
               screenshot_attachment_id?: null | string;
@@ -8833,6 +9078,10 @@ export interface SessionObservation {
             created_at: string;
           }
         | {
+            input_identity: null | {
+              client_id: string;
+              request_id: string;
+            };
             design_context?: null | {
               context_attachment_id: string;
               screenshot_attachment_id?: null | string;
@@ -8910,6 +9159,10 @@ export interface SessionObservation {
 export interface SessionParams {
   session_id: string;
 }
+export interface SetBrowserDriverParams {
+  expected_revision: string;
+  driver: "rod" | "chromedp";
+}
 export interface SetBudgetParams {
   session_id: string;
   expected_revision: string;
@@ -8950,6 +9203,12 @@ export interface SetHostProfilesParams {
     runtime_id: string;
     connect_on_launch: boolean;
   }[];
+}
+export interface SetPermissionDenialParams {
+  edit_id: string;
+  session_id: string;
+  expected_revision: string;
+  deny_interactive: boolean;
 }
 export interface SetPermissionModeParams {
   edit_id: string;
@@ -9011,15 +9270,13 @@ export interface SpawnSessionParams {
     revision: string;
   };
   overrides: {
-    mcp_servers?: {
-      [k: string]: unknown;
-    } & (null | {
+    mcp_servers?: null | {
       all: boolean;
       /**
        * @maxItems 64
        */
       servers: string[];
-    });
+    };
     /**
      * @maxItems 17
      */
@@ -9170,7 +9427,11 @@ export interface SpawnSessionResult {
         cache_key: string;
       };
       mcp_servers: {
-        [k: string]: unknown;
+        all: boolean;
+        /**
+         * @maxItems 64
+         */
+        servers: string[];
       };
       /**
        * @maxItems 17
@@ -9513,9 +9774,7 @@ export interface StopHostParams {
   runtime_id: string;
   process_epoch: string;
 }
-export type SubmitParams = {
-  [k: string]: unknown;
-} & {
+export interface SubmitParams {
   delivery?: "queued" | "steer";
   target_turn_id?: null | string;
   design_context?: null | {
@@ -9563,7 +9822,7 @@ export type SubmitParams = {
         }
     )[]
   ];
-};
+}
 export interface SubscribeStateParams {
   subscription_id: string;
   session_id: string;
@@ -9899,15 +10158,13 @@ export interface UpdateConfigurationParams {
   session_id: string;
   expected_revision: string;
   patch: {
-    mcp_servers?: {
-      [k: string]: unknown;
-    } & (null | {
+    mcp_servers?: null | {
       all: boolean;
       /**
        * @maxItems 64
        */
       servers: string[];
-    });
+    };
     /**
      * @maxItems 17
      */
@@ -10252,6 +10509,7 @@ export interface ContractTypes {
   HistorySnapshot: HistorySnapshot;
   HostAttentionParams: HostAttentionParams;
   HostAttentionResult: HostAttentionResult;
+  HostBrowserDriver: HostBrowserDriver;
   HostDirectoriesParams: HostDirectoriesParams;
   HostDirectoriesResult: HostDirectoriesResult;
   HostDirectoryPickParams: HostDirectoryPickParams;
@@ -10330,6 +10588,7 @@ export interface ContractTypes {
   OpenAILoginFlow: OpenAILoginFlow;
   Part: Part;
   Permission: Permission;
+  PermissionDenialEdit: PermissionDenialEdit;
   PermissionModeEdit: PermissionModeEdit;
   PermissionModeEditParams: PermissionModeEditParams;
   PermissionPolicy: PermissionPolicy;
@@ -10338,6 +10597,7 @@ export interface ContractTypes {
   ProviderCatalog: ProviderCatalog;
   ProviderDefaultsParams: ProviderDefaultsParams;
   ProviderInventory: ProviderInventory;
+  ProviderKeySetup: ProviderKeySetup;
   ProviderModelsResult: ProviderModelsResult;
   ProviderParams: ProviderParams;
   ProviderPresetsResult: ProviderPresetsResult;
@@ -10362,6 +10622,9 @@ export interface ContractTypes {
   ReadWorkspaceActionParams: ReadWorkspaceActionParams;
   RecentTreesParams: RecentTreesParams;
   RecentTreesResult: RecentTreesResult;
+  ReloadEdit: ReloadEdit;
+  ReloadEditParams: ReloadEditParams;
+  ReloadSessionParams: ReloadSessionParams;
   RemoveProviderParams: RemoveProviderParams;
   Request: Request;
   RequestIdentity: RequestIdentity;
@@ -10386,10 +10649,12 @@ export interface ContractTypes {
   SessionInputParams: SessionInputParams;
   SessionObservation: SessionObservation;
   SessionParams: SessionParams;
+  SetBrowserDriverParams: SetBrowserDriverParams;
   SetBudgetParams: SetBudgetParams;
   SetDefaultPermissionModeParams: SetDefaultPermissionModeParams;
   SetExecutionDefaultsParams: SetExecutionDefaultsParams;
   SetHostProfilesParams: SetHostProfilesParams;
+  SetPermissionDenialParams: SetPermissionDenialParams;
   SetPermissionModeParams: SetPermissionModeParams;
   SetResourceParams: SetResourceParams;
   ShellInputParams: ShellInputParams;
@@ -10454,6 +10719,9 @@ export interface ContractTypes {
   WriteStateParams: WriteStateParams;
 }
 export interface Operations {
+  "sessions.reload": { params: ReloadSessionParams; result: ReloadEdit };
+  "sessions.reload_edit": { params: ReloadEditParams; result: ReloadEdit };
+  "sessions.cancel_reload": { params: ReloadEditParams; result: ReloadEdit };
   "host.status": { params: EmptyParams; result: HostStatus };
   "host.stop": { params: StopHostParams; result: HostStopAccepted };
   "workspace.complete": { params: WorkspaceCompletionParams; result: WorkspaceCompletionResult };
@@ -10522,6 +10790,7 @@ export interface Operations {
   "providers.presets": { params: EmptyParams; result: ProviderPresetsResult };
   "providers.bundled": { params: ProviderParams; result: ProviderModelsResult };
   "providers.list": { params: EmptyParams; result: ProviderInventory };
+  "providers.setup_key": { params: ProviderKeySetup; result: ProviderInventory };
   "providers.create": { params: ChangeProviderParams; result: ProviderInventory };
   "providers.update": { params: ChangeProviderParams; result: ProviderInventory };
   "providers.remove": { params: RemoveProviderParams; result: ProviderInventory };
@@ -10606,8 +10875,12 @@ export interface Operations {
   "permissions.resolve": { params: ResolvePermissionParams; result: Permission };
   "permissions.policy": { params: SessionParams; result: PermissionPolicy };
   "permissions.set_mode": { params: SetPermissionModeParams; result: PermissionModeEdit };
+  "permissions.set_denial": { params: SetPermissionDenialParams; result: PermissionDenialEdit };
+  "permissions.denial_edit": { params: PermissionModeEditParams; result: PermissionDenialEdit };
   "permissions.mode_edit": { params: PermissionModeEditParams; result: PermissionModeEdit };
   "host.profiles": { params: EmptyParams; result: HostProfiles };
+  "host.browser_driver": { params: EmptyParams; result: HostBrowserDriver };
+  "host.set_browser_driver": { params: SetBrowserDriverParams; result: HostBrowserDriver };
   "host.execution_defaults": { params: EmptyParams; result: HostExecutionDefaults };
   "host.set_execution_defaults": { params: SetExecutionDefaultsParams; result: HostExecutionDefaults };
   "host.set_profiles": { params: SetHostProfilesParams; result: HostProfiles };

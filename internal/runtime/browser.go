@@ -150,6 +150,13 @@ func (r *Runtime) prepareBrowser(ctx context.Context, current session.Session, c
 		return tool.Prepared{}, err
 	}
 	intent := session.BrowserIntent{SessionID: current.ID, TreeID: current.TreeID, ConfigRevision: current.ConfigRevision, Kind: call.Name, Scope: scope, PreviousResource: capture.PreviousResource(), Arguments: arguments}
+	if program != nil {
+		selection, err := r.BrowserDriver(ctx)
+		if err != nil {
+			return tool.Prepared{}, err
+		}
+		intent.Driver = selection.Driver
+	}
 	intent.TargetURL, intent.TargetTitle, intent.TargetDocument = capture.Target()
 	if err := intent.Validate(); err != nil {
 		return tool.Prepared{}, err
@@ -210,8 +217,15 @@ func (r *Runtime) prepareBrowser(ctx context.Context, current session.Session, c
 				if err != nil {
 					return err
 				}
-				backend, err := browser.NewDesktopBackend(ctx, client, scope.TabID, func() error { client.Close(); return nil })
+				var backend browser.Backend
+				closeTransport := func() error { client.Close(); return nil }
+				if intent.Driver == "chromedp" {
+					backend, err = browser.NewDesktopChromeDPBackend(ctx, client, scope.TabID, scope.AttachmentID, closeTransport)
+				} else {
+					backend, err = browser.NewDesktopBackend(ctx, client, scope.TabID, closeTransport)
+				}
 				if err != nil {
+					client.Close()
 					return err
 				}
 				defer func() { _ = backend.Close() }()

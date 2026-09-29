@@ -31,6 +31,7 @@ type SessionInputParams struct {
 }
 
 type InputSummary struct {
+	Identity         *RequestIdentity  `json:"identity"`
 	Steering         *InputSteeringRef `json:"steering,omitempty"`
 	ID               ID                `json:"id"`
 	SessionID        ID                `json:"session_id"`
@@ -67,7 +68,7 @@ func ActivityFromDomain(value session.Activity) SessionActivity {
 func InputPageFromDomain(value session.InputPage) InputPageResult {
 	result := InputPageResult{Items: []InputSummary{}, NextCursor: counter(value.NextCursor)}
 	for _, item := range value.Items {
-		summary := InputSummary{ID: ID(item.ID), SessionID: ID(item.SessionID), Ordinal: Counter(item.Ordinal), Source: string(item.Source), Kind: string(item.Kind), State: string(item.State), CreatedAt: item.CreatedAt.Format(time.RFC3339Nano), TextPreview: item.TextPreview, PreviewTruncated: item.PreviewTruncated, AttachmentCount: Counter(item.AttachmentCount)}
+		summary := InputSummary{Identity: requestIdentity(item.Identity), ID: ID(item.ID), SessionID: ID(item.SessionID), Ordinal: Counter(item.Ordinal), Source: string(item.Source), Kind: string(item.Kind), State: string(item.State), CreatedAt: item.CreatedAt.Format(time.RFC3339Nano), TextPreview: item.TextPreview, PreviewTruncated: item.PreviewTruncated, AttachmentCount: Counter(item.AttachmentCount)}
 		if item.TurnID != nil {
 			summary.TurnID = new(ID(*item.TurnID))
 		}

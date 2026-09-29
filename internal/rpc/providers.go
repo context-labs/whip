@@ -31,6 +31,15 @@ func dispatchProvider(ctx context.Context, service *providerhost.Service, method
 	case "providers.list":
 		value, err := service.List(ctx)
 		return providerInventory(value), err
+	case "providers.setup_key":
+		return decode(raw, func(p protocol.ProviderKeySetup) (any, error) {
+			var key *providerhost.KeyPublication
+			if p.Key != nil {
+				key = &providerhost.KeyPublication{ID: string(p.Key.ID), Key: p.Key.Key}
+			}
+			value, err := service.SetupKey(ctx, p.Revision, p.Provider, key, p.Environment)
+			return providerInventory(value), err
+		})
 	case "providers.create", "providers.update":
 		return decode(raw, func(p protocol.ChangeProviderParams) (any, error) {
 			if p.KeepCredential && p.Declaration.Credential != nil {

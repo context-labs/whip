@@ -1,0 +1,27 @@
+{
+  "type": "object",
+  "properties": {
+    "edit_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "expected_revision": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,18}$",
+      "format": "counter"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ReloadSessionParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ReloadSessionParams",
+  "required": [
+    "edit_id",
+    "session_id",
+    "expected_revision"
+  ],
+  "additionalProperties": false
+}

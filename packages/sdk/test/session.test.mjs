@@ -49,13 +49,15 @@ test('scoped handles reject foreign session/turn evidence before a cancellation'
 test('scoped input metadata stays bounded and full payload/cancellation are explicit reads', async () => {
   let foreign = false;
   const { client, calls } = await clientFixture(request => {
-    if (request.method === 'inputs.page') { const page = fixture('InputPageResult'); for (const item of page.items) item.session_id = 'child'; return page; }
+    if (request.method === 'inputs.page') { const page = structuredClone(fixtures.find(value => value.type === 'InputPageResult' && value.valid && value.value.items?.[0]?.identity).value); for (const item of page.items) item.session_id = 'child'; return page; }
     if (request.method === 'inputs.get' || request.method === 'inputs.cancel') return { ...fixture('Input'), id: 'input', session_id: foreign ? 'foreign' : 'child' };
     throw new Error(request.method);
   });
   const session = client.session('child');
   const page = await session.inputs.page({ state: 'queued', after: '0', limit: 1 });
   assert.ok(page.items.every(item => !('parts' in item)));
+  assert.deepEqual(page.items[0].identity, { client_id: 'client_fixture', request_id: 'request_fixture' });
+  assert.equal(page.items[0].ordinal, '9007199254740993');
   assert.deepEqual(calls.map(call => call.method), ['inputs.page']);
   assert.ok((await session.inputs.get('input')).parts);
   await session.inputs.cancel('input');

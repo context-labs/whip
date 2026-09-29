@@ -17,7 +17,7 @@ import (
 
 const (
 	FileName = "host.json"
-	Version  = 19
+	Version  = 20
 )
 
 type Provider struct {
@@ -80,6 +80,8 @@ func (m Model) resolve(defaultOutput int64) (Model, error) {
 }
 
 type Host struct {
+	// BrowserDriver chooses a batch interpreter, never a browser endpoint or authority.
+	BrowserDriver string `json:"browser_driver"`
 	// Nil uses 100 additional goal continuations; an explicit zero disables them.
 	GoalMaxContinuations *int64 `json:"goal_max_continuations,string"`
 	// Zero uses three total attempts. Explicit per-model limits take precedence.
@@ -114,6 +116,9 @@ func Default() Host {
 }
 
 func (h Host) Validate() error {
+	if _, err := ResolveBrowserDriver(h.BrowserDriver); err != nil {
+		return err
+	}
 	if err := h.ExecutionDefaults().Validate(); err != nil {
 		return err
 	}

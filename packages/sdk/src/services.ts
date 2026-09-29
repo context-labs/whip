@@ -45,6 +45,11 @@ export class Hosts {
   stop(processEpoch: string, options: CallOptions = {}) {
     return this.client.call('host.stop', { runtime_id: this.client.runtimeID, process_epoch: processEpoch }, options);
   }
+  browserDriver(options: CallOptions = {}) { return this.client.call('host.browser_driver', {}, options); }
+  /** Changes future batches only. Reread after uncertain delivery; process environment pins may reject an edit. */
+  setBrowserDriver(expectedRevision: string, driver: Params<'host.set_browser_driver'>['driver'], options: CallOptions = {}) {
+    return this.client.call('host.set_browser_driver', { expected_revision: expectedRevision, driver }, options);
+  }
   executionDefaults(options: CallOptions = {}) { return this.client.call('host.execution_defaults', {}, options); }
   /** Attempts include the initial request; goal continuations exclude its initial input. Reread after uncertain CAS delivery. */
   setExecutionDefaults(expectedRevision: string, defaults: Params<'host.set_execution_defaults'>['defaults'], options: CallOptions = {}) {

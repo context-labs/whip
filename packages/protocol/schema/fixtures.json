@@ -758,6 +758,92 @@
     "valid": true
   },
   {
+    "type": "ReloadSessionParams",
+    "value": {
+      "edit_id": "Reload.Mixed",
+      "session_id": "session_root",
+      "expected_revision": "9007199254740993"
+    },
+    "valid": true
+  },
+  {
+    "type": "ReloadEditParams",
+    "value": {
+      "session_id": "session_root",
+      "edit_id": "Reload.Mixed"
+    },
+    "valid": true
+  },
+  {
+    "type": "ReloadEdit",
+    "value": {
+      "id": "Reload.Mixed",
+      "session_id": "session_root",
+      "tree_id": "tree_fixture",
+      "expected_revision": "9007199254740993",
+      "host_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "configuration": {
+        "run": null,
+        "mcp_servers": {
+          "all": true,
+          "servers": []
+        },
+        "modules": [
+          "agents",
+          "artifacts",
+          "browser",
+          "computer",
+          "context",
+          "files",
+          "goals",
+          "mail",
+          "mcp",
+          "messages",
+          "models",
+          "permissions",
+          "schedules",
+          "shell",
+          "skills",
+          "state",
+          "user"
+        ],
+        "tools_definition": null,
+        "hooks_definition": null,
+        "automatic_title": true,
+        "goals_enabled": true,
+        "compaction": {
+          "model": null,
+          "threshold_percent": 50
+        },
+        "report_mode": "notice",
+        "model": {
+          "provider": "fixture",
+          "name": "scripted",
+          "effort": ""
+        },
+        "instructions": {
+          "project_root": null,
+          "text": "Help the user complete their task. Use only the operations made available to you.",
+          "project_files": [
+            "AGENTS.md"
+          ],
+          "discover_skills": true,
+          "standing_instructions": false,
+          "skill_roots": null
+        },
+        "tools": null,
+        "children": null,
+        "hooks": null,
+        "output_schema": null
+      },
+      "state": "pending",
+      "revision": null,
+      "created_at": "2026-09-27T12:00:00.123456Z",
+      "settled_at": null
+    },
+    "valid": true
+  },
+  {
     "type": "ControlEdit",
     "value": {
       "id": "workspace_edit",
@@ -1346,6 +1432,19 @@
     "type": "ProviderParams",
     "value": {
       "provider": "explicit"
+    },
+    "valid": true
+  },
+  {
+    "type": "ProviderKeySetup",
+    "value": {
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "provider": "openrouter",
+      "environment": false,
+      "key": {
+        "id": "fixture-key",
+        "key": "fixture-private"
+      }
     },
     "valid": true
   },
@@ -2667,6 +2766,7 @@
   {
     "type": "Message",
     "value": {
+      "input_identity": null,
       "group_id": "imported_group",
       "opening_input": true,
       "source": {
@@ -2731,6 +2831,7 @@
     "type": "ReadHistoryResult",
     "value": {
       "message": {
+        "input_identity": null,
         "group_id": "turn",
         "opening_input": false,
         "source": null,
@@ -3088,6 +3189,7 @@
   {
     "type": "Message",
     "value": {
+      "input_identity": null,
       "group_id": "turn_fixture",
       "opening_input": false,
       "source": null,
@@ -3226,10 +3328,66 @@
     "valid": true
   },
   {
+    "type": "Message",
+    "value": {
+      "input_identity": {
+        "client_id": "client_fixture",
+        "request_id": "request_fixture"
+      },
+      "group_id": "turn_fixture",
+      "opening_input": false,
+      "source": null,
+      "retired_by": null,
+      "retired_revision": null,
+      "id": "authored",
+      "session_id": "session_child",
+      "turn_id": null,
+      "input_id": "input_fixture",
+      "mail": null,
+      "sequence": "9007199254740993",
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Authored input"
+        }
+      ],
+      "created_at": "2026-09-27T12:00:00.123456Z"
+    },
+    "valid": true
+  },
+  {
     "type": "InputPageResult",
     "value": {
       "items": [
         {
+          "identity": null,
+          "id": "internal_fixture",
+          "session_id": "session_child",
+          "ordinal": "1",
+          "source": "agent",
+          "kind": "prompt",
+          "state": "queued",
+          "turn_id": null,
+          "created_at": "2026-09-27T12:00:00.123456Z",
+          "text_preview": "",
+          "preview_truncated": false,
+          "attachment_count": "0"
+        }
+      ],
+      "next_cursor": null
+    },
+    "valid": true
+  },
+  {
+    "type": "InputPageResult",
+    "value": {
+      "items": [
+        {
+          "identity": {
+            "client_id": "client_fixture",
+            "request_id": "request_fixture"
+          },
           "id": "queued_fixture",
           "session_id": "session_child",
           "ordinal": "9007199254740993",
@@ -3259,6 +3417,7 @@
       "epoch": "boot_fixture",
       "messages": [
         {
+          "input_identity": null,
           "group_id": "turn_fixture",
           "opening_input": false,
           "source": null,
@@ -3835,6 +3994,7 @@
       },
       "messages": [
         {
+          "input_identity": null,
           "group_id": "turn_fixture",
           "opening_input": false,
           "source": null,
@@ -3947,6 +4107,7 @@
       },
       "items": [
         {
+          "input_identity": null,
           "group_id": "turn_fixture",
           "opening_input": false,
           "source": null,
@@ -3972,6 +4133,7 @@
           "created_at": "2026-09-27T12:00:00.123456Z"
         },
         {
+          "input_identity": null,
           "group_id": "turn_fixture",
           "opening_input": false,
           "source": null,
@@ -3999,6 +4161,7 @@
           "created_at": "2026-09-27T12:00:00.123456Z"
         },
         {
+          "input_identity": null,
           "group_id": "turn_fixture",
           "opening_input": false,
           "source": null,
@@ -4056,6 +4219,7 @@
   {
     "type": "Message",
     "value": {
+      "input_identity": null,
       "group_id": "turn_fixture",
       "opening_input": false,
       "source": null,
@@ -4853,6 +5017,7 @@
       },
       "items": [
         {
+          "input_identity": null,
           "group_id": "turn_fixture",
           "opening_input": false,
           "source": null,
@@ -4894,6 +5059,7 @@
       },
       "items": [
         {
+          "input_identity": null,
           "group_id": "turn_fixture",
           "opening_input": false,
           "source": null,
@@ -5406,9 +5572,58 @@
     "valid": false
   },
   {
+    "type": "SetPermissionDenialParams",
+    "value": {
+      "edit_id": "deny",
+      "session_id": "root",
+      "expected_revision": "9007199254740993",
+      "deny_interactive": true
+    },
+    "valid": true
+  },
+  {
+    "type": "PermissionDenialEdit",
+    "value": {
+      "id": "Deny.Mixed-Case",
+      "session_id": "root",
+      "expected_revision": "9007199254740993",
+      "deny_interactive": false,
+      "previous_denial": true,
+      "policy": {
+        "tree_id": "tree",
+        "deny_interactive": false,
+        "mode": "automatic",
+        "revision": "9007199254740994",
+        "updated_at": "2026-09-28T00:00:00Z"
+      },
+      "created_at": "2026-09-28T00:00:00Z"
+    },
+    "valid": true
+  },
+  {
+    "type": "SetPermissionDenialParams",
+    "value": {
+      "edit_id": "deny",
+      "session_id": "root",
+      "expected_revision": "1"
+    },
+    "valid": false
+  },
+  {
+    "type": "SetPermissionDenialParams",
+    "value": {
+      "edit_id": "deny",
+      "session_id": "root",
+      "expected_revision": "1",
+      "deny_interactive": "true"
+    },
+    "valid": false
+  },
+  {
     "type": "PermissionPolicy",
     "value": {
       "tree_id": "tree",
+      "deny_interactive": false,
       "mode": "automatic",
       "revision": "9007199254740993",
       "updated_at": "2026-09-28T00:00:00Z"
@@ -5443,6 +5658,7 @@
       "previous_mode": "prompt",
       "policy": {
         "tree_id": "tree",
+        "deny_interactive": false,
         "mode": "automatic",
         "revision": "9007199254740994",
         "updated_at": "2026-09-28T00:00:00Z"

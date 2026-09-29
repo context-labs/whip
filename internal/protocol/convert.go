@@ -221,6 +221,7 @@ func MessageFromDomain(value session.Message) Message {
 		parts[i] = PartFromDomain(part)
 	}
 	result := Message{
+		InputIdentity: requestIdentity(value.InputIdentity),
 		DesignContext: designPresentationFromDomain(value.DesignContext),
 		GroupID:       ID(value.GroupID), OpeningInput: value.OpeningInput, Source: messageSource(value.Source),
 		RetiredBy: historyEditID(value.RetiredBy), RetiredRevision: historyRevision(value.RetiredRevision),
@@ -258,4 +259,11 @@ func (part Part) Domain() session.Part {
 		result.Result = &session.ToolResult{CallID: string(part.Result.CallID), Output: part.Result.Output, IsError: part.Result.IsError}
 	}
 	return result
+}
+
+func requestIdentity(value *session.RequestIdentity) *RequestIdentity {
+	if value == nil {
+		return nil
+	}
+	return &RequestIdentity{ClientID: ID(value.ClientID), RequestID: ID(value.RequestID)}
 }
