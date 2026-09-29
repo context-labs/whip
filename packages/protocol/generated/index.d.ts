@@ -79,7 +79,7 @@ export interface Admission {
       }
     | {
         host_operation: {
-          module: "shell" | "files" | "tools";
+          module: "shell" | "files" | "tools" | "computer";
           name: string;
           arguments_base64: string;
         };
@@ -222,7 +222,7 @@ export interface CallHostToolParams {
   };
   session_id: string;
   operation: {
-    module: "shell" | "files" | "tools";
+    module: "shell" | "files" | "tools" | "computer";
     name: string;
     arguments_base64: string;
   };
@@ -373,6 +373,45 @@ export interface CompactionsResult {
         text_bytes: string;
         created_at: string;
       }[];
+}
+export interface ComputerConnectionParams {
+  generation: string;
+}
+export interface ComputerStatus {
+  revision: string;
+  configuration: {
+    enabled: boolean;
+    helper_executable: string;
+    /**
+     * @maxItems 64
+     */
+    allow: string[];
+    /**
+     * @maxItems 64
+     */
+    deny: string[];
+    default_deny: boolean;
+  };
+  generation: string;
+  state: "disabled" | "available" | "connected" | "retired" | "closed";
+  native_configured: boolean;
+  platform_supported: boolean;
+}
+export interface ConfigureComputerParams {
+  revision: string;
+  configuration: {
+    enabled: boolean;
+    helper_executable: string;
+    /**
+     * @maxItems 64
+     */
+    allow: string[];
+    /**
+     * @maxItems 64
+     */
+    deny: string[];
+    default_deny: boolean;
+  };
 }
 export interface ConfigureMCPParams {
   revision: string;
@@ -1769,7 +1808,7 @@ export interface GoalAdmission {
         }
       | {
           host_operation: {
-            module: "shell" | "files" | "tools";
+            module: "shell" | "files" | "tools" | "computer";
             name: string;
             arguments_base64: string;
           };
@@ -2461,10 +2500,10 @@ export interface HostOperationsResult {
 }
 export interface HostToolSchemasResult {
   /**
-   * @maxItems 135
+   * @maxItems 136
    */
   items: {
-    module: "shell" | "files" | "tools";
+    module: "shell" | "files" | "tools" | "computer";
     name: string;
     description: string;
     input_schema: unknown;
@@ -2719,7 +2758,7 @@ export type Input =
     }
   | {
       host_operation: {
-        module: "shell" | "files" | "tools";
+        module: "shell" | "files" | "tools" | "computer";
         name: string;
         arguments_base64: string;
       };
@@ -7508,7 +7547,7 @@ export interface SpawnSessionResult {
         }
       | {
           host_operation: {
-            module: "shell" | "files" | "tools";
+            module: "shell" | "files" | "tools" | "computer";
             name: string;
             arguments_base64: string;
           };
@@ -8004,6 +8043,9 @@ export interface ContractTypes {
   CompactionResult: CompactionResult;
   CompactionsParams: CompactionsParams;
   CompactionsResult: CompactionsResult;
+  ComputerConnectionParams: ComputerConnectionParams;
+  ComputerStatus: ComputerStatus;
+  ConfigureComputerParams: ConfigureComputerParams;
   ConfigureMCPParams: ConfigureMCPParams;
   ContentReference: ContentReference;
   ContextHead: ContextHead;
@@ -8226,6 +8268,10 @@ export interface Operations {
   "tool.progress": { params: ExecutorProgressParams; result: ExecutorAccepted };
   "shell.interaction": { params: ShellInteractionParams; result: ShellInteractionResult };
   "shell.input": { params: ShellInputParams; result: ShellInputResult };
+  "computer.status": { params: EmptyParams; result: ComputerStatus };
+  "computer.configure": { params: ConfigureComputerParams; result: ComputerStatus };
+  "computer.reconnect": { params: ComputerConnectionParams; result: ComputerStatus };
+  "computer.disconnect": { params: ComputerConnectionParams; result: ComputerStatus };
   "mcp.configuration": { params: EmptyParams; result: MCPConfiguration };
   "mcp.configure": { params: ConfigureMCPParams; result: MCPConfiguration };
   "mcp.import.candidates": { params: MCPImportCandidatesParams; result: MCPImportCandidatesResult };

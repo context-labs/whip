@@ -15,6 +15,7 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/mcp"
 	"github.com/context-labs/whip/internal/mcpconfig"
@@ -344,7 +345,7 @@ func TestMCPConfirmedFailurePublishesScopedLargeEvidence(t *testing.T) {
 	server.RemoveTools("visible")
 	sdkmcp.AddTool(server, &sdkmcp.Tool{Name: "visible"}, func(context.Context, *sdkmcp.CallToolRequest, map[string]any) (*sdkmcp.CallToolResult, any, error) {
 		effects.Add(1)
-		return &sdkmcp.CallToolResult{IsError: true, Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: strings.Repeat("failure evidence ", 6000)}, &sdkmcp.ImageContent{MIMEType: "image/png", Data: []byte("binary evidence")}}}, nil, nil
+		return &sdkmcp.CallToolResult{IsError: true, Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: strings.Repeat("failure evidence ", 6000)}, &sdkmcp.ImageContent{MIMEType: "image/png", Data: hostTestPNG(t)}}}, nil, nil
 	})
 	r, owner, cell := modelHelperFixture(t, model.Scripted{})
 	configureMCPFixture(t, r, url)
@@ -364,7 +365,7 @@ func TestMCPConfirmedFailurePublishesScopedLargeEvidence(t *testing.T) {
 		t.Fatal("remote failure succeeded")
 	}
 	operation, err := r.store.Operation(t.Context(), id)
-	if err != nil || operation.State != session.OperationFailed || operation.Result == nil {
+	if err != nil || operation.State != session.OperationFailed || operation.Result == nil || len(operation.Result.ContentReferences) != 1 {
 		t.Fatal(operation, err)
 	}
 	var evidence struct {
@@ -447,5 +448,122 @@ print(mcp.call(server="fixture",tool="visible",arguments={}))`
 				t.Fatal("root/child dispatches", effects.Load())
 			}
 		})
+	}
+}
+
+func TestMCPImageReservationSerializesThroughSettlementAndRejectsExhaustedCell(t *testing.T) {
+	isolateMCP(t)
+	url, server, effects := mcpHTTPFixture(t)
+	server.RemoveTools("visible")
+	started := make(chan struct{})
+	release := make(chan struct{})
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
+	photo := hostTestPNG(t)
+	sdkmcp.AddTool(server, &sdkmcp.Tool{Name: "visible"}, func(ctx context.Context, _ *sdkmcp.CallToolRequest, _ map[string]any) (*sdkmcp.CallToolResult, any, error) {
+		effects.Add(1)
+		close(started)
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return nil, nil, ctx.Err()
+		}
+		content := []sdkmcp.Content{}
+		for range 8 {
+			content = append(content, &sdkmcp.ImageContent{MIMEType: "image/png", Data: photo})
+		}
+		return &sdkmcp.CallToolResult{Content: content}, nil, nil
+	})
+	r, owner, cell := modelHelperFixture(t, model.Scripted{})
+	configureMCPFixture(t, r, url)
+	if _, err := r.MCPRefresh(t.Context(), owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	manager := awaitMCPReady(t, r, owner)
+	resolved, err := manager.ResolveTool("fixture", "visible")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.CreateGrant(t.Context(), session.Grant{ID: "images", SessionID: owner.ID, Capability: mcpCallCapability(resolved), Resource: mcpCallResource(owner.ID, resolved)}); err != nil {
+		t.Fatal(err)
+	}
+	invoke := func(request string) (session.OperationID, error) {
+		_, id, err := r.tools.Call(t.Context(), tool.Invocation{SessionID: owner.ID, CellID: cell.ID, RequestID: request, Module: "mcp", Name: "call", Arguments: map[string]any{"server": "fixture", "tool": "visible", "arguments": map[string]any{}}})
+		return id, err
+	}
+	type outcome struct {
+		id  session.OperationID
+		err error
+	}
+	first := make(chan outcome, 1)
+	second := make(chan outcome, 1)
+	go func() { id, err := invoke("first"); first <- outcome{id, err} }()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("MCP request not dispatched")
+	}
+	go func() { id, err := invoke("second"); second <- outcome{id, err} }()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		rows, err := r.Operations(t.Context(), cell.TurnID, "", 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(rows) == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("second operation not admitted")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if effects.Load() != 1 {
+		t.Fatal("parallel call bypassed image reservation")
+	}
+	close(release)
+	one, two := <-first, <-second
+	if one.err != nil || two.err == nil {
+		t.Fatal(one, two)
+	}
+	op, err := r.Operation(t.Context(), one.id)
+	if err != nil || len(op.Result.ContentReferences) != 8 {
+		t.Fatal(op, err)
+	}
+	if effects.Load() != 1 {
+		t.Fatal("exhausted cell contacted MCP server again")
+	}
+	if _, err := r.store.SettleCell(t.Context(), cell.ID, session.CellSucceeded, session.ToolResult{CallID: cell.CallID, Output: "exact MCP tool output"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	parts, err := r.store.CellResultParts(t.Context(), owner.ID, cell.ID)
+	if err != nil || len(parts) != 9 {
+		t.Fatal(parts, err)
+	}
+}
+
+func TestMCPInvalidImagePreservesKnownPrefixWithoutVisionChunks(t *testing.T) {
+	r, owner, _ := modelHelperFixture(t, model.Scripted{})
+	allowance := &hostImages{count: 8, bytes: 16 << 20}
+	output, err := r.mcpResult(t.Context(), owner.ID, "bad-image", capability.MCPResult{Text: "canonical", Attachments: []capability.MCPAttachment{{MIME: "image/png", Data: hostTestPNG(t)}, {MIME: "image/png", Data: []byte("not an image")}}}, allowance)
+	if err == nil || len(output.ContentReferences) != 1 {
+		t.Fatal(output, err)
+	}
+	value := output.Value.(map[string]any)
+	if value["text"] != "canonical" || value["remote_completed"] != true || value["output_unavailable"] != true || len(value["attachments"].([]any)) != 1 {
+		t.Fatal(value)
+	}
+	truncated := hostTestPNG(t)[:33]
+	if _, err := r.publishHostImage(t.Context(), owner.ID, "truncated", 0, "image/png", truncated, allowance); !errors.Is(err, session.ErrInvalid) {
+		t.Fatal("header-only image published", err)
+	}
+	tooLarge := make([]byte, session.MaxContentBytes+1)
+	if _, err := r.publishHostImage(t.Context(), owner.ID, "oversized", 0, "image/png", tooLarge, allowance); !errors.Is(err, store.ErrLimit) {
+		t.Fatal("oversized image was split into vision chunks", err)
 	}
 }

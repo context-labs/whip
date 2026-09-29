@@ -19,6 +19,9 @@ func (r *Runtime) PrepareCoordination(ctx context.Context, current session.Sessi
 	if call.Module == "permissions" {
 		return r.preparePermissionInspection(current, call)
 	}
+	if call.Module == "computer" {
+		return r.prepareComputer(ctx, current, call)
+	}
 	if call.Module == "shell" {
 		return r.prepareShell(current, call)
 	}

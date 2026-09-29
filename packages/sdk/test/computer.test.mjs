@@ -1,0 +1,26 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { test } from 'node:test';
+import { Client, DeliveryError } from '../dist/index.js';
+const fixtures = JSON.parse(await readFile(new URL('../../protocol/schema/fixtures.json', import.meta.url), 'utf8'));
+const status = structuredClone(fixtures.find(value => value.type === 'ComputerStatus' && value.valid).value);
+const initial = { major:4,minor:0,runtime_id:'runtime',process_epoch:'boot',network_client:false,builtins:[] };
+test('computer controls are explicit, generation-scoped and never retry a lost mutation', async () => {
+ const calls=[];
+ const client=await Client.connect(async request=>{
+  if(request.method==='initialize')return {jsonrpc:'2.0',id:request.id,result:initial};
+  calls.push(structuredClone(request));
+  if(request.method==='computer.reconnect')throw new DeliveryError('lost acknowledgement');
+  return {jsonrpc:'2.0',id:request.id,result:structuredClone(status)};
+ }, {clientID:'human'});
+ assert.deepEqual(await client.computerStatus(),status);
+ await client.configureComputer({revision:status.revision,configuration:{...status.configuration,enabled:true,helper_executable:'/explicit/helper'}});
+ await client.disconnectComputer(status.generation);
+ await assert.rejects(client.reconnectComputer(status.generation),DeliveryError);
+ assert.deepEqual(calls.map(value=>value.method),['computer.status','computer.configure','computer.disconnect','computer.reconnect']);
+ assert.deepEqual(calls.at(-1).params,{generation:status.generation});
+ const count=calls.length;
+ await assert.rejects(client.reconnectComputer(status.generation,{signal:AbortSignal.abort()}),error=>error.name==='AbortError');
+ await assert.rejects(client.configureComputer({revision:status.revision,configuration:{...status.configuration,allow:Array(65).fill('app')}}),TypeError);
+ assert.equal(calls.length,count);
+});

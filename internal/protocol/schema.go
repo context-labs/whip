@@ -33,6 +33,10 @@ func Operations() []Operation {
 		{"tool.progress", reflect.TypeFor[ExecutorProgressParams](), reflect.TypeFor[ExecutorAccepted]()},
 		{"shell.interaction", reflect.TypeFor[ShellInteractionParams](), reflect.TypeFor[ShellInteractionResult]()},
 		{"shell.input", reflect.TypeFor[ShellInputParams](), reflect.TypeFor[ShellInputResult]()},
+		{"computer.status", reflect.TypeFor[EmptyParams](), reflect.TypeFor[ComputerStatus]()},
+		{"computer.configure", reflect.TypeFor[ConfigureComputerParams](), reflect.TypeFor[ComputerStatus]()},
+		{"computer.reconnect", reflect.TypeFor[ComputerConnectionParams](), reflect.TypeFor[ComputerStatus]()},
+		{"computer.disconnect", reflect.TypeFor[ComputerConnectionParams](), reflect.TypeFor[ComputerStatus]()},
 		{"mcp.configuration", reflect.TypeFor[EmptyParams](), reflect.TypeFor[MCPConfiguration]()},
 		{"mcp.configure", reflect.TypeFor[ConfigureMCPParams](), reflect.TypeFor[MCPConfiguration]()},
 		{"mcp.import.candidates", reflect.TypeFor[MCPImportCandidatesParams](), reflect.TypeFor[MCPImportCandidatesResult]()},
@@ -290,6 +294,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 		questionSchema(schema, t)
 		languageServerSchema(schema, t)
 		mcpSchema(schema, t)
+		computerSchema(schema, t)
 		terminalSchema(schema, t)
 		hostOperationSchema(schema, t)
 		if t == reflect.TypeFor[MatchReceiptParams]() {

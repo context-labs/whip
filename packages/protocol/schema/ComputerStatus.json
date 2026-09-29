@@ -1,0 +1,83 @@
+{
+  "type": "object",
+  "properties": {
+    "revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "configuration": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "helper_executable": {
+          "type": "string"
+        },
+        "allow": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "deny": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "default_deny": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled",
+        "helper_executable",
+        "allow",
+        "deny",
+        "default_deny"
+      ],
+      "additionalProperties": false
+    },
+    "generation": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "disabled",
+        "available",
+        "connected",
+        "retired",
+        "closed"
+      ]
+    },
+    "native_configured": {
+      "type": "boolean"
+    },
+    "platform_supported": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ComputerStatus",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ComputerStatus",
+  "required": [
+    "revision",
+    "configuration",
+    "generation",
+    "state",
+    "native_configured",
+    "platform_supported"
+  ],
+  "additionalProperties": false
+}

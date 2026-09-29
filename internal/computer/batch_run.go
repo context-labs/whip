@@ -53,7 +53,8 @@ func (o *Observations) note(epoch, app string, pid, generation int) error {
 
 func (o *Observations) forget(app string) { o.mu.Lock(); defer o.mu.Unlock(); delete(o.values, app) }
 
-func (o *Observations) clear() { o.mu.Lock(); defer o.mu.Unlock(); o.values = nil }
+// Clear discards live indices when their owning worker or batch is retired.
+func (o *Observations) Clear() { o.mu.Lock(); defer o.mu.Unlock(); o.values = nil }
 
 // BatchResult preserves the completed prefix, including screenshots, on failure.
 // Screenshot bytes must be published as owner-scoped content, never JSON/base64
@@ -65,7 +66,15 @@ type BatchResult struct {
 
 // Run executes only after the caller commits operation dispatch. Recheck must
 // verify current host policy and grant lifetime before each native/script effect.
-func (l *Lease) Run(ctx context.Context, observations *Observations, recheck func(context.Context) error) (result BatchResult, runErr error) {
+func (l *Lease) Run(ctx context.Context, observations *Observations, recheck func(context.Context) error) (BatchResult, error) {
+	return l.RunBounded(ctx, observations, recheck, 8, 16<<20)
+}
+
+// RunBounded applies the caller's remaining committed cell image allowance.
+func (l *Lease) RunBounded(ctx context.Context, observations *Observations, recheck func(context.Context) error, maxImages int, maxBytes int64) (result BatchResult, runErr error) {
+	if maxImages < 0 || maxImages > 8 || maxBytes < 0 || maxBytes > 16<<20 {
+		return BatchResult{}, errors.New("invalid computer image allowance")
+	}
 	l.runMu.Lock()
 	if l.ran || l.closed {
 		l.runMu.Unlock()
@@ -95,7 +104,7 @@ func (l *Lease) Run(ctx context.Context, observations *Observations, recheck fun
 	result = BatchResult{Screenshots: [][]byte{}}
 	defer func() {
 		if runErr != nil {
-			observations.clear()
+			observations.Clear()
 		}
 	}()
 	var output strings.Builder
@@ -105,7 +114,7 @@ func (l *Lease) Run(ctx context.Context, observations *Observations, recheck fun
 			result.Text = output.String()
 			return result, err
 		}
-		if len(result.Screenshots) >= 8 && step.method != "ax" && step.method != "apps" && step.method != "permissions.request" && step.method != "print" && step.method != "tell" && !strings.HasPrefix(step.method, "chrome_") {
+		if (len(result.Screenshots) >= maxImages || int64(totalImages) >= maxBytes) && step.capturesImage() {
 			result.Text = output.String()
 			return result, errors.New("computer batch screenshot limit reached before next action")
 		}
@@ -119,7 +128,7 @@ func (l *Lease) Run(ctx context.Context, observations *Observations, recheck fun
 			output.WriteByte('\n')
 		}
 		if len(shot) > 0 {
-			if len(result.Screenshots) >= 8 || totalImages+len(shot) > 16<<20 {
+			if len(result.Screenshots) >= maxImages || int64(totalImages+len(shot)) > maxBytes {
 				result.Text = output.String()
 				return result, errors.New("computer batch screenshot limit exceeded after completed action")
 			}

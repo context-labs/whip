@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/context-labs/whip/internal/computer"
 	"github.com/context-labs/whip/internal/content"
 	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/runner"
@@ -24,10 +25,12 @@ import (
 // A live kernel is a disposable cache owned by its session's runtime. The store
 // owns its last execution boundary; no worker image is authoritative in memory.
 type sessionKernel struct {
-	mu              sync.Mutex
-	historyRevision session.Revision
-	kernel          *process.Kernel
-	checkpoints     *cellCheckpoints
+	computerObservations *computer.Observations
+	imageSlot            chan struct{}
+	mu                   sync.Mutex
+	historyRevision      session.Revision
+	kernel               *process.Kernel
+	checkpoints          *cellCheckpoints
 }
 
 type cellCheckpoints struct {
@@ -124,7 +127,8 @@ func (r *Runtime) kernel(ctx context.Context, id session.SessionID, revision ses
 		return nil, err
 	}
 	checkpoints := &cellCheckpoints{runtime: r, sessionID: id, historyRevision: revision, descriptor: descriptor}
-	kernel, err := process.NewKernel(process.KernelOptions{Engine: string(tree.Engine), Modules: initial.Modules, Tools: slices.Sorted(maps.Keys(initial.Tools)), Checkpoints: checkpoints, Manager: r.engineManager, Command: r.options.EngineCommand, Limits: process.Limits{OutputBytes: 64 << 10}, Host: process.HostFunc(func(ctx context.Context, module, operation string, arguments map[string]any) (any, error) {
+	observations := &computer.Observations{}
+	kernel, err := process.NewKernel(process.KernelOptions{OnDiscard: observations.Clear, Engine: string(tree.Engine), Modules: initial.Modules, Tools: slices.Sorted(maps.Keys(initial.Tools)), Checkpoints: checkpoints, Manager: r.engineManager, Command: r.options.EngineCommand, Limits: process.Limits{OutputBytes: 64 << 10}, Host: process.HostFunc(func(ctx context.Context, module, operation string, arguments map[string]any) (any, error) {
 		call, ok := process.HostCallFromContext(ctx)
 		if !ok {
 			return nil, errors.New("missing host invocation identity")
@@ -138,7 +142,7 @@ func (r *Runtime) kernel(ctx context.Context, id session.SessionID, revision ses
 	if err != nil {
 		return nil, err
 	}
-	created := &sessionKernel{historyRevision: revision, kernel: kernel, checkpoints: checkpoints}
+	created := &sessionKernel{computerObservations: observations, imageSlot: make(chan struct{}, 1), historyRevision: revision, kernel: kernel, checkpoints: checkpoints}
 	r.mu.Lock()
 	if r.closed {
 		r.mu.Unlock()

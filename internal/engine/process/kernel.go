@@ -317,6 +317,9 @@ func (manager *Manager) Close() {
 }
 
 type KernelOptions struct {
+	// OnDiscard clears host-side observations after a resident worker is joined.
+	// It runs under the kernel lock and must not reenter the kernel or block.
+	OnDiscard   func()
 	Engine      string
 	Checkpoints CheckpointStore
 	// Modules names the installed host modules. Empty installs none; nil
@@ -413,6 +416,7 @@ type TurnStart struct {
 }
 
 type Kernel struct {
+	onDiscard   func()
 	engine      EngineDescriptor
 	checkpoints CheckpointStore
 	execMu      sync.Mutex
@@ -485,7 +489,7 @@ func NewKernel(options KernelOptions) (*Kernel, error) {
 	}
 	return &Kernel{
 		engine: descriptor, checkpoints: options.Checkpoints, modules: slices.Clone(options.Modules), tools: append([]string(nil), options.Tools...),
-		command: command, limits: limits, manager: options.Manager, host: options.Host,
+		command: command, limits: limits, manager: options.Manager, host: options.Host, onDiscard: options.OnDiscard,
 		scratch: options.Scratch, onRestore: options.OnRestore,
 		observeHost: options.ObserveHost,
 	}, nil
@@ -1139,6 +1143,9 @@ func (kernel *Kernel) stopProcess(depart bool) {
 	process.stopRead()
 	<-process.readDone
 	_ = os.RemoveAll(process.dir)
+	if kernel.onDiscard != nil {
+		kernel.onDiscard()
+	}
 	if depart {
 		kernel.manager.depart(kernel)
 	}

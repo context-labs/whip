@@ -60,6 +60,26 @@ export const manifest = {
       "result": "ShellInputResult"
     },
     {
+      "name": "computer.status",
+      "params": "EmptyParams",
+      "result": "ComputerStatus"
+    },
+    {
+      "name": "computer.configure",
+      "params": "ConfigureComputerParams",
+      "result": "ComputerStatus"
+    },
+    {
+      "name": "computer.reconnect",
+      "params": "ComputerConnectionParams",
+      "result": "ComputerStatus"
+    },
+    {
+      "name": "computer.disconnect",
+      "params": "ComputerConnectionParams",
+      "result": "ComputerStatus"
+    },
+    {
       "name": "mcp.configuration",
       "params": "EmptyParams",
       "result": "MCPConfiguration"

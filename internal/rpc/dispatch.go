@@ -78,6 +78,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 
 	case "shell.interaction", "shell.input":
 		return dispatchShell(ctx, r, method, raw)
+	case "computer.status", "computer.configure", "computer.reconnect", "computer.disconnect":
+		return dispatchComputer(ctx, r, method, raw)
 	case "mcp.configuration", "mcp.configure", "mcp.import.candidates", "mcp.import.apply", "mcp.status", "mcp.refresh", "mcp.reload", "mcp.reconnect", "mcp.enable", "mcp.disable", "mcp.attach", "mcp.tools", "mcp.instructions", "mcp.brand.icons":
 		return dispatchMCP(ctx, r, method, raw)
 	case "terminal.open", "terminal.list", "terminal.read", "terminal.write", "terminal.resize", "terminal.close":

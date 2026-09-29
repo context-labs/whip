@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"strings"
 
 	"github.com/context-labs/whip/internal/session"
 )
@@ -14,6 +15,11 @@ func (r *Runtime) RevokeGrant(ctx context.Context, id session.GrantID) (session.
 	grant, err := r.store.RevokeGrant(ctx, id)
 	if err == nil {
 		r.languageServers.RetireAll()
+		if strings.HasPrefix(grant.Capability, "computer.") {
+			r.computerMu.Lock()
+			r.computer.Disconnect()
+			r.computerMu.Unlock()
+		}
 	}
 	return grant, err
 }

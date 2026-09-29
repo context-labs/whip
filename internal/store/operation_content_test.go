@@ -195,3 +195,34 @@ func TestImageRecoveryProjectsOnlySettledEvidenceAndNeverGrantsReplay(t *testing
 		}
 	}
 }
+
+func TestDirectOperationImageOwnershipHasNoCellAggregateOrConversation(t *testing.T) {
+	s := fresh(t)
+	_, owner := create(t, s, nil)
+	_, foreignOwner := create(t, s, nil)
+	directInput(t, s, owner.ID, "direct-image")
+	work := claim(t, s, owner.ID)
+	operation := admitOperation(t, s, session.OperationSpec{ID: "direct-image", DirectTurnID: work.Turn.ID, RequestID: "image", Capability: "shell.run", Resource: owner.WorkingDirectory, Arguments: json.RawMessage(`{"command":"printf ok"}`)})
+	if _, err := s.ResolvePermission(t.Context(), operation.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.DispatchOperation(t.Context(), operation.ID); err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	own := registerImage(t, s, owner.ID, "own-direct", 4)
+	foreign := registerImage(t, s, foreignOwner.ID, "foreign-direct", 4)
+	outcome := session.OperationResult{State: session.OperationSucceeded, ContentReferences: []string{foreign.ID}}
+	if _, err := s.SettleOperation(t.Context(), operation.ID, outcome); !errors.Is(err, session.ErrInvalid) {
+		t.Fatal("foreign direct image accepted", err)
+	}
+	outcome.ContentReferences = []string{own.ID}
+	if _, err := s.SettleOperation(t.Context(), operation.ID, outcome); err != nil {
+		t.Fatal(err)
+	}
+	if count(t, s, "cells") != 0 || count(t, s, "messages") != 0 {
+		t.Fatal("direct images fabricated conversation")
+	}
+	if _, err := s.Finish(t.Context(), work.Turn.ID, session.Succeeded, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+}

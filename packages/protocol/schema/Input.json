@@ -323,7 +323,8 @@
               "enum": [
                 "shell",
                 "files",
-                "tools"
+                "tools",
+                "computer"
               ]
             },
             "name": {

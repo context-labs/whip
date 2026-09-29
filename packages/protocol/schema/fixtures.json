@@ -318,6 +318,24 @@
     "valid": true
   },
   {
+    "type": "ComputerStatus",
+    "value": {
+      "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "configuration": {
+        "enabled": false,
+        "helper_executable": "",
+        "allow": [],
+        "deny": [],
+        "default_deny": true
+      },
+      "generation": "control_fixture",
+      "state": "disabled",
+      "native_configured": false,
+      "platform_supported": true
+    },
+    "valid": true
+  },
+  {
     "type": "MCPConfiguration",
     "value": {
       "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",

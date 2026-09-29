@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/context-labs/whip/internal/computerconfig"
 	"github.com/context-labs/whip/internal/lspconfig"
 	"github.com/context-labs/whip/internal/mcpconfig"
 	"github.com/context-labs/whip/internal/session"
@@ -16,7 +17,7 @@ import (
 
 const (
 	FileName = "host.json"
-	Version  = 16
+	Version  = 17
 )
 
 type Provider struct {
@@ -79,6 +80,7 @@ func (m Model) resolve(defaultOutput int64) (Model, error) {
 }
 
 type Host struct {
+	Computer              computerconfig.Config  `json:"computer"`
 	DefaultPermissionMode session.PermissionMode `json:"default_permission_mode,omitempty"`
 	// LSP publishes bounded stdio server declarations without granting session authority.
 	LSP map[string]lspconfig.Config `json:"lsp"`
@@ -103,6 +105,9 @@ func Default() Host {
 }
 
 func (h Host) Validate() error {
+	if _, err := h.Computer.Normalize(); err != nil {
+		return fmt.Errorf("%w: %w", session.ErrInvalid, err)
+	}
 	if _, err := session.ResolvePermissionMode(h.DefaultPermissionMode); err != nil {
 		return err
 	}

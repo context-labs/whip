@@ -184,7 +184,7 @@ func (s *Store) admitOperation(ctx context.Context, spec session.OperationSpec, 
 				if err != nil {
 					return err
 				}
-				if owner.ParentID == nil && !requiresExplicitMCPGrant(spec.Capability) {
+				if owner.ParentID == nil && !requiresExplicitHostGrant(spec.Capability) {
 					policy, err := readPermissionPolicy(ctx, tx, owner.ID)
 					if err != nil {
 						return err
@@ -297,7 +297,7 @@ func authorizeOperation(ctx context.Context, q querier, operation session.Operat
 		return validateMCPCatalog(ctx, q, operation.OperationSpec)
 	}
 	if operation.PermissionRevision != nil {
-		if requiresExplicitMCPGrant(operation.Capability) {
+		if requiresExplicitHostGrant(operation.Capability) {
 			return ErrConflict
 		}
 		owner, err := readSession(ctx, q, operation.SessionID)
@@ -751,4 +751,39 @@ func nullableTurn(id session.TurnID) any {
 		return nil
 	}
 	return id
+}
+
+// CheckDispatchedOperation rechecks a whole batch before each effect. It does
+// not dispatch or consume authority again; the initial commit remains required.
+func (s *Store) CheckDispatchedOperation(ctx context.Context, id session.OperationID) (err error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if failure := tx.Rollback(); failure != nil && !errors.Is(failure, sql.ErrTxDone) {
+			err = errors.Join(err, failure)
+		}
+	}()
+	operation, err := readOperation(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	if operation.State != session.OperationDispatched {
+		return ErrConflict
+	}
+	if err := authorizeOperation(ctx, tx, operation); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// Untrusted connections, unlisted apps and broad AppleScript require an exact
+// grant even in Full Access. Only canonical host preparation selects trusted variants.
+func requiresExplicitHostGrant(capability string) bool {
+	switch capability {
+	case "mcp.call", "mcp.connect", "computer.run", "computer.applescript":
+		return true
+	}
+	return false
 }

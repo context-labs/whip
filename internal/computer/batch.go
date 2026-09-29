@@ -290,3 +290,12 @@ func compileComputerStep(call helperprogram.Call) (computerStep, error) {
 	}
 	return step, nil
 }
+
+func (s computerStep) capturesImage() bool {
+	return s.method != "ax" && s.method != "apps" && s.method != "permissions.request" && s.method != "print" && s.method != "tell" && !strings.HasPrefix(s.method, "chrome_")
+}
+
+// MayCaptureImages is static; it never resolves or contacts an app.
+func (b *Batch) MayCaptureImages() bool {
+	return slices.ContainsFunc(b.steps, func(s computerStep) bool { return s.capturesImage() })
+}

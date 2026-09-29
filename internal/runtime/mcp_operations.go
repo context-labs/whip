@@ -108,11 +108,19 @@ func (r *Runtime) prepareMCPCall(ctx context.Context, current session.Session, i
 		return tool.Prepared{}, err
 	}
 	var acquired *mcp.AcquiredCall
+	var images *hostImages
 	return tool.Prepared{
 		Capability: mcpCallCapability(call), Resource: mcpCallResource(entry.root, call), Arguments: arguments, Mutating: true, Lifetime: lifetime, Timeout: declaration.ToolTimeoutDuration(),
 		Acquire: func(ctx context.Context) (func(), error) {
-			release, err := r.mcpCallSlots(ctx, current, entry)
+			imageAllowance, releaseImages, err := r.acquireHostImages(ctx, current, invocation)
 			if err != nil {
+				return nil, err
+			}
+			images = imageAllowance
+			releaseSlot, err := r.mcpCallSlots(ctx, current, entry)
+			release := func() { releaseSlot(); releaseImages() }
+			if err != nil {
+				releaseImages()
 				return nil, err
 			}
 			acquired, err = manager.AcquireCall(ctx, call)
@@ -126,9 +134,9 @@ func (r *Runtime) prepareMCPCall(ctx context.Context, current session.Session, i
 			if callErr != nil && !errors.Is(callErr, mcp.ErrToolFailure) {
 				return nil, callErr
 			}
-			value, writeErr := r.mcpResult(ctx, current.ID, id, result)
+			value, writeErr := r.mcpResult(ctx, current.ID, id, result, images)
 			if writeErr != nil {
-				return map[string]any{"remote_completed": true, "output_unavailable": true}, tool.SettledFailure(errors.Join(callErr, writeErr))
+				return value, tool.SettledFailure(errors.Join(callErr, writeErr))
 			}
 			if callErr != nil {
 				return value, tool.SettledFailure(callErr)
@@ -402,29 +410,49 @@ func (r *Runtime) mcpContentParts(ctx context.Context, owner session.SessionID, 
 	return refs, nil
 }
 
-func (r *Runtime) mcpResult(ctx context.Context, owner session.SessionID, id session.OperationID, result capability.MCPResult) (any, error) {
+func (r *Runtime) mcpResult(ctx context.Context, owner session.SessionID, id session.OperationID, result capability.MCPResult, images *hostImages) (output tool.Output, err error) {
 	value := map[string]any{"text": result.Text}
+	defer func() {
+		output.Value = value
+		output.ContentReferences = append([]string(nil), images.refs...)
+		if err != nil {
+			value["remote_completed"] = true
+			value["output_unavailable"] = true
+		}
+	}()
 	if len(result.Text) > 64<<10 {
 		refs, err := r.mcpContentParts(ctx, owner, string(id), "text", "text/plain", []byte(result.Text))
 		if err != nil {
-			return nil, err
+			return output, err
 		}
 		value["text"] = "MCP text is available in ordered content parts."
 		value["text_parts"] = refs
 		value["text_bytes"] = len(result.Text)
 	}
 	attachments := []any{}
+	value["attachments"] = attachments
 	for index, attachment := range result.Attachments {
 		media := attachment.MIME
 		if err := session.ValidateMediaType(media); err != nil {
 			media = "application/octet-stream"
 		}
-		refs, err := r.mcpContentParts(ctx, owner, string(id), fmt.Sprintf("attachment_%d", index), media, attachment.Data)
+		var refs []session.ContentReference
+		var err error
+		if hostImageMedia(media) {
+			var ref session.ContentReference
+			ref, err = r.publishHostImage(ctx, owner, id, index, media, attachment.Data, images)
+			if err == nil {
+				refs = []session.ContentReference{ref}
+			}
+		} else {
+			refs, err = r.mcpContentParts(ctx, owner, string(id), fmt.Sprintf("attachment_%d", index), media, attachment.Data)
+		}
 		if err != nil {
-			return nil, err
+			return output, err
 		}
 		attachments = append(attachments, map[string]any{"placeholder": strings.Clone(attachment.Placeholder), "media_type": media, "content_parts": refs, "bytes": len(attachment.Data)})
+		value["attachments"] = attachments
 	}
 	value["attachments"] = attachments
-	return value, nil
+	return output, nil
 }

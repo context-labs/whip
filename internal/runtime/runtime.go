@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/computer"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/content"
 	"github.com/context-labs/whip/internal/engine/process"
@@ -50,6 +51,8 @@ type execution struct {
 	executorActivity ExecutorActivity
 }
 type Runtime struct {
+	computer          *computer.Controller
+	computerMu        sync.Mutex
 	shells            *shell.Manager
 	mcp               *mcpOwners
 	languageServers   *lsp.Pool
@@ -180,6 +183,23 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 	r.shells = shell.NewManager()
 	r.languageProcesses = capability.NewProcessManager()
 	r.languageServers = lsp.NewPool(r.languageProcesses)
+	defer func() {
+		if err != nil {
+			r.languageServers.Close()
+			if r.computer != nil {
+				r.computer.Close()
+			}
+			_ = r.languageProcesses.Close()
+			r.shells.Close()
+			r.executors.Close()
+			_ = r.mcp.close()
+			r.engineManager.Close()
+		}
+	}()
+	r.computer, err = computer.NewController(computer.ControllerOptions{Processes: r.languageProcesses, Owner: "computer-control", Directory: directory, Environment: map[string]string{}}, host.Computer)
+	if err != nil {
+		return nil, err
+	}
 	r.tools = tool.NewDispatcher(database, database, r)
 	r.runner, err = runner.New(provider, database, database, r, r, r, r, database, database)
 	if err != nil {
@@ -235,6 +255,7 @@ func (r *Runtime) Close() error {
 		mcpErr := r.mcp.close()
 		r.workspaceCalls.Wait()
 		r.languageServers.Close()
+		r.computer.Close()
 		_ = r.languageProcesses.Close()
 		r.engineManager.Close()
 		if started {

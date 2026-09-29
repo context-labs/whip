@@ -184,6 +184,10 @@ export class Client {
   }
 
   /** Saved declarations only; never connects or resolves credentials. */
+  computerStatus(options: CallOptions = {}): Promise<Operations['computer.status']['result']> { return this.call('computer.status', {}, options); }
+  configureComputer(params: Operations['computer.configure']['params'], options: CallOptions = {}): Promise<Operations['computer.configure']['result']> { return this.call('computer.configure', params, options); }
+  reconnectComputer(generation: string, options: CallOptions = {}): Promise<Operations['computer.reconnect']['result']> { return this.call('computer.reconnect', { generation }, options); }
+  disconnectComputer(generation: string, options: CallOptions = {}): Promise<Operations['computer.disconnect']['result']> { return this.call('computer.disconnect', { generation }, options); }
   mcpConfiguration(options: CallOptions = {}): Promise<Operations['mcp.configuration']['result']> { return this.call('mcp.configuration', {}, options); }
   /** Explicit CAS publication. Reread configuration after lost delivery; never automatically replay. */
   configureMCP(params: Operations['mcp.configure']['params'], options: CallOptions = {}): Promise<Operations['mcp.configure']['result']> { return this.call('mcp.configure', params, options); }
