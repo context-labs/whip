@@ -210,7 +210,7 @@ func (c *Control) SessionMetadataCommand(ctx context.Context, admission session.
 			if err := c.store.SetArchived(actorCtx, rootID, params.Archived); err != nil {
 				return c.finishFailure(actorCtx, admission, err, &record)
 			}
-			output, err = marshalClientOutput(protocol.ArchiveResult{Archived: params.Archived}, nil)
+			output, err = marshalClientOutput(protocol.ArchiveResult(params), nil)
 			eventKind = "session.archived.updated"
 			event.Archived = &params.Archived
 		case "session.rename":

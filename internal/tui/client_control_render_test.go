@@ -26,6 +26,7 @@ func TestRenderCompactionSettings(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			output, err := json.Marshal(test.settings)
 			if err != nil {
 				t.Fatal(err)

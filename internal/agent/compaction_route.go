@@ -111,7 +111,7 @@ func (a *Agent) compactionSummary(ctx context.Context, messages []llm.Message, o
 func compactionRejected(err error) bool {
 	// A direct HTTP rejection excludes accounting/validation wrappers even
 	// when they contain an HTTPError. Timeouts can hide completed work.
-	rejection, ok := err.(*llm.HTTPError)
+	rejection, ok := err.(*llm.HTTPError) //nolint:errorlint // direct cast intentionally excludes wrapped errors
 	if !ok || rejection.ResponseStarted {
 		return false
 	}

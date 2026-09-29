@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -251,7 +252,7 @@ func TestConcurrentInputsInitializeOneTitle(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := range callers {
 		wg.Go(func() {
-			result, err := store.AdmitCommand(t.Context(), titleAdmission(root, agent, fmt.Sprint(i), "submit", fmt.Sprintf("Prompt %d", i)))
+			result, err := store.AdmitCommand(t.Context(), titleAdmission(root, agent, strconv.Itoa(i), "submit", fmt.Sprintf("Prompt %d", i)))
 			results <- result.TitleInitialization
 			errs <- err
 		})
@@ -281,7 +282,7 @@ func TestTitleWaitsForQueuedTextAndSurvivesTurnFailure(t *testing.T) {
 		t.Run(status, func(t *testing.T) {
 			store, root, agent := newSwarmFixture(t)
 			for i, payload := range []string{"", "\t\n\u2003", strings.Repeat(" ", 3000)} {
-				result, err := store.AdmitCommand(t.Context(), titleAdmission(root, agent, fmt.Sprint(i), "submit", payload))
+				result, err := store.AdmitCommand(t.Context(), titleAdmission(root, agent, strconv.Itoa(i), "submit", payload))
 				if err != nil || result.TitleInitialization != nil {
 					t.Fatalf("empty admission = %+v, %v", result, err)
 				}
