@@ -58,8 +58,12 @@ func main() {
 
 func seed(ctx context.Context, directory string, rootID session.SessionID, nonce string) (result evidence, err error) {
 	// This helper cannot be pointed at an installed or user runtime by accident.
-	parent := filepath.Dir(directory)
-	if !filepath.IsAbs(directory) || filepath.Base(directory) != "state" || !strings.HasPrefix(filepath.Base(parent), "whip-web-native-") || len(nonce) != 36 {
+	parent, relative := filepath.Dir(directory), "state"
+	if filepath.Base(directory) == "runtime-v4" {
+		parent = filepath.Dir(filepath.Dir(filepath.Dir(directory)))
+		relative = "home/.whipcode/runtime-v4"
+	}
+	if !filepath.IsAbs(directory) || directory != filepath.Join(parent, relative) || !strings.HasPrefix(filepath.Base(parent), "whip-web-native-") || len(nonce) != 36 {
 		return result, errors.New("expected disposable native web fixture directory and marker")
 	}
 	owned, err := os.OpenRoot(parent)
@@ -72,7 +76,7 @@ func seed(ctx context.Context, directory string, rootID session.SessionID, nonce
 	if err != nil || string(data) != nonce {
 		return result, errors.New("fixture marker mismatch")
 	}
-	lock, err := owned.OpenFile("state/runtime.lock", os.O_RDWR, 0)
+	lock, err := owned.OpenFile(filepath.Join(relative, "runtime.lock"), os.O_RDWR, 0)
 	if err != nil {
 		return result, err
 	}

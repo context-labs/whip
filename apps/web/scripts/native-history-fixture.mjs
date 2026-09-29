@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { deadline, repository, startFixture } from './native-fixture.mjs';
 
@@ -19,7 +19,7 @@ export async function startHistoryFixture(options = {}) {
       cwd: repository, timeout: 120_000, maxBuffer: 128 << 10, env: { ...process.env, GOTOOLCHAIN: 'go1.27.0' },
     });
     await writeFile(join(fixture.directory, 'history-seed-owner'), nonce, { mode: 0o600 });
-    const args = ['-directory', join(fixture.directory, 'state'), '-root', created.root.id, '-nonce', nonce];
+    const args = ['-directory', dirname(fixture.info.socket), '-root', created.root.id, '-nonce', nonce];
     const run = () => promisify(execFile)(executable, args, { timeout: 125_000, maxBuffer: 128 << 10 });
     // Prove the seed cannot race an execution owner, even in this disposable dir.
     await assert.rejects(run(), /fixture runtime must be stopped before seeding/);

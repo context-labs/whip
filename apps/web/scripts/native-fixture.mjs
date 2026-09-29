@@ -36,13 +36,17 @@ export function fixtureExternalOrigin(value) {
 
 /** Owns the real production runtime, engines and gateway, a local fake HTTP
  * provider and one explicit fixture executor lease. No legacy runtime or DTOs. */
-export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 240_000, externalOrigin, executeCode = false, agentResponses = false, performanceStreams = false, workers = 4, rejectInput } = {}) {
+export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 240_000, externalOrigin, managedDirectory = false, executeCode = false, agentResponses = false, performanceStreams = false, workers = 4, rejectInput } = {}) {
   if (!Number.isInteger(workers) || workers < 1 || workers > 16) throw new RangeError('Fixture workers must be within 1..16');
   if (rejectInput !== undefined && (typeof rejectInput !== 'string' || rejectInput.length < 1 || rejectInput.length > 256)) throw new RangeError('Rejected fixture input must contain 1..256 characters');
   if (!Number.isInteger(lifetimeMs) || lifetimeMs < 1 || lifetimeMs > 1_800_000) throw new RangeError('Fixture lifetime must be within 1..1800000ms');
   const origin = fixtureExternalOrigin(externalOrigin);
   allowedOrigins = [...new Set([...allowedOrigins, ...(origin ? [origin] : [])])];
-  const directory = await mkdtemp('/tmp/whip-web-native-'), state = join(directory, 'state');
+  if (typeof managedDirectory !== 'boolean') throw new TypeError('managedDirectory must be a boolean');
+  const directory = await mkdtemp('/tmp/whip-web-native-');
+  // The staged desktop uses the ordinary local launcher path inside our owned
+  // home. It must be a real directory: localruntime intentionally rejects links.
+  const state = managedDirectory ? join(directory, 'home/.whipcode/runtime-v4') : join(directory, 'state');
   const binary = join(directory, 'runtime'), fixtureHome = join(directory, 'home'), helperDirectory = join(directory, 'bin');
   // The runtime must not discover user credentials, MCP sources or shell startup
   // files. Build tools keep their normal environment; the owned child does not.

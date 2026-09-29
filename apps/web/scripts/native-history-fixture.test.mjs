@@ -1,11 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { lstat } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { deadline, eventually } from './native-fixture.mjs';
 import { startHistoryFixture } from './native-history-fixture.mjs';
 
-test('canonical large history retains exact owner, counts, child isolation and operation pages', { timeout: 180_000 }, async () => {
-  const fixture = await startHistoryFixture({ performanceStreams: true });
+for (const managedDirectory of [false, true]) test(`canonical large history retains exact owner, counts, child isolation and operation pages (managed=${managedDirectory})`, { timeout: 180_000 }, async () => {
+  const fixture = await startHistoryFixture({ performanceStreams: true, managedDirectory });
   try {
+    const state = dirname(fixture.info.socket);
+    assert.equal(state, join(fixture.directory, managedDirectory ? 'home/.whipcode/runtime-v4' : 'state'));
+    assert.equal((await lstat(state)).isSymbolicLink(), false);
     const client = await fixture.connect('history-proof');
     const session = client.session(fixture.history.root_id);
     const page = await session.history.page({ direction: 'backward', limit: 100 }, deadline());
