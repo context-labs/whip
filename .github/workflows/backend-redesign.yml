@@ -68,6 +68,9 @@ jobs:
         include:
           - {os: ubuntu-latest, gate: product-web}
           - {os: ubuntu-latest, gate: product-browser}
+          - {os: ubuntu-latest, gate: product-settings}
+          - {os: ubuntu-latest, gate: product-distributions}
+          - {os: macos-15, gate: product-distributions}
           - {os: ubuntu-latest, gate: product-mobile}
           - {os: ubuntu-latest, gate: product-examples}
           - {os: ubuntu-latest, gate: product-docs}
@@ -92,7 +95,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - if: matrix.gate == 'product-desktop'
         run: node node_modules/electron/install.js
-      - if: matrix.gate == 'product-browser' || matrix.gate == 'product-examples'
+      - if: matrix.gate == 'product-browser' || matrix.gate == 'product-settings' || matrix.gate == 'product-examples' || matrix.gate == 'product-distributions'
         run: npx playwright install --with-deps chromium firefox
       - name: Required ${{ matrix.gate }} gate
         run: task check:${{ matrix.gate }}
@@ -100,10 +103,10 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: redesign-failure-${{ matrix.gate }}
+          name: redesign-failure-${{ matrix.os }}-${{ matrix.gate }}
           path: |
             test-results/redesign/
-            /tmp/whip-web-*-results/
+            /tmp/whip-*-results/
           if-no-files-found: ignore
 
   analysis:

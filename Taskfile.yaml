@@ -212,6 +212,20 @@ tasks:
       - node apps/web/scripts/workspace-layout.mjs
       - node --test --test-concurrency=1 apps/web/scripts/native-history-fixture.test.mjs apps/web/scripts/native-tool-output.test.mjs
 
+  check:product-settings:
+    desc: Native Settings, provider connections, stored conversation and REPL workflows
+    cmds:
+      - task: web-assets
+      - node apps/web/scripts/settings.mjs
+      - node apps/web/scripts/provider-connections.mjs
+      - node apps/web/scripts/settings-conversation.mjs
+
+  check:product-distributions:
+    desc: Disposable native pinned install, restart, update and packaged browser acceptance
+    cmds:
+      - task: web-assets
+      - python3 scripts/test-distributions.py --browser
+
   check:product-examples:
     desc: Native agent and browser/Node client examples against a disposable real host
     cmds:

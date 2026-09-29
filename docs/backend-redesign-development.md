@@ -4341,3 +4341,58 @@ and matching renderer digests. Both pinned installation and new-to-new update
 passed, including persisted exact session configuration across restart and update.
 This is local macOS arm64 evidence, not signed distribution, Linux packaging,
 live-provider, remote-SSH or installed-runtime evidence. No installed app changed.
+
+### Client parity: native Settings, TUI, desktop admission and staged workload
+
+The next client branch integrates these reviewed leaves after the renderer CI
+setup repair. Settings and provider removal now preserve active-dialog errors;
+explicit attachment download verifies scoped bytes and digest before platform
+saving, with cancellation on owner/reference/client/connection/dialog changes.
+The production Settings probes use native hosts and protocols throughout. The
+new required `check:product-settings` gate passed on the integrated source:
+12 Settings, five provider, nine REPL-conversation and two stored-body workflows
+in each of Chromium and Firefox (56 checks total). It builds its own renderer
+inputs and records the exact manifest. Fixture cleanup also covers setup failure.
+The required product matrix now separately runs Settings and full native package
+installation/update on Linux and macOS; failed product jobs upload every owned
+`whip-*-results` artifact directory, including session-tab recovery diagnostics.
+
+Native TUI now has `/memory` and `/me`, owner-bound permission/question dialogs,
+and bounded rich transcript/history controls. Historical paging uses exact
+owner/revision/cursor identity, 64-message pages and explicit live/latest return;
+late replies and rewind-invalidated pages cannot replace current history. Rich
+Markdown renders bounded content without filesystem probing or terminal controls;
+tool disclosure and live-only reasoning remain distinct. Rendering caps each
+message and the aggregate view. Dialogs retain exact retry identity and drafts,
+close after canonical external resolution, and do not invent child human approval.
+ACP likewise preserves direct-parent delegation: child approval cannot mint root
+authority. Full integrated ACP/TUI race runs passed 22.938/26.495s; permission TUI
+passed 31.680s; final rich-history TUI passed 40.743s.
+
+Desktop separates 32 ordinary connections from 32 persistent browser-provider
+peers, with 64 pending opens and a 15-second admission bound. Exact abort/release
+removes waiters before admission; purpose conveys resource accounting only.
+Server admission waits before accepting the next connection and shutdown wakes
+admission and active calls, avoiding early EOF and stalled close under saturation.
+Focused server/shutdown races passed three repeats (11.628s); SDK transport,
+adapter and desktop types passed. The integrated desktop suite passed 166 tests
+(156 executed, ten platform skips). Long-home localruntime/runtimepath races
+passed 5.428/1.844s after integration. The offline model generator check passed
+with the single unchanged native model catalog and no retired-config dependency.
+
+The staged real Electron performance fixture passes the complete retained
+functional workload: a 10,000-message root and 100 children, bounded history and
+reading anchors, 1/8/32 tabs, 16 simultaneous streams and 40 queued/cancelled
+inputs, preserved drafts, rejected oversized upload, three verified uploads and
+verified native saving. At most four native observations were live. Tab and
+visible-sidebar summary polls are separate bounded owners. The recorded root
+switch median/p95 was 188/207ms, tab switch 196/216ms. Performance remains OPEN:
+one upload-time key-to-two-animation-frame probe reached 1044ms p95 and sampled
+peak RSS was 1,761,200 KiB. Same-current-source web measurement reproduced a
+roughly five-second anchor publication delay. Functional pass does not close
+responsiveness, memory, signed release, live-provider or remote-SSH obligations.
+
+Native `--bench`/`--bench-init` and installer/update acceptance are integrated as
+documented above. Main/default TUI routing, remaining specialized browser probes,
+active eval consumers, final package/entrypoint gates and retired-core deletion
+remain explicit next work. Phases5–7 are not complete at this checkpoint.

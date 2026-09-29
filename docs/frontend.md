@@ -293,8 +293,11 @@ owner, length, canonical encoding and digest within the 4 MiB transfer ceiling.
 App content keys include runtime, exact owner, reference and digest; inactive
 byte queries have zero retention, image object URLs are revoked on unmount, and
 late owner-switched results are discarded. Attachment metadata reads inspect at
-most 128 references in batches of four. Text loads on disclosure; mounted image
-previews load their scoped bytes. An oversized transcript gap is inspected
+most 128 references in batches of four. Text loads on disclosure with a 1 MiB
+preview ceiling; mounted image previews use the 4 MiB ceiling. Explicit Download
+reads and verifies at most 4 MiB before using the platform save flow. A changed
+owner, reference, client, connection, closed dialog or unmount cancels pending
+attachment downloads. An oversized transcript gap is inspected
 separately; ordinary paging does not enlarge the transcript budget.
 
 ## Mutations, acceptance, and permissions
@@ -732,7 +735,13 @@ explicit interruption approval. Disconnecting/quitting the GUI stops observation
 not accepted daemon work. Never use an installed runtime as an acceptance fixture.
 
 Native local/SSH transports are bounded framed connections with runtime/epoch
-verification. SSH key/authentication prompts quote exact attempts and serials;
+verification. Desktop admits 32 ordinary connections and 32 persistent browser
+provider peers, with at most 64 pending opens and a 15-second admission deadline.
+The connector declares its purpose before opening; this controls resource
+accounting and grants no browser authority. Waiting is FIFO within each pool,
+and a full pool does not block the other. Abort, owner release and disposal remove
+pending opens before admitting replacements; no frame or command is replayed.
+SSH key/authentication prompts quote exact attempts and serials;
 answers are ephemeral and never enter drafts/storage/logs. A focused connection
 dialog owns progress/errors while background prompts queue. Selected binaries,
 profiles and native resources retain their platform-owned records; components do
