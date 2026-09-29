@@ -1,4 +1,4 @@
-import '../runtime/polyfills';
+import '../runtime/platform';
 import { useEffect, useRef, useState } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';

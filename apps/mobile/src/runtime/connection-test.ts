@@ -1,7 +1,6 @@
 import * as Crypto from 'expo-crypto';
-import { fetch } from 'expo/fetch';
-import { createWhipClient, WhipError, type WhipClient } from '@whip/legacy-sdk';
-import { manifest } from '@whip/legacy-protocol';
+import { Client, DeliveryError, RemoteError, type GatewayDiscovery } from '@whip/sdk';
+import { browserSocket, discoverGateway } from '@whip/sdk/browser';
 import { serverOrigin } from './address';
 
 export type ConnectionStage = 'https' | 'websocket' | 'sessions';
@@ -15,29 +14,26 @@ const networkHelp = 'Check that Tailscale is connected on this phone and the com
 
 export function connectionIssue(error: unknown): ConnectionIssue {
   if (error instanceof ConnectionTestError) return error.issue;
-  const kind = error instanceof WhipError ? error.kind : undefined;
   const detail = error instanceof Error ? error.message.slice(0, 300) : undefined;
-  switch (kind) {
-    case 'timeout': return { title: 'The connection timed out', message: networkHelp, detail };
-    case 'disconnected': return { title: 'The live connection could not open', message: `${networkHelp} Use Test Connection to find which step fails.`, detail };
-    case 'unsupported_protocol': return { title: 'Whip versions do not match', message: 'Update the Whip daemon and this app to compatible versions, then try again.', detail };
-    case 'runtime_changed': return { title: 'This server’s identity changed', message: 'Verify that this is the intended host before removing and adding its saved entry. Existing drafts and delivery records are retained.', detail };
-    case 'paused': return { title: 'Connection paused', message: 'Keep Whip open while connecting, then try again.' };
-    default: return { title: 'Could not finish connecting', message: 'Run Test Connection to check the server. If it passes, this phone may be unable to save or restore its local data. Keep your saved data while investigating.', detail };
-  }
+  if (error instanceof RemoteError && error.kind === 'IDENTITY') return identityIssue(detail);
+  if (error instanceof Error && error.name === 'TimeoutError') return { title: 'The connection timed out', message: networkHelp, detail };
+  if (error instanceof DeliveryError) return { title: 'The live connection could not open', message: `${networkHelp} Use Test Connection to find which step fails.`, detail };
+  return { title: 'Could not finish connecting', message: 'Run Test Connection to check the server. If it passes, this phone may be unable to save or restore its local data. Keep your saved data while investigating.', detail };
+}
+function identityIssue(detail?: string): ConnectionIssue {
+  return { title: 'This server’s identity changed', message: 'Verify that this is the intended host before removing and adding its saved entry. Existing drafts and delivery records are retained.', detail };
 }
 class ConnectionTestError extends Error {
   constructor(readonly issue: ConnectionIssue) { super(issue.title); }
 }
-function fail(title: string, message: string, detail?: string): never { throw new ConnectionTestError({ title, message, detail }); }
 
-/** Read-only probe: no saved host, recovery state, session or provider mutation. */
+/** Read-only native probe. Each SDK socket belongs to one request and closes
+ * after its response or local cancellation; the probe never owns remote work. */
 export async function testConnection(input: string, options: {
   signal: AbortSignal; expectedRuntimeId?: string; onProgress(progress: ConnectionProgress): void;
 }): Promise<ConnectionTestResult> {
   const origin = serverOrigin(input, __DEV__);
   const completed: ConnectionStage[] = [];
-  let client: WhipClient | undefined;
   async function step<T>(stage: ConnectionStage, work: (signal: AbortSignal) => Promise<T>): Promise<T> {
     options.signal.throwIfAborted();
     options.onProgress({ stage, completed: [...completed] });
@@ -45,7 +41,7 @@ export async function testConnection(input: string, options: {
     const controller = new AbortController();
     const abort = () => controller.abort(options.signal.reason);
     options.signal.addEventListener('abort', abort, { once: true });
-    const timer = setTimeout(() => controller.abort(new WhipError('timeout', 'No reply within 15 seconds.')), 15_000);
+    const timer = setTimeout(() => controller.abort(new DOMException('No reply within 15 seconds.', 'TimeoutError')), 15_000);
     let stop!: () => void;
     const cancelled = new Promise<never>((_, reject) => {
       stop = () => reject(controller.signal.reason);
@@ -59,12 +55,10 @@ export async function testConnection(input: string, options: {
     } catch (error) {
       if (options.signal.aborted || error instanceof ConnectionTestError) throw error;
       const issue = connectionIssue(error);
-      if (error instanceof WhipError && ['unsupported_protocol', 'runtime_changed'].includes(error.kind)) throw new ConnectionTestError(issue);
-      if (stage === 'https') fail('Could not reach the HTTPS API', `${networkHelp} The phone could not complete a secure request; this alone cannot distinguish DNS, VPN, TLS or host availability.`, issue.detail);
-      if (stage === 'websocket')
-        fail('HTTPS works, but the live connection failed', 'The Whip API is reachable. Check that Tailscale Serve forwards WebSocket upgrades to the same daemon and that WHIP_ALLOWED_HOSTS / WHIP_ALLOWED_ORIGINS include this HTTPS address. Then retry.', issue.detail);
-      if (stage === 'sessions') fail('Connected, but sessions could not be read', 'The secure WebSocket handshake passed. Check the daemon status and logs, then retry. An empty session list is valid and does not cause this error.', issue.detail);
-      throw new ConnectionTestError(issue);
+      if (error instanceof RemoteError && error.kind === 'IDENTITY') throw new ConnectionTestError(issue);
+      if (stage === 'https') throw new ConnectionTestError({ title: 'Could not reach the HTTPS API', message: `${networkHelp} Check that the base address serves /api/v4/web. A web page alone is not enough.`, detail: issue.detail });
+      if (stage === 'websocket') throw new ConnectionTestError({ title: 'HTTPS works, but the live connection failed', message: 'The Whip API is reachable. Check that the gateway forwards WebSocket upgrades to the same runtime and that its Host and Origin allowlists include this HTTPS address. Then retry.', detail: issue.detail });
+      throw new ConnectionTestError({ title: 'Connected, but sessions could not be read', message: 'The secure WebSocket handshake passed. Check the runtime status and logs, then retry. An empty session list is valid and does not cause this error.', detail: issue.detail });
     } finally {
       clearTimeout(timer);
       options.signal.removeEventListener('abort', abort);
@@ -72,40 +66,24 @@ export async function testConnection(input: string, options: {
       controller.abort();
     }
   }
-  try {
-    await step('https', async signal => {
-      const response = await fetch(`${origin}/api/v3/web`, { signal, headers: { Accept: 'application/json' }, credentials: 'omit', redirect: 'error' });
-      if (response.status === 401 || response.status === 403)
-        fail(`The server rejected this address (HTTP ${response.status})`, 'Check the daemon’s exact WHIP_ALLOWED_HOSTS entry and any proxy access rules. This release uses Tailscale access rather than an app login.');
-      if (!response.ok) fail(`The Whip API returned HTTP ${response.status}`, 'Check that Tailscale Serve forwards to the running Whip daemon. Use the base HTTPS address, without /api/v3/ws or a web page path.');
-      if (!response.headers.get('content-type')?.toLowerCase().includes('application/json'))
-        fail('This address did not return the Whip API', 'A web page alone is not enough. The same address must serve /api/v3/web and /api/v3/ws. Check the proxy target and update the daemon if needed.');
-      if (Number(response.headers.get('content-length')) > 8192) fail('Unexpected API response', 'The discovery response is too large. Check that this address points to the Whip daemon.');
-      const reader = response.body?.getReader();
-      if (!reader) fail('The Whip API returned no data', 'Check that the proxy points to a compatible Whip daemon.');
-      const bytes = new Uint8Array(8192);
-      let length = 0;
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (length + value.byteLength > bytes.length) fail('Unexpected API response', 'The discovery response is too large. Check the proxy target.');
-          bytes.set(value, length); length += value.byteLength;
-        }
-      } finally { reader.releaseLock(); }
-      const body = new TextDecoder().decode(bytes.subarray(0, length));
-      let data;
-      try { data = JSON.parse(body); } catch { fail('The Whip API returned invalid JSON', 'Check that the proxy points to a compatible Whip daemon.'); }
-      if (!data || typeof data.available !== 'boolean' || data.websocket_path !== '/api/v3/ws')
-        fail('The Whip API is unavailable at this address', 'The base URL may serve a different app or an older daemon. Check the proxy target and update Whip.');
-      if (data.protocol_major !== manifest.major) throw new WhipError('unsupported_protocol', `App protocol ${manifest.major}; server protocol ${String(data.protocol_major).slice(0, 16)}.`);
-    });
-    await step('websocket', async signal => {
-      client = createWhipClient({ endpoint: origin, clientId: Crypto.randomUUID(), clientKind: 'automation', expectedRuntimeId: options.expectedRuntimeId,
-        buildId: '@whip/mobile:connection-test', connectTimeoutMs: 15_000, queryTimeoutMs: 15_000, randomUUID: Crypto.randomUUID });
-      await client.connect({ signal });
-    });
-    const sessions = await step('sessions', signal => client!.sessions.list({ limit: 1 }, { signal }));
-    return { runtimeId: client!.requireConnected().runtime_id, empty: !sessions.items?.length };
-  } finally { client?.close(); }
+  const discovery = await step('https', async signal => {
+    let gateway: Readonly<GatewayDiscovery>;
+    try { gateway = await discoverGateway(origin, { signal }); }
+    catch (error) {
+      if (!signal.aborted && error instanceof TypeError) throw new ConnectionTestError({
+        title: 'Whip versions or gateway metadata do not match',
+        message: 'This address must serve the native v4 Whip gateway. Update the host and this app to compatible versions, then try again.',
+        detail: error.message.slice(0, 300),
+      });
+      throw error;
+    }
+    if (options.expectedRuntimeId && gateway.runtime_id !== options.expectedRuntimeId)
+      throw new ConnectionTestError(identityIssue());
+    return gateway;
+  });
+  const client = await step('websocket', signal => Client.connect(browserSocket(origin, {
+    expectedRuntimeID: discovery.runtime_id, expectedProcessEpoch: discovery.process_epoch,
+  }), { clientID: Crypto.randomUUID(), expectedRuntimeID: discovery.runtime_id, signal, timeoutMs: 15_000 }));
+  const sessions = await step('sessions', signal => client.trees.list({ limit: 1 }, { signal, timeoutMs: 15_000 }));
+  return { runtimeId: client.runtimeID, empty: sessions.items.length === 0 };
 }
