@@ -395,6 +395,17 @@ Browser driver edits use host CAS; a live environment pin is visible and disable
 editing. Computer-helper bundle publication, enabled configuration and live
 connection are separate explicit actions.
 
+External Chrome settings use the existing host-scoped Query owner and explicit
+revision CAS. The shared form retains its reviewed revision and draft; stale or
+uncertain writes require an explicit read/discard before another write. It never
+replays a mutation after reconnect. The root-only browser inspector shows bounded
+name/generation/resource metadata and captures the exact generation for reconnect
+or disconnect. Children can inspect but cannot mutate root connection lifetimes.
+These controls do not launch Chrome, open an extension relay or grant operations;
+Desktop offered tabs keep their separate native owner. See
+[the form](../packages/app/src/settings/external-browser.tsx) and
+[the inspector](../packages/app/src/details/external-browser.tsx).
+
 ## Conversation and navigation patterns
 
 Conversation consumes canonical message parts and whole provisional preview values.

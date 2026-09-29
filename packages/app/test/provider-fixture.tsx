@@ -35,6 +35,7 @@ export async function providerFixture(initialOptions: { builtins?: import('@whip
       case 'accounts.inference.status': result = { management_state: 'stored', inference_state: 'stored', route_state: 'configured', user_id: 'user', email: 'test@example.test', expires_at: null, team_id: null, team_name: null, project_id: null, project_name: null, failure: null, cleanup_pending: false }; break;
       case 'accounts.openai.status': result = { auth_state: 'stored', route_state: 'configured', account_id: 'account', email: 'test@example.test', plan: 'Pro', expires_at: null, failure: null }; break;
       case 'accounts.inference.cleanup': result = { items: [], failure: null }; break;
+      case 'host.external_browser': result = { revision, configuration: { mode: 'disabled', executable: '', live_endpoint: '', live_profile: '', allow_private_urls: false }, driver: 'rod', driver_pinned: false }; break;
       case 'host.permission_default': result = { revision: data.inventory.revision, mode: 'prompt' }; break;
       default: throw new Error(`Unexpected request ${request.method}`);
     }

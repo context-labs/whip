@@ -27,7 +27,21 @@ port probe, downloaded executable, silent live-to-dedicated fallback, or browser
 process takeover. A locked dedicated profile fails explicitly; Whip does not
 kill another Chrome or move its profile to make the launch succeed.
 
-The native SDK exposes configuration CAS:
+In Web and Desktop, open **Settings → Execution → External Chrome** to edit
+these values on the selected execution host. The same form appears under
+**Session details → Host integrations → Browser automation**. Saving requires
+the revision that was displayed; a conflict or interrupted reply preserves the
+draft and requires **Discard edits and read external Chrome settings** before
+another change. Reading and saving do not open Chrome.
+
+The root agent's browser inspector shows each prepared connection's mode,
+driver, state, exact generation and permission resource. **Reconnect** creates a
+fresh prepared generation; **Disconnect** retires the selected generation.
+Children have read-only connection metadata and still need delegated grants.
+After an unconfirmed action, **Read current external connections** observes the
+host without retrying the action.
+
+The native SDK exposes the same configuration CAS:
 
 ```ts
 const current = await client.hosts.externalBrowser();

@@ -5,6 +5,7 @@ import * as stylex from '@stylexjs/stylex';
 import { ErrorNotice } from '../error-feedback';
 import { layout } from '../styles';
 import { mcpRefreshNotice } from '../mcp-refresh';
+import { ExternalBrowser } from './external-browser';
 import {
   Action,
   Empty,
@@ -236,7 +237,7 @@ export function Browser(props: InspectorProps) {
       <Button variant="ghost" disabled={!props.connected} onClick={() => void query.refetch()}>
         Refresh attachments
       </Button>
-      <BrowserDriver {...props} />
+      <BrowserDriver {...props} /><ExternalBrowser {...props} />
     </Section>
   );
 }
@@ -254,7 +255,7 @@ function BrowserDriver(props: InspectorProps) {
     <QueryFeedback query={query} connected={props.connected} />
     {current && <>
       <Select label="Host browser driver" value={draft?.value ?? current.driver} disabled={current.pinned || !props.connected} options={[{ value: 'rod', label: 'Rod' }, { value: 'chromedp', label: 'ChromeDP' }]} onValueChange={value => { if (value === 'rod' || value === 'chromedp') setDraft({ value, revision: draft?.revision ?? current.revision }); }} />
-      <p>This saved choice applies to future browser batches on this host. Accepted work keeps its captured driver and browser permissions.</p>
+      <p>This saved choice applies to future Desktop browser batches. Accepted Desktop work keeps its captured driver. A changed external Chrome driver retires its previous connections; new operations still require permission.</p>
       {current.pinned && <p>The running host pins {current.driver} through its startup environment.</p>}
       {draft && draft.revision !== current.revision && <p role="status">Host settings changed. This choice retains its original revision; discard it to use the current setting.</p>}
       <Action disabled={!props.connected || current.pinned || query.isFetching || reviewRequired || !draft} run={async () => {
