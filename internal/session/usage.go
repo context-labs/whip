@@ -39,3 +39,12 @@ type Usage struct {
 	CachedOutput    UsageQuantity
 	ElapsedMillis   UsageQuantity
 }
+
+// TurnUsage covers only this turn's actual attempts, including its helpers.
+// Compactions counts committed derived summaries, even after context undo.
+type TurnUsage struct {
+	TurnID             TurnID
+	Usage              Usage
+	CompactionAttempts UsageAttempts
+	Compactions        int64
+}

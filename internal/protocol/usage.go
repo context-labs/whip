@@ -44,11 +44,29 @@ func UsageFromDomain(value session.Usage) Usage {
 	cost := func(v session.UsageCost) UsageCost {
 		return UsageCost{Value: Counter(v.Value), Attempts: Counter(v.Attempts), Overflow: v.Overflow}
 	}
-	a := value.Attempts
 	return Usage{
-		SessionID: ID(value.SessionID), Attempts: UsageAttempts{Reserved: Counter(a.Reserved), InFlight: Counter(a.InFlight), Settled: Counter(a.Settled), NotDispatched: Counter(a.NotDispatched), Uncertain: Counter(a.Uncertain)},
+		SessionID: ID(value.SessionID), Attempts: usageAttempts(value.Attempts),
 		ReportedCost: cost(value.ReportedCost), EstimatedCost: cost(value.EstimatedCost), UnknownCost: Counter(value.UnknownCost),
 		InputTokens: quantity(value.InputTokens), OutputTokens: quantity(value.OutputTokens), ReasoningTokens: quantity(value.ReasoningTokens),
 		CachedInput: quantity(value.CachedInput), CachedOutput: quantity(value.CachedOutput), ElapsedMillis: quantity(value.ElapsedMillis),
 	}
+}
+
+type TurnUsageParams struct {
+	SessionID ID `json:"session_id"`
+	TurnID    ID `json:"turn_id"`
+}
+type TurnUsage struct {
+	TurnID             ID            `json:"turn_id"`
+	Usage              Usage         `json:"usage"`
+	CompactionAttempts UsageAttempts `json:"compaction_attempts"`
+	Compactions        Counter       `json:"compactions"`
+}
+
+func TurnUsageFromDomain(value session.TurnUsage) TurnUsage {
+	return TurnUsage{TurnID: ID(value.TurnID), Usage: UsageFromDomain(value.Usage), CompactionAttempts: usageAttempts(value.CompactionAttempts), Compactions: Counter(value.Compactions)}
+}
+
+func usageAttempts(a session.UsageAttempts) UsageAttempts {
+	return UsageAttempts{Reserved: Counter(a.Reserved), InFlight: Counter(a.InFlight), Settled: Counter(a.Settled), NotDispatched: Counter(a.NotDispatched), Uncertain: Counter(a.Uncertain)}
 }

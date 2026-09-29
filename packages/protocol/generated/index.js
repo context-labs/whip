@@ -595,6 +595,11 @@ export const manifest = {
       "result": "ContextHead"
     },
     {
+      "name": "context.usage",
+      "params": "SessionParams",
+      "result": "ContextUsage"
+    },
+    {
       "name": "context.snapshot",
       "params": "SessionParams",
       "result": "HistorySnapshot"
@@ -710,6 +715,11 @@ export const manifest = {
       "result": "ResourceUsage"
     },
     {
+      "name": "usage.turn",
+      "params": "TurnUsageParams",
+      "result": "TurnUsage"
+    },
+    {
       "name": "usage.get",
       "params": "SessionParams",
       "result": "Usage"
@@ -728,6 +738,11 @@ export const manifest = {
       "name": "sessions.observe",
       "params": "HistoryParams",
       "result": "SessionObservation"
+    },
+    {
+      "name": "cells.output",
+      "params": "SessionParams",
+      "result": "CellOutput"
     },
     {
       "name": "cells.get",

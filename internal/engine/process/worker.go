@@ -155,27 +155,29 @@ func selectedOperations(modules, tools []string) map[string][]string {
 }
 
 type worker struct {
-	input        *bufio.Reader
-	output       io.Writer
-	tools        []string
-	steps        uint64
-	hostRequests int
-	outputBytes  int
-	frameBytes   int
-	globals      starlark.StringDict
-	modules      starlark.StringDict
-	requests     int
-	nextRequest  uint64
-	cellOutput   strings.Builder
-	sources      map[*starlark.Function]scratchSource // top-level defs and lambdas, for snapshots
-	nextSource   int
-	restoring    bool
-	currentEval  uint64    // id of the eval frame being served; 0 outside the protocol
-	lastOutputAt time.Time // throttles output frames
+	input           *bufio.Reader
+	output          io.Writer
+	tools           []string
+	steps           uint64
+	hostRequests    int
+	outputBytes     int
+	frameBytes      int
+	globals         starlark.StringDict
+	modules         starlark.StringDict
+	requests        int
+	nextRequest     uint64
+	cellOutput      strings.Builder
+	sources         map[*starlark.Function]scratchSource // top-level defs and lambdas, for snapshots
+	nextSource      int
+	restoring       bool
+	currentEval     uint64    // id of the eval frame being served; 0 outside the protocol
+	lastOutputAt    time.Time // throttles output frames
+	lastOutputBytes int
 }
 
 // outputStreamInterval bounds how often a running cell publishes its print
-// output so far. The result frame carries the complete output regardless.
+// output so far, except immediately before a blocking host call. The result
+// frame carries the complete output regardless.
 const outputStreamInterval = 100 * time.Millisecond
 
 // cellFileOptions is the Starlark dialect for cells and scratch programs.
@@ -295,6 +297,7 @@ func (w *worker) evaluate(code string) frame {
 	w.requests = 0
 	w.cellOutput.Reset()
 	w.lastOutputAt = time.Time{}
+	w.lastOutputBytes = 0
 	thread := &starlark.Thread{Name: "rlm-cell"}
 	thread.SetMaxExecutionSteps(w.steps)
 	thread.Print = func(thread *starlark.Thread, message string) {
@@ -361,8 +364,21 @@ func (w *worker) streamOutput() {
 	if !w.lastOutputAt.IsZero() && now.Sub(w.lastOutputAt) < outputStreamInterval {
 		return
 	}
-	w.lastOutputAt = now
-	_ = writeFrame(w.output, w.frameBytes, frame{Type: "output", ID: w.currentEval, Output: w.cellOutput.String()})
+	_ = w.flushOutput()
+}
+
+// A host call can wait for a human or remote executor. Publish buffered prints
+// before handing control to the host, whose Starlark dispatch blocks frame reads.
+func (w *worker) flushOutput() error {
+	if w.currentEval == 0 || w.cellOutput.Len() == w.lastOutputBytes {
+		return nil
+	}
+	if err := writeFrame(w.output, w.frameBytes, frame{Type: "output", ID: w.currentEval, Output: w.cellOutput.String()}); err != nil {
+		return err
+	}
+	w.lastOutputAt = time.Now()
+	w.lastOutputBytes = w.cellOutput.Len()
+	return nil
 }
 
 func (w *worker) hostCall(module, operation string, arguments map[string]any) (starlark.Value, error) {
@@ -375,6 +391,9 @@ func (w *worker) hostCall(module, operation string, arguments map[string]any) (s
 	w.requests++
 	if w.requests > w.hostRequests {
 		return nil, errors.New("host request limit exceeded")
+	}
+	if err := w.flushOutput(); err != nil {
+		return nil, err
 	}
 	w.nextRequest++
 	id := w.nextRequest

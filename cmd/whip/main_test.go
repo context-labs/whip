@@ -154,7 +154,7 @@ func TestMainDispatchesHeadlessCommands(t *testing.T) {
 		}
 	})
 	t.Run("mcp", func(t *testing.T) {
-		legacyRunFixture(t, "main reply", nil)
+		mcpHome(t, "")
 		if output := invokeMain(t, "mcp", "list"); output == "" {
 			t.Fatal("mcp list produced no output")
 		}
@@ -172,6 +172,10 @@ func TestMainDispatchesHeadlessCommands(t *testing.T) {
 func TestClientEntryPathsSendAssembledPromptToProvider(t *testing.T) {
 	for _, kind := range []string{"acp", "tui"} {
 		t.Run(kind, func(t *testing.T) {
+			if kind == "acp" {
+				testNativeACPPromptContext(t)
+				return
+			}
 			requests, titles, workingDirectory := promptRequestFixture(t)
 			standing := filepath.Join(os.Getenv("WHIPCODE_HOME"), "me.md")
 			writePromptRequestFile(t, standing, "# COMMENT_MUST_NOT_REACH_MODEL\nSTANDING_BEFORE_EDIT")
@@ -289,19 +293,14 @@ func promptSubmitter(t *testing.T, kind, workingDirectory string) func(string) {
 	t.Cleanup(cancel)
 	var root *daemon.RootClient
 	var err error
-	if kind == "acp" {
-		backend := &acpDaemonBackend{clientID: "prompt-acp", model: "test", provider: "testprov"}
-		root, err = backend.NewRoot(ctx, workingDirectory, nil)
-	} else {
-		// Mirror the presentation-only TUI's root creation and submit path.
-		root, err = daemon.NewRootClient(daemon.RootClientOptions{
-			ClientID: "prompt-tui", Connector: daemonConnector("tui", "prompt-tui"),
-			Create: &daemon.CreateSession{Kind: session.SessionKindAgent, CWD: workingDirectory, Model: "test", Provider: "testprov"},
-		})
-		if err == nil {
-			root.Start()
-			err = root.WaitLive(ctx)
-		}
+	// Mirror the presentation-only TUI's root creation and submit path.
+	root, err = daemon.NewRootClient(daemon.RootClientOptions{
+		ClientID: "prompt-tui", Connector: daemonConnector("tui", "prompt-tui"),
+		Create: &daemon.CreateSession{Kind: session.SessionKindAgent, CWD: workingDirectory, Model: "test", Provider: "testprov"},
+	})
+	if err == nil {
+		root.Start()
+		err = root.WaitLive(ctx)
 	}
 	if err != nil {
 		if root != nil {

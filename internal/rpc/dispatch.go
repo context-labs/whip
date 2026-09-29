@@ -109,7 +109,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return dispatchAccount(ctx, host.OpenAI, method, raw)
 	case "accounts.inference.begin", "accounts.inference.get", "accounts.inference.list", "accounts.inference.cancel", "accounts.inference.team", "accounts.inference.project", "accounts.inference.create_project", "accounts.inference.retry", "accounts.inference.rotate", "accounts.inference.status", "accounts.inference.setup", "accounts.inference.logout", "accounts.inference.cleanup", "accounts.inference.retry_cleanup":
 		return dispatchInferenceAccount(ctx, host, method, raw)
-	case "sessions.compact", "context.head", "context.compaction", "context.compactions", "context.select", "context.snapshot", "context.list", "context.read", "context.search":
+	case "sessions.compact", "context.head", "context.compaction", "context.compactions", "context.select", "context.usage", "context.snapshot", "context.list", "context.read", "context.search":
 		return dispatchContext(ctx, r, method, raw)
 	case "turns.output":
 		return decode(raw, func(p protocol.TurnParams) (any, error) {
@@ -144,7 +144,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return dispatchSchedule(ctx, r, method, raw)
 	case "resources.list", "resources.set":
 		return dispatchResource(ctx, r, method, raw)
-	case "usage.get", "budgets.list", "budgets.set":
+	case "usage.turn", "usage.get", "budgets.list", "budgets.set":
 		return dispatchBudget(ctx, r, method, raw)
 	case "sessions.observe":
 		return dispatchObservation(ctx, r, raw)
@@ -158,7 +158,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return dispatchPermissionMode(ctx, r, method, raw)
 	case "questions.get", "questions.list", "questions.answer":
 		return dispatchQuestion(ctx, r, method, raw)
-	case "grants.create", "grants.list", "grants.revoke", "operations.get", "turns.operations", "permissions.list", "permissions.resolve", "cells.get", "turns.cells":
+	case "grants.create", "grants.list", "grants.revoke", "operations.get", "turns.operations", "permissions.list", "permissions.resolve", "cells.get", "cells.output", "turns.cells":
 		return dispatchOperation(ctx, r, method, raw)
 	case "content.put":
 		return decode(raw, func(p protocol.PutContentParams) (any, error) {

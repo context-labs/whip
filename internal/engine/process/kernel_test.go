@@ -1064,6 +1064,86 @@ func TestKernelStreamsOutputAndReportsHostCalls(t *testing.T) {
 	}
 }
 
+// The host can block indefinitely for a human or remote executor. Every print
+// already executed must be visible while that call is still waiting.
+func TestBothEnginesFlushOutputBeforeHeldHostCall(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, engine := range []string{EngineStarlark, EngineQuickJS} {
+		t.Run(engine, func(t *testing.T) {
+			entered, release := make(chan struct{}), make(chan struct{})
+			host := HostFunc(func(ctx context.Context, module, operation string, _ map[string]any) (any, error) {
+				if module != "tools" || operation != "hold" {
+					return nil, errors.New("unexpected host call")
+				}
+				close(entered)
+				select {
+				case <-release:
+					return "ok", nil
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+			})
+			options := KernelOptions{Command: []string{executable, "-test.run=TestWorkerProcess", "--"}, Engine: engine, Tools: []string{"hold"}, Host: host}
+			if engine == EngineQuickJS {
+				options.Checkpoints = &memoryCheckpoints{}
+			}
+			kernel, err := NewKernel(options)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(kernel.Close)
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			code := "print('first')\nprint('second 界')\ntools.hold()\nprint('after')"
+			if engine == EngineQuickJS {
+				code = "console.log('first'); console.log('second 界'); await tools.hold({}); console.log('after');"
+			}
+			visible := make(chan struct{})
+			var sawOutput sync.Once
+			type outcome struct {
+				result Result
+				err    error
+			}
+			done := make(chan outcome, 1)
+			go func() {
+				result, err := kernel.Exec(ctx, Cell{Code: code, OnOutput: func(output string) {
+					if output == "first\nsecond 界\n" {
+						sawOutput.Do(func() { close(visible) })
+					}
+				}})
+				done <- outcome{result, err}
+			}()
+			select {
+			case <-entered:
+			case <-ctx.Done():
+				t.Fatal("host call did not start")
+			}
+			select {
+			case <-visible:
+			case <-ctx.Done():
+				t.Fatal("trailing output remained hidden while host call waited")
+			}
+			select {
+			case result := <-done:
+				t.Fatalf("cell completed before host release: %+v", result)
+			default:
+			}
+			close(release)
+			select {
+			case result := <-done:
+				if result.err != nil || result.result.Output != "first\nsecond 界\nafter\n" {
+					t.Fatalf("settled output = %+v", result)
+				}
+			case <-ctx.Done():
+				t.Fatal("released cell did not settle")
+			}
+		})
+	}
+}
+
 func TestHostCallSummaryRedactsPayloads(t *testing.T) {
 	summary := hostCallSummary(map[string]any{
 		"path": "/tmp/" + strings.Repeat("x", 100), "content": "top secret", "recipient": "parent", "limit": 50,

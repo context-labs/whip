@@ -48,6 +48,11 @@ func dispatchContext(ctx context.Context, r *runtime.Runtime, method string, raw
 			value, err := r.SelectCompaction(ctx, session.SessionID(p.SessionID), int64(p.ExpectedRevision), id)
 			return protocol.ContextHeadFromDomain(value), err
 		})
+	case "context.usage":
+		return decode(raw, func(p protocol.SessionParams) (any, error) {
+			v, err := r.ContextUsage(ctx, session.SessionID(p.SessionID))
+			return protocol.ContextUsageFromDomain(v), err
+		})
 	case "context.snapshot":
 		return decode(raw, func(p protocol.SessionParams) (any, error) {
 			value, err := r.HistorySnapshot(ctx, session.SessionID(p.SessionID))

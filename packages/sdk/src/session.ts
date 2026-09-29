@@ -79,6 +79,21 @@ export class Session {
     if (input.session_id !== this.id) throw new TypeError('Input belongs to another session');
     return this.client.call('inputs.cancel', { input_id: input.id }, options);
   }
+  readonly context = {
+    /** Latest actual prefill, with explicit stale tail and unknown capacity; never cumulative usage. */
+    usage: async (options: CallOptions = {}) => {
+      const result = await this.client.call('context.usage', { session_id: this.id }, options);
+      if (result.session_id !== this.id) throw new TypeError('Context usage belongs to another session');
+      if ((result.prefill === null) !== (result.unavailable_reason !== '')) throw new TypeError('Context availability evidence disagrees');
+      if (result.prefill) {
+        const through = BigInt(result.prefill.through_sequence), current = BigInt(result.through_sequence);
+        if (through > current || result.prefill.stale !== (through !== current)) throw new TypeError('Context prefill tail evidence disagrees');
+        const capacity = result.prefill.context_window_tokens;
+        if (capacity !== null && (BigInt(capacity) < 1n || BigInt(capacity) > 1000000000n)) throw new TypeError('Context capacity is outside the captured policy bounds');
+      }
+      return result;
+    },
+  };
   readonly history = {
     page: (params: Page<'sessions.history_page'> = { direction: 'backward' }, options: CallOptions = {}) => this.client.call('sessions.history_page', { limit: 100, ...params, session_id: this.id }, options),
     snapshot: (options: CallOptions = {}) => this.client.call('context.snapshot', { session_id: this.id }, options),
@@ -110,6 +125,11 @@ export class Session {
     },
   };
   readonly cells = {
+    output: async (options: CallOptions = {}) => {
+      const result = await this.client.call('cells.output', { session_id: this.id }, options);
+      if (result.epoch !== this.client.processEpoch || result.preview && (result.preview.session_id !== this.id || new TextEncoder().encode(result.preview.text).byteLength > 65536)) throw new TypeError('Cell output belongs to another session, process, or exceeds its byte limit');
+      return result;
+    },
     get: async (cellID: string, options: CallOptions = {}) => {
       const result = await this.client.call('cells.get', { cell_id: cellID }, options);
       if (result.session_id !== this.id || result.id !== cellID) throw new TypeError('Cell belongs to another session or identity');
@@ -117,6 +137,17 @@ export class Session {
     },
   };
   readonly turns = {
+    /** Canonical costs and field-presence counts for this exact turn, including its helper calls. */
+    usage: async (turnID: string, options: CallOptions = {}) => {
+      const result = await this.client.call('usage.turn', { session_id: this.id, turn_id: turnID }, options);
+      if (result.turn_id !== turnID) throw new TypeError('Usage belongs to another turn');
+      this.checkUsage(result.usage);
+      for (const key of ['reserved', 'in_flight', 'settled', 'not_dispatched', 'uncertain'] as const) {
+        if (BigInt(result.compaction_attempts[key]) > BigInt(result.usage.attempts[key])) throw new TypeError('Compaction attempts exceed turn attempts');
+      }
+      if (BigInt(result.compaction_attempts.uncertain) > BigInt(result.compaction_attempts.settled) || BigInt(result.compactions) > BigInt(result.compaction_attempts.settled)) throw new TypeError('Compaction counts disagree');
+      return result;
+    },
     page: async (params: Page<'sessions.turns'> = {}, options: CallOptions = {}) => {
       const limit = params.limit ?? 50;
       const result = await this.client.call('sessions.turns', { ...params, limit, session_id: this.id }, options);
@@ -263,13 +294,16 @@ export class Session {
   }
   async usage(options: CallOptions = {}) {
     const result = await this.client.call('usage.get', { session_id: this.id }, options);
+    this.checkUsage(result);
+    return result;
+  }
+  private checkUsage(result: Operations['usage.get']['result']) {
     if (result.session_id !== this.id) throw new TypeError('Usage belongs to another session');
     const settled = BigInt(result.attempts.settled);
     if (BigInt(result.reported_cost.attempts) + BigInt(result.estimated_cost.attempts) + BigInt(result.unknown_cost) !== settled || BigInt(result.attempts.uncertain) > settled) throw new TypeError('Usage attempt counts disagree');
     for (const field of [result.input_tokens, result.output_tokens, result.reasoning_tokens, result.cached_input, result.cached_output, result.elapsed_millis]) {
       if (BigInt(field.known_attempts) + BigInt(field.missing_attempts) !== settled) throw new TypeError('Usage field presence counts disagree');
     }
-    return result;
   }
   readonly budgets = {
     list: (options: CallOptions = {}) => this.client.call('budgets.list', { session_id: this.id }, options),

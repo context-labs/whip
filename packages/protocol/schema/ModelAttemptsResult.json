@@ -44,10 +44,66 @@
           "request": {
             "type": "object",
             "properties": {
+              "context": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "session_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "config_revision": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  },
+                  "history_revision": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  },
+                  "context_revision": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  },
+                  "through_sequence": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  },
+                  "estimated_tokens": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  },
+                  "context_window_tokens": {
+                    "type": [
+                      "null",
+                      "string"
+                    ],
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  }
+                },
+                "required": [
+                  "session_id",
+                  "config_revision",
+                  "history_revision",
+                  "context_revision",
+                  "through_sequence",
+                  "estimated_tokens",
+                  "context_window_tokens"
+                ],
+                "additionalProperties": false
+              },
               "purpose": {
                 "type": "string",
                 "enum": [
                   "turn",
+                  "final",
                   "compaction",
                   "goal_formulation",
                   "model_helper",
@@ -63,7 +119,8 @@
                     "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
                   },
                   "name": {
-                    "type": "string"
+                    "type": "string",
+                    "minLength": 1
                   },
                   "effort": {
                     "type": "string"

@@ -10,7 +10,7 @@ import (
 )
 
 func TestExecutionAndClientImportBoundaries(t *testing.T) {
-	command := exec.CommandContext(t.Context(), "go", "list", "-json", "./internal/trace", "./internal/hostview", "./internal/theme", "./internal/computer", "./internal/computerconfig", "./internal/helperprogram", "./internal/browser", "./internal/browserhost", "./internal/terminal", "./internal/mcp", "./internal/mcpconfig", "./internal/jsonc", "./internal/secretref", "./internal/brandicon", "./internal/bashrun", "./internal/shell", "./internal/executor", "./internal/gateway", "./internal/webassets", "./internal/hostmodule", "./internal/engine/process", "./internal/model", "./internal/openaiauth", "./internal/inferenceauth", "./internal/account", "./internal/providerhost", "./internal/capability", "./internal/lsp", "./internal/lspconfig", "./internal/inferenceaccount", "./internal/runner", "./internal/tool", "./internal/instruction", "./internal/skills", "./internal/workspace", "./internal/runtime", "./internal/rpc", "./internal/client", "./internal/hostcmd", "./internal/localruntime", "./internal/runclient")
+	command := exec.CommandContext(t.Context(), "go", "list", "-json", "./internal/acp", "./internal/imageutil", "./internal/trace", "./internal/hostview", "./internal/theme", "./internal/computer", "./internal/computerconfig", "./internal/helperprogram", "./internal/browser", "./internal/browserhost", "./internal/terminal", "./internal/mcp", "./internal/mcpconfig", "./internal/jsonc", "./internal/secretref", "./internal/brandicon", "./internal/bashrun", "./internal/shell", "./internal/executor", "./internal/gateway", "./internal/webassets", "./internal/hostmodule", "./internal/engine/process", "./internal/model", "./internal/openaiauth", "./internal/inferenceauth", "./internal/account", "./internal/providerhost", "./internal/capability", "./internal/lsp", "./internal/lspconfig", "./internal/inferenceaccount", "./internal/runner", "./internal/tool", "./internal/instruction", "./internal/skills", "./internal/workspace", "./internal/runtime", "./internal/rpc", "./internal/client", "./internal/hostcmd", "./internal/localruntime", "./internal/runclient")
 	command.Dir = "../.."
 	raw, err := command.Output()
 	if err != nil {
@@ -32,6 +32,8 @@ func TestExecutionAndClientImportBoundaries(t *testing.T) {
 		"shell":          {"bashrun": true, "capability": true},
 		"gateway":        {"protocol": true},
 		"webassets":      {},
+		"imageutil":      {},
+		"acp":            {"client": true, "protocol": true, "imageutil": true},
 		"hostmodule":     {},
 		"engine/process": {"engine": true, "engine/quickjs": true, "hostmodule": true},
 		"model":          {"session": true, "openaiauth": true, "inferenceauth": true}, "runner": {"session": true, "model": true},

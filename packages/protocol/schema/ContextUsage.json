@@ -1,0 +1,152 @@
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "config_revision": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "history_revision": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "context_revision": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "through_sequence": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "basis": {
+      "type": "string",
+      "enum": [
+        "latest_prefill"
+      ]
+    },
+    "unavailable_reason": {
+      "type": "string",
+      "enum": [
+        "",
+        "no_evidence",
+        "configuration_changed",
+        "history_changed",
+        "selection_changed"
+      ]
+    },
+    "prefill": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "attempt_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "turn_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "model": {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "effort": {
+              "type": "string"
+            },
+            "temperature": {
+              "type": [
+                "null",
+                "number"
+              ],
+              "minimum": 0,
+              "maximum": 2
+            },
+            "top_p": {
+              "type": [
+                "null",
+                "number"
+              ],
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "required": [
+            "provider",
+            "name",
+            "effort"
+          ],
+          "additionalProperties": false
+        },
+        "through_sequence": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "input_tokens": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "input_source": {
+          "type": "string",
+          "enum": [
+            "reported",
+            "estimated"
+          ]
+        },
+        "context_window_tokens": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "stale": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "attempt_id",
+        "turn_id",
+        "model",
+        "through_sequence",
+        "input_tokens",
+        "input_source",
+        "context_window_tokens",
+        "stale"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ContextUsage",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ContextUsage",
+  "required": [
+    "session_id",
+    "config_revision",
+    "history_revision",
+    "context_revision",
+    "through_sequence",
+    "basis",
+    "unavailable_reason",
+    "prefill"
+  ],
+  "additionalProperties": false
+}

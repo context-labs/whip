@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/imageutil"
 	"github.com/context-labs/whip/internal/legacy/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/rlm"
@@ -163,7 +164,7 @@ func (session *AgentSession) expandMentionedFiles(ctx context.Context, input str
 			if imageBytes > maxMentionImageBytes {
 				return "", nil, fmt.Errorf("mentioned images exceed the %d-byte limit", maxMentionImageBytes)
 			}
-			format, data = llm.NormalizeImage(format, data)
+			format, data = imageutil.NormalizeImage(format, data)
 			parts = append(parts, llm.ImagePart(format, data))
 			notes = append(notes, path+" (attached image)")
 			continue

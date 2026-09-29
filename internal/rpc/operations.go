@@ -83,6 +83,15 @@ func dispatchOperation(ctx context.Context, r *runtime.Runtime, method string, r
 			value, err := r.ResolvePermission(ctx, session.OperationID(p.OperationID), p.Approved)
 			return protocol.PermissionFromDomain(value), err
 		})
+	case "cells.output":
+		return decode(raw, func(p protocol.SessionParams) (any, error) {
+			value, err := r.CellOutput(ctx, session.SessionID(p.SessionID))
+			result := protocol.CellOutput{Epoch: protocol.ID(r.ProcessEpoch())}
+			if value != nil {
+				result.Preview = &protocol.CellOutputPreview{SessionID: protocol.ID(value.SessionID), TurnID: protocol.ID(value.TurnID), CellID: protocol.ID(value.CellID), CallMessageID: protocol.ID(value.CallMessageID), CallID: protocol.ID(value.CallID), HistoryRevision: protocol.Counter(value.HistoryRevision), Revision: protocol.Counter(value.Revision), Text: value.Text, Truncated: value.Truncated}
+			}
+			return result, err
+		})
 	case "cells.get":
 		return decode(raw, func(p protocol.CellParams) (any, error) {
 			value, err := r.Cell(ctx, session.CellID(p.CellID))

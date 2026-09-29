@@ -810,6 +810,20 @@ export interface Cell {
   created_at: string;
   finished_at: null | string;
 }
+export interface CellOutput {
+  epoch: string;
+  preview: null | {
+    session_id: string;
+    turn_id: string;
+    cell_id: string;
+    call_message_id: string;
+    call_id: string;
+    history_revision: string;
+    revision: string;
+    text: string;
+    truncated: boolean;
+  };
+}
 export interface CellParams {
   cell_id: string;
 }
@@ -1070,6 +1084,31 @@ export interface ContextHistoryParams {
   after: string;
   through_sequence: string;
   limit: number;
+}
+export interface ContextUsage {
+  session_id: string;
+  config_revision: string;
+  history_revision: string;
+  context_revision: string;
+  through_sequence: string;
+  basis: "latest_prefill";
+  unavailable_reason: "" | "no_evidence" | "configuration_changed" | "history_changed" | "selection_changed";
+  prefill: null | {
+    attempt_id: string;
+    turn_id: string;
+    model: {
+      provider: string;
+      name: string;
+      effort: string;
+      temperature?: null | number;
+      top_p?: null | number;
+    };
+    through_sequence: string;
+    input_tokens: string;
+    input_source: "reported" | "estimated";
+    context_window_tokens: null | string;
+    stale: boolean;
+  };
 }
 export interface ControlEdit {
   id: string;
@@ -1352,13 +1391,21 @@ export interface CreateTreeParams {
       threshold_percent: number;
     };
     report_mode?: null | ("notice" | "inline" | "message");
-    model?: null | {
-      provider: string;
-      name: string;
-      effort: string;
-      temperature?: null | number;
-      top_p?: null | number;
-    };
+    model?:
+      | (null | {
+          provider: string;
+          name: string;
+          effort: string;
+          temperature?: null | number;
+          top_p?: null | number;
+        })
+      | (null | {
+          provider: "";
+          name: "";
+          effort: "";
+          temperature?: null | number;
+          top_p?: null | number;
+        });
     instructions?: null | {
       project_root: null | string;
       text: string;
@@ -1606,13 +1653,21 @@ export interface Definition {
         threshold_percent: number;
       };
       report_mode?: null | ("notice" | "inline" | "message");
-      model?: null | {
-        provider: string;
-        name: string;
-        effort: string;
-        temperature?: null | number;
-        top_p?: null | number;
-      };
+      model?:
+        | (null | {
+            provider: string;
+            name: string;
+            effort: string;
+            temperature?: null | number;
+            top_p?: null | number;
+          })
+        | (null | {
+            provider: "";
+            name: "";
+            effort: "";
+            temperature?: null | number;
+            top_p?: null | number;
+          });
       instructions?: null | {
         project_root: null | string;
         text: string;
@@ -1697,13 +1752,21 @@ export interface DefinitionDocument {
       threshold_percent: number;
     };
     report_mode?: null | ("notice" | "inline" | "message");
-    model?: null | {
-      provider: string;
-      name: string;
-      effort: string;
-      temperature?: null | number;
-      top_p?: null | number;
-    };
+    model?:
+      | (null | {
+          provider: string;
+          name: string;
+          effort: string;
+          temperature?: null | number;
+          top_p?: null | number;
+        })
+      | (null | {
+          provider: "";
+          name: "";
+          effort: "";
+          temperature?: null | number;
+          top_p?: null | number;
+        });
     instructions?: null | {
       project_root: null | string;
       text: string;
@@ -5206,7 +5269,16 @@ export interface ModelAttemptsResult {
         operation_id: null | string;
         batch_index: null | number;
         request: {
-          purpose: "turn" | "compaction" | "goal_formulation" | "model_helper" | "automatic_title";
+          context?: null | {
+            session_id: string;
+            config_revision: string;
+            history_revision: string;
+            context_revision: string;
+            through_sequence: string;
+            estimated_tokens: string;
+            context_window_tokens: null | string;
+          };
+          purpose: "turn" | "final" | "compaction" | "goal_formulation" | "model_helper" | "automatic_title";
           model: {
             provider: string;
             name: string;
@@ -9314,13 +9386,21 @@ export interface SpawnSessionParams {
       threshold_percent: number;
     };
     report_mode?: null | ("notice" | "inline" | "message");
-    model?: null | {
-      provider: string;
-      name: string;
-      effort: string;
-      temperature?: null | number;
-      top_p?: null | number;
-    };
+    model?:
+      | (null | {
+          provider: string;
+          name: string;
+          effort: string;
+          temperature?: null | number;
+          top_p?: null | number;
+        })
+      | (null | {
+          provider: "";
+          name: "";
+          effort: "";
+          temperature?: null | number;
+          top_p?: null | number;
+        });
     instructions?: null | {
       project_root: null | string;
       text: string;
@@ -10150,6 +10230,78 @@ export interface TurnPageResult {
 export interface TurnParams {
   turn_id: string;
 }
+export interface TurnUsage {
+  turn_id: string;
+  usage: {
+    session_id: string;
+    attempts: {
+      reserved: string;
+      in_flight: string;
+      settled: string;
+      not_dispatched: string;
+      uncertain: string;
+    };
+    reported_cost: {
+      value: string;
+      attempts: string;
+      overflow: boolean;
+    };
+    estimated_cost: {
+      value: string;
+      attempts: string;
+      overflow: boolean;
+    };
+    unknown_cost: string;
+    input_tokens: {
+      value: string;
+      known_attempts: string;
+      missing_attempts: string;
+      overflow: boolean;
+    };
+    output_tokens: {
+      value: string;
+      known_attempts: string;
+      missing_attempts: string;
+      overflow: boolean;
+    };
+    reasoning_tokens: {
+      value: string;
+      known_attempts: string;
+      missing_attempts: string;
+      overflow: boolean;
+    };
+    cached_input: {
+      value: string;
+      known_attempts: string;
+      missing_attempts: string;
+      overflow: boolean;
+    };
+    cached_output: {
+      value: string;
+      known_attempts: string;
+      missing_attempts: string;
+      overflow: boolean;
+    };
+    elapsed_millis: {
+      value: string;
+      known_attempts: string;
+      missing_attempts: string;
+      overflow: boolean;
+    };
+  };
+  compaction_attempts: {
+    reserved: string;
+    in_flight: string;
+    settled: string;
+    not_dispatched: string;
+    uncertain: string;
+  };
+  compactions: string;
+}
+export interface TurnUsageParams {
+  session_id: string;
+  turn_id: string;
+}
 export interface UnsubscribeStateParams {
   session_id: string;
   subscription_id: string;
@@ -10202,13 +10354,21 @@ export interface UpdateConfigurationParams {
       threshold_percent: number;
     };
     report_mode?: null | ("notice" | "inline" | "message");
-    model?: null | {
-      provider: string;
-      name: string;
-      effort: string;
-      temperature?: null | number;
-      top_p?: null | number;
-    };
+    model?:
+      | (null | {
+          provider: string;
+          name: string;
+          effort: string;
+          temperature?: null | number;
+          top_p?: null | number;
+        })
+      | (null | {
+          provider: "";
+          name: "";
+          effort: "";
+          temperature?: null | number;
+          top_p?: null | number;
+        });
     instructions?: null | {
       project_root: null | string;
       text: string;
@@ -10446,6 +10606,7 @@ export interface ContractTypes {
   CallHostToolParams: CallHostToolParams;
   CapturedText: CapturedText;
   Cell: Cell;
+  CellOutput: CellOutput;
   CellParams: CellParams;
   CellsParams: CellsParams;
   CellsResult: CellsResult;
@@ -10462,6 +10623,7 @@ export interface ContractTypes {
   ContentReference: ContentReference;
   ContextHead: ContextHead;
   ContextHistoryParams: ContextHistoryParams;
+  ContextUsage: ContextUsage;
   ControlEdit: ControlEdit;
   CreateGoalParams: CreateGoalParams;
   CreateGrantParams: CreateGrantParams;
@@ -10700,6 +10862,8 @@ export interface ContractTypes {
   TurnPageParams: TurnPageParams;
   TurnPageResult: TurnPageResult;
   TurnParams: TurnParams;
+  TurnUsage: TurnUsage;
+  TurnUsageParams: TurnUsageParams;
   UnsubscribeStateParams: UnsubscribeStateParams;
   UpdateConfigurationParams: UpdateConfigurationParams;
   UpdateTreeParams: UpdateTreeParams;
@@ -10837,6 +11001,7 @@ export interface Operations {
   "context.compaction": { params: CompactionParams; result: CompactionResult };
   "context.compactions": { params: CompactionsParams; result: CompactionsResult };
   "context.select": { params: SelectCompactionParams; result: ContextHead };
+  "context.usage": { params: SessionParams; result: ContextUsage };
   "context.snapshot": { params: SessionParams; result: HistorySnapshot };
   "context.list": { params: ContextHistoryParams; result: HistoryMetadataResult };
   "context.read": { params: ReadHistoryParams; result: ReadHistoryResult };
@@ -10860,10 +11025,12 @@ export interface Operations {
   "mail.read": { params: ReadMailParams; result: ReadMailResult };
   "resources.list": { params: SessionParams; result: ResourcesResult };
   "resources.set": { params: SetResourceParams; result: ResourceUsage };
+  "usage.turn": { params: TurnUsageParams; result: TurnUsage };
   "usage.get": { params: SessionParams; result: Usage };
   "budgets.list": { params: SessionParams; result: BudgetsResult };
   "budgets.set": { params: SetBudgetParams; result: Budget };
   "sessions.observe": { params: HistoryParams; result: SessionObservation };
+  "cells.output": { params: SessionParams; result: CellOutput };
   "cells.get": { params: CellParams; result: Cell };
   "turns.cells": { params: CellsParams; result: CellsResult };
   "grants.create": { params: CreateGrantParams; result: Grant };

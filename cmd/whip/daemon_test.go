@@ -20,6 +20,7 @@ import (
 
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/engine/process"
+	"github.com/context-labs/whip/internal/imageutil"
 	"github.com/context-labs/whip/internal/legacy/config"
 	"github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
@@ -501,11 +502,11 @@ func TestRunDaemonCompletesCheckpointStop(t *testing.T) {
 
 func TestScreenshotPartsNormalizesOversizedCaptures(t *testing.T) {
 	var buf bytes.Buffer
-	if err := jpeg.Encode(&buf, image.NewGray(image.Rect(0, 0, llm.NormalizeMaxDim+100, 40)), nil); err != nil {
+	if err := jpeg.Encode(&buf, image.NewGray(image.Rect(0, 0, imageutil.NormalizeMaxDim+100, 40)), nil); err != nil {
 		t.Fatal(err)
 	}
 	parts := screenshotParts([][]byte{buf.Bytes()})
-	if len(parts) != 1 || parts[0].W == 0 || parts[0].W > llm.NormalizeMaxDim {
+	if len(parts) != 1 || parts[0].W == 0 || parts[0].W > imageutil.NormalizeMaxDim {
 		t.Fatalf("screenshot parts=%+v", parts)
 	}
 }

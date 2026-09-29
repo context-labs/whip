@@ -3790,3 +3790,148 @@ Desktop draft262 repaired head `0e6930680` is now fully green in hosted run
 remains a recorded failure. The new parity draft's hosted gates are pending.
 Phases5–7 remain in progress: ACP/TUI, final renderer integration, acceptance
 artifacts and retirement of the old core still have work outstanding.
+
+## Bounded live native REPL stdout
+
+Both engines now publish their existing process output callback through read-only
+`cells.output`. The SDK validates owner, process and64 KiB byte bound and retains
+one exact-cell preview in the existing bounded ExecutionView. It clears on
+settlement, detach, history change or process replacement; slow readers neither
+queue output nor block execution. Reading never starts a kernel or replays code.
+
+Independent backend review and targeted races passed: runtime15.604s, RPC2.670s,
+protocol1.193s; vet/pinned lint0. Real engine proofs cover output before an
+intrinsic question, answer/settlement, cancel and restart, with committed full
+stdout retained. Callback tests cover capacity, Unicode, stale callbacks and
+settlement-before-retirement. All177 native SDK tests and protocol/CSP/drift
+passed (`/tmp/whip-cell-output-{sdk-check,protocol-check}.log`). Product renderers
+must still adopt this new preview; this checkpoint does not claim that UI work.
+
+## Native accounting, live output, ACP and MCP integration — 2026-09-29
+
+The parity draft #263 originally had no hosted run because its #262 base gained
+`0e6930680` after branch creation. Rebased only this task's draft ancestry onto
+that reviewed fix, regenerated generated-only conflicts, and verified the entire
+source tree is byte-for-byte identical to `d2bd6537e`. Updated with an exact
+force-with-lease. Published head `df902fe962a9d7807c44d1e2b42038c809f14873`
+passes every Linux/macOS job and analysis in run `36536378729`. This is not a
+merge into any product branch; no original development files were modified.
+
+The next backend checkpoint is `95ce0ab96`. It reuses exact reviewed leaves for:
+
+- Per-turn `usage.turn` / `session.turns.usage`, derived from actual owned attempt
+  evidence, including helper and compaction attempts and committed compactions.
+  Whole-tree cumulative usage remains a different read.
+- `context.usage` / `session.context.usage`, captured from the latest actual
+  ordinary/final prefill. Reported input including zero wins over the captured
+  estimate; stale tail, changed configuration/selection and unknown capacity stay
+  explicit. Schema55 adds only a derived partial index; there is no mutable
+  duplicate context ledger or provider preparation during reads.
+- Bounded process-generation-scoped cell stdout through `cells.output` and the
+  existing SDK execution observer: at most64 owners/64KiB per owner, exact
+  cell/turn/call/history joins, no read-triggered execution or persistent stream.
+  Committed settlement, suspension, restart and changed ownership clear previews.
+- Native ACP sessions, prompts, content, pending decisions, cancellation and
+  reopen through canonical public owners. Extracted retained image normalization
+  independently; ACP does not delegate into the retired runtime.
+- Native MCP CLI management and model-free tool hosting. Explicit all-empty model
+  selection overrides configured host defaults while ordinary model prompts fail
+  closed. A configured model requires its nonempty name. The endpoint retains the
+  ten supported tool aliases through a small explicit adapter, workspace read
+  grant and independent interactive denial; there is no automatic-mode bypass.
+  Unknown admission stops further calls and preserves the exact owned session.
+  Shutdown joins accepted work before deleting only its endpoint-created root.
+  MCP bounds input lines to1MiB, arguments to512KiB, batches to16, concurrent
+  admissions to16, output to8MiB and blocked writes to5seconds. Shared command-owned
+  stdio preserves ACP's10MiB frame limit and joins without stopping the host.
+
+The real browser fixture exposed a suppressed second Starlark print before a
+blocking host call. The regression first failed with a held real executor.
+`ecd59173f` (integrated `89153b792`) flushes changed cumulative output before the
+host request, with unchanged byte limits and no timer/goroutine. Both-engine held
+host-call and two-print human-question settlement/cancel/restart regressions pass.
+
+Full `task check:phase` at pre-repair `c834d935e` passed build/vet/fast and every
+native Go race suite, including store321.388s and runtime406.793s, then failed in
+SDK creation recovery: the new model-free contract fixture changed an implicit
+first-fixture selection. The identity assertion remains; `61ce78fca` selects its
+mixed-case fixture explicitly. The earlier run remains a failure, not an overall
+phase pass. Log: `/tmp/whip-observation-phase.log`.
+
+After integrating the MCP/stdout leaves and fixture repair, full affected package
+race/shuffle passes: ACP22.038s, MCP21.244s, process120.899s. Log:
+`/tmp/whip-observation-protocol-process.log`. The repaired complete client gate
+passes, including180 SDK tests, native CLI, every production-process fixture and
+the four retained regressions. Log: `/tmp/whip-observation-clients-repaired.log`.
+Analysis then reported three Go1.27 embedded-literal simplifications in ACP
+presentation tests. Promoted literals preserve all assertions; focused presentation
+tests pass. Repaired pinned analysis passes with0 new lint issues against the
+frozen baseline and no vulnerabilities. Log:
+`/tmp/whip-observation-analysis-repaired.log`.
+Phases5–7 remain incomplete, including native TUI, final client/packaging gates,
+retired-core deletion, representative live-provider and release evidence.
+
+### Hosted CLI gate partition — 2026-09-29
+
+At `58ddcaf345da7905418cb9beaa13f390eb024bcf`, hosted run `36538731438`
+passed analysis and all build/race jobs on Linux and macOS, plus macOS clients.
+Linux clients hit the existing three-minute aggregate CLI deadline after native
+ACP/MCP increased that selection from115 to140 tests. The current test had run
+for nine seconds; there was no preceding assertion failure. The run and aggregate
+remain failed. The CLI gate now runs the115 existing CLI tests and25 protocol
+host tests separately, with the same three-minute deadline for each. Compared
+the actual discovered test names: their union exactly matches the old140-test
+selection and the groups are disjoint. No scenario or assertion was removed.
+
+Repaired `task check:native-cli` passes: CLI race48.797s, ACP/MCP race18.889s,
+compiled CLI integration21.284s, and vet. Log:
+`/tmp/whip-observation-cli-split.log`. Exact-head hosted rerun remains pending.
+
+### Cold Linux CLI readiness and complete family gates — 2026-09-29
+
+Run `36540585469` at `90032ecf9` still failed Linux clients. The115-test
+non-protocol group exhausted its three-minute total deadline; its next auth
+fixture was still constructing a fresh schema. Separately,
+`TestDesktopManagedDiagnosticsAndApprovalCLI` hit its five-second fixture startup
+wait and then reported schema initialization cancelled during cleanup. This is
+not credited as a pass or merely hidden behind the protocol split.
+
+The desktop fixture now uses the same15-second readiness allowance and25ms poll
+cadence as production `localruntime.Start`, instead of a shorter five-second wait
+and millisecond filesystem polling. CLI groups are now auth24, lifecycle37,
+run/catalog/native54, and protocol25. Actual discovered names prove the four
+groups are disjoint and their union is exactly the original140 selected tests;
+each retains its three-minute deadline. Local auth13.189s, lifecycle6.173s and
+run32.965s pass. The subsequent protocol run exposed a separate real ACP startup
+data race between `SetAgentConnection` and the first outbound update (shuffle
+`1790669959083801000`). This run remains failed; the connection publication fix
+and repaired protocol/full CLI validation are required before publication. Log:
+`/tmp/whip-observation-cli-families.log`.
+
+### ACP publication repair and complete CLI rerun — 2026-09-29
+
+The ACP SDK starts receiving inside connection construction, before the bridge
+setter runs. Commit `4de3980e9` replaces the unsafe nullable connection read with
+one immutable publication barrier. Early updates/permissions wait instead of
+being dropped; cancellation and bridge close release/join those waits. Nil,
+repeated and post-close publication are rejected. The focused regression passes
+20 race repetitions; both real CLI startup/EOF paths pass 20 repetitions each
+under the failing shuffle seed, and the complete ACP race suite passes. This is
+a production race repair, not a timeout adjustment.
+
+The first complete CLI rerun (`/tmp/whip-observation-cli-final.log`) then exposed
+an unbound test-only bridge in the retained provider-instruction fixture. It had
+relied on silently discarded notifications. That fixture now binds a real ACP
+SDK connection with an explicit notification sink, closes/joins it, and preserves
+every actual provider prompt/source-freshness assertion. Five repetitions under
+the failing seed pass8.530s. Final complete `task check:native-cli` passes:
+auth13.255s, lifecycle6.176s, run/catalog32.805s, protocol19.043s,
+compiled native CLI18.170s and CLI vet. Logs:
+`/tmp/whip-observation-acp-context-repaired.log` and
+`/tmp/whip-observation-cli-final-repaired.log`.
+
+Hosted run `36540585469` at `90032ecf9` is complete and failed: Linux clients and
+the required aggregate failed; every other Linux/macOS build/race/client and
+analysis job passed. Those are historical outcomes, not repaired-head evidence.
+This publication includes the complete family/readiness changes and ACP repair;
+all required hosted checks must rerun at the new head. Phases5–7 remain incomplete.

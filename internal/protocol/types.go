@@ -346,15 +346,16 @@ type ModelPrices struct {
 	CachedOutput *Counter `json:"cached_output"`
 }
 type ModelRequestSnapshot struct {
-	Purpose         ID             `json:"purpose" enum:"turn,compaction,goal_formulation,model_helper,automatic_title"`
-	Model           ModelSelection `json:"model"`
-	Route           string         `json:"route"`
-	Adapter         ID             `json:"adapter"`
-	RequestDigest   string         `json:"request_digest" pattern:"^[a-f0-9]{64}$"`
-	Prices          ModelPrices    `json:"prices"`
-	MaxOutputTokens Counter        `json:"max_output_tokens"`
-	InputTokenBound *Counter       `json:"input_token_bound"`
-	TimeoutMillis   Counter        `json:"timeout_millis"`
+	Context         *ModelContextEvidence `json:"context,omitempty"`
+	Purpose         ID                    `json:"purpose" enum:"turn,final,compaction,goal_formulation,model_helper,automatic_title"`
+	Model           ModelSelection        `json:"model"`
+	Route           string                `json:"route"`
+	Adapter         ID                    `json:"adapter"`
+	RequestDigest   string                `json:"request_digest" pattern:"^[a-f0-9]{64}$"`
+	Prices          ModelPrices           `json:"prices"`
+	MaxOutputTokens Counter               `json:"max_output_tokens"`
+	InputTokenBound *Counter              `json:"input_token_bound"`
+	TimeoutMillis   Counter               `json:"timeout_millis"`
 }
 type ModelAttemptResult struct {
 	State               string     `json:"state" enum:"succeeded,failed,cancelled,uncertain"`

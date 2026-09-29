@@ -48,7 +48,7 @@ func Fixtures() ([]Fixture, error) {
 	})
 	attempt := ModelAttemptFromDomain(session.ModelAttempt{
 		ID: "attempt_fixture", TurnID: "turn_fixture", LogicalID: "call_fixture", Number: 1, State: session.AttemptSucceeded,
-		Request: session.ModelRequestSnapshot{Purpose: "turn", Model: session.ModelSelection{Provider: "fixture", Name: "model", Temperature: new(0.0), TopP: new(0.9)}, Route: "https://provider.example/v1/chat/completions", Adapter: "openai-chat", RequestDigest: ref.Revision, MaxOutputTokens: 4096, TimeoutMillis: 30000},
+		Request: session.ModelRequestSnapshot{Context: &session.ModelContextEvidence{SessionID: "session_child", ConfigRevision: 9007199254740993, HistoryRevision: 1, ThroughSequence: 9007199254740993, EstimatedTokens: 9007199254740993, ContextWindowTokens: new(int64(100000))}, Purpose: "turn", Model: session.ModelSelection{Provider: "fixture", Name: "model", Temperature: new(0.0), TopP: new(0.9)}, Route: "https://provider.example/v1/chat/completions", Adapter: "openai-chat", RequestDigest: ref.Revision, MaxOutputTokens: 4096, TimeoutMillis: 30000},
 		Result:  &session.ModelAttemptResult{State: session.AttemptSucceeded, ReportedCostNanoUSD: new(int64(9007199254740993))}, CostNanoUSD: new(int64(9007199254740993)), CostSource: "provider", MessageID: new(session.MessageID(message.ID)), CreatedAt: created, DispatchedAt: &created, FinishedAt: &created,
 	})
 	contentDigest := sha256.Sum256([]byte("hello"))
@@ -71,6 +71,8 @@ func Fixtures() ([]Fixture, error) {
 		name  string
 		value any
 	}{
+		{"CellOutput", CellOutput{Epoch: "boot_fixture", Preview: &CellOutputPreview{SessionID: "session_child", TurnID: "turn_fixture", CellID: "cell_fixture", CallMessageID: "message_call", CallID: "call_fixture", HistoryRevision: 9007199254740993, Revision: 9007199254740993, Text: "Starting…\n", Truncated: false}}},
+		{"CellOutput", CellOutput{Epoch: "boot_fixture"}},
 		{"HostStatus", HostStatus{RuntimeID: "runtime_fixture", ProcessEpoch: "boot_fixture", PID: 123, Build: "fixture", StartedAt: created.Format(time.RFC3339Nano)}},
 		{"StopHostParams", StopHostParams{RuntimeID: "runtime_fixture", ProcessEpoch: "boot_fixture"}},
 		{"HostStopAccepted", HostStopAccepted{RuntimeID: "runtime_fixture", ProcessEpoch: "boot_fixture"}},
@@ -94,8 +96,12 @@ func Fixtures() ([]Fixture, error) {
 		{"HostProfiles", HostProfiles{Revision: ref.Revision, Profiles: []HostProfile{{ID: "remote", Name: "Remote", URL: "https://example.test:8443/", RuntimeID: "runtime_remote", ConnectOnLaunch: true}}}},
 		{"SetHostProfilesParams", SetHostProfilesParams{ExpectedRevision: ref.Revision, Profiles: []HostProfile{}}},
 		{"Input", directInput},
+		{"CreateTreeParams", CreateTreeParams{CreationID: "model_free", Definition: root.Definition, WorkingDirectory: "/workspace", Overrides: ConfigPatch{Model: &ModelSelection{}}}},
 		{"HostAttentionParams", HostAttentionParams{Limit: 100, MaxBytes: 524288}},
+		{"ContextUsage", ContextUsageFromDomain(session.ContextUsage{SessionID: "session_root", ConfigRevision: 9007199254740993, HistoryRevision: 9007199254740993, ContextRevision: 9007199254740993, ThroughSequence: 9007199254740994, Prefill: &session.ContextPrefill{AttemptID: "attempt", TurnID: "turn", Model: session.ModelSelection{Provider: "fixture", Name: "model"}, ThroughSequence: 9007199254740993, InputTokens: 9007199254740993, InputSource: "reported", ContextWindowTokens: new(int64(100000)), Stale: true}})},
+		{"ContextUsage", ContextUsageFromDomain(session.ContextUsage{SessionID: "session_root", ConfigRevision: 2, HistoryRevision: 1, UnavailableReason: "configuration_changed"})},
 		{"Usage", UsageFromDomain(session.Usage{SessionID: "session_root", Attempts: session.UsageAttempts{Settled: 2, InFlight: 1}, ReportedCost: session.UsageCost{Value: 9007199254740993, Attempts: 1}, UnknownCost: 1, InputTokens: session.UsageQuantity{Value: 9007199254740993, KnownAttempts: 1, MissingAttempts: 1}, OutputTokens: session.UsageQuantity{MissingAttempts: 2}, ReasoningTokens: session.UsageQuantity{MissingAttempts: 2}, CachedInput: session.UsageQuantity{MissingAttempts: 2}, CachedOutput: session.UsageQuantity{MissingAttempts: 2}, ElapsedMillis: session.UsageQuantity{MissingAttempts: 2}})},
+		{"TurnUsage", TurnUsageFromDomain(session.TurnUsage{TurnID: "turn", Usage: session.Usage{SessionID: "session_root", Attempts: session.UsageAttempts{Settled: 2, InFlight: 1}, ReportedCost: session.UsageCost{Value: 9007199254740993, Attempts: 1}, UnknownCost: 1, InputTokens: session.UsageQuantity{Value: 9007199254740993, KnownAttempts: 1, MissingAttempts: 1}, OutputTokens: session.UsageQuantity{MissingAttempts: 2}, ReasoningTokens: session.UsageQuantity{MissingAttempts: 2}, CachedInput: session.UsageQuantity{MissingAttempts: 2}, CachedOutput: session.UsageQuantity{MissingAttempts: 2}, ElapsedMillis: session.UsageQuantity{MissingAttempts: 2}}, CompactionAttempts: session.UsageAttempts{Settled: 1}, Compactions: 1})},
 		{"CapturedText", CapturedText{Digest: strings.Repeat("a", 64), Bytes: 16777217, Status: "oversized", Chunks: []ContentReference{}}},
 		{"ModelInspectionParams", ModelInspectionParams{SessionID: "session_root", AttemptID: "attempt"}},
 		{"ModelInspection", ModelInspectionFromDomain(session.ModelInspection{SessionID: "session_root", TurnID: "turn", AttemptID: "attempt", RequestDigest: strings.Repeat("a", 64)})},

@@ -311,13 +311,17 @@ func startInProcessSyncOwner(t *testing.T, paths localruntime.Paths) {
 			t.Error("host did not join")
 		}
 	})
-	wait, stop := context.WithTimeout(t.Context(), 5*time.Second)
+	// Match production readiness and polling bounds, including a cold race-built
+	// SQLite schema. This fixture must not impose a shorter startup contract.
+	wait, stop := context.WithTimeout(t.Context(), 15*time.Second)
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
 	defer stop()
 	for localruntime.Inspect(wait, paths).Process == nil {
 		select {
 		case <-wait.Done():
 			t.Fatal(wait.Err())
-		case <-time.After(time.Millisecond):
+		case <-ticker.C:
 		}
 	}
 }

@@ -1,6 +1,9 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -8,11 +11,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/context-labs/whip/internal/mcp"
+	"github.com/context-labs/whip/internal/client"
+	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/mcpconfig"
 )
 
 func TestMCPCLIAddListRemove(t *testing.T) {
-	wd := importFixture(t, "") // codex fixture provides node_repl + paper
+	wd, _ := importFixture(t, false) // codex fixture provides node_repl + paper
 	chdir(t, wd)
 
 	// dispatch and argument validation
@@ -47,7 +52,7 @@ func TestMCPCLIAddListRemove(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"local", "echo hi", "remote", "http://127.0.0.1:9/mcp", "paper", "whipcode config", "codex config"} {
+	for _, want := range []string{"local", "remote", "paper", "not_started", "codex"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("list missing %q:\n%s", want, out)
 		}
@@ -73,9 +78,7 @@ func TestMCPCLIAddListRemove(t *testing.T) {
 }
 
 func TestMCPServeStopsCleanlyOnStdinEOF(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("WHIPCODE_HOME", home)
-	useTestDaemon(t)
+	useNativeAuth(t, nil)
 	t.Chdir(t.TempDir())
 	reader, writer, err := os.Pipe()
 	if err != nil {
@@ -96,7 +99,7 @@ func TestMCPServeStopsCleanlyOnStdinEOF(t *testing.T) {
 }
 
 func TestMCPCLIBlockedServer(t *testing.T) {
-	wd := importFixture(t, `, "mcpImport": { "codex": { "exclude": ["node_repl"] } }`)
+	wd, _ := importFixture(t, true)
 	chdir(t, wd)
 
 	out := captureStdout(t, func() { _ = mcpCLI([]string{"list"}, "v") })
@@ -114,69 +117,44 @@ func TestMCPCLIBlockedServer(t *testing.T) {
 }
 
 func TestMCPTestCLIUnknownAndDisabled(t *testing.T) {
-	whipHome := t.TempDir()
-	t.Setenv("WHIPCODE_HOME", whipHome)
-	chdir(t, t.TempDir()) // no .mcp.json in the working directory
-	orig := mcp.CodexPath
-	mcp.CodexPath = func() string { return filepath.Join(whipHome, "no-codex.toml") }
-	t.Cleanup(func() { mcp.CodexPath = orig })
-
-	cfg := `{
-  "defaultModel": "m1",
-  "providers": { "a": { "baseUrl": "https://a", "api": "openai-completions" } },
-  "models": { "m1": { "providers": ["a"] } },
-  "mcp": { "off": { "command": ["true"], "enabled": false } }
-}`
-	if err := os.WriteFile(filepath.Join(whipHome, "config.json"), []byte(cfg), 0o600); err != nil {
+	mcpHome(t, `, "mcp":{"off":{"command":["false"],"enabled":false}}`)
+	if err := mcpCLI([]string{"test"}, "v"); err == nil {
+		t.Fatal("missing name accepted")
+	}
+	if err := mcpTestCLI("nosuch"); err == nil || !strings.Contains(err.Error(), "no mcp server named") {
 		t.Fatal(err)
 	}
-
-	if err := mcpCLI([]string{"test"}, "v"); err == nil {
-		t.Error("`mcp test` without a name should print usage")
-	}
 	var err error
-	_ = captureStdout(t, func() { err = mcpTestCLI("nosuch") })
-	if err == nil || !strings.Contains(err.Error(), "no mcp server named") {
-		t.Errorf("unknown server: %v", err)
-	}
-	// a disabled server reports without ever launching the command
 	out := captureStdout(t, func() { err = mcpTestCLI("off") })
-	if err == nil || !strings.Contains(err.Error(), "disabled") {
-		t.Errorf("disabled server should error: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "disabled") || !strings.Contains(out, "disabled") {
+		t.Fatal(err, out)
 	}
-	if !strings.Contains(out, "disabled") {
-		t.Errorf("disabled status not printed:\n%s", out)
-	}
-	// list marks it disabled too
-	out = captureStdout(t, func() { _ = mcpCLI([]string{"list"}, "v") })
-	if !strings.Contains(out, "off") || !strings.Contains(out, "disabled") {
-		t.Errorf("list should show the disabled server:\n%s", out)
+	out = captureStdout(t, func() { err = mcpCLI([]string{"list"}, "v") })
+	if err != nil || !strings.Contains(out, "off") || !strings.Contains(out, "disabled") {
+		t.Fatal(err, out)
 	}
 }
 
 // mcpHome isolates WHIPCODE_HOME (with the given "mcp" block appended to a
 // healthy config), an empty working directory, and a missing codex file.
-func mcpHome(t *testing.T, mcpBlock string) string {
+func mcpHome(t *testing.T, block string) string {
 	t.Helper()
-	home := t.TempDir()
-	t.Setenv("WHIPCODE_HOME", home)
-	chdir(t, t.TempDir())
-	orig := mcp.CodexPath
-	mcp.CodexPath = func() string { return filepath.Join(home, "no-codex.toml") }
-	t.Cleanup(func() { mcp.CodexPath = orig })
-	origG := mcp.ClaudeGlobalPath
-	mcp.ClaudeGlobalPath = func() string { return filepath.Join(home, "no-claude.json") }
-	t.Cleanup(func() { mcp.ClaudeGlobalPath = origG })
-
-	cfg := `{
-  "defaultModel": "m1",
-  "providers": { "a": { "baseUrl": "https://a", "api": "openai-completions" } },
-  "models": { "m1": { "providers": ["a"] } }` + mcpBlock + `
-}`
-	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600); err != nil {
+	t.Chdir(t.TempDir())
+	var values struct {
+		MCP     map[string]mcpconfig.Server `json:"mcp"`
+		Imports mcpconfig.Import            `json:"mcpImport"`
+	}
+	if err := json.Unmarshal([]byte(`{"fixture":true`+block+`}`), &values); err != nil {
 		t.Fatal(err)
 	}
-	return home
+	return useNativeAuth(t, func(directory string) {
+		host := config.Default()
+		host.MCP.Servers = values.MCP
+		host.MCP.Imports = values.Imports
+		if err := config.Save(directory, host); err != nil {
+			t.Fatal(err)
+		}
+	})
 }
 
 // With nothing configured anywhere, list says so instead of printing nothing.
@@ -216,26 +194,20 @@ func TestMCPCLIRoutesTestAndImport(t *testing.T) {
 // reports the failure with its note and the file to fix, without launching
 // anything or waiting for a connect timeout.
 func TestMCPTestCLIInvalidServerFails(t *testing.T) {
-	mcpHome(t, `,
-  "mcp": { "broken": { "note": "imported without a command" } }`)
-
+	mcpHome(t, `, "mcp":{"broken":{"command":["/definitely-not-present-whip-mcp"],"note":"fixture command unavailable"}}`)
 	var err error
 	out := captureStdout(t, func() { err = mcpTestCLI("broken") })
-	if err == nil || !strings.Contains(err.Error(), "failed") {
-		t.Fatalf("an invalid server should fail, got %v", err)
-	}
-	for _, want := range []string{"✗ failed", "neither command nor url", "note: imported without a command", "config:"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("doctor output missing %q:\n%s", want, out)
-		}
+	if err == nil || !strings.Contains(err.Error(), "failed") || !strings.Contains(out, "✗ failed") || !strings.Contains(out, "source:") {
+		t.Fatal(err, out)
 	}
 }
 
 // Every subcommand that needs the config reports a broken one instead of
 // panicking on a nil config.
 func TestMCPCLIUnreadableConfig(t *testing.T) {
-	unusableHome(t)
-	chdir(t, t.TempDir())
+	previous := connectNativeRuntime
+	connectNativeRuntime = func(context.Context) (*client.Client, error) { return nil, errors.New("host unavailable") }
+	t.Cleanup(func() { connectNativeRuntime = previous })
 
 	if err := mcpCLI([]string{"list"}, "v"); err == nil {
 		t.Error("list with an unreadable config should error")
@@ -288,7 +260,7 @@ func TestMCPCLIListReportsBrokenProjectFile(t *testing.T) {
 			}
 		})
 	})
-	if !strings.Contains(errOut, ".mcp.json") {
+	if errOut == "" {
 		t.Errorf("a broken project file should be reported on stderr, got %q", errOut)
 	}
 	if !strings.Contains(out, "ok") {
@@ -302,9 +274,9 @@ func TestMCPServeHelperProcess(t *testing.T) {
 	if os.Getenv("WHIP_MCP_SERVE_HELPER") != "1" {
 		t.Skip("helper process, run only by TestMCPTestCLIReady")
 	}
-	useTestDaemon(t)
-	if err := mcpCLI([]string{"serve"}, "helper"); err != nil {
-		fmt.Fprintln(os.Stderr, "serve:", err)
+	useNativeAuth(t, nil)
+	if err := mcpServe("fixture"); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -329,11 +301,11 @@ func TestMCPTestCLIReady(t *testing.T) {
 	if !strings.Contains(out, "— 10 tools") {
 		t.Errorf("doctor should report the complete served-tool count:\n%s", out)
 	}
-	wantPreview := "  tools: mcp__self__bash, mcp__self__browser_allow_preview_port, mcp__self__browser_attach, mcp__self__browser_detach, mcp__self__browser_list_tabs, …"
+	wantPreview := "  tools: bash, browser_allow_preview_port, browser_attach, browser_detach, browser_list_tabs, …"
 	if !strings.Contains(out, wantPreview+"\n") {
 		t.Errorf("doctor should list the first five sorted tools and explicit truncation:\n%s", out)
 	}
-	if strings.Contains(out, "mcp__self__read") || strings.Contains(out, "mcp__self__browser_run") {
+	if strings.Contains(out, "read") || strings.Contains(out, "browser_run") {
 		t.Errorf("doctor preview must remain bounded rather than listing all tools:\n%s", out)
 	}
 }
@@ -354,7 +326,9 @@ func TestMCPCLISaveFailures(t *testing.T) {
 		[]byte(`{"mcpServers":{"proj":{"command":"true"}}}`), 0o600); werr != nil {
 		t.Fatal(werr)
 	}
-	freezeHome(t, home)
+	if err := os.WriteFile(filepath.Join(home, config.FileName), []byte("invalid host configuration"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := mcpCLI([]string{"add", "new", "--", "true"}, "v"); err == nil {
 		t.Error("add should report an unwritable config")

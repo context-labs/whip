@@ -1,69 +1,28 @@
 package main
 
-// Coverage for the ACP CLI's pure helpers: vision resolution (catalog wins,
-// config falls back) and whip's base MCP merge. The acpCLI entry point itself
-// serves stdio and isn't unit-testable; its helpers are.
-
 import (
+	"bufio"
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/legacy/config"
-	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/mcp"
+	acpsdk "github.com/coder/acp-go-sdk"
+	nativeacp "github.com/context-labs/whip/internal/acp"
+	"github.com/context-labs/whip/internal/client"
+	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/model"
+	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/session"
 )
 
-// acpCLI's config prologue runs before the serve loop: a broken config, an
-// unknown model, or a provider with no key all error out instead of serving.
-// These cover the entry point's front half without blocking on stdio.
-func TestAcpCLIConfigErrors(t *testing.T) {
-	// A config that doesn't parse → config.Load errors.
-	t.Run("unparseable config", func(t *testing.T) {
-		home := t.TempDir()
-		t.Setenv("WHIPCODE_HOME", home)
-		writeConfig(t, home, `{ not json`)
-		if err := acpCLI(nil); err == nil {
-			t.Error("want config.Load parse error")
-		}
-	})
-
-	// Valid config, but -m names a model that doesn't exist → Resolve fails.
-	t.Run("unknown model", func(t *testing.T) {
-		home := t.TempDir()
-		t.Setenv("WHIPCODE_HOME", home)
-		writeConfig(t, home, `{
-			"defaultModel": "test",
-			"providers": {"testprov": {"baseUrl": "http://127.0.0.1:1", "api": "openai-completions", "apiKey": "k"}},
-			"models": {"test": {"providers": ["testprov"], "maxOut": 100}}
-		}`)
-		if err := acpCLI([]string{"-m", "ghost"}); err == nil {
-			t.Error("want Resolve error for unknown model")
-		}
-	})
-
-	// Model resolves, but the provider has no key anywhere → key error.
-	t.Run("no api key", func(t *testing.T) {
-		home := t.TempDir()
-		t.Setenv("WHIPCODE_HOME", home)
-		writeConfig(t, home, `{
-			"defaultModel": "test",
-			"providers": {"testprov": {"baseUrl": "http://127.0.0.1:1", "api": "openai-completions"}},
-			"models": {"test": {"providers": ["testprov"], "maxOut": 100}}
-		}`)
-		err := acpCLI(nil)
-		if err == nil || !strings.Contains(err.Error(), "no API key") {
-			t.Errorf("want no-API-key error, got %v", err)
-		}
-	})
-}
-
+// Other retained CLI fixtures still use this helper until their client cutover.
 func writeConfig(t *testing.T, home, body string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(body), 0o600); err != nil {
@@ -71,32 +30,39 @@ func writeConfig(t *testing.T, home, body string) {
 	}
 }
 
-// With a working config, acpCLI wires the bridge and serves stdio. Driving a
-// real initialize handshake over the stdio pipes exercises the serve loop and
-// connection setup; closing stdin (no client) then ends the loop, so the
-// whole wiring path runs without a live editor. Covers the prologue + serve
-// path the error tests return early from.
-func TestAcpCLIServeExitsOnEOF(t *testing.T) {
-	testAcpCLIServeExitsOnEOF(t, `"apiKey": "k"`)
+func TestAcpCLIConfigErrors(t *testing.T) {
+	previous := connectNativeRuntime
+	defer func() { connectNativeRuntime = previous }()
+	connectNativeRuntime = func(context.Context) (*client.Client, error) {
+		return nil, errors.New("native host configuration is invalid")
+	}
+	if err := acpCLI(nil); err == nil || !strings.Contains(err.Error(), "native host configuration") {
+		t.Fatalf("native config error=%v", err)
+	}
+	for _, args := range [][]string{{"extra"}, {"-unknown"}} {
+		if err := acpCLI(args); err == nil {
+			t.Fatalf("invalid args %v succeeded", args)
+		}
+	}
 }
-
-func TestAcpCLIServeWithoutAuthentication(t *testing.T) {
-	testAcpCLIServeExitsOnEOF(t, `"auth": "none"`)
-}
-
-func testAcpCLIServeExitsOnEOF(t *testing.T, authentication string) {
+func TestAcpCLIServeExitsOnEOF(t *testing.T)            { testAcpCLIServe(t, "env") }
+func TestAcpCLIServeWithoutAuthentication(t *testing.T) { testAcpCLIServe(t, "none") }
+func testAcpCLIServe(t *testing.T, credential string) {
 	t.Helper()
-	home := t.TempDir()
-	t.Setenv("WHIPCODE_HOME", home)
-	writeConfig(t, home, fmt.Sprintf(`{
-		"defaultModel": "test",
-		"providers": {"testprov": {"baseUrl": "http://127.0.0.1:1", "api": "openai-completions", %s}},
-		"models": {"test": {"providers": ["testprov"], "maxOut": 100}}
-	}`, authentication))
-	useTestDaemon(t)
-
-	// stdin/stdout become the ends of two pipes: the test acts as the ACP
-	// client on the other side.
+	useNativeAuth(t, func(directory string) {
+		host := config.Default()
+		host.Defaults.Model = session.ModelSelection{Provider: "scripted", Name: "scripted"}
+		host.Providers["scripted"] = config.Provider{Kind: "openai-chat", BaseURL: "http://127.0.0.1:1", CredentialSource: credential}
+		if credential == "env" {
+			value := host.Providers["scripted"]
+			value.CredentialEnv = "WHIP_ACP_ABSENT_KEY"
+			host.Providers["scripted"] = value
+			t.Setenv("WHIP_ACP_ABSENT_KEY", "")
+		}
+		if err := config.Save(directory, host); err != nil {
+			t.Fatal(err)
+		}
+	})
 	inR, inW, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -107,312 +73,191 @@ func testAcpCLIServeExitsOnEOF(t *testing.T, authentication string) {
 	}
 	oldIn, oldOut := os.Stdin, os.Stdout
 	os.Stdin, os.Stdout = inR, outW
+	done := make(chan error, 1)
+	finished := make(chan struct{})
 	t.Cleanup(func() {
-		os.Stdin, os.Stdout = oldIn, oldOut
+		_ = inW.Close()
 		_ = inR.Close()
 		_ = outW.Close()
 		_ = outR.Close()
-	})
-
-	done := make(chan error, 1)
-	go func() { done <- acpCLI(nil) }()
-
-	// Send an initialize request and expect a response, proving the bridge is
-	// up and serving before we hang up.
-	initReq := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{}}}` + "\n"
-	if _, err := inW.WriteString(initReq); err != nil {
-		t.Fatal(err)
-	}
-	readLine := func() []byte {
-		got := make(chan []byte, 1)
-		go func() {
-			buf := make([]byte, 64<<10)
-			n, _ := outR.Read(buf)
-			got <- buf[:n]
-		}()
 		select {
-		case b := <-got:
-			return b
+		case <-finished:
 		case <-time.After(10 * time.Second):
-			t.Fatal("no response from acp serve loop")
-			return nil
+			t.Error("ACP did not join before stdio restoration")
 		}
+		os.Stdin, os.Stdout = oldIn, oldOut
+	})
+	go func() { defer close(finished); done <- acpCLI(nil) }()
+	reader := bufio.NewReader(outR)
+	call := func(id int, method string, params any) map[string]json.RawMessage {
+		t.Helper()
+		raw, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := inW.Write(append(raw, '\n')); err != nil {
+			t.Fatal(err)
+		}
+		if err := outR.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		for range 100 {
+			raw, err := reader.ReadBytes('\n')
+			if err != nil {
+				t.Fatal(err)
+			}
+			var value map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &value); err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := value["id"]; !ok {
+				continue
+			}
+			if _, ok := value["error"]; ok {
+				t.Fatalf("ACP %s failed: %s", method, raw)
+			}
+			return value
+		}
+		t.Fatal("ACP response did not arrive")
+		return nil
 	}
-	if got := readLine(); !strings.Contains(string(got), `"protocolVersion"`) {
-		t.Errorf("initialize response = %q", got)
+	initialized := call(1, "initialize", map[string]any{"protocolVersion": 1, "clientCapabilities": map[string]any{}})
+	if !strings.Contains(string(initialized["result"]), "protocolVersion") {
+		t.Fatalf("initialize=%s", initialized["result"])
 	}
-
-	// session/new drives the daemon-backed root factory without contacting the
-	// provider, so it needs no network. Covers the wiring the error paths return
-	// before.
-	cwd, _ := os.Getwd()
-	newReq := `{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":` + fmt.Sprintf("%q", cwd) + `,"mcpServers":[]}}` + "\n"
-	if _, err := inW.WriteString(newReq); err != nil {
-		t.Fatal(err)
+	working := t.TempDir()
+	created := call(2, "session/new", map[string]any{"cwd": working, "mcpServers": []any{}})
+	var owner struct {
+		SessionID string `json:"sessionId"`
 	}
-	if got := readLine(); !strings.Contains(string(got), `"sessionId"`) {
-		t.Errorf("session/new response = %q", got)
+	if err := json.Unmarshal(created["result"], &owner); err != nil || owner.SessionID == "" {
+		t.Fatalf("create=%s %v", created["result"], err)
 	}
-
-	// Hang up: stdin EOF ends the serve loop, conn.Done() fires, acpCLI exits.
+	answer := call(3, "session/prompt", map[string]any{"sessionId": owner.SessionID, "prompt": []map[string]string{{"type": "text", "text": "fixture prompt"}}})
+	if !strings.Contains(string(answer["result"]), "end_turn") {
+		t.Fatalf("prompt=%s", answer["result"])
+	}
 	if err := inW.Close(); err != nil {
 		t.Fatal(err)
 	}
 	select {
 	case err := <-done:
 		if err != nil {
-			t.Errorf("acpCLI = %v, want nil on stdin EOF", err)
+			t.Fatal(err)
 		}
 	case <-time.After(10 * time.Second):
-		t.Error("acpCLI did not exit after stdin EOF")
+		t.Fatal("ACP did not detach on EOF")
 	}
 }
 
-func TestACPDaemonBackendAndMCPToolsRoundTrip(t *testing.T) {
-	var requests []llm.Request
-	legacyRunFixture(t, "daemon reply", &requests)
-	backend := &acpDaemonBackend{
-		clientID: "acp-round-trip",
-		model:    "test", provider: "testprov",
-	}
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
-	defer cancel()
-	disabled := false
-	workingDirectory := t.TempDir()
-	root, err := backend.NewRoot(ctx, workingDirectory, map[string]mcp.ServerConfig{
-		"unused": {Command: []string{"false"}, Enabled: &disabled},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = root.Close() }()
-
-	// Exercise the content-parts path used by image-capable ACP clients.
-	action, err := root.NewAction("submit", daemon.SubmitPayload{
-		Text:  "remember this",
-		Parts: []llm.ContentPart{{Type: "text", Text: "remember this"}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := root.Command(ctx, action)
-	if err != nil || result.Status != "succeeded" || result.Output != "daemon reply" {
-		t.Fatalf("submit = %+v, %v", result, err)
-	}
-	if len(requests) != 1 || len(requests[0].Messages) == 0 {
-		t.Fatalf("provider requests = %+v", requests)
-	}
-
-	// The MCP adapter sees schemas and invokes built-ins only through daemon
-	// commands. Read is safe; write is rejected after the headless policy is
-	// installed, proving side effects do not bypass daemon-owned permissions.
-	configure, err := root.NewAction("tool.configure", map[string]bool{"deny_permissions": true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if configured, commandErr := root.Command(ctx, configure); commandErr != nil || configured.Status != "succeeded" {
-		t.Fatalf("tool.configure = %+v, %v", configured, commandErr)
-	}
-	provider := daemonMCPTools{client: root}
-	definitions, err := provider.ToolDefinitions(ctx)
-	if err != nil || len(definitions) == 0 {
-		t.Fatalf("tool definitions = %d, %v", len(definitions), err)
-	}
-	path := filepath.Join(workingDirectory, "note.txt")
-	if err := os.WriteFile(path, []byte("daemon-owned tools\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	readArgs, err := json.Marshal(map[string]string{"path": path})
-	if err != nil {
-		t.Fatal(err)
-	}
-	output, err := provider.CallTool(ctx, "read", readArgs)
-	if err != nil || !strings.Contains(output, "daemon-owned tools") {
-		t.Fatalf("read tool = %q, %v", output, err)
-	}
-	writeArgs, err := json.Marshal(map[string]string{"path": path, "content": "changed"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := provider.CallTool(ctx, "write", writeArgs); err == nil || !strings.Contains(err.Error(), "Permission denied") {
-		t.Fatalf("write tool should be denied, got %v", err)
-	}
-	// Switch to external prompts and resolve the real daemon-owned permission
-	// without identity setup. The tool worker waits until the decision lands.
-	external, err := root.NewAction("permission.mode", map[string]bool{"external_permissions": true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result, err := root.SetPermissionMode(ctx, external); err != nil || result.Status != "succeeded" {
-		t.Fatalf("external permission mode = %+v, %v", result, err)
-	}
-	beforeWrite, err := root.Snapshot(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	type toolResult struct {
-		output string
-		err    error
-	}
-	writeDone := make(chan toolResult, 1)
-	go func() {
-		output, callErr := provider.CallTool(ctx, "write", writeArgs)
-		writeDone <- toolResult{output: output, err: callErr}
-	}()
-	permissionID := ""
-	var eventKinds []string
-	permissionDeadline := time.NewTimer(5 * time.Second)
-	defer permissionDeadline.Stop()
-	for permissionID == "" {
-		select {
-		case update := <-root.Updates():
-			if update.Event == nil {
-				continue
-			}
-			eventKinds = append(eventKinds, update.Event.Kind)
-			if update.Event.Kind != "permission.pending" || update.Event.Seq <= beforeWrite.Cursor {
-				continue
-			}
-			var pending struct {
-				ID string `json:"permission_id"`
-			}
-			if err := json.Unmarshal(update.Event.Payload, &pending); err != nil {
-				t.Fatal(err)
-			}
-			permissionID = pending.ID
-		case result := <-writeDone:
-			t.Fatalf("write finished before a permission decision: %q, %v", result.output, result.err)
-		case <-permissionDeadline.C:
-			snapshot, snapshotErr := root.Snapshot(context.Background())
-			t.Fatalf("permission event was not delivered; events=%v snapshot permissions=%+v err=%v cursor=%d", eventKinds, snapshot.Permissions, snapshotErr, root.Cursor())
-		case <-ctx.Done():
-			t.Fatal("permission event was not delivered")
-		}
-	}
-	decisionAction, err := root.NewAction("permission.decide", struct{}{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	decision, err := root.DecidePermission(ctx, decisionAction, permissionID, true, "approved in ACP", "")
-	if err != nil || decision.OperationID == "" {
-		t.Fatalf("permission decision = %+v, %v", decision, err)
-	}
-	select {
-	case result := <-writeDone:
-		if result.err != nil {
-			t.Fatalf("approved write = %q, %v", result.output, result.err)
-		}
-	case <-ctx.Done():
-		t.Fatal("approved write did not finish")
-	}
-	if body, err := os.ReadFile(path); err != nil || string(body) != "changed" {
-		t.Fatalf("written body = %q, %v", body, err)
-	}
-	automatic, err := root.NewAction("permission.mode", map[string]bool{"external_permissions": false})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result, err := root.SetPermissionMode(ctx, automatic); err != nil || result.Status != "succeeded" {
-		t.Fatalf("automatic permission mode = %+v, %v", result, err)
-	}
-
-	snapshot, err := root.Snapshot(ctx)
-	if err != nil || snapshot.RootID != root.RootID() {
-		t.Fatalf("snapshot = %+v, %v", snapshot, err)
-	}
-	metas, err := backend.ListSessions(ctx, 10)
-	if err != nil || len(metas) != 1 || metas[0].ID != root.RootID() {
-		t.Fatalf("sessions = %+v, %v", metas, err)
-	}
-	loaded, err := backend.LoadRoot(ctx, root.RootID(), "ignored", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if loaded.RootID() != root.RootID() {
-		t.Fatalf("loaded root = %q, want %q", loaded.RootID(), root.RootID())
-	}
-	_ = loaded.Close()
-}
-
-// Provider-advertised input_modalities beat the config's per-model vision
-// flag; without a catalog entry the config flag is the answer.
 func TestAcpSupportsVision(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("WHIPCODE_HOME", home)
-
-	// Seed a catalog: "vis" advertises image input, "plain" advertises none.
-	catalogs := `{"testprov": {"baseUrl": "http://x", "models": [
-		{"id": "vis", "inputModalities": ["text", "image"]},
-		{"id": "plain", "inputModalities": ["text"]}
-	]}}`
-	if err := os.WriteFile(filepath.Join(home, "models.json"), []byte(catalogs), 0o600); err != nil {
+	useNativeAuth(t, func(directory string) {
+		host := config.Default()
+		host.Providers["openrouter"] = config.Provider{Kind: "openai-chat", BaseURL: "https://openrouter.ai/api/v1", CredentialSource: "env", CredentialEnv: "WHIP_ACP_ABSENT_KEY"}
+		if err := config.Save(directory, host); err != nil {
+			t.Fatal(err)
+		}
+	})
+	c, err := connectNativeRuntime(t.Context())
+	if err != nil {
 		t.Fatal(err)
 	}
-
-	cfg := &config.Config{Models: map[string]config.Model{
-		"cfgvis": {Providers: []string{"testprov"}, Vision: true},
-		"cfgno":  {Providers: []string{"testprov"}},
-	}}
-
-	cases := []struct {
-		name, modelName, modelID string
-		want                     bool
-	}{
-		{"catalog says image", "anyname", "vis", true},
-		{"catalog says text-only", "anyname", "plain", false},
-		{"no catalog entry, config true", "cfgvis", "unknown-id", true},
-		{"no catalog entry, config false", "cfgno", "unknown-id", false},
-		{"no catalog entry, model unknown", "ghost", "unknown-id", false},
+	defer func() { _ = c.Close() }()
+	var bundled protocol.ProviderModelsResult
+	if err := c.Call(t.Context(), "providers.bundled", protocol.ProviderParams{Provider: "openrouter"}, &bundled); err != nil {
+		t.Fatal(err)
 	}
-	for _, c := range cases {
-		if got := acpSupportsVision(cfg, c.modelName, c.modelID, "testprov"); got != c.want {
-			t.Errorf("%s: acpSupportsVision = %v, want %v", c.name, got, c.want)
+	found := false
+	for _, value := range bundled.Items {
+		if slices.Contains(value.InputModalities, "image") {
+			found = true
+			if !acpSupportsVision(t.Context(), c, protocol.ModelSelection{Provider: "openrouter", Name: value.ID}) {
+				t.Fatal("known bundled image model rejected")
+			}
+			break
 		}
 	}
-}
-
-// With no catalog file at all, the config's per-model flag decides alone.
-func TestAcpSupportsVisionNoCatalog(t *testing.T) {
-	t.Setenv("WHIPCODE_HOME", t.TempDir()) // empty — LoadCatalogs returns an empty map
-	cfg := &config.Config{Models: map[string]config.Model{
-		"m": {Providers: []string{"p"}, Vision: true},
-	}}
-	if !acpSupportsVision(cfg, "m", "any-id", "p") {
-		t.Error("config vision=true should hold when there's no catalog")
+	if !found {
+		t.Fatal("fixture bundled catalog has no image model")
+	}
+	if acpSupportsVision(t.Context(), c, protocol.ModelSelection{Provider: "openrouter", Name: "unknown"}) || acpSupportsVision(t.Context(), c, protocol.ModelSelection{}) {
+		t.Fatal("unknown model fabricated image support")
 	}
 }
 
-// whip's own MCP config is the per-session floor. An empty config merges to
-// an empty (non-nil) map; a configured stdio server carries through.
-func TestAcpBaseMCP(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("WHIPCODE_HOME", home)
-
-	// Disable claude/codex imports so discovery only sees whip's own config
-	// (the test machine's ~/.codex/config.toml would otherwise leak in).
-	off := false
-	noImport := &config.MCPImport{
-		Claude: &config.MCPImportSource{Enabled: &off},
-		Codex:  &config.MCPImportSource{Enabled: &off},
+func testNativeACPPromptContext(t *testing.T) {
+	t.Helper()
+	requests := make(chan model.Request, 4)
+	working := t.TempDir()
+	standing := filepath.Join(t.TempDir(), "standing.md")
+	writePromptRequestFile(t, standing, "# COMMENT_MUST_NOT_REACH_MODEL\nSTANDING_BEFORE_EDIT")
+	writePromptRequestFile(t, filepath.Join(working, "CLAUDE.md"), "CLAUDE_REQUEST_MARKER")
+	writePromptRequestFile(t, filepath.Join(working, "AGENTS.md"), "AGENTS_REQUEST_MARKER")
+	writePromptRequestFile(t, filepath.Join(working, ".agents", "skills", "fixture", "SKILL.md"), "---\nname: fixture\ndescription: CATALOG_REQUEST_MARKER\n---\n")
+	host := config.Default()
+	host.StandingInstructionsFile = standing
+	r := nativeRunFixtureConfigured(t, nativeCLIProvider(func(_ context.Context, request model.Request, _ func(model.Chunk)) (model.Response, error) {
+		if request.Purpose != session.AutomaticTitlePurpose {
+			requests <- request
+		}
+		return model.Response{Parts: []session.Part{{Type: "text", Text: "prompt verified"}}}, nil
+	}), host)
+	c, err := connectNativeRuntime(t.Context())
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	empty := acpBaseMCP(&config.Config{MCPImport: noImport})
-	if empty == nil || len(empty) != 0 {
-		t.Errorf("empty config: got %v", empty)
+	defer func() { _ = c.Close() }()
+	bridge := nativeacp.NewBridge("fixture", c, nativeacp.Options{})
+	// This fixture verifies provider instructions, not editor rendering. Bind a
+	// real SDK connection so notifications follow the normal publication path.
+	input, peerOutput := io.Pipe()
+	agent := acpsdk.NewAgentSideConnection(bridge, io.Discard, input)
+	defer func() {
+		bridge.CloseAll()
+		_ = peerOutput.Close()
+		_ = input.Close()
+		<-agent.Done()
+	}()
+	if err := bridge.SetAgentConnection(agent); err != nil {
+		t.Fatal(err)
 	}
-
-	cfg := &config.Config{
-		MCPImport: noImport,
-		MCPServers: map[string]config.MCPServer{
-			"docs": {Command: []string{"docs-mcp", "--serve"}},
-		},
+	created, err := bridge.NewSession(t.Context(), acpsdk.NewSessionRequest{Cwd: working, McpServers: []acpsdk.McpServer{}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	got := acpBaseMCP(cfg)
-	srv, ok := got["docs"]
-	if !ok {
-		t.Fatalf("docs server missing: %v", got)
+	for _, grant := range []session.Grant{
+		{ID: "read-workspace", SessionID: session.SessionID(created.SessionId), Capability: "files.read", Resource: working},
+		{ID: "read-standing", SessionID: session.SessionID(created.SessionId), Capability: "instructions.read", Resource: "standing"},
+	} {
+		if _, err := r.CreateGrant(t.Context(), grant); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if len(srv.Command) != 2 || srv.Command[0] != "docs-mcp" {
-		t.Errorf("docs command = %v", srv.Command)
+	for turn := range 2 {
+		marker := "STANDING_BEFORE_EDIT"
+		if turn == 1 {
+			marker = "STANDING_AFTER_EDIT"
+			writePromptRequestFile(t, standing, marker)
+		}
+		if _, err := bridge.Prompt(t.Context(), acpsdk.PromptRequest{SessionId: created.SessionId, Prompt: []acpsdk.ContentBlock{acpsdk.TextBlock("verify prompt environment")}}); err != nil {
+			t.Fatal(err)
+		}
+		var request model.Request
+		select {
+		case request = <-requests:
+		case <-time.After(5 * time.Second):
+			t.Fatal("native ACP provider was not called")
+		}
+		for _, want := range []string{"never force-push", "<env>", "Current date/time:", "User:", working, "Identity: root agent", "CLAUDE_REQUEST_MARKER", "AGENTS_REQUEST_MARKER", "CATALOG_REQUEST_MARKER", marker} {
+			if !strings.Contains(request.Instructions, want) {
+				t.Errorf("native ACP request missing %q: %s", want, request.Instructions)
+			}
+		}
+		if strings.Contains(request.Instructions, "COMMENT_MUST_NOT_REACH_MODEL") || turn == 1 && strings.Contains(request.Instructions, "STANDING_BEFORE_EDIT") {
+			t.Fatal("native ACP used stale or unfiltered host instructions")
+		}
+		if strings.Index(request.Instructions, "CLAUDE_REQUEST_MARKER") > strings.Index(request.Instructions, "AGENTS_REQUEST_MARKER") {
+			t.Fatal("native source order reversed")
+		}
 	}
 }

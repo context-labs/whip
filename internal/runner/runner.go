@@ -428,6 +428,15 @@ func (r *Runner) completePrepared(ctx context.Context, turn session.Turn, prepar
 			if err != nil {
 				return attemptOutcome{failure: err}, nil //nolint:nilerr // Refresh failure is a turn outcome after the rejected attempt settled.
 			}
+			if (next.ContextWindowTokens == nil) != (prepared.ContextWindowTokens == nil) || next.ContextWindowTokens != nil && *next.ContextWindowTokens != *prepared.ContextWindowTokens {
+				return attemptOutcome{}, errors.New("credential refresh changed the prepared context capacity")
+			}
+			// Credential refresh retains the identical prepared request and its
+			// captured context evidence, never a fresh context observation.
+			if prepared.Snapshot.Context != nil {
+				evidence := prepared.Snapshot.Context.Clone()
+				next.Snapshot.Context = &evidence
+			}
 			if err := validatePrepared(next); err != nil {
 				return attemptOutcome{failure: err}, nil //nolint:nilerr // Invalid refreshed preparation cannot dispatch.
 			}

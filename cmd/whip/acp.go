@@ -1,187 +1,108 @@
-// `whipcode acp` is an editor-facing protocol adapter. It owns the ACP stdio
-// connection and reconnecting daemon clients, never agent execution or
-// persistence.
+// whipcode acp is an editor adapter over the same native host as other clients.
 package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
+	"time"
 
 	acpsdk "github.com/coder/acp-go-sdk"
 
 	"github.com/context-labs/whip/internal/acp"
-	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/legacy/config"
-	"github.com/context-labs/whip/internal/legacy/protocol"
-	"github.com/context-labs/whip/internal/legacy/session"
-	"github.com/context-labs/whip/internal/mcp"
-	"github.com/context-labs/whip/internal/openaiauth"
+	"github.com/context-labs/whip/internal/client"
+	"github.com/context-labs/whip/internal/protocol"
 )
 
 func acpCLI(args []string) error {
+	input, output := os.Stdin, os.Stdout
 	fs := flag.NewFlagSet("acp", flag.ContinueOnError)
-	modelFlag := fs.String("m", "", "model name from ~/.whipcode/config.json (default: defaultModel)")
-	providerFlag := fs.String("p", "", "provider to route the model through (default: model's first provider)")
-	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: whipcode acp [-m model] [-p provider]")
-		fmt.Fprintln(os.Stderr, "serve whipcode as an ACP agent over stdio (for editors like Zed)")
-		fs.PrintDefaults()
-	}
+	model := fs.String("m", "", "native model name (default: current host default)")
+	provider := fs.String("p", "", "native provider route (default: current host default)")
+	fs.Usage = func() { fmt.Fprintln(os.Stderr, "usage: whipcode acp [-m model] [-p provider]"); fs.PrintDefaults() }
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-
-	cfg, err := config.Load()
-	if err != nil {
-		return err
+	if fs.NArg() != 0 {
+		return errors.New("acp accepts flags only")
 	}
-	provider, model, apiID, err := cfg.Resolve(*modelFlag, *providerFlag)
-	if err != nil {
-		return err
-	}
-	modelName, providerName := *modelFlag, *providerFlag
-	if modelName == "" {
-		modelName = cfg.DefaultModel
-	}
-	if providerName == "" {
-		providerName = cfg.DefaultProvider
-		if providerName == "" && len(model.Providers) > 0 {
-			providerName = model.Providers[0]
-		}
-	}
-	if provider.API == openaiauth.Provider {
-		if err := provider.ValidateOpenAICodex(); err != nil {
-			return err
-		}
-	} else {
-		key, err := provider.ResolveKey(cfg)
-		if err != nil {
-			return err
-		}
-		if key == "" && provider.Auth != "none" {
-			return fmt.Errorf("no API key for provider %q (set apiKey/apiKeyEnv in ~/.whipcode/config.json)", providerName)
-		}
-	}
-	backend := &acpDaemonBackend{
-		clientID: "acp-" + rand.Text(), model: modelName, provider: providerName,
-	}
-
-	vision := acpSupportsVision(cfg, modelName, apiID, providerName)
-	acp.SetEventLog(func(format string, args ...any) { config.LogEvent("acp", fmt.Sprintf(format, args...)) })
-	bridge := acp.NewBridge(version, backend, vision, acpBaseMCP(cfg))
-	connection := acpsdk.NewAgentSideConnection(bridge, os.Stdout, os.Stdin)
-	bridge.SetAgentConnection(connection)
-
-	signalContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	c, err := connectNativeRuntime(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = c.Close() }()
+	var inventory protocol.ProviderInventory
+	if err := c.Call(ctx, "providers.list", protocol.EmptyParams{}, &inventory); err != nil {
+		return err
+	}
+	selection := protocol.ModelSelection{}
+	if inventory.Defaults != nil {
+		selection = *inventory.Defaults
+	}
+	var override *protocol.ModelSelection
+	if *model != "" || *provider != "" {
+		if *model != "" {
+			selection.Name = *model
+		}
+		if *provider != "" {
+			selection.Provider = protocol.ID(*provider)
+		}
+		if selection.Provider == "" || selection.Name == "" {
+			return errors.New("ACP model override needs both a provider and model, or a configured host default")
+		}
+		override = &selection
+	}
+	stdio, err := newProtocolStdio(input, output, 5*time.Second, 10<<20)
+	if err != nil {
+		return err
+	}
+	defer stdio.Close()
+	bridge := acp.NewBridge(version, c, acp.Options{Model: override, Vision: acpSupportsVision(ctx, c, selection)})
+	connection := acpsdk.NewAgentSideConnection(bridge, stdio, stdio.input)
+	if err := bridge.SetAgentConnection(connection); err != nil {
+		_ = stdio.Close()
+		bridge.CloseAll()
+		return err
+	}
 	select {
 	case <-connection.Done():
-	case <-signalContext.Done():
+	case <-ctx.Done():
 	}
+	// Closing the process-owned stdio releases blocked SDK reads/writes before
+	// joining editor observers. It does not cancel any host execution.
+	stdio.Close()
 	bridge.CloseAll()
 	return nil
 }
 
-type acpDaemonBackend struct {
-	clientID string
-	model    string
-	provider string
-}
-
-func (b *acpDaemonBackend) NewRoot(ctx context.Context, cwd string, servers map[string]mcp.ServerConfig) (*daemon.RootClient, error) {
-	return b.root(ctx, "", cwd, servers)
-}
-
-func (b *acpDaemonBackend) LoadRoot(ctx context.Context, rootID, _ string, servers map[string]mcp.ServerConfig) (*daemon.RootClient, error) {
-	return b.root(ctx, rootID, "", servers)
-}
-
-func (b *acpDaemonBackend) root(ctx context.Context, rootID, cwd string, servers map[string]mcp.ServerConfig) (*daemon.RootClient, error) {
-	options := daemon.RootClientOptions{
-		ClientID: b.clientID, RootID: rootID,
-		Connector: daemonConnector("acp", b.clientID),
+// Startup uses same-scope cached or bundled declarations only. It never probes
+// credentials, refreshes a catalog, or executes a provider command.
+func acpSupportsVision(ctx context.Context, c *client.Client, selection protocol.ModelSelection) bool {
+	if selection.Provider == "" || selection.Name == "" {
+		return false
 	}
-	if rootID == "" {
-		options.Create = &daemon.CreateSession{Kind: session.SessionKindAgent, CWD: cwd, Model: b.model, Provider: b.provider}
-	}
-	client, err := daemon.NewRootClient(options)
-	if err != nil {
-		return nil, err
-	}
-	client.Start()
-	if err := client.WaitLive(ctx); err != nil {
-		_ = client.Close()
-		return nil, err
-	}
-	if len(servers) > 0 {
-		action, err := client.NewAction("mcp.attach", protocol.MCPAttachParams{Servers: servers})
-		if err != nil {
-			_ = client.Close()
-			return nil, err
-		}
-		result, err := client.Command(ctx, action)
-		if err != nil {
-			_ = client.Close()
-			return nil, err
-		}
-		if result.Status != "succeeded" {
-			_ = client.Close()
-			return nil, errors.New(result.Error)
+	var cached protocol.ProviderCatalog
+	if c.Call(ctx, "providers.catalog", protocol.ProviderParams{Provider: selection.Provider}, &cached) == nil && cached.State == "cached" {
+		for _, model := range cached.Models {
+			if model.ID == selection.Name && len(model.InputModalities) > 0 {
+				return slices.Contains(model.InputModalities, "image")
+			}
 		}
 	}
-	return client, nil
-}
-
-func (b *acpDaemonBackend) ListSessions(ctx context.Context, limit int) ([]session.Meta, error) {
-	connection, err := connectDaemon(ctx, "acp", b.clientID, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = connection.Close() }()
-	payload, err := json.Marshal(map[string]int{"limit": limit})
-	if err != nil {
-		return nil, err
-	}
-	result, err := connection.Command(ctx, daemon.CommandParams{
-		CommandID: daemonCommandID(b.clientID, "list"), Scope: string(session.CommandScopeDaemon),
-		Operation: "session.list", Payload: payload,
-	})
-	if err != nil {
-		return nil, err
-	}
-	if result.Status != "succeeded" {
-		return nil, errors.New(result.Error)
-	}
-	var metas []session.Meta
-	if err := json.Unmarshal([]byte(result.Output), &metas); err != nil {
-		return nil, err
-	}
-	return metas, nil
-}
-
-func acpSupportsVision(cfg *config.Config, modelName, modelID, providerName string) bool {
-	if catalog, ok := config.LoadCatalogs()[providerName]; ok {
-		if vision, found := catalog.SupportsVision(modelID); found {
-			return vision
+	var bundled protocol.ProviderModelsResult
+	if c.Call(ctx, "providers.bundled", protocol.ProviderParams{Provider: selection.Provider}, &bundled) == nil {
+		for _, model := range bundled.Items {
+			if model.ID == selection.Name {
+				return slices.Contains(model.InputModalities, "image")
+			}
 		}
-	}
-	if model, ok := cfg.Models[modelName]; ok {
-		return model.Vision
 	}
 	return false
-}
-
-func acpBaseMCP(cfg *config.Config) map[string]mcp.ServerConfig {
-	discovery := mcp.LoadMergedFiltered(cwd(), mcp.FromConfigMap(cfg.MCPServers), mcp.ImportPolicyFrom(cfg.MCPImport))
-	for source, err := range discovery.Errs {
-		config.LogEvent("acp", fmt.Sprintf("mcp discovery: %s: %s", source, err))
-	}
-	return discovery.Merged
 }

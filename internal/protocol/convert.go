@@ -39,8 +39,8 @@ func ModelAttemptFromDomain(value session.ModelAttempt) ModelAttempt {
 		ID: ID(value.ID), TurnID: ID(value.TurnID), LogicalID: ID(value.LogicalID), Number: value.Number, State: string(value.State),
 		CostNanoUSD: counter(value.CostNanoUSD), CostSource: value.CostSource, CostNote: value.CostNote, CreatedAt: value.CreatedAt.Format(time.RFC3339Nano), DispatchedAt: timeString(value.DispatchedAt), FinishedAt: timeString(value.FinishedAt),
 		Request: ModelRequestSnapshot{
-			InputTokenBound: counter(r.InputTokenBound),
-			Purpose:         ID(r.Purpose), Model: ModelSelection{Provider: ID(r.Model.Provider), Name: r.Model.Name, Effort: r.Model.Effort, Temperature: selection.Temperature, TopP: selection.TopP}, Route: r.Route, Adapter: ID(r.Adapter), RequestDigest: r.RequestDigest, MaxOutputTokens: Counter(r.MaxOutputTokens), TimeoutMillis: Counter(r.TimeoutMillis),
+			InputTokenBound: counter(r.InputTokenBound), Context: modelContextEvidence(r.Context),
+			Purpose: ID(r.Purpose), Model: ModelSelection{Provider: ID(r.Model.Provider), Name: r.Model.Name, Effort: r.Model.Effort, Temperature: selection.Temperature, TopP: selection.TopP}, Route: r.Route, Adapter: ID(r.Adapter), RequestDigest: r.RequestDigest, MaxOutputTokens: Counter(r.MaxOutputTokens), TimeoutMillis: Counter(r.TimeoutMillis),
 			Prices: ModelPrices{Input: counter(r.Prices.Input), Output: counter(r.Prices.Output), Reasoning: counter(r.Prices.Reasoning), CachedInput: counter(r.Prices.CachedInput), CachedOutput: counter(r.Prices.CachedOutput)},
 		},
 	}

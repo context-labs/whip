@@ -13,7 +13,7 @@ const operation = (id, turnID = 'turn') => ({ ...fixture('HostOperation'), id, t
 const messages = () => fixture('HistoryResult').items.filter(value => value.id === 'message_call' || value.id === 'message_result').map(value => ({ ...value, turn_id: 'turn', sequence: value.id === 'message_call' ? '9007199254740993' : '9007199254740994' }));
 
 async function backend() {
-  const state = { calls: [], turns: [turn('turn')], cells: [], operations: [], messages: [], revision: '1', epoch: 'boot', intercept: undefined, shortPages: false, activity: { ...fixture('SessionActivity'), active_turn: null, active_input_id: null } };
+  const state = { calls: [], turns: [turn('turn')], cells: [], operations: [], messages: [], revision: '1', epoch: 'boot', intercept: undefined, shortPages: false, output: null, activity: { ...fixture('SessionActivity'), active_turn: null, active_input_id: null } };
   const snapshot = () => ({ session_id: owner, revision: state.revision, through_sequence: state.messages.at(-1)?.sequence ?? '0', message_count: String(state.messages.length) });
   const connect = () => Client.connect(async request => {
     if (request.method === 'initialize') return { jsonrpc: '2.0', id: request.id, result: { major: 4, minor: 0, runtime_id: 'runtime', process_epoch: state.epoch, network_client: false, builtins: [] } };
@@ -21,7 +21,8 @@ async function backend() {
     const p = request.params;
     if ((request.method === 'sessions.history_page' || request.method === 'sessions.observe') && p.expected_revision && p.expected_revision !== state.revision) return { jsonrpc: '2.0', id: request.id, error: { code: -32004, kind: 'CONFLICT', message: 'rewound' } };
     let result;
-    if (request.method === 'sessions.activity') result = state.activity;
+    if (request.method === 'cells.output') result = { epoch: state.epoch, preview: state.output };
+    else if (request.method === 'sessions.activity') result = state.activity;
     else if (request.method === 'sessions.history_page') result = { snapshot: snapshot(), messages: state.messages.slice(-p.limit), next_cursor: null };
     else if (request.method === 'sessions.observe') result = { snapshot: snapshot(), messages: state.messages.filter(value => BigInt(value.sequence) > BigInt(p.after)).slice(0, p.limit), epoch: state.epoch, preview: null };
     else if (request.method === 'sessions.turns') {
@@ -157,4 +158,58 @@ test('slow readers share one fetch; suspend joins it without cancelling runtime 
   unsubscribe(); state.intercept = undefined; await view.resume(); assert.equal(view.getSnapshot().status, 'live');
   const listeners = Array.from({ length: 64 }, () => view.subscribe(() => {}));
   assert.throws(() => view.subscribe(() => {}), /listener limit/); for (const remove of listeners) remove();
+});
+
+
+function liveOutput(state) {
+  state.turns = [{ ...turn('turn'), state: 'running', finished_at: null }];
+  state.activity = { ...state.activity, active_turn: state.turns[0], active_input_id: 'input_active' };
+  state.cells = [{ ...cell('cell'), state: 'running', result_message_id: null, checkpoint: null, finished_at: null }];
+  state.output = { session_id: owner, turn_id: 'turn', cell_id: 'cell', call_message_id: state.cells[0].call_message_id, call_id: state.cells[0].call_id, history_revision: '1', revision: '9007199254740993', text: 'still working\n', truncated: false };
+}
+
+test('live stdout replaces one bounded exact-cell preview and disappears at settlement or detach', async t => {
+  const { state, client } = await backend(); liveOutput(state);
+  const { view, source } = await views(t, client); await view.start();
+  assert.equal(view.getSnapshot().status, 'live', source.getSnapshot().error?.message);
+  assert.equal(view.getSnapshot().output.text, 'still working\n');
+  assert.equal(cellExecutionRows(view.getSnapshot(), [])[0].output.revision, '9007199254740993');
+  state.output.text = 'still working\nnew line\n'; await view.refresh();
+  assert.equal(view.getSnapshot().output.text, state.output.text);
+  assert.equal(state.calls.filter(call => call.method === 'cells.output').length, 2);
+  await view.suspend(); assert.equal(view.getSnapshot().output, null);
+  await view.start(); assert.equal(view.getSnapshot().output.text, state.output.text);
+  state.cells[0] = { ...state.cells[0], state: 'succeeded', finished_at: '2026-09-29T00:00:00Z' }; state.output = null;
+  await view.refresh(); assert.equal(view.getSnapshot().output, null);
+  assert.equal(cellExecutionRows(view.getSnapshot(), source.getSnapshot().history.messages)[0].output, null);
+});
+
+test('stdout ignores retired history and other cells and respects the execution byte budget', async t => {
+  const { state, client } = await backend(); liveOutput(state);
+  const { view, source } = await views(t, client, { maxBytes: 4096 });
+  state.output.text = 'x'.repeat(5000); await view.start();
+  assert.equal(view.getSnapshot().output, null); assert.equal(view.getSnapshot().truncated, true);
+  assert.ok(view.getSnapshot().retainedBytes <= 4096);
+  state.output.text = 'small'; state.output.history_revision = '2'; await view.refresh(); assert.equal(view.getSnapshot().output, null);
+  state.output.history_revision = '1'; state.output.cell_id = 'other'; await view.refresh(); assert.equal(view.getSnapshot().output, null);
+  state.output.cell_id = 'cell'; await view.refresh(); assert.equal(view.getSnapshot().output.text, 'small');
+  state.activity.active_turn = null; state.activity.active_input_id = null; await source.refresh(); assert.equal(view.getSnapshot().output, null);
+});
+
+test('stdout rejects foreign owners, process epochs and oversized multibyte payloads', async () => {
+  const { state, client } = await backend(); liveOutput(state);
+  state.output.session_id = 'foreign'; await assert.rejects(client.session(owner).cells.output(), /another session/);
+  state.output.session_id = owner; state.output.text = '界'.repeat(30000); await assert.rejects(client.session(owner).cells.output(), /byte limit/);
+  state.output.text = 'valid'; state.epoch = 'new-boot'; await assert.rejects(client.session(owner).cells.output(), /process/);
+});
+
+test('late stdout reads cannot republish after observation suspend', { timeout: 5000 }, async t => {
+  const { state, client } = await backend(); liveOutput(state);
+  const { view } = await views(t, client); await view.start();
+  let release, entered; const held = new Promise(resolve => { release = resolve; }); const started = new Promise(resolve => { entered = resolve; });
+  state.intercept = async request => { if (request.method === 'cells.output') { entered(); await held; } };
+  const refresh = view.refresh(); await started;
+  const stopping = view.suspend(); assert.equal(view.getSnapshot().output, null);
+  release(); await Promise.all([refresh, stopping]); assert.equal(view.getSnapshot().output, null);
+  assert.equal(view.getSnapshot().status, 'suspended');
 });
