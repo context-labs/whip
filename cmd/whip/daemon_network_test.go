@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestDaemonNetworkEnvironment(t *testing.T) {
 	for _, test := range []struct {
@@ -22,7 +25,7 @@ func TestDaemonNetworkEnvironment(t *testing.T) {
 			t.Setenv("WHIPCODE_NETWORK_TERMINALS", "")
 			t.Setenv("WHIPCODE_ALLOWED_ORIGINS", "http://localhost:3000, https://whip.example")
 			t.Setenv("WHIPCODE_ALLOWED_HOSTS", "localhost:8080, 127.0.0.1:8080")
-			options, err := daemonNetworkEnvironment()
+			launch, err := nativeRuntimeLaunch()
 			if test.bad {
 				if err == nil {
 					t.Fatal("invalid boolean accepted")
@@ -32,11 +35,17 @@ func TestDaemonNetworkEnvironment(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if options.Enabled != test.want || options.Address != test.listen {
-				t.Fatalf("options: %+v", options)
+			if launch.WaitForWeb != test.want || slices.Contains(launch.Arguments, "-web") != test.want {
+				t.Fatalf("launch: %+v", launch)
 			}
-			if len(options.AllowedOrigins) != 2 || options.AllowedOrigins[1] != "https://whip.example" || len(options.AllowedHosts) != 2 {
-				t.Fatalf("allowlists: %+v", options)
+			if test.want {
+				for _, value := range []string{"http://localhost:3000, https://whip.example", "localhost:8080, 127.0.0.1:8080"} {
+					if !slices.Contains(launch.Arguments, value) {
+						t.Fatalf("missing allowlist %q: %+v", value, launch)
+					}
+				}
+			} else if len(launch.Arguments) != 1 {
+				t.Fatalf("disabled network retained gateway flags: %+v", launch)
 			}
 		})
 	}

@@ -305,13 +305,13 @@ tasks:
       # Protocol clients have independent real-host lifecycles. Keep the same
       # deadline per family without growing one aggregate timer with each client.
       - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(Auth|OpenAIAuth|DeviceLogin|ProviderChoice|CLIChooser|TerminalKeyPrompt)'
-      - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(Daemon|Desktop|ForcedDaemon)'
-      - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^TestRun(Daemon|timeModel)'
-      - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^TestRun' -skip '^TestRun(Daemon|timeModel)'
+      - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(Daemon|Desktop)'
+      - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^TestRun'
       - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(Native|Web|Headless|Sessions|TruncAndAgo|PushOTLP|MainDispatchesHeadlessCommands|ClientEntryPaths|DistributionMalformed)'
       - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(MCP|Acp|ACP)'
       - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(Update|DistributionUpdate)'
       - go test -tags=integration -count=1 -timeout=2m ./cmd/whip -run '^TestNativeCompiledCLI'
+      - go test -race -tags=integration -count=1 -timeout=3m ./cmd/whip -run '^TestDesktopCompiledUpdate$'
       - go test -race -shuffle=on -count=1 -timeout=3m ./internal/tui
       - go vet ./cmd/whip
 

@@ -37,7 +37,7 @@ jobs:
       - run: npm run check:desktop
       - name: Native helper races and parent-lifetime acceptance
         run: |
-          go test -race -shuffle=on -count=1 ./cmd/whip ./internal/daemon -run '^Test(Desktop|Maintenance)'
+          go test -race -shuffle=on -count=1 ./cmd/whip ./internal/localruntime -run '^Test(Desktop|Maintenance)'
           go test -race -tags=integration ./cmd/whip -run '^TestDesktopCompiledUpdate$' -v
       - name: Package and verify the arm64 desktop without rebuilding the renderer
         run: |
