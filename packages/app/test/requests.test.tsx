@@ -382,3 +382,49 @@ it('supports keyboard free-text submission and disables all effects while discon
   );
   await waitFor(() => expect(f.count('questions.answer')).toBe(1));
 });
+
+it('keeps an uncertain decision through query eviction and same-host client replacement', async () => {
+  const f = await providerFixture();
+  const op = { ...operation('operation', 'waiting'), session_id: 'root', arguments: { path: 'retained.txt' } };
+  f.data.handlers['permissions.list'] = () => ({ items: [permission] });
+  f.data.handlers['questions.list'] = () => ({ items: [] });
+  f.data.handlers['operations.get'] = () => op;
+  f.data.handlers['permissions.resolve'] = () => { throw new DeliveryError('Decision acknowledgement lost'); };
+  const renderDock = (session: ReturnType<typeof f.client.session>, disabled = false) => <PendingRequests session={session} rootId="root" disabled={disabled} refresh={async () => {}} />;
+  const first = f.client.session('root'), view = f.mount(renderDock(first));
+  fireEvent.click(await screen.findByRole('button', { name: 'Deny', exact: true }));
+  await screen.findByRole('button', { name: 'Retry same denial' });
+  view.rerender(f.wrap(renderDock(first, true)));
+  act(() => f.queries.removeQueries({ queryKey: ['pending-requests'] }));
+  expect(screen.getByRole('button', { name: 'Retry same denial' })).toHaveProperty('disabled', true);
+  const next = await providerFixture();
+  next.data.handlers['permissions.list'] = () => ({ items: [permission] });
+  next.data.handlers['questions.list'] = () => ({ items: [] });
+  next.data.handlers['operations.get'] = () => op;
+  view.rerender(f.wrap(renderDock(next.client.session('root'))));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Retry same denial' })).toHaveProperty('disabled', false));
+  expect(screen.queryByRole('button', { name: 'Allow once' })).toBeNull();
+  expect(screen.getByLabelText('Requested operation').textContent).toBe('retained.txt');
+  expect(f.count('permissions.resolve')).toBe(1); expect(next.count('permissions.resolve')).toBe(0);
+});
+
+it('does not replace a lost approval with the next queue entry until an exact read check', async () => {
+  const f = await providerFixture(); let next = false;
+  const first = { ...operation('operation', 'waiting'), session_id: 'root', arguments: { path: 'first.txt' } };
+  const second = { ...first, id: 'second-operation', arguments: { path: 'second.txt' } };
+  f.data.handlers['permissions.list'] = () => ({ items: [{ ...permission, operation_id: next ? second.id : first.id }] });
+  f.data.handlers['questions.list'] = () => ({ items: [] });
+  f.data.handlers['operations.get'] = request => (request.params as { operation_id: string }).operation_id === second.id ? second : { ...first, state: next ? 'succeeded' : 'waiting' };
+  f.data.handlers['permissions.resolve'] = () => { next = true; throw new DeliveryError('Decision acknowledgement lost'); };
+  f.mount(<PendingRequests session={f.client.session('root')} rootId="root" disabled={false} refresh={async () => {}} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Allow once' })); await screen.findByRole('button', { name: 'Retry same approval' });
+  await act(async () => { await f.queries.invalidateQueries({ queryKey: ['pending-requests'] }); });
+  expect(screen.getByLabelText('Requested operation').textContent).toBe('first.txt');
+  expect(screen.queryByRole('button', { name: 'Allow once' })).toBeNull();
+  const beforeCheck = f.count('operations.get');
+  fireEvent.click(screen.getByRole('button', { name: 'Check approval state' }));
+  await waitFor(() => expect(screen.getByLabelText('Requested operation').textContent).toBe('second.txt'));
+  expect(screen.getByRole('button', { name: 'Allow once' })).toBeTruthy();
+  expect(f.count('permissions.resolve')).toBe(1);
+  expect(f.calls.filter(call => call.method === 'operations.get')[beforeCheck]?.params).toEqual({ operation_id: first.id });
+});

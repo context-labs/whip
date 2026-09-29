@@ -48,6 +48,13 @@ export function PendingRequests({
   refresh(): Promise<void>;
   pendingCount?: string;
 }) {
+  const owner = `${session.client.runtimeID}:${session.client.processEpoch}:${rootId}:${session.id}`;
+  // Retain one attempted decision while query eviction or the pending queue changes.
+  const [captured, setCaptured] = useState<{
+    owner: string;
+    permission: DeepReadonly<Permission>;
+    operation: DeepReadonly<HostOperation>;
+  }>();
   const root = useMemo(
     () => session.client.session(rootId),
     [session.client, rootId],
@@ -97,7 +104,8 @@ export function PendingRequests({
     await refresh();
   };
   const data = query.data;
-  if (!data?.permission && !data?.questions.length && !query.error) return null;
+  const approval = captured?.owner === owner ? captured : data;
+  if (!approval?.permission && !data?.questions.length && !query.error) return null;
   return (
     <section
       aria-label="Needs your attention"
@@ -109,11 +117,13 @@ export function PendingRequests({
         error={query.error}
         title="Pending requests unavailable"
       />
-      {data?.permission && data.operation?.state === 'waiting' && (
+      {approval?.permission && approval.operation?.state === 'waiting' && (
         <PermissionRequest
-          key={`${session.client.processEpoch}:${session.id}:${data.permission.operation_id}`}
-          permission={data.permission}
-          operation={data.operation}
+          key={`${owner}:${approval.permission.operation_id}`}
+          permission={approval.permission}
+          operation={approval.operation}
+          onAttempt={() => setCaptured({ owner, permission: approval.permission!, operation: approval.operation! })}
+          onResolved={() => setCaptured(value => value?.owner === owner && value.permission.operation_id === approval.permission?.operation_id ? undefined : value)}
           waiting={
             BigInt(pendingCount) > 0n ? String(BigInt(pendingCount) - 1n) : '0'
           }
@@ -142,6 +152,8 @@ export function PendingRequests({
 }
 
 export function PermissionRequest({
+  onAttempt,
+  onResolved,
   permission,
   operation,
   waiting,
@@ -149,6 +161,8 @@ export function PermissionRequest({
   disabled,
   refresh,
 }: {
+  onAttempt?(): void;
+  onResolved?(): void;
   permission: DeepReadonly<Permission>;
   operation: DeepReadonly<HostOperation>;
   waiting: string;
@@ -177,10 +191,25 @@ export function PermissionRequest({
     setPending(true);
     setError(undefined);
     setAttempt(allow);
+    onAttempt?.();
     try {
       await session.permissions.resolve(permission.operation_id, allow);
       restoreFocus();
       await refresh();
+      if (active.current === session) onResolved?.();
+    } catch (error) {
+      if (active.current === session) setError(error);
+    } finally {
+      if (active.current === session) setPending(false);
+    }
+  }
+  async function check() {
+    if (disabled || pending) return;
+    setPending(true);
+    try {
+      const current = await session.operations.get(permission.operation_id);
+      await refresh();
+      if (active.current === session && current.state !== 'waiting') onResolved?.();
     } catch (error) {
       if (active.current === session) setError(error);
     } finally {
@@ -248,12 +277,7 @@ export function PermissionRequest({
           <div {...stylex.props(permissionStyles.footer)}>
             <Button
               disabled={disabled || pending}
-              onClick={() => {
-                setPending(true);
-                void refresh()
-                  .catch(setError)
-                  .finally(() => setPending(false));
-              }}
+              onClick={() => void check()}
             >
               Check approval state
             </Button>

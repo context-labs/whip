@@ -348,7 +348,10 @@ account secrets and resource handles never enter the durable command journal.
 Native permission/question decisions preserve the selected operation/question,
 exact decision and original identity through an uncertain acknowledgement.
 Ordinary pending replies keep their original controls disabled in place; Check
-and Retry appear only after a failed/uncertain reply. The request dock reads
+and Retry appear only after a failed/uncertain reply. The mounted dock retains one
+attempted approval, scoped to runtime/process/root/session, through cache eviction
+and client replacement. A later queue entry cannot replace it; an explicit Check
+reads that operation's state before releasing the captured decision. The request dock reads
 human approvals only for the root. Child operations retain native delegation
 and denial behavior; they cannot be turned into directly approvable requests.
 The root card shows the requested command/path and a readable requester; exact

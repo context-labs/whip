@@ -947,15 +947,13 @@ export function SessionContent({
           }
         />
       )}
-      {scopeValid && (
-        <PendingRequests
-          session={session}
-          rootId={rootId}
-          disabled={!connected}
-          refresh={refresh}
-          pendingCount={state.activity?.pending_permission_count}
-        />
-      )}
+      <PendingRequests
+        session={session}
+        rootId={rootId}
+        disabled={!connected}
+        refresh={refresh}
+        pendingCount={state.activity?.pending_permission_count}
+      />
       {kind === 'chat' && (
         <Composer
           key={`composer:${expectedRuntimeId}:${rootId}:${session.id}`}
