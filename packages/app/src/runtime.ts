@@ -439,15 +439,23 @@ export class AppRuntime {
   }
   private savedDrafts() {
     const saved = new Map<string, string>();
+    let savedBytes = 2; // JSON array brackets; each entry contributes its encoding and a comma.
     for (const key of this.platform.storage.keys()) {
       if (!key.startsWith(draftStoragePrefix)) continue;
       const text = this.platform.storage.getItem(key);
       // Bounds are enforced by eviction on the next write; reading only refuses
       // to retain an oversized entry, and stops at a hard ceiling.
-      if (text && encodedBytes(text) <= 256 * 1024) saved.set(key.slice(draftStoragePrefix.length), text);
+      if (text && encodedBytes(text) <= 256 * 1024) {
+        const identity = key.slice(draftStoragePrefix.length);
+        const previous = saved.get(identity);
+        if (previous !== undefined) savedBytes -= encodedBytes(JSON.stringify([identity, previous]));
+        else if (saved.size) savedBytes++;
+        saved.set(identity, text);
+        savedBytes += encodedBytes(JSON.stringify([identity, text]));
+      }
       if (text && this.platform.storage.persistent !== false)
         this.durableDrafts.add(key.slice(draftStoragePrefix.length));
-      if (encodedBytes(JSON.stringify([...saved])) > 2 * 1024 * 1024)
+      if (savedBytes > 2 * 1024 * 1024)
         throw new Error('Unsent drafts exceed the device storage bound.');
     }
     if (this.platform.storage.persistent !== false) {
