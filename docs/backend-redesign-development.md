@@ -3700,3 +3700,36 @@ complementary `^Test[A-M]` and `-skip ^Test[A-M]` jobs, preserving every test an
 example, race instrumentation, shuffle, count and each ten-minute deadline.
 The aggregate runtime task executes both jobs. No test assertion or individual
 operation timeout changes. Hosted validation of the partition is pending.
+
+### Native transfer, navigation, trace, CLI and usage integration — 2026-09-28
+
+The coherent integration at `03d8ae4da` passes the complete `task check:phase`:
+active formatting/build/vet, all package race/shuffle checks, generated contracts,
+SDK/examples, native CLI, compiled production fixtures and retained regressions.
+Store race passed in 298.291 seconds and runtime race in 351.469 seconds. Native
+CLI race scenarios passed in 31.620 seconds and the actual compiled CLI fixture
+in 18.627 seconds. Pinned analysis passes with zero findings against unchanged
+`e3fed9c91918d9c36766dd47d878c1b5466238d1` and no reported vulnerabilities.
+
+This slice integrates atomic/recoverable Browser transfer, same-owner preview
+expansion, bounded recent-root/file completion reads, bounded native trace
+windows with actual host observation time, host environment composition, exact
+subtree usage and native CLI run/session/export workflows. The first full gate
+at `0f36a153e` failed two standing-instruction tests because they assumed the
+execution guide immediately followed source text. `0664c5d3e` now checks the
+intended environment ordering while strengthening exclusion of the private
+source directory; the passing complete rerun includes this correction.
+
+Merge `9fb3bf8e8` then incorporates the exhaustive runtime CI partition from
+foundation draft #260 without changing product code. Its previous hosted head
+`c38277eaa` failed only Linux runtime's aggregate ten-minute deadline in run
+`36525072107`, with the current observation test running for one second. Both
+platform builds, clients, analysis, other races, store groups and macOS runtime
+passed. The new partition retains every test and deadline; its fresh hosted
+results remain pending. No failed run is represented as green.
+
+App adoption, mobile, remaining desktop/distribution and TUI/ACP consumers are
+still being migrated in their isolated worktrees. Native daemon/updater/desktop
+startup checkpoints are tested separately and await the next integration.
+Phases 5–7 and deletion of the retired core remain incomplete. No product branch
+merge, deployment, installed-runtime restart or original development edit occurred.
