@@ -108,21 +108,15 @@ var (
 	mdScheme      string // pinned theme name ("light", "dark", or a user theme); "" = follow detection
 )
 
-// applyLight/applyDark/applyUnknown drop the cached renderer so the next
-// render rebuilds with the matching style. They do NOT touch the detected
-// terminal background (mdLight/mdKnown) — that belongs to detectColorScheme.
-// Splitting the two is what lets an explicit /theme pick override detection
-// without corrupting it (auto must still resolve from the real background).
-// SetLightTheme records the terminal's background and drops the cached
-// renderer so the next render builds with the matching style. Called from
-// Run once the background is known (OSC query result or heuristic).
+// SetLightTheme records the observed terminal background and invalidates the
+// renderer. Explicit theme selection remains independent of this observation.
 func SetLightTheme(light bool) {
 	mdMu.Lock()
 	mdLight, mdKnown = light, true
 	mdRendererC, mdAtWidth = nil, 0
 	mdMu.Unlock()
 	resetLinkSGRs()
-	refreshBaseStyles()
+	rebuildTheme()
 }
 
 // schemeIsLight reports whether the detected (or chosen) scheme is light. An
@@ -144,7 +138,7 @@ func SetUnknownTheme() {
 	mdRendererC, mdAtWidth = nil, 0
 	mdMu.Unlock()
 	resetLinkSGRs()
-	refreshBaseStyles()
+	rebuildTheme()
 }
 
 // setSchemeOverride records an explicit scheme pick ("light"/"dark", "" = back
@@ -155,7 +149,7 @@ func setSchemeOverride(s string) {
 	mdRendererC, mdAtWidth = nil, 0
 	mdMu.Unlock()
 	resetLinkSGRs()
-	refreshBaseStyles() // a pinned user theme changes the palette, not just the scheme
+	rebuildTheme() // a pinned user theme changes the palette, not just the scheme
 }
 
 // CurrentTheme reports the active scheme ("light"/"dark"/"auto") for the UI.

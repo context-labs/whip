@@ -5292,3 +5292,43 @@ mode ownership/configuration is required; old implicit browser fallback and
 uncertain mutation replay cannot be reused. Remaining REPL/slash/chat/Safari
 probes, platform evidence, performance targets, complete retired-core removal
 and final comprehensive gates still prevent Phase 5–7 completion.
+
+
+### Retire the old terminal model — 2026-09-29
+
+Based on draft #274 (`9bc05d632`), `codex/backend-redesign-core-retirement`
+removes the retired terminal model, root-only client/dispatcher, transcript state,
+setup flow and raw terminal-query implementation. Native terminal files, pure
+presentation/theme/UI code and 32 mixed-file pure tests remain. The complete
+[terminal behavior and test disposition](native-terminal-retirement.md) records
+native replacements for command, input, shell, history, selection, permission,
+provider, context, theme and observation families. Twenty-eight pure tests tied
+to obsolete implementations and 305 old-model-dependent tests are removed with
+their fixtures; this is not permission to delete separate browser engines.
+
+`report.go` keeps the unchanged issue-URL helper and build version. TestMain
+still isolates the client home and now removes it before `os.Exit`. Final lint
+identified old write-only style globals and an unused selection-region flag;
+those were deleted and theme callers use `rebuildTheme` directly. The literal
+padding ratchet tightens from 33 to four; the style ratchet remains zero.
+
+Validation on the isolated deletion tree: CLI/TUI compile passed; complete
+terminal race/shuffle partitions passed in 67.394 and 74.444 seconds, including
+all remaining pure tests in the complementary partition. Vet passed. The actual
+compiled default-route terminal/native-host fixture passed in 3.698 seconds.
+After the lint cleanup, focused pure/native theme/menu/render/selection races
+passed in 5.642 seconds, pinned lint reported zero issues, and both supported
+CLI/runtime binaries built into a disposable directory. `go list -deps` for
+those entry points contains no retired core package. The old daemon and other
+retired packages are still present pending the next deletion increment.
+
+Hosted #273 at exact `05e41970a` completed with failures in the old terminal
+literal-padding assertion (both OSes), Firefox history recovery while changing
+to REPL, and Chromium queue-removal focus. Its other required jobs passed. This
+terminal deletion removes obsolete padding sites without relaxing the ratchet;
+the two shared-client failures remain under investigation. #274 hosted run
+36570634436 is still in progress at this record. Neither prior failure is
+reclassified as passing evidence. Phases 5–7 remain open for external Chrome
+ownership, specialized client probes, performance/platform evidence, final core
+removal and comprehensive final-revision gates. No installed runtime, real
+account, original checkout, merge or deployment was changed.

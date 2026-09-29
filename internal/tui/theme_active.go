@@ -24,6 +24,8 @@ var (
 	userThemes   []theme.Spec
 )
 
+func init() { rebuildTheme() }
+
 func currentTheme() *theme.Theme {
 	themeMu.Lock()
 	defer themeMu.Unlock()
@@ -45,7 +47,7 @@ func rebuildTheme() {
 	mdMu.Unlock()
 	var bg color.Color
 	if known && bgCache.valid && bgCache.hasRGB {
-		bg = color.RGBA{R: uint8(bgCache.r), G: uint8(bgCache.g), B: uint8(bgCache.b), A: 0xff} //nolint:gosec // r/g/b are normalized to 0-255 by parseOSCBgRGB / setBgFromColor
+		bg = color.RGBA{R: uint8(bgCache.r), G: uint8(bgCache.g), B: uint8(bgCache.b), A: 0xff} //nolint:gosec // r/g/b are normalized to 0-255 by native background-color events
 	}
 	spec := theme.Neutral()
 	switch {
@@ -72,7 +74,7 @@ func setThemeProfile(p colorprofile.Profile) {
 	themeProfile = p
 	themeMu.Unlock()
 	if changed {
-		refreshBaseStyles()
+		rebuildTheme()
 	}
 }
 
