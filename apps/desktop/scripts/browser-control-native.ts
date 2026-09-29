@@ -45,6 +45,11 @@ export async function testBrowserControl(window: BrowserWindow, origin: string) 
     assert.equal(manager.snapshot().tabs[0].id, scope.tab_id); assert.equal(manager.snapshot().tabs[0].generation, scope.tab_generation);
     const target = { epoch: manager.snapshot().epoch, tabId: scope.tab_id, generation: scope.tab_generation };
     const guest = await manager.controlledContents(target);
+    // Admission reserves the tab before its asynchronous initial navigation.
+    // Exercise the selected document after that navigation has completed.
+    for (let attempt = 0; attempt < 30 && (guest.isLoading() || guest.getURL() !== origin + '/control'); attempt++) await new Promise(resolve => setTimeout(resolve, 100));
+    assert.equal(guest.getURL(), origin + '/control', 'initial controlled document');
+    assert.equal(guest.isLoading(), false, 'initial controlled navigation completed');
     const duplicate = command('begin'); assert.equal((await call<BrowserAgentResult>('dispatch', duplicate)).error, undefined);
     assert.equal((await call<BrowserAgentResult>('dispatch', duplicate)).error?.kind, 'outcome_unknown');
     const answer = await dispatch('cdp', { method: 'Runtime.evaluate', params: { expression: '6 * 7', returnByValue: true } });
@@ -52,7 +57,7 @@ export async function testBrowserControl(window: BrowserWindow, origin: string) 
     assert.equal((await dispatch('cdp', { method: 'Target.getTargets', params: {} })).error?.kind, 'unsupported_operation');
     assert.ok((await dispatch('cdp', { method: 'Network.getAllCookies', params: {} })).error);
     const screenshot = await dispatch('cdp', { method: 'Page.captureScreenshot', params: { format: 'jpeg', quality: 50 } });
-    assert.equal(screenshot.error, undefined, 'screenshot result'); assert.ok(screenshot.screenshotBytes instanceof Uint8Array); assert.ok(screenshot.screenshotBytes.length > 100);
+    assert.equal(screenshot.error, undefined, `screenshot result: ${JSON.stringify({ error: screenshot.error, loading: guest.isLoading(), url: guest.getURL(), windowVisible: window.isVisible(), views: window.contentView.children.map(view => ({ visible: view.getVisible(), bounds: view.getBounds() })) })}`); assert.ok(screenshot.screenshotBytes instanceof Uint8Array); assert.ok(screenshot.screenshotBytes.length > 100);
     console.log('PASS production BrowserControl initial admission, bounded hidden viewport screenshot and method denials');
     const long = command('cdp', { method: 'Runtime.evaluate', params: { expression: 'new Promise(r=>setTimeout(()=>{window.finishedAfterCancel=true;r(1)},150))', awaitPromise: true, returnByValue: true } });
     const pending = call<BrowserAgentResult>('dispatch', long); await new Promise(resolve => setTimeout(resolve, 25));
