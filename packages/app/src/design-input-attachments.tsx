@@ -14,7 +14,9 @@ export function DesignInputAttachments({ files, designContext, client, rootId, r
 }) {
   const contextFile = files?.find(file => file.media_type.startsWith('text/') && file.session_id === agentId && file.id === designContext?.context_attachment_id);
   const screenshot = files?.find(file => file.media_type.startsWith('image/') && file.session_id === agentId && file.id === designContext?.screenshot_attachment_id);
-  const valid = designContext && contextFile && (!designContext.screenshot_attachment_id || screenshot);
+  const valid = designContext && contextFile && (!designContext.screenshot_attachment_id || screenshot)
+    && files?.filter(file => file.id === contextFile.id).length === 1
+    && (!screenshot || screenshot.id !== contextFile.id && files?.filter(file => file.id === screenshot.id).length === 1);
   const readContext = useCallback(async (signal: AbortSignal) => new TextDecoder('utf-8', { fatal: true }).decode(await client.session(agentId).content.readBytes(contextFile!, { maxBytes: 65536, signal })), [client, contextFile, agentId]);
   const render = (file: NonNullable<typeof files>[number], index: number) => <InputAttachment key={`${file.id}:${index}`} client={client} rootId={rootId} runtimeId={runtimeId} agentId={agentId}
     file={file} name={`Attachment ${index + 1}`} image={file.media_type.startsWith('image/')} connected={connected}/>;

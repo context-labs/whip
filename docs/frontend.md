@@ -3318,3 +3318,9 @@ Known oversized or foreign references fail before transport. App preview queries
 include runtime, selected owner, reference and digest, retain no inactive byte
 cache, and revoke image object URLs on unmount. Design context is the recorded
 `SubmitParams.design_context` descriptor; filenames never establish provenance.
+
+`content.get` reads owner/reference metadata only. Canonical message attachment
+rows inspect at most 128 references in batches of four, with zero inactive Query
+retention. Text bytes load on disclosure; images load through their mounted
+preview. Inspecting metadata does not claim that stored bytes are available or
+verified; the separate SDK byte read performs that verification.
