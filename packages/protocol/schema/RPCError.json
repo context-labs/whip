@@ -19,6 +19,7 @@
         "CLOSED",
         "IDENTITY",
         "METHOD",
+        "NETWORK_RESTRICTED",
         "ACCOUNT_CREDENTIALS",
         "ACCOUNT_SETUP",
         "ACCOUNT_CONFIGURATION",

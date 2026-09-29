@@ -186,7 +186,7 @@ func Fixtures() ([]Fixture, error) {
 		{"ModelAttemptsResult", ModelAttemptsResult{Items: []ModelAttempt{helper}}},
 		{"ModelAttemptsResult", ModelAttemptsResult{Items: []ModelAttempt{titleAttempt}}},
 		{"InitializeParams", InitializeParams{Major: Major, ExpectedRuntimeID: new(ID("runtime_fixture"))}},
-		{"InitializeResult", InitializeResult{Major: Major, Minor: Minor, RuntimeID: "runtime_fixture", Builtins: []DefinitionRef{{ID: ID(ref.ID), Revision: ref.Revision}}}},
+		{"InitializeResult", InitializeResult{ProcessEpoch: "boot_fixture", Major: Major, Minor: Minor, RuntimeID: "runtime_fixture", Builtins: []DefinitionRef{{ID: ID(ref.ID), Revision: ref.Revision}}}},
 		{"Request", Request{JSONRPC: "2.0", ID: "call", Method: "initialize", Params: json.RawMessage(`{"major":4}`)}},
 		{"Response", Response{JSONRPC: "2.0", ID: "call", Result: json.RawMessage(`{"items":[]}`)}},
 		{"Response", Response{JSONRPC: "2.0", ID: "call", Error: &RPCError{Code: -32009, Kind: "CONFLICT", Message: "request conflict"}}},

@@ -1988,3 +1988,37 @@ The SDK exposes explicit creation, receipt/head/page reads and a bounded
 revision-aware `treePages` iterator. It does not create a catalog cache, poller
 or retry policy. Full SDK view ownership and product sidebar adoption remain
 Phase6 work; this foundation does not mark those clients migrated.
+
+
+## Browser gateway ownership and network controls
+
+The v4 command starts `internal/gateway` only with explicit `-web`; its default
+listener is loopback, and only a busy default port permits an ephemeral fallback.
+The gateway borrows the actual runtime generation's `Done` lifetime. Startup and
+every upstream connection must acknowledge protocol4, the pinned runtime ID and
+process epoch, and `network_client: true` before forwarding application traffic.
+One WebSocket owns one private socket, with no request multiplexing, reconnection
+or replay. New initialization on an existing connection is rejected. Disconnect
+stops observation, while accepted execution remains owned by the runtime.
+
+Exact Host and Origin checks include an explicitly allowed `whip-app://bundle`;
+null, duplicate and suffix origins do not acquire trust. These checks are not
+user authentication: non-loopback access requires a trusted network or an
+authenticated proxy. RPC captures its immutable network marker, and human
+terminal families plus `shell.input` require explicit operator `-web-terminals`
+authorization. Allowed network account/setup operations keep the same public
+service boundary. The gateway cannot erase the marker with a later handshake.
+
+Frames are bounded at8MiB, with48 WebSockets and16 concurrent content transfers,
+write deadlines and socket backpressure. JSON envelopes are checked for duplicate
+keys and compacted before newline framing. Shutdown closes and joins hijacked
+connections. Scoped HTTP uploads/downloads delegate to the ordinary v4 content
+owner and verify runtime/session/reference identity, exact length and digest.
+The old64MiB gateway upload cap is deliberately replaced by the shared4MiB v4
+content contract; there is no separate upload registry or digest-based authority.
+
+`@whip/sdk/browser` offers ordinary calls and scoped content transfers. Each
+connection verifies the selected host, local cancellation stops only observation,
+and no transport automatically retries mutations. Assets are not yet adopted:
+the API discovery endpoint reports `available: false`, and `/` returns503 until a
+v4 application is packaged. Product web/desktop/mobile migration remains Phase6.

@@ -3063,3 +3063,78 @@ Hosted Linux, macOS, analysis and aggregate checks for PR247 at
 PR248 at `99260052cad3c559a378a455de529be55269a1a2` has passing Linux and analysis;
 macOS remains in progress. PR249 at `855e8f530b8d8aac6a20ff5a2f9eb989c34bf018`
 has passing analysis with both platform jobs in progress at this check.
+
+
+## Pinned browser gateway and browser SDK transport
+
+Root recovery/catalog is published as draft [PR250](https://github.com/context-labs/whip/pull/250)
+at `b04d4dfaf34e87cf876f598155ef3d3393a57a71`, stacked on PR249. Hosted validation
+is pending. Reused gateway core `cc4576b16` as `6e17a06c2` and browser SDK/fixture
+`6b1ce821e` as `8830bf9f7`. Parent preserved the newer definition bindings and
+hostmodule boundary, regenerated combined contracts, and added the new handshake
+fields to the binding SDK fixture. `internal/gateway` and its real browser/process
+fixture join the active gates. No storage/config version change: schema39/config15/
+protocol4 remain current.
+
+One private socket per browser connection retains the immutable network marker,
+with startup/connection identity and process-generation acknowledgement before
+relay. Exact Host/Origin policy, strict compact framing, bounded connections and
+transfers, joined shutdown and owner-scoped content use the new core directly.
+The shared4MiB transfer cap deliberately replaces the retired64MiB gateway cap.
+No application assets are yet packaged; API discovery says unavailable and the
+root returns503. Ordinary browser SDK calls/content do not replay or reconnect.
+
+Released affected races passed gateway6.896s/RPC43.302s/protocol5.368s/command4.375s,
+build/vet/import boundaries/pinned lint0,10 CSP checks,40 SDK tests and drift.
+Native-browser production fixture1.856s covers both engines, lost submit replies,
+4MiB owner-scoped references, SIGKILL/restart generation rejection, server-side
+human-terminal denial and SIGTERM teardown. Existing43-stage fixture31.489s also
+passed. Parent reviewed launcher/transport lifetime, marker/identity enforcement,
+content identity, frame bounds and mutation recovery. Expanded phase validation
+failed on three local runtime observation deadlines under high host load; final
+analysis passed zero issues/no reachable vulnerabilities. The
+initial analysis invocation was blocked by another lint process and is recorded
+as unsuccessful, not a code finding. Logs: `/tmp/whip-browser-gateway-phase.log`,
+`/tmp/whip-browser-gateway-analysis.log`, and
+`/tmp/whip-browser-gateway-analysis-final.log`.
+
+Hosted Linux, macOS, analysis and aggregate checks for PR248 at
+`99260052cad3c559a378a455de529be55269a1a2` now pass in
+[run36502676866](https://github.com/context-labs/whip/actions/runs/36502676866).
+PR249 analysis passes; platform jobs remain in progress at this check.
+Phases5–7 remain open; no supported-product cutover, deployment or installed
+runtime change has occurred.
+
+The first gateway phase run failed runtime completion-evidence (QuickJS),
+reasoning-retry observation and pending-title observation deadlines. It remains
+`/tmp/whip-browser-gateway-phase.log`; focused repeats of those exact scenarios
+use `/tmp/whip-browser-gateway-failed-regressions.log`. Host load measured50.61/
+131.68/82.65 after the run. No installed process was changed. In hosted PR249 run
+36503421921, Linux store exceeded the unchanged10-minute aggregate package bound
+while executing an ordinary6-second state-pressure test; runtime completed565.401s.
+The previous PR248 run completed store409.016s/runtime357.119s. No deadlock or race
+report appeared in the timeout stack, which showed active SQLite query compilation.
+To reduce CPU/memory contention, the active race command now limits concurrently
+running package binaries to2 (`-p=2`), retaining every test, shuffle/race mode,
+package deadlines, CI job deadlines and all acceptance scenarios. This is a gate
+resource adjustment; it changes no product concurrency policy. A full revised
+phase run and fresh hosted evidence remain required before crediting validation.
+
+The revised full local phase gate now passes: store229.544s/runtime232.842s/
+RPC48.369s/process116.012s, all11 v4 CSP/interchange checks,41 v4 SDK tests,
+generation drift/examples,43-stage production fixture30.830s, native browser
+fixture1.901s, retained fixture2.712s and selected daemon races2.769s. The three
+initially failing runtime scenarios also passed three repetitions with the
+original shuffle seed (15.829s). Final analysis reports zero new lint issues and
+no reachable vulnerabilities. Logs are
+`/tmp/whip-browser-gateway-phase-final.log` and
+`/tmp/whip-browser-gateway-analysis-final.log`. The parent corrected an import-map
+merge typo before this final gate; no test or deadline was removed.
+
+PR249 at `855e8f530b8d8aac6a20ff5a2f9eb989c34bf018` finished with passing macOS
+and analysis, failed Linux and failed aggregate in run36503421921. PR250 at
+`b04d4dfaf34e87cf876f598155ef3d3393a57a71` likewise passed macOS/analysis but
+failed Linux/aggregate in run36504448730: store exceeded600s during context-pin
+validation and runtime passed570.284s. Neither failed hosted revision receives
+passing credit. The next gateway draft carries the tested concurrency adjustment
+and requires fresh Linux/macOS/analysis/aggregate evidence.

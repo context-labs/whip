@@ -90,7 +90,12 @@ Use Node 24. Exact installed versions belong to the package manifests and
 
 During the backend redesign, the retained product clients use
 `@whip/legacy-sdk` and `@whip/legacy-protocol`. The new `@whip/sdk` now talks
-directly to `@whip/protocol` v4 over its Node transport. Its main entry point is
+directly to `@whip/protocol` v4 over its Node and browser transports. The
+browser entry point requires a pinned runtime ID, supports optional process-epoch
+pinning, and never reconnects or retries mutations automatically. Its scoped HTTP
+content adapter uses the same4MiB bound and owner/reference identity as RPC.
+These transport foundations do not imply product renderer adoption; the explicit
+v4 gateway has no packaged application assets yet. Its main entry point is
 transport-independent and validates generated request/response types. It keeps
 connection identity; its observation iterator retains only a history cursor and
 preview revision while reading bounded pages from Go. Provisional provider text

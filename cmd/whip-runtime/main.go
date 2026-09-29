@@ -11,12 +11,14 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/context-labs/whip/internal/account"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/engine/process"
+	"github.com/context-labs/whip/internal/gateway"
 	"github.com/context-labs/whip/internal/inferenceaccount"
 	"github.com/context-labs/whip/internal/inferenceauth"
 	"github.com/context-labs/whip/internal/model"
@@ -50,6 +52,11 @@ func run(parent context.Context, args []string, out, diagnostics io.Writer) (err
 	directory := flags.String("directory", "", "required private runtime directory (fresh v4 storage)")
 	scripted := flags.Bool("scripted", false, "use the deterministic fixture provider")
 	delay := flags.Duration("scripted-delay", 0, "fixture response delay")
+	web := flags.Bool("web", false, "enable the browser gateway (trusted network or authenticated proxy required)")
+	webAddress := flags.String("web-listen", "", "browser gateway address (default loopback)")
+	webHosts := flags.String("web-hosts", "", "comma-separated exact allowed HTTP Host authorities")
+	webOrigins := flags.String("web-origins", "", "comma-separated exact allowed browser origins")
+	webTerminals := flags.Bool("web-terminals", false, "allow human terminal methods from network clients")
 	workers := flags.Int("workers", 4, "maximum concurrent session turns")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -59,6 +66,9 @@ func run(parent context.Context, args []string, out, diagnostics io.Writer) (err
 	}
 	if flags.NArg() != 0 || *directory == "" {
 		return errors.New("an explicit -directory is required; positional arguments are unsupported")
+	}
+	if !*web && (*webAddress != "" || *webHosts != "" || *webOrigins != "" || *webTerminals) {
+		return errors.New("web options require -web")
 	}
 	if !*scripted && *delay != 0 {
 		return errors.New("-scripted-delay requires -scripted")
@@ -120,7 +130,7 @@ func run(parent context.Context, args []string, out, diagnostics io.Writer) (err
 		return err
 	}
 	defer providers.Close()
-	server, err := rpc.Listen(r, rpc.HostServices{OpenAI: accounts, Inference: inferenceAccounts, Config: authority, ProviderHost: providers})
+	server, err := rpc.Listen(r, rpc.HostServices{NetworkTerminals: *webTerminals, OpenAI: accounts, Inference: inferenceAccounts, Config: authority, ProviderHost: providers})
 	if err != nil {
 		return err
 	}
@@ -138,8 +148,36 @@ func run(parent context.Context, args []string, out, diagnostics io.Writer) (err
 		}
 	}()
 	defer func() { cancel(); <-stopped }()
-	if err := json.NewEncoder(out).Encode(map[string]any{"socket": r.SocketPath(), "runtime_id": r.Identity(), "major": protocol.Major}); err != nil {
+	served := make(chan error, 1)
+	go func() { served <- server.Serve(ctx); cancel() }()
+	defer func() { cancel(); err = errors.Join(err, <-served, r.Err()) }()
+	ready := map[string]any{"socket": r.SocketPath(), "runtime_id": r.Identity(), "major": protocol.Major, "process_epoch": r.ProcessEpoch()}
+	if *web {
+		list := func(value string) []string {
+			if value == "" {
+				return nil
+			}
+			return strings.Split(value, ",")
+		}
+		browser, startErr := gateway.Start(ctx, gateway.Options{Address: *webAddress, AllowedHosts: list(*webHosts), AllowedOrigins: list(*webOrigins), SocketPath: r.SocketPath(), RuntimeID: protocol.ID(r.Identity()), ProcessEpoch: protocol.ID(r.ProcessEpoch()), BackendDone: r.Done()})
+		if startErr != nil {
+			return startErr
+		}
+		defer func() { _ = browser.Close() }()
+		ready["web"] = browser.Endpoint()
+		if err := json.NewEncoder(out).Encode(ready); err != nil {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-browser.Done():
+			return browser.Err()
+		}
+	}
+	if err := json.NewEncoder(out).Encode(ready); err != nil {
 		return err
 	}
-	return errors.Join(server.Serve(ctx), r.Err())
+	<-ctx.Done()
+	return nil
 }

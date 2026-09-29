@@ -862,3 +862,15 @@ revision across its bounded pages and surfaces conflicts without silently
 restarting or deduplicating rows. Restart a traversal deliberately after a
 conflict. `listDefinitions` pages only immutable revision metadata. These reads
 never load workers or introduce another client cache.
+
+
+Browser callers can use `browserSocket` and `browserContent` from
+`@whip/sdk/browser` with an explicit `expectedRuntimeID` and optional
+`expectedProcessEpoch`. The runtime command must opt into its gateway with
+`-web`. Ordinary calls use a fresh, restricted, identity-checked WebSocket;
+accepted work survives disconnection, and the transport never reconnects or
+replays a request. Content transfers preserve the owning session and reference,
+verify the digest and exact byte length, and share the runtime's4MiB bound.
+Retain the original upload identity and bytes after uncertain delivery.
+The gateway currently serves API discovery and transport only; product UI
+packaging and persistent executor browser support are separate increments.

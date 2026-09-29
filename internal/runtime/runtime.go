@@ -182,6 +182,9 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 
 func (r *Runtime) Identity() session.RuntimeID { return r.store.Identity() }
 
+// ProcessEpoch identifies this live runtime generation, never a durable session.
+func (r *Runtime) ProcessEpoch() string { return r.epoch }
+
 // HostConfiguration is the single host declaration authority shared with the
 // command's account/provider services. Snapshot reads never create a second cache.
 func (r *Runtime) HostConfiguration() *config.Authority { return r.configuration }

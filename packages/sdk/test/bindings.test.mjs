@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { Client } from '../dist/index.js';
 
 const fixtures = JSON.parse(await readFile(new URL('../../protocol/schema/fixtures.json', import.meta.url), 'utf8'));
-const initial = { major: 4, minor: 0, runtime_id: 'runtime', builtins: [] };
+const initial = { major: 4, minor: 0, runtime_id: 'runtime', process_epoch: 'epoch', network_client: false, builtins: [] };
 const success = (request, result) => ({ jsonrpc: '2.0', id: request.id, result });
 
 test('binding reads retain separate origins and explicit empty updates do not invent executor authority', async () => {

@@ -28,19 +28,23 @@ type Response struct {
 }
 
 type InitializeParams struct {
-	Major             int `json:"major" min:"4" max:"4"`
-	ExpectedRuntimeID *ID `json:"expected_runtime_id,omitempty"`
+	NetworkClient        bool `json:"network_client,omitempty"`
+	ExpectedProcessEpoch *ID  `json:"expected_process_epoch,omitempty"`
+	Major                int  `json:"major" min:"4" max:"4"`
+	ExpectedRuntimeID    *ID  `json:"expected_runtime_id,omitempty"`
 }
 type InitializeResult struct {
-	Major     int             `json:"major" min:"4" max:"4"`
-	Minor     int             `json:"minor"`
-	RuntimeID ID              `json:"runtime_id"`
-	Builtins  []DefinitionRef `json:"builtins"`
+	NetworkClient bool            `json:"network_client"`
+	ProcessEpoch  ID              `json:"process_epoch"`
+	Major         int             `json:"major" min:"4" max:"4"`
+	Minor         int             `json:"minor"`
+	RuntimeID     ID              `json:"runtime_id"`
+	Builtins      []DefinitionRef `json:"builtins"`
 }
 type RPCError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
-	Kind    string `json:"kind" enum:"INVALID,NOT_FOUND,CONFLICT,BUSY,LIMIT,STOPPED,CLOSED,IDENTITY,METHOD,ACCOUNT_CREDENTIALS,ACCOUNT_SETUP,ACCOUNT_CONFIGURATION,ACCOUNT_LOGOUT,ACCOUNT_MANAGEMENT,PROVIDER_CREDENTIALS,PROVIDER_DISCOVERY,PROVIDER_CONFIGURATION,PROVIDER_KEY_PENDING,PROVIDER_KEY_STORAGE,INTERNAL"`
+	Kind    string `json:"kind" enum:"INVALID,NOT_FOUND,CONFLICT,BUSY,LIMIT,STOPPED,CLOSED,IDENTITY,METHOD,NETWORK_RESTRICTED,ACCOUNT_CREDENTIALS,ACCOUNT_SETUP,ACCOUNT_CONFIGURATION,ACCOUNT_LOGOUT,ACCOUNT_MANAGEMENT,PROVIDER_CREDENTIALS,PROVIDER_DISCOVERY,PROVIDER_CONFIGURATION,PROVIDER_KEY_PENDING,PROVIDER_KEY_STORAGE,INTERNAL"`
 }
 
 type (

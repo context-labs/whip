@@ -21,6 +21,11 @@ import (
 
 func fixture(t *testing.T) (*runtime.Runtime, *client.Client) {
 	t.Helper()
+	return fixtureHost(t, rpc.HostServices{})
+}
+
+func fixtureHost(t *testing.T, host rpc.HostServices) (*runtime.Runtime, *client.Client) {
+	t.Helper()
 	directory, err := os.MkdirTemp("/tmp", "whip-v4-") //nolint:usetesting // macOS t.TempDir paths exceed the Unix socket path limit; cleanup is registered below.
 	if err != nil {
 		t.Fatal(err)
@@ -39,7 +44,7 @@ func fixture(t *testing.T) (*runtime.Runtime, *client.Client) {
 			t.Error(err)
 		}
 	})
-	server, err := rpc.Listen(r, rpc.HostServices{})
+	server, err := rpc.Listen(r, host)
 	if err != nil {
 		t.Fatal(err)
 	}

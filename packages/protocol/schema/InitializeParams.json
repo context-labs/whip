@@ -1,6 +1,16 @@
 {
   "type": "object",
   "properties": {
+    "network_client": {
+      "type": "boolean"
+    },
+    "expected_process_epoch": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
     "major": {
       "type": "integer",
       "minimum": 4,

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Client, DeliveryError, RemoteError } from '../dist/index.js';
 
-const initial = { major: 4, minor: 0, runtime_id: 'runtime', builtins: [] };
+const initial = { major: 4, minor: 0, runtime_id: 'runtime', process_epoch: 'boot_test', network_client: false, builtins: [] };
 const historySnapshot = { session_id: 'session', revision: '1', through_sequence: '9007199254740993', message_count: '1' };
 const success = (request, result) => ({ jsonrpc: '2.0', id: request.id, result });
 test('core pins identity, validates before transport and rejects malformed responses', async () => {

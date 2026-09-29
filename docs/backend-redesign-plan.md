@@ -391,7 +391,7 @@ Maintain one compact table here as families are addressed:
 | Agent shell and human terminals | Background jobs and PTYs have separate ownership, bounded output, detach/replay and joined shutdown | Retained `tools/jobs*_test.go`, `tools/bashrun`, `terminal` and `daemon/terminal_rpc_test.go`; new-core wiring pending | 5 |
 | MCP | Configuration/import trust, bounded discovery, delegated catalogs, refresh/reconnect without unrelated state loss | Retained `mcp` and daemon MCP reload/refresh/recursive tests; new-core wiring pending | 5 |
 | Browser/computer/native helper | Human resource ownership separate from revocable agent access; no reconnect replay | Retained daemon browser-provider, tools browser-boundary and computer tests; new-core wiring pending | 5 |
-| Host/gateway trust | Socket execution owner, Host/Origin validation, network restrictions and scoped content | Retained `webgateway` tests; new-core contract/relay adoption pending | 5–6 |
+| Host/gateway trust | Socket execution owner, Host/Origin validation, network restrictions and scoped content | New pure v4 gateway, exact Host/Origin checks, pinned runtime/epoch/network handshake, server-side human-terminal restrictions, bounded scoped HTTP content and browser SDK transport implemented with passing focused/production fixtures; product assets and persistent browser executors remain | 5–6 |
 | All client surfaces | Correct submission, observation, recovery and resource cleanup | New SDK/socket fixture passes; product clients remain on the retained implementation | 2 complete; 6 pending |
 | Old schemas/protocol/scratch compatibility | Retired by fresh-start scope | Delete with corresponding implementation | 1 through 7 |
 
