@@ -121,9 +121,10 @@ export function ModelPicker({ view, root, connected }: ModelProps) {
 }
 
 /** The same catalog picker can edit a session or a settings draft. */
-export function CatalogModelPicker({ catalog, loading, error, model, provider, disabled, onChange, onRetry, label = 'Model', settings = false, onSessionOptions, xstyle }: {
+export function CatalogModelPicker({ catalog, loading, error, model, provider, disabled, onChange, onRetry, label = 'Model', settings = false, defaultChoice, showProvider = false, onOpen, onSessionOptions, xstyle }: {
   catalog?: CatalogResult; loading?: boolean; error?: string; model: string; provider: string; disabled?: boolean;
   onChange(model: string, provider: string): void | Promise<unknown>; onRetry?(): void; label?: string; settings?: boolean;
+  defaultChoice?: { label: string; description: string }; showProvider?: boolean; onOpen?(): void;
   onSessionOptions?(): void;
 } & Styled) {
   const [open, setOpen] = useState(false);
@@ -143,7 +144,9 @@ export function CatalogModelPicker({ catalog, loading, error, model, provider, d
   const ordered = searching || !selected
     ? filtered
     : [selected, ...filtered.filter(option => option.value !== current)];
-  const pick = async (option: typeof options[number]) => {
+  const usingDefault = !!defaultChoice && !model.trim();
+  const routeLabel = usingDefault ? defaultChoice.label : [model || 'Model unavailable', provider || (showProvider && model ? 'provider resolved by host' : '')].filter(Boolean).join(' · ');
+  const pick = async (option: { value: string; name: string; provider: string }) => {
     if (pending) return;
     if (option.value === current) { setOpen(false); return; }
     const id = ++generation.current;
@@ -152,15 +155,24 @@ export function CatalogModelPicker({ catalog, loading, error, model, provider, d
     catch (error) { if (id === generation.current) setActionError(error); }
     finally { if (id === generation.current) setPending(false); }
   };
-  return <Popover open={open} onOpenChange={value => { if (!pending) setOpen(value); }} xstyle={styles.popupWide}
+  return <Popover open={open} onOpenChange={value => { if (!pending) { setOpen(value); if (value) onOpen?.(); } }} xstyle={styles.popupWide}
     trigger={<Button variant={settings ? "secondary" : "ghost"} aria-label={label} disabled={disabled || pending}
-      title={`${model || 'Model unavailable'}${provider ? ` · ${provider}` : ''}`}
+      title={routeLabel} aria-description={routeLabel}
       xstyle={[styles.trigger, xstyle]}>
-      <ProviderLogo id={provider} size={14} />
-      <span {...stylex.props(layout.ellipsis)}>{model || 'Choose model'}</span>
+      {!usingDefault && <ProviderLogo id={provider} size={14} />}
+      <span {...stylex.props(layout.ellipsis, showProvider && layout.grow)}>{usingDefault ? defaultChoice.label : model || 'Choose model'}</span>
+      {showProvider && !usingDefault && <span {...stylex.props(layout.ellipsis, styles.optionProvider)}>{provider || 'host-resolved'}</span>}
       <ChevronDown size={14} {...stylex.props(styles.chevron)} />
     </Button>}>
-    {open && <div {...stylex.props(layout.column, styles.pickerList)}>
+    {open && <div {...stylex.props(layout.column, styles.pickerList)} onKeyDown={event => {
+      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+      const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="option"]:not(:disabled)')];
+      if (!items.length) return;
+      event.preventDefault(); event.stopPropagation();
+      const index = items.indexOf(event.target as HTMLButtonElement);
+      const next = index < 0 ? (event.key === 'ArrowDown' ? 0 : items.length - 1) : (index + (event.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length;
+      items[next]?.focus();
+    }}>
       <div {...stylex.props(styles.searchBox)}>
         <Search size={14} {...stylex.props(styles.searchIcon)} />
         <input aria-label="Search models" placeholder="Search models" value={query} autoFocus
@@ -168,7 +180,13 @@ export function CatalogModelPicker({ catalog, loading, error, model, provider, d
           onChange={event => setQuery(event.target.value)} />
       </div>
       {actionError !== undefined && <ErrorNotice type="action" owner="model-selection" error={actionError} title="Could not change model" />}
-      <div role="listbox" aria-label="Models" aria-activedescendant={current} {...stylex.props(styles.list)}>
+      <div role="listbox" aria-label="Models" {...stylex.props(styles.list)}>
+        {defaultChoice && <button type="button" role="option" aria-label={defaultChoice.label} aria-selected={usingDefault}
+          disabled={disabled || pending} {...stylex.props(styles.option, styles.defaultOption)}
+          onClick={() => void pick({ value: JSON.stringify(['', '']), name: '', provider: '' })}>
+          <span {...stylex.props(layout.grow)}>{defaultChoice.label}<span {...stylex.props(styles.defaultDescription)}>{defaultChoice.description}</span></span>
+          <span aria-hidden {...stylex.props(styles.checkSlot)}>{usingDefault && <Check size={14} {...stylex.props(styles.check)} />}</span>
+        </button>}
         {loading && <p role="status" {...stylex.props(styles.listMeta)}>Loading models…</p>}
         {error && <ErrorNotice type="resource" owner="model-catalog" error={error} title="Could not load models" action={onRetry && <Button variant="ghost" onClick={onRetry}>Retry</Button>} />}
         {!loading && !error && !filtered.length && <p {...stylex.props(styles.listMeta)}>No matching models</p>}
@@ -267,6 +285,8 @@ const styles = stylex.create({
   list: { overflowY: 'auto', maxHeight: 320, minHeight: 0, paddingBottom: 12, maskImage: 'linear-gradient(to bottom, black calc(100% - 24px), transparent)', WebkitMaskImage: 'linear-gradient(to bottom, black calc(100% - 24px), transparent)' },
   listMeta: { color: surface.secondaryText, fontSize: typography.size12, padding: 8, margin: 0 },
   option: { display: 'flex', alignItems: 'center', gap: 12, width: '100%', paddingBlock: 7, paddingInline: 8, borderRadius: 6, borderWidth: 0, backgroundColor: { default: 'transparent', ':hover': colors.hover }, color: colors.foreground, font: 'inherit', fontSize: typography.size13, textAlign: 'start', cursor: 'default', minHeight: 30 },
+  defaultOption: { borderBottomWidth: 1, borderBottomStyle: 'solid', borderBottomColor: surface.quietBorder, borderRadius: 0, marginBottom: 4 },
+  defaultDescription: { display: 'block', marginTop: 4, fontSize: typography.size12, color: surface.secondaryText },
   optionProvider: { flexShrink: 0, maxWidth: '40%', textAlign: 'end', color: surface.secondaryText, fontSize: typography.size12 },
   checkSlot: { display: 'flex', width: 14, flexShrink: 0 },
   optionActive: { backgroundColor: colors.hover },

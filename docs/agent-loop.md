@@ -31,7 +31,7 @@ request without making them inaccessible.
 
 Proactive compaction runs when the provider-reported prompt usage (or a token
 estimate when usage is unavailable) crosses the configured fraction of the
-conversation model's window. Automatic uses 50%; custom host thresholds accept
+conversation model's window. The default is 50%; custom host thresholds accept
 10–90%. A provider context-limit error may trigger one reactive compaction and
 retry. Compaction summaries and raw-history cutoffs are committed with the turn.
 

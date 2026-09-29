@@ -259,10 +259,11 @@ access behind a trusted network or authenticated proxy.
 
 ## Build from source
 
-Use Node 24 and the Go version declared in `go.mod`:
+Use Node 24, the Go version declared in `go.mod`, and Task:
 
 ```sh
 npm ci
+task generate
 task build
 ./whipcode daemon start
 ./whipcode web
@@ -290,6 +291,10 @@ When replacing a running source-built daemon, use your rebuilt binary explicitly
 ```
 
 ## Develop against an existing daemon
+
+Initialize with `npm ci` and `task generate` first. Rerun `task generate` after
+pulling, switching branches, or editing protocol source; the protocol artifacts
+are ignored and ordinary development/build commands do not refresh them.
 
 For UI iteration, run `npm run dev:web` from the repository root and open
 `http://127.0.0.1:3000`. Vite reloads changes in `apps/web`, `packages/app` and

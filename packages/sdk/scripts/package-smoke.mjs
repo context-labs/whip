@@ -13,7 +13,13 @@ try {
     const { stdout } = await execute('npm', ['pack', '--json', '--pack-destination', directory], { cwd: join(repository, 'packages', name) });
     const [packed] = JSON.parse(stdout);
     archives[`@whip/${name}`] = 'file:' + join(directory, packed.filename);
-    if (packed.files.some(file => /(^|\/)(node_modules|src|test|build)\//.test(file.path))) throw new Error(`Unexpected development files in @whip/${name}`);
+    if (packed.files.some(file => /(^|\/)(node_modules|src|test|build|schema|scripts)\//.test(file.path))) throw new Error(`Unexpected development files in @whip/${name}`);
+    if (name === 'protocol') {
+      for (const file of ['index.js', 'index.d.ts', 'request-validators.js', 'response-validators.js']) {
+        if (!packed.files.some(entry => entry.path === `generated/${file}` && entry.size > 0))
+          throw new Error(`Protocol archive is missing generated/${file}`);
+      }
+    }
   }
   const consumer = join(directory, 'consumer');
   await mkdir(consumer);

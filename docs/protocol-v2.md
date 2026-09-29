@@ -11,9 +11,12 @@ The executable contract is `internal/protocol`: wire DTOs, operation registry,
 permission metadata and schemas. `packages/protocol/schema/manifest.json`
 lists RPCs and runtime operations with their parameter/result types. Generated
 TypeScript declarations and Ajv validators are exported by `@whip/protocol`.
-Run `npm ci` and `npm run check` from the repository root. Regenerate after
-editing Go types with `npm run generate`; drift checks compare without rewriting
-files. Standalone validators require no runtime code generation or Ajv dependency.
+Run `npm ci`, `task generate`, then `npm run check` from the repository root.
+Both `packages/protocol/schema/` and `packages/protocol/generated/` are ignored
+output; Go definitions and generators are the source of truth. Refresh with
+`task generate` after pulling, switching branches, or editing protocol source.
+Drift checks compare local output with current source without rewriting files.
+Standalone validators require no runtime code generation or Ajv dependency.
 Typed RPC/runtime maps classify query, durable and ephemeral operations. The
 handwritten `@whip/sdk` consumes this contract; see [SDK usage](../packages/sdk/README.md).
 
@@ -534,6 +537,7 @@ active daemon. It runs the **built SDK**, not a second handwritten RPC client:
 
 ```sh
 npm ci
+task generate
 npx playwright install chromium firefox
 npm run test:browser
 WHIP_SDK_RACE=1 npm run acceptance

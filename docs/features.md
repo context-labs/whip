@@ -137,11 +137,12 @@ Available modules are summarized in [tools.md](tools.md).
   bounded summary.
 - `context.inspect/search/read` returns source metadata and byte spans.
 - Proactive and reactive compaction protect the provider context window.
-  Automatic uses each agent's conversation model/provider, with no auxiliary
-  account requirement. An omitted model and zero threshold mean Automatic (50%);
+  Conversation Model uses each agent's conversation model/provider, with no auxiliary
+  account requirement. An omitted model and zero threshold use the defaults (50%);
   existing saved custom routes are preserved. Host settings and the idle-session
-  inspector reuse the catalog model/provider picker; custom thresholds accept
-  10–90%. Missing or too-small custom routes and definite safe request rejections
+  inspector share two controls: a model/provider picker with Conversation Model
+  and a Compact at selector offering 10–90% in ten-point increments. Missing or
+  too-small custom routes and definite safe request rejections
   can fall back to the conversation route, with a notice and the actual route and
   reason on the summary's trace. Cancellation, uncertain completion, partial
   output and accounting/budget failures never cause a second-route replay.

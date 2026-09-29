@@ -127,6 +127,10 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
+      - name: Initialize protocol artifacts and SDK
+        run: |
+          npm run generate
+          npm run build
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: ci-renderer
@@ -217,6 +221,10 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '24'
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: whipcode-bin-*
@@ -234,6 +242,10 @@ jobs:
         run: npm ci
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - name: Initialize protocol artifacts and SDK
+        run: |
+          npm run generate
+          npm run build
       - name: Assemble and verify the exact complete release inventory
         run: |
           node scripts/build-installers.mjs "$RELEASE_TAG" candidate
@@ -282,9 +294,17 @@ jobs:
         with:
           node-version: '24'
           cache: npm
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
       - run: npm ci
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - name: Initialize protocol artifacts and SDK
+        run: |
+          npm run generate
+          npm run build
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: release-candidate

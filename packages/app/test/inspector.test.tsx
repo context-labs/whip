@@ -233,9 +233,8 @@ describe('session inspector controls', () => {
       new Error('configuration revision changed'),
     );
     f.render(<Compaction {...f.props} />);
-    await screen.findByText('Custom · original · provider');
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced compaction settings' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Custom summary model' }));
+    await screen.findByRole('button', { name: 'Summary model' });
+    fireEvent.click(screen.getByRole('button', { name: 'Summary model' }));
     fireEvent.click(await screen.findByRole('option', { name: 'my-model · provider' }));
     act(() =>
       f.queries.setQueryData(['inspector-compaction-config', 'runtime'], {
@@ -637,18 +636,15 @@ it('explains unavailable live MCP refresh without sending an unsupported action'
 });
 
 describe('compaction defaults', () => {
-  it('shows Automatic, chooses a connected pair, and explicitly reloads after saving', async () => {
+  it('shows Conversation Model, chooses a connected pair, and explicitly reloads after saving', async () => {
     const f = fixture();
     f.client.configuration.get.mockResolvedValue({ revision: '1', compact_model: '', compact_provider: '', compact_percent: 0 });
     f.render(<Compaction {...f.props} />);
-    expect(await screen.findByText('Automatic · conversation model and provider')).toBeDefined();
-    expect(screen.getByText('Automatic · 50%')).toBeDefined();
+    expect(await screen.findByText('Conversation Model')).toBeDefined();
+    expect(screen.getByRole('combobox', { name: 'Compact at' })).toBeDefined();
     expect(screen.queryByRole('combobox', { name: 'Summary model mode' })).toBeNull();
     expect(f.client.providers.catalogs).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced compaction settings' }));
-    fireEvent.click(screen.getByRole('combobox', { name: 'Summary model mode' }));
-    await userEvent.click(await screen.findByRole('option', { name: 'Custom', exact: true }));
-    fireEvent.click(screen.getByRole('button', { name: 'Custom summary model' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Summary model' }));
     const option = await screen.findByRole('option', { name: 'my-model · provider' });
     expect(screen.queryByRole('option', { name: 'offline-model · offline' })).toBeNull();
     fireEvent.click(option);
@@ -661,33 +657,21 @@ describe('compaction defaults', () => {
     expect(f.client.configuration.update.mock.invocationCallOrder[0]).toBeLessThan(f.client.submit.mock.invocationCallOrder[0]!);
   });
 
-  it('clears both override fields on Automatic without changing the threshold', async () => {
+  it('clears both override fields on Conversation Model without changing the threshold', async () => {
     const f = fixture(); f.render(<Compaction {...f.props} />);
-    await screen.findByText('Custom · original · provider');
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced compaction settings' }));
-    fireEvent.click(screen.getByRole('combobox', { name: 'Summary model mode' }));
-    await userEvent.click(await screen.findByRole('option', { name: 'Automatic', exact: true }));
+    await screen.findByRole('button', { name: 'Summary model' });
+    fireEvent.click(screen.getByRole('button', { name: 'Summary model' }));
+    await userEvent.click(await screen.findByRole('option', { name: 'Conversation Model', exact: true }));
     fireEvent.click(screen.getByRole('button', { name: 'Apply compaction defaults' }));
     await waitFor(() => expect(f.run).toHaveBeenCalled());
     expect(f.client.configuration.update).toHaveBeenCalledWith({ revision: '1', compact_model: '', compact_provider: '' });
   });
 
-  it('validates thresholds and never applies settings to an active session', async () => {
+  it('never applies settings to an active session', async () => {
     const f = fixture();
-    f.client.configuration.get.mockResolvedValue({ revision: '1', compact_model: 'original', compact_provider: 'provider', compact_percent: 60 });
+    f.root.active_turns = { root: 'turn' } as unknown as RootSnapshot['active_turns'];
     f.render(<Compaction {...f.props} />);
-    await screen.findByText('Custom · 60%');
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced compaction settings' }));
-    const percent = screen.getByRole('spinbutton', { name: 'Context window percentage' });
-    for (const value of ['', '0', '9', '91', '12.5']) {
-      fireEvent.change(percent, { target: { value } });
-      expect(screen.getByRole('button', { name: 'Apply compaction defaults' })).toHaveProperty('disabled', true);
-      expect(screen.getByText('Use a whole-number percentage from 10 to 90, or choose Automatic.')).toBeDefined();
-    }
-    fireEvent.change(percent, { target: { value: '65' } });
-    expect(screen.getByRole('button', { name: 'Apply compaction defaults' })).toHaveProperty('disabled', false);
-    act(() => { f.root.active_turns = { root: 'turn' } as unknown as RootSnapshot['active_turns']; });
-    fireEvent.change(percent, { target: { value: '66' } });
+    await screen.findByRole('combobox', { name: 'Compact at' });
     expect(screen.getByRole('button', { name: 'Apply compaction defaults' })).toHaveProperty('disabled', true);
     expect(screen.getByRole('button', { name: 'Compact now' })).toHaveProperty('disabled', true);
     expect(f.client.configuration.update).not.toHaveBeenCalled();
@@ -695,34 +679,33 @@ describe('compaction defaults', () => {
   });
 });
 
-it('saves only the inspector threshold edit, including Automatic reset', async () => {
+it('saves only the inspector threshold edit, including explicit 50%', async () => {
   const f = fixture();
   f.client.configuration.get.mockResolvedValue({ revision: '1', compact_model: 'original', compact_provider: 'provider', compact_percent: 60 });
   f.render(<Compaction {...f.props} />);
-  await screen.findByText('Custom · 60%');
-  fireEvent.click(screen.getByRole('button', { name: 'Advanced compaction settings' }));
-  fireEvent.change(screen.getByRole('spinbutton', { name: 'Context window percentage' }), { target: { value: '65' } });
+  await screen.findByRole('combobox', { name: 'Compact at' });
+  fireEvent.click(screen.getByRole('combobox', { name: 'Compact at' }));
+  await userEvent.click(await screen.findByRole('option', { name: '70%', exact: true }));
   fireEvent.click(screen.getByRole('button', { name: 'Apply compaction defaults' }));
   await waitFor(() => expect(f.run).toHaveBeenCalledTimes(1));
-  expect(f.client.configuration.update).toHaveBeenCalledWith({ revision: '1', compact_percent: 65 });
+  expect(f.client.configuration.update).toHaveBeenCalledWith({ revision: '1', compact_percent: 70 });
   await waitFor(() => expect(screen.getByRole('button', { name: 'Apply compaction defaults' })).toHaveProperty('disabled', false));
-  fireEvent.click(screen.getByRole('combobox', { name: 'Compaction timing' }));
-  await userEvent.click(await screen.findByRole('option', { name: 'Automatic · 50%', exact: true }));
+  fireEvent.click(screen.getByRole('combobox', { name: 'Compact at' }));
+  await userEvent.click(await screen.findByRole('option', { name: '50%', exact: true }));
   fireEvent.click(screen.getByRole('button', { name: 'Apply compaction defaults' }));
   await waitFor(() => expect(f.run).toHaveBeenCalledTimes(2));
-  expect(f.client.configuration.update).toHaveBeenLastCalledWith({ revision: '1', compact_percent: 0 });
+  expect(f.client.configuration.update).toHaveBeenLastCalledWith({ revision: '1', compact_percent: 50 });
 });
 
 it('disables inspector defaults while a save is pending', async () => {
   const f = fixture();
   f.client.configuration.update.mockImplementationOnce(() => new Promise(() => {}));
   f.render(<Compaction {...f.props} />);
-  await screen.findByText('Custom · original · provider');
-  fireEvent.click(screen.getByRole('button', { name: 'Advanced compaction settings' }));
+  await screen.findByRole('button', { name: 'Summary model' });
   fireEvent.click(screen.getByRole('button', { name: 'Apply compaction defaults' }));
   await waitFor(() => expect(f.client.configuration.update).toHaveBeenCalled());
-  expect(screen.getByRole('combobox', { name: 'Summary model mode' })).toHaveProperty('disabled', true);
-  expect(screen.getByRole('button', { name: 'Custom summary model' })).toHaveProperty('disabled', true);
+  expect(screen.getByRole('combobox', { name: 'Compact at' })).toHaveProperty('disabled', true);
+  expect(screen.getByRole('button', { name: 'Summary model' })).toHaveProperty('disabled', true);
   expect(screen.getByRole('button', { name: 'Refresh compaction defaults' })).toHaveProperty('disabled', true);
   expect(f.run).not.toHaveBeenCalled();
 });
@@ -730,15 +713,14 @@ it('disables inspector defaults while a save is pending', async () => {
 it('preserves a compaction draft when disconnect cleanup removes configuration data', async () => {
   const f = fixture();
   const view = f.render(<Compaction {...f.props} />);
-  await screen.findByText('Custom · original · provider');
-  fireEvent.click(screen.getByRole('button', { name: 'Advanced compaction settings' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Custom summary model' }));
+  await screen.findByRole('button', { name: 'Summary model' });
+  fireEvent.click(screen.getByRole('button', { name: 'Summary model' }));
   fireEvent.click(await screen.findByRole('option', { name: 'my-model · provider' }));
   act(() => {
     f.queries.removeQueries({ queryKey: ['inspector-compaction-config', 'runtime'] });
   });
   view.rerender(f.wrapper(<Compaction {...f.props} connected={false} />));
-  expect(screen.getByText('Custom · my-model · provider')).toBeDefined();
+  expect(screen.getByRole('button', { name: 'Summary model' })).toBeDefined();
   expect(screen.getByRole('button', { name: 'Apply compaction defaults' })).toHaveProperty('disabled', true);
   expect(f.client.configuration.update).not.toHaveBeenCalled();
 });

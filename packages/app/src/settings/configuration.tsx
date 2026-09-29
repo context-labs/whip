@@ -12,7 +12,7 @@ import { PermissionModeControl } from '../permission-mode';
 import { layout } from '../styles';
 import { SettingsGroup, SettingRow, settingsSection } from './section-layout';
 import { useSettingsEdits } from './unsaved';
-import { CompactionSettings, compactionError, compactionPatch, type CompactionValues } from '../compaction-settings';
+import { CompactionSettings, compactionPatch, type CompactionValues } from '../compaction-settings';
 
 type Category = 'providers' | 'execution';
 const providerFields = ['default_model', 'default_provider', 'default_effort', 'default_permission_mode'] as const;
@@ -87,8 +87,6 @@ function ConfigurationForm({ client, config, enabled, category, defaultProvider 
           setError('Use non-negative whole numbers for goal rounds and retries.');
           return;
         }
-        const compactError = category === 'execution' ? compactionError(value, base) : undefined;
-        if (compactError) { setErrorType('validation'); setError(compactError); return; }
         const result = await client.configuration.update(configurationPatch(category, value, base), { signal: controller.signal });
         if (controller.signal.aborted) return;
         runtime.queries.setQueryData(queryKey, result);
@@ -123,7 +121,6 @@ function ConfigurationForm({ client, config, enabled, category, defaultProvider 
         value={Number.isNaN(field.state.value) ? '' : field.state.value} onBlur={field.handleBlur} onChange={event => field.handleChange(event.target.valueAsNumber)} />
     </SettingRow>}
   </form.Field>;
-  // Validate only edited compaction values; native min/max would block untouched legacy defaults.
   return <form noValidate {...stylex.props(layout.column)} onSubmit={event => { event.preventDefault(); void form.handleSubmit(); }}>
     {category === 'providers' ? <SettingsGroup title="Defaults for new work">
       <SettingRow id="default_model" label="Default model" description="Choose the model and provider for new work.">

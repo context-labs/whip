@@ -26,7 +26,8 @@ See README.md for details and recovery. No Git pull or release publication occur
 
 async function build(env) {
   // Git dependencies resolve their own build tooling; revalidate cached registry metadata.
-  for (const [file, args] of [['npm', ['ci', '--prefer-online']], [process.execPath, ['node_modules/electron/install.js']],
+  for (const [file, args] of [['npm', ['ci', '--prefer-online']],
+    ['npm', ['run', 'generate']], ['npm', ['run', 'build']], [process.execPath, ['node_modules/electron/install.js']],
     [process.execPath, ['apps/desktop/scripts/package.mjs']]]) {
     await new Promise((resolve, reject) => {
       const child = spawn(file, args, { cwd: repositoryRoot, stdio: 'inherit', env });

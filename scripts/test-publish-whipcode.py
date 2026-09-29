@@ -514,16 +514,23 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('release-candidate.mjs verify candidate', publish)
         self.assertIn('--deny-self-hosted-runners', publish)
 
-    def test_candidate_run_steps_install_dependencies_before_node(self):
+    def test_candidate_run_steps_initialize_workspace_before_node(self):
         candidate = self.job(self.release, 'candidate')
         # Exercise run-step ordering in an empty workspace; the fake node fails
-        # unless npm ci actually ran with Electron downloads disabled first.
+        # unless dependencies, protocol generation, and SDK compilation ran first.
         with tempfile.TemporaryDirectory(prefix='candidate-workspace-') as directory:
             root = Path(directory)
             (root / 'candidate').mkdir()
             (root / 'install.sh').write_text('installer')
-            (root / 'npm').write_text('#!/bin/sh\n[ "$1" = ci ] && [ "$ELECTRON_SKIP_BINARY_DOWNLOAD" = 1 ] || exit 1\ntouch dependencies-ready\n')
-            (root / 'node').write_text('#!/bin/sh\ntest -f dependencies-ready || exit 1\ncase "$1" in scripts/build-installers.mjs) printf pinned > candidate/install.sh; printf stable > candidate/latest.sh;; *) test -s candidate/install.sh && test -s candidate/latest.sh || exit 1; touch assembled;; esac\n')
+            (root / 'npm').write_text('''#!/bin/sh
+case "$*" in
+  ci) [ "$ELECTRON_SKIP_BINARY_DOWNLOAD" = 1 ] || exit 1; touch dependencies-ready;;
+  'run generate') test -f dependencies-ready || exit 1; touch protocol-ready;;
+  'run build') test -f protocol-ready || exit 1; touch sdk-ready;;
+  *) exit 1;;
+esac
+''')
+            (root / 'node').write_text('#!/bin/sh\ntest -f sdk-ready || exit 1\ncase "$1" in scripts/build-installers.mjs) printf pinned > candidate/install.sh; printf stable > candidate/latest.sh;; *) test -s candidate/install.sh && test -s candidate/latest.sh || exit 1; touch assembled;; esac\n')
             for executable in ['npm', 'node']:
                 (root / executable).chmod(0o755)
             env = {**os.environ, 'PATH': str(root) + os.pathsep + os.environ['PATH'], 'RELEASE_TAG': 'v1.0.1-alpha.1'}
@@ -543,7 +550,7 @@ class WorkflowTests(unittest.TestCase):
                                         capture_output=True, text=True, timeout=10)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 executed += 1
-            self.assertEqual(executed, 2)
+            self.assertEqual(executed, 3)
             self.assertTrue((root / 'assembled').exists())
 
     def test_distribution_installer_dependencies_precede_execution(self):

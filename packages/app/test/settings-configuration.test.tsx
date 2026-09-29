@@ -264,84 +264,70 @@ it('disables permission changes while disconnected or saving', async () => {
   expect(screen.getByRole('button', { name: 'Default permission level' })).toHaveProperty('disabled', true);
 });
 
-async function chooseCompactionMode(label: string, option: string) {
-  fireEvent.click(screen.getByRole('combobox', { name: label, exact: true }));
-  await userEvent.click(await screen.findByRole('option', { name: option, exact: true }));
+
+async function chooseThreshold(percent: number) {
+  fireEvent.click(await screen.findByRole('combobox', { name: 'Compact at', exact: true }));
+  await userEvent.click(await screen.findByRole('option', { name: percent + '%', exact: true }));
+}
+async function chooseSummary(name: string) {
+  fireEvent.click(await screen.findByRole('button', { name: 'Summary model', exact: true }));
+  fireEvent.click(await screen.findByRole('option', { name, exact: true }));
 }
 
-it('keeps automatic compaction simple and only loads connected custom routes on demand', async () => {
+it('shows two compaction controls and only loads connected model routes on demand', async () => {
   const f = fixture(); f.changeServer({ ...initial, compact_model: '', compact_provider: '', compact_percent: 0 });
   f.render('execution');
   const group = await screen.findByRole('region', { name: 'Context compaction' });
-  expect(within(group).getByText('Automatic · conversation model and provider')).toBeDefined();
-  expect(within(group).getByText('Automatic · 50%')).toBeDefined();
-  expect(within(group).getByText('Older active context is summarized. Full conversation history remains available.')).toBeDefined();
-  expect(within(group).queryByRole('combobox')).toBeNull();
+  expect(within(group).getByRole('button', { name: 'Summary model' }).textContent).toBe('Conversation Model');
+  expect(within(group).getByRole('combobox', { name: 'Compact at' }).textContent).toBe('50%');
+  expect(within(group).queryByText(/Advanced/)).toBeNull();
+  expect(within(group).queryByText('Summarize older context while keeping the full conversation history.')).toBeNull();
+  expect(within(group).queryByRole('spinbutton')).toBeNull();
+  expect(within(group).getByText(/requires an up-to-date execution host/)).toBeDefined();
   expect(f.client.providers.catalogs).not.toHaveBeenCalled();
-  fireEvent.click(within(group).getByRole('button', { name: 'Advanced compaction settings' }));
-  expect(f.client.providers.catalogs).not.toHaveBeenCalled();
-  await chooseCompactionMode('Summary model mode', 'Custom');
-  fireEvent.click(screen.getByRole('button', { name: 'Custom summary model' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Summary model' }));
   expect(await screen.findByRole('option', { name: 'model-a · subscription' })).toBeDefined();
   expect(screen.queryByRole('option', { name: 'offline-model · offline' })).toBeNull();
   expect(screen.queryByRole('option', { name: 'unknown-model · unknown' })).toBeNull();
   fireEvent.click(screen.getByRole('option', { name: 'model-a · subscription' }));
+  expect(f.update).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
   await screen.findByText('Host defaults saved.');
   expect(f.update.mock.calls[0]![0]).toMatchObject({ compact_model: 'model-a', compact_provider: 'subscription' });
-  expect(screen.getByText('Custom · model-a · subscription')).toBeDefined();
+  expect(screen.getByRole('button', { name: 'Summary model' }).title).toBe('model-a · subscription');
+  expect(screen.getByRole('button', { name: 'Summary model' }).textContent).toContain('subscription');
   expect(screen.queryByRole('textbox', { name: /provider/i })).toBeNull();
-});
-
-it('retains a saved deepseek override until Automatic explicitly clears both fields', async () => {
-  const f = fixture(); f.changeServer({ ...initial, compact_model: 'deepseek-v3.2', compact_provider: 'inference' });
-  f.render('execution');
-  expect(await screen.findByText('Custom · deepseek-v3.2 · inference')).toBeDefined();
-  expect(screen.getByRole('button', { name: 'Save host defaults' })).toHaveProperty('disabled', true);
-  fireEvent.click(screen.getByRole('button', { name: 'Advanced compaction settings' }));
-  expect(screen.getByRole('combobox', { name: 'Summary model mode' }).textContent).toBe('Custom');
-  await chooseCompactionMode('Summary model mode', 'Automatic');
-  fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
-  await screen.findByText('Host defaults saved.');
-  expect(f.update.mock.calls[0]![0]).toMatchObject({ compact_model: '', compact_provider: '' });
-  expect(f.update.mock.calls[0]![0]).not.toHaveProperty('compact_percent');
-});
-
-it.each(['', '0', '9', '91', '10.5'])('rejects custom threshold %j without writing', async threshold => {
-  const f = fixture(); f.changeServer({ ...initial, compact_percent: 0 });
-  const view = f.render('execution');
-  fireEvent.click(await screen.findByRole('button', { name: 'Advanced compaction settings' }));
-  await chooseCompactionMode('Compaction timing', 'Custom');
-  fireEvent.change(screen.getByRole('spinbutton', { name: 'Context window percentage' }), { target: { value: threshold } });
-  fireEvent.submit(view.container.querySelector('form')!);
-  await waitFor(() => expect(view.container.querySelector('[data-error-type="validation"]')).not.toBeNull());
-  expect(f.update).not.toHaveBeenCalled();
-  expect(screen.getByRole('spinbutton', { name: 'Context window percentage' }).getAttribute('aria-invalid')).toBe('true');
-});
-
-it.each([10, 90])('saves custom threshold %i and can reset to Automatic', async threshold => {
-  const f = fixture(); f.changeServer({ ...initial, compact_percent: 0 });
-  f.render('execution');
-  fireEvent.click(await screen.findByRole('button', { name: 'Advanced compaction settings' }));
-  await chooseCompactionMode('Compaction timing', 'Custom');
-  fireEvent.change(screen.getByRole('spinbutton', { name: 'Context window percentage' }), { target: { value: String(threshold) } });
-  fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
-  await screen.findByText('Host defaults saved.');
-  expect(f.update.mock.calls[0]![0].compact_percent).toBe(threshold);
-  await chooseCompactionMode('Compaction timing', 'Automatic · 50%');
+  await chooseSummary('Conversation Model');
   fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
   await waitFor(() => expect(f.update).toHaveBeenCalledTimes(2));
-  expect(f.update.mock.calls[1]![0].compact_percent).toBe(0);
+  expect(f.update.mock.calls[1]![0]).toMatchObject({ compact_model: '', compact_provider: '' });
 });
 
-it.each([[5, 10], [95, 90], [-2, 10]])('shows the effective legacy threshold for %i without rewriting it', async (raw, effective) => {
-  const f = fixture(); f.changeServer({ ...initial, compact_percent: raw });
-  const view = f.render('execution');
-  expect(await screen.findByText('Custom · ' + effective + '%')).toBeDefined();
-  fireEvent.click(screen.getByRole('button', { name: 'Advanced compaction settings' }));
-  expect(view.container.querySelector('form')).toHaveProperty('noValidate', true);
-  expect((screen.getByRole('spinbutton', { name: 'Context window percentage' }) as HTMLInputElement).checkValidity()).toBe(false);
-  expect(screen.getByText('Saved value: ' + raw + '%. The effective threshold is ' + effective + '%; saving other settings keeps the saved value.')).toBeDefined();
+it('offers exactly nine new percentage choices', async () => {
+  const f = fixture(); f.changeServer({ ...initial, compact_percent: 0 }); f.render('execution');
+  fireEvent.click(await screen.findByRole('combobox', { name: 'Compact at' }));
+  const options = await screen.findAllByRole('option');
+  expect(options.map(option => option.textContent)).toEqual(['10%', '20%', '30%', '40%', '50%', '60%', '70%', '80%', '90%']);
+});
+
+it.each([10, 20, 30, 40, 50, 60, 70, 80, 90])('saves the explicit %i%% choice', async percent => {
+  const f = fixture(); f.render('execution');
+  await chooseThreshold(percent);
+  fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
+  await screen.findByText('Host defaults saved.');
+  expect(f.update.mock.calls[0]![0].compact_percent).toBe(percent);
+  expect(screen.getByRole('combobox', { name: 'Compact at' }).textContent).toBe(percent + '%');
+  expect(f.update.mock.calls[0]![0]).not.toHaveProperty('compact_model');
+});
+
+it.each([0, 50, 65, 5, 95])('preserves raw %i and an unavailable route during unrelated saves', async raw => {
+  const f = fixture(); f.changeServer({ ...initial, compact_percent: raw }); f.render('execution');
+  const control = await screen.findByRole('combobox', { name: 'Compact at' });
+  const effective = raw === 0 ? 50 : Math.max(10, Math.min(90, raw));
+  expect(control.textContent).toContain(effective + '%');
+  if (![0, 50].includes(raw)) expect(control.textContent).toContain('saved value');
+  if (raw === 5 || raw === 95) expect(screen.getByText('Saved value: ' + raw + '%. The effective threshold is ' + effective + '%; kept until you change it.')).toBeDefined();
+  expect(screen.getByRole('button', { name: 'Save host defaults' })).toHaveProperty('disabled', true);
   fireEvent.change(screen.getByRole('spinbutton', { name: 'Retry limit' }), { target: { value: '4' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
   await screen.findByText('Host defaults saved.');
@@ -350,13 +336,40 @@ it.each([[5, 10], [95, 90], [-2, 10]])('shows the effective legacy threshold for
   expect((f.queries.getQueryData(['runtime-configuration', 'host-a']) as RuntimeConfiguration).compact_percent).toBe(raw);
 });
 
-it('ignores a provider-only legacy override until an explicit Automatic reset', async () => {
-  const f = fixture(); f.changeServer({ ...initial, compact_model: '', compact_provider: 'inference', compact_percent: 0 });
-  f.render('execution');
-  expect(await screen.findByText('Automatic · conversation model and provider')).toBeDefined();
-  fireEvent.click(screen.getByRole('button', { name: 'Advanced compaction settings' }));
-  await chooseCompactionMode('Summary model mode', 'Custom');
-  await chooseCompactionMode('Summary model mode', 'Automatic');
+it('does not dirty the form when returning to an unset 50% default', async () => {
+  const f = fixture(); f.changeServer({ ...initial, compact_percent: 0 }); f.render('execution');
+  await chooseThreshold(60); await chooseThreshold(50);
+  expect(screen.getByRole('button', { name: 'Save host defaults' })).toHaveProperty('disabled', true);
+  expect(f.update).not.toHaveBeenCalled();
+});
+
+it('replaces a clamped legacy threshold when its effective value is explicitly selected', async () => {
+  const f = fixture(); f.changeServer({ ...initial, compact_percent: 95 }); f.render('execution');
+  await chooseThreshold(90);
+  fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
+  await screen.findByText('Host defaults saved.');
+  expect(f.update.mock.calls[0]![0].compact_percent).toBe(90);
+});
+
+it('preserves a provider-only legacy value until Conversation Model is explicitly selected', async () => {
+  const f = fixture(); f.changeServer({ ...initial, compact_model: '', compact_provider: 'inference', compact_percent: 0 }); f.render('execution');
+  expect((await screen.findByRole('button', { name: 'Summary model' })).textContent).toBe('Conversation Model');
+  fireEvent.change(screen.getByRole('spinbutton', { name: 'Retry limit' }), { target: { value: '4' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
+  await screen.findByText('Host defaults saved.');
+  expect(f.update.mock.calls[0]![0]).not.toHaveProperty('compact_provider');
+  await chooseSummary('Conversation Model');
+  fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
+  await waitFor(() => expect(f.update).toHaveBeenCalledTimes(2));
+  expect(f.update.mock.calls[1]![0]).toMatchObject({ compact_model: '', compact_provider: '' });
+});
+
+it('keeps Conversation Model available during a failed catalog fetch and an unmatched search', async () => {
+  const f = fixture(); vi.mocked(f.client.providers.catalogs).mockRejectedValue(new Error('Offline')); f.render('execution');
+  fireEvent.click(await screen.findByRole('button', { name: 'Summary model' }));
+  await screen.findByText('Could not load models');
+  fireEvent.change(screen.getByRole('textbox', { name: 'Search models' }), { target: { value: 'nonexistent' } });
+  fireEvent.click(screen.getByRole('option', { name: 'Conversation Model' }));
   fireEvent.click(screen.getByRole('button', { name: 'Save host defaults' }));
   await screen.findByText('Host defaults saved.');
   expect(f.update.mock.calls[0]![0]).toMatchObject({ compact_model: '', compact_provider: '' });

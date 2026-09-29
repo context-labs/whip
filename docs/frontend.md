@@ -1297,14 +1297,23 @@ host-owned. API-key entry is an ephemeral UI input: never place it in drafts,
 Query persistence, command-recovery storage, or logs. Configuration updates use
 revision checks; display conflicts instead of overwriting newer settings.
 
-Compaction settings are automatic-first. An empty summary model means each
-conversation uses its own model/provider; zero threshold means Automatic (50%),
-not disabled. Existing saved model overrides remain custom. Show the effective
-threshold in the summary rows and put overrides in the shared Collapsible. Custom
-summary selection reuses CatalogModelPicker so model/provider are one choice, not
-independent text inputs; custom thresholds use 10–90%. The host settings and idle
-session inspector share this selection contract and preserve revision-checked
-drafts. They describe saved defaults, not a live effective route. Actual summary
+Compaction settings expose two controls: Summary model defaults to Conversation
+Model, and Compact at defaults to 50%, with 10–90% choices in ten-point increments.
+No Advanced disclosure or separate Automatic/Custom modes. Conversation Model is
+an optional first-class choice in CatalogModelPicker; selecting it clears both
+model and provider, while explicit choices select a connected pair. Open the
+picker to load its host-scoped catalog; keep the default choice available on
+catalog failures and while searching. Show provider identity in the closed control.
+Zero remains the stored default sentinel; never dirty a form by displaying it as
+50%. Preserve non-ten/out-of-range saved percentages and unavailable routes until
+explicitly changed. The backend continues accepting integers from 10–90%.
+Host settings and the inspector share these controls and preserve revision-checked
+drafts. They describe host defaults, not a live effective route or a session-only
+override; explicit agent-definition compaction settings still take precedence.
+The Conversation Model label requires the paired updated execution host: older
+hosts interpreted empty model as DeepSeek. The current handshake does not prove
+support, so display a short compatibility note rather than guessing from protocol
+version or a dev build. Actual summary
 model/provider and any compaction fallback are read from the existing call trace;
 do not add a second client routing resolver or history store.
 `settings/provider-connections.tsx` reads the inexpensive `provider.list`
@@ -2634,6 +2643,16 @@ accepts additive incoming fields, and surfaces unknown event kinds explicitly.
 Malformed known messages are protocol errors. Feature components must not create
 their own WebSocket clients or handwritten JSON-RPC envelopes.
 
+Go protocol definitions and generators are the authored contract. Both
+`packages/protocol/schema/` (schemas, manifest and interoperability fixtures) and
+`packages/protocol/generated/` (JavaScript and declarations) are ignored build
+output. Initialize with `npm ci` and `task generate` before client development.
+The task runs Go-to-schema generation, then validator/declaration generation and
+SDK compilation. Ordinary builds consume the prepared files; they do not generate
+the protocol. Freshness checks compare local output with current source without
+rewriting it. Package archives contain ready-to-use JavaScript and declarations,
+so archive consumers do not need Go or a generator.
+
 The browser uses the gateway's WebSocket API and scoped HTTP content transfers.
 The gateway relays the existing protocol to the socket-only daemon; it owns no
 execution engine, store, or independent HTTP business API.
@@ -2748,11 +2767,11 @@ Useful starting files:
 
 ## Development and validation
 
-Run from the repository root with Node 24 and the Go toolchain in `go.mod`.
+Run from the repository root with Node 24, the Go toolchain in `go.mod`, and Task.
 
 ```sh
 npm ci
-npm run build                  # SDK artifacts used by the app
+task generate                  # protocol artifacts and SDK used by the app
 # In another terminal, run a gateway for the intended compatible daemon:
 # WHIPCODE_LISTEN=127.0.0.1:4444 whipcode web --no-open
 # Attaches through the local dev proxy; no daemon restart.
@@ -2767,6 +2786,12 @@ The proxy accepts only local requests from the exact dev origin, then rewrites
 the upstream origin for HTTP content and WebSockets. It does not start or
 reconfigure a gateway or daemon. Shared app/UI source edits use React Fast Refresh;
 SDK source edits still require `npm run build`.
+Rerun `task generate` after pulling, switching branches, or editing protocol
+definitions/generators; rerun `npm ci` first when dependencies change. Development
+launches do not automatically detect protocol drift. `npm run check` and packaging
+freshness checks reject stale or missing artifacts and direct you to refresh them.
+Protocol-dependent CI jobs initialize once before checks. Docs/UI-only workflows
+remain independent and do not need protocol generation.
 Use [web-app.md](web-app.md) for daemon/gateway
 setup, production assets, trusted-network access, and troubleshooting. A daemon
 restart interrupts work; do not restart or reset a developer's runtime as a

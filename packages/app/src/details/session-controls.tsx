@@ -6,7 +6,7 @@ import * as stylex from '@stylexjs/stylex';
 import { useRuntime } from '../context';
 import { layout } from '../styles';
 import { ModelSelection } from '../model-selection';
-import { CompactionSettings, compactionError, compactionPatch, type CompactionValues } from '../compaction-settings';
+import { CompactionSettings, compactionPatch, type CompactionValues } from '../compaction-settings';
 import { describeRule, splitGlobalRule } from '../permission-scope';
 import {
   Action,
@@ -422,7 +422,7 @@ export function Compaction(props: InspectorProps) {
         {(configuration.data || draft) && <CompactionSettings client={props.view.session.client} value={value} base={base}
           disabled={!props.connected || applying} onChange={edit} />}
         <Action
-          disabled={!props.connected || !idle || !configuration.data || applying || !!compactionError(value, base)}
+          disabled={!props.connected || !idle || !configuration.data || applying}
           run={async () => {
             setApplying(true);
             try {
