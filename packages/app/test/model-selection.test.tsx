@@ -43,7 +43,7 @@ it('shows the routing provider logo and updates it when choosing another provide
     return <CatalogModelPicker {...route} settings catalog={catalog} onChange={(model, provider) => setRoute({ model, provider })} />;
   }
   render(<ThemeProvider initialTheme="light"><UIProvider><Picker /></UIProvider></ThemeProvider>);
-  const trigger = screen.getByRole('button', { name: 'Model', exact: true });
+  const trigger = screen.getByRole('button', { name: 'Model' });
   expect(trigger.querySelector('use')?.getAttribute('href')).toMatch(/#openrouter$/);
   expect(trigger.textContent).toBe('gpt-5.5');
   fireEvent.click(trigger);
@@ -72,7 +72,7 @@ it.each(['pointer', 'keyboard'])('closes the model picker when opening session o
   const route = createRootRoute({ component: () => <ThemeProvider initialTheme="light"><UIProvider><Picker /></UIProvider></ThemeProvider> });
   const router = createRouter({ routeTree: route, history: createMemoryHistory() });
   render(<RouterProvider router={router} />);
-  await user.click(await screen.findByRole('button', { name: 'Model', exact: true }));
+  await user.click(await screen.findByRole('button', { name: 'Model' }));
   const options = await screen.findByRole('button', { name: 'Session options' });
   if (interaction === 'keyboard') {
     options.focus();
@@ -87,14 +87,14 @@ it.each(['pointer', 'keyboard'])('closes the model picker when opening session o
   await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
   await user.keyboard('{Escape}');
   await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Session options' })).toBeNull());
-  await user.click(screen.getByRole('button', { name: 'Model', exact: true }));
+  await user.click(screen.getByRole('button', { name: 'Model' }));
   expect(await screen.findByRole('textbox', { name: 'Search models' })).toBeTruthy();
 });
 
 it('preserves the model selection popup for an action failure and closes on successful retry', async () => {
   const change = vi.fn().mockRejectedValueOnce(new Error('Model change rejected')).mockResolvedValue(undefined);
   render(<ThemeProvider initialTheme="light"><UIProvider><CatalogModelPicker model="gpt-5.5" provider="openrouter" settings catalog={catalog} onChange={change} /></UIProvider></ThemeProvider>);
-  fireEvent.click(screen.getByRole('button', { name: 'Model', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Model' }));
   fireEvent.click(await screen.findByRole('option', { name: 'gpt-5.5 · openai-codex' }));
   const alert = await screen.findByRole('alert');
   expect(alert.closest('[data-error-type]')?.getAttribute('data-error-type')).toBe('action');
@@ -115,7 +115,7 @@ it('configures the selected child with its exact revision and resets effort on a
   f.data.handlers['sessions.configure'] = () => ({ ...selected, config_revision: '9007199254740994' });
   const root = createRootRoute({ component: () => f.wrap(<ModelPicker client={f.client} session={session} selected={selected} view={view} connected />) });
   render(<RouterProvider router={createRouter({ routeTree: root, history: createMemoryHistory() })} />);
-  fireEvent.click(await screen.findByRole('button', { name: 'Model', exact: true })); fireEvent.click(await screen.findByRole('option', { name: 'fixture · openai-codex' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Model' })); fireEvent.click(await screen.findByRole('option', { name: 'fixture · openai-codex' }));
   await waitFor(() => expect(f.count('sessions.configure')).toBe(1));
   expect(f.calls.find(call => call.method === 'sessions.configure')?.params).toEqual({ session_id: 'child', expected_revision: '9007199254740993', patch: { model: { name: 'fixture', provider: 'openai-codex', effort: '' } } });
   await waitFor(() => expect(refresh).toHaveBeenCalledOnce()); expect(f.count('providers.defaults')).toBe(0);
@@ -124,5 +124,5 @@ it('unknown activity disables model effects without treating a missing observati
   const { createSessionView } = await import('@whip/sdk/state'); const { sessionRecord } = await import('./provider-fixture'); const { ModelPicker } = await import('../src/model-selection');
   const f = await providerFixture(); const selected = sessionRecord(); const session = f.client.session(selected.id); const view = createSessionView(session);
   f.mount(<ModelPicker client={f.client} session={session} selected={selected} view={view} connected />);
-  expect(screen.getByRole('button', { name: 'Model', exact: true }).hasAttribute('disabled')).toBe(true); expect(f.count('sessions.configure')).toBe(0);
+  expect(screen.getByRole('button', { name: 'Model' }).hasAttribute('disabled')).toBe(true); expect(f.count('sessions.configure')).toBe(0);
 });

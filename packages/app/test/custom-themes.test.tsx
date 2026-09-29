@@ -1,38 +1,35 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider, UIProvider, themeCatalog } from '@whip/ui';
-import type { WhipClient } from '@whip/legacy-sdk';
-import type { Resolved } from '@whip/legacy-protocol';
+import type { HostThemeResolved } from '@whip/sdk';
 import { CustomThemes } from '../src/settings/custom-themes';
+import { providerFixture } from './provider-fixture';
 
 beforeEach(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
 afterEach(() => vi.unstubAllGlobals());
-
-it('loads local themes only on demand and discards a pending import after dismissal', async () => {
-  const snapshot = { state: 'connected', info: { runtime_id: 'home' } };
-  const list = vi.fn(async () => ({ themes: [], errors: [], truncated: false }));
-  let complete!: (value: Resolved) => void;
-  const resolveJSON = vi.fn((_json: string, _options: { signal: AbortSignal }) => new Promise<Resolved>(resolve => { complete = resolve; }));
+it('loads host themes only on demand and discards a valid late import after dismissal', async () => {
+  const f = await providerFixture();
+  let complete!: (value: HostThemeResolved) => void, signal: AbortSignal | undefined;
+  f.data.handlers['host.themes.list'] = () => ({ themes: [], errors: [], truncated: false });
+  f.data.handlers['host.themes.resolve'] = (_request, optionsSignal) => { signal = optionsSignal; return new Promise<HostThemeResolved>(resolve => { complete = resolve; }); };
   const storage = { getItem: () => null, setItem: vi.fn() };
-  const client = { subscribe: () => () => {}, getSnapshot: () => snapshot, host: { themes: { list, resolveJSON } } } as unknown as WhipClient;
-  const queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const view = render(<QueryClientProvider client={queries}><ThemeProvider initialTheme="dark" storage={storage}><UIProvider><CustomThemes client={client} /></UIProvider></ThemeProvider></QueryClientProvider>);
-  expect(list).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Import theme', exact: true }));
-  await waitFor(() => expect(list).toHaveBeenCalledOnce());
+  const view = render(<QueryClientProvider client={f.queries}><ThemeProvider initialTheme="dark" storage={storage}><UIProvider><CustomThemes client={f.client} /></UIProvider></ThemeProvider></QueryClientProvider>);
+  expect(f.count('host.themes.list')).toBe(0);
+  fireEvent.click(screen.getByRole('button', { name: 'Import theme' }));
+  await waitFor(() => expect(f.count('host.themes.list')).toBe(1));
   const file = { name: 'theme.json', size: 2, text: async () => '{}' };
   fireEvent.change(screen.getByLabelText('Theme JSON file'), { target: { files: [file] } });
-  await waitFor(() => expect(resolveJSON).toHaveBeenCalledOnce());
-  const signal = resolveJSON.mock.calls[0]![1].signal;
+  await waitFor(() => expect(f.count('host.themes.resolve')).toBe(1));
+  expect(f.calls.find(call => call.method === 'host.themes.resolve')?.params).toEqual({ name: '', json: '{}' });
   const saved = storage.setItem.mock.calls.length;
-  fireEvent.click(screen.getByRole('button', { name: 'Cancel', exact: true }));
-  expect(signal.aborted).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' })); expect(signal?.aborted).toBe(true);
   const base = themeCatalog[0]!;
   const { onPrimary, borderFocus, diffAdd, diffDel, ...colors } = base.colors;
-  await act(async () => complete({ ...base, id: 'late', name: 'Late theme', colors: { ...colors, on_primary: onPrimary, border_focus: borderFocus, diff_add: diffAdd, diff_del: diffDel } } as Resolved));
-  expect(storage.setItem.mock.calls.length).toBe(saved);
-  expect(document.documentElement.dataset.theme).toBe('dark');
-  expect(screen.queryByRole('dialog')).toBeNull();
-  view.unmount(); queries.clear();
+  const resolved: HostThemeResolved = { id: 'late', name: 'Late theme', dark: base.dark, syntax: base.syntax, markdown: base.markdown,
+    code: { foreground: base.code.foreground, background: base.code.background, tokens: null },
+    colors: { ...colors, on_primary: onPrimary, border_focus: borderFocus, diff_add: diffAdd, diff_del: diffDel } };
+  await act(async () => complete(resolved));
+  expect(storage.setItem.mock.calls.length).toBe(saved); expect(document.documentElement.dataset.theme).toBe('dark'); expect(screen.queryByRole('dialog')).toBeNull();
+  view.unmount(); f.queries.clear();
 });

@@ -1,3 +1,4 @@
+import { RecoverySettings } from './recovery';
 import { BrowserSettings } from './browser';
 import { ErrorNotice } from '../error-feedback';
 import { useState } from 'react';
@@ -48,6 +49,7 @@ export function GeneralSettings() {
         {feedback('desktopNotifications')}
       </SettingRow>}
     </SettingsGroup>
+    <RecoverySettings />
     <BrowserSettings/>
   </>;
 }

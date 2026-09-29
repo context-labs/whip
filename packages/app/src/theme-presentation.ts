@@ -1,10 +1,11 @@
-import type { Resolved } from '@whip/legacy-protocol';
-export function themeFromHost(value: Resolved, namespace: string) {
+import type { HostThemeResolved } from '@whip/sdk';
+export function themeFromHost(value: HostThemeResolved, namespace: string) {
   const { on_primary, border_focus, diff_add, diff_del, ...colors } =
     value.colors;
   return {
     ...value,
     id: `${namespace}:${value.id}`,
+    code: { ...value.code, tokens: value.code.tokens ?? {} },
     web: value.web ? {
       ...(value.web.navigation ? {navigation: value.web.navigation} : {}),
       ...(value.web.quiet_border ? {quietBorder: value.web.quiet_border} : {}),

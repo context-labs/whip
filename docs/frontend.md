@@ -3341,3 +3341,41 @@ keeps a second stored-prose cache. An SDK `message_too_large` gap names one exac
 message and offers separate inspection; it does not pretend another ordinary
 page request can enlarge the bounded transcript. Reading coordinates remain exact
 decimal strings through the virtualized timeline.
+### V4 execution, definitions, imports, and command recovery
+
+Execution settings read and save `client.hosts.executionDefaults()` using the
+same host revision as provider, profile, and MCP settings. The explicit save
+captures the revision the form loaded; conflicts refresh the read while retaining
+the draft, and adopting current settings requires an explicit discard. Execution
+language affects future roots. Maximum attempts includes the initial model
+request (1–5, default 3); uncertain output is never regenerated automatically.
+Goal continuation counts remain decimal strings, including zero for no additional
+continuations. Compaction zero captures the native default of 50%. Reasoning effort
+belongs to the saved default model, not a parallel preference.
+
+Definition selectors retain immutable `{id, revision}` pairs. Metadata uses
+explicit 100-item pages, up to 1,000 retained revisions with visible truncation;
+there is no latest-by-ID alias or implicit full listing. Editing an existing
+revision preserves omitted defaults, tools, hooks, output policy, model, and exact
+child references unless that field is edited. Registering publishes a new
+immutable revision. Module visibility is not an authority grant. Switching editor
+targets requires saving or explicitly discarding the current draft.
+
+MCP import reads capture an optional root session, use host-issued fingerprints
+and the host configuration revision, and display excluded/disabled/unsupported
+sources separately. Importing publishes selected native declarations without
+starting connections or granting calls. Settings offers a separate explicit
+refresh of the root captured when import opened; changing tabs cannot retarget
+that action. A failed refresh does not undo publication or repeat it. Source and
+logo preferences use host CAS. Host theme listing is lazy; cancelled theme
+resolution cannot install a late result, and installed themes remain device-local.
+
+Saved commands in General Settings read the existing bounded `RecoveryJournal`
+(64 records / 8 MiB by default). Opening the page reads local storage only.
+Explicit checks distinguish exact accepted requests, identity-only evidence,
+missing receipts, and unavailable evidence. Workspace `claimed` and `uncertain`
+states are shown as such. Retrying requires confirmation and recovers the complete
+original SDK record with its runtime/client identity; neither the UI nor a
+reconnect reconstructs or automatically replays it. A replacement host cannot
+receive the request. Forgetting requires a separate explicit action explaining
+that it removes local tracking and neither cancels nor undoes remote work.

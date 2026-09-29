@@ -1,125 +1,32 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ThemeProvider, UIProvider } from '@whip/ui';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { WhipClient } from '@whip/legacy-sdk';
-import type { MCPImportCandidatesResult } from '@whip/legacy-protocol';
-import { RuntimeContext } from '../src/context';
-import type { AppRuntime } from '../src/runtime';
-import { MCPImportScreen, caveat, shouldOffer, sortCandidates } from '../src/mcp-import';
-import { candidate, fakeMCPImport, supportsImport, tinyPNG } from './mcp-import-fake';
-
-const disabled = (element: Element) => element.matches('[aria-disabled="true"], [data-disabled], :disabled');
+import { DeliveryError } from '@whip/sdk';
+import { MCPImportScreen, sortCandidates, shouldOffer } from '../src/mcp-import';
+import { mcpFixture, candidate } from './mcp-v4-fixture';
+import { revision, nextRevision } from './provider-fixture';
 beforeEach(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
 afterEach(() => vi.unstubAllGlobals());
-
-const found: MCPImportCandidatesResult = {
-  offered: false, config_path: '/home/u/.whipcode/config.json',
-  candidates: [
-    candidate('paper', 'importable'), candidate('ahrefs', 'native', 'codex', { brand_key: 'ahrefs.com' }), candidate('node_repl', 'excluded'),
-    candidate('computer-use', 'disabled'), candidate('exa', 'importable', 'claude', { brand_key: 'exa.example' }),
-    candidate('figma', 'unsupported', 'opencode', { note: "needs a sign-in Whip can't do yet", brand_key: 'figma.com' }), candidate('executor', 'native'),
-  ],
-};
-
-function fixture(data: MCPImportCandidatesResult = found) {
-  const queries = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  const mcpImport = fakeMCPImport(data, { 'exa.example': tinyPNG });
-  const client = { getSnapshot: () => ({ state: 'connected', info: { runtime_id: 'host-a' } }), supports: supportsImport, mcpImport } as unknown as WhipClient;
-  const runtime = { queries, report: vi.fn(), getSnapshot: () => ({ commands: [] }), subscribe: () => () => {} } as unknown as AppRuntime;
-  const onDone = vi.fn();
-  const rendered = (cwd = '') => render(<RuntimeContext.Provider value={runtime}><ThemeProvider initialTheme="light"><UIProvider><QueryClientProvider client={queries}>
-    <MCPImportScreen client={client} hostName="Local" cwd={cwd} onDone={onDone} />
-  </QueryClientProvider></UIProvider></ThemeProvider></RuntimeContext.Provider>);
-  return { ...mcpImport, onDone, queries, render: rendered };
-}
-
-it('orders importable servers first and already-native servers last, each A to Z', () => {
-  expect(sortCandidates(found.candidates ?? []).map(c => c.name)).toEqual(['computer-use', 'exa', 'figma', 'node_repl', 'paper', 'ahrefs', 'executor']);
-  expect(shouldOffer(found)).toBe(true);
-  expect(shouldOffer({ ...found, offered: true })).toBe(false);
-  expect(shouldOffer({ ...found, candidates: (found.candidates ?? []).filter(c => c.state !== 'importable') })).toBe(false);
-  expect(caveat(candidate('x', 'disabled'), false)).toBe('Off in Codex');
-  expect(caveat(candidate('x', 'excluded'), true)).toBe('');
+it('imports exact fingerprints and captured owner without automatically connecting or granting', async () => {
+  const f = await mcpFixture(); const done = vi.fn(); f.mount(<MCPImportScreen client={f.client} hostName="Remote" sessionID="root" onDone={done} />);
+  await screen.findByRole('checkbox', { name: 'Import paper' }); expect(f.count('mcp.import.apply')).toBe(0); expect(f.count('mcp.refresh')).toBe(0);
+  fireEvent.click(screen.getByRole('button', { name: 'Import 1 server' })); await waitFor(() => expect(done).toHaveBeenCalledOnce());
+  expect(f.calls.find(call => call.method === 'mcp.import.apply')?.params).toEqual({ revision, session_id: 'root', fingerprints: { paper: revision } }); expect(f.count('mcp.refresh')).toBe(0); expect(f.count('permissions.resolve')).toBe(0);
 });
-
-it('checks importable servers by default, leaves off and excluded ones unchecked, and never offers a checkbox for native or unsupported ones', async () => {
-  const f = fixture(); f.render();
-  const list = await screen.findByRole('list', { name: 'Discovered MCP servers' });
-  const rows = within(list).getAllByRole('listitem').map(row => row.textContent);
-  expect(rows[0]).toContain('computer-use'); expect(rows[rows.length - 1]).toContain('executor');
-  expect(screen.getByRole('checkbox', { name: 'Import paper' }).getAttribute('aria-checked')).toBe('true');
-  expect(screen.getByRole('checkbox', { name: 'Import exa' }).getAttribute('aria-checked')).toBe('true');
-  expect(screen.getByRole('checkbox', { name: 'Import computer-use' }).getAttribute('aria-checked')).toBe('false');
-  expect(screen.getByRole('checkbox', { name: 'Import node_repl' }).getAttribute('aria-checked')).toBe('false');
-  expect(disabled(screen.getByRole('checkbox', { name: 'Import node_repl' }))).toBe(true);
-  expect(disabled(screen.getByRole('checkbox', { name: 'Import figma' }))).toBe(true);
-  expect(screen.queryByRole('checkbox', { name: 'Import ahrefs' })).toBeNull();
-  expect(screen.getByLabelText('ahrefs is already in Whip')).toBeTruthy();
-  expect(screen.getByText('Off in Codex')).toBeTruthy();
-  expect(screen.getByText("needs a sign-in Whip can't do yet")).toBeTruthy();
-  expect(screen.getByText(/Whip found 5 servers in Codex, Claude, and OpenCode on Local/)).toBeTruthy();
-  expect(screen.getByRole('button', { name: 'Import 2 servers' })).toBeTruthy();
-  expect(screen.getByText(/2 selected · saved to Whip's configuration on Local/)).toBeTruthy();
-  expect(screen.getByText('/home/u/.whipcode/config.json')).toBeTruthy();
-  expect(f.candidates).toHaveBeenCalledWith({}, expect.anything());
+it('uncertain import refreshes candidates without replaying publication', async () => {
+  const f = await mcpFixture(); f.data.handlers['mcp.import.apply'] = () => { f.changeCandidates({ revision: nextRevision, candidates: [candidate('paper', 'native')], source_errors: {} }); throw new DeliveryError('Import acknowledgement lost'); };
+  f.mount(<MCPImportScreen client={f.client} hostName="Remote" />); fireEvent.click(await screen.findByRole('button', { name: 'Import 1 server' })); await screen.findByText(/Import acknowledgement lost/); await screen.findByLabelText('paper is already in Whip'); expect(f.count('mcp.import.apply')).toBe(1); expect(f.count('mcp.import.candidates')).toBe(2);
 });
-
-it('draws bundled marks at once, asks the daemon only for the rest, and keeps monograms for servers with no domain', async () => {
-  const f = fixture(); f.render();
-  const list = await screen.findByRole('list', { name: 'Discovered MCP servers' });
-  const row = (name: string) => within(list).getAllByRole('listitem').find(item => item.textContent?.includes(name))!;
-  // figma.com and ahrefs.com ship in the bundle, exa.example does not, paper has no domain.
-  await waitFor(() => expect(f.brandIcons).toHaveBeenCalledExactlyOnceWith({ keys: ['exa.example'] }, expect.anything()));
-  await waitFor(() => expect(row('exa').querySelector('img')?.getAttribute('src')).toBe(tinyPNG));
-  expect(row('figma').querySelector('img')?.getAttribute('src')).toMatch(/^data:image\//);
-  expect(row('ahrefs').querySelector('img')?.getAttribute('src')).toMatch(/^data:image\//);
-  expect(row('paper').querySelector('img')).toBeNull();
-  expect(row('paper').textContent?.startsWith('P')).toBe(true);
+it('skip saves the offered decision with no selected fingerprints and no connection', async () => {
+  const f = await mcpFixture(); f.mount(<MCPImportScreen client={f.client} hostName="Remote" />); fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' })); await waitFor(() => expect(f.count('mcp.import.apply')).toBe(1)); expect(f.calls.find(call => call.method === 'mcp.import.apply')?.params).toEqual({ revision, session_id: null, fingerprints: {} }); expect(f.count('mcp.refresh')).toBe(0);
 });
-
-it('imports exactly the ticked names, including an excluded server after Include', async () => {
-  const f = fixture(); f.render('/repo');
-  fireEvent.click(await screen.findByRole('checkbox', { name: 'Import exa' }));
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Import computer-use' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Include' }));
-  const nodeRepl = screen.getByRole('checkbox', { name: 'Import node_repl' });
-  expect(disabled(nodeRepl)).toBe(false);
-  expect(nodeRepl.getAttribute('aria-checked')).toBe('false');
-  fireEvent.click(nodeRepl);
-  expect(screen.getByRole('button', { name: 'Import 3 servers' })).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Import 3 servers' }));
-  await waitFor(() => expect(f.onDone).toHaveBeenCalledWith({ imported: ['computer-use', 'node_repl', 'paper'], skipped: {} }));
-  expect(f.apply).toHaveBeenCalledExactlyOnceWith({ cwd: '/repo', names: ['computer-use', 'node_repl', 'paper'] });
-  expect(f.candidates).toHaveBeenCalledExactlyOnceWith({ cwd: '/repo' }, expect.anything());
-  expect((f.queries.getQueryData(['mcp-import-candidates', 'host-a', '/repo']) as MCPImportCandidatesResult).offered).toBe(true);
+it('exposes source errors and requires opt-in before selecting excluded entries', async () => {
+  const f = await mcpFixture(); f.changeCandidates({ revision, candidates: [candidate('excluded', 'excluded'), candidate('disabled', 'disabled')], source_errors: { codex: 'Could not read source' } });
+  f.mount(<MCPImportScreen client={f.client} hostName="Remote" />); const checkbox = await screen.findByRole('checkbox', { name: 'Import excluded' }); expect(checkbox.getAttribute('aria-disabled')).toBe('true'); expect(screen.getByText(/Could not read source/)).toBeTruthy();
+  fireEvent.click(checkbox); expect(checkbox.getAttribute('aria-checked')).toBe('false');
+  fireEvent.click(screen.getByRole('button', { name: 'Include' })); expect(checkbox.getAttribute('aria-disabled')).not.toBe('true'); expect(checkbox.getAttribute('aria-checked')).toBe('false');
 });
-
-it('skips with an empty list and disables Import when nothing is ticked', async () => {
-  const f = fixture(); f.render();
-  fireEvent.click(await screen.findByRole('checkbox', { name: 'Import paper' }));
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Import exa' }));
-  expect(disabled(screen.getByRole('button', { name: 'Import 0 servers' }))).toBe(true);
-  fireEvent.click(screen.getByRole('button', { name: 'Skip for now' }));
-  await waitFor(() => expect(f.onDone).toHaveBeenCalledWith({ imported: [], skipped: {} }));
-  expect(f.apply).toHaveBeenCalledExactlyOnceWith({ names: [] });
-});
-
-it('reports unreadable sources quietly and shows an empty state when nothing was found', async () => {
-  const f = fixture({ offered: true, config_path: '/x/config.json', candidates: [], errors: { '/home/u/.codex/config.toml': 'toml: line 3: expected key' } });
-  f.render();
-  expect(await screen.findByText('No MCP servers were found in Codex, Claude, or OpenCode on Local.')).toBeTruthy();
-  expect(screen.getByText(/Couldn't read \/home\/u\/.codex\/config.toml: toml: line 3/)).toBeTruthy();
-  expect(screen.queryByRole('button', { name: 'Skip for now' })).toBeNull();
-  expect(screen.queryByRole('button', { name: /Import/ })).toBeNull();
-});
-
-it('shows the import failure and keeps the ticks', async () => {
-  const f = fixture();
-  f.apply.mockRejectedValueOnce(new Error('config.json: permission denied'));
-  f.render();
-  fireEvent.click(await screen.findByRole('button', { name: 'Import 2 servers' }));
-  await screen.findByText('config.json: permission denied');
-  expect(f.onDone).not.toHaveBeenCalled();
-  expect(screen.getByRole('checkbox', { name: 'Import paper' }).getAttribute('aria-checked')).toBe('true');
+it('offers from native saved policy and sorts native entries last without guessing membership', async () => {
+  const f = await mcpFixture(); const data = { revision, candidates: [candidate('paper')], source_errors: {} };
+  expect(shouldOffer(data, f.configuration())).toBe(true); expect(shouldOffer(data, { ...f.configuration(), imports: { ...f.configuration().imports, offered: true } })).toBe(false);
+  expect(sortCandidates([candidate('a', 'native'), candidate('z')]).map(item => item.name)).toEqual(['z', 'a']);
 });

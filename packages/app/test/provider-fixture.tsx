@@ -13,7 +13,7 @@ export const model = (id = 'fixture'): ProviderModelsResult['items'][number] => 
 export const route = (id = 'openrouter'): ProviderInventory['routes'][number] => ({ id, kind: 'openai-chat', base_url: 'https://example.test/v1', credential: { source: 'env', state: 'available', environment: 'OPENROUTER_API_KEY', file: '' }, models: {} });
 export const preset = (id = 'openrouter'): ProviderPresetsResult['items'][number] => ({ id, name: id === 'openrouter' ? 'OpenRouter' : id, kind: id === 'openai-codex' ? 'openai-codex' : 'openai-chat', base_url: 'https://example.test/v1', methods: id === 'openai-codex' || id === 'inference-net' ? ['login'] : ['api_key'], environments: id === 'openrouter' ? ['OPENROUTER_API_KEY'] : [], key_url: '', suggested_models: ['fixture'], suggested_effort: '' });
 export const inferenceFlow = (state: InferenceFlow['state'] = 'authorizing'): InferenceFlow => ({ id: `${'A'.repeat(26)}:${'B'.repeat(26)}`, kind: 'login', state, verification_url: state === 'authorizing' ? 'https://inference.net/device/approve?user_code=1234' : null, user_code: state === 'authorizing' ? '1234' : null, expires_at: null, teams: [], projects: [], team_id: null, project_id: null, failure: null });
-export async function providerFixture() {
+export async function providerFixture(initialOptions: { builtins?: import('@whip/sdk').DefinitionRef[]; runtimeID?: string } = {}) {
   const calls: Request[] = [];
   const data: { inventory: ProviderInventory; presets: ProviderPresetsResult; inference: InferenceFlow[]; openai: OpenAILoginFlow[]; handlers: Record<string, (request: Request, signal?: AbortSignal) => unknown | Promise<unknown>> } = {
     inventory: { revision, routes: [route()], defaults: { provider: 'openrouter', name: 'fixture', effort: '' }, compaction_model: null }, presets: { items: [preset(), preset('inference-net'), preset('openai-codex')] }, inference: [], openai: [], handlers: {},
@@ -24,7 +24,7 @@ export async function providerFixture() {
     const handler = data.handlers[request.method];
     if (handler) result = await handler(request, options.signal);
     else switch (request.method) {
-      case 'initialize': result = { major: 4, minor: 0, runtime_id: 'host', process_epoch: 'boot', network_client: false, builtins: [] }; break;
+      case 'initialize': result = { major: 4, minor: 0, runtime_id: initialOptions.runtimeID ?? 'host', process_epoch: 'boot', network_client: false, builtins: initialOptions.builtins ?? [] }; break;
       case 'providers.list': result = data.inventory; break;
       case 'providers.presets': result = data.presets; break;
       case 'providers.readiness': result = { configured: true, credential_state: data.inventory.routes[0]?.credential.state ?? 'missing', catalog_state: 'missing', model_state: 'configured', inference_state: 'not_tested' }; break;

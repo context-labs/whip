@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { WhipClient } from '@whip/legacy-sdk';
+import type { Client } from '@whip/sdk';
 import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
 
@@ -20,14 +20,14 @@ export function useBrandMarks() {
   }).data;
 }
 
-/** Marks the daemon resolves for keys the bundle lacks; nothing is asked when the daemon predates the operation. */
-export function useBrandIcons(client: WhipClient, keys: readonly string[]) {
-  const runtimeId = client.getSnapshot().info?.runtime_id;
-  const sorted = [...new Set(keys)].sort();
+/** Marks the host resolves for keys the bundle lacks, subject to its saved lookup policy. */
+export function useBrandIcons(client: Client, keys: readonly string[]) {
+  const runtimeId = client.runtimeID;
+  const sorted = [...new Set(keys)].sort().slice(0, 128);
   return useQuery({
     queryKey: ['mcp-brand-icons', runtimeId, sorted],
-    queryFn: ({ signal }) => client.mcpImport.brandIcons({ keys: sorted }, { signal }),
-    enabled: sorted.length > 0 && client.supports('rpc', 'mcp.brand.icons'),
+    queryFn: ({ signal }) => client.mcpBrandIcons(sorted, { signal }),
+    enabled: sorted.length > 0,
     staleTime: 30 * 60_000, gcTime: 30 * 60_000, retry: false,
   }).data?.icons;
 }
