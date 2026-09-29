@@ -344,6 +344,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.updateMenu(message)
 	}
 	switch value := message.(type) {
+	case nativeRecallLoaded:
+		m.recallLoaded(value)
+		return m, nil
 	case nativeMessageClick:
 		m.showMessageActions(value)
 		return m, nil

@@ -6,7 +6,6 @@ import (
 	"maps"
 	"reflect"
 	"slices"
-	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -15,11 +14,12 @@ import (
 )
 
 type nativeInputRecall struct {
-	owner    protocol.ID
-	revision protocol.Counter
-	entries  []nativeDraft
-	index    int
-	draft    nativeDraft
+	owner           protocol.ID
+	revision        protocol.Counter
+	entries         []nativeDraft
+	index           int
+	draft           nativeDraft
+	loaded, loading bool
 }
 
 func (m *nativeModel) captureDraft() nativeDraft {
@@ -39,8 +39,7 @@ func (m *nativeModel) rememberDraft(draft nativeDraft) bool {
 	if draft.text == "" || draft.bytes() > nativeDraftLimit {
 		return false
 	}
-	fields := strings.Fields(draft.text)
-	if len(fields) > 0 && (fields[0] == "/auth" || fields[0] == "/connect" || fields[0] == "/setup") {
+	if nativeRecallSecret(draft.text) {
 		return false
 	}
 	m.recall = nil
@@ -91,10 +90,6 @@ func (m *nativeModel) recallKey(key tea.KeyPressMsg) (tea.Cmd, bool) {
 		if name == "down" {
 			return nil, true
 		}
-		if len(m.recallLocal) == 0 {
-			m.status = "No local inputs to recall for this owner."
-			return nil, true
-		}
 		draft := m.captureDraft()
 		if draft.bytes() > nativeDraftLimit {
 			m.status = "Save or shorten this draft before recalling history; it exceeds 256 KiB."
@@ -103,6 +98,9 @@ func (m *nativeModel) recallKey(key tea.KeyPressMsg) (tea.Cmd, bool) {
 		m.recall = &nativeInputRecall{owner: m.owner.ID, revision: m.history.snapshot.Revision, entries: slices.Clone(m.recallLocal), index: len(m.recallLocal), draft: draft}
 	}
 	r := m.recall
+	if name == "up" && r.index == 0 && !r.loaded {
+		return m.loadRecall(), true
+	}
 	if name == "up" {
 		r.index = max(r.index-1, 0)
 	} else {

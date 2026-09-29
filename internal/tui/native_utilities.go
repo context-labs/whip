@@ -43,6 +43,7 @@ Click an agent row in the sidebar/dock to open that owner. Ctrl+T focuses the ag
 Drag selects displayed transcript/input/REPL text; release offers it to the clipboard. Double-click selects a word; triple-click a row.
 Click a user/assistant message for Copy text, Fork, or opening-input Rewind; double/triple clicks still select text.
 Ctrl+E toggles the latest loaded tool output; clicking a tool block toggles that block.
+Up first recalls local original drafts, then bounded human text across sessions (no foreign attachments); Down restores your unsent draft.
 Ctrl+R toggles REPL; PageUp/PageDown scroll the focused pane; Up/Down at composer edges recalls inputs; two Esc presses clear a draft or open rewind while idle.
 Ctrl+C twice cancels the exact active turn, or exits when idle; Ctrl+K requests explicit-stop clear.
 Ctrl+P opens commands; Ctrl+O toggles live reasoning. Tab completes commands, @host files, $authorized skills, or host paths.
