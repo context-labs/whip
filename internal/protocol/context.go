@@ -67,6 +67,7 @@ type HistorySnapshot struct {
 }
 
 type HistoryMetadata struct {
+	CreatedAt       string               `json:"created_at,omitempty"`
 	Presentation    *MessagePresentation `json:"presentation,omitempty"`
 	InputIdentity   *RequestIdentity     `json:"input_identity"`
 	GroupID         ID                   `json:"group_id"`
@@ -176,6 +177,9 @@ func HistoryMetadataFromDomain(v session.HistoryMetadata) HistoryMetadata {
 		RetiredBy: historyEditID(v.RetiredBy), RetiredRevision: historyRevision(v.RetiredRevision),
 		ID: ID(v.ID), SessionID: ID(v.SessionID), TurnID: localID(string(v.TurnID)),
 		Sequence: Counter(v.Sequence), Role: string(v.Role), PartsBytes: Counter(v.PartsBytes),
+	}
+	if !v.CreatedAt.IsZero() {
+		r.CreatedAt = v.CreatedAt.Format(time.RFC3339Nano)
 	}
 	if v.InputID != nil {
 		r.InputID = new(ID(*v.InputID))

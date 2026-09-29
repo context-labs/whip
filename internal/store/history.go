@@ -96,6 +96,7 @@ func scanHistory(row scanner, withSnapshot bool) (value historyRecord, err error
 	if err != nil {
 		return value, err
 	}
+	value.metadata.CreatedAt = timestamp(value.created)
 	value.metadata.Presentation, err = decodePresentation(display)
 	if err != nil {
 		return value, err

@@ -69,7 +69,7 @@ func TestPresentationSettlementHistoryForkRewindAndRestart(t *testing.T) {
 			t.Fatal(forward, err)
 		}
 		exact, err := db.ReadHistoryMessage(t.Context(), id, messages[1].ID, 0, 65536)
-		if err != nil || !reflect.DeepEqual(exact.Message.Presentation, draft.Presentation) {
+		if err != nil || !reflect.DeepEqual(exact.Message.Presentation, draft.Presentation) || !exact.Message.CreatedAt.Equal(messages[1].CreatedAt) {
 			t.Fatal(exact, err)
 		}
 		metadata, err := db.HistoryMetadata(t.Context(), id, 0, snapshot.ThroughSequence, 100)

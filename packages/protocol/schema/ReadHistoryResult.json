@@ -4,6 +4,9 @@
     "message": {
       "type": "object",
       "properties": {
+        "created_at": {
+          "type": "string"
+        },
         "presentation": {
           "type": [
             "null",

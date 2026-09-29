@@ -121,6 +121,25 @@ root refusal. App TypeScript passes. Comparative browser acceptance remains open
 Durable presentation prerequisite is draft
 [#291](https://github.com/context-labs/whip/pull/291).
 
+## Increment 6 — bounded execution and presentation SDK (G1 / A8 / A9)
+
+Chronological native cell pages and actual history timestamps support bounded
+exact body hydration. ExecutionView owns retained bodies and cell/turn paging;
+SessionView owns failed-attempt presentation for retained history groups. Pure
+SDK display rows maintain session/attempt/slot identity through preview, canonical
+call, cell and result without inventing execution authority. Imported or failed
+evidence stays distinct. Missing presentation never suppresses canonical calls.
+
+Source leaves `3361ebe9a` and `1e4250b96` are integrated with regenerated
+contracts. Protocol interop (18) and generated drift pass; integrated SDK build,
+source/test type checks and all 217 tests pass, including real Unix-socket tests.
+Focused coverage includes more than 128 cells / 16 turns, partial-turn continuation,
+late results while browsing older work, exact Unicode reads, body deduplication,
+rewind/disposal and handover. Native ordinal/cursor validation tests pass in the
+leaf. Renderer binding and comparative A8/A9 acceptance still follow.
+
+Response controls are draft [#292](https://github.com/context-labs/whip/pull/292).
+
 ## Remaining work
 
 Backend/provider/settings/terminal and durable presentation prerequisites are

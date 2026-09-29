@@ -10,7 +10,7 @@ const owner = 'session_child';
 const turn = id => ({ ...fixture('Turn'), id, session_id: owner, kind: 'prompt', state: 'succeeded', finished_at: '2026-09-27T12:00:01Z' });
 const cell = (id, turnID = 'turn') => ({ ...fixture('Cell'), id, turn_id: turnID, session_id: owner });
 const operation = (id, turnID = 'turn') => ({ ...fixture('HostOperation'), id, turn_id: turnID, session_id: owner });
-const messages = () => fixture('HistoryResult').items.filter(value => value.id === 'message_call' || value.id === 'message_result').map(value => ({ ...value, turn_id: 'turn', sequence: value.id === 'message_call' ? '9007199254740993' : '9007199254740994' }));
+const messages = () => fixture('HistoryResult').items.filter(value => value.id === 'message_call' || value.id === 'message_result').map(value => ({ ...value, turn_id: 'turn', group_id: 'turn', sequence: value.id === 'message_call' ? '9007199254740993' : '9007199254740994' }));
 
 async function backend() {
   const state = { calls: [], turns: [turn('turn')], cells: [], operations: [], messages: [], revision: '1', epoch: 'boot', intercept: undefined, shortPages: false, output: null, activity: { ...fixture('SessionActivity'), active_turn: null, active_input_id: null } };
@@ -25,7 +25,20 @@ async function backend() {
     else if (request.method === 'sessions.activity') result = state.activity;
     else if (request.method === 'sessions.history_page') result = { snapshot: snapshot(), messages: state.messages.slice(-p.limit), next_cursor: null };
     else if (request.method === 'sessions.observe') result = { snapshot: snapshot(), messages: state.messages.filter(value => BigInt(value.sequence) > BigInt(p.after)).slice(0, p.limit), epoch: state.epoch, preview: null };
-    else if (request.method === 'sessions.turns') {
+    else if (request.method === 'context.read') {
+      const c = state.cells.find(cell => cell.call_message_id === p.message_id || cell.result_message_id === p.message_id);
+      const original = state.messages.find(message => message.id === p.message_id) ?? messages().find(message => message.id === p.message_id);
+      if (!original || !c) return { jsonrpc: '2.0', id: request.id, error: { code: -32004, kind: 'NOT_FOUND', message: 'No retained body' } };
+      const message = { ...original, turn_id: c.turn_id, group_id: c.turn_id };
+      const data = Buffer.from(JSON.stringify(message.parts)); const offset = Number(p.offset), end = Math.min(data.length, offset + p.length);
+      const { parts, ...metadata } = message;
+      result = { message: { ...metadata, parts_bytes: String(data.length) }, offset: p.offset, next_offset: end < data.length ? String(end) : null, data_base64: data.subarray(offset, end).toString('base64') };
+    } else if (request.method === 'turns.cells_page') {
+      const all = state.cells.filter(cell => cell.turn_id === p.turn_id).slice().reverse();
+      const offset = p.before ? all.findIndex(cell => cell.id === p.before) + 1 : 0;
+      const items = all.slice(offset, offset + (state.shortPages ? 1 : p.limit));
+      result = { items, next_cursor: offset + items.length < all.length ? items.at(-1).id : null };
+    } else if (request.method === 'sessions.turns') {
       const offset = p.before ? state.turns.findIndex(turn => turn.id === p.before) + 1 : 0;
       const items = state.turns.slice(offset, offset + p.limit);
       result = { items, next_cursor: offset + items.length < state.turns.length ? items.at(-1)?.id ?? null : null };
@@ -120,7 +133,7 @@ test('execution count, byte and short-page bounds are explicit without skipping 
   const { view } = await views(t, client, { maxCells: 3, maxOperations: 4 }); await view.start();
   assert.equal(view.getSnapshot().cells.length, 3); assert.equal(view.getSnapshot().operations.length, 4);
   assert.equal(view.getSnapshot().truncated, true);
-  assert.deepEqual(state.calls.filter(call => call.method === 'turns.cells').map(call => call.params.after), [undefined, 'cell_0', 'cell_1']);
+  assert.deepEqual(state.calls.filter(call => call.method === 'turns.cells_page').map(call => call.params.before), [undefined, 'cell_8', 'cell_7']);
   const small = createExecutionView(client.session(owner), (await views(t, client)).source, { maxBytes: 4096, pollIntervalMs: 60_000 }); t.after(() => small.dispose());
   state.operations = [{ ...operation('huge'), arguments: { input: '界'.repeat(20_000) } }];
   await small.start(); const value = small.getSnapshot();
@@ -142,7 +155,7 @@ test('revision changes abort and discard pending execution evidence before readi
   const { view, source } = await views(t, client); await view.start();
   let entered, release;
   const started = new Promise(resolve => { entered = resolve; }), held = new Promise(resolve => { release = resolve; });
-  state.intercept = async request => { if (request.method === 'turns.cells') { entered(); await held; } };
+  state.intercept = async request => { if (request.method === 'turns.cells_page') { entered(); await held; } };
   const pending = view.refresh(); await started;
   state.revision = '9007199254740993'; state.messages = []; await source.refresh();
   assert.equal(view.getSnapshot().cells.length, 0); assert.equal(view.getSnapshot().historyRevision, state.revision);
@@ -160,7 +173,7 @@ test('process restart requires explicit same-runtime reconnect and never resumes
   assert.equal(state.calls.length, calls); assert.match(view.getSnapshot().error.message, /process epoch/);
   const replacement = await connect(); await source.reconnect(replacement); await view.reconnect(replacement);
   assert.equal(view.getSnapshot().epoch, 'new_boot'); assert.equal(view.getSnapshot().status, 'live');
-  assert.ok(state.calls.every(call => ['sessions.activity', 'sessions.history_page', 'sessions.observe', 'sessions.turns', 'turns.get', 'turns.cells', 'turns.operations'].includes(call.method)));
+  assert.ok(state.calls.every(call => ['sessions.activity', 'sessions.history_page', 'sessions.observe', 'sessions.turns', 'turns.get', 'turns.cells', 'turns.cells_page', 'turns.operations', 'context.read'].includes(call.method)));
 });
 
 test('slow readers share one fetch; suspend joins it without cancelling runtime work', async t => {
@@ -232,4 +245,45 @@ test('late stdout reads cannot republish after observation suspend', { timeout: 
   const stopping = view.suspend(); assert.equal(view.getSnapshot().output, null);
   release(); await Promise.all([refresh, stopping]); assert.equal(view.getSnapshot().output, null);
   assert.equal(view.getSnapshot().status, 'suspended');
+});
+
+test('ordinal cell windows pass 128 cells and sixteen turns without displacing the selected older page', async t => {
+  const { state, client } = await backend();
+  state.turns = Array.from({ length: 20 }, (_, i) => turn('turn_' + i));
+  state.cells = Array.from({ length: 150 }, (_, i) => cell('opaque_' + (500 - i), 'turn_0'));
+  const { view, source } = await views(t, client); await view.start();
+  assert.equal(view.getSnapshot().cells.length, 128);
+  assert.equal(view.getSnapshot().olderCellCursor.before, 'opaque_478');
+  const initialIDs = new Set(view.getSnapshot().cells.map(c => c.id));
+  await view.loadOlder();
+  assert.equal(view.getSnapshot().cells.length, 22);
+  assert.ok(view.getSnapshot().cells.every(c => !initialIDs.has(c.id)));
+  const olderIDs = view.getSnapshot().cells.map(c => c.id);
+  state.cells.push(cell('new_late_cell', 'turn_0')); await source.refresh(); await view.refresh();
+  assert.deepEqual(view.getSnapshot().cells.map(c => c.id), olderIDs);
+  await view.loadOlder(); assert.equal(view.getSnapshot().turns[0].id, 'turn_16');
+  assert.equal(view.getSnapshot().turns.at(-1).id, 'turn_19');
+  await view.latest(); assert.equal(view.getSnapshot().cells[0].id, 'new_late_cell');
+});
+
+test('exact execution bodies deduplicate within the retained window and release on revision and disposal', async t => {
+  const { state, client } = await backend(); state.cells = [cell('cell')];
+  const { view, source } = await views(t, client); await view.start();
+  const value = view.getSnapshot(); assert.equal(value.messages.length, 2);
+  assert.equal(cellExecutionRows(value, [])[0].call.value.arguments.code, 'print(1)');
+  const count = () => state.calls.filter(c => c.method === 'context.read').length;
+  assert.equal(count(), 2); await view.refresh(); assert.equal(count(), 2);
+  assert.ok(view.getSnapshot().retainedBytes <= 4 << 20);
+  state.revision = '2'; state.cells = []; await source.refresh(); await view.refresh();
+  assert.deepEqual(view.getSnapshot().messages, []);
+  await view.dispose(); assert.deepEqual(view.getSnapshot().messages, []);
+});
+
+test('late exact body reads cannot publish after the observation lease is released', async t => {
+  const { state, client } = await backend(); state.cells = [cell('cell')];
+  const { view } = await views(t, client);
+  let entered, release; const started = new Promise(r => entered = r), held = new Promise(r => release = r);
+  state.intercept = async request => { if (request.method === 'context.read') { entered(); await held; } };
+  const pending = view.start(); await started; const stopped = view.suspend(); release(); await Promise.all([pending, stopped]);
+  assert.equal(view.getSnapshot().status, 'suspended'); assert.deepEqual(view.getSnapshot().messages, []);
 });

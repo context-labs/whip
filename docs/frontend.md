@@ -435,6 +435,12 @@ slots scoped by the owning session and source attempt. Imported source identitie
 never grant local execution authority. Old messages may lack this metadata;
 canonical prose/calls remain authoritative, including when presentation truncates.
 SDK/app consumption is tracked in the [restoration record](frontend-ux-restoration-progress.md).
+SessionView retains failed-attempt presentation only for its selected bounded
+history groups. ExecutionView shares that source and owns bounded exact call/result
+bodies for retained cells. `session.history.message` validates owner, identity,
+retirement, byte cursors and immutable metadata through every chunk. Turn cells
+page by their real store ordinal, not opaque ID ordering. Older navigation retains
+its boundary while new work continues; returning to latest is explicit.
 Calls, results, cells and operations join by exact session/turn/message/call IDs;
 imported groups with no local turn do not invent local execution. Local authored
 previews retire only on exact admitted input identity. Mail and Design context

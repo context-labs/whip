@@ -4,6 +4,8 @@ import type { Client } from './index.js';
 import type { RecoveryJournal } from './command.js';
 import type { CallOptions } from './wire.js';
 import { bytesBase64 } from './value.js';
+import { readHistoryMessage } from './history.js';
+import type { MessageReadOptions } from './history.js';
 
 type Params<M extends keyof Operations> = Operations[M]['params'];
 type Scoped<M extends keyof Operations> = Omit<Params<M>, 'session_id'>;
@@ -95,6 +97,7 @@ export class Session {
     },
   };
   readonly history = {
+    message: (messageID: string, options: MessageReadOptions = {}) => readHistoryMessage(this, messageID, options),
     page: (params: Page<'sessions.history_page'> = { direction: 'backward' }, options: CallOptions = {}) => this.client.call('sessions.history_page', { limit: 100, ...params, session_id: this.id }, options),
     snapshot: (options: CallOptions = {}) => this.client.call('context.snapshot', { session_id: this.id }, options),
     rewind: (params: Omit<Params<'sessions.rewind'>, 'session_id' | 'edit_id'>, editID: string, options: CallOptions = {}) => this.client.rewind({ ...params, session_id: this.id }, editID, options),
@@ -176,6 +179,17 @@ export class Session {
     get: async (turnID: string, options: CallOptions = {}) => {
       const result = await this.client.call('turns.get', { turn_id: turnID }, options);
       if (result.session_id !== this.id || result.id !== turnID) throw new TypeError('Turn belongs to another session or identity');
+      return result;
+    },
+    cellPage: async (turnID: string, params: Omit<Page<'turns.cells_page'>, 'turn_id'> = {}, options: CallOptions = {}) => {
+      const limit = params.limit ?? 100;
+      const result = await this.client.call('turns.cells_page', { ...params, turn_id: turnID, limit }, options);
+      const ids = new Set<string>();
+      for (const cell of result.items) {
+        if (cell.session_id !== this.id || cell.turn_id !== turnID || cell.id === params.before || ids.has(cell.id)) throw new TypeError('Cell page scope or identity mismatch');
+        ids.add(cell.id);
+      }
+      if (result.items.length > limit || result.next_cursor !== null && (!result.items.length || result.next_cursor !== result.items.at(-1)?.id)) throw new TypeError('Cell page continuation mismatch');
       return result;
     },
     cells: async (turnID: string, params: Omit<Page<'turns.cells'>, 'turn_id'> = {}, options: CallOptions = {}) => {

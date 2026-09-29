@@ -57,6 +57,7 @@ type HistorySnapshot struct {
 }
 
 type HistoryMetadata struct {
+	CreatedAt       time.Time            `json:"created_at"`
 	Presentation    *MessagePresentation `json:"presentation,omitempty"`
 	InputIdentity   *RequestIdentity     `json:"input_identity"`
 	GroupID         HistoryGroupID       `json:"group_id"`

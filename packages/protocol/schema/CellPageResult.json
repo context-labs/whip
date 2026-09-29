@@ -1,0 +1,119 @@
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "session_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "turn_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "call_message_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "call_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "running",
+              "succeeded",
+              "failed",
+              "uncertain"
+            ]
+          },
+          "result_message_id": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "checkpoint": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "digest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "size": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "engine": {
+                "type": "string",
+                "enum": [
+                  "starlark",
+                  "quickjs"
+                ]
+              },
+              "metadata": true
+            },
+            "required": [
+              "digest",
+              "size",
+              "engine",
+              "metadata"
+            ],
+            "additionalProperties": false
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "finished_at": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "session_id",
+          "turn_id",
+          "call_message_id",
+          "call_id",
+          "state",
+          "result_message_id",
+          "checkpoint",
+          "created_at",
+          "finished_at"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 100
+    },
+    "next_cursor": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/CellPageResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CellPageResult",
+  "required": [
+    "items",
+    "next_cursor"
+  ],
+  "additionalProperties": false
+}
