@@ -307,3 +307,21 @@ func TestProviderPreferenceFormsAndEnableStateOverSocket(t *testing.T) {
 		t.Fatal("disable erased credentials or contacted provider", ready)
 	}
 }
+
+func TestProviderDisconnectSocketClearsOwnedKeyAndCatalog(t *testing.T) {
+	f := newProviderFixture(t)
+	created := createProviderFixture(t, f)
+	call[protocol.ProviderCatalog](t, f.client, "providers.refresh", protocol.ProviderParams{Provider: "custom"})
+	result := call[protocol.ProviderDisconnectResult](t, f.client, "providers.disconnect", protocol.DisconnectProviderParams{Revision: created.Revision, Provider: "custom"})
+	if result.CredentialState != "cleared" || result.LocalFailure != nil || result.Inventory.Routes[0].Credential.State == "available" {
+		t.Fatal("disconnect did not clear owned source", result)
+	}
+	if _, err := os.Stat(created.Routes[0].Credential.File); !os.IsNotExist(err) {
+		t.Fatal("owned file survived", err)
+	}
+	catalog := call[protocol.ProviderCatalog](t, f.client, "providers.catalog", protocol.ProviderParams{Provider: "custom"})
+	if catalog.State != "missing" || len(catalog.Models) != 0 || f.requests.Load() != 1 {
+		t.Fatal("disconnect retained/refreshed catalog", catalog)
+	}
+	requireHistoryError(t, f.client, "providers.disconnect", protocol.DisconnectProviderParams{Revision: created.Revision, Provider: "custom"}, "CONFLICT")
+}

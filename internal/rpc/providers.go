@@ -12,7 +12,8 @@ import (
 	"github.com/context-labs/whip/internal/session"
 )
 
-func dispatchProvider(ctx context.Context, service *providerhost.Service, method string, raw json.RawMessage) (any, error) {
+func dispatchProvider(ctx context.Context, host HostServices, method string, raw json.RawMessage) (any, error) {
+	service := host.ProviderHost
 	if service == nil {
 		return nil, ErrMethod
 	}
@@ -74,6 +75,48 @@ func dispatchProvider(ctx context.Context, service *providerhost.Service, method
 				value, err = service.Update(ctx, change)
 			}
 			return providerInventory(value), err
+		})
+	case "providers.disconnect":
+		return decode(raw, func(p protocol.DisconnectProviderParams) (any, error) {
+			if host.Config == nil {
+				return nil, ErrMethod
+			}
+			snapshot, err := host.Config.Snapshot(ctx)
+			if err != nil {
+				return nil, providerhost.ErrStorage
+			}
+			if snapshot.Revision != p.Revision {
+				return nil, config.ErrRevisionConflict
+			}
+			route, exists := snapshot.Host.Providers[string(p.Provider)]
+			if !exists {
+				return nil, providerhost.ErrMissing
+			}
+			var value config.ProviderDisconnect
+			var cleanupFailure string
+			switch {
+			case route.Kind == "openai-codex":
+				if host.OpenAI == nil {
+					return nil, ErrMethod
+				}
+				_, value, err = host.OpenAI.LogoutProvider(ctx, p.Revision, string(p.Provider))
+			case route.CredentialSource == "inference-net":
+				if host.Inference == nil {
+					return nil, ErrMethod
+				}
+				status, disconnected, logoutErr := host.Inference.LogoutProvider(ctx, host.Config, p.Revision, string(p.Provider))
+				value, err, cleanupFailure = disconnected, logoutErr, status.CleanupFailure
+			default:
+				value, err = host.Config.DisconnectProvider(ctx, p.Revision, string(p.Provider), "", nil)
+			}
+			if err != nil {
+				return nil, err
+			}
+			if value.CredentialState != "preserved_external" {
+				service.ClearDiscovery(string(p.Provider))
+			}
+			inventory, err := service.List(ctx)
+			return protocol.ProviderDisconnectResult{Inventory: providerInventory(inventory), CredentialState: value.CredentialState, LocalFailure: optionalText(value.LocalFailure), CleanupFailure: optionalText(cleanupFailure)}, err
 		})
 	case "providers.remove":
 		return decode(raw, func(p protocol.RemoveProviderParams) (any, error) {

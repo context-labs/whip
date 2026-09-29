@@ -90,7 +90,7 @@ type Service struct {
 	mu        sync.Mutex
 	wg        sync.WaitGroup
 	closed    bool
-	active    map[string]bool
+	active    map[string]context.CancelFunc
 	catalogs  map[string]catalogEntry
 }
 
@@ -111,7 +111,7 @@ func New(ctx context.Context, authority *config.Authority, client *http.Client, 
 	value.Jar = nil
 	value.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	ctx, cancel := context.WithCancel(ctx)
-	return &Service{ctx: ctx, cancel: cancel, config: authority, http: &value, lookup: lookup, openAI: openAI, inference: inference, active: map[string]bool{}, catalogs: map[string]catalogEntry{}}, nil
+	return &Service{ctx: ctx, cancel: cancel, config: authority, http: &value, lookup: lookup, openAI: openAI, inference: inference, active: map[string]context.CancelFunc{}, catalogs: map[string]catalogEntry{}}, nil
 }
 
 func (s *Service) check(ctx context.Context) error {
@@ -186,6 +186,7 @@ func (s *Service) save(ctx context.Context, change Change, creating bool) (Inven
 	provider := change.Provider
 	if exists {
 		provider.Disabled = previous.Disabled
+		provider.CredentialEpoch = previous.CredentialEpoch
 	}
 	if change.KeepCredential {
 		if creating || change.Key != nil || previous.BaseURL != provider.BaseURL || previous.Kind != provider.Kind {
@@ -342,4 +343,15 @@ func (s *Service) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	clear(s.catalogs)
+}
+
+// ClearDiscovery cancels work accepted before Disconnect and removes its local
+// observations. The authority's changed credential epoch rejects late writers.
+func (s *Service) ClearDiscovery(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if cancel := s.active[id]; cancel != nil {
+		cancel()
+	}
+	delete(s.catalogs, id)
 }

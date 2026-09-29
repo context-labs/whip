@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/inferenceauth"
 )
 
@@ -147,34 +148,60 @@ func (s *Service) cleanupKey(f *flow) error {
 // cleanup is bounded and separately reported; retries reuse only the prior
 // cleanup record, never reauthorize locally or repeat creation.
 func (s *Service) Logout(ctx context.Context) (LogoutResult, error) {
+	return s.logout(ctx, func(clear func() error) error { _ = clear(); return nil })
+}
+
+// LogoutProvider reuses logout while checking route revision and shared account
+// references under the existing login lock. Remote cleanup remains outside it.
+func (s *Service) LogoutProvider(ctx context.Context, authority *config.Authority, revision, id string) (LogoutResult, config.ProviderDisconnect, error) {
+	var result config.ProviderDisconnect
+	status, err := s.logout(ctx, func(clear func() error) error {
+		var err error
+		result, err = authority.DisconnectProvider(ctx, revision, id, "inference-net", clear)
+		return err
+	})
+	return status, result, err
+}
+
+func (s *Service) logout(ctx context.Context, guard func(func() error) error) (LogoutResult, error) {
 	s.mu.Lock()
 	if err := s.check(ctx); err != nil {
 		s.mu.Unlock()
 		return LogoutResult{}, err
 	}
-	s.prune()
-	s.loggingOut = true
-	s.wg.Add(1)
-	defer s.wg.Done()
 	done := make([]<-chan struct{}, 0, len(s.flows))
 	retained := true
-	for _, f := range s.flows {
-		if !terminal(f.view.State) {
-			retained = s.addCleanup(f.previous) && retained
-			if f.pending {
-				retained = s.addCleanup(f.credentials) && retained
+	var localErr error
+	err := guard(func() error {
+		s.prune()
+		s.loggingOut = true
+		for _, f := range s.flows {
+			if !terminal(f.view.State) {
+				retained = s.addCleanup(f.previous) && retained
+				if f.pending {
+					retained = s.addCleanup(f.credentials) && retained
+				}
+				s.finish(f, Interrupted, "")
+				f.cancel()
 			}
-			s.finish(f, Interrupted, "")
-			f.cancel()
+			done = append(done, f.done)
+			if !f.busy {
+				f.credentials, f.previous = inferenceauth.Credentials{}, inferenceauth.Credentials{}
+			}
 		}
-		done = append(done, f.done)
-		if !f.busy {
-			f.credentials, f.previous = inferenceauth.Credentials{}, inferenceauth.Credentials{}
-		}
+		prior, err := s.auth.Logout()
+		localErr = err
+		s.logoutPending = localErr != nil
+		retained = s.addCleanup(prior) && retained
+		return localErr
+	})
+	if err != nil || !s.loggingOut {
+		result := LogoutResult{Status: s.status(), Cleanup: s.cleanupViews()}
+		s.mu.Unlock()
+		return result, err
 	}
-	prior, localErr := s.auth.Logout()
-	s.logoutPending = localErr != nil
-	retained = s.addCleanup(prior) && retained
+	s.wg.Add(1)
+	defer s.wg.Done()
 	s.mu.Unlock()
 	for _, finished := range done {
 		<-finished

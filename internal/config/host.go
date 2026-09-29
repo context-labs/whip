@@ -22,10 +22,12 @@ const (
 )
 
 type Provider struct {
-	Disabled      bool   `json:"disabled,omitempty"`
-	Kind          string `json:"kind"`
-	BaseURL       string `json:"base_url"`
-	CredentialEnv string `json:"credential_env"`
+	// CredentialEpoch invalidates stale setup/catalog work after Disconnect.
+	CredentialEpoch uint64 `json:"credential_epoch,omitempty"`
+	Disabled        bool   `json:"disabled,omitempty"`
+	Kind            string `json:"kind"`
+	BaseURL         string `json:"base_url"`
+	CredentialEnv   string `json:"credential_env"`
 	// CredentialSource selects env, file, command, none, or inference-net.
 	// Empty retains the explicit CredentialEnv/no-auth shorthand. URLs never
 	// select a credential, and resolution never discovers other host files.

@@ -96,6 +96,7 @@ func Operations() []Operation {
 		{"workspace.action", reflect.TypeFor[ReadWorkspaceActionParams](), reflect.TypeFor[WorkspaceAction]()},
 		{"workspace.snapshot", reflect.TypeFor[WorkspaceSnapshotParams](), reflect.TypeFor[WorkspaceSnapshot]()},
 		{"workspace.snapshots", reflect.TypeFor[WorkspaceSnapshotsParams](), reflect.TypeFor[WorkspaceSnapshotsResult]()},
+		{"providers.disconnect", reflect.TypeFor[DisconnectProviderParams](), reflect.TypeFor[ProviderDisconnectResult]()},
 		{"providers.set_preferences", reflect.TypeFor[ProviderPreferencesParams](), reflect.TypeFor[ProviderInventory]()},
 		{"host.set_execution_preferences", reflect.TypeFor[SetExecutionPreferencesParams](), reflect.TypeFor[HostExecutionDefaults]()},
 		{"providers.candidates", reflect.TypeFor[EmptyParams](), reflect.TypeFor[ProviderCandidates]()},

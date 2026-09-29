@@ -178,9 +178,23 @@ type UseProviderCandidateParams struct {
 	Environment string `json:"environment" maxLength:"256"`
 }
 
+type DisconnectProviderParams struct {
+	Revision string `json:"revision" pattern:"^[a-f0-9]{64}$"`
+	Provider ID     `json:"provider"`
+}
+
+type ProviderDisconnectResult struct {
+	Inventory       ProviderInventory `json:"inventory"`
+	CredentialState string            `json:"credential_state" enum:"cleared,preserved_shared,preserved_external,pending"`
+	LocalFailure    *string           `json:"local_failure"`
+	CleanupFailure  *string           `json:"cleanup_failure"`
+}
+
 func providerSchema(schema *jsonschema.Schema, t reflect.Type) {
 	arrays, texts := map[string]int{}, map[string]int{}
 	switch t {
+	case reflect.TypeFor[ProviderDisconnectResult]():
+		texts = map[string]int{"local_failure": 512, "cleanup_failure": 512}
 	case reflect.TypeFor[ProviderCandidates]():
 		arrays["items"] = 24
 	case reflect.TypeFor[ProviderCandidate](), reflect.TypeFor[UseProviderCandidateParams]():
