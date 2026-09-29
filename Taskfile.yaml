@@ -290,6 +290,7 @@ tasks:
       - task: web-assets
       - node apps/web/scripts/settings.mjs
       - node apps/web/scripts/provider-connections.mjs
+      - node apps/web/scripts/external-browser-controls.mjs
       - node apps/web/scripts/settings-conversation.mjs
       - node apps/web/scripts/model-budgets.mjs
       - node apps/web/scripts/claude-code-theme.mjs

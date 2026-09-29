@@ -5536,3 +5536,40 @@ build passes with the repository's debug test signing; no Android device was
 available. Desktop types,156 tests,116 distribution checks and ten actual
 loopback-SSH transport checks pass. These do not claim connected-device UI,
 physical-device accessibility, production signing or real-account acceptance.
+
+
+External Chrome controls are now integrated across shared Web/Desktop, mobile,
+CLI and TUI (`1d2cdee79`, `9c08e9dc3`, `f9aad8311`). Host changes require the
+explicit displayed revision and a complete declaration; session controls capture
+root/name/generation and children are read-only. Lost acknowledgements preserve
+uncertainty and drafts rather than silently refreshing or replaying. The shared
+browser probe passes four workflow groups in Chromium and Firefox and now runs
+in the normal settings gate. Focused shared tests38, mobile226 tests/35 suites,
+mobile types/both Hermes exports and actual lifecycle checks pass. CLI/TUI socket
+and navigation race checks pass7.839/4.481s with build, vet and pinned lint0.
+These focused checks precede final integrated validation.
+
+Strict connection inventories remain non-null and bounded to four; external and
+Desktop host-tool schemas are discoverable. The MCP SDK requires top-level
+`type: object` even when `oneOf` defines the alternatives; `5caf16e2d` retains
+that requirement and passes actual MCP endpoint tests. The complete local race
+run before that repair passed store222.255/111.235s, runtime301.413/130.863s and
+all complementary packages, then failed in MCP CLI registration as expected.
+No full-race success is inferred from those package passes.
+
+The obsolete computer helper lifecycle is removed (`f567bb709`): unused ambient
+binary discovery, automatic retry/restart, extraction and private wrapper tests.
+[Its disposition](backend-native-computer-retirement.md) retains screenshot
+protocol values and verifies the actual owned connection's missing/rejected/wrong
+handshake and joined child process. Complete computer race6.513s, architecture
+boundary, compilation/vet and pinned lint0 pass. Native Controller/Connection
+ownership is unchanged; the driver guide now describes the explicit native path.
+
+Native gate repairs (`7ffcfd31c`, `449f9f08e`) restore Swift's real XCTest target
+(13 safe tests plus release build), require actual disposable Chrome tests on
+both CI operating systems, retain immutable checkout refs and validate the new
+readiness identity. Distribution checks preserve aggregate failure/cancellation/
+skip/missing-result rejection (36 workflow and five readiness tests pass).
+The exact slash-command acknowledgement fix (`30a472f51`) fails before the change
+and passes three focused tests plus14 groups each in Chromium and Firefox with
+zero errors/CSP violations. Receipt lookup waits for admission and never resends.
