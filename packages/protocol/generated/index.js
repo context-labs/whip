@@ -125,6 +125,16 @@ export const manifest = {
       "result": "HostSkillsResult"
     },
     {
+      "name": "host.standing.read",
+      "params": "EmptyParams",
+      "result": "HostStandingInstructions"
+    },
+    {
+      "name": "host.standing.write",
+      "params": "WriteHostStandingInstructionsParams",
+      "result": "HostStandingInstructions"
+    },
+    {
       "name": "host.themes.list",
       "params": "EmptyParams",
       "result": "HostThemesResult"

@@ -50,6 +50,12 @@ export class Hosts {
   setBrowserDriver(expectedRevision: string, driver: Params<'host.set_browser_driver'>['driver'], options: CallOptions = {}) {
     return this.client.call('host.set_browser_driver', { expected_revision: expectedRevision, driver }, options);
   }
+  /** Reads only the host's explicitly published source; never publishes a default file. */
+  standingInstructions(options: CallOptions = {}) { return this.client.call('host.standing.read', {}, options); }
+  /** Raw text CAS. After uncertain delivery, read and reconcile; never replay automatically. */
+  writeStandingInstructions(expectedRevision: string, text: string, options: CallOptions = {}) {
+    return this.client.call('host.standing.write', { expected_revision: expectedRevision, text }, options);
+  }
   executionDefaults(options: CallOptions = {}) { return this.client.call('host.execution_defaults', {}, options); }
   /** Attempts include the initial request; goal continuations exclude its initial input. Reread after uncertain CAS delivery. */
   setExecutionDefaults(expectedRevision: string, defaults: Params<'host.set_execution_defaults'>['defaults'], options: CallOptions = {}) {
