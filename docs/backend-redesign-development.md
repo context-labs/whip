@@ -4318,3 +4318,26 @@ environment names are unchanged. No upstream download, credential resolution,
 default selection or live membership inference occurred. Required package/import
 gates include the new leaf and generator. Remaining retired consumers/evals and
 complete CLI/TUI cutover still prevent Phase7 completion.
+
+### Native installer and update acceptance
+
+The retained distribution probe now speaks generated native protocol4 and verifies
+session persistence through fresh public reads after each process change. It
+retains every pinned-installer, fixed-product-identity, renderer manifest/digest,
+private configuration, long explicit home, start/restart, update destination and
+release-selection assertion. Managed readiness requires the exact build plus a
+running gateway; restart/update preserves durable runtime ID and changes process
+epoch. A failed update preserves both the installed fixture binary and its live
+process epoch. No paid turn or direct dependency on retired SQL columns is needed.
+
+The benchmark contract is explicit: fresh `--bench` creates no product directory;
+`--bench-init` initializes only native `runtime-v4/host.json`; the next read-only
+benchmark preserves its bytes, with no database or legacy configuration created.
+The complete `python3 scripts/test-distributions.py --browser` passed using two
+locally compiled native candidates, fixture releases and disposable homes. Real
+Chromium also passed packaged UI/bootstrap, restricted handshake, socket-only and
+managed network lifecycles, bind-failure isolation, parent/backend-loss cleanup,
+and matching renderer digests. Both pinned installation and new-to-new update
+passed, including persisted exact session configuration across restart and update.
+This is local macOS arm64 evidence, not signed distribution, Linux packaging,
+live-provider, remote-SSH or installed-runtime evidence. No installed app changed.

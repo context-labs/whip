@@ -8,6 +8,7 @@ No arguments builds two native candidates into temporary files and checks update
 All installation, state and daemon processes belong to disposable homes.
 """
 import argparse
+from contextlib import contextmanager
 import hashlib
 from html.parser import HTMLParser
 import json
@@ -16,7 +17,6 @@ from pathlib import Path
 import platform
 import shutil
 import socket
-import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -71,13 +71,14 @@ def renderer_smoke(endpoint, manifest):
     assert parser.sources, 'actual renderer must load a module entrypoint'
     assert all(name in manifest['files'] and manifest['files'][name]['bytes'] > 0
                for name in parser.sources), parser.sources
-    with urlopen(endpoint + '/api/v3/web', timeout=10) as response:
+    with urlopen(endpoint + '/api/v4/web', timeout=10) as response:
         assert response.status == 200
         json.load(response)
 
 
-def create_session(socket_path, home):
-    major = json.loads((ROOT / 'packages/legacy-protocol/schema/manifest.json').read_text())['major']
+@contextmanager
+def native_rpc(socket_path):
+    major = json.loads((ROOT / 'packages/protocol/schema/manifest.json').read_text())['major']
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
         connection.settimeout(10)
         connection.connect(socket_path)
@@ -87,55 +88,60 @@ def create_session(socket_path, home):
             def rpc(method, params):
                 nonlocal next_id
                 next_id += 1
-                stream.write(json.dumps({'jsonrpc': '2.0', 'id': next_id,
+                ident = str(next_id)
+                stream.write(json.dumps({'jsonrpc': '2.0', 'id': ident,
                                          'method': method, 'params': params}).encode() + b'\n')
                 stream.flush()
-                while True:
-                    message = json.loads(stream.readline(1024 * 1024))
-                    if message.get('id') == next_id:
-                        assert not message.get('error'), message
-                        return message['result']
+                raw = stream.readline((8 << 20) + 1)
+                assert raw.endswith(b'\n') and len(raw) <= 8 << 20, 'missing or oversized native response'
+                message = json.loads(raw)
+                assert message.get('id') == ident and not message.get('error'), message
+                return message['result']
 
-            rpc('initialize', {'protocol_major': major, 'build_id': 'packaged-acceptance',
-                               'client_kind': 'automation', 'client_id': 'packaged-acceptance'})
-            # Persist an agent session without starting a turn or contacting a
-            # provider. Explicit routing avoids requiring first-run credentials.
-            result = rpc('command.submit', {'command_id': 'create-fresh-session', 'scope': 'daemon',
-                         'operation': 'session.create', 'payload': {'kind': 'agent', 'cwd': str(home),
-                             'model': 'fixture', 'provider': 'fixture', 'permission_mode': 'prompt',
-                             'execution_engine': 'starlark'}})
-            deadline = time.monotonic() + 10
-            while result['status'] in ['queued', 'running', 'waiting'] and time.monotonic() < deadline:
-                time.sleep(0.05)
-                result = rpc('command.status', {'command_id': 'create-fresh-session'})
-            assert result['status'] == 'succeeded', result
-            return result['result']['root_id']
+            initialized = rpc('initialize', {'major': major})
+            assert initialized['major'] == major and not initialized['network_client'], initialized
+            yield rpc, initialized
 
 
-def assert_saved_session(home, session_id):
-    # Empty sessions are deliberately absent from CLI resume history. Inspect
-    # persistence read-only rather than submit a paid model turn to list one.
-    database = home / 'runtime-v2/sessions.db'
-    with sqlite3.connect(database.as_uri() + '?mode=ro', uri=True) as connection:
-        saved = connection.execute('SELECT kind, model, provider FROM sessions WHERE id=?',
-                                   (session_id,)).fetchone()
-        assert saved == ('agent', 'fixture', 'fixture'), saved
+def create_session(socket_path, home):
+    with native_rpc(socket_path) as (rpc, initialized):
+        definition = next(ref for ref in initialized['builtins'] if ref['id'] == 'coding')
+        # No turn or provider call: the ordinary creation transaction captures
+        # and persists this explicit model route for later restart verification.
+        result = rpc('trees.create', {'creation_id': 'create-fresh-session',
+                     'definition': definition, 'working_directory': str(home),
+                     'metadata': {'title': None, 'archived': False, 'pinned': False},
+                     'engine': 'starlark', 'permission_mode': 'prompt',
+                     'overrides': {'automatic_title': False,
+                                   'model': {'provider': 'fixture', 'name': 'fixture', 'effort': ''}}})
+        assert not result['deleted'] and result['root'], result
+        return result['root']['id']
 
 
-def wait_for_gateway(status, version, previous_generation=None, timeout=15):
-    # The daemon's local socket can report its new build while its managed
-    # gateway child is still starting. Build identity alone is not readiness.
-    # In-place exec keeps the PID, so generation identifies a restarted daemon.
+def assert_saved_session(socket_path, session_id):
+    # Fresh public reads after every process change establish persisted state
+    # without coupling package acceptance to SQL columns or submitting a paid turn.
+    with native_rpc(socket_path) as (rpc, _):
+        saved = rpc('sessions.get', {'session_id': session_id})
+        assert saved['id'] == session_id and saved['parent_id'] is None, saved
+        assert saved['definition']['id'] == 'coding', saved
+        assert saved['configuration']['model'] == {'provider': 'fixture', 'name': 'fixture', 'effort': ''}, saved
+        assert saved['config_revision'] == '1', saved
+
+
+def wait_for_gateway(status, version, previous_process=None, timeout=15):
+    # Process epoch identifies a replacement owner; build identity alone is not
+    # gateway readiness. Durable runtime identity must survive an explicit restart.
     deadline = time.monotonic() + timeout
     observed = None
     while time.monotonic() < deadline:
         observed = status()
-        gateway = observed.get('gateway', {})
-        endpoint = observed.get('network_endpoint')
-        if (observed.get('state') == 'running' and observed.get('daemon_build') == version
-                and gateway.get('state') == 'ready' and endpoint
-                and gateway.get('endpoint') == endpoint
-                and (previous_generation is None or observed.get('generation', 0) > previous_generation)):
+        process = observed.get('process') or {}
+        if (observed.get('state') == 'running' and process.get('build') == version
+                and process.get('web_state') == 'running' and process.get('web_endpoint')
+                and (previous_process is None or (
+                    process.get('runtime_id') == previous_process['runtime_id']
+                    and process.get('process_epoch') != previous_process['process_epoch']))):
             return observed
         time.sleep(0.1)
     raise AssertionError(f'daemon {version} did not reach managed gateway readiness: {observed}')
@@ -235,7 +241,15 @@ else:
         binary = destination / 'whipcode'
         assert run(binary, '--version', env=env).stdout.strip() == 'whipcode ' + args.version
         run(binary, '--bench', env=env)
-        assert (home / '.whipcode/config.json').is_file()
+        assert not (home / '.whipcode').exists(), 'read-only benchmark initialized product state'
+        run(binary, '--bench-init', env=env)
+        host_file = home / '.whipcode/runtime-v4/host.json'
+        assert host_file.is_file()
+        host_before = host_file.read_bytes()
+        run(binary, '--bench', env=env)
+        assert host_file.read_bytes() == host_before
+        assert not (home / '.whipcode/runtime-v4/state.db').exists()
+        assert not (home / '.whipcode/config.json').exists()
         assert not (home / '.whip').exists()
         # The product identity is fixed even if someone renames the executable.
         renamed = destination / 'renamed-executable'
@@ -252,21 +266,22 @@ else:
         try:
             run(binary, 'daemon', 'start', env=env)
             initial = wait_for_gateway(status, args.version)
-            assert (app_home / 'config.json').stat().st_mode & 0o777 == 0o600
-            assert (app_home / 'runtime-v2/sessions.db').is_file()
-            renderer_smoke(initial['network_endpoint'], manifest)
+            assert (app_home / 'runtime-v4/host.json').stat().st_mode & 0o777 == 0o600
+            assert (app_home / 'runtime-v4/state.db').is_file()
+            renderer_smoke(initial['process']['web_endpoint'], manifest)
             session_id = create_session(initial['socket'], home)
-            assert_saved_session(app_home, session_id)
+            assert_saved_session(status()['socket'], session_id)
             run(binary, 'daemon', 'restart', env=env)
-            restarted = wait_for_gateway(status, args.version, previous_generation=initial['generation'])
-            assert_saved_session(app_home, session_id)
-            renderer_smoke(restarted['network_endpoint'], manifest)
+            restarted = wait_for_gateway(status, args.version, previous_process=initial['process'])
+            assert_saved_session(status()['socket'], session_id)
+            renderer_smoke(restarted['process']['web_endpoint'], manifest)
 
             # A failed download must neither replace the binary nor restart runtime.
             fixture['fail'] = True
             save_fixture()
             assert run(binary, 'update', env=env, check=False).returncode != 0
-            assert status()['pid'] == restarted['pid']
+            assert status()['process']['pid'] == restarted['process']['pid']
+            assert status()['process']['process_epoch'] == restarted['process']['process_epoch']
             assert run(binary, '--version', env=env).stdout.strip() == 'whipcode ' + args.version
             fixture['fail'] = False
             if newer:
@@ -276,11 +291,11 @@ else:
                 env['WHIPCODE_VERSION'] = args.version
                 env['WHIPCODE_BIN_DIR'] = str(root / 'wrong-destination')
                 run(binary, 'update', env=env)
-                updated = wait_for_gateway(status, args.update_version, previous_generation=restarted['generation'])
+                updated = wait_for_gateway(status, args.update_version, previous_process=restarted['process'])
                 assert run(binary, '--version', env=env).stdout.strip() == 'whipcode ' + args.update_version
                 assert not (root / 'wrong-destination').exists()
-                assert_saved_session(app_home, session_id)
-                renderer_smoke(updated['network_endpoint'], manifest)
+                assert_saved_session(status()['socket'], session_id)
+                renderer_smoke(updated['process']['web_endpoint'], manifest)
             print('PASS packaged pinned installer without selection env, fixed identity, fresh config/session, renderer digests, daemon lifecycle and safe failure')
             if newer:
                 print('PASS new-to-new update, destination/channel selection, daemon reconnect and session persistence')
