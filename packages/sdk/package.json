@@ -9,12 +9,13 @@
     "./node": { "types": "./dist/node.d.ts", "import": "./dist/node.js" },
     "./browser": { "types": "./dist/browser.d.ts", "import": "./dist/browser.js" },
     "./state": { "types": "./dist/state.d.ts", "import": "./dist/state.js" },
-    "./react": { "types": "./dist/react.d.ts", "import": "./dist/react.js" }
+    "./react": { "types": "./dist/react.d.ts", "import": "./dist/react.js" },
+    "./agents": { "types": "./dist/agents.d.ts", "import": "./dist/agents.js" }
   },
   "files": ["dist"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "check": "npm run build && node --test test/*.test.mjs",
+    "check": "npm run build && tsc -p test/tsconfig.json && node --test test/*.test.mjs",
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": { "@whip/protocol": "4.0.0" },

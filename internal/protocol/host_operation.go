@@ -9,7 +9,7 @@ import (
 
 // DirectHostInput preserves exact argument bytes, including large JSON integers.
 type DirectHostInput struct {
-	Module          string `json:"module" enum:"shell,files,tools"`
+	Module          string `json:"module" enum:"shell,files,tools,computer"`
 	Name            ID     `json:"name"`
 	ArgumentsBase64 string `json:"arguments_base64"`
 }
@@ -29,7 +29,7 @@ type RunShellParams struct {
 }
 
 type HostToolSchema struct {
-	Module      string          `json:"module" enum:"shell,files,tools"`
+	Module      string          `json:"module" enum:"shell,files,tools,computer"`
 	Name        ID              `json:"name"`
 	Description string          `json:"description"`
 	InputSchema json.RawMessage `json:"input_schema"`
@@ -48,7 +48,7 @@ func hostOperationSchema(schema *jsonschema.Schema, t reflect.Type) {
 		schema.Properties["command"].MaxLength = new(65536)
 	case reflect.TypeFor[HostToolSchemasResult]():
 		schema.Properties["items"].Type, schema.Properties["items"].Types = "array", nil
-		schema.Properties["items"].MaxItems = new(135)
+		schema.Properties["items"].MaxItems = new(136)
 	case reflect.TypeFor[HostOperation]():
 		schema.OneOf = []*jsonschema.Schema{
 			{Properties: map[string]*jsonschema.Schema{"origin": {Enum: []any{"cell"}}, "cell_id": {Not: &jsonschema.Schema{Type: "null"}}}},

@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import { test } from 'node:test';
 import { terminalAcceptance } from './terminal-fixture.mjs';
 import { Client, DurableCommand, DeliveryError } from '../../packages/sdk/dist/index.js';
-import { browserSocket, browserContent } from '../../packages/sdk/dist/browser.js';
+import { browserSocket, browserContent, discoverGateway } from '../../packages/sdk/dist/browser.js';
 import { createSessionView, createTreeCatalogView } from '../../packages/sdk/dist/state.js';
 import { unixSocket } from '../../packages/sdk/dist/node.js';
 
@@ -44,16 +44,22 @@ test('production v4 gateway and native browser SDK preserve scoped delivery and 
   let ready = await start(false);
   assert.equal(ready.web, undefined); assert.ok(ready.process_epoch);
   await stop(); ready = await start();
-  const pin = { expectedRuntimeID: ready.runtime_id, expectedProcessEpoch: ready.process_epoch };
+  const discovery = await discoverGateway(ready.web, options());
+  const pin = { expectedRuntimeID: discovery.runtime_id, expectedProcessEpoch: discovery.process_epoch };
+  assert.equal(discovery.runtime_id, ready.runtime_id);
+  await assert.rejects(discoverGateway(ready.web, { expectedRuntimeID: 'saved-other', ...options() }), /different runtime/);
   const web = await Client.connect(browserSocket(ready.web, pin), { clientID: 'browser', expectedRuntimeID: ready.runtime_id, ...options() });
   const local = await Client.connect(unixSocket(ready.socket), { clientID: 'local', expectedRuntimeID: ready.runtime_id, ...options() });
-  const discovery = await (await fetch(ready.web + '/api/v4/web')).json();
   assert.equal(discovery.available, false); assert.equal(discovery.process_epoch, ready.process_epoch); assert.equal(discovery.max_content_bytes, 4 << 20);
   await assert.rejects(Client.connect(browserSocket(ready.web, { ...pin, expectedProcessEpoch: 'wrong' }), { clientID: 'wrong', ...options() }), error => error.kind === 'IDENTITY');
   assert.ok((await web.providerPresets()).items.length > 0);
   const createParams = engine => ({ engine, metadata: { title: null, pinned: false, archived: false }, definition: web.builtins[0], working_directory: directory, overrides: { model: { provider: 'scripted', name: 'scripted', effort: '' }, report_mode: 'message', automatic_title: false } });
   const first = await web.createTree(createParams('starlark'), 'browser-root', options());
   const second = await web.createTree(createParams('quickjs'), 'browser-root-second', options());
+  const initialProfiles = await local.hosts.profiles(options());
+  assert.deepEqual(initialProfiles.profiles, []);
+  const savedProfile = { id: 'saved-browser', name: 'Remote browser', url: ready.web + '/', runtime_id: 'declared-remote-runtime', connect_on_launch: true };
+  let savedProfiles;
   const content = browserContent(ready.web, pin);
   const bytes = new Uint8Array(4 << 20); bytes.fill(65);
   await content.upload(first.root.id, 'same-reference', 'text/html', bytes, options());
@@ -66,11 +72,13 @@ test('production v4 gateway and native browser SDK preserve scoped delivery and 
   // a request; explicit receipt reads use an independent Unix connection.
   const NativeSocket = globalThis.WebSocket;
   let dropped = 0;
+  let droppedProfile = 0;
   const recoveryRecords = [];
   class DropAcknowledgement extends NativeSocket {
     set onmessage(handler) {
       super.onmessage = handler === null ? null : event => {
         const value = JSON.parse(event.data);
+        if (value.result?.profiles?.[0]?.id === savedProfile.id) { droppedProfile++; this.close(); return; }
         if (value.result?.receipt?.identity?.request_id?.startsWith('browser-lost-')) { dropped++; this.close(); return; }
         handler.call(this, event);
       };
@@ -79,6 +87,11 @@ test('production v4 gateway and native browser SDK preserve scoped delivery and 
   }
   try {
     globalThis.WebSocket = DropAcknowledgement;
+    await assert.rejects(web.hosts.setProfiles(initialProfiles.revision, [savedProfile], options()), DeliveryError);
+    savedProfiles = await local.hosts.profiles(options());
+    assert.deepEqual(savedProfiles.profiles, [savedProfile]);
+    assert.notEqual(savedProfiles.revision, initialProfiles.revision);
+    await assert.rejects(local.hosts.setProfiles(initialProfiles.revision, [savedProfile], options()), error => error.kind === 'CONFLICT');
     for (const [index, tree] of [first, second].entries()) {
       const requestID = 'browser-lost-' + index;
       const command = web.session(tree.root.id).submission([{ type: 'text', text: 'survive a lost browser acknowledgement' }], requestID);
@@ -88,7 +101,7 @@ test('production v4 gateway and native browser SDK preserve scoped delivery and 
       assert.equal(recovered.input.session_id, tree.root.id);
     }
   } finally { globalThis.WebSocket = NativeSocket; }
-  assert.equal(dropped, 2);
+  assert.equal(dropped, 2); assert.equal(droppedProfile, 1);
   for (const index of [0, 1]) {
     for (;;) {
       const result = await local.call('receipts.get', { client_id: 'browser', request_id: 'browser-lost-' + index }, options());
@@ -126,8 +139,13 @@ test('production v4 gateway and native browser SDK preserve scoped delivery and 
   assert.ok(views.every(view => view.getSnapshot().status === 'stale' && view.getSnapshot().preview === null));
   ready = await start();
   assert.equal(ready.runtime_id, old.runtime_id); assert.notEqual(ready.process_epoch, old.process_epoch);
+  const restarted = await discoverGateway(ready.web, { expectedRuntimeID: old.runtime_id, ...options() });
+  assert.equal(restarted.process_epoch, ready.process_epoch);
+  assert.notEqual(restarted.process_epoch, discovery.process_epoch);
   await assert.rejects(Client.connect(browserSocket(ready.web, pin), { clientID: 'stale', ...options() }), error => error.kind === 'IDENTITY');
   const fresh = await Client.connect(browserSocket(ready.web, { expectedRuntimeID: ready.runtime_id, expectedProcessEpoch: ready.process_epoch }), { clientID: 'fresh', ...options() });
+  assert.deepEqual(await fresh.hosts.profiles(options()), savedProfiles);
+  assert.deepEqual(await fresh.hosts.setProfiles(savedProfiles.revision, savedProfiles.profiles, options()), savedProfiles);
   await Promise.all(views.map(view => view.reconnect(fresh))); await catalog.reconnect(fresh);
   for (const [index, view] of views.entries()) {
     assert.equal(view.getSnapshot().status, 'live'); assert.equal(view.getSnapshot().epoch, ready.process_epoch);

@@ -79,7 +79,7 @@ export interface Admission {
       }
     | {
         host_operation: {
-          module: "shell" | "files" | "tools";
+          module: "shell" | "files" | "tools" | "computer";
           name: string;
           arguments_base64: string;
         };
@@ -222,7 +222,7 @@ export interface CallHostToolParams {
   };
   session_id: string;
   operation: {
-    module: "shell" | "files" | "tools";
+    module: "shell" | "files" | "tools" | "computer";
     name: string;
     arguments_base64: string;
   };
@@ -373,6 +373,45 @@ export interface CompactionsResult {
         text_bytes: string;
         created_at: string;
       }[];
+}
+export interface ComputerConnectionParams {
+  generation: string;
+}
+export interface ComputerStatus {
+  revision: string;
+  configuration: {
+    enabled: boolean;
+    helper_executable: string;
+    /**
+     * @maxItems 64
+     */
+    allow: string[];
+    /**
+     * @maxItems 64
+     */
+    deny: string[];
+    default_deny: boolean;
+  };
+  generation: string;
+  state: "disabled" | "available" | "connected" | "retired" | "closed";
+  native_configured: boolean;
+  platform_supported: boolean;
+}
+export interface ConfigureComputerParams {
+  revision: string;
+  configuration: {
+    enabled: boolean;
+    helper_executable: string;
+    /**
+     * @maxItems 64
+     */
+    allow: string[];
+    /**
+     * @maxItems 64
+     */
+    deny: string[];
+    default_deny: boolean;
+  };
 }
 export interface ConfigureMCPParams {
   revision: string;
@@ -1649,6 +1688,15 @@ export interface FormulateGoalParams {
     tail_messages?: 0 | number;
   };
 }
+export interface GatewayDiscovery {
+  available: boolean;
+  major: number;
+  runtime_id: string;
+  process_epoch: string;
+  websocket_path: "/api/v4/ws";
+  content_path: "/api/v4/content/";
+  max_content_bytes: number;
+}
 export interface GetStateParams {
   session_id: string;
   scope: "session" | "tree";
@@ -1769,7 +1817,7 @@ export interface GoalAdmission {
         }
       | {
           host_operation: {
-            module: "shell" | "files" | "tools";
+            module: "shell" | "files" | "tools" | "computer";
             name: string;
             arguments_base64: string;
           };
@@ -2141,7 +2189,7 @@ export interface HistoryPageResult {
             role: "tool";
             /**
              * @minItems 1
-             * @maxItems 1
+             * @maxItems 9
              */
             parts: [
               {
@@ -2151,7 +2199,11 @@ export interface HistoryPageResult {
                   output: string;
                 };
                 type: "tool_result";
-              }
+              },
+              ...{
+                reference_id: string;
+                type: "content";
+              }[]
             ];
             created_at: string;
           }
@@ -2364,7 +2416,7 @@ export interface HistoryResult {
             role: "tool";
             /**
              * @minItems 1
-             * @maxItems 1
+             * @maxItems 9
              */
             parts: [
               {
@@ -2374,7 +2426,11 @@ export interface HistoryResult {
                   output: string;
                 };
                 type: "tool_result";
-              }
+              },
+              ...{
+                reference_id: string;
+                type: "content";
+              }[]
             ];
             created_at: string;
           }
@@ -2385,6 +2441,82 @@ export interface HistorySnapshot {
   session_id: string;
   through_sequence: string;
   message_count: string;
+}
+export interface HostAttentionParams {
+  after: null | {
+    tree_id: string;
+    session_id: string;
+  };
+  limit: number;
+  max_bytes: number;
+}
+export interface HostAttentionResult {
+  /**
+   * @maxItems 100
+   */
+  items: {
+    tree_id: string;
+    root_id: string;
+    session_id: string;
+    title: null | string;
+    activity: {
+      session_id: string;
+      lifecycle: "active" | "stopped";
+      active_turn: null | {
+        history_revision: string;
+        goal: null | {
+          id: string;
+          revision: string;
+        };
+        id: string;
+        session_id: string;
+        kind: "prompt" | "compact" | "goal_formulation" | "automatic_title" | "host_operation";
+        config_revision: string;
+        state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
+        failure: null | string;
+        started_at: string;
+        finished_at: null | string;
+      };
+      active_input_id: null | string;
+      queued_input_count: string;
+      pending_permission_count: string;
+      pending_question_count: string;
+      execution_permit: boolean;
+      active_workspace_action_id: null | string;
+    };
+  }[];
+  next_cursor: null | {
+    tree_id: string;
+    session_id: string;
+  };
+}
+export interface HostDirectoriesParams {
+  path: string;
+  after: string;
+  prefix: string;
+  show_hidden: boolean;
+  limit: number;
+}
+export interface HostDirectoriesResult {
+  path: string;
+  parent: string;
+  /**
+   * @maxItems 128
+   */
+  entries: {
+    name: string;
+    path: string;
+  }[];
+  next_after: null | string;
+  has_more: boolean;
+  truncated: boolean;
+}
+export interface HostDirectoryPickParams {
+  start: string;
+}
+export interface HostDirectoryPickResult {
+  path: null | string;
+  cancelled: boolean;
 }
 export type HostOperation = {
   permission_revision: null | string;
@@ -2400,6 +2532,10 @@ export type HostOperation = {
   state: "waiting" | "ready" | "dispatched" | "succeeded" | "failed" | "denied" | "cancelled" | "uncertain";
   grant_id: null | string;
   result: null | {
+    /**
+     * @maxItems 8
+     */
+    content_references: string[];
     state: "succeeded" | "failed" | "denied" | "cancelled" | "uncertain";
     value?: unknown;
     failure?: null | string;
@@ -2447,12 +2583,130 @@ export interface HostOperationsResult {
           }
       )[];
 }
+export interface HostProfiles {
+  revision: string;
+  /**
+   * @maxItems 16
+   */
+  profiles: {
+    id: string;
+    name: string;
+    url: string;
+    runtime_id: string;
+    connect_on_launch: boolean;
+  }[];
+}
+export interface HostSkillsParams {
+  scope: "global" | "project";
+  cwd: string;
+  prefix: string;
+  definition: null | {
+    id: string;
+    revision: string;
+  };
+  limit: number;
+}
+export interface HostSkillsResult {
+  /**
+   * @maxItems 1024
+   */
+  candidates: {
+    text: string;
+    description: string;
+  }[];
+  truncated: boolean;
+}
+export interface HostThemeResolveParams {
+  name: string;
+  json: string;
+}
+export interface HostThemeResolved {
+  id: string;
+  name: string;
+  dark: boolean;
+  colors: {
+    background: string;
+    foreground: string;
+    muted: string;
+    faint: string;
+    primary: string;
+    on_primary: string;
+    accent: string;
+    success: string;
+    warning: string;
+    error: string;
+    info: string;
+    link: string;
+    emphasis: string;
+    border: string;
+    border_focus: string;
+    diff_add: string;
+    diff_del: string;
+    panel: string;
+    element: string;
+    hover: string;
+  };
+  syntax: {
+    keyword: string;
+    string: string;
+    number: string;
+    comment: string;
+    function: string;
+    type: string;
+    operator: string;
+    punctuation: string;
+  };
+  markdown: {
+    heading: string;
+    strong: string;
+    code: string;
+    quote: string;
+  };
+  code: {
+    foreground: string;
+    background: string;
+    tokens: {
+      [k: string]: {
+        color: string;
+        background: string;
+        bold: boolean;
+        italic: boolean;
+        underline: boolean;
+      };
+    } | null;
+  };
+  web?: null | {
+    navigation?: string;
+    quiet_border?: string;
+    code_background?: string;
+    inline_code_background?: string;
+  };
+}
+export interface HostThemesResult {
+  /**
+   * @maxItems 256
+   */
+  themes: {
+    id: string;
+    name: string;
+    dark: boolean;
+    source: "builtin" | "custom";
+  }[];
+  /**
+   * @maxItems 128
+   */
+  errors: {
+    file: string;
+    message: string;
+  }[];
+  truncated: boolean;
+}
 export interface HostToolSchemasResult {
   /**
-   * @maxItems 135
+   * @maxItems 136
    */
   items: {
-    module: "shell" | "files" | "tools";
+    module: "shell" | "files" | "tools" | "computer";
     name: string;
     description: string;
     input_schema: unknown;
@@ -2707,7 +2961,7 @@ export type Input =
     }
   | {
       host_operation: {
-        module: "shell" | "files" | "tools";
+        module: "shell" | "files" | "tools" | "computer";
         name: string;
         arguments_base64: string;
       };
@@ -3648,7 +3902,7 @@ export type Message =
       role: "tool";
       /**
        * @minItems 1
-       * @maxItems 1
+       * @maxItems 9
        */
       parts: [
         {
@@ -3658,7 +3912,11 @@ export type Message =
             output: string;
           };
           type: "tool_result";
-        }
+        },
+        ...{
+          reference_id: string;
+          type: "content";
+        }[]
       ];
       created_at: string;
     };
@@ -7050,7 +7308,7 @@ export interface SessionObservation {
             role: "tool";
             /**
              * @minItems 1
-             * @maxItems 1
+             * @maxItems 9
              */
             parts: [
               {
@@ -7060,7 +7318,11 @@ export interface SessionObservation {
                   output: string;
                 };
                 type: "tool_result";
-              }
+              },
+              ...{
+                reference_id: string;
+                type: "content";
+              }[]
             ];
             created_at: string;
           }
@@ -7103,6 +7365,19 @@ export interface SetBudgetParams {
 export interface SetDefaultPermissionModeParams {
   expected_revision: string;
   mode: "prompt" | "automatic";
+}
+export interface SetHostProfilesParams {
+  expected_revision: string;
+  /**
+   * @maxItems 16
+   */
+  profiles: {
+    id: string;
+    name: string;
+    url: string;
+    runtime_id: string;
+    connect_on_launch: boolean;
+  }[];
 }
 export interface SetPermissionModeParams {
   edit_id: string;
@@ -7488,7 +7763,7 @@ export interface SpawnSessionResult {
         }
       | {
           host_operation: {
-            module: "shell" | "files" | "tools";
+            module: "shell" | "files" | "tools" | "computer";
             name: string;
             arguments_base64: string;
           };
@@ -7735,6 +8010,98 @@ export interface ToolResult {
   call_id: string;
   is_error: boolean;
   output: string;
+}
+export interface TraceExportParams {
+  root_id: string;
+  trace_id: string;
+  expected_revision: null | string;
+}
+export interface TraceExportResult {
+  reference: {
+    id: string;
+    session_id: string;
+    digest: string;
+    size: string;
+    media_type: string;
+    created_at: string;
+  };
+  revision: string;
+  spans: number;
+  traces: number;
+}
+export interface TracePageParams {
+  root_id: string;
+  after: string;
+  expected_revision: null | string;
+  trace_id: string;
+  roots_only: boolean;
+  limit: number;
+  max_bytes: number;
+}
+export interface TracePageResult {
+  /**
+   * @maxItems 2048
+   */
+  items: {
+    sequence: string;
+    root_id: string;
+    session_id: string;
+    turn_id: string;
+    source_kind: "turn" | "attempt" | "cell" | "operation" | "permission" | "question";
+    source_id: string;
+    span_id: string;
+    span: null | {
+      trace_id: string;
+      parent_span_id: null | string;
+      kind: "agent" | "llm" | "tool" | "host" | "wait";
+      name: string;
+      state:
+        | "running"
+        | "cancelling"
+        | "reserved"
+        | "dispatched"
+        | "succeeded"
+        | "failed"
+        | "cancelled"
+        | "interrupted"
+        | "uncertain"
+        | "waiting"
+        | "ready"
+        | "denied"
+        | "pending"
+        | "approved"
+        | "answered"
+        | "expired";
+      start_ns: string;
+      end_ns: null | string;
+      /**
+       * @maxItems 64
+       */
+      attributes: (
+        | {
+            count?: null;
+            flag?: null;
+            text?: string;
+            [k: string]: unknown;
+          }
+        | {
+            count?: string;
+            flag?: null;
+            text?: null;
+            [k: string]: unknown;
+          }
+        | {
+            count?: null;
+            flag?: boolean;
+            text?: null;
+            [k: string]: unknown;
+          }
+      )[];
+    };
+  }[];
+  revision: string;
+  next: string;
+  has_more: boolean;
 }
 export interface Tree {
   id: string;
@@ -7984,6 +8351,9 @@ export interface ContractTypes {
   CompactionResult: CompactionResult;
   CompactionsParams: CompactionsParams;
   CompactionsResult: CompactionsResult;
+  ComputerConnectionParams: ComputerConnectionParams;
+  ComputerStatus: ComputerStatus;
+  ConfigureComputerParams: ConfigureComputerParams;
   ConfigureMCPParams: ConfigureMCPParams;
   ContentReference: ContentReference;
   ContextHead: ContextHead;
@@ -8013,6 +8383,7 @@ export interface ContractTypes {
   ForkParams: ForkParams;
   ForkResult: ForkResult;
   FormulateGoalParams: FormulateGoalParams;
+  GatewayDiscovery: GatewayDiscovery;
   GetStateParams: GetStateParams;
   Goal: Goal;
   GoalAdmission: GoalAdmission;
@@ -8031,10 +8402,22 @@ export interface ContractTypes {
   HistoryParams: HistoryParams;
   HistoryResult: HistoryResult;
   HistorySnapshot: HistorySnapshot;
+  HostAttentionParams: HostAttentionParams;
+  HostAttentionResult: HostAttentionResult;
+  HostDirectoriesParams: HostDirectoriesParams;
+  HostDirectoriesResult: HostDirectoriesResult;
+  HostDirectoryPickParams: HostDirectoryPickParams;
+  HostDirectoryPickResult: HostDirectoryPickResult;
   HostOperation: HostOperation;
   HostOperationParams: HostOperationParams;
   HostOperationsParams: HostOperationsParams;
   HostOperationsResult: HostOperationsResult;
+  HostProfiles: HostProfiles;
+  HostSkillsParams: HostSkillsParams;
+  HostSkillsResult: HostSkillsResult;
+  HostThemeResolveParams: HostThemeResolveParams;
+  HostThemeResolved: HostThemeResolved;
+  HostThemesResult: HostThemesResult;
   HostToolSchemasResult: HostToolSchemasResult;
   InferenceAccountStatus: InferenceAccountStatus;
   InferenceCleanupResult: InferenceCleanupResult;
@@ -8147,6 +8530,7 @@ export interface ContractTypes {
   SessionParams: SessionParams;
   SetBudgetParams: SetBudgetParams;
   SetDefaultPermissionModeParams: SetDefaultPermissionModeParams;
+  SetHostProfilesParams: SetHostProfilesParams;
   SetPermissionModeParams: SetPermissionModeParams;
   SetResourceParams: SetResourceParams;
   ShellInputParams: ShellInputParams;
@@ -8175,6 +8559,10 @@ export interface ContractTypes {
   TerminalWriteParams: TerminalWriteParams;
   ToolCall: ToolCall;
   ToolResult: ToolResult;
+  TraceExportParams: TraceExportParams;
+  TraceExportResult: TraceExportResult;
+  TracePageParams: TracePageParams;
+  TracePageResult: TracePageResult;
   Tree: Tree;
   TreeCatalog: TreeCatalog;
   TreeCreationParams: TreeCreationParams;
@@ -8195,6 +8583,14 @@ export interface ContractTypes {
   WriteStateParams: WriteStateParams;
 }
 export interface Operations {
+  "trace.page": { params: TracePageParams; result: TracePageResult };
+  "trace.export": { params: TraceExportParams; result: TraceExportResult };
+  "host.attention": { params: HostAttentionParams; result: HostAttentionResult };
+  "host.directories.list": { params: HostDirectoriesParams; result: HostDirectoriesResult };
+  "host.directory.pick": { params: HostDirectoryPickParams; result: HostDirectoryPickResult };
+  "host.skills.complete": { params: HostSkillsParams; result: HostSkillsResult };
+  "host.themes.list": { params: EmptyParams; result: HostThemesResult };
+  "host.themes.resolve": { params: HostThemeResolveParams; result: HostThemeResolved };
   "tool.schemas": { params: SessionParams; result: HostToolSchemasResult };
   "tool.call": { params: CallHostToolParams; result: Admission };
   "shell.run": { params: RunShellParams; result: Admission };
@@ -8206,6 +8602,10 @@ export interface Operations {
   "tool.progress": { params: ExecutorProgressParams; result: ExecutorAccepted };
   "shell.interaction": { params: ShellInteractionParams; result: ShellInteractionResult };
   "shell.input": { params: ShellInputParams; result: ShellInputResult };
+  "computer.status": { params: EmptyParams; result: ComputerStatus };
+  "computer.configure": { params: ConfigureComputerParams; result: ComputerStatus };
+  "computer.reconnect": { params: ComputerConnectionParams; result: ComputerStatus };
+  "computer.disconnect": { params: ComputerConnectionParams; result: ComputerStatus };
   "mcp.configuration": { params: EmptyParams; result: MCPConfiguration };
   "mcp.configure": { params: ConfigureMCPParams; result: MCPConfiguration };
   "mcp.import.candidates": { params: MCPImportCandidatesParams; result: MCPImportCandidatesResult };
@@ -8319,6 +8719,8 @@ export interface Operations {
   "permissions.policy": { params: SessionParams; result: PermissionPolicy };
   "permissions.set_mode": { params: SetPermissionModeParams; result: PermissionModeEdit };
   "permissions.mode_edit": { params: PermissionModeEditParams; result: PermissionModeEdit };
+  "host.profiles": { params: EmptyParams; result: HostProfiles };
+  "host.set_profiles": { params: SetHostProfilesParams; result: HostProfiles };
   "host.permission_default": { params: EmptyParams; result: DefaultPermissionMode };
   "host.set_permission_default": { params: SetDefaultPermissionModeParams; result: DefaultPermissionMode };
   "questions.get": { params: QuestionParams; result: Question };

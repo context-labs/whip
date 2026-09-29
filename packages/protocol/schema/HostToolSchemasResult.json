@@ -11,7 +11,8 @@
             "enum": [
               "shell",
               "files",
-              "tools"
+              "tools",
+              "computer"
             ]
           },
           "name": {
@@ -31,7 +32,7 @@
         ],
         "additionalProperties": false
       },
-      "maxItems": 135
+      "maxItems": 136
     }
   },
   "$id": "https://whip.dev/protocol/v4/HostToolSchemasResult",

@@ -2202,3 +2202,48 @@ by admission; JavaScript does not reimplement request hashing. Missing returns
 not-found without writing, changed payload conflicts, and matching tombstones
 survive deletion and restart. The operation is a read, not a dry-run or replay.
 Other identity-only receipts do not by themselves prove full payload equality.
+
+## Native controls, host previews and execution traces
+
+Fresh schema43 adds trusted typed image references to tool settlement. Every
+reference preserves its owner; arbitrary text cannot manufacture an image.
+A cell holds at most8 references/16MiB until settlement. Provider preparation
+hydrates the committed references for the same next round, with its existing
+4MiB request bound and explicit failure if exceeded. Completed valid MCP images
+share this path; interrupted or malformed chunks are not image evidence.
+
+Schema44 and host config17 add explicit native computer connections and reviewed
+application policy. One command-owned process manager is shared by shell,
+language servers, picker and computer helper. Computer batches use one active
+slot/four waiters, prevalidate all calls, and check current application policy
+and SQL authority before every effect. Permission capture is inert. Revocation
+and close cancel/join the helper; restart and interpreter discard never restore
+accessibility handles. Automatic session policy cannot override host application
+restrictions. Typed screenshots use ordinary content publication and settlement.
+
+Directory, picker, skill and theme previews belong to bounded human host services,
+not session execution. Picker work is limited to2 processes,120seconds and8KiB;
+shutdown joins it. Skills use fresh host configuration and exact definition
+policy, with canonical project scope. Theme reads stay beneath the explicit
+runtime directory and reject blocking/special files. Tree attention is one
+bounded SQL snapshot across exact root/child activity, including stopped queued
+work and pending human decisions; it never hydrates workers.
+
+Schema45 adds a latest-change identity index for canonical execution evidence.
+The index stores source/owner/turn identities and a monotonic sequence, never a
+second span body or state. Changes/deletions project through bounded snapshot
+reads; tombstones survive source deletion. Fixed-revision pagination rejects
+intervening changes and advances through filtered empty pages. Child causality
+requires the exact successful spawn/submit operation receipt. OTLP export is
+limited to4096 spans/4MiB/16 pages/10seconds, written as root-owned content with
+no network transmission. Time precision and open spans are explicit. Historical
+prepared provider input bodies are unavailable; current transcript is never
+substituted as historical evidence.
+
+Host config18 adds at most16 saved remote URL profiles with safe metadata only.
+The shared configuration authority owns revision CAS; stale same-value writes
+conflict, current same-value writes preserve the revision. Exact validated root
+URLs and caller-observed runtime pins are retained. Reads/writes neither connect
+to a saved host nor expose credentials. Native SSH/device profiles remain app
+state. Gateway discovery is a bounded passive read; SDK transports enforce the
+verified runtime and, when provided, process epoch before dependent requests.

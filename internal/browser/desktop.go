@@ -129,7 +129,7 @@ func (b *desktopBackend) Screenshot(ctx context.Context, maxDim int) ([]byte, er
 	if err != nil {
 		return nil, err
 	}
-	data, err = boundDesktopJPEG(ctx, data, maxDim)
+	data, err = BoundJPEG(ctx, data, maxDim)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +140,8 @@ func (b *desktopBackend) Screenshot(ctx context.Context, maxDim int) ([]byte, er
 	return data, nil
 }
 
-func boundDesktopJPEG(ctx context.Context, data []byte, maxDim int) ([]byte, error) {
+// BoundJPEG validates and normalizes a bounded JPEG from a browser or native helper.
+func BoundJPEG(ctx context.Context, data []byte, maxDim int) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

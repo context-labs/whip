@@ -17,7 +17,7 @@ func TestDesktopScreenshotBoundsPhysicalPixels(t *testing.T) {
 	if err := jpeg.Encode(&encoded, source, nil); err != nil {
 		t.Fatal(err)
 	}
-	result, err := boundDesktopJPEG(t.Context(), encoded.Bytes(), 640)
+	result, err := BoundJPEG(t.Context(), encoded.Bytes(), 640)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func TestDesktopScreenshotBoundsPhysicalPixels(t *testing.T) {
 	if err != nil || config.Width != 640 || config.Height != 400 {
 		t.Fatalf("unbounded HiDPI image: %+v %v", config, err)
 	}
-	unchanged, err := boundDesktopJPEG(t.Context(), result, 640)
+	unchanged, err := BoundJPEG(t.Context(), result, 640)
 	if err != nil || !bytes.Equal(result, unchanged) {
 		t.Fatal("small screenshot reencoded")
 	}
@@ -33,13 +33,13 @@ func TestDesktopScreenshotBoundsPhysicalPixels(t *testing.T) {
 
 func TestDesktopScreenshotRejectsInvalidAndCancelled(t *testing.T) {
 	for _, data := range [][]byte{nil, []byte("not-jpeg"), make([]byte, (8<<20)+1)} {
-		if _, err := boundDesktopJPEG(t.Context(), data, 640); err == nil {
+		if _, err := BoundJPEG(t.Context(), data, 640); err == nil {
 			t.Fatal("accepted invalid screenshot")
 		}
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := boundDesktopJPEG(ctx, nil, 640); !errors.Is(err, context.Canceled) {
+	if _, err := BoundJPEG(ctx, nil, 640); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled: %v", err)
 	}
 }

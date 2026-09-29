@@ -1,0 +1,226 @@
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "tree_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "root_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "session_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "activity": {
+            "type": "object",
+            "properties": {
+              "session_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "lifecycle": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "stopped"
+                ]
+              },
+              "active_turn": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "history_revision": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  },
+                  "goal": {
+                    "type": [
+                      "null",
+                      "object"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                      },
+                      "revision": {
+                        "type": "string",
+                        "pattern": "^(0|[1-9][0-9]{0,18})$",
+                        "format": "counter"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "revision"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "session_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "prompt",
+                      "compact",
+                      "goal_formulation",
+                      "automatic_title",
+                      "host_operation"
+                    ]
+                  },
+                  "config_revision": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "running",
+                      "cancelling",
+                      "succeeded",
+                      "failed",
+                      "cancelled",
+                      "interrupted"
+                    ]
+                  },
+                  "failure": {
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "started_at": {
+                    "type": "string"
+                  },
+                  "finished_at": {
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  }
+                },
+                "required": [
+                  "history_revision",
+                  "goal",
+                  "id",
+                  "session_id",
+                  "kind",
+                  "config_revision",
+                  "state",
+                  "failure",
+                  "started_at",
+                  "finished_at"
+                ],
+                "additionalProperties": false
+              },
+              "active_input_id": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "queued_input_count": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "pending_permission_count": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "pending_question_count": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "execution_permit": {
+                "type": "boolean"
+              },
+              "active_workspace_action_id": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              }
+            },
+            "required": [
+              "session_id",
+              "lifecycle",
+              "active_turn",
+              "active_input_id",
+              "queued_input_count",
+              "pending_permission_count",
+              "pending_question_count",
+              "execution_permit",
+              "active_workspace_action_id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "tree_id",
+          "root_id",
+          "session_id",
+          "title",
+          "activity"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 100
+    },
+    "next_cursor": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "tree_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        }
+      },
+      "required": [
+        "tree_id",
+        "session_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/HostAttentionResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HostAttentionResult",
+  "required": [
+    "items",
+    "next_cursor"
+  ],
+  "additionalProperties": false
+}

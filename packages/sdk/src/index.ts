@@ -2,7 +2,8 @@ import { assertValid } from '@whip/protocol';
 import type { Admission, InitializeResult, Operations, RequestIdentity, SessionObservation } from '@whip/protocol';
 import { delay } from './value.js';
 import { Session } from './session.js';
-import { Trees, Sessions } from './services.js';
+import { Agents } from './agents.js';
+import { Trees, Sessions, Hosts } from './services.js';
 import { DurableCommand } from './command.js';
 import type { DurableMethod, RecoveryJournal } from './command.js';
 import { decodeResponse, operation, RemoteError } from './wire.js';
@@ -16,6 +17,8 @@ export type * from '@whip/protocol';
 export class Client {
   private sequence = 0;
   readonly trees = new Trees(this);
+  readonly agents = new Agents(this);
+  readonly hosts = new Hosts(this);
   readonly sessions = new Sessions(this);
   session(sessionID: string): Session { return this.sessions.handle(sessionID); }
   private constructor(private readonly transport: Transport, private readonly initial: InitializeResult, readonly clientID: string) {}
@@ -184,6 +187,10 @@ export class Client {
   }
 
   /** Saved declarations only; never connects or resolves credentials. */
+  computerStatus(options: CallOptions = {}): Promise<Operations['computer.status']['result']> { return this.call('computer.status', {}, options); }
+  configureComputer(params: Operations['computer.configure']['params'], options: CallOptions = {}): Promise<Operations['computer.configure']['result']> { return this.call('computer.configure', params, options); }
+  reconnectComputer(generation: string, options: CallOptions = {}): Promise<Operations['computer.reconnect']['result']> { return this.call('computer.reconnect', { generation }, options); }
+  disconnectComputer(generation: string, options: CallOptions = {}): Promise<Operations['computer.disconnect']['result']> { return this.call('computer.disconnect', { generation }, options); }
   mcpConfiguration(options: CallOptions = {}): Promise<Operations['mcp.configuration']['result']> { return this.call('mcp.configuration', {}, options); }
   /** Explicit CAS publication. Reread configuration after lost delivery; never automatically replay. */
   configureMCP(params: Operations['mcp.configure']['params'], options: CallOptions = {}): Promise<Operations['mcp.configure']['result']> { return this.call('mcp.configure', params, options); }
@@ -302,6 +309,41 @@ export class Client {
 
   logoutOpenAIAccount(options: CallOptions = {}): Promise<Operations['accounts.openai.logout']['result']> {
     return this.call('accounts.openai.logout', {}, options);
+  }
+
+  /** Fixed-revision canonical updates. A null span deletes that ID; conflicts require a fresh scan. */
+  tracePage(params: Operations['trace.page']['params'], options: CallOptions = {}): Promise<Operations['trace.page']['result']> {
+    return this.call('trace.page', params, options);
+  }
+
+  /** Complete bounded OTLP file in root-owned content. No network export or automatic conflict retry. */
+  exportTrace(params: Operations['trace.export']['params'], options: CallOptions = {}): Promise<Operations['trace.export']['result']> {
+    return this.call('trace.export', params, options);
+  }
+
+  /** Advisory exact-owner activity. Refresh from the beginning to find newly active earlier owners. */
+  hostAttention(params: Operations['host.attention']['params'], options: CallOptions = {}): Promise<Operations['host.attention']['result']> {
+    return this.call('host.attention', params, options);
+  }
+
+  hostDirectories(params: Operations['host.directories.list']['params'], options: CallOptions = {}): Promise<Operations['host.directories.list']['result']> {
+    return this.call('host.directories.list', params, options);
+  }
+
+  pickHostDirectory(start = '', options: CallOptions = {}): Promise<Operations['host.directory.pick']['result']> {
+    return this.call('host.directory.pick', { start }, options);
+  }
+
+  completeHostSkills(params: Operations['host.skills.complete']['params'], options: CallOptions = {}): Promise<Operations['host.skills.complete']['result']> {
+    return this.call('host.skills.complete', params, options);
+  }
+
+  hostThemes(options: CallOptions = {}): Promise<Operations['host.themes.list']['result']> {
+    return this.call('host.themes.list', {}, options);
+  }
+
+  resolveHostTheme(params: Operations['host.themes.resolve']['params'], options: CallOptions = {}): Promise<Operations['host.themes.resolve']['result']> {
+    return this.call('host.themes.resolve', params, options);
   }
 
   /** Fixed declared host surface; listing never starts a resource or grants authority. */
@@ -550,6 +592,9 @@ export { DurableCommand, RecoveryJournal, RecoveryError, RecoveryPersistenceErro
 export type { DurableMethod, RecoveryRecord, RecoveryStorage, RecoveryCheck, RecoveryEvidence } from './command.js';
 
 export { Session } from './session.js';
-export { Trees, Sessions } from './services.js';
+export { Trees, Sessions, Hosts } from './services.js';
 
 export type { Session as SessionRecord } from '@whip/protocol';
+
+export { framedTransport } from './framed.js';
+export type { FramedConnection, FrameHandlers, FramedConnector } from './framed.js';

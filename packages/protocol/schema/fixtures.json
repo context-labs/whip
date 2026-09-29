@@ -1,5 +1,29 @@
 [
   {
+    "type": "HostProfiles",
+    "value": {
+      "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "profiles": [
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test:8443/",
+          "runtime_id": "runtime_remote",
+          "connect_on_launch": true
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "type": "SetHostProfilesParams",
+    "value": {
+      "expected_revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "profiles": []
+    },
+    "valid": true
+  },
+  {
     "type": "Input",
     "value": {
       "host_operation": {
@@ -17,6 +41,195 @@
       "turn_id": null,
       "created_at": "2026-09-27T12:00:00.123456Z",
       "schedule": null
+    },
+    "valid": true
+  },
+  {
+    "type": "HostAttentionParams",
+    "value": {
+      "after": null,
+      "limit": 100,
+      "max_bytes": 524288
+    },
+    "valid": true
+  },
+  {
+    "type": "TracePageParams",
+    "value": {
+      "root_id": "session_root",
+      "after": "9007199254740993",
+      "expected_revision": "9007199254740999",
+      "trace_id": "",
+      "roots_only": false,
+      "limit": 2048,
+      "max_bytes": 524288
+    },
+    "valid": true
+  },
+  {
+    "type": "TracePageResult",
+    "value": {
+      "items": [
+        {
+          "sequence": "9007199254740999",
+          "root_id": "session_root",
+          "session_id": "session_child",
+          "turn_id": "turn",
+          "source_kind": "attempt",
+          "source_id": "attempt",
+          "span_id": "6a8b8e39ebc97796",
+          "span": {
+            "trace_id": "d8f7f1faddace29cb46152807a8bffbc",
+            "parent_span_id": null,
+            "kind": "llm",
+            "name": "turn model",
+            "state": "succeeded",
+            "start_ns": "1790600000000000000",
+            "end_ns": "1790600000000001000",
+            "attributes": [
+              {
+                "key": "whip.cost.nano_usd",
+                "text": null,
+                "count": "9007199254740993",
+                "flag": null
+              },
+              {
+                "key": "whip.input.body_available",
+                "text": null,
+                "count": null,
+                "flag": false
+              },
+              {
+                "key": "gen_ai.request.model",
+                "text": "model",
+                "count": null,
+                "flag": null
+              }
+            ]
+          }
+        },
+        {
+          "sequence": "9007199254740998",
+          "root_id": "session_root",
+          "session_id": "deleted",
+          "turn_id": "gone",
+          "source_kind": "turn",
+          "source_id": "gone",
+          "span_id": "3273deed37610830",
+          "span": null
+        }
+      ],
+      "revision": "9007199254740999",
+      "next": "9007199254740999",
+      "has_more": false
+    },
+    "valid": true
+  },
+  {
+    "type": "TraceExportParams",
+    "value": {
+      "root_id": "session_root",
+      "trace_id": "",
+      "expected_revision": null
+    },
+    "valid": true
+  },
+  {
+    "type": "HostAttentionResult",
+    "value": {
+      "items": [],
+      "next_cursor": null
+    },
+    "valid": true
+  },
+  {
+    "type": "HostDirectoriesParams",
+    "value": {
+      "path": "/workspace",
+      "after": "",
+      "prefix": "",
+      "show_hidden": false,
+      "limit": 64
+    },
+    "valid": true
+  },
+  {
+    "type": "HostDirectoriesResult",
+    "value": {
+      "path": "/workspace",
+      "parent": "/",
+      "entries": [
+        {
+          "name": "project",
+          "path": "/workspace/project"
+        }
+      ],
+      "next_after": null,
+      "has_more": false,
+      "truncated": false
+    },
+    "valid": true
+  },
+  {
+    "type": "HostDirectoryPickParams",
+    "value": {
+      "start": ""
+    },
+    "valid": true
+  },
+  {
+    "type": "HostDirectoryPickResult",
+    "value": {
+      "path": null,
+      "cancelled": true
+    },
+    "valid": true
+  },
+  {
+    "type": "HostSkillsParams",
+    "value": {
+      "scope": "global",
+      "cwd": "",
+      "prefix": "",
+      "definition": null,
+      "limit": 32
+    },
+    "valid": true
+  },
+  {
+    "type": "HostSkillsResult",
+    "value": {
+      "candidates": [
+        {
+          "text": "$fixture",
+          "description": "Fixture"
+        }
+      ],
+      "truncated": false
+    },
+    "valid": true
+  },
+  {
+    "type": "HostThemesResult",
+    "value": {
+      "themes": [
+        {
+          "id": "dark",
+          "name": "Dark",
+          "dark": true,
+          "source": "builtin"
+        }
+      ],
+      "errors": [],
+      "truncated": false
+    },
+    "valid": true
+  },
+  {
+    "type": "HostThemeResolveParams",
+    "value": {
+      "name": "dark",
+      "json": ""
     },
     "valid": true
   },
@@ -314,6 +527,24 @@
       "code": -32035,
       "message": "MCP operation unavailable; inspect configuration and connection status",
       "kind": "MCP_UNAVAILABLE"
+    },
+    "valid": true
+  },
+  {
+    "type": "ComputerStatus",
+    "value": {
+      "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "configuration": {
+        "enabled": false,
+        "helper_executable": "",
+        "allow": [],
+        "deny": [],
+        "default_deny": true
+      },
+      "generation": "control_fixture",
+      "state": "disabled",
+      "native_configured": false,
+      "platform_supported": true
     },
     "valid": true
   },
@@ -2367,6 +2598,9 @@
       "state": "succeeded",
       "grant_id": "grant_fixture",
       "result": {
+        "content_references": [
+          "image_ref"
+        ],
         "state": "succeeded",
         "value": {
           "output": "1: hello"
@@ -3062,6 +3296,39 @@
     "valid": true
   },
   {
+    "type": "Message",
+    "value": {
+      "group_id": "turn_fixture",
+      "opening_input": false,
+      "source": null,
+      "retired_by": null,
+      "retired_revision": null,
+      "id": "message_image",
+      "session_id": "session_child",
+      "turn_id": "turn_fixture",
+      "input_id": null,
+      "mail": null,
+      "sequence": "9007199254740996",
+      "role": "tool",
+      "parts": [
+        {
+          "type": "tool_result",
+          "result": {
+            "call_id": "image_call",
+            "output": "unchanged output",
+            "is_error": false
+          }
+        },
+        {
+          "type": "content",
+          "reference_id": "image_ref"
+        }
+      ],
+      "created_at": "2026-09-27T12:00:00.123456Z"
+    },
+    "valid": true
+  },
+  {
     "type": "SpawnSessionParams",
     "value": {
       "identity": {
@@ -3138,6 +3405,158 @@
       "finished_at": null
     },
     "valid": true
+  },
+  {
+    "type": "SetHostProfilesParams",
+    "value": {
+      "expected_revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "profiles": null
+    },
+    "valid": false
+  },
+  {
+    "type": "SetHostProfilesParams",
+    "value": {
+      "expected_revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "profiles": [
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "type": "SetHostProfilesParams",
+    "value": {
+      "expected_revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "profiles": [
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        }
+      ]
+    },
+    "valid": false
   },
   {
     "type": "UpdateConfigurationParams",

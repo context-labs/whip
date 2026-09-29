@@ -87,9 +87,3 @@ func (s *Store) MCPStandingGrants(ctx context.Context, id session.SessionID) (re
 	}
 	return result, tx.Commit()
 }
-
-// Imported/attached connections require an exact grant even in Full Access.
-// Only the trusted host preparation can select the separate trusted capability.
-func requiresExplicitMCPGrant(capability string) bool {
-	return capability == "mcp.call" || capability == "mcp.connect"
-}

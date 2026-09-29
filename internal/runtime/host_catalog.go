@@ -43,6 +43,7 @@ func (r *Runtime) HostToolSchemas(ctx context.Context, id session.SessionID) ([]
 }
 
 var directSchemas = []HostToolSchema{
+	{"computer", "run", "Run a bounded reviewed computer batch; tell permits arbitrary AppleScript.", json.RawMessage(`{"type":"object","properties":{"code":{"type":"string","minLength":1,"maxLength":65536}},"required":["code"],"additionalProperties":false}`)},
 	{"shell", "run", "Run a bounded shell command in this session workspace.", json.RawMessage(`{"type":"object","properties":{"command":{"type":"string","minLength":1,"maxLength":65536},"timeout":{"type":"number","minimum":0.001,"maximum":120},"interactive":{"type":"boolean"}},"required":["command"],"additionalProperties":false}`)},
 	{"files", "read", "Read a bounded range of lines in this workspace.", json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"offset":{"type":"integer","minimum":1,"maximum":262144},"limit":{"type":"integer","minimum":1,"maximum":262144}},"required":["path"],"additionalProperties":false}`)},
 	{"files", "write", "Write bounded text in this workspace.", json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}`)},

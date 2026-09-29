@@ -225,8 +225,8 @@ func (forbiddenExecutor) Instructions(context.Context, session.Turn, session.Ins
 	return "", errors.New("manual compaction loaded executor instructions")
 }
 
-func (forbiddenExecutor) Execute(context.Context, session.Turn, session.MessageID, session.ToolCall) (session.ToolResult, error) {
-	return session.ToolResult{}, errors.New("manual compaction executed a tool")
+func (forbiddenExecutor) Execute(context.Context, session.Turn, session.MessageID, session.ToolCall) ([]session.Part, error) {
+	return nil, errors.New("manual compaction executed a tool")
 }
 
 func TestManualCompactionSettlesOnlyHelperAndRestoresSelectedContext(t *testing.T) {
@@ -539,11 +539,11 @@ func (*compactionExecutor) Instructions(_ context.Context, _ session.Turn, polic
 	return policy.Text + "\nexecute code", nil
 }
 
-func (e *compactionExecutor) Execute(_ context.Context, turn session.Turn, _ session.MessageID, call session.ToolCall) (session.ToolResult, error) {
+func (e *compactionExecutor) Execute(_ context.Context, turn session.Turn, _ session.MessageID, call session.ToolCall) ([]session.Part, error) {
 	e.calls++
 	result := session.ToolResult{CallID: call.ID, Output: "settled result"}
 	e.ledger.recordMessage(turn.ID, session.MessageID("result_"+call.ID), session.Tool, []session.Part{{Type: "tool_result", Result: &result}})
-	return result, nil
+	return []session.Part{{Type: "tool_result", Result: &result}}, nil
 }
 
 func TestCompactionRebuildsAfterDurableToolBatchOrOutputCorrection(t *testing.T) {

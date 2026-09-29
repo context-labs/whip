@@ -229,6 +229,10 @@ type chatThinking struct {
 }
 
 func encodeChat(request Request, baseURL string, maxTokens int64) ([]byte, error) {
+	sourceMessages, err := providerMessages(request.Messages)
+	if err != nil {
+		return nil, err
+	}
 	if len(request.Messages) > 100 {
 		return nil, errors.New("model message count exceeds limit")
 	}
@@ -244,7 +248,7 @@ func encodeChat(request Request, baseURL string, maxTokens int64) ([]byte, error
 	if request.Instructions != "" {
 		messages = append(messages, chatMessage{Role: "system", Content: request.Instructions})
 	}
-	for _, message := range request.Messages {
+	for _, message := range sourceMessages {
 		if err := session.ValidateMessage(message.Role, message.Parts); err != nil {
 			return nil, err
 		}

@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "generation": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ComputerConnectionParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ComputerConnectionParams",
+  "required": [
+    "generation"
+  ],
+  "additionalProperties": false
+}

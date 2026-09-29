@@ -36,9 +36,10 @@ type GrantsResult struct {
 	Items []Grant `json:"items"`
 }
 type HostOperationResult struct {
-	State   string          `json:"state" enum:"succeeded,failed,denied,cancelled,uncertain"`
-	Value   json.RawMessage `json:"value,omitempty"`
-	Failure *string         `json:"failure,omitempty"`
+	ContentReferences []ID            `json:"content_references" maxItems:"8"`
+	State             string          `json:"state" enum:"succeeded,failed,denied,cancelled,uncertain"`
+	Value             json.RawMessage `json:"value,omitempty"`
+	Failure           *string         `json:"failure,omitempty"`
 }
 type HostOperation struct {
 	PermissionRevision *Counter             `json:"permission_revision" pattern:"^[1-9][0-9]{0,18}$"`
@@ -113,11 +114,19 @@ func OperationFromDomain(value session.Operation) HostOperation {
 		result.PermissionRevision = new(Counter(*value.PermissionRevision))
 	}
 	if value.Result != nil {
-		result.Result = &HostOperationResult{State: string(value.Result.State), Value: append(json.RawMessage(nil), value.Result.Value...), Failure: value.Result.Failure}
+		result.Result = &HostOperationResult{ContentReferences: operationContentIDs(value.Result.ContentReferences), State: string(value.Result.State), Value: append(json.RawMessage(nil), value.Result.Value...), Failure: value.Result.Failure}
 	}
 	return result
 }
 
 func PermissionFromDomain(value session.Permission) Permission {
 	return Permission{OperationID: ID(value.OperationID), State: string(value.State), CreatedAt: value.CreatedAt.Format(time.RFC3339Nano), ResolvedAt: timeString(value.ResolvedAt)}
+}
+
+func operationContentIDs(values []string) []ID {
+	result := make([]ID, len(values))
+	for index, value := range values {
+		result[index] = ID(value)
+	}
+	return result
 }

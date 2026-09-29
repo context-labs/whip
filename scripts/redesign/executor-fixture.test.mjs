@@ -9,6 +9,7 @@ import { promisify } from 'node:util';
 import { test } from 'node:test';
 import { Client, ExecutorClient, DeliveryError } from '../../packages/sdk/dist/index.js';
 import { unixSocket, executorSocket } from '../../packages/sdk/dist/node.js';
+import { defineAgent, tool } from '../../packages/sdk/dist/agents.js';
 import { browserDuplex } from '../../packages/sdk/dist/browser.js';
 
 const deadline = () => ({ signal: AbortSignal.timeout(15_000) });
@@ -55,7 +56,7 @@ test(`production ${transportKind} executor preserves captured hooks, exact paylo
     const body = JSON.parse(raw), last = body.messages.at(-1);
     const prompt = body.messages.findLast(item => item.role === 'user').content;
     const code = prompt.startsWith('quickjs') ? "console.log((await tools.lookup({id:'item'})).value)" : 'print(tools.lookup(id="item")["value"])';
-    const message = last.role === 'tool' ? { role: 'assistant', content: 'completed' } : { role: 'assistant', content: null, tool_calls: [{ id: 'custom-call', type: 'function', function: { name: 'execute', arguments: JSON.stringify({ code }) } }] };
+    const message = last.role === 'tool' ? { role: 'assistant', content: prompt.includes('-typed') ? JSON.stringify({ answer: 42 }) : 'completed' } : { role: 'assistant', content: null, tool_calls: [{ id: 'custom-call', type: 'function', function: { name: 'execute', arguments: JSON.stringify({ code }) } }] };
     response.setHeader('content-type', 'application/json');
     response.end(JSON.stringify({ choices: [{ message, finish_reason: message.tool_calls ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 2, completion_tokens: 1, cost: 0 } }));
   });
@@ -76,9 +77,10 @@ test(`production ${transportKind} executor preserves captured hooks, exact paylo
   };
   let info = await start();
   let client = await Client.connect(unixSocket(info.socket), { clientID: 'executor-fixture', ...deadline() });
-  const connectExecutor = async () => ExecutorClient.connect(transportKind === 'browser'
+  const connectTransport = async () => transportKind === 'browser'
     ? await browserDuplex(info.web, { expectedRuntimeID: info.runtime_id, expectedProcessEpoch: info.process_epoch })
-    : await executorSocket(info.socket), { expectedRuntimeID: client.runtimeID, ...deadline() });
+    : await executorSocket(info.socket);
+  const connectExecutor = async () => ExecutorClient.connect(await connectTransport(), { expectedRuntimeID: client.runtimeID, ...deadline() });
   const inventory = await client.listProviders(deadline());
   await client.createProvider({ revision: inventory.revision, provider: 'fixture', keep_credential: false, key: null,
     declaration: { kind: 'openai-chat', base_url: `http://127.0.0.1:${server.address().port}/v1`, credential: { source: 'none', environment: '', file: '', command: null }, models: {} } }, deadline());
@@ -170,6 +172,29 @@ test(`production ${transportKind} executor preserves captured hooks, exact paylo
       await currentEvents.return();
     } finally { globalThis.WebSocket = NativeSocket; }
   }
+
+  await executor?.close(); executor = undefined;
+  let typedCalls = 0, typedHooks = 0;
+  const typed = defineAgent({ id: 'typed-fixture', name: 'Typed fixture', defaults: { modules: [], automatic_title: false },
+    output: { '~standard': { version: 1, vendor: 'fixture', validate: value => ({ value: { answer: String(value.answer) } }), jsonSchema: { input: () => ({ type: 'object', required: ['answer'], properties: { answer: { type: 'integer' } }, additionalProperties: false }), output: () => ({ type: 'object', properties: { answer: { type: 'string' } } }) } } },
+    tools: [tool({ name: 'lookup', description: 'Lookup', input: { type: 'object', required: ['id'], properties: { id: { type: 'string' } }, additionalProperties: false },
+      output: { '~standard': { version: 1, vendor: 'fixture', validate: value => { assert.equal(typeof value, 'string'); return { value: { value: Number(value) } }; }, jsonSchema: { input: () => ({ type: 'string' }), output: () => ({ type: 'object', required: ['value'], properties: { value: { type: 'integer' } }, additionalProperties: false }) } } },
+      async execute(input, context) { typedCalls++; assert.equal(input.id, 'rewritten'); assert.ok(context.operationID); await context.progress('typed callback'); return '42'; },
+    })],
+    hooks: { turnStart: () => { typedHooks++; return { context: 'typed context' }; }, beforeTool: { operations: ['tools.lookup'], handler: () => ({ arguments: { id: 'rewritten' } }) } },
+  });
+  const served = await client.agents.serve(typed, { transport: await connectTransport() });
+  try {
+    for (const engine of ['starlark', 'quickjs']) {
+      const session = await served.sessions.create({ creation_id: 'typed-' + engine, metadata: { title: 'typed', archived: false, pinned: false }, engine, working_directory: directory, overrides: { model: { provider: 'fixture', name: 'test', effort: '' } } }, deadline());
+      await client.call('grants.create', { id: 'typed-grant-' + engine, session_id: session.id, capability: 'tools.lookup', resource: served.definition.id + '@' + served.definition.revision }, deadline());
+      const run = session.run([{ type: 'text', text: engine + '-typed' }], 'typed-' + engine);
+      assert.equal(run.command.record.accepted, false);
+      const result = await run.result(deadline()); assert.equal(result.admission.turn.state, 'succeeded'); assert.deepEqual(result.output, { answer: '42' });
+      assert.equal((await served.sessions.open(session.id, deadline())).id, session.id);
+    }
+    assert.equal(typedCalls, 2); assert.equal(typedHooks, 2);
+  } finally { await served.close(); }
 
 });
 

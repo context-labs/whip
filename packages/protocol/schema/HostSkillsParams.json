@@ -1,0 +1,57 @@
+{
+  "type": "object",
+  "properties": {
+    "scope": {
+      "type": "string",
+      "enum": [
+        "global",
+        "project"
+      ]
+    },
+    "cwd": {
+      "type": "string",
+      "maxLength": 4096
+    },
+    "prefix": {
+      "type": "string",
+      "maxLength": 4096
+    },
+    "definition": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "revision": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "id",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1024
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/HostSkillsParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HostSkillsParams",
+  "required": [
+    "scope",
+    "cwd",
+    "prefix",
+    "definition",
+    "limit"
+  ],
+  "additionalProperties": false
+}

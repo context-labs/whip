@@ -1,6 +1,7 @@
 package theme
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 )
 
 const (
@@ -41,6 +43,11 @@ type CatalogResult struct {
 // Catalog lists built-ins and up to MaxCustomThemes directory entries from customDir.
 // customDir is the themes directory itself (normally WHIPCODE_HOME/themes).
 func Catalog(customDir string) (CatalogResult, error) {
+	return CatalogContext(context.Background(), customDir)
+}
+
+// CatalogContext lists the bounded catalog and observes cancellation between files.
+func CatalogContext(ctx context.Context, customDir string) (CatalogResult, error) {
 	result := CatalogResult{Themes: []Metadata{}, Errors: []CatalogError{}}
 	if _, errs := Embedded(); len(errs) > 0 {
 		return result, errors.Join(errs...)
@@ -48,7 +55,7 @@ func Catalog(customDir string) (CatalogResult, error) {
 	for _, s := range Builtins() {
 		result.Themes = append(result.Themes, Metadata{ID: s.Name, Name: s.Label(), Dark: s.Dark, Source: "builtin"})
 	}
-	specs, errs, truncated, err := loadCustom(customDir)
+	specs, errs, truncated, err := loadCustom(ctx, customDir)
 	if err != nil {
 		return result, err
 	}
@@ -63,10 +70,18 @@ func Catalog(customDir string) (CatalogResult, error) {
 // Resolve looks up a built-in or a bounded host catalog entry by its declared
 // name. Names are never interpreted as filesystem paths.
 func Resolve(name, customDir string) (Resolved, error) {
+	return ResolveContext(context.Background(), name, customDir)
+}
+
+// ResolveContext reads only the bounded explicit catalog.
+func ResolveContext(ctx context.Context, name, customDir string) (Resolved, error) {
+	if err := ctx.Err(); err != nil {
+		return Resolved{}, err
+	}
 	if spec, ok := Builtin(name); ok {
 		return ResolveSpec(spec)
 	}
-	specs, _, truncated, err := loadCustom(customDir)
+	specs, _, truncated, err := loadCustom(ctx, customDir)
 	if err != nil {
 		return Resolved{}, err
 	}
@@ -125,8 +140,11 @@ func parseCustom(data []byte, file string) (Spec, error) {
 	return spec, nil
 }
 
-func loadCustom(dir string) ([]Spec, []CatalogError, bool, error) {
+func loadCustom(ctx context.Context, dir string) ([]Spec, []CatalogError, bool, error) {
 	specs, issues := []Spec{}, []CatalogError{}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, false, err
+	}
 	if dir == "" {
 		return specs, issues, false, nil
 	}
@@ -154,6 +172,9 @@ func loadCustom(dir string) ([]Spec, []CatalogError, bool, error) {
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 	seen := map[string]bool{}
 	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, false, err
+		}
 		file := entry.Name()
 		if !strings.HasSuffix(file, ".json") {
 			continue
@@ -191,7 +212,7 @@ func loadCustom(dir string) ([]Spec, []CatalogError, bool, error) {
 }
 
 func readThemeFile(root *os.Root, name string) ([]byte, error) {
-	f, err := root.Open(name)
+	f, err := root.OpenFile(name, os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW, 0)
 	if err != nil {
 		return nil, err
 	}

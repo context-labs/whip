@@ -14,10 +14,12 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/computer"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/content"
 	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/executor"
+	"github.com/context-labs/whip/internal/hostview"
 	"github.com/context-labs/whip/internal/lsp"
 	"github.com/context-labs/whip/internal/runner"
 	"github.com/context-labs/whip/internal/session"
@@ -50,42 +52,45 @@ type execution struct {
 	executorActivity ExecutorActivity
 }
 type Runtime struct {
-	shells            *shell.Manager
-	mcp               *mcpOwners
-	languageServers   *lsp.Pool
-	languageProcesses *capability.ProcessManager
-	store             *store.Store
-	content           *content.Store
-	runner            *runner.Runner
-	tools             *tool.Dispatcher
-	executors         *executor.Registry
-	engineManager     *process.Manager
-	kernels           map[session.SessionID]*sessionKernel
-	owner             *owner
-	directory         string
-	host              config.Host
-	configuration     *config.Authority
-	options           Options
-	wake              chan struct{}
-	done              chan struct{}
-	mu                sync.Mutex
-	active            map[session.SessionID]*execution
-	runnable          int
-	waiting           int
-	resumptions       []*workerResumption
-	queueCursor       store.QueueCursor // owned only by the scheduling goroutine
-	preferResumption  bool
-	started, closed   bool
-	cancel            context.CancelFunc
-	failure           error
-	closeOnce         sync.Once
-	closeErr          error
-	epoch             string
-	previewMu         sync.Mutex
-	previews          map[session.SessionID]*livePreview
-	workspace         *workspace.Git
-	workspaceCalls    sync.WaitGroup
-	workspaceSlots    chan struct{}
+	computer         *computer.Controller
+	computerMu       sync.Mutex
+	hostPicker       *hostview.Picker
+	shells           *shell.Manager
+	mcp              *mcpOwners
+	languageServers  *lsp.Pool
+	hostProcesses    *capability.ProcessManager
+	store            *store.Store
+	content          *content.Store
+	runner           *runner.Runner
+	tools            *tool.Dispatcher
+	executors        *executor.Registry
+	engineManager    *process.Manager
+	kernels          map[session.SessionID]*sessionKernel
+	owner            *owner
+	directory        string
+	host             config.Host
+	configuration    *config.Authority
+	options          Options
+	wake             chan struct{}
+	done             chan struct{}
+	mu               sync.Mutex
+	active           map[session.SessionID]*execution
+	runnable         int
+	waiting          int
+	resumptions      []*workerResumption
+	queueCursor      store.QueueCursor // owned only by the scheduling goroutine
+	preferResumption bool
+	started, closed  bool
+	cancel           context.CancelFunc
+	failure          error
+	closeOnce        sync.Once
+	closeErr         error
+	epoch            string
+	previewMu        sync.Mutex
+	previews         map[session.SessionID]*livePreview
+	workspace        *workspace.Git
+	workspaceCalls   sync.WaitGroup
+	workspaceSlots   chan struct{}
 }
 
 // Open acquires exclusive execution ownership before opening fresh host/storage.
@@ -177,9 +182,28 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 		preferResumption: true,
 		workspace:        workspace.New(string(database.Identity())), workspaceSlots: make(chan struct{}, 16),
 	}
+	r.hostPicker = hostview.NewPicker(directory)
 	r.shells = shell.NewManager()
-	r.languageProcesses = capability.NewProcessManager()
-	r.languageServers = lsp.NewPool(r.languageProcesses)
+	r.hostProcesses = capability.NewProcessManager()
+	r.languageServers = lsp.NewPool(r.hostProcesses)
+	defer func() {
+		if err != nil {
+			_ = r.hostPicker.Close()
+			r.languageServers.Close()
+			if r.computer != nil {
+				r.computer.Close()
+			}
+			_ = r.hostProcesses.Close()
+			r.shells.Close()
+			r.executors.Close()
+			_ = r.mcp.close()
+			r.engineManager.Close()
+		}
+	}()
+	r.computer, err = computer.NewController(computer.ControllerOptions{Processes: r.hostProcesses, Owner: "computer-control", Directory: directory, Environment: map[string]string{}}, host.Computer)
+	if err != nil {
+		return nil, err
+	}
 	r.tools = tool.NewDispatcher(database, database, r)
 	r.runner, err = runner.New(provider, database, database, r, r, r, r, database, database)
 	if err != nil {
@@ -229,13 +253,15 @@ func (r *Runtime) Close() error {
 			r.cancel()
 		}
 		r.mu.Unlock()
+		pickerErr := r.hostPicker.Close()
 		r.executors.Close()
 		r.shells.Close()
 		workspaceErr := r.workspace.Close()
 		mcpErr := r.mcp.close()
 		r.workspaceCalls.Wait()
 		r.languageServers.Close()
-		_ = r.languageProcesses.Close()
+		r.computer.Close()
+		_ = r.hostProcesses.Close()
 		r.engineManager.Close()
 		if started {
 			<-r.done
@@ -246,7 +272,7 @@ func (r *Runtime) Close() error {
 		r.previewMu.Lock()
 		clear(r.previews)
 		r.previewMu.Unlock()
-		r.closeErr = errors.Join(workspaceErr, mcpErr, r.store.Close(), r.owner.Close())
+		r.closeErr = errors.Join(pickerErr, workspaceErr, mcpErr, r.store.Close(), r.owner.Close())
 	})
 	return r.closeErr
 }

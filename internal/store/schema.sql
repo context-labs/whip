@@ -422,7 +422,7 @@ CREATE TABLE operations (
  CHECK(result IS NULL OR json_extract(result,'$.state') IS state),
  CHECK((state IN ('dispatched','succeeded','failed','uncertain')) = (dispatched_at IS NOT NULL)),
  CHECK(state <> 'waiting' OR (grant_id IS NULL AND permission_revision IS NULL)),
- CHECK(permission_revision IS NULL OR (grant_id IS NULL AND capability NOT IN ('user.ask','mcp.catalog','permissions.inspect','mcp.call','mcp.connect'))),
+ CHECK(permission_revision IS NULL OR (grant_id IS NULL AND capability NOT IN ('user.ask','mcp.catalog','permissions.inspect','mcp.call','mcp.connect','computer.run','computer.applescript'))),
  CHECK(state NOT IN ('ready','dispatched','succeeded','failed','uncertain') OR grant_id IS NOT NULL OR permission_revision IS NOT NULL OR capability IN ('user.ask','mcp.catalog','permissions.inspect'))
 ) STRICT;
 CREATE INDEX operations_by_cell ON operations(cell_id,id);
@@ -769,3 +769,102 @@ CREATE TRIGGER host_operation_input_immutable BEFORE UPDATE ON host_operation_in
 CREATE TRIGGER direct_operation_insert BEFORE INSERT ON operations
  WHEN NEW.direct_turn_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM inputs i JOIN host_operation_inputs h ON h.input_id=i.id WHERE i.turn_id=NEW.direct_turn_id)
  BEGIN SELECT RAISE(ABORT, 'invalid direct operation owner'); END;
+
+-- Trace is a latest-change index, not a second execution record. Identities
+-- survive deletion; every status, timestamp and attribute comes from its source.
+CREATE TABLE trace_index (
+ sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+ root_id TEXT NOT NULL, tree_id TEXT NOT NULL, session_id TEXT NOT NULL,
+ turn_id TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('turn','attempt','cell','operation','permission','question')),
+ source_id TEXT NOT NULL, UNIQUE(kind,source_id)
+) STRICT;
+CREATE INDEX trace_root_sequence ON trace_index(root_id,sequence);
+CREATE INDEX trace_turn ON trace_index(turn_id);
+CREATE TRIGGER trace_turn_insert AFTER INSERT ON turns
+ BEGIN INSERT INTO trace_index(root_id,tree_id,session_id,turn_id,kind,source_id)
+ SELECT r.id,s.tree_id,s.id,t.id,'turn',NEW.id FROM turns t
+ JOIN sessions s ON s.id=t.session_id JOIN sessions r ON r.tree_id=s.tree_id AND r.parent_id IS NULL
+ WHERE t.id=NEW.id; END;
+CREATE TRIGGER trace_turn_update AFTER UPDATE ON turns
+ BEGIN INSERT OR REPLACE INTO trace_index(root_id,tree_id,session_id,turn_id,kind,source_id)
+ SELECT root_id,tree_id,session_id,turn_id,kind,source_id FROM trace_index
+ WHERE kind='turn' AND source_id=NEW.id; END;
+CREATE TRIGGER trace_turn_delete BEFORE DELETE ON turns
+ BEGIN INSERT OR REPLACE INTO trace_index(root_id,tree_id,session_id,turn_id,kind,source_id)
+ SELECT root_id,tree_id,session_id,turn_id,kind,source_id FROM trace_index
+ WHERE kind='turn' AND source_id=OLD.id; END;
+CREATE TRIGGER trace_attempt_insert AFTER INSERT ON model_attempts
+ BEGIN INSERT INTO trace_index(root_id,tree_id,session_id,turn_id,kind,source_id)
+ SELECT r.id,s.tree_id,s.id,t.id,'attempt',NEW.id FROM turns t
+ JOIN sessions s ON s.id=t.session_id JOIN sessions r ON r.tree_id=s.tree_id AND r.parent_id IS NULL
+ WHERE t.id=NEW.turn_id; END;
+CREATE TRIGGER trace_attempt_update AFTER UPDATE ON model_attempts
+ BEGIN INSERT OR REPLACE INTO trace_index(root_id,tree_id,session_id,turn_id,kind,source_id)
+ SELECT root_id,tree_id,session_id,turn_id,kind,source_id FROM trace_index
+ WHERE kind='attempt' AND source_id=NEW.id; END;
+CREATE TRIGGER trace_attempt_delete BEFORE DELETE ON model_attempts
+ BEGIN INSERT OR REPLACE INTO trace_index(root_id,tree_id,session_id,turn_id,kind,source_id)
+ SELECT root_id,tree_id,session_id,turn_id,kind,source_id FROM trace_index
+ WHERE kind='attempt' AND source_id=OLD.id; END;
+CREATE TRIGGER trace_cell_insert AFTER INSERT ON cells
+ BEGIN INSERT INTO trace_index(root_id,tree_id,session_id,turn_id,kind,source_id)
+ SELECT r.id,s.tree_id,s.id,t.id,'cell',NEW.id FROM turns t
+ JOIN sessions s ON s.id=t.session_id JOIN sessions r ON r.tree_id=s.tree_id AND r.parent_id IS NULL
+ WHERE t.id=NEW.turn_id; END;
+CREATE TRIGGER trace_cell_update AFTER UPDATE ON cells
+ BEGIN INSERT OR REPLACE INTO trace_index(root_id,tree_id,session_id,turn_id,kind,source_id)
+ SELECT root_id,tree_id,session_id,turn_id,kind,source_id FROM trace_index
+ WHERE kind='cell' AND source_id=NEW.id; END;
+CREATE TRIGGER trace_cell_delete BEFORE DELETE ON cells
+ BEGIN INSERT OR REPLACE INTO trace_index(root_id,tree_id,session_id,turn_id,kind,source_id)
+ SELECT root_id,tree_id,session_id,turn_id,kind,source_id FROM trace_index
+ WHERE kind='cell' AND source_id=OLD.id; END;
+CREATE TRIGGER trace_operation_insert AFTER INSERT ON operations
+ BEGIN INSERT INTO trace_index(root_id,tree_id,session_id,turn_id,kind,source_id)
+ SELECT r.id,s.tree_id,s.id,t.id,'operation',NEW.id FROM turns t
+ JOIN sessions s ON s.id=t.session_id JOIN sessions r ON r.tree_id=s.tree_id AND r.parent_id IS NULL
+ WHERE t.id=COALESCE((SELECT turn_id FROM cells WHERE id=NEW.cell_id),NEW.direct_turn_id); END;
+CREATE TRIGGER trace_operation_update AFTER UPDATE ON operations
+ BEGIN INSERT OR REPLACE INTO trace_index(root_id,tree_id,session_id,turn_id,kind,source_id)
+ SELECT root_id,tree_id,session_id,turn_id,kind,source_id FROM trace_index
+ WHERE kind='operation' AND source_id=NEW.id; END;
+CREATE TRIGGER trace_operation_delete BEFORE DELETE ON operations
+ BEGIN INSERT OR REPLACE INTO trace_index(root_id,tree_id,session_id,turn_id,kind,source_id)
+ SELECT root_id,tree_id,session_id,turn_id,kind,source_id FROM trace_index
+ WHERE kind='operation' AND source_id=OLD.id; END;
+CREATE TRIGGER trace_permission_insert AFTER INSERT ON permissions
+ BEGIN INSERT INTO trace_index(root_id,tree_id,session_id,turn_id,kind,source_id)
+ SELECT r.id,s.tree_id,s.id,t.id,'permission',NEW.operation_id FROM turns t
+ JOIN sessions s ON s.id=t.session_id JOIN sessions r ON r.tree_id=s.tree_id AND r.parent_id IS NULL
+ WHERE t.id=(SELECT COALESCE(c.turn_id,o.direct_turn_id) FROM operations o LEFT JOIN cells c ON c.id=o.cell_id WHERE o.id=NEW.operation_id); END;
+CREATE TRIGGER trace_permission_update AFTER UPDATE ON permissions
+ BEGIN INSERT OR REPLACE INTO trace_index(root_id,tree_id,session_id,turn_id,kind,source_id)
+ SELECT root_id,tree_id,session_id,turn_id,kind,source_id FROM trace_index
+ WHERE kind='permission' AND source_id=NEW.operation_id; END;
+CREATE TRIGGER trace_permission_delete BEFORE DELETE ON permissions
+ BEGIN INSERT OR REPLACE INTO trace_index(root_id,tree_id,session_id,turn_id,kind,source_id)
+ SELECT root_id,tree_id,session_id,turn_id,kind,source_id FROM trace_index
+ WHERE kind='permission' AND source_id=OLD.operation_id; END;
+CREATE TRIGGER trace_question_insert AFTER INSERT ON questions
+ BEGIN INSERT INTO trace_index(root_id,tree_id,session_id,turn_id,kind,source_id)
+ SELECT r.id,s.tree_id,s.id,t.id,'question',NEW.operation_id FROM turns t
+ JOIN sessions s ON s.id=t.session_id JOIN sessions r ON r.tree_id=s.tree_id AND r.parent_id IS NULL
+ WHERE t.id=(SELECT COALESCE(c.turn_id,o.direct_turn_id) FROM operations o LEFT JOIN cells c ON c.id=o.cell_id WHERE o.id=NEW.operation_id); END;
+CREATE TRIGGER trace_question_update AFTER UPDATE ON questions
+ BEGIN INSERT OR REPLACE INTO trace_index(root_id,tree_id,session_id,turn_id,kind,source_id)
+ SELECT root_id,tree_id,session_id,turn_id,kind,source_id FROM trace_index
+ WHERE kind='question' AND source_id=NEW.operation_id; END;
+CREATE TRIGGER trace_question_delete BEFORE DELETE ON questions
+ BEGIN INSERT OR REPLACE INTO trace_index(root_id,tree_id,session_id,turn_id,kind,source_id)
+ SELECT root_id,tree_id,session_id,turn_id,kind,source_id FROM trace_index
+ WHERE kind='question' AND source_id=OLD.operation_id; END;
+-- Attempts intentionally outlive turns for billing. Their projection changes
+-- to a tombstone when the owning turn disappears, even without an attempt write.
+CREATE TRIGGER trace_turn_descendants_delete BEFORE DELETE ON turns
+ BEGIN INSERT OR REPLACE INTO trace_index(root_id,tree_id,session_id,turn_id,kind,source_id)
+ SELECT root_id,tree_id,session_id,turn_id,kind,source_id FROM trace_index WHERE turn_id=OLD.id; END;
+-- A question's answer and terminal time live on its operation, not a second row.
+CREATE TRIGGER trace_question_operation_update AFTER UPDATE ON operations
+ BEGIN INSERT OR REPLACE INTO trace_index(root_id,tree_id,session_id,turn_id,kind,source_id)
+ SELECT root_id,tree_id,session_id,turn_id,kind,source_id FROM trace_index
+ WHERE kind='question' AND source_id=NEW.id; END;

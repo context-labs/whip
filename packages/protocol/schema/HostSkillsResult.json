@@ -1,0 +1,36 @@
+{
+  "type": "object",
+  "properties": {
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "description"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 1024
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/HostSkillsResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HostSkillsResult",
+  "required": [
+    "candidates",
+    "truncated"
+  ],
+  "additionalProperties": false
+}

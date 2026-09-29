@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/context-labs/whip/internal/computerconfig"
 	"github.com/context-labs/whip/internal/lspconfig"
 	"github.com/context-labs/whip/internal/mcpconfig"
 	"github.com/context-labs/whip/internal/session"
@@ -16,7 +17,7 @@ import (
 
 const (
 	FileName = "host.json"
-	Version  = 16
+	Version  = 18
 )
 
 type Provider struct {
@@ -79,6 +80,8 @@ func (m Model) resolve(defaultOutput int64) (Model, error) {
 }
 
 type Host struct {
+	RemoteHosts           []RemoteHost           `json:"remote_hosts"`
+	Computer              computerconfig.Config  `json:"computer"`
 	DefaultPermissionMode session.PermissionMode `json:"default_permission_mode,omitempty"`
 	// LSP publishes bounded stdio server declarations without granting session authority.
 	LSP map[string]lspconfig.Config `json:"lsp"`
@@ -99,10 +102,20 @@ type Host struct {
 // Default is intentionally unconfigured. Model/provider selection is required
 // before resolving a runnable session; initialization invents no credentials.
 func Default() Host {
-	return Host{Version: Version, LSP: map[string]lspconfig.Config{}, ProjectRoots: map[string]string{}, SkillRoots: map[string]string{}, Providers: map[string]Provider{}, Engine: session.Starlark, Resources: session.DefaultResourceLimits()}
+	return Host{
+		Version: Version, RemoteHosts: []RemoteHost{}, LSP: map[string]lspconfig.Config{},
+		ProjectRoots: map[string]string{}, SkillRoots: map[string]string{}, Providers: map[string]Provider{},
+		Engine: session.Starlark, Resources: session.DefaultResourceLimits(),
+	}
 }
 
 func (h Host) Validate() error {
+	if _, err := NormalizeRemoteHosts(h.RemoteHosts); err != nil {
+		return err
+	}
+	if _, err := h.Computer.Normalize(); err != nil {
+		return fmt.Errorf("%w: %w", session.ErrInvalid, err)
+	}
 	if _, err := session.ResolvePermissionMode(h.DefaultPermissionMode); err != nil {
 		return err
 	}

@@ -5,6 +5,46 @@ export const manifest = {
   "minor": 0,
   "operations": [
     {
+      "name": "trace.page",
+      "params": "TracePageParams",
+      "result": "TracePageResult"
+    },
+    {
+      "name": "trace.export",
+      "params": "TraceExportParams",
+      "result": "TraceExportResult"
+    },
+    {
+      "name": "host.attention",
+      "params": "HostAttentionParams",
+      "result": "HostAttentionResult"
+    },
+    {
+      "name": "host.directories.list",
+      "params": "HostDirectoriesParams",
+      "result": "HostDirectoriesResult"
+    },
+    {
+      "name": "host.directory.pick",
+      "params": "HostDirectoryPickParams",
+      "result": "HostDirectoryPickResult"
+    },
+    {
+      "name": "host.skills.complete",
+      "params": "HostSkillsParams",
+      "result": "HostSkillsResult"
+    },
+    {
+      "name": "host.themes.list",
+      "params": "EmptyParams",
+      "result": "HostThemesResult"
+    },
+    {
+      "name": "host.themes.resolve",
+      "params": "HostThemeResolveParams",
+      "result": "HostThemeResolved"
+    },
+    {
       "name": "tool.schemas",
       "params": "SessionParams",
       "result": "HostToolSchemasResult"
@@ -58,6 +98,26 @@ export const manifest = {
       "name": "shell.input",
       "params": "ShellInputParams",
       "result": "ShellInputResult"
+    },
+    {
+      "name": "computer.status",
+      "params": "EmptyParams",
+      "result": "ComputerStatus"
+    },
+    {
+      "name": "computer.configure",
+      "params": "ConfigureComputerParams",
+      "result": "ComputerStatus"
+    },
+    {
+      "name": "computer.reconnect",
+      "params": "ComputerConnectionParams",
+      "result": "ComputerStatus"
+    },
+    {
+      "name": "computer.disconnect",
+      "params": "ComputerConnectionParams",
+      "result": "ComputerStatus"
     },
     {
       "name": "mcp.configuration",
@@ -623,6 +683,16 @@ export const manifest = {
       "name": "permissions.mode_edit",
       "params": "PermissionModeEditParams",
       "result": "PermissionModeEdit"
+    },
+    {
+      "name": "host.profiles",
+      "params": "EmptyParams",
+      "result": "HostProfiles"
+    },
+    {
+      "name": "host.set_profiles",
+      "params": "SetHostProfilesParams",
+      "result": "HostProfiles"
     },
     {
       "name": "host.permission_default",

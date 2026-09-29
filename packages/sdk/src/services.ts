@@ -19,3 +19,13 @@ export class Sessions {
   get(sessionID: string, options: CallOptions = {}) { return this.handle(sessionID).get(options); }
   list(treeID: string, params: Omit<Params<'sessions.list'>, 'tree_id' | 'limit'> & { limit?: number } = {}, options: CallOptions = {}) { return this.client.call('sessions.list', { limit: 100, ...params, tree_id: treeID }, options); }
 }
+
+/** Saved attachment declarations. Reads/edits never initiate connections. */
+export class Hosts {
+  constructor(private readonly client: Client) {}
+  profiles(options: CallOptions = {}) { return this.client.call('host.profiles', {}, options); }
+  /** After uncertain delivery, reread and reconcile the shared host revision. */
+  setProfiles(expectedRevision: string, profiles: Params<'host.set_profiles'>['profiles'], options: CallOptions = {}) {
+    return this.client.call('host.set_profiles', { expected_revision: expectedRevision, profiles }, options);
+  }
+}

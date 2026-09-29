@@ -1,0 +1,52 @@
+{
+  "type": "object",
+  "properties": {
+    "root_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "after": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "expected_revision": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "trace_id": {
+      "type": "string",
+      "pattern": "^([a-f0-9]{32})?$"
+    },
+    "roots_only": {
+      "type": "boolean"
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2048
+    },
+    "max_bytes": {
+      "type": "integer",
+      "minimum": 4096,
+      "maximum": 524288
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/TracePageParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TracePageParams",
+  "required": [
+    "root_id",
+    "after",
+    "expected_revision",
+    "trace_id",
+    "roots_only",
+    "limit",
+    "max_bytes"
+  ],
+  "additionalProperties": false
+}

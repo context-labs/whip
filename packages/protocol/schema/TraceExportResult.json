@@ -1,0 +1,67 @@
+{
+  "type": "object",
+  "properties": {
+    "reference": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "size": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "media_type": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "session_id",
+        "digest",
+        "size",
+        "media_type",
+        "created_at"
+      ],
+      "additionalProperties": false
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "spans": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4096
+    },
+    "traces": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4096
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/TraceExportResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TraceExportResult",
+  "required": [
+    "reference",
+    "revision",
+    "spans",
+    "traces"
+  ],
+  "additionalProperties": false
+}

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/context-labs/whip/internal/hostmodule"
+	"github.com/context-labs/whip/internal/session"
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
@@ -21,6 +22,14 @@ type Operation struct {
 
 func Operations() []Operation {
 	return []Operation{
+		{"trace.page", reflect.TypeFor[TracePageParams](), reflect.TypeFor[TracePageResult]()},
+		{"trace.export", reflect.TypeFor[TraceExportParams](), reflect.TypeFor[TraceExportResult]()},
+		{"host.attention", reflect.TypeFor[HostAttentionParams](), reflect.TypeFor[HostAttentionResult]()},
+		{"host.directories.list", reflect.TypeFor[HostDirectoriesParams](), reflect.TypeFor[HostDirectoriesResult]()},
+		{"host.directory.pick", reflect.TypeFor[HostDirectoryPickParams](), reflect.TypeFor[HostDirectoryPickResult]()},
+		{"host.skills.complete", reflect.TypeFor[HostSkillsParams](), reflect.TypeFor[HostSkillsResult]()},
+		{"host.themes.list", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostThemesResult]()},
+		{"host.themes.resolve", reflect.TypeFor[HostThemeResolveParams](), reflect.TypeFor[HostThemeResolved]()},
 		{"tool.schemas", reflect.TypeFor[SessionParams](), reflect.TypeFor[HostToolSchemasResult]()},
 		{"tool.call", reflect.TypeFor[CallHostToolParams](), reflect.TypeFor[Admission]()},
 		{"shell.run", reflect.TypeFor[RunShellParams](), reflect.TypeFor[Admission]()},
@@ -32,6 +41,10 @@ func Operations() []Operation {
 		{"tool.progress", reflect.TypeFor[ExecutorProgressParams](), reflect.TypeFor[ExecutorAccepted]()},
 		{"shell.interaction", reflect.TypeFor[ShellInteractionParams](), reflect.TypeFor[ShellInteractionResult]()},
 		{"shell.input", reflect.TypeFor[ShellInputParams](), reflect.TypeFor[ShellInputResult]()},
+		{"computer.status", reflect.TypeFor[EmptyParams](), reflect.TypeFor[ComputerStatus]()},
+		{"computer.configure", reflect.TypeFor[ConfigureComputerParams](), reflect.TypeFor[ComputerStatus]()},
+		{"computer.reconnect", reflect.TypeFor[ComputerConnectionParams](), reflect.TypeFor[ComputerStatus]()},
+		{"computer.disconnect", reflect.TypeFor[ComputerConnectionParams](), reflect.TypeFor[ComputerStatus]()},
 		{"mcp.configuration", reflect.TypeFor[EmptyParams](), reflect.TypeFor[MCPConfiguration]()},
 		{"mcp.configure", reflect.TypeFor[ConfigureMCPParams](), reflect.TypeFor[MCPConfiguration]()},
 		{"mcp.import.candidates", reflect.TypeFor[MCPImportCandidatesParams](), reflect.TypeFor[MCPImportCandidatesResult]()},
@@ -148,6 +161,8 @@ func Operations() []Operation {
 		{"permissions.policy", reflect.TypeFor[SessionParams](), reflect.TypeFor[PermissionPolicy]()},
 		{"permissions.set_mode", reflect.TypeFor[SetPermissionModeParams](), reflect.TypeFor[PermissionModeEdit]()},
 		{"permissions.mode_edit", reflect.TypeFor[PermissionModeEditParams](), reflect.TypeFor[PermissionModeEdit]()},
+		{"host.profiles", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostProfiles]()},
+		{"host.set_profiles", reflect.TypeFor[SetHostProfilesParams](), reflect.TypeFor[HostProfiles]()},
 		{"host.permission_default", reflect.TypeFor[EmptyParams](), reflect.TypeFor[DefaultPermissionMode]()},
 		{"host.set_permission_default", reflect.TypeFor[SetDefaultPermissionModeParams](), reflect.TypeFor[DefaultPermissionMode]()},
 		{"questions.get", reflect.TypeFor[QuestionParams](), reflect.TypeFor[Question]()},
@@ -195,6 +210,7 @@ func Types() map[string]reflect.Type {
 	result["ExecutorEvent"] = reflect.TypeFor[ExecutorEvent]()
 	result["RPCError"] = reflect.TypeFor[RPCError]()
 	result["Request"] = reflect.TypeFor[Request]()
+	result["GatewayDiscovery"] = reflect.TypeFor[GatewayDiscovery]()
 	result["Response"] = reflect.TypeFor[Response]()
 	result["Part"] = reflect.TypeFor[Part]()
 	result["Message"] = reflect.TypeFor[Message]()
@@ -270,6 +286,21 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 				child.MaxItems = new(128)
 			}
 		}
+		if t == reflect.TypeFor[HostOperationResult]() {
+			refs := schema.Properties["content_references"]
+			refs.Type = "array"
+			refs.Types = nil
+			refs.MaxItems = new(session.MaxOperationAttachments)
+			refs.UniqueItems = true
+		}
+		if t == reflect.TypeFor[HostProfiles]() || t == reflect.TypeFor[SetHostProfilesParams]() {
+			schema.Properties["profiles"].Type = "array"
+			schema.Properties["profiles"].Types = nil
+			schema.Properties["profiles"].MaxItems = new(16)
+		}
+		if t == reflect.TypeFor[HostProfile]() {
+			schema.Properties["url"].MaxLength = new(2048)
+		}
 		accountSchema(schema, t)
 		if t == reflect.TypeFor[WorkspaceSnapshotsResult]() {
 			schema.Properties["items"].Type = "array"
@@ -282,15 +313,19 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 		questionSchema(schema, t)
 		languageServerSchema(schema, t)
 		mcpSchema(schema, t)
+		computerSchema(schema, t)
 		terminalSchema(schema, t)
 		hostOperationSchema(schema, t)
 		if t == reflect.TypeFor[MatchReceiptParams]() {
 			schema.Properties["params_base64"].MinLength = new(1)
 			schema.Properties["params_base64"].MaxLength = new(5592408)
 		}
+		attentionSchema(schema, t)
+		traceSchema(schema, t)
 		if t == reflect.TypeFor[InputSummary]() {
 			schema.Properties["text_preview"].MaxLength = new(512)
 		}
+		hostViewsSchema(schema, t)
 		discoverySchema(schema, t)
 		if t == reflect.TypeFor[GoalFormulationRequest]() {
 			schema.Properties["tail_messages"] = &jsonschema.Schema{OneOf: []*jsonschema.Schema{
@@ -355,13 +390,16 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 				case "assistant":
 					items = partSchema("text", "content", "tool_call")
 				case "tool":
-					items, maxItems = partSchema("tool_result"), 1
+					items, maxItems = partSchema("tool_result"), 1+session.MaxOperationAttachments
 				}
 				// Keep common required fields in each variant. Conditional-only
 				// branches validate in JSON Schema but lose those fields in TS unions.
 				variant := schema.CloneSchemas()
 				variant.Properties["role"] = &jsonschema.Schema{Type: "string", Enum: []any{role}}
 				variant.Properties["parts"] = &jsonschema.Schema{Type: "array", MinItems: new(1), MaxItems: &maxItems, Items: items}
+				if role == "tool" {
+					variant.Properties["parts"] = &jsonschema.Schema{Type: "array", MinItems: new(1), MaxItems: &maxItems, ItemsArray: []*jsonschema.Schema{partSchema("tool_result")}, AdditionalItems: partSchema("content"), UniqueItems: true}
+				}
 				variants = append(variants, variant)
 			}
 			*schema = jsonschema.Schema{OneOf: variants}

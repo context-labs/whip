@@ -27,7 +27,7 @@ func TestHostOperationRPCModelFreeSchemasPermissionAndExactRecovery(t *testing.T
 		t.Fatal(err)
 	}
 	catalog := call[protocol.HostToolSchemasResult](t, c, "tool.schemas", protocol.SessionParams{SessionID: tree.Root.ID})
-	if len(catalog.Items) != 7 {
+	if len(catalog.Items) != 8 {
 		t.Fatal(catalog)
 	}
 	request := protocol.CallHostToolParams{Identity: protocol.RequestIdentity{ClientID: "human", RequestID: "stable"}, SessionID: tree.Root.ID, Operation: protocol.DirectHostInput{Module: "files", Name: "read", ArgumentsBase64: base64.StdEncoding.EncodeToString([]byte(`{"path":"file"}`))}}

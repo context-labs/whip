@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/context-labs/whip/internal/session"
@@ -68,7 +69,22 @@ func Fixtures() ([]Fixture, error) {
 		name  string
 		value any
 	}{
+		{"HostProfiles", HostProfiles{Revision: ref.Revision, Profiles: []HostProfile{{ID: "remote", Name: "Remote", URL: "https://example.test:8443/", RuntimeID: "runtime_remote", ConnectOnLaunch: true}}}},
+		{"SetHostProfilesParams", SetHostProfilesParams{ExpectedRevision: ref.Revision, Profiles: []HostProfile{}}},
 		{"Input", directInput},
+		{"HostAttentionParams", HostAttentionParams{Limit: 100, MaxBytes: 524288}},
+		{"TracePageParams", TracePageParams{RootID: "session_root", After: 9007199254740993, ExpectedRevision: new(Counter(9007199254740999)), Limit: 2048, MaxBytes: 524288}},
+		{"TracePageResult", TracePageFromDomain(session.TracePage{Revision: 9007199254740999, Next: 9007199254740999, Items: []session.TraceRow{{Sequence: 9007199254740999, RootID: "session_root", SessionID: "session_child", TurnID: "turn", SourceKind: "attempt", SourceID: "attempt", SpanID: session.TraceSpanID("attempt", "attempt"), Span: &session.TraceSpan{TraceID: session.TraceID("turn"), Kind: "llm", Name: "turn model", State: "succeeded", StartNS: 1790600000000000000, EndNS: new(int64(1790600000000001000)), Attributes: []session.TraceAttribute{{Key: "whip.cost.nano_usd", Count: new(int64(9007199254740993))}, {Key: "whip.input.body_available", Flag: new(false)}, {Key: "gen_ai.request.model", Text: new("model")}}}}, {Sequence: 9007199254740998, RootID: "session_root", SessionID: "deleted", TurnID: "gone", SourceKind: "turn", SourceID: "gone", SpanID: session.TraceSpanID("turn", "gone")}}})},
+		{"TraceExportParams", TraceExportParams{RootID: "session_root"}},
+		{"HostAttentionResult", HostAttentionResult{Items: []HostAttentionItem{}}},
+		{"HostDirectoriesParams", HostDirectoriesParams{Path: "/workspace", Limit: 64}},
+		{"HostDirectoriesResult", HostDirectoriesResult{Path: "/workspace", Parent: "/", Entries: []HostDirectoryEntry{{Name: "project", Path: "/workspace/project"}}}},
+		{"HostDirectoryPickParams", HostDirectoryPickParams{}},
+		{"HostDirectoryPickResult", HostDirectoryPickResult{Cancelled: true}},
+		{"HostSkillsParams", HostSkillsParams{Scope: "global", Limit: 32}},
+		{"HostSkillsResult", HostSkillsResult{Candidates: []HostSkillCandidate{{Text: "$fixture", Description: "Fixture"}}}},
+		{"HostThemesResult", HostThemesResult{Themes: []HostThemeMetadata{{ID: "dark", Name: "Dark", Dark: true, Source: "builtin"}}, Errors: []HostThemeError{}}},
+		{"HostThemeResolveParams", HostThemeResolveParams{Name: "dark"}},
 		{"CallHostToolParams", CallHostToolParams{Identity: RequestIdentity{ClientID: "human", RequestID: "direct"}, SessionID: "session_root", Operation: *directInput.HostOperation}},
 		{"RunShellParams", RunShellParams{Identity: RequestIdentity{ClientID: "human", RequestID: "direct"}, SessionID: "session_root", Command: "printf direct"}},
 		{"HostToolSchemasResult", HostToolSchemasResult{Items: []HostToolSchema{{Module: "files", Name: "read", Description: "Read", InputSchema: json.RawMessage(`{"type":"object"}`)}}}},
@@ -89,6 +105,7 @@ func Fixtures() ([]Fixture, error) {
 		{"ShellInputParams", ShellInputParams{SessionID: "shell-owner", OperationID: "shell-operation", Sequence: 9007199254740993, DataBase64: "a2V5"}},
 		{"ShellInputResult", ShellInputResult{Sequence: 9007199254740993}},
 		{"RPCError", RPCError{Code: -32035, Kind: "MCP_UNAVAILABLE", Message: "MCP operation unavailable; inspect configuration and connection status"}},
+		{"ComputerStatus", ComputerStatus{Revision: ref.Revision, Configuration: ComputerConfiguration{Allow: []string{}, Deny: []string{}, DefaultDeny: true}, Generation: "control_fixture", State: "disabled", PlatformSupported: true}},
 		{"MCPConfiguration", MCPConfiguration{Revision: ref.Revision, Servers: []MCPDeclaration{}, Imports: MCPImportPolicy{}, BrandIcons: true}},
 		{"MCPImportCandidatesResult", MCPImportCandidatesResult{Revision: ref.Revision, Candidates: []MCPImportCandidate{{Fingerprint: ref.Revision, Name: "candidate", Source: "codex", State: "importable", Gated: false, BrandHint: "example.com", BrandKey: "example.com"}}, SourceErrors: map[string]string{}}},
 		{"MCPImportParams", MCPImportParams{Revision: ref.Revision, Fingerprints: map[string]string{"candidate": ref.Revision}}},
@@ -216,7 +233,7 @@ func Fixtures() ([]Fixture, error) {
 		{"SessionObservation", SessionObservation{Snapshot: HistorySnapshot{Revision: 9007199254740993, SessionID: child.ID, ThroughSequence: 9007199254740995, MessageCount: 3}, Epoch: "boot_fixture", Messages: []Message{message}, Preview: &MessagePreview{AttemptID: "attempt_live", TurnID: "turn_fixture", MessageID: "message_live", Revision: 9007199254740993, Text: "In progress", Reasoning: "Considering the request", Calls: []CallPreview{{Index: 0, ID: "call_partial", Name: "execute", Arguments: `{"code":"print(`}}}}},
 		{"SessionObservation", SessionObservation{Snapshot: HistorySnapshot{Revision: 9007199254740993, SessionID: child.ID, ThroughSequence: 9007199254740995, MessageCount: 3}, Epoch: "boot_restarted", Messages: []Message{}, Preview: nil}},
 		{"Grant", GrantFromDomain(session.Grant{ID: "grant_fixture", SessionID: "session_child", Capability: "files.read", Resource: "/workspace", IssuerID: new(session.GrantID("grant_parent")), CreatedAt: created})},
-		{"HostOperation", OperationFromDomain(session.Operation{ID: "operation_fixture", CellID: "cell_fixture", RequestID: "1:1", Capability: "files.read", Resource: "/workspace", Arguments: json.RawMessage(`{"path":"example.txt","offset":1,"limit":2000}`), SessionID: "session_child", TurnID: "turn_fixture", State: session.OperationSucceeded, GrantID: new(session.GrantID("grant_fixture")), Result: &session.OperationResult{State: session.OperationSucceeded, Value: json.RawMessage(`{"output":"1: hello"}`)}, CreatedAt: created, DispatchedAt: &created, FinishedAt: &created})},
+		{"HostOperation", OperationFromDomain(session.Operation{ID: "operation_fixture", CellID: "cell_fixture", RequestID: "1:1", Capability: "files.read", Resource: "/workspace", Arguments: json.RawMessage(`{"path":"example.txt","offset":1,"limit":2000}`), SessionID: "session_child", TurnID: "turn_fixture", State: session.OperationSucceeded, GrantID: new(session.GrantID("grant_fixture")), Result: &session.OperationResult{State: session.OperationSucceeded, Value: json.RawMessage(`{"output":"1: hello"}`), ContentReferences: []string{"image_ref"}}, CreatedAt: created, DispatchedAt: &created, FinishedAt: &created})},
 		{"Permission", PermissionFromDomain(session.Permission{OperationID: "operation_fixture", State: session.PermissionApproved, CreatedAt: created, ResolvedAt: &created})},
 		{"Cell", CellFromDomain(session.Cell{ID: "cell_fixture", SessionID: "session_child", TurnID: "turn_fixture", CallMessageID: "message_call", CallID: "call_fixture", State: session.CellSucceeded, ResultMessageID: new(session.MessageID("message_result")), Checkpoint: &session.Checkpoint{Digest: ref.Revision, Size: 123, Engine: session.Starlark, Metadata: json.RawMessage(`{"format_version":1}`)}, CreatedAt: created, FinishedAt: &created})},
 		{"PutContentParams", PutContentParams{SessionID: child.ID, ReferenceID: "content_fixture", MediaType: "text/plain", DataBase64: "aGVsbG8="}},
@@ -240,6 +257,7 @@ func Fixtures() ([]Fixture, error) {
 		{"HistoryResult", HistoryResult{Snapshot: HistorySnapshot{Revision: 9007199254740993, SessionID: child.ID, ThroughSequence: 9007199254740995, MessageCount: 3}, Items: []Message{message, callMessage, toolMessage}}},
 		{"Part", callMessage.Parts[0]},
 		{"Part", toolMessage.Parts[0]},
+		{"Message", MessageFromDomain(session.Message{ID: "message_image", SessionID: "session_child", GroupID: "turn_fixture", TurnID: "turn_fixture", Sequence: 9007199254740996, Role: session.Tool, Parts: []session.Part{{Type: "tool_result", Result: &session.ToolResult{CallID: "image_call", Output: "unchanged output"}}, {Type: "content", ReferenceID: "image_ref"}}, CreatedAt: created})},
 		{"SpawnSessionParams", SpawnSessionParams{Identity: RequestIdentity{ClientID: "client", RequestID: "spawn"}, ParentID: root.ID, Parts: []Part{{Type: "text", Text: "Child work"}}, GrantIDs: []ID{}}},
 		{"SubmitParams", SubmitParams{Identity: RequestIdentity{ClientID: "client", RequestID: "request"}, SessionID: child.ID, Source: "user", Parts: []Part{{Type: "text", Text: "Run this."}}}},
 		{"UpdateConfigurationParams", UpdateConfigurationParams{SessionID: child.ID, ExpectedRevision: 9007199254740993, Patch: ConfigPatch{Modules: []ID{}, AutomaticTitle: new(false), GoalsEnabled: new(false), Compaction: &CompactionPolicy{Model: nil, ThresholdPercent: 0}, ReportMode: new("inline"), Tools: map[string]ToolDeclaration{}, Output: &OutputPolicy{}}}},
@@ -252,6 +270,20 @@ func Fixtures() ([]Fixture, error) {
 			return nil, err
 		}
 		result = append(result, Fixture{Type: value.name, Value: raw, Valid: true})
+	}
+	profile := HostProfile{ID: "remote", Name: "Remote", URL: "https://example.test", RuntimeID: "runtime"}
+	tooMany := make([]HostProfile, 17)
+	for index := range tooMany {
+		tooMany[index] = profile
+	}
+	badURL := profile
+	badURL.URL = "https://" + strings.Repeat("a", 2048)
+	for _, profiles := range [][]HostProfile{nil, tooMany, {badURL}} {
+		raw, err := json.Marshal(SetHostProfilesParams{ExpectedRevision: ref.Revision, Profiles: profiles})
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, Fixture{Type: "SetHostProfilesParams", Value: raw, Valid: false})
 	}
 	for _, test := range []struct {
 		raw   string

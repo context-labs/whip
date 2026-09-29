@@ -300,8 +300,15 @@ func ValidateMessage(role Role, parts []Part) error {
 		return fmt.Errorf("%w: unsupported message role", ErrInvalid)
 	}
 	if role == Tool {
-		if len(parts) != 1 || parts[0].Type != "tool_result" {
-			return fmt.Errorf("%w: tool messages require exactly one result", ErrInvalid)
+		if len(parts) > 1+MaxOperationAttachments || parts[0].Type != "tool_result" {
+			return fmt.Errorf("%w: tool messages require one result followed by bounded content", ErrInvalid)
+		}
+		seen := map[string]bool{}
+		for _, part := range parts[1:] {
+			if part.Type != "content" || seen[part.ReferenceID] {
+				return fmt.Errorf("%w: tool attachments require unique content references", ErrInvalid)
+			}
+			seen[part.ReferenceID] = true
 		}
 		return nil
 	}

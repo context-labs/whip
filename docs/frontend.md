@@ -3092,3 +3092,13 @@ use `receipts.match` where supported before treating a recovered input as accept
 Account flows, terminal bytes and other transient effects are outside this journal.
 Product renderer migration remains in progress; these APIs replace the retained
 SDK boundary when each supported client is cut over.
+
+
+During the v4 product cutover, gateway discovery supplies identity metadata to
+the SDK browser transport; saved profile edits remain explicit host-file CAS.
+The host service never connects to saved URLs. Native framed transports require
+a confined Unix bridge and verify v4 identity on every call. Window connection
+status/lifetimes belong to app; session/catalog truth stays in SDK views. Shared
+recovery storage must lock cross-window writes, reject before sending on capacity
+or durability failure, preserve known acceptance, and never silently evict an
+unresolved command. The old product paths remain until their actual migration.

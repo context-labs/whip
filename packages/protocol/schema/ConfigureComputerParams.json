@@ -1,0 +1,59 @@
+{
+  "type": "object",
+  "properties": {
+    "revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "configuration": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "helper_executable": {
+          "type": "string"
+        },
+        "allow": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "deny": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "default_deny": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled",
+        "helper_executable",
+        "allow",
+        "deny",
+        "default_deny"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ConfigureComputerParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ConfigureComputerParams",
+  "required": [
+    "revision",
+    "configuration"
+  ],
+  "additionalProperties": false
+}

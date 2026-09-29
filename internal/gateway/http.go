@@ -45,15 +45,11 @@ func (s *Server) handler() http.Handler {
 	mux.HandleFunc("GET /api/v4/web", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
-		_ = json.NewEncoder(w).Encode(struct {
-			Available       bool        `json:"available"`
-			Major           int         `json:"major"`
-			RuntimeID       protocol.ID `json:"runtime_id"`
-			ProcessEpoch    protocol.ID `json:"process_epoch"`
-			WebSocketPath   string      `json:"websocket_path"`
-			ContentPath     string      `json:"content_path"`
-			MaxContentBytes int         `json:"max_content_bytes"`
-		}{s.options.Assets != nil, protocol.Major, s.options.RuntimeID, s.options.ProcessEpoch, "/api/v4/ws", "/api/v4/content/", maxContentBytes})
+		_ = json.NewEncoder(w).Encode(protocol.GatewayDiscovery{
+			Available: s.options.Assets != nil, Major: protocol.Major,
+			RuntimeID: s.options.RuntimeID, ProcessEpoch: s.options.ProcessEpoch,
+			WebSocketPath: "/api/v4/ws", ContentPath: "/api/v4/content/", MaxContentBytes: maxContentBytes,
+		})
 	})
 	if s.options.Assets != nil {
 		mux.Handle("/", s.options.Assets)

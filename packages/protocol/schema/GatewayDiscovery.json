@@ -1,0 +1,51 @@
+{
+  "type": "object",
+  "properties": {
+    "available": {
+      "type": "boolean"
+    },
+    "major": {
+      "type": "integer",
+      "minimum": 4,
+      "maximum": 4
+    },
+    "runtime_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "process_epoch": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "websocket_path": {
+      "type": "string",
+      "enum": [
+        "/api/v4/ws"
+      ]
+    },
+    "content_path": {
+      "type": "string",
+      "enum": [
+        "/api/v4/content/"
+      ]
+    },
+    "max_content_bytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4194304
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/GatewayDiscovery",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GatewayDiscovery",
+  "required": [
+    "available",
+    "major",
+    "runtime_id",
+    "process_epoch",
+    "websocket_path",
+    "content_path",
+    "max_content_bytes"
+  ],
+  "additionalProperties": false
+}
