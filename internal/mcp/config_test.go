@@ -8,7 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/mcpconfig"
+	"github.com/context-labs/whip/internal/secretref"
 )
 
 func TestParseClaudeStdio(t *testing.T) {
@@ -32,11 +33,11 @@ func TestParseClaudeStdio(t *testing.T) {
 		t.Errorf("command = %v, want %v", c.Command, want)
 	}
 	// secret references survive the parse VERBATIM — resolution moved to
-	// connect time (defaultTransport → config.ResolveEnvMap/ResolveSecret)
+	// connect time (defaultTransport → secretref.ResolveEnvMap/ResolveSecret)
 	if c.Env["API_KEY"] != "${MCP_TEST_KEY}" {
 		t.Errorf("env reference should stay a reference, got %q", c.Env["API_KEY"])
 	}
-	env, err := config.ResolveEnvMap(c.Env)
+	env, err := secretref.ResolveEnvMap(c.Env)
 	if err != nil || env["API_KEY"] != "sekret" {
 		t.Errorf("connect-time env resolution = %q, %v", env["API_KEY"], err)
 	}
@@ -91,7 +92,7 @@ func TestParseClaudeInfersTypeAndMissingVar(t *testing.T) {
 	if cfgs["a"].Env["X"] != "$NO_SUCH_VAR_WHIP_TEST" {
 		t.Errorf("missing-var reference should be preserved, got %q", cfgs["a"].Env["X"])
 	}
-	env, err := config.ResolveEnvMap(cfgs["a"].Env)
+	env, err := secretref.ResolveEnvMap(cfgs["a"].Env)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +154,7 @@ command = "sub-srv"
 	if remote.Headers["Authorization"] != "Bearer $CODEX_TEST_TOKEN" {
 		t.Errorf("remote headers = %v", remote.Headers)
 	}
-	hv, err := config.ResolveHeader(remote.Headers["Authorization"])
+	hv, err := secretref.ResolveHeader(remote.Headers["Authorization"])
 	if err != nil || hv != "Bearer tok123" {
 		t.Errorf("connect-time header resolution = %q, %v", hv, err)
 	}
@@ -297,7 +298,7 @@ func TestLoadMergedGlobalClaude(t *testing.T) {
 	if !mem.Remote() || mem.Headers["X-Office-Session"] != "${OFFICE_SESSION_NAME:-}" {
 		t.Errorf("inf-memory should keep its header reference, got %+v", mem)
 	}
-	if hv, err := config.ResolveHeader(mem.Headers["X-Office-Session"]); err != nil || hv != "sess-123" {
+	if hv, err := secretref.ResolveHeader(mem.Headers["X-Office-Session"]); err != nil || hv != "sess-123" {
 		t.Errorf("connect-time resolution = %q, %v", hv, err)
 	}
 	if got := merged["shared"].Command[0]; got != "proj-srv" {
@@ -377,7 +378,7 @@ func TestLoadMergedFilteredPolicy(t *testing.T) {
 		t.Errorf("project server should be blocked with a project note, got %+v", f.Blocked["proj"])
 	}
 	on := true
-	f = LoadMergedFiltered(dir, nil, ImportPolicyFrom(&config.MCPImport{Project: &config.MCPImportSource{Enabled: &on}}))
+	f = LoadMergedFiltered(dir, nil, ImportPolicyFrom(&mcpconfig.Import{Project: &mcpconfig.ImportSource{Enabled: &on}}))
 	if _, ok := f.Merged["proj"]; !ok {
 		t.Error("enabling the project source must admit the repository .mcp.json")
 	}
@@ -448,8 +449,8 @@ func TestManagerFromBlockedDiscovery(t *testing.T) {
 	ClaudeGlobalPath = func() string { return filepath.Join(dir, "absent-claude.json") }
 	defer func() { ClaudeGlobalPath = origG }()
 
-	f := LoadMergedFiltered(dir, nil, ImportPolicyFrom(&config.MCPImport{
-		Codex: &config.MCPImportSource{Exclude: []string{"node_repl"}},
+	f := LoadMergedFiltered(dir, nil, ImportPolicyFrom(&mcpconfig.Import{
+		Codex: &mcpconfig.ImportSource{Exclude: []string{"node_repl"}},
 	}))
 	mgr := NewManager(f.Merged)
 	mgr.SetBlocked(f.Blocked)
@@ -496,9 +497,9 @@ func TestManagerStatusSource(t *testing.T) {
 // TestImportPolicyFrom covers the config-block → policy conversion.
 func TestImportPolicyFrom(t *testing.T) {
 	off := false
-	p := ImportPolicyFrom(&config.MCPImport{
-		Claude: &config.MCPImportSource{Enabled: &off},
-		Codex:  &config.MCPImportSource{Only: []string{"a"}, Exclude: []string{"b"}},
+	p := ImportPolicyFrom(&mcpconfig.Import{
+		Claude: &mcpconfig.ImportSource{Enabled: &off},
+		Codex:  &mcpconfig.ImportSource{Only: []string{"a"}, Exclude: []string{"b"}},
 	})
 	if p.Claude.Admits("anything") {
 		t.Error("enabled=false must block the whole source")
@@ -511,7 +512,7 @@ func TestImportPolicyFrom(t *testing.T) {
 	}
 	// nil block and nil source both mean "on, unfiltered" for the user's own
 	// files, and "off" for the repository's project file.
-	for _, p := range []ImportPolicy{ImportPolicyFrom(nil), ImportPolicyFrom(&config.MCPImport{})} {
+	for _, p := range []ImportPolicy{ImportPolicyFrom(nil), ImportPolicyFrom(&mcpconfig.Import{})} {
 		if !p.Claude.Admits("x") || !p.Codex.Admits("x") {
 			t.Error("nil policy must admit the user's own imports")
 		}
@@ -520,7 +521,7 @@ func TestImportPolicyFrom(t *testing.T) {
 		}
 	}
 	on := true
-	if !ImportPolicyFrom(&config.MCPImport{Project: &config.MCPImportSource{Enabled: &on}}).Project.Admits("x") {
+	if !ImportPolicyFrom(&mcpconfig.Import{Project: &mcpconfig.ImportSource{Enabled: &on}}).Project.Admits("x") {
 		t.Error("an enabled project source must admit")
 	}
 }

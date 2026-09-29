@@ -7,25 +7,30 @@ import (
 	"testing"
 	"time"
 
-	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/config"
 )
 
 // Live check of discovery against the developer's configured HTTP servers.
-// Opt-in with WHIP_TEST_REAL_MCP=1: it reads $WHIPCODE_HOME/config.json and
+// Opt-in with WHIP_TEST_REAL_MCP=1 and WHIP_TEST_REAL_MCP_DIRECTORY pointing
+// at an existing native runtime directory: it reads that host.json and
 // reaches the network. It logs server names, counts and byte sizes only,
 // never header values. WHIP_TEST_REAL_MCP_QUERY overrides the search.
 func TestRealConfigDiscoverySmoke(t *testing.T) {
 	if os.Getenv("WHIP_TEST_REAL_MCP") != "1" {
 		t.Skip("set WHIP_TEST_REAL_MCP=1 to connect the configured MCP servers")
 	}
-	cfg, err := config.Load()
+	directory := os.Getenv("WHIP_TEST_REAL_MCP_DIRECTORY")
+	if directory == "" {
+		t.Fatal("WHIP_TEST_REAL_MCP_DIRECTORY must name an existing native runtime directory")
+	}
+	cfg, err := config.Load(directory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	servers := FromConfigMap(cfg.MCPServers)
+	servers := FromConfigMap(cfg.MCP.Servers)
 	for name, server := range servers {
 		if server.URL == "" {
-			delete(servers, name) // stdio servers need the daemon's process manager
+			delete(servers, name) // this opt-in check only connects HTTP servers
 		}
 	}
 	if len(servers) == 0 {

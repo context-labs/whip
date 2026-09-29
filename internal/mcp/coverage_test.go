@@ -10,7 +10,7 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/mcpconfig"
 )
 
 func TestEnableDisableCycle(t *testing.T) {
@@ -113,13 +113,13 @@ func TestRingBuffer(t *testing.T) {
 
 func TestFromConfigMap(t *testing.T) {
 	t.Setenv("FROMCFG_KEY", "v1")
-	in := map[string]config.MCPServer{
+	in := map[string]mcpconfig.Server{
 		"docs": {Command: []string{"npx", "-y"}, Env: map[string]string{"K": "$FROMCFG_KEY"}, StartupTimeout: 3},
 		"web":  {URL: "https://x", Headers: map[string]string{"A": "b"}},
 	}
 	out := FromConfigMap(in)
 	// env references stay references through config load — resolution happens
-	// at spawn time (config.ResolveEnvMap), so a var set between launches
+	// at spawn time (secretref.ResolveEnvMap), so a var set between launches
 	// still resolves and resolved secrets never sit in the config file
 	if got := out["docs"]; len(got.Command) != 2 || got.Env["K"] != "$FROMCFG_KEY" || got.StartupTimeout != 3 {
 		t.Errorf("docs = %+v", got)
