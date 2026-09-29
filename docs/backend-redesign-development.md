@@ -4246,3 +4246,33 @@ Run `36545994800` has now completed: every backend/Linux/macOS/client, analysis,
 web/browser/mobile/examples/docs job passed. Only the desktop job and dependent
 aggregate failed at the fixed-sleep assertion described above. The next head
 retains every gate and carries the exact-effect observation repair.
+
+### Managed native gateway failure isolation and packaged browser acceptance
+
+The retained real packaged gateway smoke is ported to native protocol/SDK4,
+exact runtime/process identity, native network restrictions and owned disposable
+homes. Its first run passed Chromium startup but exposed an actual parity defect:
+a managed bind failure returned from hostcmd and shut down the otherwise healthy
+local host. Managed gateway state now belongs to the command lifecycle;
+`host.status` publishes optional bounded `web_state`/`web_error`, and a failed
+listener leaves the core usable. Newly launched explicit network requests wait
+for gateway readiness. Repeated start of an existing socket-only host remains
+idempotent and does not change its policy; explicit restart is required.
+
+Real detached fixtures cover ready, occupied and existing-local cases, verifying
+same-epoch attachment after the gateway result and joined explicit stop. The
+first schema check rejected a regex repetition beyond Go's supported bound;
+using the existing JSON-schema MaxLength mechanism fixed that without changing
+the4096-character public ceiling (published errors are capped at1024 runes).
+Full localruntime/hostcmd/protocol race suites passed4.563/6.043/9.091s; RPC passed
+78.709s; CLI launch-policy race passed1.909s. The final three-mode fixture passed
+three shuffled repeats6.565s and its context-aware listener check3.370s. Protocol
+types/interchange/drift, Go vet and pinned baseline lint passed (zero new issues).
+
+The actual packaged Chromium smoke passes restricted handshake, concurrent
+foreground gateways, Host/Origin refusal, Ctrl+C ownership, unchanged existing
+runtime, managed bind-failure isolation, managed readiness, parent shutdown and
+foreground backend-loss cleanup. Initial failed logs remain failures. This uses
+only a disposable binary/home and does not install or modify the real runtime.
+Long-home socket fallback and the remaining distribution update scenarios are
+still pending; this does not close Phase7.

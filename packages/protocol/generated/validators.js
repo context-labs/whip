@@ -78976,7 +78976,7 @@ return errors === 0;
 }
 
 export const HostStatus = validate114;
-const schema115 = {"type":"object","properties":{"runtime_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"process_epoch":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"pid":{"type":"integer","minimum":1,"maximum":2147483647},"build":{"type":"string","pattern":"^[\\s\\S]{0,256}$"},"started_at":{"type":"string","pattern":"^[\\s\\S]{1,64}$"},"web_endpoint":{"type":"string","maxLength":4096}},"$id":"https://whip.dev/protocol/v4/HostStatus","$schema":"http://json-schema.org/draft-07/schema#","title":"HostStatus","required":["runtime_id","process_epoch","pid","build","started_at","web_endpoint"],"additionalProperties":false};
+const schema115 = {"type":"object","properties":{"runtime_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"process_epoch":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"pid":{"type":"integer","minimum":1,"maximum":2147483647},"build":{"type":"string","pattern":"^[\\s\\S]{0,256}$"},"started_at":{"type":"string","pattern":"^[\\s\\S]{1,64}$"},"web_endpoint":{"type":"string","maxLength":4096},"web_state":{"type":"string","enum":["starting","running","failed"]},"web_error":{"type":"string","maxLength":4096}},"$id":"https://whip.dev/protocol/v4/HostStatus","$schema":"http://json-schema.org/draft-07/schema#","title":"HostStatus","required":["runtime_id","process_epoch","pid","build","started_at","web_endpoint"],"additionalProperties":false};
 const pattern888 = new RegExp("^[\\s\\S]{0,256}$", "u");
 const pattern889 = new RegExp("^[\\s\\S]{1,64}$", "u");
 
@@ -79046,7 +79046,7 @@ vErrors.push(err5);
 errors++;
 }
 for(const key0 in data){
-if(!((((((key0 === "runtime_id") || (key0 === "process_epoch")) || (key0 === "pid")) || (key0 === "build")) || (key0 === "started_at")) || (key0 === "web_endpoint"))){
+if(!((((((((key0 === "runtime_id") || (key0 === "process_epoch")) || (key0 === "pid")) || (key0 === "build")) || (key0 === "started_at")) || (key0 === "web_endpoint")) || (key0 === "web_state")) || (key0 === "web_error"))){
 const err6 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
 if(vErrors === null){
 vErrors = [err6];
@@ -79217,14 +79217,62 @@ vErrors.push(err19);
 errors++;
 }
 }
-}
-else {
-const err20 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(data.web_state !== undefined){
+let data6 = data.web_state;
+if(typeof data6 !== "string"){
+const err20 = {instancePath:instancePath+"/web_state",schemaPath:"#/properties/web_state/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err20];
 }
 else {
 vErrors.push(err20);
+}
+errors++;
+}
+if(!(((data6 === "starting") || (data6 === "running")) || (data6 === "failed"))){
+const err21 = {instancePath:instancePath+"/web_state",schemaPath:"#/properties/web_state/enum",keyword:"enum",params:{allowedValues: schema115.properties.web_state.enum},message:"must be equal to one of the allowed values"};
+if(vErrors === null){
+vErrors = [err21];
+}
+else {
+vErrors.push(err21);
+}
+errors++;
+}
+}
+if(data.web_error !== undefined){
+let data7 = data.web_error;
+if(typeof data7 === "string"){
+if(func5(data7) > 4096){
+const err22 = {instancePath:instancePath+"/web_error",schemaPath:"#/properties/web_error/maxLength",keyword:"maxLength",params:{limit: 4096},message:"must NOT have more than 4096 characters"};
+if(vErrors === null){
+vErrors = [err22];
+}
+else {
+vErrors.push(err22);
+}
+errors++;
+}
+}
+else {
+const err23 = {instancePath:instancePath+"/web_error",schemaPath:"#/properties/web_error/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err23];
+}
+else {
+vErrors.push(err23);
+}
+errors++;
+}
+}
+}
+else {
+const err24 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err24];
+}
+else {
+vErrors.push(err24);
 }
 errors++;
 }

@@ -83,6 +83,12 @@ func daemonStatusCLI(args []string) error {
 		if started, err := time.Parse(time.RFC3339Nano, process.StartedAt); err == nil {
 			fmt.Printf("uptime:        %s\n", time.Since(started).Truncate(time.Second))
 		}
+		if process.WebState != "" {
+			fmt.Printf("network state: %s\n", process.WebState)
+		}
+		if process.WebError != "" {
+			fmt.Printf("network error: %s\n", process.WebError)
+		}
 		if process.WebEndpoint != "" {
 			fmt.Printf("network:       %s\n", process.WebEndpoint)
 		}
@@ -113,6 +119,7 @@ func nativeRuntimeLaunch() (localruntime.Launch, error) {
 		}
 	}
 	if network {
+		launch.WaitForWeb = true
 		launch.Arguments = append(launch.Arguments, "-web")
 		for _, setting := range []struct{ name, flag string }{{"LISTEN", "-web-listen"}, {"ALLOWED_HOSTS", "-web-hosts"}, {"ALLOWED_ORIGINS", "-web-origins"}} {
 			if value := os.Getenv(buildinfo.Env(setting.name)); value != "" {

@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"strings"
 	"sync"
 	"time"
 
@@ -21,10 +22,18 @@ func NewHostLifecycle(runtimeID, epoch protocol.ID, pid int, build string, start
 	return &HostLifecycle{status: protocol.HostStatus{RuntimeID: runtimeID, ProcessEpoch: epoch, PID: pid, Build: build, StartedAt: started.UTC().Format(time.RFC3339Nano)}, stop: stop}
 }
 
-func (h *HostLifecycle) SetWebEndpoint(value string) {
+// SetWebStatus publishes one command-owned gateway transition atomically.
+func (h *HostLifecycle) SetWebStatus(state, endpoint string, err error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.status.WebEndpoint = value
+	h.status.WebState, h.status.WebEndpoint, h.status.WebError = state, endpoint, ""
+	if err != nil {
+		text := []rune(strings.ToValidUTF8(err.Error(), "�"))
+		if len(text) > 1024 {
+			text = text[:1024]
+		}
+		h.status.WebError = string(text)
+	}
 }
 
 func (h *HostLifecycle) snapshot() protocol.HostStatus {

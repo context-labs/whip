@@ -2,28 +2,29 @@
 // Add --browser for real Chromium bootstrap (installed Playwright browser required).
 // Every daemon uses a disposable home; no installed runtime is inspected or changed.
 import assert from 'node:assert/strict';
-import { manifest } from '@whip/legacy-protocol';
+import { Client, RemoteError } from '@whip/sdk';
+import { browserSocket, discoverGateway } from '@whip/sdk/browser';
 import { execFile, spawn } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { get } from 'node:http';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { setTimeout as delay } from 'node:timers/promises';
 
 const binary = path.resolve(process.argv[2] || './whipcode');
-const directory = await mkdtemp(path.join(tmpdir(), 'whip-gateway-smoke-'));
+const directory = await mkdtemp('/tmp/whip-gateway-');
 const execute = promisify(execFile);
 const homes = [], children = [];
 let browser;
 function environment(name, extra = {}) {
   const home = path.join(directory, name);
-  const env = { PATH: process.env.PATH, HOME: directory,
+  const env = { PATH: process.env.PATH, HOME: directory, XDG_CONFIG_HOME: path.join(directory, 'config'), ZDOTDIR: directory,
+    SHELL: '/bin/sh', TMPDIR: directory, NODE_ENV: 'test',
     WHIPCODE_HOME: home, WHIPCODE_LISTEN: '127.0.0.1:0', ...extra };
   homes.push(env);
   return env;
 }
-const run = async (env, ...args) => (await execute(binary, args, { env, timeout: 15000 })).stdout;
+const run = async (env, ...args) => (await execute(binary, args, { env, timeout: 30000 })).stdout;
 const status = async (env) => JSON.parse(await run(env, 'daemon', 'status', '--json'));
 async function eventually(check, description) {
   const until = Date.now() + 10000;
@@ -57,56 +58,35 @@ async function foreground(env) {
 }
 async function stopped(endpoint) {
   await eventually(async () => {
-    try { await fetch(`${endpoint}/api/v3/web`, { signal: AbortSignal.timeout(500) }); return false; }
+    try { await fetch(`${endpoint}/api/v4/web`, { signal: AbortSignal.timeout(500) }); return false; }
     catch { return true; }
   }, `listener closed: ${endpoint}`);
 }
 async function rpcSmoke(endpoint) {
-  const socket = new WebSocket(endpoint.replace('http:', 'ws:') + '/api/v3/ws');
-  try {
-    await new Promise((resolve, reject) => {
-      socket.addEventListener('open', resolve, { once: true });
-      socket.addEventListener('error', (event) => reject(new Error(event.message, { cause: event.error })), { once: true });
-    });
-    let id = 0;
-    async function call(method, params) {
-      const requestID = ++id;
-      const response = new Promise((resolve, reject) => {
-        const timer = setTimeout(() => { socket.removeEventListener('message', receive); reject(new Error(`RPC timeout: ${method}`)); }, 5000);
-        function receive(event) {
-          const message = JSON.parse(event.data);
-          if (message.id !== requestID) return;
-          clearTimeout(timer);
-          socket.removeEventListener('message', receive);
-          resolve(message);
-        }
-        socket.addEventListener('message', receive);
-      });
-      socket.send(JSON.stringify({ jsonrpc: '2.0', id: requestID, method, params }));
-      return response;
-    }
-    const initialized = await call('initialize', { protocol_major: manifest.major, build_id: 'gateway-smoke', client_kind: 'desktop', client_id: 'gateway-smoke' });
-    assert(!initialized.error, JSON.stringify(initialized));
-    assert(initialized.result.negotiated_capabilities.includes('network-client-v1'));
-    const denied = await call('terminal.close', { id: 'missing' });
-    assert.equal(denied.error?.code, -32012, JSON.stringify(denied));
-  } finally { socket.close(); }
+  const discovery = await discoverGateway(endpoint, { signal: AbortSignal.timeout(5000) });
+  const client = await Client.connect(browserSocket(endpoint, {
+    expectedRuntimeID: discovery.runtime_id, expectedProcessEpoch: discovery.process_epoch,
+  }), { clientID: crypto.randomUUID(), expectedRuntimeID: discovery.runtime_id });
+  assert.equal(client.processEpoch, discovery.process_epoch);
+  await assert.rejects(client.closeTerminal({ id: 'missing', process_epoch: client.processEpoch }),
+    error => error instanceof RemoteError && error.kind === 'NETWORK_RESTRICTED');
 }
+
 try {
   const local = environment('local');
   await run(local, 'daemon', 'start');
   const before = await status(local);
   assert.equal(before.state, 'running');
-  assert.equal(before.gateway.state, 'disabled');
-  assert(!before.network_endpoint);
+  assert.equal(before.process.web_endpoint, '');
+  assert(!before.process.web_endpoint);
   await run({ ...local, WHIPCODE_NETWORK: '1' }, 'daemon', 'start');
-  assert.equal((await status(local)).gateway.state, 'disabled', 'start must not reconfigure an existing daemon');
+  assert.equal((await status(local)).process.web_endpoint, '', 'start must not reconfigure an existing daemon');
   const one = await foreground(local);
   const two = await foreground(local);
   assert.notEqual(one.endpoint, two.endpoint);
-  const discovery = await (await fetch(`${one.endpoint}/api/v3/web`)).json();
+  const discovery = await (await fetch(`${one.endpoint}/api/v4/web`)).json();
   assert.equal(discovery.available, true, 'pack web assets before building the smoke binary');
-  assert.equal(discovery.protocol_major, manifest.major);
+  assert.equal(discovery.major, 4);
   assert.equal((await fetch(`${one.endpoint}/`, { headers: { Origin: 'https://untrusted.invalid' } })).status, 403);
   const forbiddenHost = await new Promise((resolve, reject) => {
     get(one.endpoint, { headers: { Host: 'untrusted.invalid' } }, (response) => {
@@ -127,12 +107,12 @@ try {
     page.on('pageerror', (error) => errors.push(error.message));
     page.on('websocket', (socket) => socket.on('framereceived', ({ payload }) => {
       const frame = JSON.parse(String(payload));
-      if (frame.result?.connection_id) initialized.push(frame.result);
+      if (frame.result?.major === 4 && frame.result?.runtime_id) initialized.push(frame.result);
     }));
     await page.goto(one.endpoint);
     await page.getByRole('button', { name: 'New session', exact: true }).first().waitFor({ state: 'visible' });
     await eventually(() => initialized.length, 'browser SDK handshake');
-    assert(initialized.every((value) => value.negotiated_capabilities.includes('network-client-v1')));
+    assert(initialized.every((value) => value.network_client === true && value.runtime_id === before.process.runtime_id && value.process_epoch === before.process.process_epoch));
     assert.deepEqual(errors, []);
     await browser.close();
     browser = undefined;
@@ -141,24 +121,25 @@ try {
   one.child.kill('SIGINT');
   assert.equal((await waitForExit(one.child)).code, 0);
   await stopped(one.endpoint);
-  assert.equal((await status(local)).pid, before.pid);
-  assert.equal((await fetch(`${two.endpoint}/api/v3/web`)).status, 200);
+  assert.equal((await status(local)).process.pid, before.process.pid);
+  assert.equal((await fetch(`${two.endpoint}/api/v4/web`)).status, 200);
   const busy = new URL(two.endpoint).host;
   const failed = environment('failed', { WHIPCODE_NETWORK: '1', WHIPCODE_LISTEN: busy });
-  await assert.rejects(run(failed, 'daemon', 'start'), /gateway failed/);
+  await assert.rejects(run(failed, 'daemon', 'start'), /browser gateway failed.*address already in use/);
   const failure = await status(failed);
   assert.equal(failure.state, 'running');
-  assert.equal(failure.gateway.state, 'failed');
-  assert(!failure.network_endpoint);
+  assert.equal(failure.process.web_state, 'failed');
+  assert.match(failure.process.web_error, /address already in use/);
+  assert(!failure.process.web_endpoint);
+  assert.equal((await status(local)).process.process_epoch, before.process.process_epoch);
   console.log('PASS socket-only startup, unchanged existing runtime, concurrent foreground, security, Ctrl+C, explicit conflict isolation');
   const managed = environment('managed', { WHIPCODE_NETWORK: '1' });
   await run(managed, 'daemon', 'start');
   const ready = await status(managed);
-  assert.equal(ready.gateway.state, 'ready');
-  assert.equal(ready.gateway.endpoint, ready.network_endpoint);
-  await rpcSmoke(ready.network_endpoint);
+  assert(ready.process.web_endpoint, 'managed native gateway must be ready');
+  await rpcSmoke(ready.process.web_endpoint);
   await run(managed, 'daemon', 'stop');
-  await stopped(ready.network_endpoint);
+  await stopped(ready.process.web_endpoint);
   await run(local, 'daemon', 'stop');
   assert.equal((await waitForExit(two.child)).code, 1, 'backend loss should be actionable');
   await stopped(two.endpoint);

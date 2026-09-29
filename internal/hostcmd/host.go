@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -122,6 +123,9 @@ func Run(parent context.Context, args []string, out, diagnostics io.Writer) (err
 	terminals := terminal.NewManager(ctx)
 	defer terminals.Shutdown()
 	lifecycle := rpc.NewHostLifecycle(protocol.ID(r.Identity()), protocol.ID(r.ProcessEpoch()), os.Getpid(), *build, time.Now(), cancel)
+	if *web {
+		lifecycle.SetWebStatus("starting", "", nil)
+	}
 	server, err := rpc.Listen(r, rpc.HostServices{Lifecycle: lifecycle, Terminals: terminals, NetworkTerminals: *webTerminals, OpenAI: accounts, Inference: inferenceAccounts, Config: authority, ProviderHost: providers})
 	if err != nil {
 		return err
@@ -157,11 +161,17 @@ func Run(parent context.Context, args []string, out, diagnostics io.Writer) (err
 		}
 		browser, startErr := gateway.Start(ctx, gateway.Options{Address: *webAddress, AllowedHosts: list(*webHosts), AllowedOrigins: list(*webOrigins), SocketPath: r.SocketPath(), RuntimeID: protocol.ID(r.Identity()), ProcessEpoch: protocol.ID(r.ProcessEpoch()), BackendDone: r.Done(), Assets: assets})
 		if startErr != nil {
-			return startErr
+			lifecycle.SetWebStatus("failed", "", startErr)
+			_, _ = fmt.Fprintln(diagnostics, "browser gateway:", startErr)
+			if err := json.NewEncoder(out).Encode(ready); err != nil {
+				return err
+			}
+			<-ctx.Done()
+			return nil
 		}
 		defer func() { _ = browser.Close() }()
 		ready["web"] = browser.Endpoint()
-		lifecycle.SetWebEndpoint(browser.Endpoint())
+		lifecycle.SetWebStatus("running", browser.Endpoint(), nil)
 		if err := json.NewEncoder(out).Encode(ready); err != nil {
 			return err
 		}
@@ -169,7 +179,14 @@ func Run(parent context.Context, args []string, out, diagnostics io.Writer) (err
 		case <-ctx.Done():
 			return nil
 		case <-browser.Done():
-			return browser.Err()
+			failure := browser.Err()
+			if failure == nil {
+				failure = errors.New("browser gateway stopped")
+			}
+			lifecycle.SetWebStatus("failed", "", failure)
+			_, _ = fmt.Fprintln(diagnostics, "browser gateway:", failure)
+			<-ctx.Done()
+			return nil
 		}
 	}
 	if err := json.NewEncoder(out).Encode(ready); err != nil {

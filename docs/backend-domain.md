@@ -2027,6 +2027,16 @@ terminal families plus `shell.input` require explicit operator `-web-terminals`
 authorization. Allowed network account/setup operations keep the same public
 service boundary. The gateway cannot erase the marker with a later handshake.
 
+Managed gateway failure does not own the local execution lifetime. Host status
+publishes optional `web_state` (`starting`, `running`, `failed`) and bounded
+`web_error`; absence means socket-only, and only a running gateway publishes its
+endpoint. A new explicitly network-enabled launch waits for actual gateway
+readiness and reports failure while leaving the core available. Starting an
+already running host is idempotent and preserves its original network policy;
+changing it requires explicit restart. Gateway shutdown/failure clears its
+endpoint, and host shutdown still closes and joins the gateway. These are live
+command-owned observations, never a durable session or second configuration.
+
 Frames are bounded at8MiB, with48 WebSockets and16 concurrent content transfers,
 write deadlines and socket backpressure. JSON envelopes are checked for duplicate
 keys and compacted before newline framing. Shutdown closes and joins hijacked
@@ -2037,9 +2047,11 @@ content contract; there is no separate upload registry or digest-based authority
 
 `@whip/sdk/browser` offers ordinary calls and scoped content transfers. Each
 connection verifies the selected host, local cancellation stops only observation,
-and no transport automatically retries mutations. Assets are not yet adopted:
-the API discovery endpoint reports `available: false`, and `/` returns503 until a
-v4 application is packaged. Product web/desktop/mobile migration remains Phase6.
+and no transport automatically retries mutations. Packaged assets are the actual shared
+native application. A build without assets still reports `available: false` and
+returns503 at `/`; discovery never substitutes a placeholder or claims an
+unpackaged renderer is available. Exact product acceptance remains in the
+Phase6 development record.
 
 
 ## Session shell execution and human input

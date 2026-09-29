@@ -88,6 +88,7 @@ type Launch struct {
 	Executable string
 	Arguments  []string
 	Build      string
+	WaitForWeb bool
 }
 
 // Start explicitly launches detached host work. Cancelling this readiness wait
@@ -218,6 +219,8 @@ func (m *Maintenance) Start(ctx context.Context, launch Launch) (Status, error) 
 	ticker := time.NewTicker(25 * time.Millisecond)
 	defer ticker.Stop()
 	status := Inspect(ctx, paths)
+	// An existing host retains its original launch policy. Start is idempotent;
+	// changing network settings requires an explicit restart.
 	if status.State == "running" {
 		return status, nil
 	}
@@ -252,8 +255,8 @@ func (m *Maintenance) Start(ctx context.Context, launch Launch) (Status, error) 
 	}
 	for {
 		status = Inspect(ctx, paths)
-		if status.State == "running" {
-			return status, nil
+		if ready, err := launchReady(status, launch); ready {
+			return status, err
 		}
 		select {
 		case <-ctx.Done():
@@ -261,6 +264,27 @@ func (m *Maintenance) Start(ctx context.Context, launch Launch) (Status, error) 
 		case <-ticker.C:
 		}
 	}
+}
+
+// Readiness never silently replaces a running socket-only or failed gateway.
+func launchReady(status Status, launch Launch) (bool, error) {
+	if status.State != "running" || status.Process == nil {
+		return false, nil
+	}
+	if !launch.WaitForWeb {
+		return true, nil
+	}
+	switch status.Process.WebState {
+	case "starting":
+		return false, nil
+	case "running":
+		if status.Process.WebEndpoint != "" {
+			return true, nil
+		}
+	case "failed":
+		return true, fmt.Errorf("native runtime is running; browser gateway failed: %s", status.Process.WebError)
+	}
+	return true, errors.New("native runtime is running without a browser gateway; explicitly restart to change network settings")
 }
 
 // Stop targets only the live epoch just observed. An unhealthy process has no
