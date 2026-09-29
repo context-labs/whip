@@ -236,6 +236,9 @@ jobs:
 
   desktop:
     needs: products
+    # Keep collecting native evidence when an unrelated product gate fails.
+    # The tested renderer artifact is still required; the aggregate stays closed.
+    if: ${{ !cancelled() }}
     uses: ./.github/workflows/desktop-check.yml
     with:
       renderer-artifact: ci-renderer
