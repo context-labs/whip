@@ -7,11 +7,12 @@ provider was changed. The original development checkout was not used.
 
 ## Current acceptance snapshot
 
-Reconciled through published source `1edc9d823` and the local dedicated-browser
-repair `d0769783f` on 2026-09-29. “Implemented” and a
-passing checkpoint are distinct from final milestone acceptance. The complete
-normal CLI/TUI and staged Desktop results are from `1fa8dbfb2`; the complete UI
-result is from `d9545097d`. Neither includes every subsequent source change.
+Reconciled through published source `e85f72203` and the local performance-gate
+ordering repair `6434cb499` on 2026-09-29. “Implemented” and a passing checkpoint
+are distinct from final milestone acceptance. The complete staged Desktop gate
+passes at `e85f72203`; the complete normal CLI/TUI result is from `1fa8dbfb2`
+and the complete local UI result is from `d9545097d`. Older checkpoints do not
+cover subsequent source changes.
 The [plan checklist](backend-redesign-plan.md#phase-5--port-retained-product-capabilities)
 remains open, and [the chronological record](backend-redesign-development.md)
 retains the earlier failures and intermediate results.
@@ -20,13 +21,13 @@ retains the earlier failures and intermediate results.
 | --- | --- | --- |
 | Execution, engines, accounting, recursion, mail and state | [Family disposition](backend-native-core-retirement.md#behavior-and-test-disposition), both-engine store/runtime tests and [real process fixture](../scripts/redesign/v4-fixture.test.mjs); complete package discovery replaces the retired allowlist. All hosted race partitions pass on Linux/macOS at `1edc9d823`. | Final combined aggregate remains open; passing race partitions do not imply aggregate success. |
 | Providers, accounts, definitions, hooks, goals and schedules | [Provider setup](models-providers.md#provider-connections-in-settings), immutable declarations and native operation/maintenance paths are mounted in shared/mobile/terminal clients. Settings, executor and ordinary-input fixtures use the real host with deterministic transports. | Current combined client gate and representative live-provider/managed-account workflows; synthetic onboarding is not live readiness. |
-| Context, instructions, skills, history and workspace | Exact raw-history/summary boundaries and scoped originals; [image compaction regression](../internal/runtime/compaction_content_test.go), actual REPL/skills/history/restore fixtures. Published/default skill roots and explicit body grants are separate shipped controls. The slash-completion caret race is repaired with four regressions and both-browser workflow evidence. | Hosted REPL observation-overlap diagnosis and final combined browser gates. Settings history passes on `b1c9ca965` and `1edc9d823`; no seed optimization is claimed. |
+| Context, instructions, skills, history and workspace | Exact raw-history/summary boundaries and scoped originals; [image compaction regression](../internal/runtime/compaction_content_test.go), actual REPL/skills/history/restore fixtures. Published/default skill roots and explicit body grants are separate shipped controls. The slash-completion caret race is repaired with four regressions; hosted conversation checks pass in both browsers at `e85f72203`. | The earlier intermittent REPL overlap has not been causally explained; a later unchanged passing gate does not establish its repair. Final combined browser gates remain required. Settings history passes on `b1c9ca965` and `1edc9d823`; no seed optimization is claimed. |
 | Files, LSP, shell, permissions/questions and MCP | [Native family tests](backend-native-core-retirement.md#behavior-and-test-disposition), joined process/LSP ownership, direct human actions, scoped grants and real MCP self-host fixtures; mounted controls preserve root/child distinctions. | Final-head automated/lifecycle validation; live external servers remain explicit opt-in evidence. |
 | Browser/computer and native helpers | External Chrome and offered Desktop tabs have distinct scoped owners and human controls across clients. Both ambient wrappers are removed: [browser driver disposition](browser-computer-use.md#native-browser-test-ownership), [computer disposition](backend-native-computer-retirement.md). Actual private Chrome covers both drivers/engines; Desktop bridge fixtures cover real IPC. | Headed dedicated/real extension opt-ins, real accessibility/TCC and applicable platform checks are not established by headless or fake-helper tests. |
-| SDK, shared app and mobile | At `1fa8dbfb2`: protocol18 checks, SDK205/example5 tests, app types/1382 tests, mobile types/226 tests. [Mobile readiness](backend-native-mobile-readiness.md) separately records exports, simulator and Android compilation provenance. | Final combined gates, physical-device UI/lifecycle/accessibility and signed-device checks. Simulator storage evidence does not prove Android or physical-device behavior. |
+| SDK, shared app and mobile | At `1fa8dbfb2`: protocol18 checks, SDK205/example5 tests and mobile types/226 tests. Shared app types and all1388 tests pass at the `e85f72203` increment. [Mobile readiness](backend-native-mobile-readiness.md) separately records exports, simulator and Android compilation provenance. | Final combined gates, physical-device UI/lifecycle/accessibility and signed-device checks. Simulator storage evidence does not prove Android or physical-device behavior. |
 | Go CLI, TUI and ACP | Complete normal `check:native-cli` passes at `1fa8dbfb2`, including real compiled entrypoints, SSH/update fixtures, both native TUI partitions and pure presentation complement; [CLI](backend-native-cli-disposition.md) and [terminal](native-terminal-retirement.md) dispositions retain exact semantics. The SSH fixture's duplicate `exec` is repaired; its compiled integration block now passes hosted Linux/macOS (54.316s/48.928s). | Both hosted client gates fail later at the packaged-runtime Task shell's signal trap. The explicit-Bash repair passes the real local packaged-runtime block; final combined hosted gates remain open. |
 | Shared UI | Complete `check:product-ui` passes locally at `d9545097d` and hosted at `1edc9d823`: Storybook,66 themes/14 interactions, strict CSP, isolated packed consumers, tabs/layout in both browsers and30 model-picker scenarios. Workspace regressions fail before their repairs; no tolerance changes. | Final combined-source gate. This is not all application browser workflows or actual Safari. |
-| Desktop and distribution | Complete [staged Desktop gate](backend-native-desktop-readiness.md) passes at `1fa8dbfb2`, including166 tests,116 distribution checks, onboarding, normal/failure workspace flows and terminal/editor/browser IPC. | Signed/quarantined release, target/minimum-OS execution, real SSH hardware/account scenarios and quiet performance remain distinct. |
+| Desktop and distribution | Complete [staged Desktop gate](backend-native-desktop-readiness.md) passes at exact published `e85f72203`, including166 tests,116 distribution checks, onboarding, normal/failure workspace flows and terminal/editor/browser IPC. Exact package/helper/renderer hashes and joined cleanup are recorded. | Signed/quarantined release, target/minimum-OS execution, real SSH hardware/account scenarios and quiet performance remain distinct. |
 
 Hosted run36584226063 at `1edc9d823` finishes with 34 passed jobs, four failed
 leaf jobs, two failed aggregates and skipped Desktop. Analysis, evals, mobile, UI,
@@ -44,7 +45,7 @@ shared process environment remains restricted. The regression fails before the
 repair and passes as a real process on macOS and Linux, including unrelated-secret
 exclusion and unchanged headless/ordinary process isolation. The complete normal
 native-browser gate passes locally at `d0769783f` (browser15.430s/runtime12.475s).
-Hosted Linux headed Chrome still requires its next exact-head run.
+Hosted native-browser gates now pass on both Linux and macOS at `e85f72203`.
 
 The packaged-runtime fixture now executes its existing owned-directory/trap/
 build/race sequence in explicit Bash. The original block reproduces the trap
@@ -52,6 +53,16 @@ failure before any Go command; the repair preserves success and both build/test
 failure cleanup without running a later command after failed build. The actual
 packaged runtime integration passes in 3.413s with the same two-minute deadline,
 race, shuffle and engine assertions.
+
+Hosted #278 run36588313432 at `e85f72203` is still running when this snapshot is
+recorded. Both native-browser jobs and the complete conversation job pass. Its
+performance job fails before the workload because a newly required helper test
+imports the SDK before it is built. The next increment runs the existing
+`web-assets` prerequisite first; asset generation from absent SDK output and all
+22 helper contracts pass locally. This setup repair supplies no timing result.
+Optional bounded cached-anchor diagnostics are also available, with four passing
+lifecycle/bounds tests; enabled diagnostic runs are excluded from performance
+acceptance. The earlier child-anchor failure remains unexplained.
 
 The command boundaries below remain the normal complete gate; do not replace them
 with selected passing subsets. Observation-lifetime diagnosis and the measured

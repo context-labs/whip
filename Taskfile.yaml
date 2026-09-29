@@ -265,7 +265,7 @@ tasks:
     desc: Native web performance measurement; run without competing builds or tests
     cmds:
       - task: web-assets
-      - node --test apps/web/scripts/performance-retention.test.mjs apps/web/scripts/performance-keyboard.test.mjs apps/web/scripts/performance-desktop.test.mjs
+      - node --test apps/web/scripts/performance-retention.test.mjs apps/web/scripts/performance-keyboard.test.mjs apps/web/scripts/performance-desktop.test.mjs apps/web/scripts/performance-anchors.test.mjs
       - node apps/web/scripts/performance.mjs
 
   check:product-content:
