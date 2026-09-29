@@ -93,3 +93,56 @@ values must not be compared as natural retention.
 The full harness now reuses the tested keyboard classifier: absent entries
 remain unknown/unbounded after finite drainage. The complete 40/40 historical
 run retains exactly its 72 ms estimate and 68–76 ms quantization bounds.
+
+## Corrected trace and bounded parser candidate
+
+The diagnostic `/tmp/whip-performance-native-trace/run-b5I6bf` used harness
+`704f4c760`, with inspection before provider streams and no default forced
+collection anywhere in the performance call graph. Its bounded first-key CPU
+trace contained 1,740 events (945,595 bytes, no data loss). All seven workload
+groups and 40 keys completed, but CPU tracing excludes that run's latency and
+memory values from acceptance. The trace showed about 2.97 ms sampled self time
+in `skillTrigger` and about 1.78 ms in its caller. Autosize layout was below 1 ms;
+this did not justify rewriting autosize or establish the complete 72 ms cause.
+
+Candidate `4a18de8f1` only rejects a completion search early when no slash exists
+before the caret. The original whitespace, fence, token and UTF-16 offset logic
+remains unchanged. The parser/catalog/runtime suites passed 101 tests, and shared
+app types passed. Independent source review found no semantic blocker. A pure
+Node 24 comparison of exact `704f4c760` and candidate sources returned identical
+results for 14,884 deterministic differential cases. Seven alternating rounds of
+100 calls, after 20 warmup calls, gave these median per-call values:
+
+| Input | Before | Candidate |
+| --- | ---: | ---: |
+| 255,543 ordinary characters, no slash | 2.188 ms | 0.072 ms |
+| 64,000 repeated Unicode characters, no slash | 0.690 ms | 0.019 ms |
+| Valid trigger after long prose | 12.959 µs | 12.935 µs |
+| Short middle-token trigger | 0.265 µs | 0.332 µs |
+
+The script and raw results are `/tmp/whip-skill-trigger-benchmark.mjs` and
+`/tmp/whip-skill-trigger-benchmark.json`. This measures only the parser; it does
+not prove a 50 ms full-workload result.
+
+## Incomplete paired baseline
+
+A comparable untraced baseline used `704f4c760` plus passive memory instrumentation
+`e9aa2b69e` (local exact-equivalent head `48011e766`), renderer digest
+`3e18ccd8ca5376ea08892974771b1fff9faf6ab8cc0987483fc84656206f04f2` and native
+binary digest `0136f40073f6ffc0ad192a853bec533a4627e4961d9dbd04c073891c6cb81efe`.
+Other agents reported no local heavy work during the run. It failed before
+streams, typing and transfer, at the cached child anchor check on switch index 7.
+The prior seven child restorations matched message 006 at −5 px; the failed
+restoration showed message 084 at −29 px. The root anchor matched on every
+switch, though its final restoration took 1,156 ms rather than the prior roughly
+50 ms. There were no page errors and no new child history-page read after its
+initial load. This is a jump toward the tail, not evidence of the separate prior
+28 px intermittent reading issue.
+
+The preserved report and screenshot are
+`/tmp/whip-performance-native-paired-before/run-GN5GYV/performance-failure.json`
+and `performance-failure.png`; the log is
+`/tmp/whip-performance-native-paired-before.log`. Owning cleanup completed with
+an empty error list, and recorded Electron PID 4521 and runtime PID 4517 were
+verified gone. No successful performance result was emitted. The reading-anchor
+failure remains open for diagnosis; no rerun or candidate improvement is claimed.
