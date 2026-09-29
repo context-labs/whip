@@ -5760,3 +5760,109 @@ pass (10.041s for the tests); prior generated output is preserved separately.
 Evidence: `/tmp/whip-performance-order-validation.log`. The complete performance
 workload is not claimed by this dependency-order check. Hosted #278 remains
 frozen for the other platform results.
+
+### Accepted typing speed and final obligation reconciliation — 2026-09-29
+
+The user explicitly accepts the measured 72 ms native typing p95 and asks to
+close the speed work. The earlier 50 ms target is superseded for this redesign
+acceptance; no further latency optimization is required. The full untraced
+baseline completes all seven workload groups and all 40 reported native keys,
+with no missing entries, native focus verified before/after, and no forced GC.
+Its rounded p95 is 72 ms (68–76 ms quantization bounds), recorded at
+`/tmp/whip-performance-native-baseline-comparable/run-niNF8k/performance.json`.
+This decision does not waive reading correctness or natural retention evidence.
+
+A read-only source/evidence audit reconciles the phase checklists: retained
+capability implementation and both-engine contracts are satisfied; native core
+removal, dynamic whole-product gate restoration, bounded SDK data/transport and
+fresh-namespace setup documentation are also complete. Exact family test
+replacements and earlier checkpoint limits remain linked. Final combined
+client/platform/live-provider/resource acceptance stays open. Canonical docs now
+state host config 21/schema 55, implemented client adoption and completed code
+removal. The public SDK article remains drafted under the original publication
+decision; its ten native source-checked examples and seven helper scenarios are
+covered by the normal docs gate, while three draft-route presentation checks
+remain explicitly pending publication. No release links or routes changed.
+
+Hosted #279 at `ad7a4955f` passes the repaired performance helper/workload gate.
+It exposes separate Firefox activity-reading and Settings assertion failures:
+the first small upward wheel leaves a zero tail gap while Latest is visible;
+the second sees two provisional-output hints in one two-operation group. Their
+captured artifacts are being examined before changing product behavior or tests.
+These are distinct from the earlier history-seed failure and from typing speed.
+
+The complete unchanged `check:product-docs` gate passes at `73b118c1c`: protocol
+checks, SDK build, docs types, 79 tests across nine files (including the ten SDK
+examples), live add/edit/delete route refresh, static verification of four
+prerendered documents/65 public files, 27 browser checks and Storybook build.
+The three pre-existing SDK draft-route presentation checks remain intentionally
+skipped under the publication disposition above. Log:
+`/tmp/whip-final-docs-gate.log`; the owned gate joins with exit 0 and the source
+tree stays clean. No public documentation or release was deployed.
+
+Hosted #278 run `36588313432` finishes at exact `e85f72203` with 38 successful
+jobs, the single performance setup-order leaf failure and two propagated
+aggregate failures. No job is skipped; Desktop and both client/native-browser
+gates pass. The setup-order repair is already exercised successfully in #279.
+
+The #279 Settings failure is a fixture ownership error: two distinct canonical
+operations share one running cell, and each mounted operation panel correctly
+contains that cell's provisional stdout. Integrated `28060cf20` captures the
+two exact operation IDs, their owner/turn and single running cell; checks one
+hint per mounted expected operation with no duplicate or foreign hint; and
+preserves disclosure, line-nine, committed replacement, REPL, draft and split
+assertions. Both actual browsers pass all nine REPL Settings checks and join
+their owned runtimes (48.432s Chromium/46.954s Firefox), using renderer
+`0af75b87cce53a45cc1fb60227912395b09dfe601c899c4abfeb0e0d79cdc39d`.
+No product code, workload, deadline or geometry changes; the untouched body
+scenario is not claimed by this focused repair. Evidence:
+`/tmp/whip-settings-provisional-evidence.md` and its exact ownership reports.
+
+The first-gesture Firefox failure is not reproduced locally. The original full
+activity workload passes; a controlled delayed-measurement experiment preserves
+the 12 px upward movement, and bounded browser experiments reject a no-op
+scroll-write explanation. No speculative product repair or settlement wait is
+introduced. Integrated `0a61fdb64` adds passive bounded wheel/scroll/resize/frame
+evidence around the unchanged first gesture, written on success or failure and
+retired on completion, page hide, unmount or a ten-second deadline. Four
+lifecycle/bounds contracts pass and now join the normal activity gate after its
+asset prerequisite. The complete affected native activity scenario passes all
+12 checks in each browser, with at most 30 mounted tree rows and the same
+production renderer; this is passing evidence, not proof of the hosted cause.
+Artifacts: `/tmp/whip-firefox-small-scroll-passive/`; investigation:
+`/tmp/whip-firefox-small-scroll-investigation/findings.md`.
+
+
+### Closed performance investigation and final combined follow-through — 2026-09-29
+
+The single bounded retention follow-up completes and is integrated as `027612274`.
+It reuses the measured candidate package without another typing run: three full
+same-root navigations, natural 35-second samples, then explicit fixture
+settlement. Every old document naturally collects, previous native frame
+connections close, and the one provider request is not repeated. Settlement
+removes 3,999 temporary Markdown spans. Renderer RSS finishes at 461.4 MiB,
+compared with 459.0 MiB initially; no threshold was invented. All five owned
+processes join, no bound overflows and no page/probe/cleanup errors occur.
+
+The old-document retention investigation is satisfied for this bounded case,
+without establishing an accumulating app-owned leak or requiring a speculative
+product change. Full-workload peaks (1,629,712 KiB baseline / 1,693,136 KiB
+candidate), RSS/shared-page and physical-footprint limitations remain preserved
+in the [exact audit](../apps/web/scripts/native-performance-control-audit.md#retention-only-native-outcome-2026-09-29).
+The 72 ms speed result remains accepted. No further timing or memory experiment
+is planned for this investigation.
+
+Hosted #279 run `36590021190` finishes at exact `ad7a4955f`: 37 successful jobs,
+two known failed leaves (Firefox small-scroll activity and the Settings ownership
+assertion), two dependent aggregate failures and zero skips. Desktop, both
+client jobs and the repaired performance helper/workload gate pass. Final evidence:
+`/tmp/whip-279-final-summary.md`. The next draft combines the locally verified
+Settings repair, bounded scroll diagnostics and these reconciled records.
+The diagnostic writer preserves the original reading assertion if artifact
+collection also fails; its success path and workload are unchanged.
+
+Final combined hosted acceptance and the unexplained reading/observation
+failures remain open. Actual Safari automation and the bounded live-provider
+smoke still await the existing approval questions. Signed/physical-device,
+minimum-OS and real account/hardware evidence remain separately named limits;
+none are implied by deterministic fixtures or by the user's speed acceptance.

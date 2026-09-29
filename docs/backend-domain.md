@@ -2,8 +2,10 @@
 
 This is the implemented domain contract for the
 [backend redesign](backend-redesign-plan.md). The new runtime, runner, RPC and
-SDK use these records directly. Retained applications still use the explicitly
-separate legacy runtime and SDK until their client cutover.
+SDK and supported applications use these records directly. The retired runtime
+and SDK have been removed; [the retirement record](backend-native-core-retirement.md)
+maps their retained behavior to native implementations. Final combined and
+platform acceptance remains separate from this implemented contract.
 
 ## Ownership
 
@@ -31,7 +33,7 @@ separate legacy runtime and SDK until their client cutover.
 | Goal completion intent | Successful authorized operation; the goal retains terminal turn/operation references |
 | Goal formulation source | Immutable maintenance-input snapshot of the raw-history window and activation request |
 | Goal formulation result | Immutable attempt-linked candidate and rejection; accepted goals retain the origin attempt |
-| Accepted input kind and payload | Input row (`prompt`, `compact` or `goal_formulation`); turn kind is a read projection |
+| Accepted input kind and payload | Input row (`prompt`, `host_operation`, `compact`, `goal_formulation` or `automatic_title`); turn kind is a read projection |
 | Request identity and payload digest | Receipt row |
 | Execution outcome | Turn row; input and receipt outcomes are derived |
 | Automatic report awaiting publication | Parent-owned completion slot with exact terminal outcome snapshot |
@@ -44,7 +46,7 @@ separate legacy runtime and SDK until their client cutover.
 | Stateless helper origin | Immutable operation ID and batch index on each model attempt; ordered output belongs to the operation result |
 | Code dispatch, outcome and exact REPL boundary | Cell row, linked to its assistant call and tool-result message |
 | Checkpoint compatibility metadata and body reference | Immutable terminal cell checkpoint |
-| Host-operation intent, dispatch and outcome | Operation row, owned through its cell and turn |
+| Host-operation intent, dispatch and outcome | Operation row, owned through its cell or directly through a human-operation turn; never a fabricated cell |
 | Exact session/capability/resource authority | Immutable grant row; revocation is a terminal fact |
 | One-use consent decision | Permission row, linked to its exact operation |
 | Checkpoint image bytes | Durable immutable blob file, verified before restore |
@@ -313,11 +315,16 @@ No live deletion can race the gap between publication and registration.
 
 Initialization takes explicit paths and never discovers an installed daemon or
 reads the retired home/config. A new host config is valid but unconfigured: users
-must select a model/provider before creating a runnable session. API credentials
-use explicit sources resolved during request preparation. Subscription credentials
+must select a model/provider before ordinary model work. Explicit model-free
+sessions can run [direct human operations](../internal/store/host_operation.go).
+API credentials use explicit sources resolved during request preparation.
+Subscription credentials
 belong to the independent host account manager and its private file.
 
-Current fresh host configuration is version 11; the SQLite schema is version 33.
+Current fresh [host configuration](../internal/config/host.go) is version 21;
+the [SQLite schema](../internal/store/store.go) is version 55. Version numbers in
+the implementation histories below identify their introducing checkpoints, not
+additional formats accepted by the current binary.
 SQLite has an application identifier and schema version. Existing databases of
 another application/version are rejected, not imported. Reopening preserves the
 runtime identity and seeded revisions; separate databases receive distinct
@@ -2263,9 +2270,11 @@ verified runtime and, when provided, process epoch before dependent requests.
 
 ## Authored design evidence and session controls
 
-Fresh schema 48 adds display-only design provenance after schema 46's workspace
-and run controls (schema 47 is reserved for the separate browser integration).
-There is no old-schema reader or migration. Protocol remains 4; host config 18.
+Display-only design provenance was introduced in fresh schema 48 after schema
+46's workspace and run controls; schema 47 was allocated to browser integration.
+That checkpoint used host config 18. The current versions are listed at the
+[host and schema boundary](#host-and-schema-boundary); protocol remains 4, with
+no old-schema reader or migration.
 
 `sessions.submit.design_context` optionally identifies a unique text content
 reference and an optional unique image content reference in the submitted parts.

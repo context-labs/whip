@@ -284,7 +284,7 @@ tasks:
     desc: Native operation chronology, child activity, steering and queue workflows
     cmds:
       - task: web-assets
-      - node --test --test-concurrency=1 apps/web/scripts/native-activity-response.test.mjs apps/web/scripts/native-queue-fixture.test.mjs
+      - node --test --test-concurrency=1 apps/web/scripts/native-activity-response.test.mjs apps/web/scripts/native-queue-fixture.test.mjs apps/web/scripts/native-activity-scroll-trace.test.mjs
       - node apps/web/scripts/native-chat-activity.mjs
       - node apps/web/scripts/composer-queue.mjs
       - node apps/web/scripts/agent-dock.mjs

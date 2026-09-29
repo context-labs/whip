@@ -70,8 +70,10 @@ whipcode --help
 Actual articles need no imports. `docsComponents` supplies Callout, CodeTabs/CodeTab, table and pre/code.
 Only article metadata is global; compiled articles are separate lazy chunks.
 Optional `navTitle` keeps a short sidebar label without changing the page H1/title.
-The site has 21 pages in five sidebar groups. Quickstart, Download and TypeScript
-SDK have article content; the other 18 remain heading-only outlines. Quickstart and Download are first. The Desktop DMG link on Download is pinned to
+The source has 21 pages in five possible sidebar groups. Quickstart, Download and
+TypeScript SDK have article content; the other 18 remain heading-only outlines.
+Only non-draft pages enter navigation and the static artifact, as described below.
+Quickstart and Download are first. The Desktop DMG link on Download is pinned to
 a verified public release; update its version, link and browser assertion together
 when changing the recommended build. There is no runtime release fetching.
 Every page retains copy/download controls. Its original MDX is a page-local lazy
@@ -81,6 +83,33 @@ components. No raw-page API or global article-body index is introduced.
 The Vite watcher regenerates metadata on add/change/delete; generation writes
 only if bytes change. Generated route/manifest files are ignored and regenerated
 by dev/build/check. No manual generation is required after editing content.
+
+### Draft publication and native SDK coverage
+
+The public scope remains Quickstart, Download and FAQ. This was an explicit
+[pre-redesign publication decision](https://github.com/context-labs/whip/commit/59054e01e900ab5c362b0afa55a921c83e95ca5d),
+not a native backend capability exclusion. `draft: true` content is validated but
+excluded from navigation, pagination, sitemap and prerendered routes; those URLs
+return 404. Keep release/download claims independent from source-build documentation.
+
+The drafted TypeScript SDK article was
+[ported to native v4](https://github.com/context-labs/whip/commit/c6b858875971547dfb9b726c4c353eb77775c10e).
+Its ten standalone examples cover verified connection, stable root/input
+identities, admission recovery, observation versus execution cancellation,
+bounded views, scoped decisions/content/accounting, and authored tools/agents.
+`tests/sdk-examples.test.ts` checks every example against the actual SDK source
+and exercises seven helper scenarios, regardless of the page's draft flag.
+The normal `check:product-docs` gate runs these checks; real native execution and
+transport evidence belongs to the SDK/process and product-example gates.
+
+The three skipped scenarios in `tests/browser/sdk.spec.ts` cover that article's
+highlighting/copy/TOC and no-JavaScript rendering at 320 and 1440 pixels. They do
+not test host execution and cannot run against an intentionally unavailable
+public route. Keep them explicitly pending until a separate publication change
+enables the SDK page and validates its static/browser output. Other draft
+outlines are not completed public documentation, and native client adoption does
+not implicitly publish them. No draft flag, release link or deployment is
+changed by the backend redesign's SDK example coverage.
 
 ### Syntax and source fidelity
 

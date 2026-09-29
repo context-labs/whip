@@ -7,7 +7,8 @@ and the audited mail repair in [PR #215](https://github.com/context-labs/whip/pu
 The earlier completion claim missed ordinary-mail content-reference transfer;
 the repair passes local gates and hosted Linux, macOS and analysis checks.
 The implementation remains in an unmerged draft PR stack.
-Phases 5–7 are in progress. The authorized execution scope
+Phase 5's retained-capability implementation and contract criteria are satisfied;
+Phases 6–7 final product acceptance remains in progress. The authorized execution scope
 is all phases, including client adoption and final removal of the retired core.
 Written: 2026-09-27. Planning reference: `6f02507bf`.
 
@@ -715,8 +716,10 @@ same helper attempt loop, atomic billing/candidate/activation settlement, bounde
 captured raw source, public maintenance receipts and immutable candidate reads.
 The SDK process scenario covers root/child ownership, lost acknowledgements,
 rejected activation, automatic initial input and dispatched crash recovery.
-Hosted formulation validation passed at `c47fefe96` in run `36484832748`;
-product-client adoption remains open.
+Hosted formulation validation passed at `c47fefe96` in run `36484832748`.
+Subsequent shared/mobile and [terminal goal controls](../internal/tui/native_goals.go)
+complete the implementation's client adoption. Final combined and live-provider
+acceptance remains open in [the gate audit](backend-native-gate-audit.md).
 
 Stateless model-helper implementation decisions:
 
@@ -820,7 +823,7 @@ Automatic-title implementation decisions (backend/SDK implemented and locally va
   retain unopened/off-page title refresh through host/catalog revision
   invalidation, without a second mutable title authority.
 
-Fork, rewind and workspace implementation decisions (work remains open):
+Implemented fork, rewind and workspace decisions (final acceptance remains open):
 
 - Make content handles unique within their owner using `(owner_session_id,
   reference_id)`. Fork can copy existing handles into a new owner while storing
@@ -888,11 +891,11 @@ and tracked/untracked/deleted/staged file behavior and partial restore failures.
 
 Acceptance:
 
-- [ ] Each retained capability is implemented, or its explicit retirement is
+- [x] Each retained capability is implemented, or its explicit retirement is
       recorded. No feature disappears merely because its old tests were deleted.
-- [ ] Both engines pass common contract tests and their documented checkpoint
+- [x] Both engines pass common contract tests and their documented checkpoint
       fidelity/compatibility tests; shared semantics do not depend on language.
-- [ ] Compaction preserves raw transcript history and records exact boundaries.
+- [x] Compaction preserves raw transcript history and records exact boundaries.
       Fork/rewind defines conversation, checkpoint and external workspace effects
       and prevents stale client history from being silently applied.
 - [x] Goals/schedules admit ordinary inputs; due work is handled according to
@@ -904,14 +907,20 @@ Acceptance:
       formulation uses ordinary maintenance receipts. Store/runtime/RPC/SDK and
       full local phase acceptance pass. Hosted formulation validation passed in run `36484832748`;
       product-client adoption belongs to phase 6.
-- [ ] Integration reloads/model changes preserve unrelated children, grants,
+- [x] Integration reloads/model changes preserve unrelated children, grants,
       REPL and resource ownership.
-- [ ] Executor disconnect, required/optional hooks, tool schemas and output
+- [x] Executor disconnect, required/optional hooks, tool schemas and output
       validation have explicit failure behavior and matching SDK coverage.
-- [ ] Human terminal/browser resources and agent authority remain distinct;
+- [x] Human terminal/browser resources and agent authority remain distinct;
       reconnect does not silently restore revoked attachments or replay effects.
-- [ ] All retained feature families have replacement evidence and use the new
+- [x] All retained feature families have replacement evidence and use the new
       core; no compatibility wrapper delegates execution to the retired runtime.
+
+Reconciled on 2026-09-29 against the [native family disposition](backend-native-core-retirement.md),
+both-engine contract/checkpoint, reload, executor and host-resource suites, and
+the passing Linux/macOS race partitions at `1edc9d823` and `e85f72203`.
+These implementation/contract criteria do not substitute for the final client,
+live-provider, resource or platform acceptance below.
 
 Implementation progress: final-output contracts and the first context increment
 are implemented. Manual compaction, revisioned summary selection/undo, bounded
@@ -930,8 +939,9 @@ authority, with filtered turn-local text and immutable raw-source audit.
 Authorized ancestor project rules and skills now use explicit named boundaries,
 captured selection, exact instruction grants and verified descriptor-confined
 membership. Both engines and SDK process acceptance cover aliases, inherited and
-restricted child sources, guest reads, refresh and restart. Fork/rewind and human workspace snapshots now have isolated replacement coverage;
-broader Phase 5 acceptance remains open.
+restricted child sources, guest reads, refresh and restart. Fork/rewind and human
+workspace snapshots have replacement coverage; the reconciled implementation
+criteria above are satisfied, with final product acceptance tracked below.
 Long-turn splitting now retains exact opening inputs and complete tool exchanges;
 one confirmed provider context rejection can trigger a recorded smaller request
 after accounting settles. Indivisible oversized exchanges still fail explicitly. Chat now preserves the pinned provider wire profiles, including off-effort omission
@@ -963,15 +973,16 @@ This progress does not narrow Phases 5–7.
 
 ### Phase 6 — Complete SDK and client adoption
 
-SDK services and views are implemented; product-client adoption and the milestone
-remain in progress. Roots and children use one inert session handle, bounded
-history/activity/input services, exact command recovery and SDK-owned immutable
+SDK services, views and supported product-client adoption are implemented;
+the milestone's final validation remains open. Roots and children use one inert
+session handle, bounded history/activity/input services, exact command recovery and SDK-owned immutable
 views. The global tree catalog revision refreshes unopened/off-page titles and
 membership; React subscriptions consume those same snapshots. SQL receipt
 matching verifies original input payloads before acceptance is inferred from a
 lost acknowledgement. Recovery storage has a fresh namespace and explicit
-count/byte limits. These SDK checks do not stand in for supported renderer,
-native bridge, CLI/TUI or ACP adoption below.
+count/byte limits. SDK checks alone do not establish the renderer, native bridge,
+CLI/TUI or ACP acceptance below; [the current gate audit](backend-native-gate-audit.md)
+records their separate checkpoints and remaining requirements.
 
 
 Finish the uniform services and views, shared app, web gateway, desktop native
@@ -993,7 +1004,7 @@ Acceptance:
       recovery distinguishes acceptance, outcome and local observation errors.
 - [ ] Snapshot/subscription handoff, dropped events, expired replay, restart and
       lost acknowledgement recover without duplicate work or presentation.
-- [ ] Large histories/content and slow consumers remain bounded and report
+- [x] Large histories/content and slow consumers remain bounded and report
       truncation/unavailability truthfully; cross-session access is rejected.
 - [ ] Desktop native bindings, mobile suspension/resume, web content transfer,
       Go client and ACP pass their relevant transport/lifecycle checks.
@@ -1004,8 +1015,25 @@ Acceptance:
       the original runtime and request. Retired records never replay.
 - [ ] Manual product checks cover interrupted work, permissions/questions,
       children, content, drafts and navigation on the affected surfaces.
-- [ ] Examples, SDK docs and canonical frontend/protocol guides describe shipped
+- [x] Examples, SDK docs and canonical frontend/protocol guides describe shipped
       behavior. All supported client targets are now in required CI.
+
+The data/transport bound is covered by the native SDK and large-history/content
+probes. The separate bounded natural-retention investigation is complete:
+old documents collect and native transports close after navigation; settlement
+releases temporary Markdown spans. Full-workload peaks and measurement limits
+remain recorded, without inventing a memory pass threshold. Automated
+Desktop/mobile/web/Go/ACP lifecycle checkpoints are recorded in the gate audit;
+the unchecked lifecycle criterion still includes unverified device behavior.
+The SDK article's public draft status is an intentional pre-redesign publication
+decision, separate from its ten source-checked native examples; see
+[the docs disposition](../apps/docs/README.md#draft-publication-and-native-sdk-coverage).
+
+On 2026-09-29 the user accepted the measured 72 ms native typing p95 and asked to
+close that speed work. It supersedes the earlier 50 ms target for this redesign
+acceptance; it does not waive reading correctness. The later bounded natural
+retention check is independently complete, with full-workload limits preserved.
+The [performance record](../apps/web/scripts/native-performance-control-audit.md) retains exact measurement boundaries.
 
 Current client follow-through (2026-09-29): provider/account setup, model and
 permission controls, native root/child views, REPL, input recovery, completion,
@@ -1024,7 +1052,7 @@ have replacement evidence; slash completion and the unchanged REPL gate also
 pass hosted in both browsers at `e85f72203`. The earlier intermittent REPL
 observation overlap remains unexplained. The previously failing hosted
 Settings history seed passes at `b1c9ca965`, without an optimization claim. The [current acceptance snapshot](backend-native-gate-audit.md#current-acceptance-snapshot)
-separates those gates from quiet performance, actual Safari, physical-device,
+separates those gates from actual Safari, physical-device,
 signed-release and live-provider requirements. No Phase 5–7 completion is claimed.
 
 ### Phase 7 — Cut over and remove the retired core
@@ -1040,9 +1068,9 @@ backend/SDK/client artifacts with a fresh runtime/config namespace.
 
 Acceptance:
 
-- [ ] Old root/child orchestration, duplicate transcript paths, legacy migrations,
+- [x] Old root/child orchestration, duplicate transcript paths, legacy migrations,
       scratch readers, protocol shapes and superseded reducers/tests are removed.
-- [ ] No active target depends on retired execution code or compatibility
+- [x] No active target depends on retired execution code or compatibility
       aliases. Temporary exclusions and scaffolding have been removed.
 - [ ] All retained guarantees have replacement coverage; the disposition table
       contains no unresolved obligations for supported features.
@@ -1053,10 +1081,11 @@ Acceptance:
       revision and verified shared renderer where applicable.
 - [ ] Representative real-provider/engine workflows and bounded-resource checks
       have evidence. Unverified platform/manual checks remain explicitly named.
-- [ ] Release/setup docs explain fresh config/data and retain old directories
+- [x] Release/setup docs explain fresh config/data and retain old directories
       without silently importing or deleting them.
-- [ ] The normal supported-product gate replaces the temporary active-target
-      scope; this plan records completion and links to canonical documentation.
+- [x] The normal supported-product gate replaces the temporary active-target
+      scope, with whole-module discovery and required supported-client jobs.
+- [ ] This plan records final completion and links to canonical documentation.
 
 ## Decisions to settle before dependent work
 
@@ -1109,4 +1138,9 @@ Useful starting references:
   [compaction regressions](../internal/runner/compaction_test.go), and
   [retired behavior disposition](backend-native-core-retirement.md).
 
-Desktop/gateway integration `397cb9785` passes the full temporary phase gate and pinned analysis; see the dated development record for failures repaired, exact timings and successful hosted259–261 heads. This does not close Phases5–7: renderer/mobile/TUI/ACP adoption, deferred reload/denial/ChromeDP and live/context projections, supported-target packaging and final core removal remain in progress.
+Historical Desktop/gateway checkpoint `397cb9785` passed the temporary phase
+gate and pinned analysis; the dated development record retains its exact
+timings and successful hosted #259–261 heads. Subsequent native client adoption,
+capability follow-through and core removal are recorded in the current criteria
+above. The [gate audit](backend-native-gate-audit.md) owns the remaining final
+product, resource and platform acceptance.

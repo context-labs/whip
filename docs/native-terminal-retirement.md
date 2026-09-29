@@ -3,8 +3,11 @@
 The terminal uses `RunNative` and protocol-v4 services. The old terminal model,
 legacy client, root-only command dispatcher, transcript store and raw TTY reader
 were removed after their supported behaviors had native implementations. This
-checkpoint is based on draft #274 (`9bc05d632`); it does not retire the separate
-external Chrome modes or complete the remaining backend/client migration.
+checkpoint is based on draft #274 (`9bc05d632`). At that checkpoint, separate
+external Chrome modes and backend/client migration remained open. Subsequent
+[external Chrome controls](native-external-browser-controls.md) and
+[core retirement](backend-native-core-retirement.md) close those implementation
+items; [final acceptance](backend-native-gate-audit.md) remains open.
 
 ## Retained code and tests
 
@@ -50,7 +53,7 @@ All paths below are in `internal/tui`. The command parser and local dispatch are
 | Human shell focus and `!cmd` | `native_shell*`, `native_utilities_test.go`; bounded epoch/operation/sequence input and model-free durable calls, no uncertain replay |
 | Permission, standing-grant and question controls | `native_permissions*`, `native_questions*`; exact owner and decision identity |
 | `/context-doctor`, `/lsp`, `/me`, `/memory` | `native_context_audit*`, `native_integrations_test.go`, `native_standing*`, `native_memory*`; applied instruction audit, passive LSP, exact standing-source CAS and fresh local notes |
-| `/mcp`, Browser driver and computer-use controls | `native_mcp*`, `native_integrations*`; native host configuration and explicit resource control; external Chrome mode work remains separately open |
+| `/mcp`, Browser driver and computer-use controls | `native_mcp*`, `native_integrations*`; native host configuration and explicit resource control. Subsequent `native_external_browser*` adds [external Chrome configuration and exact root-generation controls](native-external-browser-controls.md), with child read-only and lost-acknowledgement coverage. |
 | Goals, formulation, schedules and compaction | `native_goals*`, `native_compaction*`; explicit canonical completion/receipts, no old GOAL_MET text inference |
 | Theme, mouse and terminal hints | `native_settings_menu.go`, `native_preferences*`, `native_terminal*`, `native_menu_test.go`; framework-owned terminal input, explicit override priority and bounded helper processes |
 

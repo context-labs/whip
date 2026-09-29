@@ -25,7 +25,7 @@ visit(tree, 'code', (node: any) => {
   examples.set(name, node.value)
 })
 
-it('typechecks every published SDK example against the actual source API', async () => {
+it('typechecks every authored SDK example against the actual source API', async () => {
   expect(examples.size).toBe(10)
   const output = path.join(app, 'test-results')
   await mkdir(output, { recursive: true })

@@ -1,6 +1,6 @@
 # Whip documentation
 
-This source tree is adopting the native Go backend and protocol v4. The redesign
+This source tree uses the native Go backend and protocol v4. The redesign
 is an unmerged draft stack; it does not replace an installed application or runtime.
 Use the [development record](backend-redesign-development.md) for exact revisions,
 validation and outstanding work. The [accepted plan](backend-redesign-plan.md)
@@ -12,7 +12,7 @@ tracks retained capabilities and final cutover requirements.
 - [Backend domain](backend-domain.md): the implemented ownership and persistence contract.
 - [Frontend guide](frontend.md): the canonical application architecture, state ownership, styling and validation guide.
 - [TypeScript SDK](../packages/sdk/README.md): native connections, uniform sessions, durable commands, scoped content and bounded views.
-- [Feature map](features.md): retained capability inventory and source references. Some implementation references still describe the retired core; reconcile them with the native domain and development record during cutover.
+- [Feature map](features.md): retained capability inventory and current native source references. [Core retirement](backend-native-core-retirement.md) maps removed implementation/test families to their replacements; [the gate audit](backend-native-gate-audit.md) records remaining acceptance.
 - [Evaluation guide](../evals/README.md): canonical native trials, accounting and evidence.
 
 ## Run a native source build

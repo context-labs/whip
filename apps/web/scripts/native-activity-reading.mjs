@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expect } from '@playwright/test';
+import { finishActivityScrollTrace, installActivityScrollTrace } from './native-activity-scroll-trace.mjs';
 import { deadline } from './native-fixture.mjs';
 
 // Real provider deltas and canonical settlement exercise reading behavior. The
@@ -73,12 +74,26 @@ export async function checkActivityReading({ page, fixture, run, directory, name
     fixture.release(`activity-scroll-${next++}`);
     await expect.poll(async () => (await row.allTextContents()).join('').length).toBeGreaterThan(before);
   };
-  for (let index = 0; index < 3; index++) { await stream(); await expect.poll(gap).toBeLessThanOrEqual(2); }
-  const box = await reading.boundingBox();
-  await page.mouse.click(box.x + 60, box.y + box.height - 40);
-  await stream(); await expect.poll(gap).toBeLessThanOrEqual(2);
-  await reading.hover(); await page.mouse.wheel(0, -12);
-  await expect.poll(gap).toBeGreaterThan(3); await expect(latest).toBeVisible();
+  await page.evaluate(installActivityScrollTrace);
+  let readingFailed = false;
+  try {
+    for (let index = 0; index < 3; index++) { await stream(); await expect.poll(gap).toBeLessThanOrEqual(2); }
+    const box = await reading.boundingBox();
+    await page.mouse.click(box.x + 60, box.y + box.height - 40);
+    await stream(); await expect.poll(gap).toBeLessThanOrEqual(2);
+    await reading.hover(); await page.mouse.wheel(0, -12);
+    await expect.poll(gap).toBeGreaterThan(3); await expect(latest).toBeVisible();
+  } catch (error) {
+    readingFailed = true;
+    throw error;
+  } finally {
+    try {
+      await writeFile(join(directory, `${name}-small-scroll-trace.json`), JSON.stringify(await page.evaluate(finishActivityScrollTrace), null, 2));
+    } catch (error) {
+      if (!readingFailed) throw error;
+      console.error(`${name}: small-scroll diagnostic capture also failed`, error);
+    }
+  }
   const detached = await settledOffset();
   // Chunk 6 begins a new block while reading remains detached.
   for (let index = 0; index < 3; index++) await stream();

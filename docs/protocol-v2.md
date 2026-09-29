@@ -6,8 +6,8 @@ use its generated protocol directly. JSON-RPC envelopes use `"2.0"`; the current
 Whip protocol is major **4**, minor **0**. Retired majors fail initialization.
 There is no translation of old command IDs, snapshots, scratch or migrations.
 
-This describes the redesign source. Draft integration, final deletion and
-unverified product/platform acceptance remain tracked in the
+This describes the redesign source. The retired execution core is removed;
+draft integration and unverified product/platform acceptance remain tracked in the
 [development record](backend-redesign-development.md).
 
 ## One executable contract
