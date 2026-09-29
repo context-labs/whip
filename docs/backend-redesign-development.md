@@ -4068,3 +4068,29 @@ intentional stdio cleanup and two unreferenced retired fixture/cleanup functions
 Those cleanup errors are now explicitly discarded, and only unused functions
 were removed; retained title-fixture assertions remain. Frozen lint baseline is
 unchanged. The notice package is added to active build/race/analysis gates.
+
+### Native mobile manual acceptance fixture — 2026-09-29
+
+The manual mobile runner now builds the production native host and uses the same
+bounded v4 provider/executor fixture as web. It explicitly creates its sample
+root and prints its real runtime/session identity; it never loads the retired
+SDK fixture. Optional HTTPS proxy setup accepts one exact origin and its Host
+authority alongside the owned loopback listener, with no wildcard or proxy
+configuration. The fixture exposes its actual process exit and joins/removes
+its own resources on SIGINT/SIGTERM. Its independent lifetime remains1–30minutes.
+Single/batch questions execute actual `user.ask`, including multiple/custom text
+and optional dismissal from another client. The old synthetic optional question
+had bypassed the production2–6-choice validation; the real fixture supplies two
+choices while preserving custom text and skip behavior.
+
+Both manual-fixture regressions pass4.323s (origin/Host rejection, exact native
+question settlement and cross-client convergence, CLI identity and SIGTERM
+cleanup). Existing native fixture regression passes4.782s, including real engines,
+consent, restart and structured final output. The full five-case mobile backend
+acceptance passes15.556s after moving its child HOME/XDG/shell/temp environment
+into disposable directories. Mobile types pass with explicit test NODE_ENV.
+Logs: `/tmp/whip-mobile-{manual-native-repaired,backend-isolated,fixture-types-repaired,native-fixture-regression}.log`.
+The initial local manual run failed because its isolated checkout lacked the
+documented packed web asset prerequisite; no backend claim was credited to that
+run. Packing the actual renderer restored the expected discoverable web surface.
+No physical device, private-network proxy or real-provider evidence is claimed.

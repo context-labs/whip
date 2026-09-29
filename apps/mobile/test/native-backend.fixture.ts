@@ -3,7 +3,7 @@
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createServer, type Server } from 'node:http';
 import { Client, type Operations } from '@whip/sdk';
@@ -35,7 +35,7 @@ async function stop() {
   const timer = setTimeout(() => held.kill('SIGKILL'), 5000); try { await ended; } finally { clearTimeout(timer); }
 }
 async function start(scripted = false, browserDriver = ''): Promise<Ready> {
-  process = spawn(binary, ['-directory', join(directory, 'host'), ...(scripted ? ['-scripted'] : []), '-web', '-web-listen', '127.0.0.1:0'], { env: { ...global.process.env, WHIP_BROWSER_DRIVER: browserDriver } });
+  process = spawn(binary, ['-directory', join(directory, 'host'), ...(scripted ? ['-scripted'] : []), '-web', '-web-listen', '127.0.0.1:0'], { cwd: directory, env: { NODE_ENV: 'test', PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME: join(directory, 'home'), XDG_CONFIG_HOME: join(directory, 'home', '.config'), ZDOTDIR: join(directory, 'home'), TMPDIR: join(directory, 'tmp'), SHELL: '/bin/sh', WHIPCODE_HOME: join(directory, 'home', '.whipcode'), WHIP_BROWSER_DRIVER: browserDriver } });
   const held = process; held.stderr.on('data', data => { diagnostic = (diagnostic + data).slice(-(1 << 20)); });
   return new Promise((yes, no) => {
     let line = '';
@@ -58,7 +58,7 @@ beforeAll(async () => {
     response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ choices: [{ message, finish_reason: message.tool_calls ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 5, cost: 0 } }));
   });
   provider.listen(0, '127.0.0.1'); await once(provider, 'listening');
-  directory = await mkdtemp('/tmp/whip-mobile-v4-'); binary = join(directory, 'runtime');
+  directory = await mkdtemp('/tmp/whip-mobile-v4-'); await mkdir(join(directory, 'home')); await mkdir(join(directory, 'tmp')); binary = join(directory, 'runtime');
   await promisify(execFile)('go', ['build', '-race=false', '-o', binary, './cmd/whip-runtime'], { cwd: resolve('../..'), timeout: 60_000, env: { ...global.process.env, GOTOOLCHAIN: 'go1.27.0' } });
   ready = await start(true); await stop();
   const configPath = join(directory, 'host', 'host.json'), config = JSON.parse(await readFile(configPath, 'utf8')), address = provider.address();

@@ -23,11 +23,23 @@ export async function eventually(check, { timeout = 15_000, interval = 25, descr
   throw new Error(`Timed out waiting for ${description}`, { cause: last });
 }
 
+export function fixtureExternalOrigin(value) {
+  if (value === undefined) return undefined;
+  try {
+    if (typeof value !== 'string' || value.length > 2048) throw new TypeError();
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'https:' || value !== parsed.origin || parsed.hostname.includes('*')) throw new TypeError();
+    return value;
+  } catch { throw new TypeError('externalOrigin must be an exact HTTPS origin without credentials, path, query, fragment or wildcards'); }
+}
+
 /** Owns the real production runtime, engines and gateway, a local fake HTTP
  * provider and one explicit fixture executor lease. No legacy runtime or DTOs. */
-export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 240_000, executeCode = false, agentResponses = false, rejectInput } = {}) {
+export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 240_000, externalOrigin, executeCode = false, agentResponses = false, rejectInput } = {}) {
   if (rejectInput !== undefined && (typeof rejectInput !== 'string' || rejectInput.length < 1 || rejectInput.length > 256)) throw new RangeError('Rejected fixture input must contain 1..256 characters');
   if (!Number.isInteger(lifetimeMs) || lifetimeMs < 1 || lifetimeMs > 1_800_000) throw new RangeError('Fixture lifetime must be within 1..1800000ms');
+  const origin = fixtureExternalOrigin(externalOrigin);
+  allowedOrigins = [...new Set([...allowedOrigins, ...(origin ? [origin] : [])])];
   const directory = await mkdtemp('/tmp/whip-web-native-'), state = join(directory, 'state');
   const binary = join(directory, 'runtime'), fixtureHome = join(directory, 'home'), helperDirectory = join(directory, 'bin');
   // The runtime must not discover user credentials, MCP sources or shell startup
@@ -36,7 +48,7 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
     HOME: fixtureHome, ZDOTDIR: fixtureHome, XDG_CONFIG_HOME: join(fixtureHome, '.config'),
     TMPDIR: join(directory, 'tmp'), WHIPCODE_HOME: join(fixtureHome, '.whipcode') };
   const lifetime = new AbortController(), holds = new Map();
-  let runtime, executor, local, info, output = '', closed = false, gatewayAddress = '127.0.0.1:0';
+  let runtime, exited, executor, local, info, output = '', closed = false, gatewayAddress = '127.0.0.1:0';
   let effectBytes = 0;
   const record = chunk => { output = (output + chunk.toString()).slice(-(1 << 20)); };
   const hold = key => {
@@ -87,7 +99,11 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
         const code = text.match(/```(?:starlark|python|javascript|js)\n([\s\S]*?)\n```/)[1];
         message = { role: 'assistant', content: null, tool_calls: [{ id: randomUUID(), type: 'function', function: { name: 'execute', arguments: JSON.stringify({ code }) } }] };
       } else if (final !== undefined) message = { role: 'assistant', content: final };
-      else if (text.startsWith('permission:')) {
+      else if (text === 'question:single' || text === 'question:batch') {
+        const questions = '[{"question":"Continue with the fixture?","options":[{"label":"Proceed","description":"Continue this isolated test.","recommended":True},{"label":"Wait","description":"Choose a different fixture answer."}]}' + (text === 'question:batch' ? ',{"question":"Which surfaces should be checked? Add custom text if needed.","multiple":True,"options":[{"label":"Web"},{"label":"Mobile"}]},{"question":"Optional note: skip this page to test dismissal.","options":[{"label":"No note"},{"label":"Add a note"}]}' : '') + ']';
+        const code = `print(user.ask(questions=${questions}))`;
+        message = { role: 'assistant', content: null, tool_calls: [{ id: randomUUID(), type: 'function', function: { name: 'execute', arguments: JSON.stringify({ code }) } }] };
+      } else if (text.startsWith('permission:')) {
         const code = `files.write(path=${JSON.stringify('permission-' + randomUUID() + '.txt')},content=${JSON.stringify(text)})`;
         message = { role: 'assistant', content: null, tool_calls: [{ id: randomUUID(), type: 'function', function: { name: 'execute', arguments: JSON.stringify({ code }) } }] };
       } else if (text.startsWith('hold:tool-stream')) {
@@ -140,7 +156,8 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
     } catch (error) { await stop(child); throw error; }
   }
   async function start() {
-    const started = await startProcess(binary, ['-directory', state, '-workers', '4', '-web', '-web-listen', gatewayAddress, '-web-origins', allowedOrigins.join(',')]); runtime = started.child;
+    const started = await startProcess(binary, ['-directory', state, '-workers', '4', '-web', '-web-listen', gatewayAddress, '-web-origins', allowedOrigins.join(','), ...(origin ? ['-web-hosts', gatewayAddress + ',' + new URL(origin).host] : [])]); runtime = started.child;
+    exited = new Promise(resolve => runtime.once('exit', (code, signal) => resolve([code, signal])));
     info = { ...started.ready, generation: (info?.generation ?? 0) + 1 };
     local = await Client.connect(unixSocket(info.socket), { clientID: 'native-web-setup', expectedRuntimeID: info.runtime_id, ...deadline() });
     if (info.generation === 1) {
@@ -174,10 +191,17 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
     await writeFile(join(directory, 'effects.jsonl'), '', { mode: 0o600 });
     provider.listen(0, '127.0.0.1'); await once(provider, 'listening');
     await promisify(execFile)('go', ['build', '-race=false', '-o', binary, './cmd/whip-runtime'], { cwd: repository, timeout: 120000, signal: lifetime.signal, env: { ...process.env, GOTOOLCHAIN: 'go1.27.0' } });
+    if (origin) {
+      // Select a loopback port before configuring exact Host authorities. A lost
+      // reservation fails startup; never broaden the production gateway policy.
+      const reservation = createServer(); reservation.listen(0, '127.0.0.1'); await once(reservation, 'listening');
+      gatewayAddress = `127.0.0.1:${reservation.address().port}`;
+      await new Promise(resolve => reservation.close(resolve));
+    }
     await start();
   } catch (error) { await close(); throw new Error(`Native fixture could not start: ${output}`, { cause: error }); }
   return {
-    directory, get info() { return info; }, get output() { return output; }, close,
+    directory, get info() { return info; }, get exited() { return exited; }, get output() { return output; }, close,
     connect: (clientID = randomUUID()) => Client.connect(browserSocket(info.web, { expectedRuntimeID: info.runtime_id, expectedProcessEpoch: info.process_epoch }), { clientID, expectedRuntimeID: info.runtime_id, ...deadline() }),
     async createRoot(client, { title = null, engine = 'starlark', overrides = {} } = {}) {
       const result = await client.createTree({ engine, definition: executor.definition, working_directory: directory, metadata: { title, pinned: false, archived: false }, overrides: { automatic_title: false, model: { provider: 'provider', name: 'model', effort: '' }, ...overrides } }, randomUUID(), deadline());

@@ -20,7 +20,7 @@ storage/native UI modules. Native projects are generated from `app.config.ts`;
 
 ## Manual acceptance fixture
 
-Use the existing SDK fake-provider daemon for local phone/web comparison. From
+Use the native production runtime and loopback fake-provider fixture for local phone/web comparison. From
 the repository root, build and pack the web app before compiling the fixture:
 
 ```sh
@@ -49,11 +49,11 @@ up forwarding, changes Tailscale or touches the normal Whip daemon. A physical
 iPhone cannot use the computer's loopback URL; private-network/cellular acceptance
 is a separate setup described in [mobile setup](../../docs/mobile.md).
 
-Ordinary text is echoed with stream events. `hold:manual` starts cancellable held
+Ordinary text is echoed with bounded native previews. `hold:manual` starts cancellable held
 work, and `permission:manual` requests a test write inside the temporary workspace.
 Use Stop or Allow once/Deny to inspect those workflows. `question:single` requests
 one choice. `question:batch` requests a single choice, multiple choices/custom text,
-and an optional page to skip; completion echoes the answers as JSON. Answer on
+and an optional page to skip; completion includes the canonical tool result with the answers. Answer on
 either client and verify the other removes the pending request. The fixture does
 not contact a real model. Type only test content; accepted text and effects are
 recorded inside the temporary directory.
@@ -61,4 +61,4 @@ recorded inside the temporary directory.
 Ctrl-C/SIGTERM cleans up the fixture. It also stops just before its bounded
 deadline; `--minutes` accepts 1–30 and defaults to 30. SDK acceptance callers retain
 their four-minute default. Temporary data is deleted unless the existing explicit
-`WHIP_SDK_KEEP_FIXTURE` diagnostic setting is enabled.
+`WHIP_WEB_KEEP_FIXTURE` diagnostic setting is enabled.

@@ -1,5 +1,5 @@
 import { parseArgs } from 'node:util';
-import { fixtureExternalOrigin, startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
+import { fixtureExternalOrigin, startFixture } from '../../web/scripts/native-fixture.mjs';
 
 const { values } = parseArgs({
   options: { minutes: { type: 'string', default: '30' }, origin: { type: 'string' }, help: { type: 'boolean' } },
@@ -20,8 +20,11 @@ if (values.help) {
   let timer;
   try {
     console.log('Compiling isolated fake-provider fixture...');
-    fixture = await startFixture({ lifetimeMs: minutes * 60_000, externalOrigin });
-    const { endpoint, runtime_id: runtimeId, root_id: rootId } = fixture.info;
+    fixture = await startFixture({ lifetimeMs: minutes * 60_000, externalOrigin, agentResponses: true });
+    const client = await fixture.connect('mobile-manual');
+    const { root } = await fixture.createRoot(client, { title: 'Mobile acceptance' });
+    const { web: endpoint, runtime_id: runtimeId } = fixture.info;
+    const rootId = root.id;
     const server = new URL(endpoint);
     server.protocol = 'http:';
     server.pathname = '/';
