@@ -79,7 +79,7 @@ export async function browserProviderFramed(open: FramedConnector, options: { ex
         } catch (error) { finish(error); }
       },
       close(error) { finish(new DeliveryError('Native browser connection closed; delivery may be unknown', { cause: error })); },
-    }, connecting);
+    }, connecting, 'browser-provider');
     connection = await new Promise<FramedConnection>((resolve, reject) => {
       openingReject = reject;
       opened.then(value => {

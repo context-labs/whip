@@ -21,7 +21,7 @@ const bridge: DesktopBridge = {
   },
   prepareConnection: (id, profile) => invoke('prepareConnection', id, profile),
   releaseConnection: id => send('releaseConnection', id),
-  openTransport: (id, connectionId) => invoke('openTransport', id, connectionId),
+  openTransport: (id, connectionId, purpose) => invoke('openTransport', id, connectionId, purpose),
   sendTransport: (id, sequence, frame) => {
     if (typeof frame !== 'string' || frame.length >= 8 << 20) throw new Error('Desktop frame limit exceeded');
     send('sendTransport', id, sequence, frame);

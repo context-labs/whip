@@ -15,7 +15,7 @@ async function setup(respond = answer, extra = {}) {
     send(raw) { const request = JSON.parse(raw); this.sent.push(request); respond(handlers, request, connection); },
     close() { this.closes++; assert.equal(this.closes, 1); handlers.close(new Error('disposed')); },
   };
-  const transport = await browserProviderFramed(async h => { handlers = h; opens++; return connection; }, { ...options, ...extra });
+  const transport = await browserProviderFramed(async (h, _signal, purpose) => { assert.equal(purpose, 'browser-provider'); handlers = h; opens++; return connection; }, { ...options, ...extra });
   return { transport, connection, handlers, opens };
 }
 const clientFor = transport => BrowserProviderClient.connect(transport, options);

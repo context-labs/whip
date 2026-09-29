@@ -4,26 +4,30 @@ import type { DesktopEvent } from '@whip/app/desktop-bridge';
 
 const frameLimit = nativeFrameBytes;
 const queueLimit = 8 << 20;
+type Purpose = 'browser-provider' | undefined;
 export function validHandle(value: unknown): asserts value is string {
   if (typeof value !== 'string' || !/^[a-zA-Z0-9-]{1,128}$/.test(value)) throw new Error('Invalid desktop handle');
 }
 
-/** Bounded raw transport only; product SDK state remains in the renderer. */
+/** Bounded raw transport only; product SDK state remains in the renderer.
+ * Keep 32 ordinary sockets and 32 long-lived browser peers independently available.
+ * Purpose is fixed at admission and never inferred from frames or used as authority. */
 export class DesktopTransports {
   private entries = new Map<string, {
-    connectionId: string; controller: AbortController; transport?: FramedConnection; sent: number; received: number;
+    connectionId: string; purpose: Purpose; controller: AbortController; transport?: FramedConnection; sent: number; received: number;
     outstanding: Map<number, number>; bytes: number; timer?: ReturnType<typeof setInterval>;
   }>();
-  private waiting = new Map<string, { connectionId: string; start(): void; cancel(error: Error): void }>();
+  private waiting = new Map<string, { connectionId: string; purpose: Purpose; start(): void; cancel(error: Error): void }>();
   private disposed = false;
   constructor(private emit: (event: DesktopEvent) => void) {}
 
-  async open(id: string, connectionId: string, socket: string, signal: AbortSignal) {
+  async open(id: string, connectionId: string, socket: string, signal: AbortSignal, purpose?: unknown) {
     validHandle(id); validHandle(connectionId);
+    if (purpose !== undefined && purpose !== 'browser-provider') throw new Error('Invalid desktop transport purpose');
     signal.throwIfAborted();
     if (this.disposed) throw new Error('Desktop transports are closed');
     if (this.entries.has(id) || this.waiting.has(id)) throw new Error('Desktop transport handle is already in use');
-    if (this.entries.size < 32) return this.openNow(id, connectionId, socket, signal);
+    if (this.hasCapacity(purpose)) return this.openNow(id, connectionId, socket, signal, purpose);
     if (this.waiting.size >= 64) throw new Error('Desktop transport wait queue is full. Close a view or wait for current requests to finish.');
     // Native unary metadata reads can exceed the active socket bound briefly.
     // Admission alone waits here; no frame, operation or retry is retained.
@@ -31,9 +35,9 @@ export class DesktopTransports {
       const cleanup = () => {
         this.waiting.delete(id); clearTimeout(timer); signal.removeEventListener('abort', abort);
       };
-      const pending = {
-        connectionId,
-        start: () => { cleanup(); this.openNow(id, connectionId, socket, signal).then(resolve, reject); },
+      const pending: NonNullable<ReturnType<typeof this.waiting.get>> = {
+        connectionId, purpose,
+        start: () => { cleanup(); this.openNow(id, connectionId, socket, signal, purpose).then(resolve, reject); },
         cancel: (error: Error) => { cleanup(); reject(error); },
       };
       const abort = () => { if (this.waiting.get(id) === pending) this.close(id, 'Desktop transport wait cancelled'); };
@@ -47,9 +51,15 @@ export class DesktopTransports {
     });
   }
 
-  private async openNow(id: string, connectionId: string, socket: string, signal: AbortSignal) {
+  private hasCapacity(purpose: Purpose) {
+    let count = 0;
+    for (const entry of this.entries.values()) if (entry.purpose === purpose) count++;
+    return count < 32;
+  }
+
+  private async openNow(id: string, connectionId: string, socket: string, signal: AbortSignal, purpose: Purpose) {
     signal.throwIfAborted();
-    const entry = { connectionId, controller: new AbortController(), sent: 0, received: 0,
+    const entry = { connectionId, purpose, controller: new AbortController(), sent: 0, received: 0,
       outstanding: new Map<number, number>(), bytes: 0 } as NonNullable<ReturnType<typeof this.entries.get>>;
     this.entries.set(id, entry);
     try {
@@ -114,7 +124,11 @@ export class DesktopTransports {
     this.entries.delete(id);
     clearInterval(entry.timer); entry.controller.abort(); entry.transport?.close(); entry.outstanding.clear();
     this.emit({ kind: 'closed', id, error: error.slice(0, 2048) });
-    while (!this.disposed && this.entries.size < 32 && this.waiting.size) this.waiting.values().next().value!.start();
+    // One bounded queue; preserve order within each pool without letting a full
+    // browser pool prevent ordinary calls from using their available slots.
+    if (!this.disposed) for (const pending of this.waiting.values()) {
+      if (this.hasCapacity(pending.purpose)) pending.start();
+    }
   }
   release(connectionId: string) {
     for (const [id, entry] of this.waiting) if (entry.connectionId === connectionId) this.close(id);

@@ -8,7 +8,7 @@ function fixture() {
   const bridge = {
     version: 2, getSystemContrast: async () => false, appVersion: '1.2.3', connectionKinds: ['local', 'url', 'ssh'],
     onEvent(listener: (event: DesktopEvent) => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    openTransport: vi.fn(async (_id: string, _connectionId: string) => {}),
+    openTransport: vi.fn(async (_id: string, _connectionId: string, _purpose?: 'browser-provider') => {}),
     sendTransport: vi.fn(), closeTransport: vi.fn(), acknowledgeTransport: vi.fn(),
     prepareConnection: vi.fn(async (_id: string, _profile: ConnectionProfile) => {}), releaseConnection: vi.fn(),
     beginSave: vi.fn(async () => 'save'), writeSave: vi.fn(async () => {}),
@@ -319,4 +319,20 @@ it('carries a bounded native content upload and response through the renderer br
   expect(handlers.message).toHaveBeenCalledExactlyOnceWith(frame);
   expect(f.bridge.acknowledgeTransport).toHaveBeenCalledWith(id, 1);
   expect(handlers.close).not.toHaveBeenCalled(); transport.close();
+});
+
+
+it('passes the browser peer purpose only at open and retires its exact lifetime on cancellation', async () => {
+  const f = fixture();
+  const controller = new AbortController();
+  const handlers = { message: vi.fn(), close: vi.fn() };
+  const peer = await desktopTransport(f.api, 'connection')(handlers, controller.signal, 'browser-provider');
+  const id = f.bridge.openTransport.mock.calls[0]![0];
+  expect(f.bridge.openTransport).toHaveBeenCalledWith(id, 'connection', 'browser-provider');
+  peer.send('{"method":"browser.provider.bind"}');
+  expect(f.bridge.openTransport).toHaveBeenCalledOnce();
+  controller.abort();
+  expect(f.bridge.closeTransport).toHaveBeenCalledExactlyOnceWith(id);
+  expect(handlers.close).toHaveBeenCalledOnce();
+  expect(f.listeners.size).toBe(0);
 });

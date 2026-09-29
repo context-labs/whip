@@ -3,6 +3,7 @@ import { EventEmitter, once } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer, type Socket } from 'node:net';
 import path from 'node:path';
+import { setImmediate } from 'node:timers/promises';
 import test, { type TestContext } from 'node:test';
 import type { DesktopEvent } from '@whip/app/desktop-bridge';
 import { DesktopTransports, validHandle } from '../src/transport';
@@ -27,9 +28,9 @@ async function fixture(t: TestContext) {
     await rm(directory, { recursive: true, force: true });
   });
   return { transports, events, socketPath, server,
-    async open(id = 'one', connectionId = 'host', signal = new AbortController().signal) {
+    async open(id = 'one', connectionId = 'host', signal = new AbortController().signal, purpose?: 'browser-provider') {
       const accepted = once(server, 'connection');
-      const opening = transports.open(id, connectionId, socketPath, signal);
+      const opening = transports.open(id, connectionId, socketPath, signal, purpose);
       const [peer] = await accepted;
       await opening;
       return peer as Socket;
@@ -293,4 +294,77 @@ test('a queued open has its own finite deadline without allocating a socket', as
   f.transports.close('held-0');
   assert.equal(accepted, 32);
   assert.equal(f.events.filter(event => event.kind === 'closed' && event.id === 'expired').length, 1);
+});
+
+
+test('32 persistent browser peers leave 32 ordinary sockets available, with independent FIFO admission', async t => {
+  const f = await fixture(t);
+  const signal = new AbortController().signal;
+  let accepted = 0; f.server.on('connection', () => { accepted++; });
+  for (let index = 0; index < 32; index++) await f.open(`peer-${index}`, 'host', signal, 'browser-provider');
+  for (let index = 0; index < 32; index++) await f.open(`read-${index}`);
+  assert.equal(accepted, 64);
+  const admitted: string[] = [];
+  const read = f.transports.open('next-read', 'host', f.socketPath, signal).then(() => { admitted.push('read'); });
+  const peer = f.transports.open('next-peer', 'host', f.socketPath, signal, 'browser-provider').then(() => { admitted.push('peer'); });
+  f.transports.close('peer-0'); await peer;
+  assert.deepEqual(admitted, ['peer']); // A blocked earlier ordinary read does not block the peer pool.
+  f.transports.close('read-0'); await read;
+  assert.deepEqual(admitted, ['peer', 'read']);
+  assert.equal(accepted, 66);
+  f.transports.send('next-read', 1, 'ordinary request');
+  f.transports.send('next-peer', 1, 'browser request');
+  f.transports.release('host');
+  assert.equal(f.events.filter(event => event.kind === 'closed').length, 66);
+});
+
+test('frame contents never reclassify an ordinary socket or borrow spare browser capacity', async t => {
+  const f = await fixture(t);
+  for (let index = 0; index < 32; index++) await f.open(`read-${index}`);
+  f.transports.send('read-0', 1, '{"method":"browser.provider.bind"}');
+  let admitted = false;
+  const queued = f.transports.open('read-overflow', 'host', f.socketPath, new AbortController().signal).then(() => { admitted = true; });
+  await f.open('peer', 'host', new AbortController().signal, 'browser-provider');
+  f.transports.close('peer');
+  await setImmediate();
+  assert.equal(admitted, false);
+  f.transports.close('read-0'); await queued;
+  assert.equal(admitted, true);
+});
+
+test('rejects forged purposes before any allocation and shares one 64-entry wait bound across pools', async t => {
+  const f = await fixture(t);
+  const signal = new AbortController().signal;
+  let accepted = 0; f.server.on('connection', () => { accepted++; });
+  for (const purpose of [null, '', 'ordinary', 'executor', 'shell', true, {}, ['browser-provider']])
+    await assert.rejects(f.transports.open('forged', 'host', f.socketPath, signal, purpose), /purpose/);
+  assert.equal(accepted, 0);
+  for (let index = 0; index < 32; index++) {
+    await f.open(`peer-${index}`, 'host', signal, 'browser-provider');
+    await f.open(`read-${index}`);
+  }
+  const pending = Array.from({ length: 64 }, (_, index) => assert.rejects(
+    f.transports.open(`wait-${index}`, 'host', f.socketPath, signal, index % 2 ? 'browser-provider' : undefined), /closed/));
+  for (const purpose of [undefined, 'browser-provider'])
+    await assert.rejects(f.transports.open('overflow', 'host', f.socketPath, signal, purpose), /wait queue is full/);
+  f.transports.dispose(); await Promise.all(pending);
+  assert.equal(accepted, 64);
+});
+
+test('a queued browser peer cancellation or deadline cannot allocate later or close another pool', async t => {
+  const f = await fixture(t);
+  const signal = new AbortController().signal;
+  let accepted = 0; f.server.on('connection', () => { accepted++; });
+  for (let index = 0; index < 32; index++) await f.open(`peer-${index}`, 'host', signal, 'browser-provider');
+  await f.open('ordinary');
+  const controller = new AbortController();
+  const cancelled = assert.rejects(f.transports.open('cancelled-peer', 'host', f.socketPath, controller.signal, 'browser-provider'), /cancelled/);
+  controller.abort(); await cancelled;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const expired = assert.rejects(f.transports.open('expired-peer', 'host', f.socketPath, signal, 'browser-provider'), /wait timed out/);
+  t.mock.timers.tick(15_000); await expired;
+  f.transports.close('peer-0'); await setImmediate();
+  assert.equal(accepted, 33);
+  f.transports.send('ordinary', 1, 'unaffected ordinary request');
+  assert.equal(f.events.some(event => event.kind === 'closed' && event.id === 'ordinary'), false);
 });
