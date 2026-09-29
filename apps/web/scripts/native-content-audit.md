@@ -96,3 +96,25 @@ no retired SDK or `/api/v3` references.
 
 This evidence covers Chromium and Firefox against disposable native hosts. It
 does not claim Safari, Finder launch, Developer ID signing or notarization.
+
+## Attachment preview confirmation (2026-09-29)
+
+The mixed-host probe exposed an open attachment dialog closing when its exact
+local authored input became canonical history. Timeline now keeps one
+`MessageAttachments` subtree for both stages. Verified upload metadata may seed
+its existing scoped metadata query; there is no second byte cache. An owner,
+runtime/client, reference/digest change or retired row still closes the preview.
+
+`node apps/web/scripts/attachment-confirmation.mjs` runs the actual native
+runtime and production assets in Chromium and Firefox. It holds only the exact
+owner's canonical observation containing one uploaded input, opens and verifies
+its local preview, releases the real reply, and verifies the same dialog DOM and
+bytes remain. Each browser sent one upload and one body read, with no additional
+metadata read during confirmation and no page/CSP errors. Both owned process
+lifetimes joined. Renderer digest:
+`c06ea03a00b18e848547bcad4d0ea1446cc37adea7e6cbab3ff4c1f12ed87ff7`.
+
+Focused regressions also cover confirmation during a pending byte read,
+foreign-owner metadata refusal, owner/reference/runtime replacement, and row
+retirement aborting a pending read. The earlier implementation failed both
+same-input confirmation regressions (dialog unmounted and its read cancelled).

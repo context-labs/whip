@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -59,6 +60,23 @@ func (w *nativeWork) close() { w.mu.Lock(); w.closed = true; w.stop(); w.mu.Unlo
 // nativeModel is the native chat composition. Commands and menus are added
 // directly over typed host operations; it does not adapt retired RootActions.
 type nativeModel struct {
+	execution                       *nativeExecution
+	replBefore, replFocus           *protocol.ID
+	replGeneration                  uint64
+	replFocused                     bool
+	replVP                          transcriptView
+	replDisplay                     []string
+	agents                          *nativeAgentTree
+	agentSelection                  protocol.ID
+	agentsFocus, dock               bool
+	drafts                          map[protocol.ID]nativeDraft
+	pastes                          map[string]string
+	pasteSequence                   uint64
+	images                          map[string]nativeImage
+	imageSequence                   uint64
+	attachment                      *nativeImageUpload
+	attachmentBusy                  bool
+	clientDirectory                 string
 	work                            nativeWork
 	connection                      *client.Client
 	handle                          *client.Session
@@ -110,18 +128,21 @@ type nativeModel struct {
 type (
 	nativePoll struct{}
 	nativeRead struct {
-		generation    uint64
-		owner         *protocol.Session
-		activity      protocol.SessionActivity
-		page          *protocol.HistoryPageResult
-		observation   *client.Observation
-		observer      *client.Observer
-		output        protocol.CellOutput
-		usage         *protocol.Usage
-		context       *protocol.ContextUsage
-		err           error
-		evidenceError error
-		decisions     *nativeDecisionPage
+		execution           *nativeExecution
+		executionGeneration uint64
+		agents              *nativeAgentTree
+		generation          uint64
+		owner               *protocol.Session
+		activity            protocol.SessionActivity
+		page                *protocol.HistoryPageResult
+		observation         *client.Observation
+		observer            *client.Observer
+		output              protocol.CellOutput
+		usage               *protocol.Usage
+		context             *protocol.ContextUsage
+		err                 error
+		evidenceError       error
+		decisions           *nativeDecisionPage
 	}
 )
 
@@ -147,9 +168,11 @@ func newNativeModel(ctx context.Context, c *client.Client, owner protocol.Sessio
 		return nil, err
 	}
 	lifecycle, cancel := context.WithCancel(ctx)
+	localDirectory, _ := os.Getwd() // Relative attachment paths fail closed if unavailable.
 	return &nativeModel{
 		work: nativeWork{ctx: lifecycle, stop: cancel}, connection: c, handle: handle, owner: owner,
 		history: nativeTranscript{owner: owner.ID}, input: newInput(), width: 80, height: 24, follow: true,
+		clientDirectory: localDirectory,
 	}, nil
 }
 
@@ -169,6 +192,8 @@ func (m *nativeModel) read() tea.Cmd {
 	m.readCancel = readStop
 	observer, handle, generation, owner := m.observer, m.handle, m.generation, m.owner
 	evidence := m.polls%5 == 0
+	agentsVisible, selectedAgent := m.agentsVisible(), m.agentSelection
+	replVisible, replBefore, replFocus, replGeneration := m.replVisible(), m.replBefore, m.replFocus, m.replGeneration
 	m.polls++
 	return func() tea.Msg {
 		defer readStop()
@@ -237,6 +262,25 @@ func (m *nativeModel) read() tea.Cmd {
 			} else {
 				result.evidenceError = errors.Join(result.evidenceError, err)
 			}
+			if agentsVisible {
+				result.agents, err = readNativeAgents(ctx, m.connection, owner, selectedAgent)
+				result.evidenceError = errors.Join(result.evidenceError, err)
+			}
+			if replVisible {
+				snapshot := result.observation
+				revision := owner.HistoryRevision
+				if result.page != nil {
+					revision = result.page.Snapshot.Revision
+				} else if snapshot != nil {
+					revision = snapshot.Snapshot.Revision
+				}
+				result.executionGeneration = replGeneration
+				result.execution, err = readNativeExecution(ctx, m.connection, owner.ID, revision, result.output.Epoch, replBefore, replFocus)
+				if err != nil {
+					result.execution = &nativeExecution{owner: owner.ID, revision: revision, epoch: result.output.Epoch, err: err}
+				}
+				result.evidenceError = errors.Join(result.evidenceError, err)
+			}
 			value, err := handle.ContextUsage(ctx)
 			if err == nil {
 				result.context = &value
@@ -257,6 +301,11 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.updateMenu(message)
 	}
 	switch value := message.(type) {
+	case nativeImageLoaded:
+		return m, m.imageLoaded(value)
+	case nativeImageUploaded:
+		m.imageUploaded(value)
+		return m, nil
 	case nativeNavigationResult:
 		if value.request != m.navigationRequest {
 			return m, nil
@@ -264,7 +313,6 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m.Update(value.value)
 	case tea.WindowSizeMsg:
 		m.width, m.height = max(value.Width, 8), max(value.Height, 4)
-		m.input.SetWidth(max(m.width-2, 1))
 		m.refresh()
 	case nativeBrowseResult:
 		m.applyBrowse(value)
@@ -313,6 +361,20 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if value.evidenceError != nil {
 			m.status = "Some live evidence is unavailable: " + value.evidenceError.Error()
 		}
+		if m.execution != nil && (m.execution.revision != m.history.snapshot.Revision || m.execution.epoch != m.history.epoch) {
+			m.execution = nil
+		}
+		if value.execution != nil && value.executionGeneration == m.replGeneration {
+			m.execution = value.execution
+			renderChanged = true
+		}
+		if value.agents != nil && value.agents.tree == m.owner.TreeID {
+			m.agents = value.agents
+			if m.agentSelection == "" {
+				m.agentSelection = m.owner.ID
+			}
+			renderChanged = true
+		}
 		if value.decisions != nil {
 			m.applyDecisions(value.decisions)
 		}
@@ -345,7 +407,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "Input acceptance is uncertain; inspect the original request before submitting again. " + value.err.Error()
 		} else if value.err != nil {
 			m.status = "Input rejected: " + value.err.Error()
-			m.rejected = value.command
+			if value.command != nil && value.command.Record().Method == "sessions.submit" {
+				m.rejected = value.command
+			}
 			if m.input.Value() == "" && m.restoreRejectedDraft() {
 				m.status += ". Original draft restored."
 			} else if m.rejected != nil {
@@ -406,6 +470,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		} else {
 			m.status = value.label
+			if value.input != nil {
+				return m, m.submitPreparedInput(value.input)
+			}
 			if value.attach != nil {
 				if err := m.attachSession(*value.attach); err != nil {
 					m.status = "Session attachment failed: " + err.Error()
@@ -468,7 +535,14 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if command, handled := m.agentKey(value); handled {
+			return m, command
+		}
 		switch value.String() {
+		case "ctrl+v":
+			return m, m.attachCommand("clipboard")
+		case "ctrl+r":
+			return m, m.replCommand("")
 		case "ctrl+c":
 			if m.quitArmed {
 				return m, tea.Quit
@@ -483,6 +557,10 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			return m, m.submit()
 		case "pgup", "pgdown":
+			if m.replFocused && m.replVisible() {
+				m.replVP, _ = m.replVP.Update(value)
+				return m, nil
+			}
 			if value.String() == "pgup" && m.vp.YOffset() == 0 {
 				return m, m.browseHistory("backward")
 			}
@@ -497,8 +575,14 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(value)
+		m.sizeInput()
 		return m, cmd
 	case tea.MouseWheelMsg:
+		if m.replVisible() && value.X >= m.width-m.replWidth() {
+			m.replVP, _ = m.replVP.Update(value)
+			m.replFocused = true
+			return m, nil
+		}
 		if m.decision == nil {
 			m.vp, _ = m.vp.Update(value)
 			m.follow = m.browse == nil && m.vp.AtBottom()
@@ -516,9 +600,10 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		var cmd tea.Cmd
-		m.input, cmd = m.input.Update(value)
-		return m, cmd
+		if path, ok := nativePastedPath(value.Content, m.clientDirectory); ok {
+			return m, m.loadImage(path, value.Content)
+		}
+		return m, m.pasteText(value.Content)
 	}
 	return m, nil
 }
@@ -531,10 +616,22 @@ func (m *nativeModel) submit() tea.Cmd {
 	if strings.HasPrefix(strings.TrimSpace(text), "/") {
 		return m.command(strings.TrimSpace(text))
 	}
+	if command, ok := strings.CutPrefix(text, "!"); ok {
+		return m.directShell(command)
+	}
 	return m.prompt(text, "auto")
 }
 
 func (m *nativeModel) prompt(text, delivery string) tea.Cmd {
+	if m.attachmentBusy || m.attachment != nil {
+		m.status = "Resolve the image upload with /attach check, /attach retry, or /attach discard before sending."
+		return nil
+	}
+	parts, err := m.promptParts(text)
+	if err != nil {
+		m.status = err.Error()
+		return nil
+	}
 	if m.rejected != nil {
 		m.status = "A rejected draft is retained. /rejected restore or /rejected discard before another submission."
 		return nil
@@ -551,7 +648,7 @@ func (m *nativeModel) prompt(text, delivery string) tea.Cmd {
 		m.status = "Choose a provider and model with /setup or /model before submitting. Your draft has been kept."
 		return nil
 	}
-	params := protocol.SubmitParams{Source: "user", Identity: protocol.RequestIdentity{ClientID: "tui", RequestID: protocol.ID(uuid.NewString())}, Parts: []protocol.Part{{Type: "text", Text: text}}}
+	params := protocol.SubmitParams{Source: "user", Identity: protocol.RequestIdentity{ClientID: "tui", RequestID: protocol.ID(uuid.NewString())}, Parts: parts}
 	if delivery != "queue" && m.activity.ActiveTurn != nil && m.activity.ActiveTurn.Kind == "prompt" {
 		params.Delivery, params.TargetTurnID = "steer", new(m.activity.ActiveTurn.ID)
 	}
@@ -562,6 +659,14 @@ func (m *nativeModel) prompt(text, delivery string) tea.Cmd {
 	command, err := m.handle.Submission(params)
 	if err != nil {
 		m.status = err.Error()
+		return nil
+	}
+	return m.submitPreparedInput(command)
+}
+
+func (m *nativeModel) submitPreparedInput(command *client.InputCommand) tea.Cmd {
+	if m.uncertain != nil || m.rejected != nil || m.retryControl != nil || m.sending {
+		m.status = "Resolve the original pending input before another admission."
 		return nil
 	}
 	if m.recovery != nil {
@@ -575,6 +680,9 @@ func (m *nativeModel) prompt(text, delivery string) tea.Cmd {
 		}
 	}
 	m.input.Reset()
+	m.pastes = nil
+	m.images = nil
+	m.sizeInput()
 	m.notice = ""
 	m.latest()
 	return m.sendInput(command, "send")
@@ -646,9 +754,12 @@ func (m *nativeModel) cancelTurn(id protocol.ID) tea.Cmd {
 }
 
 func (m *nativeModel) refresh() {
+	width := m.transcriptWidth()
+	m.input.SetWidth(max(width-2, 1))
+	m.sizeInput()
 	var rows []string
 	appendText := func(text string) {
-		rows = append(rows, nativePlainRows(text, max(m.width-2, 1), false)...)
+		rows = append(rows, nativePlainRows(text, max(width-2, 1), false)...)
 	}
 	v := &m.history
 	if m.browse != nil {
@@ -657,7 +768,7 @@ func (m *nativeModel) refresh() {
 	} else if v.earlier {
 		rows = append(rows, "Older messages: /older or Page Up at the top.", "")
 	}
-	m.renderCache.prepare(v.messages, max(m.width-2, 1), m.expandTools)
+	m.renderCache.prepare(v.messages, max(width-2, 1), m.expandTools)
 	size := nativeRowBytes(rows)
 	for _, message := range v.messages {
 		block := m.renderCache.message(message)
@@ -677,7 +788,7 @@ func (m *nativeModel) refresh() {
 			}
 			rows = append(rows, "assistant · provisional")
 			text, cut := nativeTextPrefix(p.Text, nativeRenderInput)
-			rows = append(rows, strings.Split(nativeMarkdown(text, max(m.width-2, 1)), "\n")...)
+			rows = append(rows, strings.Split(nativeMarkdown(text, max(width-2, 1)), "\n")...)
 			if p.Truncated || cut {
 				rows = append(rows, "Preview truncated; committed content will replace it.")
 			}
@@ -696,11 +807,21 @@ func (m *nativeModel) refresh() {
 	}
 	m.rows = boundNativeRows(rows, nativeRenderBytes, nativeRenderRows)
 	m.vp.rows = func(y int) string { return m.rows[y] }
-	m.vp.SetWidth(m.width)
-	m.vp.SetHeight(max(m.height-m.input.Height()-4, 1))
+	m.vp.SetWidth(width)
+	m.vp.SetHeight(max(m.height-m.input.Height()-4-m.dockHeight(), 1))
 	m.vp.setTotal(len(m.rows))
 	if m.follow && m.browse == nil {
 		m.vp.GotoBottom()
+	}
+	if m.replVisible() {
+		m.replDisplay = m.replRows(max(m.replWidth()-5, 1))
+		m.replVP.rows = func(y int) string { return m.replDisplay[y] }
+		m.replVP.SetWidth(max(m.replWidth()-5, 1))
+		m.replVP.SetHeight(max(m.height-4, 1))
+		m.replVP.setTotal(len(m.replDisplay))
+		if !m.replFocused {
+			m.replVP.GotoBottom()
+		}
 	}
 }
 
@@ -725,7 +846,13 @@ func (m *nativeModel) View() tea.View {
 		state = m.activity.ActiveTurn.State
 	}
 	footer := fmt.Sprintf("%s · queued %d · permissions %d · questions %d", state, m.activity.QueuedInputCount, m.activity.PendingPermissionCount, m.activity.PendingQuestionCount)
-	view := tea.NewView(m.vp.View() + "\n" + ansi.Truncate(nativeDisplayText(m.status), m.width, "…") + "\n" + m.input.View() + "\n" + ansi.Truncate(nativeContextLabel(m.contextUsage), m.width, "…") + "\n" + ansi.Truncate(footer, m.width, "…"))
+	width := m.transcriptWidth()
+	main := m.vp.View() + "\n" + ansi.Truncate(nativeDisplayText(m.status), width, "…") + "\n" + m.input.View()
+	if height := m.dockHeight(); height > 0 {
+		main += "\n" + nativeFixedRows("Agents · Ctrl+T focuses\n"+m.agentRows(width, height-1), width, height)
+	}
+	main += "\n" + ansi.Truncate(nativeContextLabel(m.contextUsage), width, "…") + "\n" + ansi.Truncate(footer, width, "…")
+	view := tea.NewView(m.layoutFrame(main))
 	view.AltScreen = true
 	if nativePreferenceLabel(m.preferences.Mouse, true) == "on" {
 		view.MouseMode = tea.MouseModeCellMotion
@@ -764,10 +891,12 @@ func (m *nativeModel) restoreRejectedDraft() bool {
 		return false
 	}
 	var params protocol.SubmitParams
-	if err := json.Unmarshal(m.rejected.Record().Params, &params); err != nil || len(params.Parts) != 1 || params.Parts[0].Type != "text" {
+	if err := json.Unmarshal(m.rejected.Record().Params, &params); err != nil || params.SessionID != m.owner.ID {
 		return false
 	}
-	m.input.SetValue(params.Parts[0].Text)
+	if !m.restoreParts(params.Parts) {
+		return false
+	}
 	m.rejected = nil
 	return true
 }

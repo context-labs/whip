@@ -4636,6 +4636,72 @@ also passes. The broader legacy reference gates remain explicitly named until
 final removal; this checkpoint does not claim Phase7 completion or new Safari,
 signed-distribution, real-account or remote-SSH evidence.
 
+### Native terminal and browser workflow follow-through — 2026-09-29
+
+The native terminal now mounts goals/formulation/resume, durable schedules,
+compaction history and summary selection, and explicit MCP/browser/computer/LSP
+status and controls. Mutations retain their original owner and CAS payload;
+helper inputs use the existing private input journal. Unknown host lifecycle or
+integration effects require status inspection, not generic replay. Read-only
+status never starts a helper or acquires agent authority. Compaction off clears
+the helper selection; it does not disable automatic context compaction.
+
+The agent tree, sidebar and narrow dock use canonical session lineage and exact
+activity. Metadata reads stop at eight pages/512 owners; only eight visible
+owners receive activity reads. Lifecycle active is not inferred to mean running.
+Per-owner drafts are bounded to16 owners/1MiB total with refusal before a switch
+would lose text. Real root/child/grandchild tests cover navigation without stopping
+host work, pending input on a stopped child, foreign-tree rejection, child-only
+deletion and non-replay of lifecycle controls. Integrated native TUI race/shuffle
+passed68.735s before the tree leaf; the integrated tree/layout scenarios then
+passed7.090s. The leaf's full native suite passed72.723s. Remaining terminal REPL,
+paste/attachment, copy/palette/completion and richer history navigation work is
+still tracked; no retired TUI implementation has been deleted.
+
+SDK cell operation rows now sort by exact nanosecond timestamps with opaque ID
+ties, preserving API keyset pagination. Actual Firefox exposed ID ordering that
+split three chronological file reads around a later spawn. Tests cover2500
+timestamps beyond JavaScript's exact-integer range and equal-second fractions.
+The combined SDK suite passes189 tests; focused app tests pass42 plus app types.
+Actual Chromium/Firefox activity probes each pass12 workflow groups, including
+real cells/operations/child wait, live-only reasoning, reading intent and bounded
+rows (maximum33 mounted for128 operations). These do not claim Electron400%
+zoom or native desktop drag coverage.
+
+Queue acceptance uses real native inputs and immutable steering receipts. Both
+browsers pass eight groups: exact original attachments, FIFO, reload/removal,
+foreign-child rejection, ended-target fallback and composer/queue/agent geometry.
+Collapsed queue attachments display metadata; explicit preview fetches scoped
+bytes. Combined actual activity/queue/history fixture checks pass five tests in
+32.240s against renderer434fd24db73351a53734d49c73f50060c2532a618c812d73d79aea766f248daf.
+
+Native history prefetch passes Chromium/Firefox at100/300/800ms: one warmup,
+no idle/resize/selection/downward/Latest-triggered crawl, bounded three-page
+intent refill, stable canonical cursors and at-most2px anchor drift. Recovery
+preserves exact DOM/selection/draft across held and failed older reads and
+Chat/REPL switches; only explicit keyboard retry repeats the failed cursor.
+Six100-message pages cross the512-message retention bound, and Latest then
+fetches the canonical tail. A separate actual-host fixture proves count/8MiB
+windows, independent execution evidence after eviction and an oversized body's
+explicit exact-byte read. Native sequence holes do not imply missing events;
+the previous event-gap arithmetic is intentionally replaced by revisioned pages.
+
+Multiple-host acceptance passes nine workflow groups in each browser, including
+three panes, per-host defaults/directories, wrong-host content and permission
+denial, two actual crashes/restarts with stable runtime/new epoch, no provider
+replay, explicit disconnect while accepted work continues, and remove/re-add
+with draft/reload preservation. Evidence and the30-second released-lease policy
+are recorded in apps/web/scripts/native-multiple-host-audit.md. Maximum steady
+outstanding observations were two on each browser. Opening an attachment across
+local-to-canonical confirmation still needs its separately tracked continuity fix.
+
+Required CI adds product-content and product-activity jobs, retaining all prior
+browser assertions and deadlines. This partition makes room for the additional
+history/activity/queue checks without extending the20-minute job bounds. These
+checkpoints do not complete Phases5–7: performance targets, remaining specialized
+probes, canonical documentation, final active-import removal and exact final-head
+platform/package validation remain open.
+
 ### Clean-machine evaluator and cancellation qualification — 2026-09-29
 
 Hosted run36555920516 atf26acf587 failed its new evaluator and package-consumer
@@ -4697,3 +4763,77 @@ capture deadline with a new hidden WebContentsView; this establishes first-frame
 sensitivity outside Whip, but does not prove the cause of the hosted failure.
 Failed rendering experiments were discarded. Exact final-head hosted acceptance
 is still required.
+
+### Terminal originals, REPL lineage and native reading acceptance — 2026-09-29
+
+The integrated terminal adds bounded REPL navigation through exact message,
+turn and call identities. Reused provider call IDs no longer hide later cell
+output. Imported history cannot pretend to have local execution cells, and old
+or oversized evidence requires explicit reads. Nine real turns exercise cell
+navigation and foreign-turn rejection. Utility commands now use native scoped
+controls: exact `!` shell commands, effort selection, context usage and captured
+attempt inspection, bounded environment reports, help, and atomic private local
+Markdown export. Export reads the captured canonical history through its initial
+tail without growing the UI window; concurrent appends remain outside that
+snapshot. Scoped attachment descriptors are included, not embedded bytes.
+Context inspection does not claim a new-session token or injection audit.
+
+Text paste preserves original whitespace before publishing the input journal.
+Owner-local paste chips, including hidden original bytes, share the existing
+draft bounds; capacity rejection preserves the original. The terminal refuses
+to silently normalize tabs, carriage returns or oversized logical line counts.
+Explicit shell commands receive the expanded original once. Native TUI race and
+shuffle checks pass in 93.616s with REPL/utilities and in 96.102s after paste;
+focused utility vet and frozen-baseline lint pass. Image attachments, clipboard,
+copy/palette/completion and richer history editing are still in progress.
+
+Reading-position acceptance now creates 128 actual native turns in each browser.
+Chromium and Firefox pass incoming-output reading, Latest/follow, narrow touch
+layouts and two explicit older pages through the full 260-message history. All
+measured anchors move zero pixels against the existing five-pixel bound, with
+zero JavaScript or CSP failures. The native initial window is 100 records; exact
+canonical cursors replace retired event-page arithmetic.
+
+The native dock fixture creates eight actual completed children and exercises
+metadata-only navigation, separate drafts/attachment, pane reuse, inline routes,
+keyboard focus and narrow/large-type layouts. Chromium passes; Firefox passed
+two diagnostic runs with zero drift after an earlier 28-pixel split-open failure.
+That intermittent failure remains unresolved. Bounded pre/post geometry is
+retained on success and failure, and no speculative product fix was applied.
+Reading-position and dock probes are now required in content/activity CI.
+
+Hosted workflow run 36557957330 at d94e51b03 exposed a Firefox queue test that
+scrolled before all admitted rows were observed and a macOS interactive-shell
+inactivity test failure. Both remain under investigation. Its evaluator/package
+failures predate the now-merged clean-machine fixes above. Desktop first-frame
+capture, performance targets, specialized probes and final core retirement remain
+open; these checkpoints do not complete Phases 5–7.
+
+Terminal image attachment and explicit clipboard capture are now integrated.
+Client-local files are bounded before normalization (16 MiB and 64 megapixels),
+then uploaded as complete owner-scoped bodies of at most 4 MiB. An uncertain
+upload retains the exact owner, reference and bytes for explicit check/retry;
+switching owners cannot retarget it. At most eight image references enter the
+existing input journal, and rejected multipart input restores its draft. Shell
+commands reject image parts. Clipboard fixtures verify bounded output and joined
+child cleanup; no real clipboard or installed runtime was accessed. The complete
+integrated native terminal race/shuffle suite passes in 109.808s, followed by vet.
+Unsubmitted upload drafts remain ephemeral on terminal exit; accepted input
+records remain durable.
+
+Attachment confirmation now keeps the same scoped preview subtree and uses
+verified upload metadata in the existing query cache. An open preview survives
+the original input's canonical confirmation; owner, runtime, client, reference,
+digest or row retirement still closes it. Both browsers prove the same dialog
+node, one upload, one body read and no additional metadata read at confirmation,
+with zero page/CSP errors. The released leaf passes 106 tests across eight suites
+and app types; the integrated focused components pass 15 tests plus app types.
+The actual confirmation browser probe is now required in product-content CI.
+
+The queue fixture now requires the observed canonical set size of 24 before its
+single bottom scroll, then samples full-row geometry and hit-testing together.
+Both browsers pass all eight workflows; the last row and viewport bottoms are
+both 778 pixels and the hit-test succeeds, retaining the one-pixel bound. The
+late-arrival explanation for the hosted failure is inferred from source and its
+screenshot; the local run already had all 24 rows. No product policy, deadline
+or visibility requirement changed. Run 36557957330 remains failed.

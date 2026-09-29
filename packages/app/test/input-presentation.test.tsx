@@ -220,6 +220,15 @@ it('retains unverified queue entries with a truthful state and excludes internal
   expect(rows[0]).toMatchObject({ stale: true, status: 'Checking queue…' });
 });
 
+it('restores acknowledged steering from canonical queue metadata without a local command', () => {
+  const item = inbox('7', 'queued', { steering: { id: 'edit', turn_id: 'target-turn', consumed: false } });
+  expect(queuedInputRows([{ item, stale: false }], [])[0]).toMatchObject({
+    status: 'Steering', item: { steering: { id: 'edit', turn_id: 'target-turn', consumed: false } },
+  });
+  expect(queuedInputRows([{ item, stale: true }], [])[0]?.status).toBe('Checking queue…');
+  expect(queuedInputRows([{ item: { ...item, state: 'claimed' }, stale: false }], [])).toEqual([]);
+});
+
 it('correlates an inbox event before its receipt and keeps its key after local preview eviction or reload', () => {
   const store = new SubmittedInputs();
   const command = store.add({ ...scope, clientId: 'window' }, 'Same text', true);

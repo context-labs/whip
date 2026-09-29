@@ -1,170 +1,149 @@
 import assert from 'node:assert/strict';
-import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expect } from '@playwright/test';
-import { createSessionView, executionRows } from '../../../packages/legacy-sdk/dist/state.js';
-import { eventually } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
+import { deadline, eventually } from './native-fixture.mjs';
 
-// Real committed records, with a delayed/failed transport read only in this
-// isolated browser. Both limits exercise the production snapshot and SDK paths.
+// Native history has a bounded cursor window, not inferred missing event ranges.
+// Delaying/failing actual owner-scoped reads must preserve the loaded evidence;
+// only explicit navigation retries an older page. Large-message/count/byte gaps
+// are separately proved by native-history-window.test.mjs against the real SDK.
 export async function checkHistoryRecovery({ page, client, fixture, root, directory, name }) {
-  const report = [];
-  const requests = [];
-  let mode = 'hold', releasePage;
-  await page.routeWebSocket('**/api/v3/ws', route => {
+  const requests = [], errors = [], connections = new Set(), closing = new Set();
+  let mode = 'pass', release, closed = false, tailReads = 0;
+  const failure = { code: -32603, kind: 'INTERNAL', message: 'Synthetic history read unavailable' };
+  const fail = error => { if (errors.length < 64) errors.push(String(error.stack ?? error).slice(0, 4096)); };
+  const closeEndpoint = endpoint => {
+    const promise = endpoint.close().catch(fail).finally(() => closing.delete(promise));
+    closing.add(promise);
+  };
+  await page.routeWebSocket('**/api/v4/ws', route => {
+    if (closed || connections.size >= 256) { if (!closed) fail(new Error('History recovery connection bound exceeded')); closeEndpoint(route); return; }
     const server = route.connectToServer();
-    route.onMessage(data => {
-      const request = JSON.parse(String(data));
-      if (request.method === 'history.page' && request.params.after_seq !== undefined) {
-        requests.push(request);
-        if (mode === 'hold') { releasePage = () => { mode = 'pass'; server.send(data); }; return; }
-        if (mode === 'fail') {
-          mode = 'pass';
-          route.send(JSON.stringify({ jsonrpc: '2.0', id: request.id, error: { code: -32603, message: 'Synthetic history read unavailable' } }));
-          return;
-        }
+    let ended = false, pending;
+    const retire = () => { if (ended) return; ended = true; connections.delete(retire); closeEndpoint(route); closeEndpoint(server); };
+    const guarded = work => { try { if (!closed && !ended) work(); } catch (error) { fail(error); retire(); } };
+    connections.add(retire); route.onClose(retire); server.onClose(retire);
+    route.onMessage(data => guarded(() => {
+      const request = JSON.parse(String(data)), owned = request.params?.session_id === root;
+      if (owned && mode === 'failed' && request.method === 'sessions.observe') {
+        // Keep the read outage observable while changing presentation. No failed
+        // page is replayed, and unrelated calls still reach the actual runtime.
+        route.send(JSON.stringify({ jsonrpc: '2.0', id: request.id, error: failure })); return;
+      }
+      if (owned && request.method === 'sessions.history_page' && request.params.cursor === undefined) tailReads++;
+      if (owned && request.method === 'sessions.history_page' && request.params.direction === 'backward' && request.params.cursor !== undefined) {
+        assert(requests.length < 32, 'Recovery request evidence bound exceeded');
+        pending = { id: request.id, params: request.params, mode }; requests.push(pending);
+        if (mode === 'fail') { mode = 'failed'; pending.error = failure.kind; route.send(JSON.stringify({ jsonrpc: '2.0', id: request.id, error: failure })); return; }
       }
       server.send(data);
-    });
+    }));
+    server.onMessage(data => guarded(() => {
+      const reply = JSON.parse(String(data));
+      if (pending?.id === reply.id) {
+        assert(!reply.error, `Real history read failed: ${JSON.stringify(reply.error)}`);
+        pending.count = reply.result.messages.length; pending.cursor = reply.result.next_cursor;
+        pending.revision = reply.result.snapshot.revision;
+        if (mode === 'hold') {
+          assert(!release, 'Only one older history response may be held');
+          release = () => { release = undefined; mode = 'pass'; guarded(() => route.send(data)); }; return;
+        }
+      }
+      route.send(data);
+    }));
   });
-  await page.reload();
   const reading = page.getByRole('region', { name: 'Conversation', exact: true });
-  await expect(reading).toBeVisible();
-  const session = client.session(root);
-  const view = createSessionView(session);
-  await view.start();
-  const findGap = async () => {
-    await reading.hover(); await page.mouse.wheel(0, -1);
-    await page.waitForTimeout(200);
+  const earlier = reading.getByRole('button', { name: /^(Loading )?Load earlier messages$/ });
+  const anchor = () => reading.evaluate(element => {
+    const top = element.getBoundingClientRect().top;
+    const row = [...element.querySelectorAll('[data-reading-id]')].find(row => row.getBoundingClientRect().bottom > top + 40);
+    if (!row) throw new Error('No canonical anchor row');
+    const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+    let text; while ((text = walker.nextNode()) && !text.textContent.trim()) {}
+    if (!text) throw new Error('No anchor text');
+    const range = document.createRange(); range.setStart(text, 0); range.setEnd(text, Math.min(16, text.length));
+    const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
+    window.__historyAnchor = row;
+    return { id: row.dataset.readingId, offset: row.getBoundingClientRect().top - top, selected: selection.toString() };
+  });
+  const verifyAnchor = async before => {
+    await expect.poll(() => reading.evaluate((element, before) => {
+      const row = [...element.querySelectorAll('[data-reading-id]')].find(row => row.dataset.readingId === before.id);
+      if (!row || row !== window.__historyAnchor || getSelection().toString() !== before.selected) return 9999;
+      return Math.abs(row.getBoundingClientRect().top - element.getBoundingClientRect().top - before.offset);
+    }, before)).toBeLessThanOrEqual(2);
+  };
+  const top = async () => {
     await reading.evaluate(element => { element.dispatchEvent(new Event('scrollend')); element.scrollTop = 0; });
-    for (let attempt = 0; attempt < 100; attempt++) {
-      const gap = reading.locator('[data-history-gap]').first();
-      const visible = await reading.evaluate(element => {
-        const gap = element.querySelector('[data-history-gap]');
-        if (!gap) { element.scrollTop += element.clientHeight * 0.6; return false; }
-        const top = gap.getBoundingClientRect().top - element.getBoundingClientRect().top;
-        if (top >= 0 && top < element.clientHeight - 100) return true;
-        element.scrollTop += top - 100; return false;
-      });
-      if (visible) return gap;
-      await page.waitForTimeout(30);
-    }
-    throw new Error('Gap control was not reachable');
+    await expect(earlier).toBeVisible(); await expect(earlier).toBeEnabled();
+    await page.waitForTimeout(350);
   };
   try {
-    for (const kind of ['count', 'bytes']) {
-      const input = `history-gap:${kind}`;
-      mode = kind === 'count' ? 'hold' : 'fail';
-      const before = view.getSnapshot().history[root].throughSeq;
-      const requestCount = requests.length;
-      const work = session.submit({ text: input });
-      await work.accepted();
-      const live = await eventually(() => {
-        const cells = executionRows(view.getSnapshot(), root).filter(row => row.callId?.startsWith(input));
-        return cells.length === 5 && cells;
-      });
-      const ids = live.map(row => row.id);
-      await fixture.release(input);
-      await work.result();
-      const snapshot = await session.snapshot();
-      assert.ok(snapshot.message_seqs[0] > before + 1, `${kind} fixture must leave an interior interval`);
-      assert.ok(snapshot.messages.length <= 64);
-      if (kind === 'bytes') assert.ok(snapshot.messages.length < 64, 'Byte budget must constrain the snapshot separately');
-      await eventually(() => requests.length > requestCount);
-      const control = await findGap();
-      await page.screenshot({ path: join(directory, `${name}-history-${kind}-gap.png`) });
-      let anchorDrift;
-      if (kind === 'count') {
-        await expect(control).toContainText('Loading missing messages');
-        // Pin a selected, already loaded row after the gap. Filling above it
-        // must preserve the DOM, its selection, and its pixel position.
-        const anchor = await control.evaluate(element => {
-          const region = element.closest('[role="region"]');
-          const row = element.closest('[data-reading-id]').nextElementSibling;
-          region.scrollTop += row.getBoundingClientRect().top - region.getBoundingClientRect().top - 40;
-          return row.dataset.readingId;
-        });
-        const position = () => reading.evaluate((element, id) => {
-          const row = [...element.querySelectorAll('[data-reading-id]')].find(row => row.dataset.readingId === id);
-          return row?.getBoundingClientRect().top - element.getBoundingClientRect().top;
-        }, anchor);
-        await expect.poll(position).toBeCloseTo(40, 0);
-        const selected = await reading.evaluate((element, id) => {
-          const row = [...element.querySelectorAll('[data-reading-id]')].find(row => row.dataset.readingId === id);
-          const text = document.createTreeWalker(row, NodeFilter.SHOW_TEXT).nextNode();
-          const range = document.createRange(); range.setStart(text, 0); range.setEnd(text, Math.min(16, text.length));
-          const selection = document.getSelection(); selection.removeAllRanges(); selection.addRange(range); return selection.toString();
-        }, anchor);
-        releasePage();
-        await expect(control).toHaveCount(0);
-        await expect.poll(position).toBeCloseTo(40, 0);
-        anchorDrift = Math.abs((await position()) - 40);
-        assert.equal(await page.evaluate(() => document.getSelection()?.toString()), selected);
-        await page.evaluate(() => document.getSelection()?.removeAllRanges());
-      } else {
-        await expect(control).toContainText("Couldn't load messages");
-        const readsBeforeSwitch = requests.length;
-        await page.getByRole('button', { name: 'REPL', exact: true }).click();
-        const notebook = page.getByRole('region', { name: 'REPL executions', exact: true });
-        await expect(notebook.locator('[data-history-gap]')).toContainText("Couldn't load messages");
-        await page.goBack(); await findGap();
-        assert.equal(requests.length, readsBeforeSwitch, 'Chat and REPL share the failed range without refetching');
-        const retry = control.getByRole('button', { name: 'Retry', exact: true });
-        await retry.focus(); await page.keyboard.press('Enter');
-        await expect(control).toHaveCount(0);
-        await expect.poll(() => page.evaluate(() => document.activeElement?.hasAttribute('data-reading-id'))).toBe(true);
-      }
-      await eventually(() => !view.getSnapshot().history[root].gaps.length);
-      const recovered = executionRows(view.getSnapshot(), root).filter(row => row.callId?.startsWith(input));
-      assert.deepEqual(recovered.map(row => row.id), ids);
-      assert.ok(recovered.every(row => Number.isInteger(row.seq) && !row.historyUnmatched));
-      assert.equal(recovered.flatMap(row => row.hosts).length, 5);
-      const state = view.getSnapshot();
-      assert.ok(state.retainedBytes <= 8 * 1024 * 1024);
-      assert.ok(state.history[root].messages.length <= 512);
-      assert.ok(requests.length - requestCount <= (kind === 'bytes' ? 5 : 4));
-      await session.submit({ text: `Later reply after ${kind} recovery` }).result();
-      await reading.evaluate(element => { element.scrollTop = element.scrollHeight; });
-      const latest = page.getByRole('button', { name: 'Latest', exact: true });
-      if (await latest.isVisible()) await latest.click();
-      await expect.poll(() => reading.evaluate(element => [...element.querySelectorAll('[data-reading-id]')].at(-1)?.textContent)).toContain(`Later reply after ${kind} recovery`);
-      const mounted = await reading.locator('[data-reading-id]').count();
-      assert.ok(mounted < 80, `${mounted} rendered rows exceeds the normal bound`);
-      await page.screenshot({ path: join(directory, `${name}-history-${kind}-recovered.png`) });
-      report.push({ kind, snapshotMessages: snapshot.messages.length, missingFrom: before + 1, missingThrough: snapshot.message_seqs[0] - 1,
-        gapRequests: requests.length - requestCount, recoveredOperations: recovered.length, anchorDrift,
-        retainedBytes: state.retainedBytes, retainedRecords: state.history[root].messages.length, mounted });
+    await page.goto(`${fixture.info.web}/h/${client.runtimeID}/s/${root}`);
+    await expect(reading).toBeVisible(); await page.evaluate(() => document.fonts.ready);
+    const session = client.session(root), initial = await session.history.snapshot(deadline());
+    const draft = 'Keep this draft while reading earlier history.';
+    const composer = page.getByRole('textbox', { name: 'Message WHIP', exact: true });
+    await composer.fill(draft);
+    await top(); mode = 'hold';
+    await earlier.focus(); await page.keyboard.press('Enter');
+    await eventually(() => release, { description: 'actual older history reply held' });
+    const before = await anchor();
+    await expect(earlier).toBeDisabled(); await expect(composer).toHaveValue(draft);
+    await page.waitForTimeout(400); assert.equal(requests.length, 1, 'One older read owns its wait');
+    await verifyAnchor(before); release();
+    await expect(earlier).toBeEnabled(); await verifyAnchor(before);
+    await expect(composer).toHaveValue(draft);
+    await page.evaluate(() => getSelection().removeAllRanges());
+    await page.screenshot({ path: join(directory, `${name}-history-delayed.png`) });
+
+    await top(); mode = 'fail';
+    await earlier.focus(); await page.keyboard.press('Enter');
+    const error = page.locator('[data-error-type="session"]').filter({ hasText: 'Synthetic history read unavailable' });
+    await expect(error).toBeVisible(); assert.equal(requests.length, 2);
+    const failed = requests[1];
+    await page.getByRole('button', { name: 'REPL', exact: true }).click();
+    const notebook = page.getByRole('region', { name: 'REPL executions', exact: true });
+    await expect(notebook.locator(`[data-repl-cell="${fixture.history.cell_id}"]`)).toBeVisible();
+    await expect(error).toBeVisible(); await page.goBack();
+    await expect(reading).toBeVisible(); await expect(error).toBeVisible();
+    await page.waitForTimeout(500);
+    assert.equal(requests.length, 2, 'Chat/REPL share the failed cursor without replaying it');
+    await expect(composer).toHaveValue(draft);
+    await top(); mode = 'hold';
+    await earlier.focus(); await page.keyboard.press('Enter');
+    await eventually(() => release, { description: 'explicit retry uses retained canonical cursor' });
+    assert.equal(requests.length, 3);
+    assert.deepEqual(requests[2].params, failed.params, 'Explicit retry names the exact same owner, revision and cursor');
+    const retryAnchor = await anchor(); release();
+    await expect(error).toHaveCount(0); await verifyAnchor(retryAnchor);
+    await page.evaluate(() => getSelection().removeAllRanges());
+    await expect(composer).toHaveValue(draft);
+    assert.equal((await session.history.snapshot(deadline())).revision, initial.revision);
+    assert.deepEqual(await fixture.effects(), [], 'History inspection does not invoke a provider');
+    // Six actual 100-record windows cross the unchanged 512-record SDK bound.
+    // Explicit navigation stays bounded; Latest must then read the canonical
+    // tail again rather than pretending an evicted tail remains loaded.
+    for (let index = 0; index < 3; index++) {
+      await top(); const count = requests.length;
+      await earlier.focus(); await page.keyboard.press('Enter');
+      await eventually(() => requests.length === count + 1 && requests.at(-1).count === 100, { description: 'explicit older page beyond retained window' });
+      await expect(earlier).toBeEnabled();
+      assert(await reading.locator('[data-reading-id]').count() < 80);
     }
-    const beforeLarge = view.getSnapshot().history[root].throughSeq;
-    const largeRequestStart = requests.length;
-    const large = session.submit({ text: 'history-gap:large' });
-    await large.accepted();
-    await eventually(() => executionRows(view.getSnapshot(), root).some(row => row.callId?.startsWith('history-gap:large')));
-    await fixture.release('history-gap:large'); await large.result();
-    await eventually(() => view.getSnapshot().history[root].throughSeq > beforeLarge + 700);
-    await eventually(() => !view.getSnapshot().history[root].gaps?.some(gap => gap.status === 'loading' || gap.status === 'pending'));
-    const largeHistory = view.getSnapshot().history[root];
-    assert.ok(largeHistory.messages.length <= 512);
-    assert.ok(largeHistory.hasMore || largeHistory.gaps.length, 'Omitted history remains explicitly reachable');
-    const continuation = await findGap();
-    await expect(continuation.getByRole('button', { name: 'Load missing messages', exact: true })).toBeEnabled();
-    assert.equal(requests.length - largeRequestStart, 4, 'Large recovery stops after four automatic pages');
-    await page.evaluate(() => {
-      const region = document.querySelector('[aria-label="Conversation"]');
-      window.historyRecoveryPeakRows = 0;
-      const measure = () => { window.historyRecoveryPeakRows = Math.max(window.historyRecoveryPeakRows, region.querySelectorAll('[data-reading-id]').length); };
-      window.historyRecoveryObserver = new MutationObserver(measure); window.historyRecoveryObserver.observe(region, { childList: true, subtree: true }); measure();
-    });
-    const previousEnd = await continuation.getAttribute('data-history-gap');
-    await continuation.getByRole('button', { name: 'Load missing messages', exact: true }).click();
-    await expect(continuation.getByRole('button', { name: 'Load missing messages', exact: true })).toBeEnabled();
-    assert.equal(await continuation.getAttribute('data-history-gap'), previousEnd, 'One-page continuation preserves the control identity');
-    assert.equal(requests.length - largeRequestStart, 5);
-    const peakRows = await page.evaluate(() => { window.historyRecoveryObserver.disconnect(); return window.historyRecoveryPeakRows; });
-    assert.ok(peakRows < 80, `Recovery mounted ${peakRows} rows`);
-    await page.screenshot({ path: join(directory, `${name}-history-continuation.png`) });
-    report.push({ kind: 'large', retainedRecords: largeHistory.messages.length, gaps: largeHistory.gaps, hasMore: largeHistory.hasMore, automaticPages: 4, explicitPages: 1, peakRows });
-    await writeFile(join(directory, `${name}-history-recovery.json`), JSON.stringify(report, null, 2));
-    return report;
-  } finally { await view.dispose(); }
+    assert.equal(tailReads, 1, 'Older browsing does not reread the latest page');
+    await page.getByRole('button', { name: 'Latest', exact: true }).click();
+    await eventually(() => tailReads === 2, { description: 'Latest refills the evicted native tail' });
+    await expect.poll(() => reading.evaluate(element => [...element.querySelectorAll('[data-reading-seq]')].at(-1)?.dataset.readingSeq)).toBe('10000');
+    assert(await reading.locator('[data-reading-id]').count() < 80);
+    assert.deepEqual(errors, []);
+    await page.screenshot({ path: join(directory, `${name}-history-recovered.png`) });
+    return { requests, tailReads, delayedAnchor: before, retryAnchor, checks: ['held older page retains DOM/selection/anchor/draft', 'failed exact cursor remains shared across Chat and REPL without page replay', 'keyboard retry preserves exact owner/revision/cursor and reading position', 'Latest restores canonical tail; no provider execution; mounted rows under 80'] };
+  } catch (error) {
+    error.historyEvidence = { requests, tailReads, errors }; throw error;
+  } finally {
+    closed = true; release = undefined;
+    for (const retire of [...connections]) retire();
+    await Promise.all(closing);
+  }
 }

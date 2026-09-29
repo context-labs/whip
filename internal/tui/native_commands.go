@@ -9,10 +9,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/google/uuid"
 
+	"github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/protocol"
 )
 
 type nativeControlResult struct {
+	input          *client.InputCommand
 	generation     uint64
 	attach         *protocol.Session
 	picker         *nativeSessionPicker
@@ -62,7 +64,29 @@ func (m *nativeModel) command(text string) tea.Cmd {
 	}
 	name := fields[0]
 	args := strings.TrimSpace(strings.TrimPrefix(text, name))
+	if name != "/attach" && name != "/quit" && (m.attachmentBusy || m.attachment != nil) {
+		m.status = "Resolve the pending image upload with /attach check, /attach retry, or /attach discard first."
+		return nil
+	}
 	switch name {
+	case "/attach":
+		return m.attachCommand(args)
+	case "/help":
+		m.input.Reset()
+		m.notice = nativeHelp
+		m.refresh()
+		return nil
+	case "/report":
+		m.input.Reset()
+		m.notice = m.nativeReport()
+		m.refresh()
+		return nil
+	case "/context", "/context-doctor":
+		return m.contextDoctor(args)
+	case "/export":
+		return m.exportNative(args)
+	case "/effort":
+		return m.effortCommand(args)
 	case "/quit", "/exit", "/q":
 		return tea.Quit
 	case "/rejected":
@@ -136,6 +160,30 @@ func (m *nativeModel) command(text string) tea.Cmd {
 		return m.standing(args)
 	case "/memory":
 		return m.memory(args)
+	case "/repl":
+		return m.replCommand(args)
+	case "/agents":
+		return m.agentsCommand(args)
+	case "/dock", "/sidebar":
+		if args != "" {
+			m.status = "usage: " + name
+			return nil
+		}
+		return m.layoutCommand(strings.TrimPrefix(name, "/"))
+	case "/mcp":
+		return m.mcpCommand(args)
+	case "/lsp":
+		return m.lspCommand(args)
+	case "/browser":
+		return m.browserCommand(args)
+	case "/computer", "/computer-use":
+		return m.computerCommand(args)
+	case "/compact":
+		return m.compactionCommand(args)
+	case "/goal", "/goal-from-context":
+		return m.goalCommand(name, args)
+	case "/schedule":
+		return m.scheduleCommand(args)
 	case "/permissions":
 		return m.permissionsCommand(args)
 	case "/status":

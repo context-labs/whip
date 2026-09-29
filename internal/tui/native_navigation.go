@@ -27,13 +27,21 @@ type nativeNavigationResult struct {
 func (m *nativeModel) navigationRead(label string, call func(context.Context) nativeControlResult) tea.Cmd {
 	m.navigationRequest++
 	request := m.navigationRequest
+	draft := m.input.Value()
 	command := m.control(label, false, call)
+	if !strings.HasPrefix(strings.TrimSpace(draft), "/") {
+		m.input.SetValue(draft)
+	}
 	return func() tea.Msg {
 		return nativeNavigationResult{request: request, value: command().(nativeControlResult)}
 	}
 }
 
 func (m *nativeModel) navigationAllowed() bool {
+	if m.attachmentBusy || m.attachment != nil {
+		m.status = "Resolve the image upload before switching its owner."
+		return false
+	}
 	if m.uncertain != nil || m.rejected != nil || m.retryControl != nil || m.standingDraft != nil || m.sending || m.controlling {
 		m.status = "Resolve the pending input, control, or standing draft before switching sessions."
 		return false
@@ -142,6 +150,9 @@ func (m *nativeModel) invalidateRead() {
 }
 
 func (m *nativeModel) attachSession(owner protocol.Session) error {
+	if m.attachmentBusy || m.attachment != nil {
+		return errors.New("resolve the pending image upload before switching owners")
+	}
 	if owner.ID == "" || owner.TreeID == "" || owner.ConfigRevision < 1 {
 		return errors.New("invalid session attachment")
 	}
@@ -156,14 +167,26 @@ func (m *nativeModel) attachSession(owner protocol.Session) error {
 			return err
 		}
 	}
+	draft, err := m.switchDraft(owner.ID)
+	if err != nil {
+		return err
+	}
 	m.closeMenu()
 	m.invalidateRead()
 	m.navigationRequest++
+	if m.owner.TreeID != owner.TreeID {
+		m.agents = nil
+		m.agentSelection = owner.ID
+	}
 	m.handle, m.owner = handle, owner
 	m.permissionPolicy = nil
 	m.uncertain, m.recoveryCheck = retained, retained != nil
 	m.observer, m.ready, m.cancelling = nil, false, false
 	m.history = nativeTranscript{owner: owner.ID}
+	m.execution = nil
+	m.replBefore, m.replFocus = nil, nil
+	m.replFocused = false
+	m.replGeneration++
 	m.activity = protocol.SessionActivity{SessionID: owner.ID, Lifecycle: owner.Lifecycle}
 	m.usage, m.contextUsage = protocol.Usage{}, protocol.ContextUsage{}
 	m.browseRequest++
@@ -172,7 +195,9 @@ func (m *nativeModel) attachSession(owner protocol.Session) error {
 	m.picker, m.decision, m.hiddenDecision = nil, nil, nil
 	m.decisions, m.decisionsHidden = nil, false
 	m.notice, m.noteRevisions = "", [2]string{}
-	m.input.Reset()
+	m.input.SetValue(draft.text)
+	m.pastes = draft.pastes
+	m.images = draft.images
 	m.initialPrompt = ""
 	m.polls = 0
 	m.status = "Attached to " + string(owner.ID) + ". Other host work continues."

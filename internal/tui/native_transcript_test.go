@@ -60,7 +60,7 @@ func TestNativeTranscriptPreviewEpochRevisionAndSettlement(t *testing.T) {
 	if err := v.observe(page); err != nil {
 		t.Fatal(err)
 	}
-	if v.preview == nil || !v.preview.Truncated || len(v.preview.Calls) != 0 {
+	if v.preview == nil || !v.preview.Truncated || len(v.preview.Calls) != 1 {
 		t.Fatal(v.preview)
 	}
 	output := protocol.CellOutput{Epoch: "epoch", Preview: &protocol.CellOutputPreview{SessionID: "owner", TurnID: "turn", CellID: "cell", CallMessageID: "message_2", CallID: "call", HistoryRevision: 1, Revision: 1, Text: "live stdout"}}
@@ -68,7 +68,10 @@ func TestNativeTranscriptPreviewEpochRevisionAndSettlement(t *testing.T) {
 	if v.cellOutput == nil {
 		t.Fatal("current cell output discarded")
 	}
-	page = nativeObservation(2, nativeMessage(2, "assistant", "partial complete"))
+	call := nativeMessage(2, "assistant", "partial complete")
+	call.TurnID = new(protocol.ID("turn"))
+	call.Parts = append(call.Parts, protocol.Part{Type: "tool_call", Call: &protocol.ToolCall{ID: "call", Name: "execute", Arguments: []byte(`{"code":"42"}`)}})
+	page = nativeObservation(2, call)
 	page.Preview = &protocol.MessagePreview{MessageID: "message_2", Text: "partial"}
 	if err := v.observe(page); err != nil {
 		t.Fatal(err)
@@ -77,6 +80,7 @@ func TestNativeTranscriptPreviewEpochRevisionAndSettlement(t *testing.T) {
 		t.Fatal("committed message kept duplicate preview")
 	}
 	result := nativeMessage(3, "tool", "")
+	result.TurnID = new(protocol.ID("turn"))
 	result.Parts = []protocol.Part{{Type: "tool_result", Result: &protocol.ToolResult{CallID: "call", Output: "complete"}}}
 	if err := v.observe(nativeObservation(3, result)); err != nil {
 		t.Fatal(err)
@@ -171,5 +175,35 @@ func TestNativeTranscriptBoundsKeepWholeMessagesAndExplicitHistoryGap(t *testing
 	}
 	if v.earlier || len(v.messages) != 1 {
 		t.Fatal("explicit page replacement retained a stale gap")
+	}
+}
+
+func TestNativeTranscriptReusedAndImportedCallIDsDoNotHideCurrentStdout(t *testing.T) {
+	old := nativeMessage(1, "tool", "")
+	old.TurnID = new(protocol.ID("older-turn"))
+	old.Parts = []protocol.Part{{Type: "tool_result", Result: &protocol.ToolResult{CallID: "reused", Output: "older"}}}
+	imported := nativeMessage(2, "tool", "")
+	imported.Parts = old.Parts
+	current := nativeMessage(3, "assistant", "")
+	current.TurnID = new(protocol.ID("current-turn"))
+	current.Parts = []protocol.Part{{Type: "tool_call", Call: &protocol.ToolCall{ID: "reused", Name: "execute", Arguments: []byte(`{"code":"print(1)"}`)}}}
+	v := nativeTranscript{owner: "owner"}
+	if err := v.observe(nativeObservation(3, old, imported, current)); err != nil {
+		t.Fatal(err)
+	}
+	output := protocol.CellOutput{Epoch: "epoch", Preview: &protocol.CellOutputPreview{SessionID: "owner", TurnID: "current-turn", CallMessageID: current.ID, CallID: "reused", CellID: "current-cell", HistoryRevision: 1, Text: "current"}}
+	v.output(output)
+	if v.cellOutput == nil {
+		t.Fatal("unrelated reused call suppressed current stdout")
+	}
+	result := nativeMessage(4, "tool", "")
+	result.TurnID = current.TurnID
+	result.Parts = old.Parts
+	if err := v.observe(nativeObservation(4, result)); err != nil {
+		t.Fatal(err)
+	}
+	v.output(output)
+	if v.cellOutput != nil {
+		t.Fatal("current settled stdout revived")
 	}
 }

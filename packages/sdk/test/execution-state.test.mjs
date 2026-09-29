@@ -81,6 +81,26 @@ test('cell rows join only exact local owner, turn, message and call identities',
   assert.equal(row.call.message, evidence[0]); // The pure projection references its bounded source; no copied transcript owner.
 });
 
+test('cell operation presentation follows exact recorded time, independent of opaque page IDs', async t => {
+  const { state, client } = await backend();
+  state.messages = messages(); state.cells = [cell('cell_fixture')];
+  const at = (id, suffix, capability = 'files.read') => ({ ...operation(id), capability, created_at: `2500-01-01T00:00:${suffix}` });
+  // These epoch nanoseconds exceed 2^53. All three fractional times occupy the
+  // same millisecond, and a whole-second timestamp must still precede them.
+  state.operations = [at('a-spawn', '00.000000003Z', 'agents.spawn'), at('b-later', '01Z'),
+    at('c-read-2', '00.000000002Z'), at('d-whole', '00Z'), at('e-read-1', '00.000000001Z'),
+    at('f-tied', '00.000000003Z'), { ...at('g-foreign', '00Z'), cell_id: 'another' }];
+  state.shortPages = true;
+  const { view, source } = await views(t, client); await view.start();
+  const snapshot = view.getSnapshot(), rows = cellExecutionRows(snapshot, source.getSnapshot().history.messages);
+  assert.deepEqual(rows[0].operations.map(value => value.id), ['d-whole', 'e-read-1', 'c-read-2', 'a-spawn', 'f-tied', 'b-later']);
+  assert.deepEqual(snapshot.operations.map(value => value.id), state.operations.map(value => value.id));
+  assert.deepEqual(state.calls.filter(call => call.method === 'turns.operations').map(call => call.params.after),
+    [undefined, 'a-spawn', 'b-later', 'c-read-2', 'd-whole', 'e-read-1', 'f-tied', 'g-foreign']);
+  assert.equal(rows[0].call.message.sequence, '9007199254740993');
+  assert.equal(rows[0].operations[3], snapshot.operations[0]);
+});
+
 test('loaded older local turns are fetched without a transcript crawl and copied turns do not trigger reads', async t => {
   const { state, client } = await backend();
   state.turns = [turn('new'), turn('older')];

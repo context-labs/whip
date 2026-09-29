@@ -24,18 +24,28 @@ import (
 )
 
 type nativeUIProvider struct {
-	entered chan struct{}
-	release chan struct{}
-	once    sync.Once
-	codes   map[string]string
+	requests chan hostmodel.Request
+	entered  chan struct{}
+	release  chan struct{}
+	once     sync.Once
+	codes    map[string]string
 }
 
 func (p *nativeUIProvider) Prepare(ctx context.Context, request hostmodel.Request) (hostmodel.Prepared, error) {
+	if p.requests != nil {
+		select {
+		case p.requests <- request:
+		default:
+		}
+	}
 	prepared, err := (hostmodel.Scripted{}).Prepare(ctx, request)
 	if err != nil {
 		return prepared, err
 	}
 	prepared.Execute = func(ctx context.Context, emit func(hostmodel.Chunk)) (hostmodel.Response, error) {
+		if request.Purpose == "compaction" {
+			return hostmodel.Response{Parts: []session.Part{{Type: "text", Text: "Compacted fixture history."}}}, nil
+		}
 		last := request.Messages[len(request.Messages)-1]
 		text := last.Parts[0].Text
 		if code, ok := p.codes[text]; ok && last.Role == session.User {
@@ -45,7 +55,9 @@ func (p *nativeUIProvider) Prepare(ctx context.Context, request hostmodel.Reques
 			}
 			return hostmodel.Response{Parts: []session.Part{{Type: "tool_call", Call: &session.ToolCall{ID: "execute-native-tui", Name: "execute", Arguments: arguments}}}}, nil
 		}
-		emit(hostmodel.Chunk{Text: "answer: "})
+		if emit != nil {
+			emit(hostmodel.Chunk{Text: "answer: "})
+		}
 		if text == "hold" {
 			p.once.Do(func() { close(p.entered) })
 			select {

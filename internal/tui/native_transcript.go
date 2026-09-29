@@ -72,6 +72,15 @@ func (v *nativeTranscript) observe(page client.Observation) error {
 	if page.Epoch == "" || page.Preview != nil && len(page.Preview.Text)+len(page.Preview.Reasoning) > 128<<10 {
 		return errors.New("invalid native preview epoch or byte bound")
 	}
+	if page.Preview != nil {
+		bytes := 0
+		for _, call := range page.Preview.Calls {
+			bytes += len(call.Arguments) + len(call.ID) + len(call.Name)
+		}
+		if len(page.Preview.Calls) > 16 || bytes > 128<<10 {
+			return errors.New("provisional call display exceeds bound")
+		}
+	}
 	if page.Reset {
 		if err := v.replace(protocol.HistoryPageResult{Snapshot: page.Snapshot, Messages: page.Messages}); err != nil {
 			return err
@@ -128,10 +137,12 @@ func (v *nativeTranscript) observe(page client.Observation) error {
 	v.preview = nil
 	if page.Cursor.After >= page.Snapshot.ThroughSequence && page.Preview != nil && !slices.ContainsFunc(v.messages, func(m protocol.Message) bool { return m.ID == page.Preview.MessageID }) {
 		value := *page.Preview
-		value.Calls = nil // Incomplete argument bytes are never canonical calls.
+		// These remain provisional argument strings: presentation may display
+		// them, but only committed Part.Call JSON can join a canonical cell.
+		value.Calls = slices.Clone(page.Preview.Calls)
 		v.preview = &value
 	}
-	if v.cellOutput != nil && v.settledCall(v.cellOutput.CallID) {
+	if v.cellOutput != nil && v.settledCall(v.cellOutput) {
 		v.cellOutput = nil
 	}
 	return nil
@@ -140,17 +151,33 @@ func (v *nativeTranscript) observe(page client.Observation) error {
 func (v *nativeTranscript) output(value protocol.CellOutput) {
 	v.cellOutput = nil
 	p := value.Preview
-	if p == nil || value.Epoch != v.epoch || p.SessionID != v.owner || p.HistoryRevision != v.snapshot.Revision || len(p.Text) > 64<<10 || v.settledCall(p.CallID) {
+	if p == nil || value.Epoch != v.epoch || p.SessionID != v.owner || p.HistoryRevision != v.snapshot.Revision || len(p.Text) > 64<<10 || v.settledCall(p) {
 		return
 	}
 	copyValue := *p
 	v.cellOutput = &copyValue
 }
 
-func (v *nativeTranscript) settledCall(id protocol.ID) bool {
+func (v *nativeTranscript) settledCall(output *protocol.CellOutputPreview) bool {
+	var callSequence protocol.Counter
 	for _, message := range v.messages {
+		if message.ID == output.CallMessageID && message.SessionID == output.SessionID && message.TurnID != nil && *message.TurnID == output.TurnID {
+			for _, part := range message.Parts {
+				if part.Call != nil && part.Call.ID == output.CallID {
+					callSequence = message.Sequence
+				}
+			}
+		}
+	}
+	if callSequence == 0 {
+		return false
+	}
+	for _, message := range v.messages {
+		if message.Sequence <= callSequence || message.SessionID != output.SessionID || message.TurnID == nil || *message.TurnID != output.TurnID {
+			continue
+		}
 		for _, part := range message.Parts {
-			if part.Result != nil && part.Result.CallID == id {
+			if part.Result != nil && part.Result.CallID == output.CallID {
 				return true
 			}
 		}

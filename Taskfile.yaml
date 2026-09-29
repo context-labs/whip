@@ -211,8 +211,27 @@ tasks:
       - node apps/web/scripts/user-messages.mjs
       - node apps/web/scripts/sidebar.mjs
       - node apps/web/scripts/workspace-layout.mjs
+      - node apps/web/scripts/multiple-hosts.mjs
+
+  check:product-content:
+    desc: Native scoped content and bounded canonical history in Chromium and Firefox
+    cmds:
+      - task: web-assets
       - node apps/web/scripts/native-content-probes.mjs
-      - node --test --test-concurrency=1 apps/web/scripts/native-history-fixture.test.mjs apps/web/scripts/native-tool-output.test.mjs
+      - node apps/web/scripts/attachment-confirmation.mjs
+      - node --test --test-concurrency=1 apps/web/scripts/native-history-fixture.test.mjs apps/web/scripts/native-tool-output.test.mjs apps/web/scripts/native-history-window.test.mjs
+      - node apps/web/scripts/history-prefetch.mjs
+      - node apps/web/scripts/native-history-recovery.mjs
+      - node apps/web/scripts/reading-position.mjs
+
+  check:product-activity:
+    desc: Native operation chronology, child activity, steering and queue workflows
+    cmds:
+      - task: web-assets
+      - node --test --test-concurrency=1 apps/web/scripts/native-activity-response.test.mjs apps/web/scripts/native-queue-fixture.test.mjs
+      - node apps/web/scripts/native-chat-activity.mjs
+      - node apps/web/scripts/composer-queue.mjs
+      - node apps/web/scripts/agent-dock.mjs
 
   check:product-settings:
     desc: Native Settings, provider connections, stored conversation and REPL workflows

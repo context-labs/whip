@@ -233,6 +233,16 @@ export interface CellExecutionRow {
   operations: readonly DeepReadonly<HostOperation>[];
 }
 
+// Store projections emit UTC RFC3339Nano. Pad the fractional part before
+// lexical comparison so whole seconds and sub-millisecond differences retain
+// exact order, without converting epoch nanoseconds through Number or Date.
+// Opaque IDs are a stable tie-breaker only, not an execution sequence.
+function operationOrder(left: DeepReadonly<HostOperation>, right: DeepReadonly<HostOperation>): number {
+  const stamp = (value: string) => value.replace(/(?:\.(\d{1,9}))?Z$/, (_suffix, fraction: string | undefined) => `.${(fraction ?? '').padEnd(9, '0')}Z`);
+  const a = stamp(left.created_at), b = stamp(right.created_at);
+  return a < b ? -1 : a > b ? 1 : left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+}
+
 /** Exact joins only. A copied message with no local turn link, a similarly named
  * call, or an unrelated result never becomes local execution evidence. Returned
  * objects reference the two bounded snapshots; no transcript cache is retained. */
@@ -245,6 +255,6 @@ export function cellExecutionRows(execution: DeepReadonly<ExecutionViewSnapshot>
     const call = callMessage?.parts?.find(part => part.type === 'tool_call' && part.call.id === cell.call_id);
     const result = resultMessage?.parts?.find(part => part.type === 'tool_result' && part.result.call_id === cell.call_id);
     const output = execution.status === 'live' && cell.state === 'running' && execution.output?.cell_id === cell.id && execution.output.turn_id === cell.turn_id && execution.output.session_id === cell.session_id && execution.output.call_message_id === cell.call_message_id && execution.output.call_id === cell.call_id && execution.output.history_revision === execution.historyRevision ? execution.output : null;
-    return { cell, output, turn: turns.get(cell.turn_id) ?? null, call: call?.type === 'tool_call' ? { message: callMessage!, value: call.call } : null, result: result?.type === 'tool_result' ? { message: resultMessage!, value: result.result } : null, operations: execution.operations.filter(operation => operation.origin === 'cell' && operation.cell_id === cell.id && operation.turn_id === cell.turn_id && operation.session_id === cell.session_id) };
+    return { cell, output, turn: turns.get(cell.turn_id) ?? null, call: call?.type === 'tool_call' ? { message: callMessage!, value: call.call } : null, result: result?.type === 'tool_result' ? { message: resultMessage!, value: result.result } : null, operations: execution.operations.filter(operation => operation.origin === 'cell' && operation.cell_id === cell.id && operation.turn_id === cell.turn_id && operation.session_id === cell.session_id).sort(operationOrder) };
   });
 }
