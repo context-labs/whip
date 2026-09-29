@@ -3253,3 +3253,14 @@ bootstrap/trace controls, SDK services/views, every supported product client,
 manual/live evidence and retired-core removal are still active obligations.
 No merge, deployment, installed-runtime replacement, real account mutation or
 real browser/helper session was performed.
+
+The final release gate, including the shared PTY primitive and terminal reuse,
+also passes in full atca74b20e5: store210.086s/runtime258.015s/RPC47.582s/
+process117.794s, terminal9.177s/MCP21.227s, production fixture33.177s,
+gateway/terminal2.515s, Unix/browser executors1.713s/1.806s, shell1.966s,
+retained crash4.335s and selected daemon races2.697s. Contract/SDK/drift/examples
+remain green; release analysis reports zero new lint findings and no reachable
+vulnerabilities. Exact logs are `/tmp/whip-host-resources-release-phase.log` and
+`/tmp/whip-host-resources-release-analysis.log`. Hosted evidence for this
+checkpoint will be recorded against its published head, not inferred from local
+results or another PR.
