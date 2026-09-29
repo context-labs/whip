@@ -5,7 +5,7 @@ import { Client } from '../dist/index.js';
 test('language server status is a validated, uncached session observation', async () => {
   const calls = [];
   const client = await Client.connect(async request => {
-    if (request.method === 'initialize') return { jsonrpc: '2.0', id: request.id, result: { major: 4, minor: 0, runtime_id: 'runtime', builtins: [] } };
+    if (request.method === 'initialize') return { jsonrpc: '2.0', id: request.id, result: { major: 4, minor: 0, runtime_id: 'runtime', process_epoch: 'boot_test', network_client: false, builtins: [] } };
     calls.push(request);
     return { jsonrpc: '2.0', id: request.id, result: { items: [{ name: 'gopls', state: 'not_started', workspace_root: null, failure: null }] } };
   }, { clientID: 'test' });

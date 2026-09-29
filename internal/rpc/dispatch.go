@@ -124,6 +124,9 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		})
 	case "initialize":
 		return decode(raw, func(p protocol.InitializeParams) (any, error) {
+			if p.ExpectedProcessEpoch != nil && string(*p.ExpectedProcessEpoch) != r.ProcessEpoch() {
+				return nil, ErrIdentity
+			}
 			if p.ExpectedRuntimeID != nil && string(*p.ExpectedRuntimeID) != string(r.Identity()) {
 				return nil, ErrIdentity
 			}
@@ -131,7 +134,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 			if err != nil {
 				return nil, err
 			}
-			result := protocol.InitializeResult{Major: protocol.Major, Minor: protocol.Minor, RuntimeID: protocol.ID(r.Identity()), Builtins: []protocol.DefinitionRef{}}
+			result := protocol.InitializeResult{NetworkClient: p.NetworkClient, ProcessEpoch: protocol.ID(r.ProcessEpoch()), Major: protocol.Major, Minor: protocol.Minor, RuntimeID: protocol.ID(r.Identity()), Builtins: []protocol.DefinitionRef{}}
 			for _, ref := range refs {
 				result.Builtins = append(result.Builtins, protocol.DefinitionRef{ID: protocol.ID(ref.ID), Revision: ref.Revision})
 			}
@@ -454,6 +457,7 @@ func wireError(err error) *protocol.RPCError {
 		{store.ErrStopped, -32012, "STOPPED"},
 		{runtime.ErrClosed, -32013, "CLOSED"},
 		{ErrIdentity, -32014, "IDENTITY"},
+		{ErrNetworkRestricted, -32015, "NETWORK_RESTRICTED"},
 		{ErrMethod, -32601, "METHOD"},
 	}
 	for _, kind := range kinds {

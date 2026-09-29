@@ -6,7 +6,7 @@ import (
 )
 
 func TestExplicitRuntimeSelection(t *testing.T) {
-	for _, args := range [][]string{nil, {"-scripted"}, {"-directory", t.TempDir(), "-scripted-delay", "1s"}, {"-directory", t.TempDir(), "-scripted", "-scripted-delay", "-1s"}} {
+	for _, args := range [][]string{nil, {"-directory", t.TempDir(), "-web-listen", "127.0.0.1:0"}, {"-directory", t.TempDir(), "-web-terminals"}, {"-scripted"}, {"-directory", t.TempDir(), "-scripted-delay", "1s"}, {"-directory", t.TempDir(), "-scripted", "-scripted-delay", "-1s"}} {
 		var out, diagnostics bytes.Buffer
 		if err := run(t.Context(), args, &out, &diagnostics); err == nil {
 			t.Fatalf("accepted missing/invalid runtime selection: %v", args)

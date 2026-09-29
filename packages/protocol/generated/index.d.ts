@@ -1713,10 +1713,14 @@ export interface InferenceTeamParams {
   team_id: string;
 }
 export interface InitializeParams {
+  network_client?: boolean;
+  expected_process_epoch?: null | string;
   major: number;
   expected_runtime_id?: null | string;
 }
 export interface InitializeResult {
+  network_client: boolean;
+  process_epoch: string;
   major: number;
   minor: number;
   runtime_id: string;
@@ -4868,6 +4872,7 @@ export interface RPCError {
     | "CLOSED"
     | "IDENTITY"
     | "METHOD"
+    | "NETWORK_RESTRICTED"
     | "ACCOUNT_CREDENTIALS"
     | "ACCOUNT_SETUP"
     | "ACCOUNT_CONFIGURATION"
@@ -5093,6 +5098,7 @@ export type Response = {
       | "CLOSED"
       | "IDENTITY"
       | "METHOD"
+      | "NETWORK_RESTRICTED"
       | "ACCOUNT_CREDENTIALS"
       | "ACCOUNT_SETUP"
       | "ACCOUNT_CONFIGURATION"

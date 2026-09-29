@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Client, DeliveryError, RemoteError } from '../dist/index.js';
 
-const initial = { major: 4, minor: 0, runtime_id: 'runtime', builtins: [] };
+const initial = { major: 4, minor: 0, runtime_id: 'runtime', process_epoch: 'boot_test', network_client: false, builtins: [] };
 const success = (request, result) => ({ jsonrpc: '2.0', id: request.id, result });
 const inventory = { revision: 'a'.repeat(64), routes: [], defaults: null, compaction_model: null };
 const model = { id: 'model', name: 'Exact model', prices: { input: '9007199254740993', output: '0', reasoning: null, cached_input: null, cached_output: null }, context_window_tokens: '0', advertised_context_tokens: null, effective_context_percent: null, max_output_tokens: null, reasoning_efforts: [], input_modalities: null, output_modalities: ['text'], supports_tools: false, metadata_source: 'advertised' };

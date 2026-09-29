@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -21,12 +22,15 @@ import (
 	"github.com/context-labs/whip/internal/session"
 )
 
+var ErrNetworkRestricted = errors.New("human terminals are disabled for network clients")
+
 // HostServices are borrowed command-owned authorities, separate from sessions.
 type HostServices struct {
-	OpenAI       *account.Service
-	Inference    *inferenceaccount.Service
-	Config       *config.Authority
-	ProviderHost *providerhost.Service
+	NetworkTerminals bool
+	OpenAI           *account.Service
+	Inference        *inferenceaccount.Service
+	Config           *config.Authority
+	ProviderHost     *providerhost.Service
 }
 
 type Server struct {
@@ -103,6 +107,7 @@ func (s *Server) connection(ctx context.Context, conn net.Conn) {
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, 4096), protocol.MaxFrameBytes+1)
 	initialized := false
+	network := false
 	for {
 		if err := conn.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
 			return
@@ -120,7 +125,11 @@ func (s *Server) connection(ctx context.Context, conn net.Conn) {
 		}
 		var result any
 		var err error
-		if !initialized && request.Method != "initialize" {
+		if initialized && request.Method == "initialize" {
+			err = fmt.Errorf("%w: connection is already initialized", session.ErrInvalid)
+		} else if network && !s.host.NetworkTerminals && networkRestrictedMethod(request.Method) {
+			err = ErrNetworkRestricted
+		} else if !initialized && request.Method != "initialize" {
 			err = fmt.Errorf("%w: initialize is required", session.ErrInvalid)
 		} else {
 			requestCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -149,7 +158,16 @@ func (s *Server) connection(ctx context.Context, conn net.Conn) {
 			if err != nil {
 				return
 			}
+			var params protocol.InitializeParams
+			if json.Unmarshal(request.Params, &params) != nil {
+				return
+			}
+			network = params.NetworkClient
 			initialized = true
 		}
 	}
+}
+
+func networkRestrictedMethod(method string) bool {
+	return method == "shell.input" || strings.HasPrefix(method, "terminal.") || strings.HasPrefix(method, "terminals.")
 }

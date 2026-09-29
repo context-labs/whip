@@ -1,6 +1,13 @@
 {
   "type": "object",
   "properties": {
+    "network_client": {
+      "type": "boolean"
+    },
+    "process_epoch": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
     "major": {
       "type": "integer",
       "minimum": 4,
@@ -42,6 +49,8 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "InitializeResult",
   "required": [
+    "network_client",
+    "process_epoch",
     "major",
     "minor",
     "runtime_id",

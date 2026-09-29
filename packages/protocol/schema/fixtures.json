@@ -2077,6 +2077,8 @@
   {
     "type": "InitializeResult",
     "value": {
+      "network_client": false,
+      "process_epoch": "boot_fixture",
       "major": 4,
       "minor": 0,
       "runtime_id": "runtime_fixture",

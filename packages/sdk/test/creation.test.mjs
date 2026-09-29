@@ -5,7 +5,7 @@ import { Client, DeliveryError, RemoteError } from '../dist/index.js';
 
 const fixtures = JSON.parse(await readFile(new URL('../../protocol/schema/fixtures.json', import.meta.url), 'utf8'));
 const fixture = (type, match = () => true) => structuredClone(fixtures.find(value => value.valid && value.type === type && match(value.value)).value);
-const initial = { major: 4, minor: 0, runtime_id: 'runtime', builtins: [] };
+const initial = { major: 4, minor: 0, runtime_id: 'runtime', process_epoch: 'boot_test', network_client: false, builtins: [] };
 const success = (request, result) => ({ jsonrpc: '2.0', id: request.id, result });
 
 test('creation delivery preserves caller identity and explicit recovery, including deletion', async () => {

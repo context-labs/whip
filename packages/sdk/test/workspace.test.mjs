@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Client, DeliveryError } from '../dist/index.js';
 
-const initial = { major: 4, minor: 0, runtime_id: 'runtime', builtins: [] };
+const initial = { major: 4, minor: 0, runtime_id: 'runtime', process_epoch: 'boot_test', network_client: false, builtins: [] };
 const success = (request, result) => ({ jsonrpc: '2.0', id: request.id, result });
 const created = '2026-09-28T12:00:00Z';
 const snapshot = { id: 'snapshot', session_id: 'session', capture_id: 'capture', state: 'succeeded', scope: 'session_working_directory', semantics: 'Tracked files under the session working directory are overlaid.', created_at: created, released_at: null };
