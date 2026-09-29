@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -27,14 +28,15 @@ type child struct {
 	Name string            `json:"name"`
 }
 type evidence struct {
-	RootID            session.SessionID `json:"root_id"`
-	RootMessages      int               `json:"root_messages"`
-	Children          []child           `json:"children"`
-	ChildMessages     int               `json:"child_messages"`
-	LargeContent      string            `json:"large_content"`
-	LargeContentBytes int               `json:"large_content_bytes"`
-	CellID            session.CellID    `json:"cell_id"`
-	Operations        int               `json:"operations"`
+	RootID            session.SessionID    `json:"root_id"`
+	RootMessages      int                  `json:"root_messages"`
+	Children          []child              `json:"children"`
+	ChildMessages     int                  `json:"child_messages"`
+	LargeContent      string               `json:"large_content"`
+	LargeContentBytes int                  `json:"large_content_bytes"`
+	CellID            session.CellID       `json:"cell_id"`
+	Operations        int                  `json:"operations"`
+	Compaction        session.CompactionID `json:"compaction_id"`
 }
 
 func main() {
@@ -100,7 +102,7 @@ func seed(ctx context.Context, directory string, rootID session.SessionID, nonce
 	if err := owned.Remove(marker); err != nil {
 		return result, err
 	}
-	result = evidence{RootID: root.ID, RootMessages: 10000, Children: []child{}, ChildMessages: 100, LargeContent: "fixture-large-content", LargeContentBytes: 1400000, CellID: "fixture-history-cell", Operations: 128}
+	result = evidence{RootID: root.ID, RootMessages: 10000, Children: []child{}, ChildMessages: 100, LargeContent: "fixture-large-content", LargeContentBytes: 1400000, CellID: "fixture-history-cell", Operations: 128, Compaction: "fixture-history-summary"}
 	bodies, err := content.New(directory)
 	if err != nil {
 		return result, err
@@ -182,6 +184,30 @@ func cellHistory(ctx context.Context, db *store.Store, owner session.SessionID, 
 	turn, err := prompt(ctx, db, owner, "history-cell", rootText(9997))
 	if err != nil {
 		return err
+	}
+	// This synthetic history represents an already compacted long-running
+	// session. Raw messages remain available to the UI; only model context uses
+	// the explicit summary. No historical provider execution is claimed.
+	const summary = "Synthetic fixture summary: the first 9,996 messages are retained as raw history on the execution host. Continue the current request."
+	attempt, err := db.ReserveModelAttempt(ctx, session.ModelAttemptSpec{ID: "fixture-summary-attempt", TurnID: turn.ID, LogicalID: "fixture-summary", Number: 1, Request: session.ModelRequestSnapshot{
+		Purpose: "compaction", Model: session.ModelSelection{Provider: "fixture-history", Name: "synthetic-summary"}, Route: "scripted://fixture-history", Adapter: "scripted", RequestDigest: fmt.Sprintf("%x", sha256.Sum256([]byte(summary))), MaxOutputTokens: 256, TimeoutMillis: 30000,
+	}})
+	if err != nil {
+		return err
+	}
+	dispatched, err := db.DispatchModelAttempt(ctx, attempt.ID)
+	if err != nil {
+		return err
+	}
+	if !dispatched {
+		return errors.New("fixture summary was already dispatched")
+	}
+	settled, err := db.SettleCompaction(ctx, attempt.ID, session.ModelAttemptResult{State: session.AttemptSucceeded}, &session.CompactionDraft{ID: "fixture-history-summary", ThroughSequence: 9996, Text: summary})
+	if err != nil {
+		return err
+	}
+	if !settled.Selected || settled.Rejection != nil {
+		return fmt.Errorf("fixture summary was not selected: %v", settled.Rejection)
 	}
 	call, err := db.AppendMessage(ctx, turn.ID, session.MessageDraft{ID: "history-call", Role: session.Assistant, Parts: []session.Part{{Type: "tool_call", Call: &session.ToolCall{ID: "history-call", Name: "execute", Arguments: json.RawMessage(`{"code":"files.read(path=\"source/example.ts\")"}`)}}}})
 	if err != nil {

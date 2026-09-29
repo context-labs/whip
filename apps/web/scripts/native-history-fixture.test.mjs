@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { deadline } from './native-fixture.mjs';
+import { deadline, eventually } from './native-fixture.mjs';
 import { startHistoryFixture } from './native-history-fixture.mjs';
 
 test('canonical large history retains exact owner, counts, child isolation and operation pages', { timeout: 180_000 }, async () => {
-  const fixture = await startHistoryFixture();
+  const fixture = await startHistoryFixture({ performanceStreams: true });
   try {
     const client = await fixture.connect('history-proof');
     const session = client.session(fixture.history.root_id);
@@ -30,5 +30,19 @@ test('canonical large history retains exact owner, counts, child isolation and o
     } while (after);
     assert.equal(count, 128);
     assert.deepEqual(await fixture.effects(), [], 'Synthetic history must not contact the model');
+    const head = await client.call('context.head', { session_id: session.id }, deadline());
+    assert.equal(head.compaction_id, fixture.history.compaction_id);
+    const summary = await client.call('context.compaction', { session_id: session.id, compaction_id: head.compaction_id }, deadline());
+    assert.equal(summary.metadata.through_sequence, '9996');
+    assert.match(summary.text, /Synthetic fixture summary/);
+    // The same owner can now execute new work within the actual model context
+    // limits while all 10k raw messages and explicit content remain inspectable.
+    const command = session.submission([{ type: 'text', text: 'hold:performance-stream-history-proof' }], 'after-history');
+    await command.send(deadline());
+    await eventually(async () => (await client.call('sessions.observe', { session_id: session.id, after: '10000', limit: 100 }, deadline())).preview?.text.includes('delta-0001'), { description: 'real provider stream after selected synthetic compaction' });
+    const activity = await session.activity(deadline()); await session.cancelTurn(activity.active_turn.id, deadline());
+    assert.equal((await command.wait(deadline())).turn.state, 'cancelled');
+    assert.deepEqual(await fixture.effects(), ['hold:performance-stream-history-proof']);
+    assert.equal((await session.history.snapshot(deadline())).message_count, '10001');
   } finally { await fixture.close(); }
 });
