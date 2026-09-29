@@ -52,45 +52,45 @@ type execution struct {
 	executorActivity ExecutorActivity
 }
 type Runtime struct {
-	computer          *computer.Controller
-	computerMu        sync.Mutex
-	hostPicker        *hostview.Picker
-	shells            *shell.Manager
-	mcp               *mcpOwners
-	languageServers   *lsp.Pool
-	languageProcesses *capability.ProcessManager
-	store             *store.Store
-	content           *content.Store
-	runner            *runner.Runner
-	tools             *tool.Dispatcher
-	executors         *executor.Registry
-	engineManager     *process.Manager
-	kernels           map[session.SessionID]*sessionKernel
-	owner             *owner
-	directory         string
-	host              config.Host
-	configuration     *config.Authority
-	options           Options
-	wake              chan struct{}
-	done              chan struct{}
-	mu                sync.Mutex
-	active            map[session.SessionID]*execution
-	runnable          int
-	waiting           int
-	resumptions       []*workerResumption
-	queueCursor       store.QueueCursor // owned only by the scheduling goroutine
-	preferResumption  bool
-	started, closed   bool
-	cancel            context.CancelFunc
-	failure           error
-	closeOnce         sync.Once
-	closeErr          error
-	epoch             string
-	previewMu         sync.Mutex
-	previews          map[session.SessionID]*livePreview
-	workspace         *workspace.Git
-	workspaceCalls    sync.WaitGroup
-	workspaceSlots    chan struct{}
+	computer         *computer.Controller
+	computerMu       sync.Mutex
+	hostPicker       *hostview.Picker
+	shells           *shell.Manager
+	mcp              *mcpOwners
+	languageServers  *lsp.Pool
+	hostProcesses    *capability.ProcessManager
+	store            *store.Store
+	content          *content.Store
+	runner           *runner.Runner
+	tools            *tool.Dispatcher
+	executors        *executor.Registry
+	engineManager    *process.Manager
+	kernels          map[session.SessionID]*sessionKernel
+	owner            *owner
+	directory        string
+	host             config.Host
+	configuration    *config.Authority
+	options          Options
+	wake             chan struct{}
+	done             chan struct{}
+	mu               sync.Mutex
+	active           map[session.SessionID]*execution
+	runnable         int
+	waiting          int
+	resumptions      []*workerResumption
+	queueCursor      store.QueueCursor // owned only by the scheduling goroutine
+	preferResumption bool
+	started, closed  bool
+	cancel           context.CancelFunc
+	failure          error
+	closeOnce        sync.Once
+	closeErr         error
+	epoch            string
+	previewMu        sync.Mutex
+	previews         map[session.SessionID]*livePreview
+	workspace        *workspace.Git
+	workspaceCalls   sync.WaitGroup
+	workspaceSlots   chan struct{}
 }
 
 // Open acquires exclusive execution ownership before opening fresh host/storage.
@@ -184,22 +184,23 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 	}
 	r.hostPicker = hostview.NewPicker(directory)
 	r.shells = shell.NewManager()
-	r.languageProcesses = capability.NewProcessManager()
-	r.languageServers = lsp.NewPool(r.languageProcesses)
+	r.hostProcesses = capability.NewProcessManager()
+	r.languageServers = lsp.NewPool(r.hostProcesses)
 	defer func() {
 		if err != nil {
+			_ = r.hostPicker.Close()
 			r.languageServers.Close()
 			if r.computer != nil {
 				r.computer.Close()
 			}
-			_ = r.languageProcesses.Close()
+			_ = r.hostProcesses.Close()
 			r.shells.Close()
 			r.executors.Close()
 			_ = r.mcp.close()
 			r.engineManager.Close()
 		}
 	}()
-	r.computer, err = computer.NewController(computer.ControllerOptions{Processes: r.languageProcesses, Owner: "computer-control", Directory: directory, Environment: map[string]string{}}, host.Computer)
+	r.computer, err = computer.NewController(computer.ControllerOptions{Processes: r.hostProcesses, Owner: "computer-control", Directory: directory, Environment: map[string]string{}}, host.Computer)
 	if err != nil {
 		return nil, err
 	}
@@ -260,7 +261,7 @@ func (r *Runtime) Close() error {
 		r.workspaceCalls.Wait()
 		r.languageServers.Close()
 		r.computer.Close()
-		_ = r.languageProcesses.Close()
+		_ = r.hostProcesses.Close()
 		r.engineManager.Close()
 		if started {
 			<-r.done
