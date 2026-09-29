@@ -187,3 +187,12 @@ test('a pending progress/cancellation race does not close unrelated lease work',
   value.invoke('next'); await until(() => value.results().length === 1); assert.equal(value.results()[0].params.invocation_id, 'next');
   await value.runtime.close();
 });
+
+test('an explicit null output clears inheritance without inventing a validator', () => {
+  const clear = defineAgent({ id: 'child', name: 'Child', output: null });
+  const inherit = defineAgent({ id: 'child', name: 'Child' });
+  assert.deepEqual(clear.document.defaults.output, { schema: null });
+  assert.equal(clear.output, undefined);
+  assert.equal(Object.hasOwn(inherit.document.defaults, 'output'), false);
+  assert.notDeepEqual(clear.document, inherit.document);
+});

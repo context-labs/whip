@@ -24,3 +24,6 @@ export async function typedSession(client: Client, transport: DuplexTransport) {
   result.output?.missing;
   return answer;
 }
+
+const unconstrained = defineAgent({ id: 'child', name: 'Child', output: null });
+void unconstrained;
