@@ -308,7 +308,8 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
         const owner = { runtimeId: tab.runtimeId, rootId: tab.rootId, sessionId: tab.location.agent ?? tab.rootId };
         const viewKey = workspaceSessionKey(owner), traceKey = workspaceTraceKey({ ...owner, viewId: tab.id });
         const view = views.views.get(viewKey), execution = views.executions.get(viewKey);
-        const client = hosts.find(host => host.runtimeId === tab.runtimeId)?.client;
+        const host = hosts.find(host => host.runtimeId === tab.runtimeId);
+        const client = host?.client ?? (host?.state === 'stale' || host?.state === 'connecting' ? views.clients.get(viewKey) : undefined);
         const error = views.errors.get(viewKey) ?? (tab.kind === 'trace' ? traces.errors.get(traceKey) : undefined);
         return { id: tab.id, paneId: pane.id, label: `Pane ${panes.indexOf(pane) + 1}: ${title(tab)}${viewSuffix(tab.kind)}`, labelledBy: compact ? undefined : workspaceTabId(tab.id),
           content: view && execution && client && views.clients.get(viewKey) === client ? <NativeSessionContent kind={tab.kind} key={viewKey} client={client} sessionId={owner.sessionId} rootId={tab.rootId} view={view} execution={execution} trace={traces.clients.get(traceKey) === client ? traces.views.get(traceKey) : undefined} expectedRuntimeId={tab.runtimeId} agentId={owner.sessionId} panel={tab.location.panel} viewId={tab.id} summaryCwd={knownCwd(tab)}/> : <>
