@@ -2294,3 +2294,47 @@ valid UTF-8 each. The engine's existing cumulative output callback replaces that
 prefix; truncation is explicit. SQL reads suppress settled cells and retired
 history, while the committed cell result remains the durable full outcome.
 Closing or reopening the runtime cannot restore or replay this preview.
+
+
+### Turn accounting and latest prefill
+
+`usage.turn` / SDK `session.turns.usage(turnID)` selects the exact session-owned
+turn and derives totals from its actual attempts, including helper and compaction
+attempts. It excludes imported history, other turns and children. Committed
+compactions remain counted after summary undo; they describe work performed.
+Reported and estimated costs remain separate, as do unknown cost, missing token
+quantities, overflow and uncertain dispatch. These counters are decimal strings
+on the wire. Reading totals neither prepares nor dispatches a provider request.
+
+`context.usage` / SDK `session.context.usage()` reports the latest ordinary or
+final prefill with its captured model, attempt, turn, history tail and route
+capacity. Provider-reported input, including zero, takes precedence over the
+captured estimate; the source is explicit. A newer history tail marks that
+prefill stale rather than claiming a current token count. Changed configuration,
+history revision or context selection makes the old evidence unavailable with a
+specific reason. Unknown capacity remains null. Helper requests and reservations
+do not replace ordinary prefill evidence. Credential refresh does not rewrite
+captured request evidence. Schema55 adds a derived lookup index, not a second
+mutable token ledger.
+
+### Native editor and MCP clients
+
+ACP uses the canonical Go client for sessions, scoped content, observation,
+prompts, cancellation and pending decisions. Preview reconciliation joins stable
+message and attempt identities with committed history. Imported tool exchanges
+retain their actual error flag and scoped images; an interrupted preview is
+explicitly withdrawn. An append-only editor that cannot represent a history
+rewind receives an explicit failure rather than a duplicate transcript. Closing
+the editor joins its work without stopping the host.
+
+MCP management and stdio tool hosting use the same native host. The ten retained
+tool aliases are explicit adapters over native tools; they have no retired daemon
+path. Tool hosting creates an owned model-free root with workspace read authority
+and independently denied interactive requests. An explicit all-empty model
+selection overrides even a configured host default; ordinary model prompts on
+that root fail closed. A nonempty model configuration requires a name. Unknown
+admission stops further calls and preserves the session for inspection instead
+of resending an uncertain effect. Shutdown joins accepted work before deleting
+only the endpoint-created root. The command-owned stdio wrapper bounds MCP lines,
+arguments, batches, concurrency, output and blocked writes while preserving
+ACP's separate frame limit.

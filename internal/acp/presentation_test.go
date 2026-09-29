@@ -15,7 +15,7 @@ func TestNativePresentationCommitsPreviewByIdentity(t *testing.T) {
 	var updates []acp.SessionUpdate
 	p := presentation{emit: func(value acp.SessionUpdate) error { updates = append(updates, value); return nil }}
 	page := client.Observation{
-		SessionObservation: protocol.SessionObservation{Epoch: "epoch", Preview: &protocol.MessagePreview{AttemptID: "attempt", MessageID: "message", TurnID: "turn", Text: "Hel", Reasoning: "Thinking", Calls: []protocol.CallPreview{{ID: "partial", Name: "read", Arguments: "{"}}}},
+		Epoch: "epoch", Preview: &protocol.MessagePreview{AttemptID: "attempt", MessageID: "message", TurnID: "turn", Text: "Hel", Reasoning: "Thinking", Calls: []protocol.CallPreview{{ID: "partial", Name: "read", Arguments: "{"}}},
 	}
 	if err := p.observe(page, false); err != nil {
 		t.Fatal(err)
@@ -50,7 +50,7 @@ func TestNativePresentationReplacesInterruptedPreviewAndRejectsRewind(t *testing
 	var updates []acp.SessionUpdate
 	p := presentation{emit: func(value acp.SessionUpdate) error { updates = append(updates, value); return nil }}
 	page := client.Observation{
-		SessionObservation: protocol.SessionObservation{Epoch: "first", Preview: &protocol.MessagePreview{AttemptID: "attempt", MessageID: "message", Text: "uncommitted"}},
+		Epoch: "first", Preview: &protocol.MessagePreview{AttemptID: "attempt", MessageID: "message", Text: "uncommitted"},
 	}
 	if err := p.observe(page, false); err != nil {
 		t.Fatal(err)
@@ -96,8 +96,8 @@ func TestNativePresentationDoesNotAdvancePreviewPastUnreadHistory(t *testing.T) 
 	var updates []acp.SessionUpdate
 	p := presentation{emit: func(value acp.SessionUpdate) error { updates = append(updates, value); return nil }}
 	page := client.Observation{
-		Cursor:             client.ObservationCursor{After: 1},
-		SessionObservation: protocol.SessionObservation{Snapshot: protocol.HistorySnapshot{ThroughSequence: 2}, Preview: &protocol.MessagePreview{Text: "future"}},
+		Cursor:   client.ObservationCursor{After: 1},
+		Snapshot: protocol.HistorySnapshot{ThroughSequence: 2}, Preview: &protocol.MessagePreview{Text: "future"},
 	}
 	if err := p.observe(page, false); err != nil {
 		t.Fatal(err)

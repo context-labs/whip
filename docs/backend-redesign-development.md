@@ -3806,3 +3806,67 @@ stdout retained. Callback tests cover capacity, Unicode, stale callbacks and
 settlement-before-retirement. All177 native SDK tests and protocol/CSP/drift
 passed (`/tmp/whip-cell-output-{sdk-check,protocol-check}.log`). Product renderers
 must still adopt this new preview; this checkpoint does not claim that UI work.
+
+## Native accounting, live output, ACP and MCP integration — 2026-09-29
+
+The parity draft #263 originally had no hosted run because its #262 base gained
+`0e6930680` after branch creation. Rebased only this task's draft ancestry onto
+that reviewed fix, regenerated generated-only conflicts, and verified the entire
+source tree is byte-for-byte identical to `d2bd6537e`. Updated with an exact
+force-with-lease. Published head `df902fe962a9d7807c44d1e2b42038c809f14873`
+passes every Linux/macOS job and analysis in run `36536378729`. This is not a
+merge into any product branch; no original development files were modified.
+
+The next backend checkpoint is `95ce0ab96`. It reuses exact reviewed leaves for:
+
+- Per-turn `usage.turn` / `session.turns.usage`, derived from actual owned attempt
+  evidence, including helper and compaction attempts and committed compactions.
+  Whole-tree cumulative usage remains a different read.
+- `context.usage` / `session.context.usage`, captured from the latest actual
+  ordinary/final prefill. Reported input including zero wins over the captured
+  estimate; stale tail, changed configuration/selection and unknown capacity stay
+  explicit. Schema55 adds only a derived partial index; there is no mutable
+  duplicate context ledger or provider preparation during reads.
+- Bounded process-generation-scoped cell stdout through `cells.output` and the
+  existing SDK execution observer: at most64 owners/64KiB per owner, exact
+  cell/turn/call/history joins, no read-triggered execution or persistent stream.
+  Committed settlement, suspension, restart and changed ownership clear previews.
+- Native ACP sessions, prompts, content, pending decisions, cancellation and
+  reopen through canonical public owners. Extracted retained image normalization
+  independently; ACP does not delegate into the retired runtime.
+- Native MCP CLI management and model-free tool hosting. Explicit all-empty model
+  selection overrides configured host defaults while ordinary model prompts fail
+  closed. A configured model requires its nonempty name. The endpoint retains the
+  ten supported tool aliases through a small explicit adapter, workspace read
+  grant and independent interactive denial; there is no automatic-mode bypass.
+  Unknown admission stops further calls and preserves the exact owned session.
+  Shutdown joins accepted work before deleting only its endpoint-created root.
+  MCP bounds input lines to1MiB, arguments to512KiB, batches to16, concurrent
+  admissions to16, output to8MiB and blocked writes to5seconds. Shared command-owned
+  stdio preserves ACP's10MiB frame limit and joins without stopping the host.
+
+The real browser fixture exposed a suppressed second Starlark print before a
+blocking host call. The regression first failed with a held real executor.
+`ecd59173f` (integrated `89153b792`) flushes changed cumulative output before the
+host request, with unchanged byte limits and no timer/goroutine. Both-engine held
+host-call and two-print human-question settlement/cancel/restart regressions pass.
+
+Full `task check:phase` at pre-repair `c834d935e` passed build/vet/fast and every
+native Go race suite, including store321.388s and runtime406.793s, then failed in
+SDK creation recovery: the new model-free contract fixture changed an implicit
+first-fixture selection. The identity assertion remains; `61ce78fca` selects its
+mixed-case fixture explicitly. The earlier run remains a failure, not an overall
+phase pass. Log: `/tmp/whip-observation-phase.log`.
+
+After integrating the MCP/stdout leaves and fixture repair, full affected package
+race/shuffle passes: ACP22.038s, MCP21.244s, process120.899s. Log:
+`/tmp/whip-observation-protocol-process.log`. The repaired complete client gate
+passes, including180 SDK tests, native CLI, every production-process fixture and
+the four retained regressions. Log: `/tmp/whip-observation-clients-repaired.log`.
+Analysis then reported three Go1.27 embedded-literal simplifications in ACP
+presentation tests. Promoted literals preserve all assertions; focused presentation
+tests pass. Repaired pinned analysis passes with0 new lint issues against the
+frozen baseline and no vulnerabilities. Log:
+`/tmp/whip-observation-analysis-repaired.log`.
+Phases5–7 remain incomplete, including native TUI, final client/packaging gates,
+retired-core deletion, representative live-provider and release evidence.
