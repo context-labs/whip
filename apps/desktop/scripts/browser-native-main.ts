@@ -172,7 +172,11 @@ async function run() {
   const abort = new AbortController();
   const uncertain = cdp.dispatch({ method: 'Runtime.evaluate', sessionId: cdp.sessionId, params: { expression: 'new Promise(r=>setTimeout(()=>{document.body.dataset.delivered="true";r(true)},100))', awaitPromise: true } }, abort.signal);
   setTimeout(() => abort.abort(), 10);
-  await assert.rejects(uncertain, /outcome_unknown/); await sleep(130);
+  await assert.rejects(uncertain, /outcome_unknown/);
+  // A renderer timer is not a wall-clock completion guarantee under load. Read
+  // the original effect with a finite deadline; never redispatch the command.
+  const deliveredDeadline = Date.now() + 3000;
+  while (await guest.executeJavaScript('document.body.dataset.delivered') !== 'true' && Date.now() < deliveredDeadline) await sleep(20);
   assert.equal(await guest.executeJavaScript('document.body.dataset.delivered'), 'true');
   controlLive = false; await assert.rejects(command('Runtime.evaluate', { expression: '1' }), /revoked/);
   cdp.close(); assert.ok(!guest.debugger.isAttached()); assert.equal(revoked.length, 1);
