@@ -226,6 +226,7 @@ func (b *Bridge) Prompt(parent context.Context, p acp.PromptRequest) (acp.Prompt
 	}
 	if admitted.Input.State == "cancelled" || admitted.Turn != nil && admitted.Turn.State == "cancelled" {
 		response.StopReason = acp.StopReasonCancelled
+		b.accounting(ctx, s, admitted, &response)
 		return response, nil
 	}
 	if admitted.Turn == nil || admitted.Turn.State != "succeeded" {
@@ -238,12 +239,7 @@ func (b *Bridge) Prompt(parent context.Context, p acp.PromptRequest) (acp.Prompt
 		}
 		return acp.PromptResponse{}, acp.NewInternalError(failure)
 	}
-	// Cumulative usage is explicitly named. It is never reported as current
-	// context occupancy or per-turn accounting when that evidence is unavailable.
-	var usage protocol.Usage
-	if b.client.Call(ctx, "usage.get", protocol.SessionParams{SessionID: s.handle.ID()}, &usage) == nil {
-		response.Meta["whip_cumulative_usage"] = usage
-	}
+	b.accounting(ctx, s, admitted, &response)
 	return response, nil
 }
 
