@@ -75,13 +75,32 @@ func encodeMessages(req Request) ([]byte, error) {
 			return nil, fmt.Errorf("anthropic-messages: unsupported reasoning effort %q", req.ReasoningEffort)
 		}
 		budget = max(budget, 1024) // documented minimum
+		// Anthropic requires max_tokens > budget_tokens; ensure the
+		// ceiling clears the floor even on small max_tokens calls.
+		if maxTokens <= budget {
+			maxTokens = budget + 1
+		}
 	}
 	// When thinking is on but history carries no thinking blocks (sessions
 	// predating capture, or the turn itself), Anthropic still accepts the
 	// request — thinking need only be replayed once emitted..
 	var system []string
 	blocks := []any{}
+	// Anthropic requires all parallel tool_result blocks inside a single
+	// user message. Consecutive tool-role entries in whip history (the
+	// result of one assistant turn calling multiple tools) must be merged
+	// before the next non-tool message flushes the batch.
+	flushToolResults := func(results []any) {
+		if len(results) > 0 {
+			blocks = append(blocks, map[string]any{"role": "user", "content": results})
+		}
+	}
+	var toolResults []any
 	for _, message := range req.Messages {
+		if message.Role != "tool" {
+			flushToolResults(toolResults)
+			toolResults = nil
+		}
 		switch message.Role {
 		case "system", "developer":
 			system = append(system, message.TextContent())
@@ -115,16 +134,14 @@ func encodeMessages(req Request) ([]byte, error) {
 			}
 			blocks = append(blocks, map[string]any{"role": "assistant", "content": content})
 		case "tool":
-			blocks = append(blocks, map[string]any{
-				"role": "user",
-				"content": []any{map[string]any{
-					"type": "tool_result", "tool_use_id": message.ToolCallID, "content": message.TextContent(),
-				}},
+			toolResults = append(toolResults, map[string]any{
+				"type": "tool_result", "tool_use_id": message.ToolCallID, "content": message.TextContent(),
 			})
 		default:
 			return nil, fmt.Errorf("anthropic-messages: unsupported message role %q", message.Role)
 		}
 	}
+	flushToolResults(toolResults)
 	var tools []any
 	for _, tool := range req.Tools {
 		var schema any
@@ -145,8 +162,8 @@ func encodeMessages(req Request) ([]byte, error) {
 	if len(tools) > 0 {
 		body["tools"] = tools
 	}
-	if req.MaxTokens > 0 {
-		body["max_tokens"] = req.MaxTokens
+	if req.MaxTokens > 0 || thinkingEnabled {
+		body["max_tokens"] = maxTokens
 	}
 	if req.Temperature != nil {
 		body["temperature"] = *req.Temperature
@@ -233,6 +250,8 @@ func parseMessagesSSE(r io.Reader, onText, onThink func(string), onToolCall func
 	thinkingBlocks := map[int]*ThinkingBlock{}
 	finish := ""
 	done := false
+	inputTokens := 0
+	outputTokens := 0
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if !strings.HasPrefix(line, "data:") {
@@ -259,6 +278,14 @@ func parseMessagesSSE(r io.Reader, onText, onThink func(string), onToolCall func
 				Name      string `json:"name"`
 				Signature string `json:"signature"`
 			} `json:"content_block"`
+			// message_start nests usage under message.usage; message_delta
+			// carries usage at the event root.
+			Message struct {
+				Usage struct {
+					InputTokens  int `json:"input_tokens"`
+					OutputTokens int `json:"output_tokens"`
+				} `json:"usage"`
+			} `json:"message"`
 			Index int `json:"index"`
 			Error *struct {
 				Type    string `json:"type"`
@@ -270,7 +297,7 @@ func parseMessagesSSE(r io.Reader, onText, onThink func(string), onToolCall func
 		}
 		switch ev.Type {
 		case "message_start":
-			msg.Usage = nil
+			inputTokens = ev.Message.Usage.InputTokens
 		case "content_block_start":
 			switch ev.ContentBlock.Type {
 			case "tool_use":
@@ -322,7 +349,9 @@ func parseMessagesSSE(r io.Reader, onText, onThink func(string), onToolCall func
 			if ev.Delta.StopReason != "" {
 				finish = ev.Delta.StopReason
 			}
-			msg.Usage = nil
+			if ev.Usage.OutputTokens > 0 {
+				outputTokens = ev.Usage.OutputTokens
+			}
 		case "message_stop":
 			done = true
 		case "error":
@@ -363,5 +392,7 @@ func parseMessagesSSE(r io.Reader, onText, onThink func(string), onToolCall func
 		msg.ToolCalls = nil
 		msg.Content += "\n[response truncated by max_tokens; tool calls discarded]"
 	}
-	return msg, Usage{}, nil
+	usage := Usage{PromptTokens: inputTokens, CompletionTokens: outputTokens}
+	usage.Reported = usage.HasUsage()
+	return msg, usage, nil
 }

@@ -371,3 +371,109 @@ func TestMessagesStreamDispatchRoundTrip(t *testing.T) {
 		t.Fatalf("first round tool calls: %+v", first.ToolCalls)
 	}
 }
+
+func TestEncodeMessagesMergesParallelToolResults(t *testing.T) {
+	// Two tool results from one assistant turn must land in a single user
+	// message with two tool_result blocks; Anthropic rejects consecutive
+	// user turns for parallel results.
+	var callA, callB ToolCall
+	callA.ID, callA.Type = "toolu_1", "function"
+	callA.Function.Name, callA.Function.Arguments = "calc", `{"expr":"6*7"}`
+	callB.ID, callB.Type = "toolu_2", "function"
+	callB.Function.Name, callB.Function.Arguments = "calc", `{"expr":"2+2"}`
+	req := Request{
+		Model: "claude-opus-5-5",
+		Messages: []Message{
+			{Role: "user", Content: "compute both"},
+			{Role: "assistant", ToolCalls: []ToolCall{callA, callB}},
+			{Role: "tool", ToolCallID: "toolu_1", Content: "42"},
+			{Role: "tool", ToolCallID: "toolu_2", Content: "4"},
+		},
+	}
+	body, err := encodeMessages(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Content []struct {
+				Type      string `json:"type"`
+				ToolUseID string `json:"tool_use_id"`
+			} `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	// user, assistant, merged-results = 3 messages (not 4).
+	if len(decoded.Messages) != 3 {
+		t.Fatalf("expected 3 messages, got %d: %s", len(decoded.Messages), body)
+	}
+	results := decoded.Messages[2]
+	if results.Role != "user" {
+		t.Fatalf("merged results role: %s, want user", results.Role)
+	}
+	if len(results.Content) != 2 {
+		t.Fatalf("expected 2 tool_result blocks, got %d: %s", len(results.Content), body)
+	}
+	if results.Content[0].Type != "tool_result" || results.Content[0].ToolUseID != "toolu_1" {
+		t.Fatalf("first result: %+v", results.Content[0])
+	}
+	if results.Content[1].Type != "tool_result" || results.Content[1].ToolUseID != "toolu_2" {
+		t.Fatalf("second result: %+v", results.Content[1])
+	}
+}
+
+func TestParseMessagesSSEReportsUsage(t *testing.T) {
+	// message_start carries input_tokens under message.usage; message_delta
+	// carries output_tokens at the root. Both must reach the returned Usage.
+	stream := sse(
+		event("message_start", map[string]any{"message": map[string]any{"usage": map[string]any{"input_tokens": 12}}}),
+		event("content_block_delta", map[string]any{"index": 0, "delta": map[string]any{"type": "text_delta", "text": "hi"}}),
+		event("message_delta", map[string]any{"delta": map[string]any{"stop_reason": "end_turn"}, "usage": map[string]any{"output_tokens": 7}}),
+		event("message_stop", nil),
+	)
+	_, usage, err := parseMessagesSSE(strings.NewReader(stream), nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if usage.PromptTokens != 12 {
+		t.Fatalf("prompt tokens: %d, want 12", usage.PromptTokens)
+	}
+	if usage.CompletionTokens != 7 {
+		t.Fatalf("completion tokens: %d, want 7", usage.CompletionTokens)
+	}
+	if !usage.Reported {
+		t.Fatal("usage.Reported should be true when token counts are present")
+	}
+}
+
+func TestEncodeMessagesThinkingBudgetBelowMaxTokens(t *testing.T) {
+	// When MaxTokens is small (2048), the 1024 budget floor must not
+	// collide with the ceiling. max_tokens must always exceed budget_tokens,
+	// and max_tokens must be present when thinking is enabled even if
+	// MaxTokens was zero (Anthropic requires the field).
+	for _, mt := range []int{0, 1024, 2048} {
+		req := Request{Model: "claude-opus-5-5", ReasoningEffort: "minimal", MaxTokens: mt}
+		body, err := encodeMessages(req)
+		if err != nil {
+			t.Fatalf("maxTokens=%d: %v", mt, err)
+		}
+		var decoded struct {
+			MaxTokens int `json:"max_tokens"`
+			Thinking  struct {
+				BudgetTokens int `json:"budget_tokens"`
+			} `json:"thinking"`
+		}
+		if err := json.Unmarshal(body, &decoded); err != nil {
+			t.Fatal(err)
+		}
+		if decoded.MaxTokens <= decoded.Thinking.BudgetTokens {
+			t.Fatalf("maxTokens=%d: max_tokens %d <= budget %d", mt, decoded.MaxTokens, decoded.Thinking.BudgetTokens)
+		}
+		if decoded.MaxTokens == 0 {
+			t.Fatalf("maxTokens=%d: max_tokens must be present when thinking is enabled", mt)
+		}
+	}
+}

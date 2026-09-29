@@ -1064,7 +1064,10 @@ func validToolCallArgs(s string) bool {
 // summary call, where streaming would just add UI noise for a one-shot
 // synthesis.
 func (c *Client) Complete(ctx context.Context, req Request) (string, Usage, error) {
-	if c.openAI != nil || c.apiResponses(req.Model) {
+	if c.openAI != nil || c.apiResponses(req.Model) || c.Flavor == FlavorMessages {
+		// The responses and messages flavors always stream (encodeMessages
+		// sets stream:true), so Complete drains the stream with nil
+		// callbacks rather than posting a non-streaming request.
 		message, usage, err := c.Stream(ctx, req, nil, nil, nil)
 		return message.Content, usage, err
 	}
