@@ -37,6 +37,7 @@ func Operations() []Operation {
 		{"providers.catalog", reflect.TypeFor[ProviderParams](), reflect.TypeFor[ProviderCatalog]()},
 		{"providers.refresh", reflect.TypeFor[ProviderParams](), reflect.TypeFor[ProviderCatalog]()},
 		{"providers.readiness", reflect.TypeFor[ProviderReadinessParams](), reflect.TypeFor[ProviderReadiness]()},
+		{"lsp.status", reflect.TypeFor[SessionParams](), reflect.TypeFor[LanguageServersResult]()},
 		{"accounts.openai.begin", reflect.TypeFor[EmptyParams](), reflect.TypeFor[OpenAILoginFlow]()},
 		{"accounts.openai.get", reflect.TypeFor[OpenAIFlowParams](), reflect.TypeFor[OpenAILoginFlow]()},
 		{"accounts.openai.list", reflect.TypeFor[EmptyParams](), reflect.TypeFor[OpenAIFlowsResult]()},
@@ -230,6 +231,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 		automaticTitleSchema(schema, t)
 		providerSchema(schema, t)
 		questionSchema(schema, t)
+		languageServerSchema(schema, t)
 		if t == reflect.TypeFor[GoalFormulationRequest]() {
 			schema.Properties["tail_messages"] = &jsonschema.Schema{OneOf: []*jsonschema.Schema{
 				{Type: "integer", Enum: []any{0}},

@@ -2884,3 +2884,63 @@ lint issues and no reachable vulnerabilities. The full phase gate passed: produc
 and daemon regressions2.711s, with all generated contracts/SDK checks. Logs use
 `/tmp/whip-question-{phase,analysis}.log`. Saved modes, product question UI and
 Phases6–7 remain outstanding.
+
+
+## Workspace listing/search and authorized language services
+
+Durable questions are published as draft [PR246](https://github.com/context-labs/whip/pull/246)
+at `9b1cce8574f0a2f3a370f0d60103eed485b10626`, stacked on PR244. This increment
+reuses files `75e61aa2d` as `21fc57fa9`, pure LSP `97062a5e0` as `f83b601f8`,
+and public integration `2623ca62a` as `d7f0ad5a2`. Shared authority was already
+integrated; its duplicate leaf was not replayed. Fresh schema36/config13/protocol4
+apply. Provider Unicode helper and compact question declarations remain intact.
+
+Listing/search are bounded descriptor-confined observations. Optional post-write
+diagnostics settle separately, use captured content and standing workspace
+authority, and never undo a committed write. Explicit one-use diagnostics isolate
+and join their process; standing authority permits bounded reuse. Root/child
+scope, issuer revocation, replaced workspace identity, generation invalidation,
+read-only safe status and restart/shutdown are covered by the released tests.
+Active phase/analysis and import boundaries now include `internal/lsp`.
+
+Parent review found that retained `clientState.kill` joined only the direct
+process after one group signal. The shared fork-race stop routine is now public
+`Process.Stop` (`101f37837` as `768fbc6a2`), and language-client retirement invokes
+it. Its cancellation/explicit-stop fork-race regression passed20 repetitions each
+in1.648s, with build/vet/Linux build/pinned lint0. LSP retirement additionally
+asserts owned process groups have disappeared before returning. This is a concrete
+resource-lifetime correction, not a new execution owner.
+
+Released file/tool races passed6.906s and final focused tool3.570s/runtime6.858s.
+Pure LSP full race passed11.213s. Integration full small-package races passed
+LSP11.545s/tool7.038s/config5.034s/protocol3.393s; focused runtime11.915s/store2.996s/
+RPC1.741s/process1.683s passed. Final nullable diagnostic-envelope race1.923s,
+build/vet/pinned lint0,19 SDK tests,8 interchange/CSP checks and drift passed.
+Production fixture27.617s includes both engines, automatic/explicit ledgers,
+status, shutdown PID disappearance and restart status reset. Parent reviewed the
+workspace, store and LSP lifetime boundaries. The strengthened retirement/init-close stress test passed10 repetitions each in
+22.782s. The first expanded phase gate failed the established core import-boundary
+test: host config and protocol imported the process-owning LSP package. This was
+not waived. A side-effect-free `internal/lspconfig` leaf now owns declarations,
+validation and built-in merging; wire projection lives in RPC and protocol keeps
+DTOs only. Both boundary tests passed store0.440s/runtime0.807s with the new pure
+leaf checked explicitly. The final expanded phase and analysis gates passed after
+this repair: store race190.736s, runtime201.157s, process109.943s, LSP15.012s,
+workspace8.203s and RPC41.357s. Contract interchange/CSP, generated drift, SDK and
+examples passed; production fixture28.747s (files/LSP680ms), retained crash
+fixture4.119s and selected daemon races2.763s passed. Pinned analysis reports
+zero issues and no reachable vulnerabilities. Original failure evidence remains
+in `/tmp/whip-lsp-phase.log`; final logs use `/tmp/whip-lsp-phase-final.log`
+and `/tmp/whip-lsp-analysis-final2.log`, and retirement stress uses
+`/tmp/whip-lsp-joined-stop.log`. Saved-mode interaction and
+supported-client adoption remain separate obligations; Phases5–7 are still open.
+
+The first analysis run after extraction reported only grouped-alias formatting;
+that formatting was corrected and the final analysis passed. Hosted Linux, macOS,
+analysis and aggregate checks for PR243 at
+`d4aeddf2f67d1f8e9df82b7676a3c2ca70ae1cbf` passed in
+[run36499959078](https://github.com/context-labs/whip/actions/runs/36499959078).
+The same full hosted set passed for PR244 at
+`cb996cbf376ce88b8c4d25ec5723f80f1a456f7a` in
+[run36500497345](https://github.com/context-labs/whip/actions/runs/36500497345).
+PR246 analysis has passed; its platform jobs remain in progress at this check.

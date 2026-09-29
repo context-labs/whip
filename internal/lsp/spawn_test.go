@@ -42,8 +42,14 @@ func TestHelperProcess(t *testing.T) {
 		}
 		switch msg.Method {
 		case "initialize":
+			if marker := os.Getenv("GO_LSP_BLOCK_INITIALIZE"); marker != "" {
+				_ = os.WriteFile(marker, []byte("started"), 0o600)
+				for {
+					time.Sleep(time.Hour)
+				}
+			}
 			write(rpcMessage{ID: msg.ID, Result: json.RawMessage(`{"capabilities":{}}`)})
-		case "textDocument/didOpen":
+		case "textDocument/didOpen", "textDocument/didChange":
 			var p struct {
 				TextDocument struct {
 					URI     string `json:"uri"`

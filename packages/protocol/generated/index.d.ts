@@ -1660,6 +1660,17 @@ export interface InstructionManifestResult {
     }[];
   };
 }
+export interface LanguageServersResult {
+  /**
+   * @maxItems 16
+   */
+  items: {
+    name: string;
+    state: "connected" | "not_started" | "failed";
+    workspace_root: null | string;
+    failure: null | string;
+  }[];
+}
 export interface LifecycleParams {
   session_id: string;
   lifecycle: "active" | "stopped";
@@ -6046,6 +6057,7 @@ export interface ContractTypes {
   Input: Input;
   InputParams: InputParams;
   InstructionManifestResult: InstructionManifestResult;
+  LanguageServersResult: LanguageServersResult;
   LifecycleParams: LifecycleParams;
   ListCompletionsParams: ListCompletionsParams;
   ListCompletionsResult: ListCompletionsResult;
@@ -6163,6 +6175,7 @@ export interface Operations {
   "providers.catalog": { params: ProviderParams; result: ProviderCatalog };
   "providers.refresh": { params: ProviderParams; result: ProviderCatalog };
   "providers.readiness": { params: ProviderReadinessParams; result: ProviderReadiness };
+  "lsp.status": { params: SessionParams; result: LanguageServersResult };
   "accounts.openai.begin": { params: EmptyParams; result: OpenAILoginFlow };
   "accounts.openai.get": { params: OpenAIFlowParams; result: OpenAILoginFlow };
   "accounts.openai.list": { params: EmptyParams; result: OpenAIFlowsResult };

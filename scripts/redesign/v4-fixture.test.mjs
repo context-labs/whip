@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { filesLSPAcceptance } from './files-lsp-fixture.mjs';
 import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
@@ -273,6 +274,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await stage('standing instructions', () => standingInstructionAcceptance(runtime, client, createParams, evidence));
     await stage('project ancestor instructions', () => projectInstructionAcceptance(runtime, client, createParams, evidence));
     await stage('engines', () => engineAcceptance(runtime, client, createParams, evidence));
+    await stage('files and language servers', () => filesLSPAcceptance(runtime, client, createParams, evidence, deadline));
     await stage('history rewind', () => rewindAcceptance(runtime, client, createParams, evidence));
     await stage('conversation fork', () => forkAcceptance(runtime, client, createParams, evidence));
     await stage('operations', () => operationAcceptance(runtime, client, createParams, evidence));

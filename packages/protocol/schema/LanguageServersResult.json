@@ -1,0 +1,54 @@
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "connected",
+              "not_started",
+              "failed"
+            ]
+          },
+          "workspace_root": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "maxLength": 4096
+          },
+          "failure": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "maxLength": 256
+          }
+        },
+        "required": [
+          "name",
+          "state",
+          "workspace_root",
+          "failure"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 16
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/LanguageServersResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LanguageServersResult",
+  "required": [
+    "items"
+  ],
+  "additionalProperties": false
+}

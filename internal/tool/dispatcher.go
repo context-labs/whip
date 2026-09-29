@@ -67,13 +67,45 @@ func (d *Dispatcher) Call(ctx context.Context, call Invocation) (any, session.Op
 	if err != nil {
 		return nil, "", err
 	}
+	if call.Module == "files" && call.Name == "diagnostics" {
+		prepared, err = d.prepareDiagnostics(ctx, current, prepared)
+		if err != nil {
+			return nil, "", err
+		}
+	}
+	value, id, err := d.callPrepared(ctx, call, prepared, false)
+	if err == nil && call.Module == "files" && fileMutation("files."+call.Name) {
+		if output, ok := value.(map[string]any); ok {
+			output["diagnostics"] = d.afterFileWrite(ctx, current, call, id, prepared.FileSnapshot())
+		}
+	}
+	return value, id, err
+}
+
+func (d *Dispatcher) callPrepared(ctx context.Context, call Invocation, prepared Prepared, standingOnly bool) (any, session.OperationID, error) {
 	if prepared.ModelTimeouts && (prepared.Apply != nil || (prepared.Capability != "models.call" && prepared.Capability != "models.batch")) {
 		return nil, "", fmt.Errorf("%w: model timeouts require models.call or models.batch execution", session.ErrInvalid)
 	}
 
 	digest := sha256.Sum256([]byte(string(call.CellID) + "\x00" + call.RequestID))
 	id := session.OperationID("operation_" + hex.EncodeToString(digest[:]))
-	admitted, err := d.ledger.AdmitOperation(ctx, session.OperationSpec{ID: id, CellID: call.CellID, RequestID: call.RequestID, Capability: prepared.Capability, Resource: prepared.Resource, Arguments: prepared.Arguments})
+	spec := session.OperationSpec{ID: id, CellID: call.CellID, RequestID: call.RequestID, Capability: prepared.Capability, Resource: prepared.Resource, Arguments: prepared.Arguments}
+	var admitted session.Operation
+	var err error
+	if standingOnly {
+		ledger, ok := d.ledger.(interface {
+			AdmitStandingOperation(context.Context, session.OperationSpec) (session.Operation, error)
+		})
+		if !ok {
+			return nil, "", errors.New("standing diagnostic admission unavailable")
+		}
+		admitted, err = ledger.AdmitStandingOperation(ctx, spec)
+		if err == nil && admitted.ID == "" {
+			return map[string]any{"state": "skipped", "reason": "no standing lsp.diagnostics authority for this workspace"}, "", nil
+		}
+	} else {
+		admitted, err = d.ledger.AdmitOperation(ctx, spec)
+	}
 	if err != nil {
 		return nil, id, err
 	}

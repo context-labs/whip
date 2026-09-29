@@ -61,10 +61,7 @@ func format(d Diagnostic) string {
 	case SeverityHint:
 		sev = "HINT"
 	}
-	msg := d.Message
-	if len(msg) > maxMsgLen {
-		msg = msg[:maxMsgLen] + "…"
-	}
+	msg := diagnosticText(d.Message)
 	return fmt.Sprintf("%s [%d:%d] %s", sev, d.Line, d.Col, msg)
 }
 
@@ -125,16 +122,22 @@ func Report(edited string, editedDiags []Diagnostic, siblings map[string][]Diagn
 	sort.Strings(names)
 	shown := min(len(names), maxSiblingFiles)
 	for _, p := range names[:shown] {
-		sb.WriteString(block(p, siblings[p]))
+		var errorsOnly []Diagnostic
+		for _, d := range siblings[p] {
+			if d.Severity == SeverityError {
+				errorsOnly = append(errorsOnly, d)
+			}
+		}
+		sb.WriteString(block(p, errorsOnly))
 	}
 	plural := "file"
 	if len(names) > 1 {
 		plural = "files"
 	}
 	if len(names) > shown {
-		fmt.Fprintf(&sb, "\n(this edit introduced errors in %d other %s, %d shown; fix them too)", len(names), plural, shown)
+		fmt.Fprintf(&sb, "\n(cached errors in %d other %s, %d shown)", len(names), plural, shown)
 	} else {
-		fmt.Fprintf(&sb, "\n(this edit introduced errors in %s; fix them too)", plural)
+		fmt.Fprintf(&sb, "\n(cached errors in another %s)", plural)
 	}
 	return sb.String()
 }

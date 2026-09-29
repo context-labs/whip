@@ -13,8 +13,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/context-labs/whip/internal/legacy/config"
 )
 
 // fakeServer is a scripted in-process LSP server on pipes: it parses frames,
@@ -202,7 +200,7 @@ func TestWaitDiagnosticsSiblingErrors(t *testing.T) {
 	if want := "<diagnostics file=\"" + dir + "/other.go\">\nERROR [42:9]"; !strings.Contains(out, want) {
 		t.Fatalf("missing sibling block; got %q", out)
 	}
-	if !strings.Contains(out, "errors in file") {
+	if !strings.Contains(out, "cached errors in another file") {
 		t.Fatalf("missing sibling note; got %q", out)
 	}
 }
@@ -297,7 +295,7 @@ func TestSpawnBrokenCached(t *testing.T) {
 
 func TestFromConfigMapMerge(t *testing.T) {
 	disabled := false
-	got := FromConfigMap(map[string]config.LSPServer{
+	got := FromConfigMap(map[string]Config{
 		"gopls":  {Enabled: &disabled},
 		"custom": {Command: []string{"my-lsp"}, Extensions: []string{".ml"}},
 	})
@@ -308,7 +306,7 @@ func TestFromConfigMapMerge(t *testing.T) {
 		t.Fatalf("custom server missing: %+v", got)
 	}
 	// extension defaulting: override command only, keep built-in extensions
-	got = FromConfigMap(map[string]config.LSPServer{"gopls": {Command: []string{"/opt/gopls"}}})
+	got = FromConfigMap(map[string]Config{"gopls": {Command: []string{"/opt/gopls"}}})
 	if got["gopls"].Extensions[0] != ".go" || got["gopls"].Command[0] != "/opt/gopls" {
 		t.Fatalf("merge lost built-in defaults: %+v", got["gopls"])
 	}

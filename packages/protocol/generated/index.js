@@ -90,6 +90,11 @@ export const manifest = {
       "result": "ProviderReadiness"
     },
     {
+      "name": "lsp.status",
+      "params": "SessionParams",
+      "result": "LanguageServersResult"
+    },
+    {
       "name": "accounts.openai.begin",
       "params": "EmptyParams",
       "result": "OpenAILoginFlow"

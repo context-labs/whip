@@ -77,11 +77,12 @@ func (p *Process) Kill() error {
 	return err
 }
 
+// Stop kills and joins the entire owned process group. It is safe to call again.
 // A child may fork while the first group signal is being delivered. Continue
 // killing that same owned group until the reaper confirms it has disappeared.
 // groupClosed prevents signaling its ID after ownership has ended. Transient
 // signal errors while a process exits do not defeat confirmed group disappearance.
-func (p *Process) stop() {
+func (p *Process) Stop() {
 	_ = p.Kill()
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
@@ -237,7 +238,7 @@ func (m *ProcessManager) wait(ctx context.Context, root *processRoot, p *Process
 	go func() {
 		select {
 		case <-ctx.Done():
-			p.stop()
+			p.Stop()
 		case <-p.groupDone:
 		}
 	}()
@@ -368,7 +369,7 @@ func stopProcesses(processes []*Process) {
 		_ = process.Kill()
 	}
 	for _, process := range processes {
-		process.stop()
+		process.Stop()
 	}
 }
 

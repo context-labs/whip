@@ -11,7 +11,11 @@ func (r *Runtime) CreateGrant(ctx context.Context, grant session.Grant) (session
 }
 
 func (r *Runtime) RevokeGrant(ctx context.Context, id session.GrantID) (session.Grant, error) {
-	return r.store.RevokeGrant(ctx, id)
+	grant, err := r.store.RevokeGrant(ctx, id)
+	if err == nil {
+		r.languageServers.RetireAll()
+	}
+	return grant, err
 }
 
 func (r *Runtime) Grants(ctx context.Context, id session.SessionID, after session.GrantID, limit int) ([]session.Grant, error) {
