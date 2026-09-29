@@ -1,12 +1,14 @@
 import { assertValid } from '@whip/protocol';
-import type { Input, Operations } from '@whip/protocol';
+import type { ContentReference, Input, Operations } from '@whip/protocol';
 import type { Client } from './index.js';
 import type { RecoveryJournal } from './command.js';
 import type { CallOptions } from './wire.js';
+import { bytesBase64 } from './value.js';
 
 type Params<M extends keyof Operations> = Operations[M]['params'];
 type Scoped<M extends keyof Operations> = Omit<Params<M>, 'session_id'>;
 type Page<M extends keyof Operations> = Omit<Scoped<M>, 'limit'> & { limit?: number };
+type ContentReadOptions = CallOptions & { maxBytes?: number };
 
 /** One inert identity for a root or child. Constructing a handle performs no I/O
  * and owns no transcript, worker, configuration cache or execution lifetime. */
@@ -169,9 +171,50 @@ export class Session {
     cancel: (scheduleID: string, options: CallOptions = {}) => this.client.call('schedules.cancel', { session_id: this.id, schedule_id: scheduleID }, options),
   };
   readonly content = {
-    read: (referenceID: string, options: CallOptions = {}) => this.client.call('content.read', { session_id: this.id, reference_id: referenceID }, options),
+    get: async (referenceID: string, options: CallOptions = {}) => {
+      const result = await this.client.call('content.get', { session_id: this.id, reference_id: referenceID }, options);
+      if (result.session_id !== this.id || result.id !== referenceID) throw new TypeError('Content identity mismatch');
+      return result;
+    },
+    /** Stable owner/reference identity. An uncertain upload is never replayed. */
+    upload: async (referenceID: string, mediaType: string, data: Uint8Array, options: CallOptions = {}) => {
+      options.signal?.throwIfAborted();
+      if (!(data instanceof Uint8Array) || data.byteLength > (4 << 20)) throw new RangeError('Content is limited to 4 MiB');
+      const body = data.slice();
+      const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', body))].map(value => value.toString(16).padStart(2, '0')).join('');
+      options.signal?.throwIfAborted();
+      const result = await this.client.call('content.put', { session_id: this.id, reference_id: referenceID, media_type: mediaType, data_base64: bytesBase64(body) }, options);
+      if (result.session_id !== this.id || result.id !== referenceID || result.digest !== digest || result.size !== String(body.length) || result.media_type !== mediaType) throw new TypeError('Uploaded content identity or digest mismatch');
+      return result;
+    },
+    read: async (reference: string | ContentReference, options: ContentReadOptions = {}) => (await this.readContent(reference, options)).result,
+    readBytes: async (reference: string | ContentReference, options: ContentReadOptions = {}) => (await this.readContent(reference, options)).data,
     put: (params: Scoped<'content.put'>, options: CallOptions = {}) => this.client.call('content.put', { ...params, session_id: this.id }, options),
   };
+  private async readContent(reference: string | ContentReference, options: ContentReadOptions) {
+    options.signal?.throwIfAborted();
+    const { maxBytes = 4 << 20, ...callOptions } = options;
+    if (!Number.isSafeInteger(maxBytes) || maxBytes < 0 || maxBytes > (4 << 20)) throw new RangeError('Content read limit must be within 0..4 MiB');
+    const expected = typeof reference === 'string' ? undefined : { ...reference };
+    if (expected) {
+      assertValid('ContentReference', expected);
+      if (expected.session_id !== this.id) throw new TypeError('Content belongs to another session');
+      if (BigInt(expected.size) > BigInt(maxBytes)) throw new RangeError('Content exceeds read limit');
+    }
+    const referenceID = typeof reference === 'string' ? reference : reference.id;
+    const result = await this.client.call('content.read', { session_id: this.id, reference_id: referenceID }, callOptions);
+    const actual = result.reference;
+    if (actual.session_id !== this.id || actual.id !== referenceID || expected &&
+      (actual.digest !== expected.digest || actual.size !== expected.size || actual.media_type !== expected.media_type)) throw new TypeError('Content identity or metadata mismatch');
+    if (BigInt(actual.size) > BigInt(maxBytes) || result.data_base64.length > 4 * Math.ceil(maxBytes / 3)) throw new RangeError('Content exceeds read limit');
+    const binary = atob(result.data_base64);
+    if (btoa(binary) !== result.data_base64 || binary.length !== Number(actual.size)) throw new TypeError('Content size or encoding mismatch');
+    const data = Uint8Array.from(binary, character => character.charCodeAt(0));
+    const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', data))].map(value => value.toString(16).padStart(2, '0')).join('');
+    options.signal?.throwIfAborted();
+    if (digest !== actual.digest) throw new TypeError('Content digest mismatch');
+    return { result, data };
+  }
   async usage(options: CallOptions = {}) {
     const result = await this.client.call('usage.get', { session_id: this.id }, options);
     if (result.session_id !== this.id) throw new TypeError('Usage belongs to another session');

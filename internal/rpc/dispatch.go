@@ -167,6 +167,11 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 			value, err := r.PutContent(ctx, session.SessionID(p.SessionID), string(p.ReferenceID), p.MediaType, data)
 			return protocol.ContentReferenceFromDomain(value), err
 		})
+	case "content.get":
+		return decode(raw, func(p protocol.ReadContentParams) (any, error) {
+			value, err := r.ContentReference(ctx, session.SessionID(p.SessionID), string(p.ReferenceID))
+			return protocol.ContentReferenceFromDomain(value), err
+		})
 	case "content.read":
 		return decode(raw, func(p protocol.ReadContentParams) (any, error) {
 			value, data, err := r.ReadContent(ctx, session.SessionID(p.SessionID), string(p.ReferenceID), session.MaxContentBytes)

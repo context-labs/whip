@@ -10302,6 +10302,7 @@ export interface Operations {
   "receipts.match": { params: MatchReceiptParams; result: Admission };
   "receipts.get": { params: RequestIdentity; result: Admission };
   "content.put": { params: PutContentParams; result: ContentReference };
+  "content.get": { params: ReadContentParams; result: ContentReference };
   "content.read": { params: ReadContentParams; result: ReadContentResult };
   "definitions.register": { params: DefinitionDocument; result: Definition };
   "definitions.get": { params: DefinitionRef; result: Definition };

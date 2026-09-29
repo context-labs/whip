@@ -30,6 +30,11 @@ func (r *Runtime) PutContent(ctx context.Context, owner session.SessionID, id, m
 	})
 }
 
+// ContentReference inspects immutable owner-scoped metadata without reading bytes.
+func (r *Runtime) ContentReference(ctx context.Context, owner session.SessionID, id string) (session.ContentReference, error) {
+	return r.store.ContentReference(ctx, owner, id)
+}
+
 func (r *Runtime) ReadContent(ctx context.Context, owner session.SessionID, id string, maxBytes int64) (session.ContentReference, []byte, error) {
 	reference, err := r.store.ContentReference(ctx, owner, id)
 	if err != nil {

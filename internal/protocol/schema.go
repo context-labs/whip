@@ -221,6 +221,7 @@ func Operations() []Operation {
 		{"receipts.match", reflect.TypeFor[MatchReceiptParams](), reflect.TypeFor[Admission]()},
 		{"receipts.get", reflect.TypeFor[RequestIdentity](), reflect.TypeFor[Admission]()},
 		{"content.put", reflect.TypeFor[PutContentParams](), reflect.TypeFor[ContentReference]()},
+		{"content.get", reflect.TypeFor[ReadContentParams](), reflect.TypeFor[ContentReference]()},
 		{"content.read", reflect.TypeFor[ReadContentParams](), reflect.TypeFor[ReadContentResult]()},
 		{"definitions.register", reflect.TypeFor[DefinitionDocument](), reflect.TypeFor[Definition]()},
 		{"definitions.get", reflect.TypeFor[DefinitionRef](), reflect.TypeFor[Definition]()},

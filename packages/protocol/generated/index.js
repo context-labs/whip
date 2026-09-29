@@ -985,6 +985,11 @@ export const manifest = {
       "result": "ContentReference"
     },
     {
+      "name": "content.get",
+      "params": "ReadContentParams",
+      "result": "ContentReference"
+    },
+    {
       "name": "content.read",
       "params": "ReadContentParams",
       "result": "ReadContentResult"
