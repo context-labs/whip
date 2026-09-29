@@ -5,7 +5,6 @@ import (
 	"slices"
 
 	"github.com/context-labs/whip/internal/config"
-	"github.com/context-labs/whip/internal/mcpconfig"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -146,15 +145,7 @@ func (s *Service) SetExecutionPreferences(ctx context.Context, revision string, 
 		host.Defaults.Compaction.ThresholdPercent = values.CompactionPercent
 		host.GoalMaxContinuations = values.GoalMaxContinuations
 		host.MaxAttempts = values.MaxAttempts
-		for _, value := range []struct {
-			source  **mcpconfig.ImportSource
-			enabled bool
-		}{{&host.MCP.Imports.Claude, values.ImportClaude}, {&host.MCP.Imports.Codex, values.ImportCodex}} {
-			if *value.source == nil {
-				*value.source = &mcpconfig.ImportSource{}
-			}
-			(*value.source).Enabled = new(value.enabled)
-		}
+		host.SetAgentImportPreferences(values.ImportClaude, values.ImportCodex)
 		return nil
 	})
 	if err != nil {

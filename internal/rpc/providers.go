@@ -99,13 +99,21 @@ func dispatchProvider(ctx context.Context, host HostServices, method string, raw
 				if host.OpenAI == nil {
 					return nil, ErrMethod
 				}
-				_, value, err = host.OpenAI.LogoutProvider(ctx, p.Revision, string(p.Provider))
+				_, err = host.OpenAI.LogoutGuarded(ctx, func(clear func() error) error {
+					var guardErr error
+					value, guardErr = host.Config.DisconnectProvider(ctx, p.Revision, string(p.Provider), "openai-codex", clear)
+					return guardErr
+				})
 			case route.CredentialSource == "inference-net":
 				if host.Inference == nil {
 					return nil, ErrMethod
 				}
-				status, disconnected, logoutErr := host.Inference.LogoutProvider(ctx, host.Config, p.Revision, string(p.Provider))
-				value, err, cleanupFailure = disconnected, logoutErr, status.CleanupFailure
+				status, logoutErr := host.Inference.LogoutGuarded(ctx, func(clear func() error) error {
+					var guardErr error
+					value, guardErr = host.Config.DisconnectProvider(ctx, p.Revision, string(p.Provider), "inference-net", clear)
+					return guardErr
+				})
+				err, cleanupFailure = logoutErr, status.CleanupFailure
 			default:
 				value, err = host.Config.DisconnectProvider(ctx, p.Revision, string(p.Provider), "", nil)
 			}

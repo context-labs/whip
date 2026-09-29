@@ -16,6 +16,15 @@ func TestProviderDisconnectCASPrecedesLoginCancellationAndSharedPreservation(t *
 		close(started)
 		<-r.Context().Done()
 	})
+	disconnect := func(revision string) (Status, config.ProviderDisconnect, error) {
+		var result config.ProviderDisconnect
+		status, err := f.service.LogoutGuarded(t.Context(), func(clear func() error) error {
+			var guardErr error
+			result, guardErr = f.authority.DisconnectProvider(t.Context(), revision, "openai-codex", "openai-codex", clear)
+			return guardErr
+		})
+		return status, result, err
+	}
 	before, err := f.authority.Snapshot(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -29,13 +38,13 @@ func TestProviderDisconnectCASPrecedesLoginCancellationAndSharedPreservation(t *
 		t.Fatal(err)
 	}
 	<-started
-	if _, _, err := f.service.LogoutProvider(t.Context(), before.Revision, "openai-codex"); !errors.Is(err, config.ErrRevisionConflict) {
+	if _, _, err := disconnect(before.Revision); !errors.Is(err, config.ErrRevisionConflict) {
 		t.Fatal("stale disconnect accepted", err)
 	}
 	if view, err := f.service.Get(t.Context(), flow.ID); err != nil || view.State != Authorizing {
 		t.Fatal("stale disconnect interrupted login", view, err)
 	}
-	status, result, err := f.service.LogoutProvider(t.Context(), configured.Revision, "openai-codex")
+	status, result, err := disconnect(configured.Revision)
 	if err != nil || result.CredentialState != "cleared" || status.AuthState != "signed_out" {
 		t.Fatal(status, result, err)
 	}
@@ -49,7 +58,7 @@ func TestProviderDisconnectCASPrecedesLoginCancellationAndSharedPreservation(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	status, result, err = f.service.LogoutProvider(t.Context(), shared.Revision, "openai-codex")
+	status, result, err = disconnect(shared.Revision)
 	if err != nil || result.CredentialState != "preserved_shared" || status.AuthState != "stored" || !result.Snapshot.Host.Providers["openai-codex"].Disabled {
 		t.Fatal("shared account authorization removed", status, result, err)
 	}

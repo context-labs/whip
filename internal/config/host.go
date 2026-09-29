@@ -248,3 +248,17 @@ func (h Host) Validate() error {
 	}
 	return h.Defaults.Validate()
 }
+
+// SetAgentImportPreferences changes only source enablement; paths and overrides
+// remain owned by their existing host configuration records.
+func (h *Host) SetAgentImportPreferences(claude, codex bool) {
+	for _, value := range []struct {
+		source  **mcpconfig.ImportSource
+		enabled bool
+	}{{&h.MCP.Imports.Claude, claude}, {&h.MCP.Imports.Codex, codex}} {
+		if *value.source == nil {
+			*value.source = &mcpconfig.ImportSource{}
+		}
+		(*value.source).Enabled = new(value.enabled)
+	}
+}
