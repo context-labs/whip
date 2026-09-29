@@ -4868,3 +4868,17 @@ both 778 pixels and the hit-test succeeds, retaining the one-pixel bound. The
 late-arrival explanation for the hosted failure is inferred from source and its
 screenshot; the local run already had all 24 rows. No product policy, deadline
 or visibility requirement changed. Run 36557957330 remains failed.
+
+Final combined CLI retirement verification passes both binary builds, integration
+vet and pinned frozen-baseline lint with zero issues. Lint identified one orphan
+legacy title-response fixture; semantic references confirmed no remaining caller,
+and it was deleted. The CLI has no direct retired LLM import either. This does
+not yet remove retained terminal dependencies from the final executable.
+
+Parent run 36559029153 at 98f75aa9e passes evaluator/package examples, all Linux
+and macOS Go/client/race checks, distributions, Settings, web, mobile, docs and
+analysis. The aggregate remains failed: Firefox's separate middle-click search
+result did not open a page, and desktop failed an earlier guest navigation before
+reaching the previously failing capture. Both need exact event diagnostics; a
+successful local rerun is not treated as closure. Run 36560260360 is the current
+workflow checkpoint at d800463fe, with hosted validation still in progress.

@@ -9,7 +9,7 @@ includes a digest of the retired RLM prompt guide.
 
 The default and integration-tagged `cmd/whip` source no longer imports
 `internal/daemon`, `internal/legacy`, `internal/agent`, `internal/agentdef`,
-`internal/rlm`, `internal/tools` or `internal/webgateway`. The terminal package
+`internal/rlm`, `internal/llm`, `internal/tools` or `internal/webgateway`. The terminal package
 still contains retained code, so this is not the final transitive-core removal.
 No installed executable, live runtime or original development checkout is used.
 
