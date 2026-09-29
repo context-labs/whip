@@ -50,6 +50,7 @@
             "PROVIDER_KEY_STORAGE",
             "MCP_UNAVAILABLE",
             "BROWSER_EVENT_STALE",
+            "HOST_UNAVAILABLE",
             "TRANSFER_FAILED",
             "TRANSFER_UNCERTAIN",
             "TRANSFER_INTERRUPTED",

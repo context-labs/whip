@@ -4134,6 +4134,19 @@
     "type": "Response",
     "value": {
       "jsonrpc": "2.0",
+      "id": "unavailable",
+      "error": {
+        "code": -32036,
+        "message": "host service unavailable",
+        "kind": "HOST_UNAVAILABLE"
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "Response",
+    "value": {
+      "jsonrpc": "2.0",
       "id": "transfer",
       "error": {
         "code": -32038,

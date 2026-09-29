@@ -3743,3 +3743,17 @@ This checkpoint integrates native daemon/status/log/updater routing, desktop loc
 Earlier combined runs remain recorded as failures: the first SDK trace-state fixture used a1ns clock delta that rounded at epoch-sized floating point; `c2594080f` uses a deterministic small clock. The later runtime restart fixture assumed its scripted input was always the final message, ignoring canonical interrupted-child completion mail; `3ffd94dcc` forces and verifies that ordering while retaining ownership/restart checks. The CLI gate exposed a real socket/context deadline publication race; `397cb9785` recognizes the caller's already elapsed deadline before `Context.Err` publication and cancels only the exact accepted input. An earlier unrelated transport timeout remains uncertain and gains no cancellation authority. The final full gate includes all repairs.
 
 Previously pending hosted checkpoints are now verified successful: draft259 head`9cfa29e63a48c16587a6498ff02f85e0b29e1468`, run36527605325; draft260 head`a51afc4f8770bebb1ffa07b5677d96b316188cdf`, run36527639551; draft261 head`50bcd028631a96d421a4baf38f87fa77dc7c718c`, run36526837824. The new desktop checkpoint's hosted validation is pending. Phases5–7 remain incomplete; the active source-scope exclusions and retired core have not been removed.
+
+### Desktop Linux unavailable-host contract repair
+
+Hosted desktop draft262 at `d74bcf1da` failed its Linux client gate in run36532327797.
+Every other platform job and analysis passed; the aggregate correctly remained failed.
+The compiled computer fixture received `HOST_UNAVAILABLE` for an unsupported bundled
+helper, but that already-emitted host-service error was missing from the generated
+RPC error enum. The authoritative Go DTO now includes the error, and a real wire-error
+regression covers both directory-picker and bundled-helper unavailability on every
+platform. The regression failed before the fix and passed under race afterward
+(1.651s). Generated contract/CSP/drift checks and the compiled disposable computer
+fixture passed locally. The existing Linux scenario is retained unchanged; new hosted
+validation is pending. Logs: `/tmp/whip-host-unavailable-{before,after}.log` and
+`/tmp/whip-desktop-ci-{contract,computer}.log`.
