@@ -811,3 +811,21 @@ environment and raw startup errors. Runtime restart resets live status. Workspac
 listing/search and explicit/automatic diagnostics are ordinary agent operations
 whose durable evidence is available through operation reads; diagnostics remain
 observations of captured content and do not change the success of a file write.
+
+
+### Saved permission modes
+
+`getPermissionPolicy(sessionID)` reads the tree’s saved `prompt`/`automatic`
+policy and exact decimal revision. `setPermissionMode(params, editID)` edits a
+root with its expected revision. Persist the caller-chosen ID and exact payload
+before sending; use `getPermissionModeEdit(sessionID, editID)` after a lost
+acknowledgement or explicitly resend that same request. The receipt describes
+the original edit, including after deletion. Same-value edits preserve the
+revision; reusing an ID with changed payload conflicts.
+
+`getDefaultPermissionMode` and `setDefaultPermissionMode` read/edit the host
+default through file-revision CAS. They affect future roots/forks only. Recover
+uncertain host publication with a fresh read; the SDK does not replay a CAS
+against a newer revision. Automatic root policy preserves workspace bounds and
+input checks; children continue to need exact delegated grants. Product controls
+must distinguish saved policy from individual permission decisions.
