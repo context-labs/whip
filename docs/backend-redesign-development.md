@@ -4241,3 +4241,8 @@ fixture lifetime; it retains `outcome_unknown`, checks `delivered=true`, and nev
 reissues the command. The real isolated Electron suite passes `NATIVE_MANAGER_OK`
 with production BrowserManager, IPC, preload, debugger, transfer and close paths.
 No production timeout or behavior changed. New hosted validation remains required.
+
+Run `36545994800` has now completed: every backend/Linux/macOS/client, analysis,
+web/browser/mobile/examples/docs job passed. Only the desktop job and dependent
+aggregate failed at the fixed-sleep assertion described above. The next head
+retains every gate and carries the exact-effect observation repair.
