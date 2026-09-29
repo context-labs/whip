@@ -44,6 +44,13 @@ type HostDirectoriesResult struct {
 type HostDirectoryPickParams struct {
 	Start string `json:"start"`
 }
+type HostDirectoryCreateParams struct {
+	Parent string `json:"parent"`
+	Name   string `json:"name"`
+}
+type HostDirectoryCreateResult struct {
+	Path string `json:"path"`
+}
 type HostDirectoryPickResult struct {
 	Path      *string `json:"path"`
 	Cancelled bool    `json:"cancelled"`
@@ -178,6 +185,14 @@ func hostViewsSchema(schema *jsonschema.Schema, t reflect.Type) {
 		bound("prefix", 256)
 	case reflect.TypeFor[HostDirectoryPickParams]():
 		bound("start", 4096)
+	case reflect.TypeFor[HostDirectoryCreateParams]():
+		bound("parent", 4096)
+		bound("name", 255)
+		schema.Properties["parent"].MinLength = new(1)
+		schema.Properties["name"].MinLength = new(1)
+	case reflect.TypeFor[HostDirectoryCreateResult]():
+		bound("path", 4096)
+		schema.Properties["path"].MinLength = new(1)
 	case reflect.TypeFor[HostDirectoriesResult]():
 		array("entries", 128)
 	case reflect.TypeFor[HostSkillsParams]():

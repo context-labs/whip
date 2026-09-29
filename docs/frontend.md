@@ -486,12 +486,20 @@ preserves newer authored text and rejects destination conflicts.
 
 ### Saved-session navigation
 
-The sidebar consumes the host's TreeCatalogView, groups exact directory strings,
-and reads activity only for visible roots. Titles and off-page membership follow
-native catalog revision; a title hint is not a second mutable title store.
+Projects groups exact directory strings across hosts and reads actual root recency
+through `trees.recent`. One client-keyed Query window retains at most 500 rows,
+five 100-row reads and 2 MiB. Older/expanded windows retain their range; Show latest
+is explicit. Recency cursors are advisory because new activity or pins can move
+rows; deduplication does not claim a frozen snapshot. TreeCatalogView still owns
+catalog revision observation and Search. Only visible roots read activity. A title
+hint is not a second mutable title store.
 Search retains one 64-row tree page per host with the matching revision and
 cursor, invalidates only the changed host, and discards transient pages on close.
-Dates describe tree creation, not inferred last activity.
+Search dates describe tree creation; Projects uses the host's actual last activity.
+
+Remote New folder creates one child under the selected parent on that host,
+without shell commands or replay. Success enters the folder; Choose folder is
+still explicit. Mac native dialogs expose their create-directory control.
 
 Open roots use bounded activity summaries without hydrating transcripts. Attention
 and notifications preserve exact child recipients. The notification index retains

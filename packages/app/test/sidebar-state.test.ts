@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { emptySidebarState, newSessionSearch, readSidebarState, setDirectoryCollapsed, sidebarMaxWidth, sidebarRows, sidebarWidth } from '../src/sidebar-state';
+import { emptySidebarState, mixedSidebarRows, newSessionSearch, readSidebarState, setDirectoryCollapsed, sidebarMaxWidth, sidebarRows, sidebarWidth } from '../src/sidebar-state';
 
 const session = (id: string, cwd: string, pinned = false) => ({ root_id: id, working_directory: cwd, tree: { id: `tree:${id}`, metadata: { title: id, pinned, archived: false }, engine: 'starlark' as const, revision: '1', created_at: '2026-09-28T00:00:00Z' } });
 describe('directory navigation projection', () => {
@@ -82,4 +82,15 @@ it('accepts explicit creation intent and bounded host-only or directory prefill'
   expect(newSessionSearch({ runtimeId: 'host' })).toEqual({ runtimeId: 'host' });
   for (const cwd of [5, '', 'x'.repeat(4097), '/bad\npath']) expect(newSessionSearch({ cwd, runtimeId: 'host' })).toEqual({ runtimeId: 'host' });
   for (const input of [{ cwd: '/repo' }, { new: 2 }, { runtimeId: 'x'.repeat(257) }, { runtimeId: 'bad\nhost' }]) expect(newSessionSearch(input)).toEqual({});
+});
+
+it('mixes native directories by real microsecond activity, preserving server pin order and host identity', () => {
+  const recent = (id: string, cwd: string, at: string, pinned = false) => ({ ...session(id, cwd, pinned), model: { provider: 'test', name: 'test', effort: '' }, last_activity_at: at });
+  const rows = mixedSidebarRows([
+    { runtimeId: 'a', items: [recent('same', '/repo', '2026-09-29T00:00:00.000001Z', true), recent('newer', '/repo', '2026-09-29T00:00:00.000002Z')] },
+    { runtimeId: 'b', items: [recent('same', '/repo', '2026-09-29T00:00:00.000003Z')] },
+  ]);
+  expect(rows.filter(row => row.kind === 'directory').map(row => row.runtimeId)).toEqual(['b', 'a']);
+  expect(rows.filter(row => row.kind === 'session').map(row => [row.runtimeId, row.session.root_id])).toEqual([['b', 'same'], ['a', 'same'], ['a', 'newer']]);
+  expect(new Set(rows.map(row => row.key)).size).toBe(rows.length);
 });

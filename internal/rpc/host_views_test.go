@@ -20,6 +20,16 @@ func TestHostViewsRPCRootlessContracts(t *testing.T) {
 	if len(directories.Entries) != 1 || directories.Entries[0].Name != "child" || directories.HasMore {
 		t.Fatal(directories)
 	}
+	created := call[protocol.HostDirectoryCreateResult](t, c, "host.directory.create", protocol.HostDirectoryCreateParams{Parent: cwd, Name: "new project"})
+	if created.Path != filepath.Join(cwd, "new project") {
+		t.Fatal(created)
+	}
+	if info, err := os.Stat(created.Path); err != nil || !info.IsDir() {
+		t.Fatalf("created folder = %v, %v", info, err)
+	}
+	if trees := call[protocol.ListTreesResult](t, c, "trees.list", protocol.ListTreesParams{Limit: 1}); len(trees.Items) != 0 {
+		t.Fatal("human directory creation created a session")
+	}
 	skills := call[protocol.HostSkillsResult](t, c, "host.skills.complete", protocol.HostSkillsParams{Scope: "project", CWD: cwd, Limit: 32})
 	if skills.Candidates == nil || len(skills.Candidates) != 0 {
 		t.Fatal(skills)

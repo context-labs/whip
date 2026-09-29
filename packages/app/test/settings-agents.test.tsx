@@ -18,6 +18,7 @@ async function fixture() {
 it('lists immutable refs and registers data-only instructions without invented capability grants', async () => {
   const f = await fixture(); f.mount(<AgentsSettings client={f.client} enabled />);
   expect(await screen.findByRole('button', { name: 'Copy to new agent' })).toBeTruthy(); expect(screen.queryByRole('group', { name: 'Capabilities' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'New agent' }));
   fireEvent.change(screen.getByLabelText('Agent id'), { target: { value: 'release-notes' } }); fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Release notes' } }); fireEvent.change(screen.getByLabelText('Instructions'), { target: { value: 'Write notes.\nCite commits.' } });
   const modules = screen.getByRole('group', { name: 'Host modules' }); fireEvent.click(await within(modules).findByRole('checkbox', { name: 'files' })); fireEvent.click(screen.getByRole('button', { name: 'Register agent' })); await screen.findByText(/Registered release-notes as revision/);
   expect(f.calls.find(call => call.method === 'definitions.register')?.params).toMatchObject({ id: 'release-notes', name: 'Release notes', defaults: { modules: ['files'], instructions: { text: 'Write notes.\nCite commits.' }, automatic_title: true, goals_enabled: false } });
@@ -36,7 +37,7 @@ it('editing display text preserves tools hooks output children models and omitte
   expect(agentDocument(values).defaults.tools).toEqual(custom.document.defaults.tools);
 });
 it('validates identity locally without a speculative registration', async () => {
-  const f = await fixture(); f.mount(<AgentsSettings client={f.client} enabled />); fireEvent.change(screen.getByLabelText('Agent id'), { target: { value: 'Bad ID' } }); fireEvent.click(screen.getByRole('button', { name: 'Register agent' })); await screen.findByText(/Use a lowercase id/); expect(f.count('definitions.register')).toBe(0);
+  const f = await fixture(); f.mount(<AgentsSettings client={f.client} enabled />); fireEvent.click(screen.getByRole('button', { name: 'New agent' })); fireEvent.change(screen.getByLabelText('Agent id'), { target: { value: 'Bad ID' } }); fireEvent.click(screen.getByRole('button', { name: 'Register agent' })); await screen.findByText(/Use a lowercase id/); expect(f.count('definitions.register')).toBe(0);
 });
 it('definition choices round-trip exact revisions and never infer latest by ID', () => {
   const items = [custom, { ...custom, ref: { ...custom.ref, revision } }].map(value => ({ ref: value.ref, name: value.document.name, created_at: value.created_at }));
@@ -50,12 +51,27 @@ it('loads further metadata only on explicit paging', async () => {
 it('preserves an unfinished draft until explicit discard before changing definitions', async () => {
   const f = await fixture(); f.mount(<AgentsSettings client={f.client} enabled />);
   await screen.findByRole('button', { name: 'Copy to new agent' });
+  fireEvent.click(screen.getByRole('button', { name: 'New agent' }));
   fireEvent.change(screen.getByLabelText('Agent id'), { target: { value: 'unfinished' } });
-  expect((screen.getByRole('button', { name: 'Copy to new agent' }) as HTMLButtonElement).disabled).toBe(true);
-  fireEvent.click(screen.getByRole('button', { name: 'Copy to new agent' }));
+  expect((screen.getByRole('button', { name: 'Copy to new agent', hidden: true }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Copy to new agent', hidden: true }));
   expect((screen.getByLabelText('Agent id') as HTMLInputElement).value).toBe('unfinished');
   fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Copy to new agent' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Copy to new agent', hidden: true }));
   await waitFor(() => expect((screen.getByLabelText('Agent id') as HTMLInputElement).value).toBe('coding-custom'));
+  expect(f.count('definitions.register')).toBe(0);
+});
+it('keeps advanced options collapsed and retains a draft when the compact editor closes', async () => {
+  const f = await fixture(); f.mount(<AgentsSettings client={f.client} enabled />);
+  expect(screen.queryByRole('dialog')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'New agent' }));
+  expect(screen.getByRole('button', { name: 'More options' }).getAttribute('aria-expanded')).toBe('false');
+  fireEvent.click(screen.getByRole('button', { name: 'More options' }));
+  expect(screen.getByRole('button', { name: 'More options' }).getAttribute('aria-expanded')).toBe('true');
+  fireEvent.change(screen.getByLabelText('Agent id'), { target: { value: 'draft-agent' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Close', exact: true }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  fireEvent.click(screen.getByRole('button', { name: 'Continue editing' }));
+  expect((screen.getByLabelText('Agent id') as HTMLInputElement).value).toBe('draft-agent');
   expect(f.count('definitions.register')).toBe(0);
 });

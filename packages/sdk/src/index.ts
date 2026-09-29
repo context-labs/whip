@@ -414,6 +414,12 @@ export class Client {
     return this.call('host.directory.pick', { start }, { timeoutMs: 130_000, ...options });
   }
 
+  /** Creates one human-selected folder. A lost response is never retried; inspect
+   * the parent listing before deciding whether another creation is needed. */
+  createHostDirectory(params: Operations['host.directory.create']['params'], options: CallOptions = {}): Promise<Operations['host.directory.create']['result']> {
+    return this.call('host.directory.create', params, options);
+  }
+
   completeHostSkills(params: Operations['host.skills.complete']['params'], options: CallOptions = {}): Promise<Operations['host.skills.complete']['result']> {
     return this.call('host.skills.complete', params, options);
   }

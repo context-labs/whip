@@ -38,6 +38,13 @@ func (r *Runtime) PickHostDirectory(ctx context.Context, start string) (hostview
 	return r.hostPicker.Pick(ctx, start)
 }
 
+func (r *Runtime) CreateHostDirectory(ctx context.Context, parent, name string) (string, error) {
+	if err := r.Err(); err != nil {
+		return "", err
+	}
+	return hostview.CreateDirectory(ctx, parent, name)
+}
+
 func (r *Runtime) HostThemes(ctx context.Context) (theme.CatalogResult, error) {
 	if err := ctx.Err(); err != nil {
 		return theme.CatalogResult{}, err

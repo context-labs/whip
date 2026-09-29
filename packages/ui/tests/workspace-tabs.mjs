@@ -96,6 +96,14 @@ try {
       await tab('gamma').click({ modifiers: [process.platform === 'darwin' ? 'Meta' : 'Control'] });
       await (await popup).close(); await selected('alpha');
       await expect(page.getByLabel('Navigation count', { exact: true })).toHaveText('1');
+      for (const shortcut of ['Shift+F10', 'ContextMenu']) {
+        await tab('gamma').focus();
+        await page.keyboard.press(shortcut);
+        await expect(page.getByRole('menuitem', { name: 'Move left', exact: true })).toBeVisible();
+        await page.keyboard.press('Escape');
+        await expect(page.getByRole('menuitem', { name: 'Move left', exact: true })).not.toBeVisible();
+        await selected('alpha');
+      }
       await tab('gamma').click({ button: 'right' });
       await page.getByRole('menuitem', { name: 'Move left', exact: true }).click();
       await expect(page.getByLabel('Reordered sessions', { exact: true })).toHaveText('gamma,alpha,delta');
