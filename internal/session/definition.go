@@ -282,6 +282,9 @@ func (m ModelSelection) Equal(other ModelSelection) bool {
 }
 
 func (m ModelSelection) Validate() error {
+	if m.Name == "" {
+		return fmt.Errorf("%w: configured model name is required", ErrInvalid)
+	}
 	if err := ValidateID(m.Provider); err != nil {
 		return err
 	}
@@ -360,7 +363,7 @@ func (p ConfigPatch) Validate() error {
 			return err
 		}
 	}
-	if p.Model != nil {
+	if p.Model != nil && !p.Model.Equal(ModelSelection{}) {
 		if err := p.Model.Validate(); err != nil {
 			return err
 		}

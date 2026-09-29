@@ -96,6 +96,7 @@ func Fixtures() ([]Fixture, error) {
 		{"HostProfiles", HostProfiles{Revision: ref.Revision, Profiles: []HostProfile{{ID: "remote", Name: "Remote", URL: "https://example.test:8443/", RuntimeID: "runtime_remote", ConnectOnLaunch: true}}}},
 		{"SetHostProfilesParams", SetHostProfilesParams{ExpectedRevision: ref.Revision, Profiles: []HostProfile{}}},
 		{"Input", directInput},
+		{"CreateTreeParams", CreateTreeParams{CreationID: "model_free", Definition: root.Definition, WorkingDirectory: "/workspace", Overrides: ConfigPatch{Model: &ModelSelection{}}}},
 		{"HostAttentionParams", HostAttentionParams{Limit: 100, MaxBytes: 524288}},
 		{"ContextUsage", ContextUsageFromDomain(session.ContextUsage{SessionID: "session_root", ConfigRevision: 9007199254740993, HistoryRevision: 9007199254740993, ContextRevision: 9007199254740993, ThroughSequence: 9007199254740994, Prefill: &session.ContextPrefill{AttemptID: "attempt", TurnID: "turn", Model: session.ModelSelection{Provider: "fixture", Name: "model"}, ThroughSequence: 9007199254740993, InputTokens: 9007199254740993, InputSource: "reported", ContextWindowTokens: new(int64(100000)), Stale: true}})},
 		{"ContextUsage", ContextUsageFromDomain(session.ContextUsage{SessionID: "session_root", ConfigRevision: 2, HistoryRevision: 1, UnavailableReason: "configuration_changed"})},

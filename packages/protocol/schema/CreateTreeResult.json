@@ -300,7 +300,8 @@
                       "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
                     },
                     "name": {
-                      "type": "string"
+                      "type": "string",
+                      "minLength": 1
                     },
                     "effort": {
                       "type": "string"
@@ -359,7 +360,8 @@
                       "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
                     },
                     "name": {
-                      "type": "string"
+                      "type": "string",
+                      "minLength": 1
                     },
                     "effort": {
                       "type": "string"

@@ -161,7 +161,8 @@
                   "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
                 },
                 "name": {
-                  "type": "string"
+                  "type": "string",
+                  "minLength": 1
                 },
                 "effort": {
                   "type": "string"
@@ -214,44 +215,111 @@
           ]
         },
         "model": {
-          "type": [
-            "null",
-            "object"
-          ],
-          "properties": {
-            "provider": {
-              "type": "string",
-              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
-            },
-            "name": {
-              "type": "string"
-            },
-            "effort": {
-              "type": "string"
-            },
-            "temperature": {
+          "oneOf": [
+            {
               "type": [
                 "null",
-                "number"
+                "object"
               ],
-              "minimum": 0,
-              "maximum": 2
+              "properties": {
+                "provider": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "effort": {
+                  "type": "string"
+                },
+                "temperature": {
+                  "type": [
+                    "null",
+                    "number"
+                  ],
+                  "minimum": 0,
+                  "maximum": 2
+                },
+                "top_p": {
+                  "type": [
+                    "null",
+                    "number"
+                  ],
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              },
+              "required": [
+                "provider",
+                "name",
+                "effort"
+              ],
+              "additionalProperties": false
             },
-            "top_p": {
+            {
               "type": [
                 "null",
-                "number"
+                "object"
               ],
-              "minimum": 0,
-              "maximum": 1
+              "properties": {
+                "provider": {
+                  "type": "string",
+                  "enum": [
+                    ""
+                  ]
+                },
+                "name": {
+                  "type": "string",
+                  "enum": [
+                    ""
+                  ]
+                },
+                "effort": {
+                  "type": "string",
+                  "enum": [
+                    ""
+                  ]
+                },
+                "temperature": {
+                  "type": [
+                    "null",
+                    "number"
+                  ],
+                  "minimum": 0,
+                  "maximum": 2
+                },
+                "top_p": {
+                  "type": [
+                    "null",
+                    "number"
+                  ],
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              },
+              "required": [
+                "provider",
+                "name",
+                "effort"
+              ],
+              "additionalProperties": false,
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "temperature"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "top_p"
+                    ]
+                  }
+                ]
+              }
             }
-          },
-          "required": [
-            "provider",
-            "name",
-            "effort"
-          ],
-          "additionalProperties": false
+          ]
         },
         "instructions": {
           "type": [

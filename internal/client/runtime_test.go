@@ -2,8 +2,11 @@ package client_test
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -159,5 +162,82 @@ func TestNativeGoSessionUsesRealRuntimeReceiptsHistoryAndExplicitCancellation(t 
 	retry, err := restored.Retry(wait)
 	if err != nil || retry.Input.ID != done.Input.ID || retry.Turn.ID != done.Turn.ID {
 		t.Fatal("native recovery duplicated work", retry, err)
+	}
+}
+
+func TestNativeGoModelFreeCreationAndDirectOperation(t *testing.T) {
+	directory, err := os.MkdirTemp("/tmp", "whip-model-free-") //nolint:usetesting // Unix socket path bound.
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(directory) })
+	r, err := runtime.Open(t.Context(), directory, model.Scripted{}, runtime.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = r.Close() })
+	server, err := rpc.Listen(r, rpc.HostServices{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- server.Serve(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	})
+	if err := r.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	c, err := client.Connect(t.Context(), r.SocketPath(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	cwd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cwd, "fixture"), []byte("model-free evidence"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var created protocol.CreateTreeResult
+	if err := c.Call(t.Context(), "trees.create", protocol.CreateTreeParams{CreationID: "model_free", Definition: c.Builtins()[0], WorkingDirectory: cwd, Overrides: protocol.ConfigPatch{Model: &protocol.ModelSelection{}, Modules: []protocol.ID{"files"}}}, &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.Root == nil || created.Root.Configuration.Model.Provider != "" || created.Root.Configuration.Model.Name != "" {
+		t.Fatal(created)
+	}
+	var rejected protocol.Admission
+	if err := c.Call(t.Context(), "sessions.submit", protocol.SubmitParams{Identity: protocol.RequestIdentity{ClientID: "fixture", RequestID: "prompt"}, SessionID: created.Root.ID, Source: "user", Parts: []protocol.Part{{Type: "text", Text: "no model"}}}, &rejected); err == nil {
+		t.Fatal("model-free prompt accepted")
+	}
+	var grant protocol.Grant
+	if err := c.Call(t.Context(), "grants.create", protocol.CreateGrantParams{ID: "read_grant", SessionID: created.Root.ID, Capability: "files.read", Resource: created.Root.WorkingDirectory}, &grant); err != nil {
+		t.Fatal(err)
+	}
+	command, err := c.PrepareInput("tool.call", protocol.CallHostToolParams{Identity: protocol.RequestIdentity{ClientID: "fixture", RequestID: "read"}, SessionID: created.Root.ID, Operation: protocol.DirectHostInput{Module: "files", Name: "read", ArgumentsBase64: base64.StdEncoding.EncodeToString([]byte(`{"path":"fixture"}`))}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := command.Send(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	wait, stop := context.WithTimeout(t.Context(), 5*time.Second)
+	defer stop()
+	result, err := command.Wait(wait)
+	if err != nil || result.Turn == nil || result.Turn.State != "succeeded" {
+		t.Fatal(result, err)
+	}
+	var operations protocol.HostOperationsResult
+	if err := c.Call(t.Context(), "turns.operations", protocol.HostOperationsParams{TurnID: result.Turn.ID, Limit: 100}, &operations); err != nil {
+		t.Fatal(err)
+	}
+	if len(operations.Items) != 1 || operations.Items[0].CellID != nil || !strings.Contains(string(operations.Items[0].Result.Value), "model-free evidence") {
+		t.Fatal(operations)
+	}
+	var attempts protocol.ModelAttemptsResult
+	if err := c.Call(t.Context(), "turns.attempts", protocol.ModelAttemptsParams{TurnID: result.Turn.ID, Limit: 100}, &attempts); err != nil || len(attempts.Items) != 0 {
+		t.Fatal(attempts, err)
 	}
 }

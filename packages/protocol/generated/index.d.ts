@@ -1391,13 +1391,21 @@ export interface CreateTreeParams {
       threshold_percent: number;
     };
     report_mode?: null | ("notice" | "inline" | "message");
-    model?: null | {
-      provider: string;
-      name: string;
-      effort: string;
-      temperature?: null | number;
-      top_p?: null | number;
-    };
+    model?:
+      | (null | {
+          provider: string;
+          name: string;
+          effort: string;
+          temperature?: null | number;
+          top_p?: null | number;
+        })
+      | (null | {
+          provider: "";
+          name: "";
+          effort: "";
+          temperature?: null | number;
+          top_p?: null | number;
+        });
     instructions?: null | {
       project_root: null | string;
       text: string;
@@ -1645,13 +1653,21 @@ export interface Definition {
         threshold_percent: number;
       };
       report_mode?: null | ("notice" | "inline" | "message");
-      model?: null | {
-        provider: string;
-        name: string;
-        effort: string;
-        temperature?: null | number;
-        top_p?: null | number;
-      };
+      model?:
+        | (null | {
+            provider: string;
+            name: string;
+            effort: string;
+            temperature?: null | number;
+            top_p?: null | number;
+          })
+        | (null | {
+            provider: "";
+            name: "";
+            effort: "";
+            temperature?: null | number;
+            top_p?: null | number;
+          });
       instructions?: null | {
         project_root: null | string;
         text: string;
@@ -1736,13 +1752,21 @@ export interface DefinitionDocument {
       threshold_percent: number;
     };
     report_mode?: null | ("notice" | "inline" | "message");
-    model?: null | {
-      provider: string;
-      name: string;
-      effort: string;
-      temperature?: null | number;
-      top_p?: null | number;
-    };
+    model?:
+      | (null | {
+          provider: string;
+          name: string;
+          effort: string;
+          temperature?: null | number;
+          top_p?: null | number;
+        })
+      | (null | {
+          provider: "";
+          name: "";
+          effort: "";
+          temperature?: null | number;
+          top_p?: null | number;
+        });
     instructions?: null | {
       project_root: null | string;
       text: string;
@@ -9362,13 +9386,21 @@ export interface SpawnSessionParams {
       threshold_percent: number;
     };
     report_mode?: null | ("notice" | "inline" | "message");
-    model?: null | {
-      provider: string;
-      name: string;
-      effort: string;
-      temperature?: null | number;
-      top_p?: null | number;
-    };
+    model?:
+      | (null | {
+          provider: string;
+          name: string;
+          effort: string;
+          temperature?: null | number;
+          top_p?: null | number;
+        })
+      | (null | {
+          provider: "";
+          name: "";
+          effort: "";
+          temperature?: null | number;
+          top_p?: null | number;
+        });
     instructions?: null | {
       project_root: null | string;
       text: string;
@@ -10322,13 +10354,21 @@ export interface UpdateConfigurationParams {
       threshold_percent: number;
     };
     report_mode?: null | ("notice" | "inline" | "message");
-    model?: null | {
-      provider: string;
-      name: string;
-      effort: string;
-      temperature?: null | number;
-      top_p?: null | number;
-    };
+    model?:
+      | (null | {
+          provider: string;
+          name: string;
+          effort: string;
+          temperature?: null | number;
+          top_p?: null | number;
+        })
+      | (null | {
+          provider: "";
+          name: "";
+          effort: "";
+          temperature?: null | number;
+          top_p?: null | number;
+        });
     instructions?: null | {
       project_root: null | string;
       text: string;

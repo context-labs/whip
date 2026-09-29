@@ -58,7 +58,9 @@ func hostOperationSchema(schema *jsonschema.Schema, t reflect.Type) {
 			{Properties: map[string]*jsonschema.Schema{"origin": {Enum: []any{"cell"}}, "cell_id": {Not: &jsonschema.Schema{Type: "null"}}}},
 			{Properties: map[string]*jsonschema.Schema{"origin": {Enum: []any{"host_operation"}}, "cell_id": {Type: "null"}}},
 		}
-	case reflect.TypeFor[Configuration]():
+	case reflect.TypeFor[ModelSelection]():
+		schema.Properties["name"].MinLength = new(1)
+	case reflect.TypeFor[Configuration](), reflect.TypeFor[ConfigPatch]():
 		configured := schema.Properties["model"]
 		empty := configured.CloneSchemas()
 		empty.Properties["provider"] = &jsonschema.Schema{Type: "string", Enum: []any{""}}
