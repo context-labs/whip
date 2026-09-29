@@ -5790,3 +5790,12 @@ the first small upward wheel leaves a zero tail gap while Latest is visible;
 the second sees two provisional-output hints in one two-operation group. Their
 captured artifacts are being examined before changing product behavior or tests.
 These are distinct from the earlier history-seed failure and from typing speed.
+
+The complete unchanged `check:product-docs` gate passes at `73b118c1c`: protocol
+checks, SDK build, docs types, 79 tests across nine files (including the ten SDK
+examples), live add/edit/delete route refresh, static verification of four
+prerendered documents/65 public files, 27 browser checks and Storybook build.
+The three pre-existing SDK draft-route presentation checks remain intentionally
+skipped under the publication disposition above. Log:
+`/tmp/whip-final-docs-gate.log`; the owned gate joins with exit 0 and the source
+tree stays clean. No public documentation or release was deployed.

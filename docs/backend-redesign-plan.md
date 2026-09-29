@@ -939,8 +939,9 @@ authority, with filtered turn-local text and immutable raw-source audit.
 Authorized ancestor project rules and skills now use explicit named boundaries,
 captured selection, exact instruction grants and verified descriptor-confined
 membership. Both engines and SDK process acceptance cover aliases, inherited and
-restricted child sources, guest reads, refresh and restart. Fork/rewind and human workspace snapshots now have isolated replacement coverage;
-broader Phase 5 acceptance remains open.
+restricted child sources, guest reads, refresh and restart. Fork/rewind and human
+workspace snapshots have replacement coverage; the reconciled implementation
+criteria above are satisfied, with final product acceptance tracked below.
 Long-turn splitting now retains exact opening inputs and complete tool exchanges;
 one confirmed provider context rejection can trigger a recorded smaller request
 after accounting settles. Indivisible oversized exchanges still fail explicitly. Chat now preserves the pinned provider wire profiles, including off-effort omission
@@ -1134,4 +1135,9 @@ Useful starting references:
   [compaction regressions](../internal/runner/compaction_test.go), and
   [retired behavior disposition](backend-native-core-retirement.md).
 
-Desktop/gateway integration `397cb9785` passes the full temporary phase gate and pinned analysis; see the dated development record for failures repaired, exact timings and successful hosted259–261 heads. This does not close Phases5–7: renderer/mobile/TUI/ACP adoption, deferred reload/denial/ChromeDP and live/context projections, supported-target packaging and final core removal remain in progress.
+Historical Desktop/gateway checkpoint `397cb9785` passed the temporary phase
+gate and pinned analysis; the dated development record retains its exact
+timings and successful hosted #259–261 heads. Subsequent native client adoption,
+capability follow-through and core removal are recorded in the current criteria
+above. The [gate audit](backend-native-gate-audit.md) owns the remaining final
+product, resource and platform acceptance.
