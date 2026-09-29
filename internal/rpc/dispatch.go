@@ -11,6 +11,7 @@ import (
 
 	"github.com/context-labs/whip/internal/account"
 	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/hostview"
 	"github.com/context-labs/whip/internal/inferenceaccount"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/providerhost"
@@ -51,6 +52,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 	switch method {
 	case "receipts.match":
 		return dispatchReceiptMatch(ctx, r, raw)
+	case "host.directories.list", "host.directory.pick", "host.skills.complete", "host.themes.list", "host.themes.resolve":
+		return dispatchHostViews(ctx, r, method, raw)
 	case "tool.schemas", "tool.call", "shell.run":
 		return dispatchHostOperation(ctx, r, method, raw)
 	case "sessions.activity", "inputs.page", "inputs.get":
@@ -449,6 +452,9 @@ func wireError(err error) *protocol.RPCError {
 		code int
 		kind string
 	}{
+		{hostview.ErrUnavailable, -32036, "HOST_UNAVAILABLE"},
+		{hostview.ErrPickerLimit, -32011, "LIMIT"},
+		{hostview.ErrPickerClosed, -32013, "CLOSED"},
 		{shell.ErrNotFound, -32004, "NOT_FOUND"},
 		{shell.ErrInputConflict, -32009, "CONFLICT"},
 		{shell.ErrLimit, -32011, "LIMIT"},

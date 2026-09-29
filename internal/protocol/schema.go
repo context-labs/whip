@@ -22,6 +22,11 @@ type Operation struct {
 
 func Operations() []Operation {
 	return []Operation{
+		{"host.directories.list", reflect.TypeFor[HostDirectoriesParams](), reflect.TypeFor[HostDirectoriesResult]()},
+		{"host.directory.pick", reflect.TypeFor[HostDirectoryPickParams](), reflect.TypeFor[HostDirectoryPickResult]()},
+		{"host.skills.complete", reflect.TypeFor[HostSkillsParams](), reflect.TypeFor[HostSkillsResult]()},
+		{"host.themes.list", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostThemesResult]()},
+		{"host.themes.resolve", reflect.TypeFor[HostThemeResolveParams](), reflect.TypeFor[HostThemeResolved]()},
 		{"tool.schemas", reflect.TypeFor[SessionParams](), reflect.TypeFor[HostToolSchemasResult]()},
 		{"tool.call", reflect.TypeFor[CallHostToolParams](), reflect.TypeFor[Admission]()},
 		{"shell.run", reflect.TypeFor[RunShellParams](), reflect.TypeFor[Admission]()},
@@ -304,6 +309,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 		if t == reflect.TypeFor[InputSummary]() {
 			schema.Properties["text_preview"].MaxLength = new(512)
 		}
+		hostViewsSchema(schema, t)
 		discoverySchema(schema, t)
 		if t == reflect.TypeFor[GoalFormulationRequest]() {
 			schema.Properties["tail_messages"] = &jsonschema.Schema{OneOf: []*jsonschema.Schema{

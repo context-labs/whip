@@ -69,6 +69,14 @@ func Fixtures() ([]Fixture, error) {
 		value any
 	}{
 		{"Input", directInput},
+		{"HostDirectoriesParams", HostDirectoriesParams{Path: "/workspace", Limit: 64}},
+		{"HostDirectoriesResult", HostDirectoriesResult{Path: "/workspace", Parent: "/", Entries: []HostDirectoryEntry{{Name: "project", Path: "/workspace/project"}}}},
+		{"HostDirectoryPickParams", HostDirectoryPickParams{}},
+		{"HostDirectoryPickResult", HostDirectoryPickResult{Cancelled: true}},
+		{"HostSkillsParams", HostSkillsParams{Scope: "global", Limit: 32}},
+		{"HostSkillsResult", HostSkillsResult{Candidates: []HostSkillCandidate{{Text: "$fixture", Description: "Fixture"}}}},
+		{"HostThemesResult", HostThemesResult{Themes: []HostThemeMetadata{{ID: "dark", Name: "Dark", Dark: true, Source: "builtin"}}, Errors: []HostThemeError{}}},
+		{"HostThemeResolveParams", HostThemeResolveParams{Name: "dark"}},
 		{"CallHostToolParams", CallHostToolParams{Identity: RequestIdentity{ClientID: "human", RequestID: "direct"}, SessionID: "session_root", Operation: *directInput.HostOperation}},
 		{"RunShellParams", RunShellParams{Identity: RequestIdentity{ClientID: "human", RequestID: "direct"}, SessionID: "session_root", Command: "printf direct"}},
 		{"HostToolSchemasResult", HostToolSchemasResult{Items: []HostToolSchema{{Module: "files", Name: "read", Description: "Read", InputSchema: json.RawMessage(`{"type":"object"}`)}}}},

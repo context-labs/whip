@@ -19,6 +19,7 @@ import (
 	"github.com/context-labs/whip/internal/content"
 	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/executor"
+	"github.com/context-labs/whip/internal/hostview"
 	"github.com/context-labs/whip/internal/lsp"
 	"github.com/context-labs/whip/internal/runner"
 	"github.com/context-labs/whip/internal/session"
@@ -53,6 +54,7 @@ type execution struct {
 type Runtime struct {
 	computer          *computer.Controller
 	computerMu        sync.Mutex
+	hostPicker        *hostview.Picker
 	shells            *shell.Manager
 	mcp               *mcpOwners
 	languageServers   *lsp.Pool
@@ -180,6 +182,7 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 		preferResumption: true,
 		workspace:        workspace.New(string(database.Identity())), workspaceSlots: make(chan struct{}, 16),
 	}
+	r.hostPicker = hostview.NewPicker(directory)
 	r.shells = shell.NewManager()
 	r.languageProcesses = capability.NewProcessManager()
 	r.languageServers = lsp.NewPool(r.languageProcesses)
@@ -249,6 +252,7 @@ func (r *Runtime) Close() error {
 			r.cancel()
 		}
 		r.mu.Unlock()
+		pickerErr := r.hostPicker.Close()
 		r.executors.Close()
 		r.shells.Close()
 		workspaceErr := r.workspace.Close()
@@ -267,7 +271,7 @@ func (r *Runtime) Close() error {
 		r.previewMu.Lock()
 		clear(r.previews)
 		r.previewMu.Unlock()
-		r.closeErr = errors.Join(workspaceErr, mcpErr, r.store.Close(), r.owner.Close())
+		r.closeErr = errors.Join(pickerErr, workspaceErr, mcpErr, r.store.Close(), r.owner.Close())
 	})
 	return r.closeErr
 }

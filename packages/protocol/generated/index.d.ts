@@ -2433,6 +2433,34 @@ export interface HistorySnapshot {
   through_sequence: string;
   message_count: string;
 }
+export interface HostDirectoriesParams {
+  path: string;
+  after: string;
+  prefix: string;
+  show_hidden: boolean;
+  limit: number;
+}
+export interface HostDirectoriesResult {
+  path: string;
+  parent: string;
+  /**
+   * @maxItems 128
+   */
+  entries: {
+    name: string;
+    path: string;
+  }[];
+  next_after: null | string;
+  has_more: boolean;
+  truncated: boolean;
+}
+export interface HostDirectoryPickParams {
+  start: string;
+}
+export interface HostDirectoryPickResult {
+  path: null | string;
+  cancelled: boolean;
+}
 export type HostOperation = {
   permission_revision: null | string;
   id: string;
@@ -2497,6 +2525,111 @@ export interface HostOperationsResult {
             [k: string]: unknown;
           }
       )[];
+}
+export interface HostSkillsParams {
+  scope: "global" | "project";
+  cwd: string;
+  prefix: string;
+  definition: null | {
+    id: string;
+    revision: string;
+  };
+  limit: number;
+}
+export interface HostSkillsResult {
+  /**
+   * @maxItems 1024
+   */
+  candidates: {
+    text: string;
+    description: string;
+  }[];
+  truncated: boolean;
+}
+export interface HostThemeResolveParams {
+  name: string;
+  json: string;
+}
+export interface HostThemeResolved {
+  id: string;
+  name: string;
+  dark: boolean;
+  colors: {
+    background: string;
+    foreground: string;
+    muted: string;
+    faint: string;
+    primary: string;
+    on_primary: string;
+    accent: string;
+    success: string;
+    warning: string;
+    error: string;
+    info: string;
+    link: string;
+    emphasis: string;
+    border: string;
+    border_focus: string;
+    diff_add: string;
+    diff_del: string;
+    panel: string;
+    element: string;
+    hover: string;
+  };
+  syntax: {
+    keyword: string;
+    string: string;
+    number: string;
+    comment: string;
+    function: string;
+    type: string;
+    operator: string;
+    punctuation: string;
+  };
+  markdown: {
+    heading: string;
+    strong: string;
+    code: string;
+    quote: string;
+  };
+  code: {
+    foreground: string;
+    background: string;
+    tokens: {
+      [k: string]: {
+        color: string;
+        background: string;
+        bold: boolean;
+        italic: boolean;
+        underline: boolean;
+      };
+    } | null;
+  };
+  web?: null | {
+    navigation?: string;
+    quiet_border?: string;
+    code_background?: string;
+    inline_code_background?: string;
+  };
+}
+export interface HostThemesResult {
+  /**
+   * @maxItems 256
+   */
+  themes: {
+    id: string;
+    name: string;
+    dark: boolean;
+    source: "builtin" | "custom";
+  }[];
+  /**
+   * @maxItems 128
+   */
+  errors: {
+    file: string;
+    message: string;
+  }[];
+  truncated: boolean;
 }
 export interface HostToolSchemasResult {
   /**
@@ -8093,10 +8226,19 @@ export interface ContractTypes {
   HistoryParams: HistoryParams;
   HistoryResult: HistoryResult;
   HistorySnapshot: HistorySnapshot;
+  HostDirectoriesParams: HostDirectoriesParams;
+  HostDirectoriesResult: HostDirectoriesResult;
+  HostDirectoryPickParams: HostDirectoryPickParams;
+  HostDirectoryPickResult: HostDirectoryPickResult;
   HostOperation: HostOperation;
   HostOperationParams: HostOperationParams;
   HostOperationsParams: HostOperationsParams;
   HostOperationsResult: HostOperationsResult;
+  HostSkillsParams: HostSkillsParams;
+  HostSkillsResult: HostSkillsResult;
+  HostThemeResolveParams: HostThemeResolveParams;
+  HostThemeResolved: HostThemeResolved;
+  HostThemesResult: HostThemesResult;
   HostToolSchemasResult: HostToolSchemasResult;
   InferenceAccountStatus: InferenceAccountStatus;
   InferenceCleanupResult: InferenceCleanupResult;
@@ -8257,6 +8399,11 @@ export interface ContractTypes {
   WriteStateParams: WriteStateParams;
 }
 export interface Operations {
+  "host.directories.list": { params: HostDirectoriesParams; result: HostDirectoriesResult };
+  "host.directory.pick": { params: HostDirectoryPickParams; result: HostDirectoryPickResult };
+  "host.skills.complete": { params: HostSkillsParams; result: HostSkillsResult };
+  "host.themes.list": { params: EmptyParams; result: HostThemesResult };
+  "host.themes.resolve": { params: HostThemeResolveParams; result: HostThemeResolved };
   "tool.schemas": { params: SessionParams; result: HostToolSchemasResult };
   "tool.call": { params: CallHostToolParams; result: Admission };
   "shell.run": { params: RunShellParams; result: Admission };

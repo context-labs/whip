@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "maxLength": 256
+    },
+    "json": {
+      "type": "string",
+      "maxLength": 65536
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/HostThemeResolveParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HostThemeResolveParams",
+  "required": [
+    "name",
+    "json"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,55 @@
+{
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string"
+    },
+    "parent": {
+      "type": "string"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 128
+    },
+    "next_after": {
+      "type": [
+        "null",
+        "string"
+      ]
+    },
+    "has_more": {
+      "type": "boolean"
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/HostDirectoriesResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HostDirectoriesResult",
+  "required": [
+    "path",
+    "parent",
+    "entries",
+    "next_after",
+    "has_more",
+    "truncated"
+  ],
+  "additionalProperties": false
+}

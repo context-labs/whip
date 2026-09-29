@@ -5,6 +5,31 @@ export const manifest = {
   "minor": 0,
   "operations": [
     {
+      "name": "host.directories.list",
+      "params": "HostDirectoriesParams",
+      "result": "HostDirectoriesResult"
+    },
+    {
+      "name": "host.directory.pick",
+      "params": "HostDirectoryPickParams",
+      "result": "HostDirectoryPickResult"
+    },
+    {
+      "name": "host.skills.complete",
+      "params": "HostSkillsParams",
+      "result": "HostSkillsResult"
+    },
+    {
+      "name": "host.themes.list",
+      "params": "EmptyParams",
+      "result": "HostThemesResult"
+    },
+    {
+      "name": "host.themes.resolve",
+      "params": "HostThemeResolveParams",
+      "result": "HostThemeResolved"
+    },
+    {
       "name": "tool.schemas",
       "params": "SessionParams",
       "result": "HostToolSchemasResult"

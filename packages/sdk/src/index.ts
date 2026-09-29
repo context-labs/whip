@@ -308,6 +308,26 @@ export class Client {
     return this.call('accounts.openai.logout', {}, options);
   }
 
+  hostDirectories(params: Operations['host.directories.list']['params'], options: CallOptions = {}): Promise<Operations['host.directories.list']['result']> {
+    return this.call('host.directories.list', params, options);
+  }
+
+  pickHostDirectory(start = '', options: CallOptions = {}): Promise<Operations['host.directory.pick']['result']> {
+    return this.call('host.directory.pick', { start }, options);
+  }
+
+  completeHostSkills(params: Operations['host.skills.complete']['params'], options: CallOptions = {}): Promise<Operations['host.skills.complete']['result']> {
+    return this.call('host.skills.complete', params, options);
+  }
+
+  hostThemes(options: CallOptions = {}): Promise<Operations['host.themes.list']['result']> {
+    return this.call('host.themes.list', {}, options);
+  }
+
+  resolveHostTheme(params: Operations['host.themes.resolve']['params'], options: CallOptions = {}): Promise<Operations['host.themes.resolve']['result']> {
+    return this.call('host.themes.resolve', params, options);
+  }
+
   /** Fixed declared host surface; listing never starts a resource or grants authority. */
   hostToolSchemas(sessionID: string, options: CallOptions = {}): Promise<Operations['tool.schemas']['result']> {
     return this.call('tool.schemas', { session_id: sessionID }, options);

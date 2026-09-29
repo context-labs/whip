@@ -21,6 +21,97 @@
     "valid": true
   },
   {
+    "type": "HostDirectoriesParams",
+    "value": {
+      "path": "/workspace",
+      "after": "",
+      "prefix": "",
+      "show_hidden": false,
+      "limit": 64
+    },
+    "valid": true
+  },
+  {
+    "type": "HostDirectoriesResult",
+    "value": {
+      "path": "/workspace",
+      "parent": "/",
+      "entries": [
+        {
+          "name": "project",
+          "path": "/workspace/project"
+        }
+      ],
+      "next_after": null,
+      "has_more": false,
+      "truncated": false
+    },
+    "valid": true
+  },
+  {
+    "type": "HostDirectoryPickParams",
+    "value": {
+      "start": ""
+    },
+    "valid": true
+  },
+  {
+    "type": "HostDirectoryPickResult",
+    "value": {
+      "path": null,
+      "cancelled": true
+    },
+    "valid": true
+  },
+  {
+    "type": "HostSkillsParams",
+    "value": {
+      "scope": "global",
+      "cwd": "",
+      "prefix": "",
+      "definition": null,
+      "limit": 32
+    },
+    "valid": true
+  },
+  {
+    "type": "HostSkillsResult",
+    "value": {
+      "candidates": [
+        {
+          "text": "$fixture",
+          "description": "Fixture"
+        }
+      ],
+      "truncated": false
+    },
+    "valid": true
+  },
+  {
+    "type": "HostThemesResult",
+    "value": {
+      "themes": [
+        {
+          "id": "dark",
+          "name": "Dark",
+          "dark": true,
+          "source": "builtin"
+        }
+      ],
+      "errors": [],
+      "truncated": false
+    },
+    "valid": true
+  },
+  {
+    "type": "HostThemeResolveParams",
+    "value": {
+      "name": "dark",
+      "json": ""
+    },
+    "valid": true
+  },
+  {
     "type": "CallHostToolParams",
     "value": {
       "identity": {
