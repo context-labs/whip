@@ -3437,7 +3437,7 @@ analysis. Hosted results for the repaired head remain pending.
 
 The combined workspace/run and design checkpoint passed `task check:phase` and
 `task check:analysis` at `8012242eb`. Store/runtime/RPC/process race suites passed
-in 265.377s/339.914s/57.751s/123.985s respectively. Contract generation and strict
+in 265.377s/339.914s/57.751s/192.569s respectively. Contract generation and strict
 CSP checks, 109 native SDK tests, 466 retained SDK tests and 6 example checks passed.
 The production v4 fixture passed in 96.792s, including workspace/run controls
 205ms and design provenance 319ms. Gateway passed 12.762s, Unix/browser executors
