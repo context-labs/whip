@@ -124,9 +124,9 @@ func TestModelOperationLifetimeRetainsCancellationWithoutBlanketDeadline(t *test
 	synctest.Test(t, func(t *testing.T) {
 		parent, stop := context.WithCancel(t.Context())
 		defer stop()
-		normal, cancelNormal := operationContext(parent, false)
+		normal, cancelNormal := operationContext(parent, false, 0)
 		defer cancelNormal()
-		helper, cancelHelper := operationContext(parent, true)
+		helper, cancelHelper := operationContext(parent, true, 0)
 		defer cancelHelper()
 		time.Sleep(11 * time.Minute)
 		if !errors.Is(normal.Err(), context.DeadlineExceeded) || helper.Err() != nil {

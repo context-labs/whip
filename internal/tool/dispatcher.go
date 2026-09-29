@@ -102,6 +102,10 @@ func (d *Dispatcher) callPrepared(ctx context.Context, call Invocation, prepared
 		return nil, "", fmt.Errorf("%w: model timeouts require models.call or models.batch execution", session.ErrInvalid)
 	}
 
+	if prepared.Timeout < 0 || prepared.Timeout > 5*time.Minute || prepared.Timeout != 0 && (prepared.ModelTimeouts || prepared.Apply != nil) {
+		return nil, "", fmt.Errorf("%w: invalid host effect timeout", session.ErrInvalid)
+	}
+
 	digest := sha256.Sum256([]byte(string(call.CellID) + "\x00" + call.RequestID))
 	id := session.OperationID("operation_" + hex.EncodeToString(digest[:]))
 	spec := session.OperationSpec{ID: id, CellID: call.CellID, RequestID: call.RequestID, Capability: prepared.Capability, Resource: prepared.Resource, Arguments: prepared.Arguments}
@@ -168,7 +172,7 @@ func (d *Dispatcher) callPrepared(ctx context.Context, call Invocation, prepared
 		}
 		return nil, id, errors.New("operation dispatch was not authorized")
 	}
-	effectCtx, cancel := operationContext(ctx, prepared.ModelTimeouts)
+	effectCtx, cancel := operationContext(ctx, prepared.ModelTimeouts, prepared.Timeout)
 	value, callErr := prepared.Run(effectCtx, id)
 	cancel()
 	if isFatal(callErr) {
@@ -230,11 +234,14 @@ func (d *Dispatcher) awaitPermission(ctx context.Context, id session.OperationID
 	}
 }
 
-func operationContext(parent context.Context, modelTimeouts bool) (context.Context, context.CancelFunc) {
+func operationContext(parent context.Context, modelTimeouts bool, timeout time.Duration) (context.Context, context.CancelFunc) {
 	if modelTimeouts {
 		return context.WithCancel(parent)
 	}
-	return context.WithTimeout(parent, 30*time.Second)
+	if timeout == 0 {
+		timeout = 30 * time.Second
+	}
+	return context.WithTimeout(parent, timeout)
 }
 
 func (d *Dispatcher) cancelAfterError(ctx context.Context, id session.OperationID, cause error) error {
