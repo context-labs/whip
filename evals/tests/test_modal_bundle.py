@@ -20,7 +20,7 @@ class BundleTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.payload = self.root / "payload"
         (self.payload / "evals").mkdir(parents=True)
         self.input = self.payload / "evals" / "input"
@@ -158,7 +158,7 @@ class CampaignTests(unittest.TestCase):
                         "resolved_native": {"agent": {}, "environment": {}, "verifier": {}}}
                 return result
 
-            model = dict(id="kimi-k3", context_length=10000, max_completion_tokens=1000,
+            model = dict(id=load_spec(evals)[2]["model"], context_length=10000, max_completion_tokens=1000,
                          reasoning_efforts=["high"], pricing={})
             with patch("whip_evals.prepare.build_candidate", return_value=metadata), \
                  patch("whip_evals.prepare.catalog", return_value=model), \

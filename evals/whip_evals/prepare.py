@@ -12,7 +12,7 @@ import tarfile
 import tempfile
 
 from .common import EVALS, REPO, atomic_write, file_hash, read_json, utc_now, value_hash, write_json, MODEL
-from .observe import catalog_cache, fetch_models, write_config
+from .observe import configure_catalog, fetch_models, write_config
 from .prepare_ripgrep import prepare as prepare_ripgrep
 
 
@@ -149,9 +149,8 @@ def catalog(protocol):
 
 
 def contract(candidate, protocol, model):
-    return {"engine": candidate["engine"], "configuration": candidate["configuration"],
-            "catalog_model": model, "commit_instruction": protocol["commit_instruction"],
-            "catalog_cache": {protocol["provider"]: catalog_cache(protocol["endpoint"], model)}}
+    return {"evidence_schema": "native-v4", "engine": candidate["engine"], "configuration": configure_catalog(candidate["configuration"], model),
+            "catalog_model": model, "commit_instruction": protocol["commit_instruction"]}
 
 
 def pull_images(tasks):

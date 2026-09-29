@@ -184,7 +184,7 @@ class WhipAdapter:
         complete = metrics["unknown_usage_calls"] == 0 and metrics["pending_calls"] == 0
         context.n_input_tokens = metrics["input_tokens"] if complete else None
         context.n_output_tokens = metrics["output_tokens"] if complete else None
-        context.n_cache_tokens = metrics["cache_tokens"] if complete else None
+        context.n_cache_tokens = metrics["cache_tokens"] if complete and metrics.get("unknown_cache_calls", 0) == 0 else None
         context.cost_usd = metrics["ledger_cost_usd"] if metrics["unknown_cost_calls"] == 0 and metrics["pending_calls"] == 0 else None
         if hasattr(context, "peak_context_tokens"):
             context.peak_context_tokens = metrics["peak_input_tokens"] if complete else None
@@ -247,7 +247,7 @@ class WhipAdapter:
                         # while the runner collects or grades the solution.
                         try:
                             stopped = await environment.exec("/opt/whip/whip daemon stop",
-                                env={"WHIP_HOME": "/tmp/whip-eval-home"}, timeout_sec=20)
+                                env={"WHIPCODE_HOME": "/tmp/whip-eval-home"}, timeout_sec=20)
                             if stopped.return_code != 0:
                                 evidence_errors.append("abnormal observer cleanup failed")
                         except Exception as error:

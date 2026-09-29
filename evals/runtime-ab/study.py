@@ -62,7 +62,15 @@ def paired_schedule(tasks, repetitions, seed, suite="all"):
 
 
 from whip_evals.execution import (AGENT_SETUP_SECONDS, RUNNER_GUARD_SECONDS,
-    native_agent_timeout, timing_envelope, cleanup_owned_containers)
+    timing_envelope, cleanup_owned_containers)
+
+
+def native_agent_timeout(path):
+    task = tomllib.loads((Path(path) / "task.toml").read_text())
+    timeout = task["agent"]["timeout_sec"]
+    if not math.isfinite(timeout) or timeout <= 0 or int(timeout) != timeout:
+        raise ValueError("native agent timeout must be positive integral seconds")
+    return int(timeout)
 
 
 def run(args):
@@ -102,6 +110,7 @@ def run(args):
     envelopes = {trial["task"]: timing_envelope(trial["path"], trial["runner"], timeouts[trial["task"]])
                  for trial in schedule}
     recipe = {"phase": args.phase, "suite": args.suite,
+              "runtime_contract": "native-v4", "permission_profile": "explicit-delegated-workspace-v1",
               "suite_filter": "original seeded full schedule; repository retains Pier tasks only",
               "timing_envelopes": envelopes, "runner_versions": runner_versions, "model": "kimi-k3", "provider": "https://api.inference.net/v1",
               "reasoning_effort": "high", "max_output": args.max_output, "host_concurrency": None if native_limits else 1,
@@ -117,8 +126,8 @@ def run(args):
     if native_limits:
         recipe.update(native_limits=True, prior_exposure_usd=prior_exposure,
                       start_index=start_index,
-                      runtime_configuration="production defaults; engine selection only",
-                      output_limit="provider-advertised maximum (maxOut=0)",
+                      runtime_configuration="native host defaults, explicit per-tree engine and delegated workspace grants",
+                      output_limit="provider-advertised maximum captured in native host configuration",
                       authorization_note="Total spending authorization across studies; no per-trial cost cap. Unknown cost reserves all remaining authorization and halts further dispatch.")
     if task_filter:
         recipe["task_filter"] = task_filter

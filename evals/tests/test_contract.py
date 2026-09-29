@@ -151,14 +151,17 @@ class ContractTests(unittest.TestCase):
                  patch('urllib.request.urlopen', return_value=response):
                 frozen = catalog(protocol)
             cfg = configuration('quickjs')
-            self.assertTrue(cfg['models'][protocol['model']]['vision'])
-            self.assertEqual(cfg['models'][protocol['model']]['maxOut'], 262144)
-            self.assertEqual(cfg['defaultModel'], protocol['model'])
-            self.assertEqual(cfg['rlm'], {'defaultEngine': 'quickjs'})
-            cached = contract({'engine': 'quickjs', 'configuration': cfg}, protocol, frozen)['catalog_cache']['inference-net']['models'][0]
-            self.assertEqual('inputModalities' in cached, modalities is not None)
+            self.assertEqual(cfg['defaults']['model']['name'], protocol['model'])
+            self.assertEqual(cfg['defaults']['model']['effort'], protocol['effort'])
+            self.assertEqual(cfg['engine'], 'quickjs')
+            saved = contract({'engine': 'quickjs', 'configuration': cfg}, protocol, frozen)
+            self.assertEqual(saved['evidence_schema'], 'native-v4')
+            route = saved['configuration']['providers']['inference-net']['models'][protocol['model']]
+            self.assertEqual(route['max_output_tokens'], min(262144, frozen['max_completion_tokens']))
+            self.assertEqual(route['context_window_tokens'], frozen['context_length'])
+            self.assertEqual('input_modalities' in saved['catalog_model'], modalities is not None)
             if modalities is not None:
-                self.assertEqual(cached['inputModalities'], modalities)
+                self.assertEqual(saved['catalog_model']['input_modalities'], modalities)
 
     def test_catalog_request_identity_and_validation(self):
         protocol = load_spec()[2]
@@ -202,7 +205,8 @@ class ContractTests(unittest.TestCase):
                 self.assertEqual(frozen['id'], pin)
                 self.assertEqual(frozen.get('listed_id'), listed)
                 cached = contract({'engine': 'quickjs', 'configuration': configuration('quickjs', pin)}, protocol, frozen)
-                self.assertEqual(cached['catalog_cache']['inference-net']['models'][0]['id'], pin)
+                self.assertEqual(cached['configuration']['defaults']['model']['name'], pin)
+                self.assertIn(pin, cached['configuration']['providers']['inference-net']['models'])
         for data in ([{'id': 'a/' + pin, **base}, {'id': 'b/' + pin, **base}], [{'id': pin + '-x', **base}]):
             with self.subTest(ids=[m['id'] for m in data]):
                 response = io.BytesIO(json.dumps({'data': data}).encode())
@@ -361,13 +365,11 @@ class ContractTests(unittest.TestCase):
                     prepare_tasks(lock, [task], cache)
 
 class PreparationTests(unittest.TestCase):
-    def test_commented_config_reads_only_engine_preference(self):
-        from whip_evals.run import default_engine
+    def test_native_plan_uses_frozen_engine_default_and_ignores_retired_home(self):
         with tempfile.TemporaryDirectory() as temporary, patch.dict('os.environ', {'WHIP_HOME': temporary}):
-            Path(temporary, 'config.json').write_text('''// Local comment
-            {"note":"https://example.invalid/a/*b*/", "rlm": {"defaultEngine":"quickjs",},}
-            ''')
-            self.assertEqual(default_engine(), 'quickjs')
+            Path(temporary, 'config.json').write_text('{"rlm":{"defaultEngine":"quickjs"}}')
+            self.assertEqual(plan_run(parser().parse_args(['run', 'smoke', '--dry-run']))['engines'], ['starlark'])
+            self.assertEqual(plan_run(parser().parse_args(['run', 'smoke', '--dry-run', '--engines', 'quickjs']))['engines'], ['quickjs'])
 
     def test_qualification_fixtures_parse_with_both_native_runners(self):
         from importlib import import_module
@@ -421,7 +423,7 @@ class PreparationTests(unittest.TestCase):
             a, b = manifest['candidates']
             self.assertEqual(a['binary_sha256'], b['binary_sha256'])
             self.assertEqual(a['source_sha256'], b['source_sha256'])
-            self.assertEqual([c['configuration']['rlm']['defaultEngine'] for c in (a, b)], ['starlark', 'quickjs'])
+            self.assertEqual([c['configuration']['engine'] for c in (a, b)], ['starlark', 'quickjs'])
 
     def test_own_reports_do_not_dirty_or_change_candidate_build(self):
         from whip_evals.prepare import command, source_snapshot

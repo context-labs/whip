@@ -17,137 +17,57 @@ from whip_adapter import WhipAdapter
 
 
 class FollowupAdapterTests(unittest.IsolatedAsyncioTestCase):
+    """Native evidence is bind-mounted; no intermediate cat/download probe exists."""
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.adapter = object.__new__(WhipAdapter)
         self.adapter.logs_dir = Path(self.directory.name)
         self.adapter.engine, self.adapter.binary_digest = "quickjs", "fixture"
-        self.adapter.timeout, self.adapter.max_cost, self.adapter.max_tokens = 10, 2.5, 0
-        self.adapter.max_turns, self.adapter.max_output = 60, 32768
+        self.adapter.timeout, self.adapter.max_cost, self.adapter.max_tokens = 10, 0, 0
+        self.adapter.max_turns, self.adapter.max_output = 0, 0
         self.adapter.commit, self.adapter.fixture = False, True
+        self.adapter.contract, self.adapter.native_defaults = None, True
         self.adapter.logger = MagicMock()
         self.context = AgentContext()
         self.metrics = aggregate([call()])
         self.outcome = {"final_snapshot": True, "frozen_daemon_pid": 123,
                         "pending": {}, "evidence_errors": []}
-        self.probe_interval = patch("whip_adapter.PROBE_INTERVAL_SECONDS", .001)
-        self.probe_interval.start()
-        self.addCleanup(self.probe_interval.stop)
 
-    async def download(self, source, target):
-        value = (self.metrics if target.name == "metrics.json" else
-                 self.outcome if target.name == "outcome.json" else
-                 {"bodies": []} if target.name == "content-export.json" else {})
-        target.write_text(json.dumps(value))
+    def publish(self):
+        evidence = self.adapter.evidence_dir()
+        evidence.mkdir(exist_ok=True)
+        for name, value in (("metrics.json", self.metrics), ("outcome.json", self.outcome)):
+            (evidence / name).write_text(json.dumps(value))
+        return evidence
 
-    def environment(self, execute, download=None):
+    def environment(self, execute):
         return SimpleNamespace(upload_file=AsyncMock(), exec=AsyncMock(side_effect=execute),
-                               download_file=AsyncMock(side_effect=download or self.download))
+                               download_file=AsyncMock(), download_dir=AsyncMock())
 
-    async def test_probe_timeout_retains_last_sample_then_complete_final_evidence(self):
-        done = asyncio.Event()
-        probes = 0
-
+    async def test_only_final_mounted_evidence_counts_without_probe_or_download(self):
         async def execute(command, **kwargs):
-            nonlocal probes
-            if command.startswith("python3"):
-                await done.wait()
-            elif command.startswith("cat"):
-                probes += 1
-                if probes == 1:
-                    return SimpleNamespace(stdout=json.dumps(self.metrics), return_code=0)
-                # Last sample is still present at the timeout, independent of
-                # canonical accounting becoming final during later download.
-                self.assertEqual(self.context.metadata["whip"], self.metrics)
-                done.set()
-                raise RuntimeError("Command timed out after 15 seconds")
-            return SimpleNamespace(stdout="", stderr="", return_code=0)
-
+            self.assertTrue(command.startswith("python3"))
+            self.publish()
+            self.assertIsNone(self.context.cost_usd)
+            return SimpleNamespace(stdout="observer finished", stderr="", return_code=0)
         environment = self.environment(execute)
         await self.adapter.run("fixture", environment, self.context)
         self.assertTrue(self.context.metadata["whip_accounting_complete"])
         self.assertEqual(self.context.cost_usd, .008)
         self.assertEqual(self.context.n_input_tokens, 1000)
-        telemetry = self.context.metadata["whip_metrics_probes"]
-        self.assertEqual(telemetry["timeouts"], 1)
-        self.assertEqual(telemetry["samples"], 1)
-        self.assertGreaterEqual(telemetry["max_staleness_seconds"], 0)
-        self.assertEqual(self.context.metadata["whip_evidence_errors"], [])
-        self.assertFalse(self.context.metadata["whip_cleanup"]["truncated"])
+        self.assertEqual(environment.exec.await_count, 1)
+        environment.download_file.assert_not_awaited()
+        environment.download_dir.assert_not_awaited()
 
-    async def test_actual_observer_failure_after_probe_timeout_still_propagates(self):
-        done = asyncio.Event()
-
-        async def execute(command, **kwargs):
-            if command.startswith("python3"):
-                await done.wait()
-                raise RuntimeError("observer transport failed")
-            if command.startswith("cat"):
-                done.set()
-                raise TimeoutError("probe timeout")
-            return SimpleNamespace(stdout="", stderr="", return_code=0)
-
-        environment = self.environment(execute)
-        with self.assertRaisesRegex(RuntimeError, "observer transport failed"):
-            await self.adapter.run("fixture", environment, self.context)
-        self.assertEqual(self.context.metadata["whip_metrics_probes"]["timeouts"], 1)
-        self.assertFalse(self.context.metadata["whip_accounting_complete"])
-        self.assertIsNone(self.context.cost_usd)
-        environment.exec.assert_any_await("/opt/whip/whip daemon stop",
-            env={"WHIP_HOME": "/tmp/whip-eval-home"}, timeout_sec=20)
-
-    async def test_no_probe_after_operation_completes(self):
-        async def execute(command, **kwargs):
-            self.assertTrue(command.startswith("python3"))
-            return SimpleNamespace(stdout="", stderr="", return_code=0)
-
-        await self.adapter.run("fixture", self.environment(execute), self.context)
-        self.assertEqual(self.context.metadata["whip_metrics_probes"]["attempts"], 0)
-        self.assertTrue(self.context.metadata["whip_accounting_complete"])
-
-    async def test_other_probe_errors_are_not_tolerated(self):
-        async def execute(command, **kwargs):
-            if command.startswith("python3"):
-                await asyncio.Event().wait()
-            if command.startswith("cat"):
-                raise RuntimeError("Docker connection lost")
-            return SimpleNamespace(stdout="", stderr="", return_code=0)
-
-        with self.assertRaisesRegex(RuntimeError, "Docker connection lost"):
-            await self.adapter.run("fixture", self.environment(execute), self.context)
-        self.assertEqual(self.context.metadata["whip_metrics_probes"]["timeouts"], 0)
-        self.assertFalse(self.context.metadata["whip_accounting_complete"])
-
-    async def test_malformed_intermediate_metrics_remain_fatal(self):
-        async def execute(command, **kwargs):
-            if command.startswith("python3"):
-                await asyncio.Event().wait()
-            if command.startswith("cat"):
-                return SimpleNamespace(stdout='{invalid-json', stderr="", return_code=0)
-            return SimpleNamespace(stdout="", stderr="", return_code=0)
-
-        with self.assertRaises(json.JSONDecodeError):
-            await self.adapter.run("fixture", self.environment(execute), self.context)
-        self.assertFalse(self.context.metadata["whip_accounting_complete"])
-        self.assertIsNone(self.context.cost_usd)
-        self.assertEqual(self.context.metadata["whip_metrics_probes"]["timeouts"], 0)
-
-    async def test_malformed_final_metrics_or_outcome_keep_observer_status_and_decode_error(self):
-        async def execute(command, **kwargs):
-            return SimpleNamespace(stdout="observer finished", stderr="", return_code=0)
-
+    async def test_malformed_final_metrics_or_outcome_keep_observer_status(self):
         for malformed in ("metrics.json", "outcome.json"):
             with self.subTest(malformed=malformed):
                 self.context = AgentContext()
-
-                async def download(source, target):
-                    if target.name == malformed:
-                        target.write_text('{invalid-json')
-                    else:
-                        await self.download(source, target)
-
-                await self.adapter.run("fixture", self.environment(execute, download), self.context)
+                async def execute(command, **kwargs):
+                    (self.publish() / malformed).write_text('{invalid-json')
+                    return SimpleNamespace(stdout="observer finished", stderr="", return_code=0)
+                await self.adapter.run("fixture", self.environment(execute), self.context)
                 self.assertEqual(self.context.metadata["whip_observer_exit_code"], 0)
                 self.assertFalse(self.context.metadata["whip_accounting_complete"])
                 self.assertIsNone(self.context.cost_usd)
@@ -155,82 +75,59 @@ class FollowupAdapterTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn(malformed + " decode: JSONDecodeError", self.context.metadata["whip_evidence_errors"])
                 self.assertEqual((self.adapter.logs_dir / "observer.stdout").read_text(), "observer finished")
 
-    async def test_nonzero_observer_exit_is_an_error_with_evidence(self):
-        async def execute(command, **kwargs):
-            return SimpleNamespace(stdout="raw", stderr="failed", return_code=7 if command.startswith("python3") else 0)
+    async def test_missing_evidence_is_unknown_without_download_retry(self):
+        environment = self.environment(lambda *args, **kwargs: SimpleNamespace(stdout="", stderr="", return_code=0))
+        await self.adapter.run("fixture", environment, self.context)
+        self.assertFalse(self.context.metadata["whip_accounting_complete"])
+        self.assertIsNone(self.context.cost_usd)
+        self.assertIn("metrics.json: missing", self.context.metadata["whip_evidence_errors"])
+        environment.download_file.assert_not_awaited()
 
+    async def test_nonzero_observer_with_valid_evidence_remains_failed(self):
+        async def execute(command, **kwargs):
+            self.publish()
+            return SimpleNamespace(stdout="raw", stderr="failed", return_code=7 if command.startswith("python3") else 0)
         with self.assertRaisesRegex(RuntimeError, "observer exited with code 7"):
             await self.adapter.run("fixture", self.environment(execute), self.context)
-        self.assertEqual(self.context.metadata["whip_observer_exit_code"], 7)
-        self.assertFalse(self.context.metadata["whip_accounting_complete"])
-        self.assertTrue((self.adapter.logs_dir / "outcome.json").exists())
-
-    async def test_stalled_evidence_cleanup_is_bounded_and_unknown(self):
-        async def execute(command, **kwargs):
-            return SimpleNamespace(stdout="", stderr="", return_code=0)
-
-        async def download(source, target):
-            target.write_text('{"partial":')
-            await asyncio.Event().wait()
-
-        started = asyncio.get_running_loop().time()
-        with patch("whip_adapter.CLEANUP_TIMEOUT_SECONDS", .02):
-            await self.adapter.run("fixture", self.environment(execute, download), self.context)
-        self.assertLess(asyncio.get_running_loop().time() - started, .5)
-        self.assertTrue(self.context.metadata["whip_cleanup"]["truncated"])
-        self.assertEqual(self.context.metadata["whip_cleanup"]["downloaded"], [])
         self.assertFalse(self.context.metadata["whip_accounting_complete"])
         self.assertIsNone(self.context.cost_usd)
-        self.assertIsNone(self.context.n_input_tokens)
-        self.assertIn("evidence/daemon cleanup exceeded deadline", self.context.metadata["whip_evidence_errors"])
+        self.assertTrue((self.adapter.evidence_dir() / "outcome.json").exists())
 
-    async def test_later_stalled_download_preserves_raw_metrics_but_not_final_accounting(self):
-        async def execute(command, **kwargs):
-            return SimpleNamespace(stdout="", stderr="", return_code=0)
-
-        async def download(source, target):
-            if target.name in ("metrics.json", "outcome.json"):
-                await self.download(source, target)
-            else:
-                await asyncio.Event().wait()
-
-        with patch("whip_adapter.CLEANUP_TIMEOUT_SECONDS", .02):
-            await self.adapter.run("fixture", self.environment(execute, download), self.context)
-        self.assertEqual(self.context.metadata["whip"], self.metrics)
-        self.assertEqual(self.context.metadata["whip_outcome"], self.outcome)
-        self.assertTrue(self.context.metadata["whip_cleanup"]["truncated"])
-        self.assertFalse(self.context.metadata["whip_accounting_complete"])
-        self.assertIsNone(self.context.cost_usd)
-        self.assertIsNone(self.context.n_input_tokens)
-
-    async def test_stalled_daemon_stop_does_not_replace_observer_error(self):
+    async def test_lost_exec_stops_exact_native_trial_home(self):
         async def execute(command, **kwargs):
             if command.startswith("python3"):
-                raise RuntimeError("original observer failure")
-            await asyncio.Event().wait()
+                raise RuntimeError("observer transport failed")
+            return SimpleNamespace(stdout="", stderr="", return_code=0)
+        environment = self.environment(execute)
+        with self.assertRaisesRegex(RuntimeError, "observer transport failed"):
+            await self.adapter.run("fixture", environment, self.context)
+        environment.exec.assert_any_await("/opt/whip/whip daemon stop",
+            env={"WHIPCODE_HOME": "/tmp/whip-eval-home"}, timeout_sec=20)
+        self.assertFalse(self.context.metadata["whip_accounting_complete"])
+        self.assertIsNone(self.context.cost_usd)
 
+    async def test_stalled_cleanup_preserves_primary_error_and_is_bounded(self):
+        async def execute(command, **kwargs):
+            if command.startswith("python3"):
+                self.publish()
+                raise RuntimeError("primary observer failure")
+            await asyncio.Event().wait()
+        started = asyncio.get_running_loop().time()
         with patch("whip_adapter.CLEANUP_TIMEOUT_SECONDS", .02):
-            with self.assertRaisesRegex(RuntimeError, "original observer failure"):
+            with self.assertRaisesRegex(RuntimeError, "primary observer failure"):
                 await self.adapter.run("fixture", self.environment(execute), self.context)
+        self.assertLess(asyncio.get_running_loop().time() - started, .5)
         self.assertTrue(self.context.metadata["whip_cleanup"]["truncated"])
         self.assertFalse(self.context.metadata["whip_accounting_complete"])
+        self.assertIsNone(self.context.cost_usd)
 
-    async def test_external_cancellation_during_cleanup_still_propagates(self):
-        download_started = asyncio.Event()
-
+    async def test_cancelled_observer_keeps_unknown_accounting(self):
         async def execute(command, **kwargs):
+            if command.startswith("python3"):
+                raise asyncio.CancelledError()
             return SimpleNamespace(stdout="", stderr="", return_code=0)
-
-        async def download(source, target):
-            download_started.set()
-            await asyncio.Event().wait()
-
-        task = asyncio.create_task(self.adapter.run("fixture", self.environment(execute, download), self.context))
-        await download_started.wait()
-        task.cancel()
         with self.assertRaises(asyncio.CancelledError):
-            await task
-        self.assertTrue(self.context.metadata["whip_cleanup"]["truncated"])
+            await self.adapter.run("fixture", self.environment(execute), self.context)
         self.assertFalse(self.context.metadata["whip_accounting_complete"])
         self.assertIsNone(self.context.cost_usd)
 
@@ -261,7 +158,7 @@ timeout_sec = 300
         self.assertEqual(envelope["native_verifier_attempts"], 2)
         self.assertEqual(envelope["native_verifier_seconds_per_attempt"], 1800)
         self.assertEqual(envelope["separate_verifier_build_outside_timeout_seconds"], 0)
-        self.assertEqual(envelope["outer_watchdog_seconds"], 1800 + 600 + 1245 + 300 + 3600 + 1 + 960 + 60)
+        self.assertEqual(envelope["outer_watchdog_seconds"], 1800 + 1920 + 1245 + 300 + 3600 + 1 + 960 + 60)
 
     def test_harbor_separate_build_has_its_own_budget(self):
         with tempfile.TemporaryDirectory() as directory:

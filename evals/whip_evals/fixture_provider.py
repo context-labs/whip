@@ -6,7 +6,7 @@ from threading import Thread
 
 def qualification_code(engine, child):
     if child:
-        command = "sleep 1 && git add proof.txt child.txt large.txt lines.txt page.txt && git commit -qm fixture"
+        command = "sleep 3 && git add proof.txt child.txt large.txt lines.txt page.txt && git commit -qm fixture"
         if engine == "starlark":
             return 'files.write(path="child.txt", content="child")\nshell.run(command=' + json.dumps(command) + ')'
         return 'await files.write({path:"child.txt",content:"child"}); await shell.run({command:' + json.dumps(command) + '});'
@@ -20,7 +20,7 @@ def qualification_code(engine, child):
                 'page = files.read(path="lines.txt", offset=2, limit=1)\n'
                 'files.write(path="page.txt", content=page["output"])\n'
                 'shell.start(command=' + json.dumps(service) + ')\n'
-                'agents.spawn(name="fixture-child", prompt=' + json.dumps(prompt) + ')')
+                'agents.spawn(prompt=' + json.dumps(prompt) + ')')
     return ('await files.write({path:"proof.txt",content:"proof"});'
             'await files.write({path:"large.txt",content:"x".repeat(70000)});'
             'await files.read({path:"large.txt"});'
@@ -28,7 +28,7 @@ def qualification_code(engine, child):
             'const page = await files.read({path:"lines.txt",offset:2,limit:1});'
             'await files.write({path:"page.txt",content:page.output});'
             'await shell.start({command:' + json.dumps(service) + '});'
-            'await agents.spawn({name:"fixture-child",prompt:' + json.dumps(prompt) + '});')
+            'await agents.spawn({prompt:' + json.dumps(prompt) + '});')
 
 
 def start(engine):
@@ -52,7 +52,7 @@ def start(engine):
             has_tool = any(m.get("role") == "tool" for m in messages)
             if request.get("tools") and not has_tool:
                 code = qualification_code(engine, child)
-                delta = {"tool_calls": [{"index": 0, "id": "fixture-call", "type": "function", "function": {"name": "rlm_exec", "arguments": json.dumps({"code": code})}}]}
+                delta = {"tool_calls": [{"index": 0, "id": "fixture-call", "type": "function", "function": {"name": "execute", "arguments": json.dumps({"code": code})}}]}
                 reason = "tool_calls"
             else:
                 delta, reason = {"content": "Fixture complete."}, "stop"
@@ -61,7 +61,7 @@ def start(engine):
             self.end_headers()
             for part in [{"choices": [{"index": 0, "delta": delta}]},
                          {"choices": [{"index": 0, "delta": {}, "finish_reason": reason}],
-                          "usage": {"prompt_tokens": 100, "completion_tokens": 30, "cost": 0.0}}]:
+                          "usage": {"prompt_tokens": 100, "completion_tokens": 30, "prompt_tokens_details": {"cached_tokens": 0}, "cost": 0.0}}]:
                 self.wfile.write(("data: " + json.dumps(part) + "\n\n").encode())
             self.wfile.write(b"data: [DONE]\n\n")
             self.wfile.flush()
