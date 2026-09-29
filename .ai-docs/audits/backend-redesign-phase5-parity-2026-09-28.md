@@ -109,3 +109,9 @@ After integrating native prompt inspection and conversation leaf9185083, the ent
 The retained title invalidation and eleven sidebar-creation scenarios now use actual native SDK validation, catalog revisions, immutable agent revisions and durable creation/input commands. They preserve stale read cancellation, per-client listener retirement, host isolation, independent drafts, explicit model confirmation, secret exclusion, background focus and late creation navigation. Unsupported old hosts fail initialization before catalog reads. Missing provider metadata now displays a retryable error while retaining the first-message draft. A candidate provider-confirmation production change was discarded after correcting the fixture to the actual nested readiness selection shape.
 
 All five affected suites (welcome, sidebar creation, title invalidation, provider connections/defaults) pass63 tests4.84s; shared app type checking passes. The earlier full renderer gate remains failed until the independently assigned input/content fixture migrations are integrated and the whole suite reruns.
+
+### Saved creation handover after app reload — 2026-09-28
+
+General Settings can explicitly restore an accepted native tree creation into its original draft tab after a new app instance loads. Fresh receipt evidence and the SDK's saved acceptance are required; identity-only evidence cannot restore. The original immutable request is retained for an explicit retry when acknowledgement was lost. Restoration does not submit the first message, navigate, or reopen a closed tab, and conflicts/storage failures retain the draft and recovery record. Initial creation and restoration share the same validated handover.
+
+Four affected suites pass69 tests4.86s, including new-instance/closed-tab restore, exact retry, deleted or mismatched host evidence, destination conflicts, storage failure and the actual Settings control. Shared app type checking passes.

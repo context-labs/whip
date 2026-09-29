@@ -4,7 +4,9 @@ import { RecoveryJournal, RemoteError, type RecoveryRecord, type WorkspaceAction
 import { assertValid, type ContractTypes } from '@whip/protocol';
 import fixtures from '../../protocol/schema/fixtures.json';
 import { RecoverySettings, recoveryStatus } from '../src/settings/recovery';
-import { providerFixture } from './provider-fixture';
+import { CompositionStore } from '../src/compositions';
+import { SessionTabs, welcomeDraftKey } from '../src/session-tabs';
+import { providerFixture, sessionRecord } from './provider-fixture';
 
 beforeEach(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
 afterEach(() => vi.unstubAllGlobals());
@@ -70,6 +72,7 @@ it('keeps identity-only creation evidence unconfirmed', async () => {
   f.mount(<RecoverySettings />); fireEvent.click(await screen.findByRole('button', { name: 'Check delivery' }));
   await screen.findByText(/An identity receipt exists, but it does not verify this exact payload/);
   expect((await f.journal.list())[0]?.accepted).toBe(false); expect(f.count('trees.create')).toBe(0);
+  expect(screen.queryByRole('button', { name: 'Restore created session' })).toBeNull();
 });
 it.each(['claimed', 'uncertain'] as const)('reports acknowledged workspace action %s without claiming success', async state => {
   const f = await fixture(); await f.journal.forget(f.command.record);
@@ -105,4 +108,28 @@ it('reports native steering receipts without confusing them with permission edit
   const evidence = wire('InputSteeringResult');
   expect(recoveryStatus({ state: 'found', evidence: { ...evidence, deleted: true } }, true)).toBe('Input steering accepted · session deleted.');
   expect(recoveryStatus({ state: 'found', evidence: { ...evidence, deleted: false, input: null } }, true)).toBe('Input steering accepted · waiting for consumption.');
+});
+
+it('restores only an explicitly checked accepted creation from Settings without sending its draft', async () => {
+  const f = await fixture(); await f.journal.forget(f.command.record);
+  const tabs = new SessionTabs(), tab = tabs.openNew({ runtimeId: f.client.runtimeID, cwd: '/project' });
+  const drafts = new Map([[welcomeDraftKey(tab.id), 'Keep this unsent task']]);
+  Object.assign(f.runtime, { tabs, compositions: new CompositionStore(() => true), connections: { isAttached: () => true },
+    draft: (key: string) => drafts.get(key) ?? '', setDraft: (key: string, text: string) => { drafts.set(key, text); } });
+  const params = { ...wire('CreateTreeParams'), creation_id: tab.id };
+  const created = { ...wire('CreateTreeResult'), deleted: false, root: { ...sessionRecord('created'), parent_id: null, definition: params.definition },
+    tree: { id: 'tree', engine: params.engine, metadata: params.metadata, revision: '1', created_at: '2026-09-28T00:00:00Z' },
+    creation: { id: tab.id, root_id: 'created', tree_id: 'tree', created_at: '2026-09-28T00:00:00Z' } };
+  f.data.handlers['trees.creation'] = () => created;
+  await f.journal.put({ ...f.client.command('trees.create', params).record, accepted: true });
+  f.mount(<RecoverySettings />); await screen.findByText('trees.create · Workstation');
+  expect(screen.queryByRole('button', { name: 'Restore created session' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Check delivery' }));
+  const restore = await screen.findByRole('button', { name: 'Restore created session' });
+  expect(tabs.workspace().tabs[0]).toMatchObject({ kind: 'new' });
+  fireEvent.click(restore);
+  await screen.findByText('No saved commands.');
+  expect(tabs.workspace().tabs[0]).toMatchObject({ id: tab.id, kind: 'chat', rootId: 'created' });
+  expect(drafts.get('host:created:created')).toBe('Keep this unsent task');
+  expect(f.count('trees.creation')).toBe(2); expect(f.count('trees.create')).toBe(0); expect(f.count('sessions.submit')).toBe(0);
 });

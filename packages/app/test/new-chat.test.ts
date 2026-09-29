@@ -2,7 +2,7 @@ import { expect, it, vi } from 'vitest';
 import { DurableCommand, RecoveryJournal, type CreateTreeParams, type CreateTreeResult, type DurableMethod, type RecoveryRecord } from '@whip/sdk';
 import fixtures from '../../protocol/schema/fixtures.json';
 import { providerFixture, sessionRecord } from './provider-fixture';
-import { startNewChat } from '../src/new-chat';
+import { restoreCreatedChat, startNewChat } from '../src/new-chat';
 import { CompositionStore } from '../src/compositions';
 import { SubmittedInputs } from '../src/input-presentation';
 import { SessionTabs, welcomeDraftKey } from '../src/session-tabs';
@@ -94,4 +94,68 @@ it('moves staged attachments to the accepted root and verifies them before first
   expect(uploaded.params).toMatchObject({ session_id: 'created', media_type: 'text/plain' });
   expect(f.calls.find(call => call.method === 'sessions.submit')?.params).toMatchObject({ parts: [{ type: 'text', text: 'Original message' }, { type: 'content', reference_id: (uploaded.params as any).reference_id }] });
   expect(f.runtime.compositions.get('host:created:created').attachments).toEqual([]);
+});
+
+it.each([false, true])('restores verified saved creation into its original tab after reload without sending (closed=%s)', async closed => {
+  const f = await fixture(), values = new Map<string, string>();
+  const storage = { keys: () => [...values.keys()], getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); }, removeItem: (key: string) => { values.delete(key); } };
+  const tabs = new SessionTabs(storage), tab = tabs.openNew({ runtimeId: 'host', cwd: '/original' });
+  if (closed) tabs.closeViews([tab.id]);
+  const params = { ...f.params, creation_id: tab.id };
+  const record = { ...f.client.command('trees.create', params).record, accepted: true };
+  await f.recovery.put(record);
+  const created = f.created(); created.creation.id = tab.id;
+  f.data.handlers['trees.creation'] = () => created;
+  const restoredTabs = new SessionTabs(storage);
+  const reloaded = { ...f.runtime, tabs: restoredTabs, compositions: new CompositionStore(() => true) } as AppRuntime;
+  reloaded.setDraft(welcomeDraftKey(tab.id), 'Edited after reopening the app');
+  await restoreCreatedChat(reloaded, f.client, record);
+  const descriptor = closed ? restoredTabs.workspace().closed[0]!.tab : restoredTabs.workspace().tabs[0];
+  expect(descriptor).toMatchObject({ id: tab.id, kind: 'chat', runtimeId: 'host', rootId: 'created' });
+  if (closed) expect(restoredTabs.workspace().tabs).toHaveLength(0);
+  expect(reloaded.draft('host:created:created')).toBe('Edited after reopening the app');
+  expect(reloaded.draft(welcomeDraftKey(tab.id))).toBe('');
+  expect(f.count('trees.create')).toBe(0); expect(f.count('sessions.submit')).toBe(0);
+  expect(f.count('trees.creation')).toBe(1); expect(await f.recovery.list()).toEqual([]);
+});
+it('refuses identity-only saved creation evidence and preserves the original draft', async () => {
+  const f = await fixture(), record = f.client.command('trees.create', { ...f.params, creation_id: f.tab.id }).record;
+  await f.recovery.put(record);
+  await expect(restoreCreatedChat(f.runtime, f.client, record)).rejects.toThrow('not been verified');
+  expect(f.runtime.draft(f.source)).toBe('Original message'); expect(await f.recovery.list()).toHaveLength(1);
+  expect(f.count('trees.create')).toBe(0); expect(f.count('sessions.submit')).toBe(0);
+});
+it.each(['host', 'draft', 'deleted', 'detached'] as const)('preserves saved creation and both drafts when restoration conflicts (%s)', async conflict => {
+  const f = await fixture(), record = { ...f.client.command('trees.create', { ...f.params, creation_id: f.tab.id }).record, accepted: true };
+  await f.recovery.put(record);
+  if (conflict === 'host') f.runtime.tabs.updateNew(f.tab.id, { runtimeId: 'different-host' });
+  if (conflict === 'draft') f.runtime.setDraft('host:created:created', 'Other destination draft');
+  if (conflict === 'deleted') f.data.handlers['trees.creation'] = () => ({ ...f.created(), root: null, tree: null, deleted: true });
+  if (conflict === 'detached') vi.mocked(f.runtime.connections.isAttached).mockReturnValue(false);
+  await expect(restoreCreatedChat(f.runtime, f.client, record)).rejects.toThrow();
+  expect(f.runtime.tabs.workspace().tabs[0]).toMatchObject({ kind: 'new' });
+  expect(f.runtime.draft(f.source)).toBe('Original message');
+  if (conflict === 'draft') expect(f.runtime.draft('host:created:created')).toBe('Other destination draft');
+  expect(await f.recovery.list()).toHaveLength(1); expect(f.count('sessions.submit')).toBe(0);
+});
+it('preserves the source draft and receipt when destination storage fails', async () => {
+  const f = await fixture(), record = { ...f.client.command('trees.create', { ...f.params, creation_id: f.tab.id }).record, accepted: true };
+  await f.recovery.put(record);
+  vi.spyOn(f.runtime, 'setDraft').mockImplementation((key, text) => { if (key === 'host:created:created') throw new Error('Device storage full'); f.drafts.set(key, text); });
+  await expect(restoreCreatedChat(f.runtime, f.client, record)).rejects.toThrow('Device storage full');
+  expect(f.runtime.draft(f.source)).toBe('Original message'); expect(await f.recovery.list()).toHaveLength(1);
+  expect(f.runtime.tabs.workspace().tabs[0]).toMatchObject({ kind: 'new' });
+});
+
+it('requires an explicit exact retry after lost creation acknowledgement before restoring an edited draft', async () => {
+  const f = await fixture(), command = f.client.command('trees.create', { ...f.params, creation_id: f.tab.id }, { journal: f.recovery });
+  await f.recovery.put(command.record);
+  const recovered = DurableCommand.recover(f.client, command.record, { journal: f.recovery });
+  expect((await recovered.check()).state).toBe('identity_only');
+  await recovered.retry();
+  f.runtime.setDraft(f.source, 'Edited after the lost acknowledgement');
+  await restoreCreatedChat(f.runtime, f.client, (await f.recovery.list())[0]!);
+  expect(f.runtime.draft('host:created:created')).toBe('Edited after the lost acknowledgement');
+  expect(f.count('trees.create')).toBe(1); expect(f.count('sessions.submit')).toBe(0);
+  expect(f.calls.find(call => call.method === 'trees.create')?.params).toEqual({ ...f.params, creation_id: f.tab.id });
 });

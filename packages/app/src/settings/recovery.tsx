@@ -7,6 +7,7 @@ import { useAppState, useRuntime } from '../context';
 import { ErrorNotice } from '../error-feedback';
 import { layout } from '../styles';
 import { SettingsGroup } from './section-layout';
+import { restoreCreatedChat } from '../new-chat';
 
 function outcome(evidence: RecoveryEvidence): string {
   if ('receipt' in evidence) {
@@ -57,11 +58,12 @@ function RecoveryRow({ record, client, hostName, refresh }: { record: RecoveryRe
   const [error, setError] = useState<unknown>();
   const request = useRef<AbortController | null>(null);
   useEffect(() => { request.current = null; setBusy(false); setCheck(undefined); setError(undefined); return () => request.current?.abort(); }, [client]);
-  async function action(kind: 'check' | 'retry' | 'forget') {
+  async function action(kind: 'check' | 'retry' | 'forget' | 'restore') {
     if (request.current || kind !== 'forget' && !client) return;
     const controller = new AbortController(); request.current = controller; setBusy(true); setError(undefined); setConfirm(undefined);
     try {
       if (kind === 'forget') await runtime.recovery.forget(record);
+      else if (kind === 'restore' && client) await restoreCreatedChat(runtime, client, record, controller.signal);
       else if (client) {
         const command = DurableCommand.recover(client, record, { journal: runtime.recovery });
         if (kind === 'retry') await command.retry({ signal: controller.signal });
@@ -78,6 +80,10 @@ function RecoveryRow({ record, client, hostName, refresh }: { record: RecoveryRe
     {!client && <p>Connect the saved runtime with this device’s original client identity to check or retry. A replacement runtime cannot receive this request.</p>}
     <details><summary>Inspect saved request</summary><pre {...stylex.props(layout.muted)} style={{ maxHeight: 240, overflow: 'auto', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{record.request.slice(0, 4096)}</pre>{record.request.length > 4096 && <p>Preview limited to 4,096 characters. Retry retains the complete original payload.</p>}</details>
     <div {...stylex.props(layout.row)}><Button disabled={!client || busy} onClick={() => void action('check')}>Check delivery</Button><Button disabled={!client || busy} onClick={() => setConfirm('retry')}>Retry exact request…</Button><Button disabled={busy} onClick={() => setConfirm('forget')}>Forget tracking…</Button></div>
+    {method === 'trees.create' && check?.state === 'found' && 'creation' in check.evidence && !check.evidence.deleted && <>
+      <p>Restore the created session to its original draft tab, including its current unsent text. This does not send a message or reopen a closed tab.</p>
+      <Button disabled={!client || busy} onClick={() => void action('restore')}>Restore created session</Button>
+    </>}
     <ErrorNotice type="action" owner={`recovery:${record.runtimeID}:${method}`} title="Saved command needs attention" error={error} />
     {confirm && <Dialog open onOpenChange={open => { if (!open) setConfirm(undefined); }} title={confirm === 'retry' ? 'Retry this exact request?' : 'Forget command tracking?'} description={confirm === 'retry'
       ? 'Whip will resend the original identity and complete payload to the saved runtime. The host checks its durable receipt first. This can admit work if the request never arrived. Closing Settings only stops waiting; it does not cancel accepted work.'

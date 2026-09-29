@@ -3688,3 +3688,5 @@ Remaining retained parity obligations are explicit: captured host-settings reloa
 permission rules and tool denial editing, Rod/ChromeDP driver selection, per-turn model-call
 and compaction counts, and live REPL stdout. Native canonical substitutions do not waive
 these workflows; current UI does not manufacture their missing evidence.
+
+Saved root creation recovery offers an explicit restore only after a fresh SDK check verifies the exact previously acknowledged request. Identity-only evidence remains unconfirmed; an explicit exact retry can obtain acknowledgement without submitting a first message. Restore uses the original creation/tab identity, preserves current unsent text, validates the native root/tree/definition/engine, and rejects changed hosts or conflicting destination drafts. A closed descriptor stays closed. The same handover serves initial creation and saved recovery; no alternate session creation or input replay occurs.
