@@ -321,8 +321,14 @@ func (s *Store) SettleModelAttempt(ctx context.Context, id session.ModelAttemptI
 }
 
 func settleAttempt(ctx context.Context, tx *sql.Tx, attempt session.ModelAttempt, outcome session.ModelAttemptResult, message *session.MessageDraft) (session.ModelAttempt, error) {
-	if (attempt.Request.Purpose == "compaction" || attempt.Request.Purpose == session.GoalFormulationPurpose || attempt.Request.Purpose == session.AutomaticTitlePurpose || attempt.OperationID != nil) && message != nil {
+	if (attempt.Request.Purpose == "compaction" || attempt.Request.Purpose == session.GoalFormulationPurpose || attempt.Request.Purpose == session.AutomaticTitlePurpose || attempt.OperationID != nil) && (message != nil || outcome.Presentation != nil) {
 		return session.ModelAttempt{}, fmt.Errorf("%w: a helper response is not a transcript message", session.ErrInvalid)
+	}
+	if outcome.Presentation != nil && outcome.Presentation.AttemptID != attempt.ID {
+		return session.ModelAttempt{}, session.ErrInvalid
+	}
+	if message != nil && message.Presentation != nil && message.Presentation.AttemptID != attempt.ID {
+		return session.ModelAttempt{}, session.ErrInvalid
 	}
 	var messageID *session.MessageID
 	if message != nil {
@@ -350,7 +356,7 @@ func settleAttempt(ctx context.Context, tx *sql.Tx, attempt session.ModelAttempt
 		return session.ModelAttempt{}, ErrConflict
 	}
 	if attempt.DispatchedAt == nil {
-		if outcome.State != session.AttemptCancelled || message != nil || !reflect.DeepEqual(outcome.Usage, session.ModelUsage{}) || outcome.ReportedCostNanoUSD != nil || (outcome.ElapsedMillis != nil && *outcome.ElapsedMillis != 0) {
+		if outcome.State != session.AttemptCancelled || message != nil || outcome.Presentation != nil || !reflect.DeepEqual(outcome.Usage, session.ModelUsage{}) || outcome.ReportedCostNanoUSD != nil || (outcome.ElapsedMillis != nil && *outcome.ElapsedMillis != 0) {
 			return session.ModelAttempt{}, ErrConflict
 		}
 		cost = new(int64(0))

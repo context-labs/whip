@@ -214,7 +214,7 @@ func compactionMessages(turns, each int) []session.Message {
 
 type compactionPreview struct{ calls int }
 
-func (p *compactionPreview) BeginPreview(session.Turn, session.ModelAttemptID, session.MessageID) (func(model.Chunk), func()) {
+func (p *compactionPreview) BeginPreview(session.Turn, session.ModelAttemptID, session.MessageID, *model.PresentationAccumulator) (func(model.Chunk), func()) {
 	p.calls++
 	return func(model.Chunk) {}, func() {}
 }

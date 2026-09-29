@@ -15,6 +15,7 @@ func TestChildPermissionMigrationPreservesDataWithoutBackfill(t *testing.T) {
 	setModeTest(t, s, root.ID, "automatic", 1, session.PermissionAutomatic)
 	child := spawnChildTest(t, s, "existing-child", childRequest(root.ID))
 	// Restore the exact schema55 layout, retaining ordinary session/input data.
+	removePresentationSchema(t, s)
 	execTest(t, s, "DROP TABLE child_permission_policies; PRAGMA user_version=55")
 	identity := s.Identity()
 	reopened := openTest(t, path)
@@ -22,7 +23,7 @@ func TestChildPermissionMigrationPreservesDataWithoutBackfill(t *testing.T) {
 		t.Fatal("upgrade changed runtime identity")
 	}
 	var version int
-	if err := reopened.db.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&version); err != nil || version != 56 {
+	if err := reopened.db.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&version); err != nil || version != schemaVersion {
 		t.Fatal("upgrade did not advance version", version, err)
 	}
 	if count(t, reopened, "child_permission_policies") != 0 || count(t, reopened, "sessions") != 2 {
@@ -55,6 +56,7 @@ func TestChildPermissionMigrationPreservesDataWithoutBackfill(t *testing.T) {
 func TestChildPermissionMigrationFailureIsAtomic(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "runtime.db")
 	s := openTest(t, path)
+	removePresentationSchema(t, s)
 	execTest(t, s, "DROP TABLE child_permission_policies; PRAGMA user_version=55")
 	// Fail after CREATE TABLE, proving partial DDL and the version cannot survive.
 	execTest(t, s, `CREATE TRIGGER child_permission_policy_immutable BEFORE UPDATE ON metadata

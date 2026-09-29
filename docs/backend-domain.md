@@ -55,7 +55,7 @@ platform acceptance remains separate from this implemented contract.
 | Content bytes | Durable immutable blob file, verified when read |
 | Provider endpoint and credential reference | Explicit host configuration file; subscription routing is adapter-owned |
 | Subscription credentials | Private host credential file; captures and refresh work live in manager memory |
-| Incomplete provider text, reasoning and tool-call previews | Bounded runtime memory; never transcript rows |
+| Active provider text/reasoning/tool-call preview | Bounded runtime memory; settlement retains bounded display evidence separately from model parts |
 | Resolved credential, worker, interpreter, process or client | Execution memory; never session rows |
 
 Root and child sessions have the same records and store methods. Root lookup is
@@ -824,11 +824,36 @@ cannot start effects, veto execution or inherit an observing client's lifetime.
 
 Chat `reasoning_content` and Responses/subscription reasoning-summary deltas
 populate `preview.reasoning`, independently from answer text. Reasoning-only
-chunks advance preview revision. These fragments are never transcript parts,
-assistant output or later provider context. Opaque private continuation remains
-separate and is not exposed by this field. The adapter's raw-response and event
-bounds still apply; discarded reasoning does not consume the final-message byte
-allowance. Completed messages replace the entire preview, including reasoning.
+chunks advance preview revision. Display reasoning never enters model-facing
+parts, assistant output or later provider context. Opaque private continuation
+remains separate and is not exposed by this field. The adapter's raw-response and
+event bounds still apply; reasoning has a separate display byte allowance.
+
+Schema57 adds nullable immutable presentation metadata to canonical assistant
+messages, and imported failed-attempt evidence to history groups. One per-attempt
+accumulator supplies preview and settlement: version 1, up to 128 stable ordered
+slots and 64 KiB encoded JSON, with explicit UTF-8-safe truncation. Text slots
+reference canonical UTF-8 byte ranges; tool slots reference exact calls; reasoning
+slots contain only explicitly streamed display text. This does not alter model
+parts, accounting or continuation. Old records remain null with no fabricated
+backfill. Helpers, compaction and title/formulation attempts do not publish display
+presentation.
+
+Successful settlement commits presentation atomically with its message. Failed,
+cancelled or uncertain attempts retain bounded partial text/calls in their
+existing result, without fabricating a successful message. Observation and history
+pages expose at most 64 failed records/2 MiB for their active history window, with
+truncation explicit; exact local attempts remain pageable. Fork copies at most
+64 records/4 MiB per covered imported group inside its existing total byte budget,
+remaps the group and retains source provenance without execution authority.
+Rewind retires presentation with its group; raw history retains it through
+compaction and restart. Nested forks survive source deletion. A limit violation
+refuses the fork atomically rather than silently dropping evidence.
+
+The migration from schema55/56 is additive and transactional. Matching older
+binaries reject schema57; recovery uses a pre-migration backup and its matching
+binary, never a down-migration. A crash before settlement may still lose live
+preview; there is no per-fragment event journal.
 
 OpenAI-compatible requests ask for SSE and usage. The adapter also accepts bounded
 JSON responses. Streaming requires both a valid completion reason and the final
@@ -843,9 +868,11 @@ attempt and eventual committed message, with its own revision. It is not a
 message and may contain incomplete JSON arguments. The runtime snapshots it before
 reading attempt/history state, suppressing it when its committed message is
 visible. SQL settlement retries keep the preview alive without redispatching.
-Success replaces it by the committed message ID; failure discards it without
-inventing an assistant message. Restart changes the epoch and drops all previews
-while the ordinary durable attempt/turn recovery records uncertainty.
+Success replaces it by the committed message and its presentation; failure clears
+the live preview while retaining bounded failed-attempt presentation. Restart
+changes the epoch and drops uncommitted preview; ordinary durable attempt/turn
+recovery records uncertainty. Imported presentation identities are provenance,
+not local turn or cancellation authority.
 
 The SDK's `observe` async iterator drains history pages, then polls live state at
 100 ms. It retains only the exact history cursor and last preview revision. A

@@ -50,7 +50,7 @@ type Executor interface {
 // Progress is ephemeral presentation, never transcript or execution authority.
 // The observer runs synchronously and cannot veto or own provider execution.
 type Progress interface {
-	BeginPreview(session.Turn, session.ModelAttemptID, session.MessageID) (func(model.Chunk), func())
+	BeginPreview(session.Turn, session.ModelAttemptID, session.MessageID, *model.PresentationAccumulator) (func(model.Chunk), func())
 }
 
 type Runner struct {
@@ -541,9 +541,14 @@ func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.
 	}
 	messageID := session.MessageID(logicalID + "_answer")
 	var emit func(model.Chunk)
+	var presentation *model.PresentationAccumulator
+	if target == nil {
+		presentation = model.NewPresentationAccumulator(id)
+		emit = presentation.Append
+	}
 	if r.progress != nil && target == nil {
 		var end func()
-		emit, end = r.progress.BeginPreview(turn, id, messageID)
+		emit, end = r.progress.BeginPreview(turn, id, messageID, presentation)
 		defer end() // Keep the preview until settlement, including SQL-only retries.
 	}
 	callCtx, cancel := context.WithTimeout(ctx, time.Duration(prepared.Snapshot.TimeoutMillis)*time.Millisecond)
@@ -585,8 +590,11 @@ func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.
 			result.State = session.AttemptUncertain
 		}
 		result.Failure = Failure(callErr).Failure
+		if presentation != nil {
+			result.Presentation = presentation.Failed()
+		}
 	} else if target == nil {
-		message = &session.MessageDraft{ID: messageID, Role: session.Assistant, Parts: response.Parts, Continuation: response.Continuation}
+		message = &session.MessageDraft{ID: messageID, Role: session.Assistant, Parts: response.Parts, Continuation: response.Continuation, Presentation: presentation.Successful(response.Parts)}
 	}
 	if err := r.settleResult(ctx, id, result, message, target, draft); err != nil {
 		return attemptOutcome{}, accountingError(target, fmt.Errorf("settle model attempt: %w", err))

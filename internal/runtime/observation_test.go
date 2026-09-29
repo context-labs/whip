@@ -129,6 +129,9 @@ func TestObservationReplacesPreviewWithoutGivingObserversExecutionOwnership(t *t
 	if committed.Preview != nil || len(committed.Messages) != 2 || committed.Messages[1].ID != live.Preview.MessageID || committed.Messages[1].Parts[0].Text != "authoritative answer" {
 		t.Fatalf("committed message did not replace its preview: %+v", committed)
 	}
+	if committed.Messages[1].Presentation == nil || committed.Messages[1].Presentation.Parts[0].Text != "considering " {
+		t.Fatal("successful reasoning lost", committed.Messages[1])
+	}
 	page, err := r.Observe(t.Context(), current.ID, committed.Messages[1].Sequence, 1)
 	if err != nil || page.Preview != nil || len(page.Messages) != 0 {
 		t.Fatalf("settled preview reappeared beyond the history cursor: %+v %v", page, err)
@@ -145,7 +148,7 @@ func TestObservationReplacesPreviewWithoutGivingObserversExecutionOwnership(t *t
 	waitTest(t, r, "second-preview", terminal)
 }
 
-func TestObservationDiscardsFailedCancelledAndRestartedPreviews(t *testing.T) {
+func TestObservationSettlesFailedCancelledAndRestartedPresentation(t *testing.T) {
 	for _, ending := range []string{"failure", "cancel", "reopen"} {
 		t.Run(ending, func(t *testing.T) {
 			provider := &observationProvider{started: make(chan observationCall)}
@@ -189,6 +192,13 @@ func TestObservationDiscardsFailedCancelledAndRestartedPreviews(t *testing.T) {
 			after := observeTest(t, r, current.ID)
 			if after.Preview != nil || len(after.Messages) != 1 || after.Messages[0].Role != session.User {
 				t.Fatalf("partial output survived %s: %+v", ending, after)
+			}
+			if len(after.AttemptPresentations) != 1 || after.AttemptPresentations[0].Presentation.Parts[0].Text != "never committed" || after.AttemptPresentations[0].AttemptID != before.Preview.AttemptID {
+				t.Fatalf("failed display evidence lost: %+v", after.AttemptPresentations)
+			}
+			page, err := r.TranscriptPage(t.Context(), session.HistoryPageRequest{SessionID: current.ID, Direction: "backward", Limit: 1})
+			if err != nil || len(page.AttemptPresentations) != 1 || page.AttemptPresentations[0].AttemptID != before.Preview.AttemptID {
+				t.Fatal("paged failure evidence missing", page, err)
 			}
 			if ending == "reopen" && (after.Epoch == "" || after.Epoch == before.Epoch) {
 				t.Fatalf("reopen reused the old presentation epoch: %q", after.Epoch)

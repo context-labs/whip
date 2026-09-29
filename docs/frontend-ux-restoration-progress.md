@@ -77,6 +77,30 @@ TypeScript passes. Browser/keyboard comparison is still in final acceptance.
 
 Terminal slice is draft [#289](https://github.com/context-labs/whip/pull/289).
 
+## Increment 4 — durable presentation prerequisite (G1)
+
+Source leaf `06ad558f3`, integrated as `844af809e`, adds schema57 nullable
+presentation metadata. One bounded per-attempt accumulator supplies ordered
+preview and successful settlement, retaining reasoning separately from model
+parts/accounting/private continuation. Failed/cancelled/uncertain evidence lives
+with the existing attempt, is paged with history, and copies into immutable
+imported groups on fork. Rewind, compaction, nested fork and source deletion
+preserve the relevant ownership rules. Old absent data is not reconstructed.
+
+Full affected session/model/store/runner/runtime/protocol/RPC suites pass in the
+leaf. Model/runtime presentation and observation race checks pass. Focused final
+paging/migration/bounds checks and generated protocol checks pass. Tests cover
+partial call identity, multiple interleaved calls, JSON/UTF-8 bounds, immutable
+settlement/retry, failed evidence, restart/fork/rewind/compaction, bounded refusal
+and rollback. Physical fixture recovery proves schema56 backup → schema57,
+older-binary refusal, then backup restoration with identical runtime/message IDs.
+Source and generated contract are separate commits. Combined-stack focused store/model/runtime/protocol presentation, observation and
+history-page checks pass; generated drift/18 interop tests, SDK build and all
+206 SDK tests/type checks pass. SDK projection and UI handover remain next;
+this backend prerequisite alone does not close A8/A9.
+
+Approval/activity slice is draft [#290](https://github.com/context-labs/whip/pull/290).
+
 ## Remaining work
 
 Backend/provider/settings/terminal and durable presentation prerequisites are

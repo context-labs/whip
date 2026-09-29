@@ -235,6 +235,7 @@ type Turn struct {
 	FinishedAt      *string  `json:"finished_at"`
 }
 type Message struct {
+	Presentation    *MessagePresentation       `json:"presentation,omitempty"`
 	InputIdentity   *RequestIdentity           `json:"input_identity"`
 	DesignContext   *DesignContextPresentation `json:"design_context,omitempty"`
 	GroupID         ID                         `json:"group_id"`
@@ -358,12 +359,13 @@ type ModelRequestSnapshot struct {
 	TimeoutMillis   Counter               `json:"timeout_millis"`
 }
 type ModelAttemptResult struct {
-	State               string     `json:"state" enum:"succeeded,failed,cancelled,uncertain"`
-	Usage               ModelUsage `json:"usage"`
-	ReportedCostNanoUSD *Counter   `json:"reported_cost_nano_usd"`
-	Failure             *string    `json:"failure"`
-	UsageNote           *string    `json:"usage_note"`
-	ElapsedMillis       *Counter   `json:"elapsed_millis"`
+	Presentation        *MessagePresentation `json:"presentation,omitempty"`
+	State               string               `json:"state" enum:"succeeded,failed,cancelled,uncertain"`
+	Usage               ModelUsage           `json:"usage"`
+	ReportedCostNanoUSD *Counter             `json:"reported_cost_nano_usd"`
+	Failure             *string              `json:"failure"`
+	UsageNote           *string              `json:"usage_note"`
+	ElapsedMillis       *Counter             `json:"elapsed_millis"`
 }
 type ModelAttempt struct {
 	ID           ID                   `json:"id"`

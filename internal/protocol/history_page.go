@@ -9,7 +9,9 @@ type HistoryPageParams struct {
 }
 
 type HistoryPageResult struct {
-	Snapshot   HistorySnapshot `json:"snapshot"`
-	Messages   []Message       `json:"messages"`
-	NextCursor *Counter        `json:"next_cursor"`
+	AttemptPresentations          []AttemptPresentation `json:"attempt_presentations,omitempty"`
+	AttemptPresentationsTruncated bool                  `json:"attempt_presentations_truncated,omitempty"`
+	Snapshot                      HistorySnapshot       `json:"snapshot"`
+	Messages                      []Message             `json:"messages"`
+	NextCursor                    *Counter              `json:"next_cursor"`
 }

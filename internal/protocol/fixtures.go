@@ -67,10 +67,14 @@ func Fixtures() ([]Fixture, error) {
 	directInput := InputFromDomain(session.Input{ID: "direct_input", SessionID: "session_root", Source: session.UserInput, Kind: session.HostOperationInputKind, State: session.Queued, Parts: []session.Part{}, HostOperation: &session.HostOperation{Module: "shell", Name: "run", Arguments: json.RawMessage(`{"command":"printf direct"}`)}, CreatedAt: created})
 	modelFree := root
 	modelFree.Configuration.Model = ModelSelection{}
+	presentation := &session.MessagePresentation{Version: 1, AttemptID: "attempt_fixture", Parts: []session.PresentationPart{{ID: "p0", Type: "reasoning", Text: "Displayed thought"}, {ID: "p1", Type: "text", Start: new(0), End: new(10)}}}
+	failedPresentation := &session.MessagePresentation{Version: 1, AttemptID: "failed_attempt", Parts: []session.PresentationPart{{ID: "p0", Type: "reasoning", Text: "Partial thought"}}}
 	values := []struct {
 		name  string
 		value any
 	}{
+		{"MessagePresentation", PresentationFromDomain(presentation)},
+		{"AttemptPresentation", AttemptPresentationFromDomain(session.AttemptPresentation{GroupID: "group_imported", SourceSessionID: new(session.SessionID("source")), AttemptID: "failed_attempt", TurnID: "source_turn", State: session.AttemptUncertain, Presentation: failedPresentation})},
 		{"CellOutput", CellOutput{Epoch: "boot_fixture", Preview: &CellOutputPreview{SessionID: "session_child", TurnID: "turn_fixture", CellID: "cell_fixture", CallMessageID: "message_call", CallID: "call_fixture", HistoryRevision: 9007199254740993, Revision: 9007199254740993, Text: "Starting…\n", Truncated: false}}},
 		{"CellOutput", CellOutput{Epoch: "boot_fixture"}},
 		{"HostStatus", HostStatus{RuntimeID: "runtime_fixture", ProcessEpoch: "boot_fixture", PID: 123, Build: "fixture", StartedAt: created.Format(time.RFC3339Nano)}},

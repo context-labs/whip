@@ -42,6 +42,190 @@
           {
             "type": "object",
             "properties": {
+              "presentation": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "attempt_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "parts": {
+                    "type": "array",
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                            },
+                            "text": {
+                              "type": "string"
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "reasoning"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "type"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "end": {
+                              "type": [
+                                "null",
+                                "integer"
+                              ],
+                              "minimum": 0,
+                              "maximum": 1048576
+                            },
+                            "id": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                            },
+                            "start": {
+                              "type": [
+                                "null",
+                                "integer"
+                              ],
+                              "minimum": 0,
+                              "maximum": 1048576
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "text"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "type",
+                            "start",
+                            "end"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                            },
+                            "text": {
+                              "type": "string"
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "text"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "type"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "call": {
+                              "type": [
+                                "null",
+                                "object"
+                              ],
+                              "properties": {
+                                "index": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 15
+                                },
+                                "id": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "arguments": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "index",
+                                "id",
+                                "name",
+                                "arguments"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "call_id": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                            },
+                            "call_index": {
+                              "type": [
+                                "null",
+                                "integer"
+                              ],
+                              "minimum": 0,
+                              "maximum": 15
+                            },
+                            "id": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "tool_call"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "type",
+                            "call_index"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    "maxItems": 128
+                  },
+                  "truncated": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "version",
+                  "attempt_id",
+                  "parts",
+                  "truncated"
+                ],
+                "additionalProperties": false
+              },
               "input_identity": {
                 "type": [
                   "null",
@@ -317,6 +501,190 @@
           {
             "type": "object",
             "properties": {
+              "presentation": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "attempt_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "parts": {
+                    "type": "array",
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                            },
+                            "text": {
+                              "type": "string"
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "reasoning"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "type"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "end": {
+                              "type": [
+                                "null",
+                                "integer"
+                              ],
+                              "minimum": 0,
+                              "maximum": 1048576
+                            },
+                            "id": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                            },
+                            "start": {
+                              "type": [
+                                "null",
+                                "integer"
+                              ],
+                              "minimum": 0,
+                              "maximum": 1048576
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "text"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "type",
+                            "start",
+                            "end"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                            },
+                            "text": {
+                              "type": "string"
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "text"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "type"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "call": {
+                              "type": [
+                                "null",
+                                "object"
+                              ],
+                              "properties": {
+                                "index": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 15
+                                },
+                                "id": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "arguments": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "index",
+                                "id",
+                                "name",
+                                "arguments"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "call_id": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                            },
+                            "call_index": {
+                              "type": [
+                                "null",
+                                "integer"
+                              ],
+                              "minimum": 0,
+                              "maximum": 15
+                            },
+                            "id": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "tool_call"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "type",
+                            "call_index"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    "maxItems": 128
+                  },
+                  "truncated": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "version",
+                  "attempt_id",
+                  "parts",
+                  "truncated"
+                ],
+                "additionalProperties": false
+              },
               "input_identity": {
                 "type": [
                   "null",
@@ -592,6 +960,190 @@
           {
             "type": "object",
             "properties": {
+              "presentation": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "attempt_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "parts": {
+                    "type": "array",
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                            },
+                            "text": {
+                              "type": "string"
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "reasoning"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "type"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "end": {
+                              "type": [
+                                "null",
+                                "integer"
+                              ],
+                              "minimum": 0,
+                              "maximum": 1048576
+                            },
+                            "id": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                            },
+                            "start": {
+                              "type": [
+                                "null",
+                                "integer"
+                              ],
+                              "minimum": 0,
+                              "maximum": 1048576
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "text"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "type",
+                            "start",
+                            "end"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                            },
+                            "text": {
+                              "type": "string"
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "text"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "type"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "call": {
+                              "type": [
+                                "null",
+                                "object"
+                              ],
+                              "properties": {
+                                "index": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 15
+                                },
+                                "id": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "arguments": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "index",
+                                "id",
+                                "name",
+                                "arguments"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "call_id": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                            },
+                            "call_index": {
+                              "type": [
+                                "null",
+                                "integer"
+                              ],
+                              "minimum": 0,
+                              "maximum": 15
+                            },
+                            "id": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "tool_call"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "type",
+                            "call_index"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    "maxItems": 128
+                  },
+                  "truncated": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "version",
+                  "attempt_id",
+                  "parts",
+                  "truncated"
+                ],
+                "additionalProperties": false
+              },
               "input_identity": {
                 "type": [
                   "null",
@@ -906,6 +1458,190 @@
           {
             "type": "object",
             "properties": {
+              "presentation": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1
+                  },
+                  "attempt_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "parts": {
+                    "type": "array",
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                            },
+                            "text": {
+                              "type": "string"
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "reasoning"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "type"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "end": {
+                              "type": [
+                                "null",
+                                "integer"
+                              ],
+                              "minimum": 0,
+                              "maximum": 1048576
+                            },
+                            "id": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                            },
+                            "start": {
+                              "type": [
+                                "null",
+                                "integer"
+                              ],
+                              "minimum": 0,
+                              "maximum": 1048576
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "text"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "type",
+                            "start",
+                            "end"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                            },
+                            "text": {
+                              "type": "string"
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "text"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "type"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "call": {
+                              "type": [
+                                "null",
+                                "object"
+                              ],
+                              "properties": {
+                                "index": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 15
+                                },
+                                "id": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "arguments": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "index",
+                                "id",
+                                "name",
+                                "arguments"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "call_id": {
+                              "type": [
+                                "null",
+                                "string"
+                              ],
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                            },
+                            "call_index": {
+                              "type": [
+                                "null",
+                                "integer"
+                              ],
+                              "minimum": 0,
+                              "maximum": 15
+                            },
+                            "id": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                            },
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "tool_call"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "type",
+                            "call_index"
+                          ],
+                          "additionalProperties": false
+                        }
+                      ]
+                    },
+                    "maxItems": 128
+                  },
+                  "truncated": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "version",
+                  "attempt_id",
+                  "parts",
+                  "truncated"
+                ],
+                "additionalProperties": false
+              },
               "input_identity": {
                 "type": [
                   "null",
