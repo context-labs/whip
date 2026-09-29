@@ -274,3 +274,20 @@ describe('v4 command acceptance and local lifetimes', () => {
     app.dispose(); release(); await expect(waiting).rejects.toThrow(); expect(navigate).not.toHaveBeenCalled();
   });
 });
+
+
+it.each(['claimed', 'uncertain', 'succeeded'] as const)('keeps workspace %s distinct from input acceptance and retains unresolved tracking', async state => {
+  const app = runtime(); await app.connect();
+  const result = { action: { id: 'action', session_id: 'child', snapshot_id: 'snapshot', kind: 'restore', state, failure: null }, snapshot: { id: 'snapshot' } };
+  const handle = command({ method: 'workspace.restore', params: { session_id: 'child', snapshot_id: 'snapshot', action_id: 'action' }, send: vi.fn(async () => result) });
+  const accepted = vi.fn();
+  if (state === 'succeeded') {
+    await expect(app.run(handle, 'Restore', accepted)).resolves.toBe(result);
+    expect(handle.forget).toHaveBeenCalledOnce();
+  } else {
+    await expect(app.run(handle, 'Restore', accepted)).rejects.toThrow(state);
+    expect(handle.forget).not.toHaveBeenCalled();
+    expect(app.getSnapshot().commands[0]?.status).toBe(`Accepted · workspace ${state}`);
+  }
+  expect(accepted).toHaveBeenCalledOnce(); expect(handle.wait).not.toHaveBeenCalled(); expect(handle.retry).not.toHaveBeenCalled(); app.dispose();
+});

@@ -3379,3 +3379,8 @@ original SDK record with its runtime/client identity; neither the UI nor a
 reconnect reconstructs or automatically replays it. A replacement host cannot
 receive the request. Forgetting requires a separate explicit action explaining
 that it removes local tracking and neither cancels nor undoes remote work.
+
+App command tracking distinguishes accepted workspace effects from successful
+completion. A `claimed` or `uncertain` workspace result retains its recovery
+record and displays that state; it does not continue a dependent UI action or
+forget tracking. Only a reported `succeeded` result completes that workflow.

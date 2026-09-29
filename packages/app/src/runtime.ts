@@ -681,7 +681,17 @@ export class AppRuntime {
           await handle.forget();
           if (status !== 'succeeded') throw new Error(outcome.turn?.failure ?? `${label}: ${status}`);
           result = outcome as Operations[M]['result'];
-        } else { terminal = true; notice('Succeeded'); await handle.forget(); }
+        } else {
+          if (handle.method === 'workspace.capture' || handle.method === 'workspace.restore' || handle.method === 'workspace.release') {
+            const action = (result as Operations['workspace.capture']['result']).action;
+            if (action.state !== 'succeeded') {
+              terminal = true;
+              notice(`Accepted · workspace ${action.state}`, action.failure ? { error: action.failure } : {});
+              throw new RecoveryError(action.failure ?? `Workspace action is ${action.state}; inspect its saved receipt before continuing`);
+            }
+          }
+          terminal = true; notice('Succeeded'); await handle.forget();
+        }
         await this.queries.invalidateQueries({ predicate: query => query.queryKey[1] === runtimeId });
         signal.throwIfAborted();
         if (!attached()) throw new Error('Host changed while refreshing command results');
