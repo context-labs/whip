@@ -28,7 +28,7 @@ const server = http.createServer((request, response) => {
 const pass = (name: string) => console.log('PASS', name);
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 async function run() {
-  await app.whenReady(); server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  await app.whenReady(); server.listen(Number(process.env.BROWSER_NATIVE_PORT ?? 0), '127.0.0.1'); await once(server, 'listening');
   const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   const preferences = { preload: path.join(directory, 'preload.cjs'), additionalArguments: ['--whip-browser-tabs'], sandbox: true, contextIsolation: true, nodeIntegration: false, webviewTag: false };
   window = new BrowserWindow({ width: 1000, height: 760, show: true, webPreferences: { ...preferences, nodeIntegrationInSubFrames: true } });
@@ -222,7 +222,7 @@ async function run() {
   pass('manager disposal destroys owned guests and unregisters the real IPC handlers');
   await testBrowserControl(window, origin);
   await testBrowserControlRegressions(window, origin);
-  await testBrowserDiscovery(window, directory);
+  await testBrowserDiscovery(window, directory, origin);
 
   // Regression: native BrowserWindow.webContents throws after close. No pre-dispose is allowed.
   const emitter = new EventEmitter(), shellEmitter = new EventEmitter(); let fakeClosed = false;

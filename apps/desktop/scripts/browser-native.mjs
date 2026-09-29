@@ -6,20 +6,23 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { createServer } from 'node:net';
 import electron from 'electron';
 const directory = await mkdtemp(path.join(tmpdir(), 'whip-browser-production-'));
-let child, fixture;
+let child, fixture, fixturePort;
 try {
   await build({ entryPoints: ['apps/desktop/scripts/browser-native-main.ts', 'apps/desktop/scripts/browser-feature-native-preload.ts', 'apps/desktop/src/preload.ts'], outdir: directory,
     bundle: true, platform: 'node', format: 'cjs', external: ['electron'], outExtension: { '.js': '.cjs' },
     entryNames: '[name]', define: { __APP_VERSION__: '"native-test"', __APP_NAME__: '"Whip"' } });
   await build({ entryPoints: ['apps/desktop/scripts/browser-workspace-native-renderer.ts'], outfile: path.join(directory, 'workspace.js'), bundle: true, platform: 'browser', format: 'iife', target: 'es2022' });
   if (process.env.BROWSER_NATIVE_DAEMON === '1') {
-    const { startFixture } = await import('../../../packages/legacy-sdk/scripts/fixture.mjs');
-    fixture = await startFixture({ env: { WHIP_SDK_AGENTS_FIXTURE: '1' } });
+    const { startFixture } = await import('../../web/scripts/native-fixture.mjs');
+    const portProbe = createServer(); portProbe.listen(0, '127.0.0.1'); await once(portProbe, 'listening');
+    fixturePort = portProbe.address().port; await new Promise((resolve, reject) => portProbe.close(error => error ? reject(error) : resolve()));
+    fixture = await startFixture({ executeCode: true, allowedOrigins: [`http://127.0.0.1:${fixturePort}`] });
     await build({ entryPoints: ['apps/desktop/scripts/browser-discovery-native-renderer.ts'], outfile: path.join(directory, 'discovery.js'), bundle: true, platform: 'browser', format: 'iife', target: 'es2022' });
   }
-  child = spawn(electron, [path.join(directory, 'browser-native-main.cjs')], { stdio: 'inherit', env: { ...process.env, BROWSER_NATIVE_DIRECTORY: directory, ...(fixture ? { BROWSER_NATIVE_FIXTURE: JSON.stringify(fixture.info) } : {}) } });
+  child = spawn(electron, [path.join(directory, 'browser-native-main.cjs')], { stdio: 'inherit', env: { ...process.env, BROWSER_NATIVE_DIRECTORY: directory, ...(fixture ? { BROWSER_NATIVE_FIXTURE: JSON.stringify(fixture.info), BROWSER_NATIVE_PORT: String(fixturePort) } : {}) } });
   const timeout = setTimeout(() => child.kill('SIGKILL'), fixture ? 90000 : 30000); timeout.unref();
   const [code, signal] = await once(child, 'exit'); clearTimeout(timeout);
   if (code !== 0) throw new Error(`Native browser production test exited ${code ?? signal}`);
