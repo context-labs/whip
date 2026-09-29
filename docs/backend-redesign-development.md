@@ -3953,3 +3953,19 @@ Lost ACK, absence, identity-only evidence, concurrent checks, explicit retry,
 accepted-but-unsaved recovery, authoritative interruption, disposal and late
 navigation have v4 replacement coverage. Full renderer types/component suites
 remain pending while surrounding legacy consumers are ported.
+
+### Native app controls and trace ownership — 2026-09-28
+
+App adoption integrates native navigation actions (`9d832c842`), inspector and
+diagnostics checkpoints, and native permission/turn notices (`2348f823a`). The
+combined inspector/content/REPL/navigation/permission/turn suites pass 59 React
+tests after rebuilding the merged SDK (the first diagnostic run used stale
+compiled SDK output and failed two tests). The full app remains mid-cutover;
+conversation/composer, sidebar and terminal wiring are not claimed complete.
+Trace lifetime integration adds per-pane bounded root observers and explicitly
+disposes suspended session/execution/trace owners when closing during recovery.
+
+Trace/session runtime lifetime and workspace reconciliation tests pass 40 cases
+(2.90 seconds); affected source files also pass strict type checking within the
+still-partially-migrated application. Remaining legacy-screen errors continue
+to prevent a full app type/build gate and are not waived.

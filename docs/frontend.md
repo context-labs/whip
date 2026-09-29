@@ -3542,7 +3542,33 @@ and intrinsic validation continue to apply. Canonical failed/cancelled/interrupt
 turn notices use exact session/turn ownership and copy the recorded failure text.
 A changed current configuration is never presented as the failed turn's model.
 
-The integrated native inspector, content, REPL, navigation, permission and turn
-notice suites pass 59 focused React tests. The full application still requires
-conversation/composer, navigation-sidebar and terminal wiring; these focused
-results do not claim completion of client cutover.
+Native trace rendering takes the SDK's root-scoped `TraceView` from
+`@whip/sdk/state` and subscribes with `useTraceView`. The app owns its shared
+start/suspend/reconnect/dispose lifetime separately from selected-session views.
+`createTraceView(client, rootID)` keeps one canonical descending row page and a
+separate trace-root picker page at the same exact revision. Defaults are 1,024
+rows, 64 roots and a 1 MiB total budget; each backend read is at most 512 KiB and
+scans at most 2,048 index entries. Tombstones stay canonical null-span rows, and
+an empty filtered page may still have an explicit continuation. No background
+history crawl or client-side execution ledger is created.
+
+`trace.page` requires exactly one direction: `after` retains forward reads;
+`before: null` starts at the newest captured change and `before: Counter` reads
+strictly older changes. Backward pages end with `next: "0"`; otherwise `next` is
+the last examined exact sequence, including filtered entries. `loadOlder` and
+`latest` replace the row window; `loadOlderRoots` and `latestRoots` independently
+replace the picker. `selectTrace` changes the native trace filter (empty means
+all traces). Refresh preserves an explicitly selected older boundary instead of
+jumping to current work. Both pages publish only after their revisions agree;
+conflict retains stale evidence until a later read succeeds. Reconnection never
+replays effects, and a changed process epoch clears prior pages and cursors.
+Trace-window counts are not whole-tree usage totals.
+
+Trace leases use `(runtimeId, rootId, viewId)` because each pane owns independent
+filter and older-page navigation. Repeated mounts of the same pane share its
+observer; selecting another child does not change the root trace identity. At
+most eight trace observers coexist, independently bounded by the SDK. Workspace
+reconciliation releases obsolete pane leases before admitting replacements and
+only visible trace panes acquire them. Host recovery suspends and reconnects
+existing owners; exact-root deletion and app disposal retire them, including
+when the app closes after its transport has already detached for recovery.

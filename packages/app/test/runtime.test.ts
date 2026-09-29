@@ -8,9 +8,10 @@ const mocks = vi.hoisted(() => ({
   client: { runtimeID: 'runtime', clientID: 'client', getWorkspaceSnapshot: vi.fn(), listProviders: vi.fn(async () => ({ revision: '1', defaults: null, routes: [] })), session: vi.fn((id: string) => ({ id })) },
   createView: vi.fn(() => ({ start: vi.fn(async () => {}), suspend: vi.fn(async () => {}), reconnect: vi.fn(async () => {}), dispose: vi.fn(async () => {}) })),
   createExecution: vi.fn(() => ({ start: vi.fn(async () => {}), suspend: vi.fn(async () => {}), reconnect: vi.fn(async () => {}), dispose: vi.fn(async () => {}) })),
+  createTrace: vi.fn(() => ({ start: vi.fn(async () => {}), suspend: vi.fn(async () => {}), reconnect: vi.fn(async () => {}), dispose: vi.fn(async () => {}) })),
   listeners: new Set<() => void>(), catalogRevision: '1',
 }));
-vi.mock('@whip/sdk/state', () => ({ createSessionView: mocks.createView, createExecutionView: mocks.createExecution }));
+vi.mock('@whip/sdk/state', () => ({ createSessionView: mocks.createView, createExecutionView: mocks.createExecution, createTraceView: mocks.createTrace }));
 vi.mock('../src/hosts', () => ({ HostConnections: class {
   private attached = false;
   private controller = new AbortController();
@@ -375,4 +376,43 @@ it.each(['unavailable', 'foreign'])('retains workspace recovery when snapshot me
   await expect(app.run(handle, 'Restore', accepted)).rejects.toThrow(state === 'unavailable' ? 'Snapshot unavailable' : 'does not belong');
   expect(handle.forget).not.toHaveBeenCalled(); expect(handle.retry).not.toHaveBeenCalled(); expect(accepted).not.toHaveBeenCalled();
   expect(app.getSnapshot().commands[0]?.delivery).toBe('uncertain'); app.dispose();
+});
+
+
+it('shares only the same trace pane while bounding independent root reading windows', async () => {
+  vi.useFakeTimers(); const app = runtime(); await app.connect();
+  const first = app.acquireTrace('runtime', 'root', 'pane'); first.release();
+  const second = app.acquireTrace('runtime', 'root', 'pane');
+  const other = app.acquireTrace('runtime', 'root', 'other');
+  expect(second.view).toBe(first.view); expect(other.view).not.toBe(first.view);
+  expect(mocks.createTrace).toHaveBeenCalledWith(mocks.client, 'root');
+  const rest = Array.from({ length: 6 }, (_, index) => app.acquireTrace('runtime', 'root', `pane${index}`));
+  expect(() => app.acquireTrace('runtime', 'root', 'overflow')).toThrow('Eight');
+  first.release(); vi.advanceTimersByTime(30_001); expect(first.view.dispose).not.toHaveBeenCalled();
+  other.release(); app.acquireTrace('runtime', 'root', 'overflow').release();
+  expect(other.view.dispose).toHaveBeenCalledOnce(); expect(first.view.dispose).not.toHaveBeenCalled();
+  second.release(); second.release(); vi.advanceTimersByTime(30_001); expect(first.view.dispose).toHaveBeenCalledOnce();
+  rest.forEach(item => item.release()); app.dispose(); expect(vi.getTimerCount()).toBe(0);
+});
+
+it('suspends and reconnects trace leases, and deletion drops only the exact root', async () => {
+  const app = runtime(); await app.connect();
+  const trace = app.acquireTrace('runtime', 'root', 'pane'), keep = app.acquireTrace('runtime', 'other', 'pane');
+  app.connections.disconnect('local', true);
+  expect(trace.view.suspend).toHaveBeenCalledOnce(); expect(trace.view.dispose).not.toHaveBeenCalled();
+  const previous = mocks.client; mocks.client = { ...previous };
+  try {
+    await app.connect(); expect(trace.view.reconnect).toHaveBeenCalledWith(mocks.client);
+    const next = app.acquireTrace('runtime', 'root', 'pane'); expect(next.view).toBe(trace.view);
+    app.forgetSession('runtime', 'root'); expect(trace.view.dispose).toHaveBeenCalledOnce(); expect(keep.view.dispose).not.toHaveBeenCalled();
+    next.release(); trace.release(); keep.release();
+  } finally { app.dispose(); mocks.client = previous; }
+});
+
+it('disposes suspended session/execution/trace owners when closed during recovery', async () => {
+  vi.useFakeTimers(); const app = runtime(); await app.connect();
+  const session = app.acquireView('runtime', 'root', 'child'), trace = app.acquireTrace('runtime', 'root', 'pane');
+  app.connections.disconnect('local', true); app.dispose(); session.release(); trace.release();
+  expect(session.view.dispose).toHaveBeenCalledOnce(); expect(session.execution.dispose).toHaveBeenCalledOnce(); expect(trace.view.dispose).toHaveBeenCalledOnce();
+  expect(vi.getTimerCount()).toBe(0);
 });

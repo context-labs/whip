@@ -5,7 +5,7 @@ import {
   type Client, type DurableMethod, type Operations,
   type Admission,
 } from '@whip/sdk';
-import { createExecutionView, createSessionView, type ExecutionView, type SessionView } from '@whip/sdk/state';
+import { createExecutionView, createSessionView, createTraceView, type ExecutionView, type SessionView, type TraceView } from '@whip/sdk/state';
 import { recoveryStorage } from './recovery-storage';
 import { errorMessage, readPreference, type AppPlatform } from './platform';
 import { parseSettingsReturn, settingsReturnKey, type SettingsReturn } from './settings/navigation';
@@ -23,6 +23,14 @@ interface ViewLease {
   rootId: string;
   view: SessionView;
   execution: ExecutionView;
+  users: number;
+  timer?: ReturnType<typeof setTimeout>;
+}
+interface TraceLease {
+  client: Client;
+  runtimeId: string;
+  rootId: string;
+  view: TraceView;
   users: number;
   timer?: ReturnType<typeof setTimeout>;
 }
@@ -107,6 +115,7 @@ export class AppRuntime {
   private state: RuntimeSnapshot;
   private readonly listeners = new Set<() => void>();
   private readonly views = new Map<string, ViewLease>();
+  private readonly traces = new Map<string, TraceLease>();
   private readonly titleListeners = new Map<Client, () => void>();
   private readonly drafts = new Map<string, string>();
   private readonly draftRevisions = new Map<string, string>();
@@ -208,6 +217,10 @@ export class AppRuntime {
           lease.client = client;
           void Promise.all([lease.view.reconnect(client), lease.execution.reconnect(client)]).catch(error => this.report(error));
         }
+        for (const lease of this.traces.values()) if (lease.runtimeId === runtimeId && lease.client !== client) {
+          lease.client = client;
+          void lease.view.reconnect(client).catch(error => this.report(error));
+        }
       },
       detached: (client, runtimeId, options?: { recovering: boolean }) => {
         this.titleListeners.get(client)?.();
@@ -217,6 +230,9 @@ export class AppRuntime {
         // recovery action may bind their exact record to a matching new client.
         for (const [id, lease] of this.views) if (lease.client === client) {
           if (options?.recovering) void Promise.all([lease.view.suspend(), lease.execution.suspend()]); else this.dropView(id, lease);
+        }
+        for (const [id, lease] of this.traces) if (lease.client === client) {
+          if (options?.recovering) void lease.view.suspend(); else this.dropTrace(id, lease);
         }
         if (runtimeId) this.queries.removeQueries({ predicate: query => query.queryKey[1] === runtimeId });
       },
@@ -325,6 +341,7 @@ export class AppRuntime {
     this.compositions.clearSession(runtimeId, rootId, viewIds);
     this.tabs.purge(runtimeId, rootId);
     for (const [key, lease] of this.views) if (lease.runtimeId === runtimeId && lease.rootId === rootId) this.dropView(key, lease);
+    for (const [key, lease] of this.traces) if (lease.runtimeId === runtimeId && lease.rootId === rootId) this.dropTrace(key, lease);
     this.queries.removeQueries({ predicate: query => query.queryKey[1] === runtimeId && query.queryKey[2] === rootId });
     for (const input of this.submittedInputs.getSnapshot())
       if (matches(input)) this.submittedInputs.remove(input.id, runtimeId);
@@ -581,6 +598,41 @@ export class AppRuntime {
     if (this.views.get(id) === lease) this.views.delete(id);
     void Promise.all([lease.view.dispose(), lease.execution.dispose()]);
   }
+  /** A trace reads the whole root but each pane owns its filter and reading window. */
+  acquireTrace(runtimeId: string, rootId: string, viewId: string): { view: TraceView; release(): void } {
+    const client = this.connections.host(runtimeId)?.client;
+    if (this.closed || !client) throw new Error('Connect to a host first');
+    const key = JSON.stringify([runtimeId, rootId, viewId]);
+    let lease = this.traces.get(key);
+    if (!lease) {
+      for (const [id, candidate] of this.traces) {
+        if (this.traces.size < 8) break;
+        if (!candidate.users) this.dropTrace(id, candidate);
+      }
+      if (this.traces.size >= 8) throw new Error('Eight trace views are already open. Close a view before opening another.');
+      lease = { client, runtimeId, rootId, view: createTraceView(client, rootId), users: 0 };
+      this.traces.set(key, lease);
+      void lease.view.start().catch(() => {});
+    }
+    this.traces.delete(key);
+    this.traces.set(key, lease);
+    clearTimeout(lease.timer);
+    lease.users++;
+    const retained = lease;
+    let released = false;
+    return { view: retained.view, release: () => {
+      if (released) return;
+      released = true;
+      retained.users--;
+      if (!retained.users && this.traces.get(key) === retained)
+        retained.timer = setTimeout(() => this.dropTrace(key, retained), 30_000);
+    } };
+  }
+  private dropTrace(id: string, lease: TraceLease) {
+    clearTimeout(lease.timer);
+    if (this.traces.get(id) === lease) this.traces.delete(id);
+    void lease.view.dispose();
+  }
   private commandNotice(notice: CommandNotice) {
     const notices = [
       ...this.state.commands.filter((item) => item.id !== notice.id),
@@ -751,6 +803,9 @@ export class AppRuntime {
     this.closed = true;
     this.browserAssociations.dispose();
     this.connections.dispose();
+    // Recovery detach can leave suspended leases after the transport is gone.
+    for (const [id, lease] of this.views) this.dropView(id, lease);
+    for (const [id, lease] of this.traces) this.dropTrace(id, lease);
     this.submittedInputs.clear();
     this.pending.clear();
     this.queries.clear();

@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { Client } from '@whip/sdk';
-import type { ExecutionView, SessionView } from '@whip/sdk/state';
+import type { ExecutionView, SessionView, TraceView } from '@whip/sdk/state';
 import type { AppRuntime } from './runtime';
 import type { HostConnection } from './hosts';
 
@@ -36,6 +36,35 @@ export function useWorkspaceViews(runtime: AppRuntime, roots: readonly Pick<Work
     });
     const errors = reconcileWorkspaceViews(runtime, leases.current, wanted);
     setState({ views: new Map([...leases.current].map(([id, entry]) => [id, entry.lease.view])), executions: new Map([...leases.current].map(([id, entry]) => [id, entry.lease.execution])), errors });
+  }, [runtime, hosts, key]);
+  return state;
+}
+
+
+interface WorkspaceTrace { runtimeId: string; rootId: string; viewId: string }
+export const workspaceTraceKey = (owner: WorkspaceTrace) => JSON.stringify([owner.runtimeId, owner.rootId, owner.viewId]);
+/** Visible trace panes retain independent filters/pages even for the same root. */
+export function useWorkspaceTraces(runtime: AppRuntime, owners: readonly WorkspaceTrace[], hosts: readonly HostConnection[]) {
+  const leases = useRef(new Map<string, { client: Client; lease: ReturnType<AppRuntime['acquireTrace']> }>());
+  const key = JSON.stringify([...new Set(owners.map(workspaceTraceKey))].sort());
+  const [state, setState] = useState<{ views: ReadonlyMap<string, TraceView>; errors: ReadonlyMap<string, string> }>({ views: new Map(), errors: new Map() });
+  useLayoutEffect(() => () => {
+    for (const entry of leases.current.values()) entry.lease.release();
+    leases.current.clear();
+  }, [runtime]);
+  useLayoutEffect(() => {
+    const wanted = new Map((JSON.parse(key) as string[]).map(value => {
+      const [runtimeId, rootId, viewId] = JSON.parse(value) as [string, string, string];
+      return [value, { runtimeId, rootId, viewId, client: hosts.find(host => host.runtimeId === runtimeId)?.client }] as const;
+    }));
+    for (const [id, entry] of leases.current) if (wanted.get(id)?.client !== entry.client) { entry.lease.release(); leases.current.delete(id); }
+    const errors = new Map<string, string>();
+    for (const [id, owner] of wanted) if (!leases.current.has(id)) {
+      if (!owner.client) { errors.set(id, 'Connect the original host to inspect this trace.'); continue; }
+      try { leases.current.set(id, { client: owner.client, lease: runtime.acquireTrace(owner.runtimeId, owner.rootId, owner.viewId) }); }
+      catch (error) { errors.set(id, error instanceof Error ? error.message : String(error)); }
+    }
+    setState({ views: new Map([...leases.current].map(([id, entry]) => [id, entry.lease.view])), errors });
   }, [runtime, hosts, key]);
   return state;
 }

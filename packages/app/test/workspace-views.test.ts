@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
+import { renderHook } from '@testing-library/react';
+import type { HostConnection } from '../src/hosts';
 import type { AppRuntime } from '../src/runtime';
 import type { Client } from '@whip/sdk';
-import { reconcileWorkspaceViews, workspaceSessionKey, type WorkspaceLease } from '../src/workspace-views';
+import { reconcileWorkspaceViews, useWorkspaceTraces, workspaceTraceKey, workspaceSessionKey, type WorkspaceLease } from '../src/workspace-views';
 
 type Lease = ReturnType<AppRuntime['acquireView']>;
 const local = {} as Client, remote = {} as Client;
@@ -68,4 +70,35 @@ describe('workspace session reconciliation', () => {
     expect(f.leases.has(workspaceSessionKey({ ...parent, sessionId: 'other-child' }))).toBe(true);
   });
 
+});
+
+
+it('leases only visible trace panes and releases old owners before admission', () => {
+  const events: string[] = [];
+  const acquireTrace = vi.fn((runtimeId: string, rootId: string, viewId: string) => {
+    const id = workspaceTraceKey({ runtimeId, rootId, viewId });
+    events.push(`acquire:${id}`);
+    return { view: { id } as unknown as ReturnType<AppRuntime['acquireTrace']>['view'], release: vi.fn(() => { events.push(`release:${id}`); }) };
+  });
+  const runtime = { acquireTrace } as unknown as AppRuntime;
+  const first = { runtimeId: 'local', rootId: 'root', viewId: 'a' }, second = { ...first, viewId: 'b' };
+  const hosts = [{ runtimeId: 'local', client: local }] as HostConnection[];
+  const hook = renderHook(({ owners, hosts }) => useWorkspaceTraces(runtime, owners, hosts), { initialProps: { owners: [first, first, second], hosts } });
+  expect(acquireTrace).toHaveBeenCalledTimes(2);
+  expect(hook.result.current.views.size).toBe(2);
+  const firstView = hook.result.current.views.get(workspaceTraceKey(first));
+  events.length = 0;
+  const next = { ...second, rootId: 'other' };
+  hook.rerender({ owners: [first, next], hosts });
+  expect(events).toEqual([`release:${workspaceTraceKey(second)}`, `acquire:${workspaceTraceKey(next)}`]);
+  expect(hook.result.current.views.get(workspaceTraceKey(first))).toBe(firstView);
+  events.length = 0;
+  hook.rerender({ owners: [first], hosts: [{ runtimeId: 'local' }] as HostConnection[] });
+  expect(events).toEqual([`release:${workspaceTraceKey(first)}`, `release:${workspaceTraceKey(next)}`]);
+  expect(hook.result.current.views.size).toBe(0);
+  expect(hook.result.current.errors.get(workspaceTraceKey(first))).toContain('original host');
+  hook.rerender({ owners: [first], hosts: [{ runtimeId: 'local', client: remote }] as HostConnection[] });
+  expect(hook.result.current.views.size).toBe(1); expect(hook.result.current.errors.size).toBe(0);
+  const last = acquireTrace.mock.results.at(-1)!.value;
+  hook.unmount(); expect(last.release).toHaveBeenCalledOnce();
 });
