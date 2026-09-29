@@ -2,19 +2,15 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { chromium } from '@playwright/test';
-import { createWhipClient } from '../../../packages/legacy-sdk/dist/index.js';
-import { createSessionView } from '../../../packages/legacy-sdk/dist/state.js';
+import { randomUUID } from 'node:crypto';
+import { createSessionView } from '../../../packages/sdk/dist/state.js';
 import { checkComposerReading } from './composer-reading.mjs';
-import {
-  eventually,
-  startFixture,
-} from '../../../packages/legacy-sdk/scripts/fixture.mjs';
-import { isolateDesktopPerformance, launchDesktopPerformance, exerciseDesktopTabs,
-  exerciseDesktopTransfer, finishDesktopPerformance } from './performance-desktop.mjs';
+import { deadline, eventually } from './native-fixture.mjs';
+import { startHistoryFixture } from './native-history-fixture.mjs';
 
-// Opt-in, isolated production-store seed; never connects to a user's daemon.
-process.env.WHIP_WEB_PERF_FIXTURE = '1';
+// Owned canonical store seed followed by the real production runtime/provider.
 const desktop = process.env.WHIP_WEB_PERFORMANCE_HOST === 'desktop';
+const { isolateDesktopPerformance, launchDesktopPerformance, exerciseDesktopTabs, exerciseDesktopTransfer, finishDesktopPerformance } = desktop ? await import('./performance-desktop.mjs') : {};
 const requestedDirectory = resolve(process.env.WHIP_WEB_BROWSER_RESULTS ??
   (desktop ? '/tmp/whip-desktop-performance-results' : '/tmp/whip-web-browser-results'));
 await mkdir(requestedDirectory, { recursive: true });
@@ -35,13 +31,9 @@ const errors = [];
 const metrics = { recordedAt: new Date().toISOString(), platform: process.platform, checks: [] };
 try {
 if (desktop) isolation = await isolateDesktopPerformance();
-fixture = await startFixture({ retainOnFailure: desktop });
+fixture = await startHistoryFixture({ retainOnFailure: desktop, workers: 16, performanceStreams: true });
 console.log(`Fixture ready: ${fixture.directory}`);
-client = createWhipClient({
-  endpoint: fixture.info.endpoint,
-  clientId: `web-performance-${crypto.randomUUID()}`,
-  clientKind: 'human',
-});
+client = await fixture.connect(`web-performance-${randomUUID()}`);
 if (desktop) {
   host = await launchDesktopPerformance(fixture, isolation);
   ({ page, context } = host);
@@ -51,79 +43,56 @@ if (desktop) {
   context = await browser.newContext({ viewport: { width: 1360, height: 960 } });
   page = await context.newPage();
 }
-view = createSessionView(client.session(fixture.info.root_id));
+context.setDefaultTimeout(15_000);
+view = createSessionView(client.session(fixture.history.root_id));
 Object.assign(metrics, {
   browser: desktop ? host.version : await browser.version(),
   host: desktop ? { kind: 'staged-electron-ipc', rendererDigest: host.rendererDigest,
-    limitation: 'Stock Playwright Electron runs staged main/preload and production renderer with the isolated synthetic Go runner. Not signed-package, actual RLM worker, SSH/WAN or startup/idle acceptance. The controller SDK measurements use a separate fixture WebSocket connection.' } : { kind: 'browser-websocket' },
+    limitation: 'Stock Playwright Electron runs staged main/preload and production renderer with the isolated native Go runtime, actual workers and a local fake provider. Not signed-package, SSH/WAN or startup/idle acceptance. The controller SDK measurements use a separate native gateway connection.' } : { kind: 'browser-websocket' },
   fixture: {
     rootMessages: 10_000,
     retainedChildren: 100,
     messagesPerChild: 100,
-    largeToolBodyBytes: 1_400_000,
+    explicitContentBodyBytes: 1_400_000,
+    contentProvenance: 'Explicit owner-scoped content part; not auto-externalized tool output. Actual executor byte limits are covered separately.',
     retainedTreeOperations: 128, markdownStreams: true,
+    streamBoundary: 'Each of 16 actual provider requests emits 2,000 markdown deltas at 30ms intervals, then remains explicitly held until cancellation. Later probes can measure held active requests after their finite delta workload completes.',
+    modelContext: 'Synthetic canonical compaction through message 9,996 plus raw tail; raw 10,000-message transcript remains intact. Summary is seeded store evidence, not measured past inference.',
   },
 });
-const origin = desktop ? host.origin : fixture.info.endpoint
-  .replace(/^ws/, 'http')
-  .replace('/api/v3/ws', '');
-// A test-only frontend clock probe crosses Playwright's binding, not a product
-// endpoint. The Go timestamp must lie between the browser's call/return times;
-// intersecting these brackets does not assume symmetric request latency.
-await page.exposeFunction('__performanceFixtureClock', async () => {
-  const response = await fetch(
-    fixture.info.frontend + '/control/performance/clock',
-    {
-      signal: AbortSignal.timeout(5000),
-    },
-  );
-  assert.equal(response.status, 200);
-  return response.json();
+const origin = desktop ? host.origin : fixture.info.web;
+// The same browser monotonic clock bounds native admission between the request
+// call and verified receipt return. It does not pretend to timestamp SQL COMMIT.
+await page.exposeFunction('__performanceSubmit', async ({ requestID, text }) => {
+  const admission = await client.session(fixture.history.root_id).submit([{ type: 'text', text }], requestID, deadline());
+  assert.equal(admission.input.state, 'queued');
+  assert.deepEqual(admission.receipt.identity, { client_id: client.clientID, request_id: requestID });
+  return { inputID: admission.input.id };
 });
-const calibrateClock = () =>
-  page.evaluate(async () => {
-    const samples = [];
-    for (let index = 0; index < 20; index++) {
-      const start = performance.now();
-      const { monotonic_ms: daemon } = await window.__performanceFixtureClock();
-      samples.push({ start, end: performance.now(), daemon });
-    }
-    return samples;
-  });
 await page.addInitScript(({ desktop, rootId }) => {
   window.__performanceEventLatency = [];
-  window.__performanceCommitDOM = [];
+  window.__performanceAcceptedDOM = [];
+  window.__performanceExpected = [];
   window.__performanceProbeOverflow = false;
   window.__performanceIPCFrames = 0;
   window.__performanceContentHandles = [];
-  const pending = [];
+  const pending = [], seen = new Map();
   const receive = data => {
-        try {
-          const message = JSON.parse(data);
-          const handle = message.result?.content ?? (message.result?.reference_id ? message.result : undefined);
-          if (handle?.digest && !window.__performanceContentHandles.some(item => item.reference_id === handle.reference_id)) {
-            if (window.__performanceContentHandles.length >= 16) window.__performanceProbeOverflow = true;
-            else window.__performanceContentHandles.push({ reference_id: handle.reference_id, digest: handle.digest, size: handle.size });
-          }
-          const event = message.params?.event;
-          if (
-            event?.kind !== 'stream.text' || event.root_id !== rootId ||
-            !(
-              event.payload?.text?.includes('delta-') ||
-              event.payload?.text?.includes('commit-probe-')
-            )
-          )
-            return;
-          if (pending.length >= 512) {
-            window.__performanceProbeOverflow = true;
-            return;
-          }
-          pending.push({
-            sequence: event.seq,
-            text: event.payload.text.replaceAll("**", ""),
-            start: performance.now(),
-          });
-        } catch {}
+    try {
+      const message = JSON.parse(data);
+      const handle = message.result?.content ?? (message.result?.digest ? message.result : undefined);
+      if (handle?.digest && !window.__performanceContentHandles.some(item => item.id === handle.id)) {
+        if (window.__performanceContentHandles.length >= 16) window.__performanceProbeOverflow = true;
+        else window.__performanceContentHandles.push({ id: handle.id, digest: handle.digest, size: handle.size });
+      }
+      const observation = message.result, preview = observation?.preview;
+      if (observation?.snapshot?.session_id !== rootId || !preview?.text?.includes('delta-')) return;
+      const marker = [...preview.text.matchAll(/delta-\d{4}/g)].at(-1)?.[0];
+      if (!marker || seen.get(preview.message_id) === marker) return;
+      if (pending.length >= 512 || seen.size >= 16) { window.__performanceProbeOverflow = true; return; }
+      seen.set(preview.message_id, marker);
+      pending.push({ messageID: `message:${preview.message_id}:part:0`, marker, start: performance.now() });
+    } catch {}
   };
   if (desktop) {
     if (!window.whipDesktop) throw new Error('Desktop performance probe requires the real preload bridge');
@@ -138,37 +107,34 @@ await page.addInitScript(({ desktop, rootId }) => {
     };
   }
   new MutationObserver(() => {
-    const live = [...document.querySelectorAll('[data-message-id^=\"live:\"]')]
-      .map((element) => element.textContent)
-      .join('\n');
+    const rows = [...document.querySelectorAll('[data-message-id]')];
     for (let index = pending.length - 1; index >= 0; index--) {
-      if (!live.includes(pending[index].text)) continue;
-      const stamp = performance.now();
-      if (pending[index].text.includes('commit-probe-')) {
-        if (window.__performanceCommitDOM.length >= 128)
-          window.__performanceProbeOverflow = true;
-        else
-          window.__performanceCommitDOM.push({
-            sequence: pending[index].sequence,
-            marker: pending[index].text,
-            browser_ms: stamp,
-            received_ms: pending[index].start,
-          });
-      } else if (window.__performanceEventLatency.length < 512) {
-        window.__performanceEventLatency.push(stamp - pending[index].start);
-      } else window.__performanceProbeOverflow = true;
+      const item = pending[index];
+      if (!rows.some(row => row.dataset.messageId === item.messageID && row.textContent.includes(item.marker))) continue;
+      if (window.__performanceEventLatency.length >= 512) window.__performanceProbeOverflow = true;
+      else window.__performanceEventLatency.push(performance.now() - item.start);
       pending.splice(index, 1);
     }
+    const queue = [...document.querySelectorAll('[data-queue-row]')];
+    for (const item of window.__performanceExpected) {
+      if (item.seen) continue;
+      const row = queue.find(row => row.dataset.queueRow === item.rowID);
+      if (!row || !row.textContent.includes(item.marker)) continue;
+      item.seen = true;
+      if (window.__performanceAcceptedDOM.length >= 40) window.__performanceProbeOverflow = true;
+      else window.__performanceAcceptedDOM.push({ requestID: item.requestID, browser_ms: performance.now() });
+    }
   }).observe(document, { subtree: true, childList: true, characterData: true });
-}, { desktop, rootId: fixture.info.root_id });
-const rootRoute = `/h/${fixture.info.runtime_id}/s/${fixture.info.root_id}`;
+}, { desktop, rootId: fixture.history.root_id });
+const rootRoute = `/h/${fixture.info.runtime_id}/s/${fixture.history.root_id}`;
 const requests = [];
-page.on('pageerror', (error) => errors.push(error.message));
+page.on('pageerror', (error) => errors.push({ message: error.message, stack: error.stack }));
 page.on('websocket', (socket) =>
   socket.on('framesent', ({ payload }) => {
     try {
+      if (requests.length >= 8192) throw new Error('Performance request record limit exceeded');
       requests.push(JSON.parse(String(payload)));
-    } catch {}
+    } catch (error) { if (requests.length >= 8192) errors.push({ message: error.message }); }
   }),
 );
 const viewport = page.getByRole('region', {
@@ -186,48 +152,37 @@ const frame = () =>
         requestAnimationFrame(() => requestAnimationFrame(resolve)),
       ),
   );
-  await client.connect();
   console.log('Checking retained history and child views');
   await view.start();
   const root = view.getSnapshot();
   assert.equal(root.status, 'live');
-  assert.equal(root.history[fixture.info.root_id].throughSeq, 9_999);
-  assert.ok(root.history[fixture.info.root_id].messages.length <= 128);
-  await view.loadCollection('agents');
-  assert.equal(view.getSnapshot().collections.agents.items.length, 101);
+  assert.equal(root.history.snapshot.through_sequence, '10000');
+  assert.ok(root.history.messages.length <= 100);
   for (let index = 0; index < 6; index++) await view.loadOlder();
-  assert.equal(
-    view.getSnapshot().history[fixture.info.root_id].messages.length,
-    512,
-  );
+  assert.equal(view.getSnapshot().history.messages.length, 512);
   const opened = [];
   let maxRetained = view.getSnapshot().retainedBytes;
   let maxMessages = 0;
-  for (let index = 0; index < 100; index++) {
-    const id = `perf-child-${String(index).padStart(3, '0')}`;
-    const start = performance.now();
-    await view.openAgent(id);
-    opened.push(performance.now() - start);
-    const state = view.getSnapshot();
-    assert.equal(state.history[id].messages.length, 100);
-    maxRetained = Math.max(maxRetained, state.retainedBytes);
-    maxMessages = Math.max(
-      maxMessages,
-      Object.values(state.history).reduce(
-        (count, history) => count + history.messages.length,
-        0,
-      ),
-    );
-    assert.ok(state.retainedBytes <= 8 << 20);
-    view.closeAgent(id);
-    assert.equal(Object.keys(view.getSnapshot().history).length, 1);
+  // Each native SessionView has one owner. Release every inspected child rather
+  // than retaining a second transcript cache or a tree-wide legacy reducer.
+  for (const child of fixture.history.children) {
+    const childView = createSessionView(client.session(child.id));
+    try {
+      const start = performance.now(); await childView.start(); opened.push(performance.now() - start);
+      const state = childView.getSnapshot();
+      assert.equal(state.history.messages.length, 100);
+      maxRetained = Math.max(maxRetained, view.getSnapshot().retainedBytes + state.retainedBytes);
+      maxMessages = Math.max(maxMessages, view.getSnapshot().history.messages.length + state.history.messages.length);
+      assert.ok(state.retainedBytes + view.getSnapshot().retainedBytes <= 8 << 20);
+    } finally { await childView.dispose(); }
+    assert.equal(childView.getSnapshot().history.messages.length, 0);
   }
   metrics.sdk = {
     childOpenMilliseconds: summarize(opened),
     maximumRetainedPayloadBytes: maxRetained,
     maximumRetainedMessages: maxMessages,
     finalRetainedMessages:
-      view.getSnapshot().history[fixture.info.root_id].messages.length,
+      view.getSnapshot().history.messages.length,
   };
   metrics.checks.push(
     '10,000 stored root messages page into at most 512 retained messages; 100 child transcripts inspected and released',
@@ -244,6 +199,12 @@ const frame = () =>
   await frame();
   metrics.initialRenderedRows = await page.locator('[data-reading-id]').count();
   assert.ok(metrics.initialRenderedRows < 80);
+  // The native bounded child summary arrives independently of history. Wait
+  // for its real 37px dock before testing typing-only layout stability.
+  await page.getByRole('region', { name: 'Session agents', exact: true }).waitFor();
+  await page.locator('[data-activity-group]').filter({ hasText: 'Read 128 files' }).waitFor();
+  await page.getByText('Some execution details are outside this bounded window. Open REPL to inspect older work.', { exact: true }).waitFor();
+  await page.evaluate(() => document.fonts.ready);
   metrics.composerReading = await checkComposerReading(page);
   // Repeated real paging must retain the visible row at exactly the same offset.
   const anchors = [];
@@ -387,9 +348,18 @@ const frame = () =>
     }, { description: 'settled pre-switch reading anchor' });
   };
   const rootAnchor = await stableAnchor();
-  await page.locator(`[data-workspace-tab="${fixture.info.root_id}"]`).getByRole('button', { name: /^Tab actions for / }).click();
+  await page.locator(`[data-workspace-tab="${fixture.history.root_id}"]`).getByRole('button', { name: /^Tab actions for / }).click();
   await page.getByRole('menuitem', { name: 'Session details', exact: true }).click();
-  await page.getByRole('link', { name: 'perf-child-000', exact: true }).click();
+  const details = page.getByRole('dialog', { name: 'Session details', exact: true });
+  const childLink = details.getByRole('link', { name: 'perf-child-000', exact: true });
+  await details.locator('article code').first().waitFor();
+  for (let index = 0; index < 7 && !await childLink.count(); index++) {
+    const prior = await details.locator('article code').first().textContent();
+    assert.ok(await details.locator('article').count() <= 16);
+    await details.getByRole('button', { name: 'Next page', exact: true }).click();
+    await eventually(async () => await details.locator('article code').first().textContent() !== prior);
+  }
+  await childLink.click();
   await ready();
   await frame();
   await viewport.evaluate((element) => {
@@ -402,17 +372,23 @@ const frame = () =>
   console.log('Checking cached root/child switches');
   const switches = [];
   for (let index = 0; index < 20; index++) {
+    if (index % 5 === 0) console.log(`Cached switch ${index + 1}/20`);
     const start = performance.now();
     await page.locator('[data-session-info-bar]').getByRole('button', { name: 'Session actions', exact: true }).click();
+    const menuOpened = performance.now();
     await page.getByRole('menuitem', { name: 'Root conversation', exact: true }).click();
+    const navigated = performance.now();
     await page.waitForFunction(() =>
       document
         .querySelector('[aria-label="Conversation"]')
         ?.textContent.includes('Root message'),
     );
+    const contentVisible = performance.now();
     try { await assertAnchor(rootAnchor); }
     finally { metrics.cachedAnchors.observations.push({ index, recipient: 'root', observed: await captureAnchor() }); }
-    switches.push(performance.now() - start);
+    const anchorRestored = performance.now();
+    (metrics.cachedSwitchStages ??= []).push({ menu: menuOpened - start, navigation: navigated - menuOpened, content: contentVisible - navigated, anchor: anchorRestored - contentVisible });
+    switches.push(anchorRestored - start);
     assert.equal(await viewport.getByText(/perf-child-000 message/).count(), 0);
     if (index < 19) {
       await page.goBack();
@@ -439,11 +415,11 @@ const frame = () =>
 
   // Near the aggregate draft ceiling, with a near-per-draft-ceiling active value.
   const draft = await page.evaluate(
-    ({ runtimeId, rootId }) => {
+    ({ runtimeId, rootId, children }) => {
       const prefix = 'whip.web.draft.v1:';
       const active = `${runtimeId}:${rootId}:${rootId}`;
       const drafts = Array.from({ length: 31 }, (_, index) => [
-        `${runtimeId}:${rootId}:perf-child-${String(index).padStart(3, '0')}`,
+        `${runtimeId}:${rootId}:${children[index].id}`,
         'd'.repeat(25_400),
       ]);
       drafts.push([active, '']);
@@ -460,7 +436,7 @@ const frame = () =>
         activeBytes: spare,
       };
     },
-    { runtimeId: fixture.info.runtime_id, rootId: fixture.info.root_id },
+    { runtimeId: fixture.info.runtime_id, rootId: fixture.history.root_id, children: fixture.history.children },
   );
   assert.equal(draft.count, 32);
   assert.ok(draft.activeBytes <= 256 << 10);
@@ -468,27 +444,18 @@ const frame = () =>
   await ready();
   const textarea = page.getByLabel('Message WHIP', { exact: true });
   assert.equal((await textarea.inputValue()).length, draft.activeBytes);
-  const clockBefore = await calibrateClock();
-  console.log('Measuring typing and committed events under 16 streams');
+  if (await page.getByRole('button', { name: 'Latest', exact: true }).count()) await page.getByRole('button', { name: 'Latest', exact: true }).click();
+  await frame();
+  console.log('Measuring typing and accepted inputs under 16 actual provider streams');
   const concurrent = [];
   for (let index = 0; index < 15; index++) {
-    const created = desktopRoots ? { status: 'succeeded', result: { root_id: desktopRoots[index + 1] } } : await client.sessions
-      .create({ cwd: fixture.directory, model: 'model', provider: 'provider' })
-      .result();
-    assert.equal(created.status, 'succeeded');
-    const command = client
-      .session(created.result.root_id)
-      .submit({ text: 'hold:performance-stream' });
-    await command.accepted();
-    concurrent.push({ root: created.result.root_id, command });
+    const id = desktopRoots ? desktopRoots[index + 1] : (await fixture.createRoot(client)).root.id;
+    const command = client.session(id).submission([{ type: 'text', text: `hold:performance-stream-${index}` }], randomUUID());
+    await command.send(deadline()); concurrent.push({ root: id, command });
   }
-  const live = client
-    .session(fixture.info.root_id)
-    .submit({ text: 'hold:performance-stream' });
-  await live.accepted();
-  await page.locator('[data-message-id^="live:"]').waitFor();
-  // The initial live row can come from root.snapshot before events.subscribe
-  // is active. Start commit probes only after a real stream event is painted.
+  const live = client.session(fixture.history.root_id).submission([{ type: 'text', text: 'hold:performance-stream-visible' }], randomUUID());
+  await live.send(deadline());
+  await eventually(async () => (await fixture.effects()).filter(text => text.startsWith('hold:performance-stream-')).length === 16, { description: 'sixteen active actual providers' });
   await page.waitForFunction(() => window.__performanceEventLatency.length > 0);
   await textarea.focus();
   await textarea.press('End');
@@ -575,24 +542,23 @@ const frame = () =>
       characterData: true,
     });
   });
-  const commitProbes = [];
+  const acceptedProbes = [];
   for (let index = 0; index < 40; index++) {
-    const response = await fetch(
-      fixture.info.frontend + '/control/performance/commit',
-      {
-        method: 'POST',
-        signal: AbortSignal.timeout(5000),
-      },
-    );
-    assert.equal(response.status, 200);
-    commitProbes.push(await response.json());
-    // Real keydown/keyup events are needed for native keyboard EventTiming;
-    // insertText dispatches input directly and cannot measure this boundary.
-    await page.keyboard.type('x');
-    await frame();
+    if (index % 5 === 0) console.log(`Accepted input probe ${index + 1}/40`);
+    const requestID = randomUUID(), marker = `accepted-probe-${index}`;
+    const probe = await page.evaluate(async ({ requestID, marker, rowID }) => {
+      if (window.__performanceExpected.length >= 40) throw new Error('Admission probe limit exceeded');
+      window.__performanceExpected.push({ requestID, marker, rowID, seen: false });
+      const started = performance.now();
+      const receipt = await window.__performanceSubmit({ requestID, text: marker });
+      return { requestID, started, acknowledged: performance.now(), inputID: receipt.inputID };
+    }, { requestID, marker, rowID: `input:${JSON.stringify([fixture.history.root_id, client.clientID, requestID])}` });
+    acceptedProbes.push(probe);
+    await page.waitForFunction(id => window.__performanceAcceptedDOM.some(item => item.requestID === id), requestID);
+    // Trusted key events retain native EventTiming; insertText cannot do this.
+    await page.keyboard.type('x'); await frame();
+    assert.equal((await client.session(fixture.history.root_id).inputs.cancel(probe.inputID, deadline())).state, 'cancelled');
   }
-  await page.waitForFunction(() => window.__performanceCommitDOM.length === 40);
-  const clockAfter = await calibrateClock();
   // Let completed keyboard interactions render and the performance timeline
   // observer drain before treating omitted entries as threshold-censored.
   await frame();
@@ -601,7 +567,7 @@ const frame = () =>
     samples: window.__performanceInputs,
     streamingMutations: window.__performanceStreams,
     eventLatency: window.__performanceEventLatency,
-    commitDOM: window.__performanceCommitDOM,
+    acceptedDOM: window.__performanceAcceptedDOM,
     probeOverflow: window.__performanceProbeOverflow,
     keyboard: window.__finishPerformanceKeyboard(),
   }));
@@ -689,80 +655,30 @@ const frame = () =>
   metrics.eventReceivedToDOMMilliseconds = summarize(input.eventLatency);
   assert.ok(input.eventLatency.length > 10);
   assert.equal(input.probeOverflow, false);
-  const clockSamples = [...clockBefore, ...clockAfter];
-  // Allow 0.2ms for browser timer quantization. Agreement before and after the
-  // loaded interval checks the negligible-relative-drift assumption on this Mac.
-  const lowerOffset = Math.max(
-    ...clockSamples.map((sample) => sample.start - sample.daemon - 0.2),
-  );
-  const upperOffset = Math.min(
-    ...clockSamples.map((sample) => sample.end - sample.daemon + 0.2),
-  );
-  assert.ok(
-    lowerOffset <= upperOffset,
-    'Go/browser monotonic clock brackets disagree across the measurement interval',
-  );
-  const errorBound = (upperOffset - lowerOffset) / 2;
-  assert.ok(
-    errorBound <= 5,
-    `Clock correlation is too imprecise (${errorBound}ms)`,
-  );
-  const offset = (lowerOffset + upperOffset) / 2;
-  const observations = new Map(
-    input.commitDOM.map((sample) => [sample.sequence, sample]),
-  );
+  const observations = new Map(input.acceptedDOM.map(sample => [sample.requestID, sample]));
   assert.equal(observations.size, 40);
-  const commitToDOM = commitProbes.map((probe) => {
-    const observed = observations.get(probe.sequence);
-    assert.ok(
-      observed,
-      `No DOM mutation for committed event ${probe.sequence}`,
-    );
-    assert.equal(observed.marker, probe.marker);
-    const elapsed = observed.browser_ms - (probe.committed_ms + offset);
-    assert.ok(
-      elapsed >= -errorBound,
-      'DOM observation precedes the measured commit boundary',
-    );
-    return elapsed;
+  const bounds = acceptedProbes.map(probe => {
+    const observed = observations.get(probe.requestID); assert.ok(observed);
+    assert.ok(observed.browser_ms >= probe.started, 'DOM observation preceded the request');
+    return { requestID: probe.requestID, requestToDOM: observed.browser_ms - probe.started,
+      commitLower: Math.max(0, observed.browser_ms - probe.acknowledged), commitUpper: observed.browser_ms - probe.started };
   });
-  metrics.commitReturnToDOMMilliseconds = {
-    ...summarize(commitToDOM),
-    clockErrorBoundMilliseconds: errorBound,
-    boundary:
-      'Timestamp immediately after successful Store.AppendRootEvent COMMIT return to MutationObserver observation of its marker in a mounted live transcript row; excludes physical paint.',
+  metrics.acceptedInputToDOMMilliseconds = {
+    requestToDOM: summarize(bounds.map(item => item.requestToDOM)),
+    commitBracketLower: summarize(bounds.map(item => item.commitLower)),
+    commitBracketUpper: summarize(bounds.map(item => item.commitUpper)), samples: bounds,
+    boundary: 'Browser monotonic request call through real gateway/SDK admission to MutationObserver of the exact client/request/session-owned queue row. Each accepted input is explicitly cancelled before the next probe; none contacts the provider.',
+    commitBounds: 'SQL acceptance occurs after request start and before the verified admission receipt returns. DOM observation minus those endpoints bounds commit-to-DOM; no exact SQL timestamp, clock calibration, or physical paint claim.',
   };
-  metrics.commitClockCalibration = {
-    method:
-      'Go time.Since and browser performance.now; intersect 20 request-response brackets before and 20 after the loaded interval, without assuming symmetric latency.',
-    sampleCount: clockSamples.length,
-    measuredIntervalMilliseconds: clockAfter.at(-1).end - clockBefore[0].start,
-    roundTripMilliseconds: summarize(
-      clockSamples.map((sample) => sample.end - sample.start),
-    ),
-    browserMinusDaemonOffsetMilliseconds: {
-      lower: lowerOffset,
-      upper: upperOffset,
-    },
-    timerQuantizationAllowanceMilliseconds: 0.2,
-    assumption:
-      'Both monotonic clocks have negligible relative drift during this short same-machine run; disjoint before/after bounds fail the measurement.',
-  };
-  metrics.checks.push(
-    '40 post-COMMIT-return stream probes reached the real SDK/app DOM under 16 concurrent agents, with bounded monotonic-clock calibration error',
-  );
+  metrics.checks.push('40 real native admissions reached exact identity-correlated queue DOM under 16 concurrent actual provider streams; accepted queued inputs cancelled explicitly without inference');
   if (desktop) { console.log('Measuring chunked desktop upload and native download'); await exerciseDesktopTransfer({ host, fixture, metrics, directory, summarize }); }
-  for (const { root: id } of concurrent) {
-    const snapshot = await client.session(id).snapshot();
-    const turn = snapshot.active_turns[id];
-    if (turn) await client.session(id).cancelTurn(turn).result();
+  for (const id of [...concurrent.map(item => item.root), fixture.history.root_id]) {
+    const session = client.session(id), activity = await session.activity(deadline());
+    assert.ok(activity.active_turn, 'Performance stream ended before the measurement completed');
+    await session.cancelTurn(activity.active_turn.id, deadline());
   }
-  const snapshot = await client.session(fixture.info.root_id).snapshot();
-  if (snapshot.active_turns[fixture.info.root_id])
-    await client
-      .session(fixture.info.root_id)
-      .cancelTurn(snapshot.active_turns[fixture.info.root_id])
-      .result();
+  for (const { command } of [...concurrent, { command: live }]) assert.equal((await command.wait(deadline())).turn.state, 'cancelled');
+  assert.ok(!(await fixture.effects()).some(text => text.startsWith('accepted-probe-')), 'Cancelled admission probe contacted the provider');
   const cdp = await context.newCDPSession(page);
   await cdp.send('HeapProfiler.collectGarbage');
   metrics.browserRetained = {
@@ -805,7 +721,7 @@ const frame = () =>
         error: String(error), stack: error.stack, fixtureDirectory: fixture?.directory, isolatedDirectory: isolation?.directory,
         metrics,
         errors,
-        commitDOM: await page?.evaluate(() => window.__performanceCommitDOM),
+        acceptedDOM: await page?.evaluate(() => window.__performanceAcceptedDOM).catch(() => null),
         html: await page?.locator('body')
           .innerText()
           .catch(() => ''),
@@ -818,7 +734,6 @@ const frame = () =>
 } finally {
   const cleanupErrors = [];
   await view?.dispose().catch(error => cleanupErrors.push(error));
-  client?.close();
   if (desktop && isolation) await finishDesktopPerformance(isolation, host, fixture, succeeded, cleanupErrors);
   else {
     await browser?.close().catch(error => cleanupErrors.push(error));
