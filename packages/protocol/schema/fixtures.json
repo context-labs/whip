@@ -1,5 +1,71 @@
 [
   {
+    "type": "Input",
+    "value": {
+      "host_operation": {
+        "module": "shell",
+        "name": "run",
+        "arguments_base64": "eyJjb21tYW5kIjoicHJpbnRmIGRpcmVjdCJ9"
+      },
+      "goal": null,
+      "id": "direct_input",
+      "session_id": "session_root",
+      "source": "user",
+      "kind": "host_operation",
+      "parts": [],
+      "state": "queued",
+      "turn_id": null,
+      "created_at": "2026-09-27T12:00:00.123456Z",
+      "schedule": null
+    },
+    "valid": true
+  },
+  {
+    "type": "CallHostToolParams",
+    "value": {
+      "identity": {
+        "client_id": "human",
+        "request_id": "direct"
+      },
+      "session_id": "session_root",
+      "operation": {
+        "module": "shell",
+        "name": "run",
+        "arguments_base64": "eyJjb21tYW5kIjoicHJpbnRmIGRpcmVjdCJ9"
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "RunShellParams",
+    "value": {
+      "identity": {
+        "client_id": "human",
+        "request_id": "direct"
+      },
+      "session_id": "session_root",
+      "command": "printf direct",
+      "interactive": false
+    },
+    "valid": true
+  },
+  {
+    "type": "HostToolSchemasResult",
+    "value": {
+      "items": [
+        {
+          "module": "files",
+          "name": "read",
+          "description": "Read",
+          "input_schema": {
+            "type": "object"
+          }
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
     "type": "ExecutorActivityResult",
     "value": {
       "activity": {
@@ -69,6 +135,7 @@
     "value": {
       "items": [
         {
+          "origin": "cell",
           "invocation_id": "invocation_fixture",
           "lease": {
             "epoch": "executor_fixture",
@@ -152,6 +219,7 @@
       "generation": "9007199254740993",
       "invocation_id": "invocation_fixture",
       "invocation": {
+        "origin": "cell",
         "invocation_id": "invocation_fixture",
         "lease": {
           "epoch": "executor_fixture",
@@ -1177,6 +1245,7 @@
   {
     "type": "Input",
     "value": {
+      "host_operation": null,
       "goal": null,
       "id": "input_title",
       "session_id": "session_root",
@@ -1323,6 +1392,7 @@
   {
     "type": "Input",
     "value": {
+      "host_operation": null,
       "goal": null,
       "id": "input_formulate",
       "session_id": "session_child",
@@ -1465,6 +1535,7 @@
   {
     "type": "Input",
     "value": {
+      "host_operation": null,
       "goal": null,
       "id": "scheduled_input",
       "session_id": "session_child",
@@ -1489,6 +1560,7 @@
   {
     "type": "Input",
     "value": {
+      "host_operation": null,
       "goal": {
         "id": "goal_fixture",
         "revision": "9007199254740993"
@@ -1513,6 +1585,7 @@
   {
     "type": "Input",
     "value": {
+      "host_operation": null,
       "goal": null,
       "id": "input_compact",
       "session_id": "session_child",
@@ -2134,6 +2207,61 @@
     "valid": true
   },
   {
+    "type": "MatchReceiptParams",
+    "value": {
+      "method": "sessions.compact",
+      "params_base64": "eyJzZXNzaW9uX2lkIjoic2Vzc2lvbl9yb290IiwiaWRlbnRpdHkiOnsiY2xpZW50X2lkIjoiY2xpZW50IiwicmVxdWVzdF9pZCI6ImNvbXBhY3QifX0="
+    },
+    "valid": true
+  },
+  {
+    "type": "SessionActivity",
+    "value": {
+      "session_id": "session_child",
+      "lifecycle": "active",
+      "active_turn": null,
+      "active_input_id": null,
+      "queued_input_count": "9007199254740993",
+      "pending_permission_count": "0",
+      "pending_question_count": "0",
+      "execution_permit": false,
+      "active_workspace_action_id": null
+    },
+    "valid": true
+  },
+  {
+    "type": "InputPageParams",
+    "value": {
+      "session_id": "session_child",
+      "state": "queued",
+      "after": "9007199254740993",
+      "limit": 100
+    },
+    "valid": true
+  },
+  {
+    "type": "InputPageResult",
+    "value": {
+      "items": [
+        {
+          "id": "queued_fixture",
+          "session_id": "session_child",
+          "ordinal": "9007199254740993",
+          "source": "user",
+          "kind": "prompt",
+          "state": "queued",
+          "turn_id": null,
+          "created_at": "2026-09-27T12:00:00.123456Z",
+          "text_preview": "Preview",
+          "preview_truncated": true,
+          "attachment_count": "1"
+        }
+      ],
+      "next_cursor": "9007199254740993"
+    },
+    "valid": true
+  },
+  {
     "type": "SessionObservation",
     "value": {
       "snapshot": {
@@ -2227,6 +2355,7 @@
       "session_id": "session_child",
       "turn_id": "turn_fixture",
       "cell_id": "cell_fixture",
+      "origin": "cell",
       "request_id": "1:1",
       "capability": "files.read",
       "resource": "/workspace",
@@ -2670,6 +2799,128 @@
         "model": {
           "provider": "fixture",
           "name": "scripted",
+          "effort": ""
+        },
+        "instructions": {
+          "project_root": null,
+          "text": "Help the user complete their task. Use only the operations made available to you.",
+          "project_files": [
+            "AGENTS.md"
+          ],
+          "discover_skills": true,
+          "standing_instructions": false,
+          "skill_roots": null
+        },
+        "tools": null,
+        "children": null,
+        "hooks": null,
+        "output_schema": null
+      },
+      "working_directory": "/workspace",
+      "lifecycle": "active",
+      "created_at": "2026-09-27T12:00:00.123456Z"
+    },
+    "valid": true
+  },
+  {
+    "type": "HistoryPageParams",
+    "value": {
+      "session_id": "session_child",
+      "direction": "backward",
+      "cursor": "9007199254740995",
+      "expected_revision": "9007199254740993",
+      "limit": 10
+    },
+    "valid": true
+  },
+  {
+    "type": "HistoryPageResult",
+    "value": {
+      "snapshot": {
+        "revision": "9007199254740993",
+        "session_id": "session_child",
+        "through_sequence": "9007199254740995",
+        "message_count": "3"
+      },
+      "messages": [
+        {
+          "group_id": "turn_fixture",
+          "opening_input": false,
+          "source": null,
+          "retired_by": null,
+          "retired_revision": null,
+          "id": "message_fixture",
+          "session_id": "session_child",
+          "turn_id": "turn_fixture",
+          "input_id": null,
+          "mail": null,
+          "sequence": "9007199254740993",
+          "role": "assistant",
+          "parts": [
+            {
+              "type": "text",
+              "text": "Completed."
+            },
+            {
+              "type": "content",
+              "reference_id": "content_fixture"
+            }
+          ],
+          "created_at": "2026-09-27T12:00:00.123456Z"
+        }
+      ],
+      "next_cursor": "9007199254740993"
+    },
+    "valid": true
+  },
+  {
+    "type": "Session",
+    "value": {
+      "history_revision": "9007199254740993",
+      "id": "session_root",
+      "tree_id": "tree_fixture",
+      "parent_id": null,
+      "definition": {
+        "id": "assistant",
+        "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+      },
+      "config_revision": "9007199254740993",
+      "configuration": {
+        "mcp_servers": {
+          "all": true,
+          "servers": []
+        },
+        "modules": [
+          "agents",
+          "artifacts",
+          "browser",
+          "computer",
+          "context",
+          "files",
+          "goals",
+          "mail",
+          "mcp",
+          "messages",
+          "models",
+          "permissions",
+          "schedules",
+          "shell",
+          "skills",
+          "state",
+          "user"
+        ],
+        "tools_definition": null,
+        "hooks_definition": null,
+        "automatic_title": true,
+        "goals_enabled": true,
+        "compaction": {
+          "model": null,
+          "threshold_percent": 50
+        },
+        "report_mode": "notice",
+        "model": {
+          "provider": "",
+          "name": "",
           "effort": ""
         },
         "instructions": {

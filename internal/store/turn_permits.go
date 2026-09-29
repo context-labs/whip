@@ -54,7 +54,7 @@ func unfinishedExecution(ctx context.Context, q querier, id session.TurnID) (boo
 	err := q.QueryRowContext(ctx, `SELECT
  EXISTS(SELECT 1 FROM model_attempts WHERE turn_id=? AND finished_at IS NULL) OR
  EXISTS(SELECT 1 FROM cells WHERE turn_id=? AND state='running') OR
- EXISTS(SELECT 1 FROM operations o JOIN cells c ON c.id=o.cell_id WHERE c.turn_id=? AND o.finished_at IS NULL)`, id, id, id).Scan(&pending)
+ EXISTS(SELECT 1 FROM operations o WHERE (o.direct_turn_id=? OR o.cell_id IN (SELECT id FROM cells WHERE turn_id=?)) AND o.finished_at IS NULL)`, id, id, id, id).Scan(&pending)
 	return pending, err
 }
 

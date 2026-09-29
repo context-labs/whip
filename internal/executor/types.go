@@ -58,6 +58,7 @@ type Request struct {
 	SessionID      session.SessionID
 	TurnID         session.TurnID
 	CellID         session.CellID
+	HostOperation  bool
 	OperationID    session.OperationID
 	Operation      string
 	Arguments      json.RawMessage
@@ -124,7 +125,10 @@ func (request Request) validate(kind Kind, name string) (Request, error) {
 	}
 	switch kind {
 	case Tool:
-		for _, value := range []string{string(request.CellID), string(request.OperationID)} {
+		if request.HostOperation && request.CellID != "" || !request.HostOperation && session.ValidateID(string(request.CellID)) != nil {
+			return request, fmt.Errorf("%w: invalid tool execution origin", session.ErrInvalid)
+		}
+		for _, value := range []string{string(request.OperationID)} {
 			if err := session.ValidateID(value); err != nil {
 				return request, err
 			}
@@ -150,15 +154,15 @@ func (request Request) validate(kind Kind, name string) (Request, error) {
 		}
 		switch name {
 		case "before_tool":
-			if session.ValidateID(string(request.CellID)) != nil || session.ValidateID(request.Operation) != nil || !object(request.Arguments) || len(request.Spawn) != 0 || request.Input != "" {
+			if (request.HostOperation && request.CellID != "" || !request.HostOperation && session.ValidateID(string(request.CellID)) != nil) || session.ValidateID(request.Operation) != nil || !object(request.Arguments) || len(request.Spawn) != 0 || request.Input != "" {
 				return request, fmt.Errorf("%w: invalid tool-hook request", session.ErrInvalid)
 			}
 		case "before_spawn":
-			if session.ValidateID(string(request.CellID)) != nil || request.Operation != "agents.spawn" || !object(request.Spawn) || len(request.Arguments) != 0 || request.Input != "" {
+			if request.HostOperation || session.ValidateID(string(request.CellID)) != nil || request.Operation != "agents.spawn" || !object(request.Spawn) || len(request.Arguments) != 0 || request.Input != "" {
 				return request, fmt.Errorf("%w: invalid spawn-hook request", session.ErrInvalid)
 			}
 		case "turn_start":
-			if request.CellID != "" || request.Operation != "" || len(request.Arguments) != 0 || len(request.Spawn) != 0 {
+			if request.HostOperation || request.CellID != "" || request.Operation != "" || len(request.Arguments) != 0 || len(request.Spawn) != 0 {
 				return request, fmt.Errorf("%w: invalid turn-hook request", session.ErrInvalid)
 			}
 		default:

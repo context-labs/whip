@@ -1,0 +1,30 @@
+{
+  "type": "object",
+  "properties": {
+    "method": {
+      "type": "string",
+      "enum": [
+        "sessions.submit",
+        "sessions.compact",
+        "sessions.spawn",
+        "goals.formulate",
+        "goals.resume",
+        "tool.call",
+        "shell.run"
+      ]
+    },
+    "params_base64": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 5592408
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/MatchReceiptParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MatchReceiptParams",
+  "required": [
+    "method",
+    "params_base64"
+  ],
+  "additionalProperties": false
+}

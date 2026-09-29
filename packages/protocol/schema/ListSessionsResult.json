@@ -236,41 +236,104 @@
                 ]
               },
               "model": {
-                "type": "object",
-                "properties": {
-                  "provider": {
-                    "type": "string",
-                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
-                  },
-                  "name": {
-                    "type": "string"
-                  },
-                  "effort": {
-                    "type": "string"
-                  },
-                  "temperature": {
-                    "type": [
-                      "null",
-                      "number"
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "provider": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "effort": {
+                        "type": "string"
+                      },
+                      "temperature": {
+                        "type": [
+                          "null",
+                          "number"
+                        ],
+                        "minimum": 0,
+                        "maximum": 2
+                      },
+                      "top_p": {
+                        "type": [
+                          "null",
+                          "number"
+                        ],
+                        "minimum": 0,
+                        "maximum": 1
+                      }
+                    },
+                    "required": [
+                      "provider",
+                      "name",
+                      "effort"
                     ],
-                    "minimum": 0,
-                    "maximum": 2
+                    "additionalProperties": false
                   },
-                  "top_p": {
-                    "type": [
-                      "null",
-                      "number"
+                  {
+                    "type": "object",
+                    "properties": {
+                      "provider": {
+                        "type": "string",
+                        "enum": [
+                          ""
+                        ]
+                      },
+                      "name": {
+                        "type": "string",
+                        "enum": [
+                          ""
+                        ]
+                      },
+                      "effort": {
+                        "type": "string",
+                        "enum": [
+                          ""
+                        ]
+                      },
+                      "temperature": {
+                        "type": [
+                          "null",
+                          "number"
+                        ],
+                        "minimum": 0,
+                        "maximum": 2
+                      },
+                      "top_p": {
+                        "type": [
+                          "null",
+                          "number"
+                        ],
+                        "minimum": 0,
+                        "maximum": 1
+                      }
+                    },
+                    "required": [
+                      "provider",
+                      "name",
+                      "effort"
                     ],
-                    "minimum": 0,
-                    "maximum": 1
+                    "additionalProperties": false,
+                    "not": {
+                      "anyOf": [
+                        {
+                          "required": [
+                            "temperature"
+                          ]
+                        },
+                        {
+                          "required": [
+                            "top_p"
+                          ]
+                        }
+                      ]
+                    }
                   }
-                },
-                "required": [
-                  "provider",
-                  "name",
-                  "effort"
-                ],
-                "additionalProperties": false
+                ]
               },
               "instructions": {
                 "type": "object",

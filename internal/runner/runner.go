@@ -93,6 +93,9 @@ func Failure(err error) Outcome {
 // Run persists completed output under a stable message ID. The caller settles
 // the turn separately; retrying that settlement must never call Run again.
 func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration session.Configuration) (Outcome, error) {
+	if turn.Kind == session.HostOperationInputKind {
+		return Failure(errors.New("direct host work cannot enter the model runner")), nil
+	}
 	if turn.Kind == session.AutomaticTitleInputKind {
 		return r.automaticTitle(ctx, turn)
 	}

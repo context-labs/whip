@@ -21,6 +21,9 @@ type Operation struct {
 
 func Operations() []Operation {
 	return []Operation{
+		{"tool.schemas", reflect.TypeFor[SessionParams](), reflect.TypeFor[HostToolSchemasResult]()},
+		{"tool.call", reflect.TypeFor[CallHostToolParams](), reflect.TypeFor[Admission]()},
+		{"shell.run", reflect.TypeFor[RunShellParams](), reflect.TypeFor[Admission]()},
 		{"executor.activity", reflect.TypeFor[SessionParams](), reflect.TypeFor[ExecutorActivityResult]()},
 		{"executor.bind", reflect.TypeFor[ExecutorBindParams](), reflect.TypeFor[ExecutorLease]()},
 		{"executor.pending", reflect.TypeFor[ExecutorPendingParams](), reflect.TypeFor[ExecutorPendingResult]()},
@@ -165,6 +168,7 @@ func Operations() []Operation {
 		{"sessions.list", reflect.TypeFor[ListSessionsParams](), reflect.TypeFor[ListSessionsResult]()},
 		{"sessions.configure", reflect.TypeFor[UpdateConfigurationParams](), reflect.TypeFor[Session]()},
 		{"sessions.submit", reflect.TypeFor[SubmitParams](), reflect.TypeFor[Admission]()},
+		{"sessions.history_page", reflect.TypeFor[HistoryPageParams](), reflect.TypeFor[HistoryPageResult]()},
 		{"sessions.history", reflect.TypeFor[HistoryParams](), reflect.TypeFor[HistoryResult]()},
 		{"sessions.rewind", reflect.TypeFor[RewindParams](), reflect.TypeFor[HistoryEdit]()},
 		{"sessions.fork", reflect.TypeFor[ForkParams](), reflect.TypeFor[ForkResult]()},
@@ -173,7 +177,11 @@ func Operations() []Operation {
 		{"turns.get", reflect.TypeFor[TurnParams](), reflect.TypeFor[Turn]()},
 		{"turns.attempts", reflect.TypeFor[ModelAttemptsParams](), reflect.TypeFor[ModelAttemptsResult]()},
 		{"turns.cancel", reflect.TypeFor[TurnParams](), reflect.TypeFor[Turn]()},
+		{"sessions.activity", reflect.TypeFor[SessionParams](), reflect.TypeFor[SessionActivity]()},
+		{"inputs.page", reflect.TypeFor[InputPageParams](), reflect.TypeFor[InputPageResult]()},
+		{"inputs.get", reflect.TypeFor[SessionInputParams](), reflect.TypeFor[Input]()},
 		{"inputs.cancel", reflect.TypeFor[InputParams](), reflect.TypeFor[Input]()},
+		{"receipts.match", reflect.TypeFor[MatchReceiptParams](), reflect.TypeFor[Admission]()},
 		{"receipts.get", reflect.TypeFor[RequestIdentity](), reflect.TypeFor[Admission]()},
 		{"content.put", reflect.TypeFor[PutContentParams](), reflect.TypeFor[ContentReference]()},
 		{"content.read", reflect.TypeFor[ReadContentParams](), reflect.TypeFor[ReadContentResult]()},
@@ -275,6 +283,14 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 		languageServerSchema(schema, t)
 		mcpSchema(schema, t)
 		terminalSchema(schema, t)
+		hostOperationSchema(schema, t)
+		if t == reflect.TypeFor[MatchReceiptParams]() {
+			schema.Properties["params_base64"].MinLength = new(1)
+			schema.Properties["params_base64"].MaxLength = new(5592408)
+		}
+		if t == reflect.TypeFor[InputSummary]() {
+			schema.Properties["text_preview"].MaxLength = new(512)
+		}
 		discoverySchema(schema, t)
 		if t == reflect.TypeFor[GoalFormulationRequest]() {
 			schema.Properties["tail_messages"] = &jsonschema.Schema{OneOf: []*jsonschema.Schema{
@@ -313,11 +329,19 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 			prompt := schema.CloneSchemas()
 			prompt.Type, prompt.Types = "object", nil
 			prompt.Properties["kind"] = &jsonschema.Schema{Type: "string", Enum: []any{"prompt"}}
+			prompt.Properties["host_operation"] = &jsonschema.Schema{Type: "null"}
 			compact := schema.CloneSchemas()
 			compact.Type, compact.Types = "object", nil
 			compact.Properties["kind"] = &jsonschema.Schema{Type: "string", Enum: []any{"compact", "goal_formulation", "automatic_title"}}
 			compact.Properties["parts"] = &jsonschema.Schema{Type: "array", MaxItems: new(0), Items: partSchema("text", "content")}
-			*schema = jsonschema.Schema{OneOf: []*jsonschema.Schema{prompt, compact}}
+			compact.Properties["host_operation"] = &jsonschema.Schema{Type: "null"}
+			direct := schema.CloneSchemas()
+			direct.Type, direct.Types = "object", nil
+			direct.Properties["kind"] = &jsonschema.Schema{Type: "string", Enum: []any{"host_operation"}}
+			direct.Properties["source"] = &jsonschema.Schema{Type: "string", Enum: []any{"user"}}
+			direct.Properties["parts"] = compact.Properties["parts"].CloneSchemas()
+			direct.Properties["host_operation"].Type, direct.Properties["host_operation"].Types = "object", nil
+			*schema = jsonschema.Schema{OneOf: []*jsonschema.Schema{prompt, compact, direct}}
 			if nullable {
 				schema.OneOf = append(schema.OneOf, &jsonschema.Schema{Type: "null"})
 			}

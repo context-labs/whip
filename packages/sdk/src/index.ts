@@ -1,5 +1,10 @@
 import { assertValid } from '@whip/protocol';
 import type { Admission, InitializeResult, Operations, RequestIdentity, SessionObservation } from '@whip/protocol';
+import { delay } from './value.js';
+import { Session } from './session.js';
+import { Trees, Sessions } from './services.js';
+import { DurableCommand } from './command.js';
+import type { DurableMethod, RecoveryJournal } from './command.js';
 import { decodeResponse, operation, RemoteError } from './wire.js';
 import type { CallOptions, Method, Transport } from './wire.js';
 
@@ -10,6 +15,9 @@ export type * from '@whip/protocol';
 /** No conversation or execution state lives here. Previews are disposable runtime projections. */
 export class Client {
   private sequence = 0;
+  readonly trees = new Trees(this);
+  readonly sessions = new Sessions(this);
+  session(sessionID: string): Session { return this.sessions.handle(sessionID); }
   private constructor(private readonly transport: Transport, private readonly initial: InitializeResult, readonly clientID: string) {}
 
   static async connect(transport: Transport, options: { clientID: string; expectedRuntimeID?: string } & CallOptions): Promise<Client> {
@@ -32,6 +40,10 @@ export class Client {
     const id = 'rpc-' + ++this.sequence;
     const response = await this.transport({ jsonrpc: '2.0', id, method, params }, this.runtimeID, options);
     return decodeResponse(method, id, response);
+  }
+
+  command<M extends DurableMethod>(method: M, params: Operations[M]['params'], options: { journal?: RecoveryJournal } = {}): DurableCommand<M> {
+    return DurableCommand.prepare(this, method, params, options);
   }
 
   /** Bounded ephemeral executor progress/decisions; null after its owning turn ends. */
@@ -292,6 +304,21 @@ export class Client {
     return this.call('accounts.openai.logout', {}, options);
   }
 
+  /** Fixed declared host surface; listing never starts a resource or grants authority. */
+  hostToolSchemas(sessionID: string, options: CallOptions = {}): Promise<Operations['tool.schemas']['result']> {
+    return this.call('tool.schemas', { session_id: sessionID }, options);
+  }
+
+  /** Accepts direct human work. Keep requestID and exact bytes for receipt recovery; abort only stops observation. */
+  callTool(sessionID: string, operation: Operations['tool.call']['params']['operation'], requestID: string, options: CallOptions = {}): Promise<Admission> {
+    return this.call('tool.call', { session_id: sessionID, identity: this.identity(requestID), operation }, options);
+  }
+
+  runShell(sessionID: string, command: string, requestID: string, options: CallOptions & { timeout?: number; interactive?: boolean } = {}): Promise<Admission> {
+    const { timeout, interactive = false, ...callOptions } = options;
+    return this.call('shell.run', { session_id: sessionID, identity: this.identity(requestID), command, interactive, ...(timeout === undefined ? {} : { timeout }) }, callOptions);
+  }
+
   /** Keep this requestID and exact payload until admission is known, including after a lost acknowledgement. */
   submit(sessionID: string, parts: Operations['sessions.submit']['params']['parts'], requestID: string, options: CallOptions = {}): Promise<Admission> {
     return this.call('sessions.submit', { session_id: sessionID, source: 'user', parts, identity: this.identity(requestID) }, options);
@@ -516,15 +543,13 @@ export class Client {
   private identity(requestID: string): RequestIdentity { return { client_id: this.clientID, request_id: requestID }; }
 }
 
-function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
-  signal?.throwIfAborted();
-  return new Promise((resolve, reject) => {
-    const cleanup = () => { clearTimeout(timer); signal?.removeEventListener('abort', aborted); };
-    const aborted = () => { cleanup(); reject(signal?.reason); };
-    const timer = setTimeout(() => { cleanup(); resolve(); }, milliseconds);
-    signal?.addEventListener('abort', aborted, { once: true });
-  });
-}
-
 export { ExecutorClient } from './executors.js';
 export type { DuplexTransport } from './executors.js';
+
+export { DurableCommand, RecoveryJournal, RecoveryError, RecoveryPersistenceError, recoveryNamespace, maxRecoveryRecordBytes } from './command.js';
+export type { DurableMethod, RecoveryRecord, RecoveryStorage, RecoveryCheck, RecoveryEvidence } from './command.js';
+
+export { Session } from './session.js';
+export { Trees, Sessions } from './services.js';
+
+export type { Session as SessionRecord } from '@whip/protocol';

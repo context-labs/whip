@@ -74,8 +74,8 @@ func resourceUsed(ctx context.Context, q querier, owner session.SessionID, kind 
 	case session.ResourceQueuedInputs:
 		query = "SELECT count(*) FROM inputs i JOIN scope s ON s.id=i.session_id WHERE i.turn_id IS NULL AND i.cancelled_at IS NULL"
 	case session.ResourceActiveOperations:
-		query = `SELECT count(*) FROM operations o JOIN cells c ON c.id=o.cell_id
- JOIN turns t ON t.id=c.turn_id JOIN scope s ON s.id=t.session_id WHERE o.finished_at IS NULL`
+		query = `SELECT count(*) FROM operations o LEFT JOIN cells c ON c.id=o.cell_id
+ JOIN turns t ON t.id=COALESCE(c.turn_id,o.direct_turn_id) JOIN scope s ON s.id=t.session_id WHERE o.finished_at IS NULL`
 	case session.ResourceRunnableDescendants:
 		query = "SELECT count(*) FROM turn_permits p JOIN turns t ON t.id=p.turn_id JOIN scope s ON s.id=t.session_id WHERE s.depth>0"
 	case session.ResourceSchedules:

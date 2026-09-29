@@ -6,6 +6,9 @@
     {
       "type": "object",
       "properties": {
+        "host_operation": {
+          "type": "null"
+        },
         "goal": {
           "type": [
             "null",
@@ -140,6 +143,7 @@
         }
       },
       "required": [
+        "host_operation",
         "goal",
         "id",
         "session_id",
@@ -156,6 +160,9 @@
     {
       "type": "object",
       "properties": {
+        "host_operation": {
+          "type": "null"
+        },
         "goal": {
           "type": [
             "null",
@@ -291,6 +298,181 @@
         }
       },
       "required": [
+        "host_operation",
+        "goal",
+        "id",
+        "session_id",
+        "source",
+        "kind",
+        "parts",
+        "state",
+        "turn_id",
+        "created_at",
+        "schedule"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "host_operation": {
+          "type": "object",
+          "properties": {
+            "module": {
+              "type": "string",
+              "enum": [
+                "shell",
+                "files",
+                "tools"
+              ]
+            },
+            "name": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "arguments_base64": {
+              "type": "string",
+              "maxLength": 699052
+            }
+          },
+          "required": [
+            "module",
+            "name",
+            "arguments_base64"
+          ],
+          "additionalProperties": false
+        },
+        "goal": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "revision": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,18})$",
+              "format": "counter"
+            }
+          },
+          "required": [
+            "id",
+            "revision"
+          ],
+          "additionalProperties": false
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "user"
+          ]
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "host_operation"
+          ]
+        },
+        "parts": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "pattern": "^[\\s\\S]+$"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "text"
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "text"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "reference_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "content"
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "reference_id"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "maxItems": 0
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "queued",
+            "claimed",
+            "cancelled"
+          ]
+        },
+        "turn_id": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "schedule": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "schedule_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "scheduled_for": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "schedule_id",
+            "scheduled_for"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "host_operation",
         "goal",
         "id",
         "session_id",

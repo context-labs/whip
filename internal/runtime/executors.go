@@ -34,12 +34,9 @@ func (r *Runtime) prepareCustomTool(ctx context.Context, current session.Session
 	if err := declaration.ValidateInput(call.Arguments); err != nil {
 		return tool.Prepared{}, err
 	}
-	cell, err := r.store.Cell(ctx, call.CellID)
+	turn, err := r.invocationTurn(ctx, current.ID, call)
 	if err != nil {
 		return tool.Prepared{}, err
-	}
-	if cell.SessionID != current.ID {
-		return tool.Prepared{}, errors.New("custom tool cell owner mismatch")
 	}
 	arguments := call.Arguments
 	if arguments == nil {
@@ -77,12 +74,12 @@ func (r *Runtime) prepareCustomTool(ctx context.Context, current session.Session
 			if reserved == nil {
 				return nil, errors.New("custom executor lifetime was not acquired")
 			}
-			defer r.executorProgress(current.ID, cell.TurnID, nil)
+			defer r.executorProgress(current.ID, turn, nil)
 			result, err := reserved.Invoke(ctx, executor.Request{
-				SessionID: current.ID, TurnID: cell.TurnID, CellID: call.CellID, OperationID: operation,
+				SessionID: current.ID, TurnID: turn, CellID: call.CellID, HostOperation: call.DirectTurnID != "", OperationID: operation,
 				Operation: "tools." + call.Name, Arguments: raw, Timeout: timeout,
 			}, func(text string) {
-				r.executorProgress(current.ID, cell.TurnID, &ExecutorProgress{InvocationID: reserved.ID(), OperationID: operation, Text: text})
+				r.executorProgress(current.ID, turn, &ExecutorProgress{InvocationID: reserved.ID(), OperationID: operation, Text: text})
 			})
 			if err != nil {
 				return nil, err

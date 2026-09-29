@@ -16,6 +16,9 @@ import (
 // PrepareCoordination resolves a guest request to immutable, owner-bound SQL
 // intent. The store rechecks the persisted intent and authority at application.
 func (r *Runtime) PrepareCoordination(ctx context.Context, current session.Session, call tool.Invocation) (tool.Prepared, error) {
+	if call.Module == "permissions" {
+		return r.preparePermissionInspection(current, call)
+	}
 	if call.Module == "shell" {
 		return r.prepareShell(current, call)
 	}
@@ -44,7 +47,7 @@ func (r *Runtime) PrepareCoordination(ctx context.Context, current session.Sessi
 		return r.prepareHistory(ctx, current, call)
 	}
 	if call.Module == "artifacts" {
-		return r.prepareArtifactRead(current, call)
+		return r.prepareArtifact(current, call)
 	}
 	if call.Module == "state" {
 		return r.prepareState(ctx, current, call)

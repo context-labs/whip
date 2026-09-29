@@ -327,8 +327,10 @@ func (c Configuration) Validate() error {
 			return err
 		}
 	}
-	if err := c.Model.Validate(); err != nil {
-		return err
+	if !c.Model.Equal(ModelSelection{}) {
+		if err := c.Model.Validate(); err != nil {
+			return err
+		}
 	}
 	return (ConfigPatch{
 		MCPServers: c.MCPServers, Modules: c.Modules, Compaction: &c.Compaction, Instructions: &c.Instructions, Tools: c.Tools, Children: c.Children,

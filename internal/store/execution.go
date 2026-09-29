@@ -16,12 +16,13 @@ import (
 )
 
 type Submission struct {
-	Goal      *session.GoalRef
-	SessionID session.SessionID
-	Source    session.InputSource
-	Kind      session.InputKind
-	Parts     []session.Part
-	Schedule  *session.ScheduleOccurrence
+	HostOperation *session.HostOperation
+	Goal          *session.GoalRef
+	SessionID     session.SessionID
+	Source        session.InputSource
+	Kind          session.InputKind
+	Parts         []session.Part
+	Schedule      *session.ScheduleOccurrence
 }
 
 // Admission is a projection, not an independently persisted status.
@@ -74,6 +75,10 @@ func readInput(ctx context.Context, q querier, id session.InputID) (result sessi
 		result.State = session.InputCancelled
 	}
 	err = json.Unmarshal([]byte(raw), &result.Parts)
+	if err == nil && result.Kind == session.HostOperationInputKind {
+		value, readErr := readHostOperation(ctx, q, result.ID)
+		result.HostOperation, err = &value, readErr
+	}
 	return
 }
 
@@ -134,24 +139,9 @@ func (s *Store) Admit(ctx context.Context, identity session.RequestIdentity, req
 			return result, err
 		}
 	}
-	if (request.Source != session.UserInput && request.Source != session.AgentInput) || request.Schedule != nil || request.Goal != nil {
-		return result, fmt.Errorf("%w: invalid input source", session.ErrInvalid)
-	}
-	if request.Kind == "" {
-		request.Kind = session.PromptInput
-	}
-	switch request.Kind {
-	case session.PromptInput:
-		if err := session.ValidateInputParts(request.Parts); err != nil {
-			return result, err
-		}
-	case session.CompactInput:
-		if len(request.Parts) != 0 {
-			return result, fmt.Errorf("%w: compact input cannot contain prompt parts", session.ErrInvalid)
-		}
-		request.Parts = []session.Part{}
-	default:
-		return result, fmt.Errorf("%w: unknown input kind", session.ErrInvalid)
+	request, err = normalizeSubmission(request)
+	if err != nil {
+		return result, err
 	}
 	digest, err := requestDigest("submit", request)
 	if err != nil {
@@ -173,6 +163,29 @@ func (s *Store) Admit(ctx context.Context, identity session.RequestIdentity, req
 		return err
 	})
 	return
+}
+
+func normalizeSubmission(request Submission) (Submission, error) {
+	if (request.Source != session.UserInput && request.Source != session.AgentInput) || request.Schedule != nil || request.Goal != nil || request.HostOperation != nil {
+		return request, fmt.Errorf("%w: invalid input source", session.ErrInvalid)
+	}
+	if request.Kind == "" {
+		request.Kind = session.PromptInput
+	}
+	switch request.Kind {
+	case session.PromptInput:
+		if err := session.ValidateInputParts(request.Parts); err != nil {
+			return request, err
+		}
+	case session.CompactInput:
+		if len(request.Parts) != 0 {
+			return request, fmt.Errorf("%w: compact input cannot contain prompt parts", session.ErrInvalid)
+		}
+		request.Parts = []session.Part{}
+	default:
+		return request, fmt.Errorf("%w: unknown input kind", session.ErrInvalid)
+	}
+	return request, nil
 }
 
 func requestDigest(kind string, request any) (string, error) {
@@ -197,6 +210,16 @@ func admitInput(ctx context.Context, tx *sql.Tx, identity session.RequestIdentit
 	}
 	if current.Lifecycle != session.Active {
 		return result, ErrStopped
+	}
+	if request.Kind != session.PromptInput && request.Kind != session.HostOperationInputKind {
+		if err := requireNoDirectWork(ctx, tx, current.ID); err != nil {
+			return result, err
+		}
+	}
+	if request.Kind == session.PromptInput || request.Kind == session.CompactInput {
+		if err := current.Config.Model.Validate(); err != nil {
+			return result, fmt.Errorf("%w: this session has no configured model", session.ErrInvalid)
+		}
 	}
 	if err := validateContentReferences(ctx, tx, current.ID, request.Parts); err != nil {
 		return result, err
@@ -235,6 +258,15 @@ func admitInput(ctx context.Context, tx *sql.Tx, identity session.RequestIdentit
 	created := now()
 	if _, err := tx.ExecContext(ctx, "INSERT INTO inputs (id,session_id,source,kind,parts,created_at,schedule_id,scheduled_for,goal_id,goal_revision) VALUES (?,?,?,?,?,?,?,?,?,?)", inputID, current.ID, request.Source, request.Kind, parts, created, scheduleID, slot, goalID, goalRevision); err != nil {
 		return result, err
+	}
+	if request.Kind == session.HostOperationInputKind {
+		if request.HostOperation == nil {
+			return result, session.ErrInvalid
+		}
+		host := request.HostOperation
+		if _, err := tx.ExecContext(ctx, "INSERT INTO host_operation_inputs (input_id,module,name,arguments) VALUES (?,?,?,?)", inputID, host.Module, host.Name, string(host.Arguments)); err != nil {
+			return result, err
+		}
 	}
 	if _, err := tx.ExecContext(ctx, "INSERT INTO receipts VALUES (?,?,?,?,NULL,?)", identity.ClientID, identity.RequestID, digest, inputID, created); err != nil {
 		return result, err
@@ -462,6 +494,9 @@ func validDraft(draft session.MessageDraft) error {
 }
 
 func appendMessage(ctx context.Context, tx *sql.Tx, turn session.Turn, draft session.MessageDraft) (session.Message, error) {
+	if turn.Kind == session.HostOperationInputKind {
+		return session.Message{}, session.ErrInvalid
+	}
 	if turn.Kind != session.PromptInput {
 		return session.Message{}, fmt.Errorf("%w: maintenance cannot author transcript messages", session.ErrInvalid)
 	}

@@ -1,0 +1,63 @@
+{
+  "type": "object",
+  "properties": {
+    "identity": {
+      "type": "object",
+      "properties": {
+        "client_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        }
+      },
+      "required": [
+        "client_id",
+        "request_id"
+      ],
+      "additionalProperties": false
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "operation": {
+      "type": "object",
+      "properties": {
+        "module": {
+          "type": "string",
+          "enum": [
+            "shell",
+            "files",
+            "tools"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "arguments_base64": {
+          "type": "string",
+          "maxLength": 699052
+        }
+      },
+      "required": [
+        "module",
+        "name",
+        "arguments_base64"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/CallHostToolParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CallHostToolParams",
+  "required": [
+    "identity",
+    "session_id",
+    "operation"
+  ],
+  "additionalProperties": false
+}

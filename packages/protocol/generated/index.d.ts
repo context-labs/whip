@@ -12,6 +12,7 @@ export interface Admission {
   };
   input:
     | {
+        host_operation: null;
         goal: null | {
           id: string;
           revision: string;
@@ -55,6 +56,7 @@ export interface Admission {
         };
       }
     | {
+        host_operation: null;
         goal: null | {
           id: string;
           revision: string;
@@ -63,6 +65,32 @@ export interface Admission {
         session_id: string;
         source: "user" | "agent" | "schedule" | "goal";
         kind: "compact" | "goal_formulation" | "automatic_title";
+        /**
+         * @maxItems 0
+         */
+        parts: [];
+        state: "queued" | "claimed" | "cancelled";
+        turn_id: null | string;
+        created_at: string;
+        schedule: null | {
+          schedule_id: string;
+          scheduled_for: string;
+        };
+      }
+    | {
+        host_operation: {
+          module: "shell" | "files" | "tools";
+          name: string;
+          arguments_base64: string;
+        };
+        goal: null | {
+          id: string;
+          revision: string;
+        };
+        id: string;
+        session_id: string;
+        source: "user";
+        kind: "host_operation";
         /**
          * @maxItems 0
          */
@@ -84,7 +112,7 @@ export interface Admission {
     };
     id: string;
     session_id: string;
-    kind: "prompt" | "compact" | "goal_formulation" | "automatic_title";
+    kind: "prompt" | "compact" | "goal_formulation" | "automatic_title" | "host_operation";
     config_revision: string;
     state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
     failure: null | string;
@@ -186,6 +214,18 @@ export interface BudgetsResult {
         uncertain: string;
         incomplete: boolean;
       }[];
+}
+export interface CallHostToolParams {
+  identity: {
+    client_id: string;
+    request_id: string;
+  };
+  session_id: string;
+  operation: {
+    module: "shell" | "files" | "tools";
+    name: string;
+    arguments_base64: string;
+  };
 }
 export interface Cell {
   id: string;
@@ -702,13 +742,21 @@ export interface CreateTreeResult {
         threshold_percent: number;
       };
       report_mode: "notice" | "inline" | "message";
-      model: {
-        provider: string;
-        name: string;
-        effort: string;
-        temperature?: null | number;
-        top_p?: null | number;
-      };
+      model:
+        | {
+            provider: string;
+            name: string;
+            effort: string;
+            temperature?: null | number;
+            top_p?: null | number;
+          }
+        | {
+            provider: "";
+            name: "";
+            effort: "";
+            temperature?: null | number;
+            top_p?: null | number;
+          };
       instructions: {
         project_root: null | string;
         text: string;
@@ -1012,6 +1060,7 @@ export type ExecutorEvent = {
   generation: string;
   invocation_id: string;
   invocation: null | {
+    origin: "cell" | "host_operation" | "turn";
     invocation_id: string;
     lease: {
       epoch: string;
@@ -1100,6 +1149,7 @@ export interface ExecutorPendingResult {
     | []
     | [
         {
+          origin: "cell" | "host_operation" | "turn";
           invocation_id: string;
           lease: {
             epoch: string;
@@ -1133,6 +1183,7 @@ export interface ExecutorPendingResult {
       ]
     | [
         {
+          origin: "cell" | "host_operation" | "turn";
           invocation_id: string;
           lease: {
             epoch: string;
@@ -1164,6 +1215,7 @@ export interface ExecutorPendingResult {
           deadline_millis: string;
         },
         {
+          origin: "cell" | "host_operation" | "turn";
           invocation_id: string;
           lease: {
             epoch: string;
@@ -1197,6 +1249,7 @@ export interface ExecutorPendingResult {
       ]
     | [
         {
+          origin: "cell" | "host_operation" | "turn";
           invocation_id: string;
           lease: {
             epoch: string;
@@ -1228,6 +1281,7 @@ export interface ExecutorPendingResult {
           deadline_millis: string;
         },
         {
+          origin: "cell" | "host_operation" | "turn";
           invocation_id: string;
           lease: {
             epoch: string;
@@ -1259,6 +1313,7 @@ export interface ExecutorPendingResult {
           deadline_millis: string;
         },
         {
+          origin: "cell" | "host_operation" | "turn";
           invocation_id: string;
           lease: {
             epoch: string;
@@ -1292,6 +1347,7 @@ export interface ExecutorPendingResult {
       ]
     | [
         {
+          origin: "cell" | "host_operation" | "turn";
           invocation_id: string;
           lease: {
             epoch: string;
@@ -1323,6 +1379,7 @@ export interface ExecutorPendingResult {
           deadline_millis: string;
         },
         {
+          origin: "cell" | "host_operation" | "turn";
           invocation_id: string;
           lease: {
             epoch: string;
@@ -1354,6 +1411,7 @@ export interface ExecutorPendingResult {
           deadline_millis: string;
         },
         {
+          origin: "cell" | "host_operation" | "turn";
           invocation_id: string;
           lease: {
             epoch: string;
@@ -1385,6 +1443,7 @@ export interface ExecutorPendingResult {
           deadline_millis: string;
         },
         {
+          origin: "cell" | "host_operation" | "turn";
           invocation_id: string;
           lease: {
             epoch: string;
@@ -1521,13 +1580,21 @@ export interface ForkResult {
         threshold_percent: number;
       };
       report_mode: "notice" | "inline" | "message";
-      model: {
-        provider: string;
-        name: string;
-        effort: string;
-        temperature?: null | number;
-        top_p?: null | number;
-      };
+      model:
+        | {
+            provider: string;
+            name: string;
+            effort: string;
+            temperature?: null | number;
+            top_p?: null | number;
+          }
+        | {
+            provider: "";
+            name: "";
+            effort: "";
+            temperature?: null | number;
+            top_p?: null | number;
+          };
       instructions: {
         project_root: null | string;
         text: string;
@@ -1635,6 +1702,7 @@ export interface GoalAdmission {
     };
     input:
       | {
+          host_operation: null;
           goal: null | {
             id: string;
             revision: string;
@@ -1678,6 +1746,7 @@ export interface GoalAdmission {
           };
         }
       | {
+          host_operation: null;
           goal: null | {
             id: string;
             revision: string;
@@ -1686,6 +1755,32 @@ export interface GoalAdmission {
           session_id: string;
           source: "user" | "agent" | "schedule" | "goal";
           kind: "compact" | "goal_formulation" | "automatic_title";
+          /**
+           * @maxItems 0
+           */
+          parts: [];
+          state: "queued" | "claimed" | "cancelled";
+          turn_id: null | string;
+          created_at: string;
+          schedule: null | {
+            schedule_id: string;
+            scheduled_for: string;
+          };
+        }
+      | {
+          host_operation: {
+            module: "shell" | "files" | "tools";
+            name: string;
+            arguments_base64: string;
+          };
+          goal: null | {
+            id: string;
+            revision: string;
+          };
+          id: string;
+          session_id: string;
+          source: "user";
+          kind: "host_operation";
           /**
            * @maxItems 0
            */
@@ -1707,7 +1802,7 @@ export interface GoalAdmission {
       };
       id: string;
       session_id: string;
-      kind: "prompt" | "compact" | "goal_formulation" | "automatic_title";
+      kind: "prompt" | "compact" | "goal_formulation" | "automatic_title" | "host_operation";
       config_revision: string;
       state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
       failure: null | string;
@@ -1838,6 +1933,230 @@ export interface HistoryMetadataResult {
       }[];
   through_sequence: string;
   next_after: null | string;
+}
+export interface HistoryPageParams {
+  session_id: string;
+  direction: "forward" | "backward";
+  cursor?: null | string;
+  expected_revision?: null | string;
+  limit: number;
+}
+export interface HistoryPageResult {
+  snapshot: {
+    revision: string;
+    session_id: string;
+    through_sequence: string;
+    message_count: string;
+  };
+  messages:
+    | null
+    | (
+        | {
+            group_id: string;
+            opening_input: boolean;
+            source: null | {
+              session_id: string;
+              message_id: string;
+              sequence: string;
+            };
+            retired_by: null | string;
+            retired_revision: null | string;
+            id: string;
+            session_id: string;
+            turn_id: null | string;
+            input_id: null | string;
+            mail: null | {
+              id: string;
+              revision: string;
+              presentation: "digest" | "body";
+            };
+            sequence: string;
+            role: "user";
+            /**
+             * @minItems 1
+             * @maxItems 128
+             */
+            parts: [
+              (
+                | {
+                    text: string;
+                    type: "text";
+                  }
+                | {
+                    reference_id: string;
+                    type: "content";
+                  }
+              ),
+              ...(
+                | {
+                    text: string;
+                    type: "text";
+                  }
+                | {
+                    reference_id: string;
+                    type: "content";
+                  }
+              )[]
+            ];
+            created_at: string;
+          }
+        | {
+            group_id: string;
+            opening_input: boolean;
+            source: null | {
+              session_id: string;
+              message_id: string;
+              sequence: string;
+            };
+            retired_by: null | string;
+            retired_revision: null | string;
+            id: string;
+            session_id: string;
+            turn_id: null | string;
+            input_id: null | string;
+            mail: null | {
+              id: string;
+              revision: string;
+              presentation: "digest" | "body";
+            };
+            sequence: string;
+            role: "system";
+            /**
+             * @minItems 1
+             * @maxItems 128
+             */
+            parts: [
+              (
+                | {
+                    text: string;
+                    type: "text";
+                  }
+                | {
+                    reference_id: string;
+                    type: "content";
+                  }
+              ),
+              ...(
+                | {
+                    text: string;
+                    type: "text";
+                  }
+                | {
+                    reference_id: string;
+                    type: "content";
+                  }
+              )[]
+            ];
+            created_at: string;
+          }
+        | {
+            group_id: string;
+            opening_input: boolean;
+            source: null | {
+              session_id: string;
+              message_id: string;
+              sequence: string;
+            };
+            retired_by: null | string;
+            retired_revision: null | string;
+            id: string;
+            session_id: string;
+            turn_id: null | string;
+            input_id: null | string;
+            mail: null | {
+              id: string;
+              revision: string;
+              presentation: "digest" | "body";
+            };
+            sequence: string;
+            role: "assistant";
+            /**
+             * @minItems 1
+             * @maxItems 128
+             */
+            parts: [
+              (
+                | {
+                    text: string;
+                    type: "text";
+                  }
+                | {
+                    reference_id: string;
+                    type: "content";
+                  }
+                | {
+                    call: {
+                      arguments: {
+                        [k: string]: unknown;
+                      };
+                      id: string;
+                      name: string;
+                    };
+                    type: "tool_call";
+                  }
+              ),
+              ...(
+                | {
+                    text: string;
+                    type: "text";
+                  }
+                | {
+                    reference_id: string;
+                    type: "content";
+                  }
+                | {
+                    call: {
+                      arguments: {
+                        [k: string]: unknown;
+                      };
+                      id: string;
+                      name: string;
+                    };
+                    type: "tool_call";
+                  }
+              )[]
+            ];
+            created_at: string;
+          }
+        | {
+            group_id: string;
+            opening_input: boolean;
+            source: null | {
+              session_id: string;
+              message_id: string;
+              sequence: string;
+            };
+            retired_by: null | string;
+            retired_revision: null | string;
+            id: string;
+            session_id: string;
+            turn_id: null | string;
+            input_id: null | string;
+            mail: null | {
+              id: string;
+              revision: string;
+              presentation: "digest" | "body";
+            };
+            sequence: string;
+            role: "tool";
+            /**
+             * @minItems 1
+             * @maxItems 1
+             */
+            parts: [
+              {
+                result: {
+                  call_id: string;
+                  is_error: boolean;
+                  output: string;
+                };
+                type: "tool_result";
+              }
+            ];
+            created_at: string;
+          }
+      )[];
+  next_cursor: null | string;
 }
 export interface HistoryParams {
   expected_revision?: null | string;
@@ -2067,12 +2386,13 @@ export interface HistorySnapshot {
   through_sequence: string;
   message_count: string;
 }
-export interface HostOperation {
+export type HostOperation = {
   permission_revision: null | string;
   id: string;
   session_id: string;
   turn_id: string;
-  cell_id: string;
+  cell_id: null | string;
+  origin: "cell" | "host_operation";
   request_id: string;
   capability: string;
   resource: string;
@@ -2087,7 +2407,20 @@ export interface HostOperation {
   created_at: string;
   dispatched_at: null | string;
   finished_at: null | string;
-}
+} & (
+  | {
+      cell_id?: {
+        [k: string]: unknown;
+      };
+      origin?: "cell";
+      [k: string]: unknown;
+    }
+  | {
+      cell_id?: null;
+      origin?: "host_operation";
+      [k: string]: unknown;
+    }
+);
 export interface HostOperationParams {
   operation_id: string;
 }
@@ -2099,27 +2432,31 @@ export interface HostOperationsParams {
 export interface HostOperationsResult {
   items:
     | null
-    | {
-        permission_revision: null | string;
-        id: string;
-        session_id: string;
-        turn_id: string;
-        cell_id: string;
-        request_id: string;
-        capability: string;
-        resource: string;
-        arguments: unknown;
-        state: "waiting" | "ready" | "dispatched" | "succeeded" | "failed" | "denied" | "cancelled" | "uncertain";
-        grant_id: null | string;
-        result: null | {
-          state: "succeeded" | "failed" | "denied" | "cancelled" | "uncertain";
-          value?: unknown;
-          failure?: null | string;
-        };
-        created_at: string;
-        dispatched_at: null | string;
-        finished_at: null | string;
-      }[];
+    | (
+        | {
+            cell_id?: {
+              [k: string]: unknown;
+            };
+            origin?: "cell";
+            [k: string]: unknown;
+          }
+        | {
+            cell_id?: null;
+            origin?: "host_operation";
+            [k: string]: unknown;
+          }
+      )[];
+}
+export interface HostToolSchemasResult {
+  /**
+   * @maxItems 135
+   */
+  items: {
+    module: "shell" | "files" | "tools";
+    name: string;
+    description: string;
+    input_schema: unknown;
+  }[];
 }
 export interface InferenceAccountStatus {
   management_state: "absent" | "stored" | "expired" | "unavailable";
@@ -2303,6 +2640,7 @@ export interface InitializeResult {
 }
 export type Input =
   | {
+      host_operation: null;
       goal: null | {
         id: string;
         revision: string;
@@ -2346,6 +2684,7 @@ export type Input =
       };
     }
   | {
+      host_operation: null;
       goal: null | {
         id: string;
         revision: string;
@@ -2365,7 +2704,57 @@ export type Input =
         schedule_id: string;
         scheduled_for: string;
       };
+    }
+  | {
+      host_operation: {
+        module: "shell" | "files" | "tools";
+        name: string;
+        arguments_base64: string;
+      };
+      goal: null | {
+        id: string;
+        revision: string;
+      };
+      id: string;
+      session_id: string;
+      source: "user";
+      kind: "host_operation";
+      /**
+       * @maxItems 0
+       */
+      parts: [];
+      state: "queued" | "claimed" | "cancelled";
+      turn_id: null | string;
+      created_at: string;
+      schedule: null | {
+        schedule_id: string;
+        scheduled_for: string;
+      };
     };
+export interface InputPageParams {
+  session_id: string;
+  state: "queued" | "all";
+  after?: null | string;
+  limit: number;
+}
+export interface InputPageResult {
+  items:
+    | null
+    | {
+        id: string;
+        session_id: string;
+        ordinal: string;
+        source: "user" | "agent" | "schedule" | "goal";
+        kind: "prompt" | "compact" | "goal_formulation" | "automatic_title" | "host_operation";
+        state: "queued" | "claimed" | "cancelled";
+        turn_id: null | string;
+        created_at: string;
+        text_preview: string;
+        preview_truncated: boolean;
+        attachment_count: string;
+      }[];
+  next_cursor: null | string;
+}
 export interface InputParams {
   input_id: string;
 }
@@ -2549,13 +2938,21 @@ export interface ListSessionsResult {
             threshold_percent: number;
           };
           report_mode: "notice" | "inline" | "message";
-          model: {
-            provider: string;
-            name: string;
-            effort: string;
-            temperature?: null | number;
-            top_p?: null | number;
-          };
+          model:
+            | {
+                provider: string;
+                name: string;
+                effort: string;
+                temperature?: null | number;
+                top_p?: null | number;
+              }
+            | {
+                provider: "";
+                name: "";
+                effort: "";
+                temperature?: null | number;
+                top_p?: null | number;
+              };
           instructions: {
             project_root: null | string;
             text: string;
@@ -3048,6 +3445,17 @@ export interface MailAdmission {
     revised_at: string;
   };
   deleted_at: null | string;
+}
+export interface MatchReceiptParams {
+  method:
+    | "sessions.submit"
+    | "sessions.compact"
+    | "sessions.spawn"
+    | "goals.formulate"
+    | "goals.resume"
+    | "tool.call"
+    | "shell.run";
+  params_base64: string;
 }
 export type Message =
   | {
@@ -6086,6 +6494,16 @@ export interface RewindParams {
   observed_through: string;
   keep_through: string;
 }
+export interface RunShellParams {
+  identity: {
+    client_id: string;
+    request_id: string;
+  };
+  session_id: string;
+  command: string;
+  timeout?: null | number;
+  interactive: boolean;
+}
 export interface ScheduleAdmission {
   id: string;
   schedule: null | {
@@ -6352,13 +6770,21 @@ export interface Session {
       threshold_percent: number;
     };
     report_mode: "notice" | "inline" | "message";
-    model: {
-      provider: string;
-      name: string;
-      effort: string;
-      temperature?: null | number;
-      top_p?: null | number;
-    };
+    model:
+      | {
+          provider: string;
+          name: string;
+          effort: string;
+          temperature?: null | number;
+          top_p?: null | number;
+        }
+      | {
+          provider: "";
+          name: "";
+          effort: "";
+          temperature?: null | number;
+          top_p?: null | number;
+        };
     instructions: {
       project_root: null | string;
       text: string;
@@ -6393,6 +6819,35 @@ export interface Session {
   working_directory: string;
   lifecycle: "active" | "stopped";
   created_at: string;
+}
+export interface SessionActivity {
+  session_id: string;
+  lifecycle: "active" | "stopped";
+  active_turn: null | {
+    history_revision: string;
+    goal: null | {
+      id: string;
+      revision: string;
+    };
+    id: string;
+    session_id: string;
+    kind: "prompt" | "compact" | "goal_formulation" | "automatic_title" | "host_operation";
+    config_revision: string;
+    state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
+    failure: null | string;
+    started_at: string;
+    finished_at: null | string;
+  };
+  active_input_id: null | string;
+  queued_input_count: string;
+  pending_permission_count: string;
+  pending_question_count: string;
+  execution_permit: boolean;
+  active_workspace_action_id: null | string;
+}
+export interface SessionInputParams {
+  session_id: string;
+  input_id: string;
 }
 export interface SessionObservation {
   snapshot: {
@@ -6903,13 +7358,21 @@ export interface SpawnSessionResult {
         threshold_percent: number;
       };
       report_mode: "notice" | "inline" | "message";
-      model: {
-        provider: string;
-        name: string;
-        effort: string;
-        temperature?: null | number;
-        top_p?: null | number;
-      };
+      model:
+        | {
+            provider: string;
+            name: string;
+            effort: string;
+            temperature?: null | number;
+            top_p?: null | number;
+          }
+        | {
+            provider: "";
+            name: "";
+            effort: "";
+            temperature?: null | number;
+            top_p?: null | number;
+          };
       instructions: {
         project_root: null | string;
         text: string;
@@ -6958,6 +7421,7 @@ export interface SpawnSessionResult {
     };
     input:
       | {
+          host_operation: null;
           goal: null | {
             id: string;
             revision: string;
@@ -7001,6 +7465,7 @@ export interface SpawnSessionResult {
           };
         }
       | {
+          host_operation: null;
           goal: null | {
             id: string;
             revision: string;
@@ -7009,6 +7474,32 @@ export interface SpawnSessionResult {
           session_id: string;
           source: "user" | "agent" | "schedule" | "goal";
           kind: "compact" | "goal_formulation" | "automatic_title";
+          /**
+           * @maxItems 0
+           */
+          parts: [];
+          state: "queued" | "claimed" | "cancelled";
+          turn_id: null | string;
+          created_at: string;
+          schedule: null | {
+            schedule_id: string;
+            scheduled_for: string;
+          };
+        }
+      | {
+          host_operation: {
+            module: "shell" | "files" | "tools";
+            name: string;
+            arguments_base64: string;
+          };
+          goal: null | {
+            id: string;
+            revision: string;
+          };
+          id: string;
+          session_id: string;
+          source: "user";
+          kind: "host_operation";
           /**
            * @maxItems 0
            */
@@ -7030,7 +7521,7 @@ export interface SpawnSessionResult {
       };
       id: string;
       session_id: string;
-      kind: "prompt" | "compact" | "goal_formulation" | "automatic_title";
+      kind: "prompt" | "compact" | "goal_formulation" | "automatic_title" | "host_operation";
       config_revision: string;
       state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
       failure: null | string;
@@ -7273,7 +7764,7 @@ export interface Turn {
   };
   id: string;
   session_id: string;
-  kind: "prompt" | "compact" | "goal_formulation" | "automatic_title";
+  kind: "prompt" | "compact" | "goal_formulation" | "automatic_title" | "host_operation";
   config_revision: string;
   state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
   failure: null | string;
@@ -7482,6 +7973,7 @@ export interface ContractTypes {
   AutomaticTitleResultParams: AutomaticTitleResultParams;
   Budget: Budget;
   BudgetsResult: BudgetsResult;
+  CallHostToolParams: CallHostToolParams;
   Cell: Cell;
   CellParams: CellParams;
   CellsParams: CellsParams;
@@ -7534,6 +8026,8 @@ export interface ContractTypes {
   GrantsResult: GrantsResult;
   HistoryEdit: HistoryEdit;
   HistoryMetadataResult: HistoryMetadataResult;
+  HistoryPageParams: HistoryPageParams;
+  HistoryPageResult: HistoryPageResult;
   HistoryParams: HistoryParams;
   HistoryResult: HistoryResult;
   HistorySnapshot: HistorySnapshot;
@@ -7541,6 +8035,7 @@ export interface ContractTypes {
   HostOperationParams: HostOperationParams;
   HostOperationsParams: HostOperationsParams;
   HostOperationsResult: HostOperationsResult;
+  HostToolSchemasResult: HostToolSchemasResult;
   InferenceAccountStatus: InferenceAccountStatus;
   InferenceCleanupResult: InferenceCleanupResult;
   InferenceCreateProjectParams: InferenceCreateProjectParams;
@@ -7553,6 +8048,8 @@ export interface ContractTypes {
   InitializeParams: InitializeParams;
   InitializeResult: InitializeResult;
   Input: Input;
+  InputPageParams: InputPageParams;
+  InputPageResult: InputPageResult;
   InputParams: InputParams;
   InstructionManifestResult: InstructionManifestResult;
   LanguageServersResult: LanguageServersResult;
@@ -7585,6 +8082,7 @@ export interface ContractTypes {
   MCPStatusResult: MCPStatusResult;
   MCPToolsResult: MCPToolsResult;
   MailAdmission: MailAdmission;
+  MatchReceiptParams: MatchReceiptParams;
   Message: Message;
   ModelAttemptsParams: ModelAttemptsParams;
   ModelAttemptsResult: ModelAttemptsResult;
@@ -7633,6 +8131,7 @@ export interface ContractTypes {
   Response: Response;
   ResumeGoalParams: ResumeGoalParams;
   RewindParams: RewindParams;
+  RunShellParams: RunShellParams;
   ScheduleAdmission: ScheduleAdmission;
   ScheduleParams: ScheduleParams;
   ScheduleResult: ScheduleResult;
@@ -7642,6 +8141,8 @@ export interface ContractTypes {
   SelectCompactionParams: SelectCompactionParams;
   SendMailParams: SendMailParams;
   Session: Session;
+  SessionActivity: SessionActivity;
+  SessionInputParams: SessionInputParams;
   SessionObservation: SessionObservation;
   SessionParams: SessionParams;
   SetBudgetParams: SetBudgetParams;
@@ -7694,6 +8195,9 @@ export interface ContractTypes {
   WriteStateParams: WriteStateParams;
 }
 export interface Operations {
+  "tool.schemas": { params: SessionParams; result: HostToolSchemasResult };
+  "tool.call": { params: CallHostToolParams; result: Admission };
+  "shell.run": { params: RunShellParams; result: Admission };
   "executor.activity": { params: SessionParams; result: ExecutorActivityResult };
   "executor.bind": { params: ExecutorBindParams; result: ExecutorLease };
   "executor.pending": { params: ExecutorPendingParams; result: ExecutorPendingResult };
@@ -7835,6 +8339,7 @@ export interface Operations {
   "sessions.list": { params: ListSessionsParams; result: ListSessionsResult };
   "sessions.configure": { params: UpdateConfigurationParams; result: Session };
   "sessions.submit": { params: SubmitParams; result: Admission };
+  "sessions.history_page": { params: HistoryPageParams; result: HistoryPageResult };
   "sessions.history": { params: HistoryParams; result: HistoryResult };
   "sessions.rewind": { params: RewindParams; result: HistoryEdit };
   "sessions.fork": { params: ForkParams; result: ForkResult };
@@ -7843,7 +8348,11 @@ export interface Operations {
   "turns.get": { params: TurnParams; result: Turn };
   "turns.attempts": { params: ModelAttemptsParams; result: ModelAttemptsResult };
   "turns.cancel": { params: TurnParams; result: Turn };
+  "sessions.activity": { params: SessionParams; result: SessionActivity };
+  "inputs.page": { params: InputPageParams; result: InputPageResult };
+  "inputs.get": { params: SessionInputParams; result: Input };
   "inputs.cancel": { params: InputParams; result: Input };
+  "receipts.match": { params: MatchReceiptParams; result: Admission };
   "receipts.get": { params: RequestIdentity; result: Admission };
   "content.put": { params: PutContentParams; result: ContentReference };
   "content.read": { params: ReadContentParams; result: ReadContentResult };

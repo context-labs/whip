@@ -22,10 +22,7 @@ func (s *Store) AdmitGoalFormulation(ctx context.Context, identity session.Reque
 			return result, err
 		}
 	}
-	digest, err := requestDigest("goal_formulation", struct {
-		Owner   session.SessionID
-		Request session.GoalFormulationRequest
-	}{owner, request})
+	digest, err := goalFormulationDigest(owner, request)
 	if err != nil {
 		return result, err
 	}
@@ -51,6 +48,9 @@ func (s *Store) AdmitGoalFormulation(ctx context.Context, identity session.Reque
 		}
 		if !current.Config.GoalsEnabled {
 			return fmt.Errorf("%w: goals are disabled for session", session.ErrInvalid)
+		}
+		if err := requireNoDirectWork(ctx, tx, owner); err != nil {
+			return err
 		}
 		after, through, err := formulationWindow(ctx, tx, owner, resolved.TailMessages)
 		if err != nil {

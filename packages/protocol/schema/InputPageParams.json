@@ -1,0 +1,38 @@
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "all"
+      ]
+    },
+    "after": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/InputPageParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "InputPageParams",
+  "required": [
+    "session_id",
+    "state",
+    "limit"
+  ],
+  "additionalProperties": false
+}

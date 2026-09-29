@@ -2140,3 +2140,65 @@ startup deadlines do not impose a hidden lifetime on an established executor.
 Closing revokes connection leases; accepted execution remains owned by Go.
 There is no automatic reconnect, rebind or replay. Browser UI assets and product
 client adoption remain Phase6 work.
+
+## Direct human actions and guest utility parity
+
+Fresh schema41 permits intrinsic guest permission inspection; schema42 adds
+accepted `host_operation` inputs and direct turn provenance. `artifacts.put`
+accepts up to128KiB of text and an optional256-byte source label, then writes
+session-scoped immutable content only after ordinary consent. The stable
+reference derives from the operation ID; an empty body is valid. Inspect returns
+metadata, and read remains a separate owner-scoped operation. A digest alone
+never grants access. `permissions.request` explains how ordinary effect requests
+obtain consent; it creates no grant. `permissions.status` reads only the exact
+owner's existing decision through an intrinsic, captured-configuration-checked
+inspection capability. Neither automatic policy nor a forged policy revision
+can widen that path.
+
+Human `shell.run` and `tool.call` admit a typed fixed-surface input, using ordinary
+stable request identity, receipt, queue, captured configuration, turn, execution
+permit, hooks and dispatcher. The public catalog contains supported file/shell
+and declared custom tools. These actions create no provider call, interpreter,
+cell, synthetic conversation or automatic title/goal/report. The operation has
+exactly one provenance: a cell or a direct turn. Schema constraints and shared
+owner checks retain that distinction through consent, dispatch, result and
+recovery. A wholly empty model selection is an explicit model-free session;
+ordinary prompts/model helpers fail closed until configured.
+
+Exact retries resolve before mutable checks. A new direct action rejects a busy
+owner; later ordinary prompts may queue behind it. Other maintenance/goal work
+cannot bypass that busy policy. Lost replies and restart use the same immutable
+receipt and uncertain-effect rules as model work. Human origin does not grant
+extra child authority or bypass effect consent. Terminal tabs and interactive
+input remain separate transient host resources.
+
+## Canonical history, activity and input discovery
+
+`sessions.history_page` reads revision, active count, actual active tail and a
+bounded page in one SQL statement. Forward and backward cursors are exclusive
+exact counters; missing backward cursor selects the actual tail. Explicit zero
+is an empty backward boundary. Every page returns messages in ascending order,
+with a nullable continuation naming a returned sequence. Retirement gaps are
+valid and never navigated by subtracting counts. A stale expected revision
+rejects even an empty result. Pages cap at100 messages/4MiB and never load a
+worker or claim input.
+
+`sessions.activity` is a single-statement SQL projection of lifecycle, active
+turn/input, queued count, pending permission/question counts, execution-permit
+ownership and any claimed workspace action. An unfinished turn without a permit
+is waiting work; absent provider preview is not evidence of idleness. Direct
+human and cell operations contribute decisions through their actual owner.
+`inputs.page` discovers accepted inputs by immutable ordinal, including work from
+other clients. It returns at most100 metadata records with the first512 runes of
+text, attachment count and explicit preview truncation; full bodies are fetched
+only through owner-scoped `inputs.get`. Queued and all-input filters are explicit.
+No read performs admission, resumes a waiter or starts execution.
+
+`receipts.match` compares original typed parameters with the canonical Go-owned
+admission digest and returns the existing admission only on an exact match.
+It supports submissions, compaction, spawn, goal formulation/resume and direct
+shell/tool input. Shared normalization and conversion functions are also used
+by admission; JavaScript does not reimplement request hashing. Missing returns
+not-found without writing, changed payload conflicts, and matching tombstones
+survive deletion and restart. The operation is a read, not a dry-run or replay.
+Other identity-only receipts do not by themselves prove full payload equality.

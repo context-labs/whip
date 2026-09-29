@@ -12,9 +12,9 @@ import (
 	"github.com/context-labs/whip/internal/session"
 )
 
-const operationSelect = `SELECT o.id,o.cell_id,o.request_id,o.capability,o.resource,o.arguments,
- t.session_id,c.turn_id,o.state,o.grant_id,o.permission_revision,o.result,o.created_at,o.dispatched_at,o.finished_at
- FROM operations o JOIN cells c ON c.id=o.cell_id JOIN turns t ON t.id=c.turn_id`
+const operationSelect = `SELECT o.id,COALESCE(o.cell_id,''),COALESCE(o.direct_turn_id,''),o.request_id,o.capability,o.resource,o.arguments,
+ t.session_id,t.id,o.state,o.grant_id,o.permission_revision,o.result,o.created_at,o.dispatched_at,o.finished_at
+ FROM operations o LEFT JOIN cells c ON c.id=o.cell_id JOIN turns t ON t.id=COALESCE(c.turn_id,o.direct_turn_id)`
 
 const (
 	grantSelect      = `SELECT id,session_id,capability,resource,operation_id,issuer_id,created_at,revoked_at FROM grants`
@@ -26,7 +26,7 @@ func scanOperation(row scanner) (value session.Operation, err error) {
 	var result sql.NullString
 	var created int64
 	var dispatched, finished sql.NullInt64
-	err = row.Scan(&value.ID, &value.CellID, &value.RequestID, &value.Capability, &value.Resource, &arguments,
+	err = row.Scan(&value.ID, &value.CellID, &value.DirectTurnID, &value.RequestID, &value.Capability, &value.Resource, &arguments,
 		&value.SessionID, &value.TurnID, &value.State, &value.GrantID, &value.PermissionRevision, &result, &created, &dispatched, &finished)
 	if err != nil {
 		return value, found(err)
@@ -123,21 +123,18 @@ func (s *Store) admitOperation(ctx context.Context, spec session.OperationSpec, 
 		if !errors.Is(err, ErrNotFound) {
 			return err
 		}
-		cell, err := scanCell(tx.QueryRowContext(ctx, cellSelect+" WHERE c.id=?", spec.CellID))
+		ownerID, turnID, err := operationOwnerLive(ctx, tx, spec)
 		if err != nil {
 			return err
 		}
-		if err := operationLive(ctx, tx, cell.ID); err != nil {
-			return err
-		}
 		var count, duplicate int
-		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM operations o JOIN cells c ON c.id=o.cell_id WHERE c.turn_id=?", cell.TurnID).Scan(&count); err != nil {
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM operations WHERE direct_turn_id=? OR cell_id IN (SELECT id FROM cells WHERE turn_id=?)", turnID, turnID).Scan(&count); err != nil {
 			return err
 		}
 		if count >= session.MaxOperationsPerTurn {
 			return ErrLimit
 		}
-		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM operations WHERE cell_id=? AND request_id=?", spec.CellID, spec.RequestID).Scan(&duplicate); err != nil {
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM operations WHERE (cell_id=? OR direct_turn_id=?) AND request_id=?", nullableCell(spec.CellID), nullableTurn(spec.DirectTurnID), spec.RequestID).Scan(&duplicate); err != nil {
 			return err
 		}
 		if duplicate != 0 {
@@ -147,24 +144,29 @@ func (s *Store) admitOperation(ctx context.Context, spec session.OperationSpec, 
 		var permissionRevision *session.Revision
 		state := session.OperationWaiting
 		switch spec.Capability {
+		case "permissions.inspect":
+			if err := validatePermissionInspection(ctx, tx, spec); err != nil {
+				return err
+			}
+			state = session.OperationReady
 		case "mcp.catalog":
 			if err := validateMCPCatalog(ctx, tx, spec); err != nil {
 				return err
 			}
 			state = session.OperationReady
 		case session.QuestionCapability:
-			if err := validateQuestionIntent(cell.SessionID, spec); err != nil {
+			if err := validateQuestionIntent(ownerID, spec); err != nil {
 				return err
 			}
 			var questions int
 			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM operations o JOIN cells c ON c.id=o.cell_id
- WHERE c.turn_id=? AND o.capability=?`, cell.TurnID, session.QuestionCapability).Scan(&questions); err != nil {
+ WHERE c.turn_id=? AND o.capability=?`, turnID, session.QuestionCapability).Scan(&questions); err != nil {
 				return err
 			}
 			if questions >= session.MaxQuestionsPerTurn {
 				return ErrLimit
 			}
-			owner, err := readSession(ctx, tx, cell.SessionID)
+			owner, err := readSession(ctx, tx, ownerID)
 			if err != nil {
 				return err
 			}
@@ -172,13 +174,13 @@ func (s *Store) admitOperation(ctx context.Context, spec session.OperationSpec, 
 				state = session.OperationReady
 			}
 		default:
-			grant, err := matchingGrant(ctx, tx, cell.SessionID, spec.Capability, spec.Resource)
+			grant, err := matchingGrant(ctx, tx, ownerID, spec.Capability, spec.Resource)
 			if err == nil {
 				grantID, state = &grant.ID, session.OperationReady
 			} else if !errors.Is(err, ErrNotFound) {
 				return err
 			} else {
-				owner, err := readSession(ctx, tx, cell.SessionID)
+				owner, err := readSession(ctx, tx, ownerID)
 				if err != nil {
 					return err
 				}
@@ -198,12 +200,12 @@ func (s *Store) admitOperation(ctx context.Context, spec session.OperationSpec, 
 		}
 		created := now()
 		if _, err := tx.ExecContext(ctx, `INSERT INTO operations
- (id,cell_id,request_id,capability,resource,arguments,state,grant_id,permission_revision,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-			spec.ID, spec.CellID, spec.RequestID, spec.Capability, spec.Resource, string(spec.Arguments), state, grantID, permissionRevision, created); err != nil {
+ (id,cell_id,direct_turn_id,request_id,capability,resource,arguments,state,grant_id,permission_revision,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+			spec.ID, nullableCell(spec.CellID), nullableTurn(spec.DirectTurnID), spec.RequestID, spec.Capability, spec.Resource, string(spec.Arguments), state, grantID, permissionRevision, created); err != nil {
 			return err
 		}
 		if state == session.OperationWaiting {
-			owner, err := readSession(ctx, tx, cell.SessionID)
+			owner, err := readSession(ctx, tx, ownerID)
 			if err != nil {
 				return err
 			}
@@ -223,7 +225,7 @@ func (s *Store) admitOperation(ctx context.Context, spec session.OperationSpec, 
 				return err
 			}
 		}
-		if err := checkResources(ctx, tx, cell.SessionID, session.ResourceActiveOperations); err != nil {
+		if err := checkResources(ctx, tx, ownerID, session.ResourceActiveOperations); err != nil {
 			return err
 		}
 		result, err = readOperation(ctx, tx, spec.ID)
@@ -266,7 +268,7 @@ func dispatchOperation(ctx context.Context, tx *sql.Tx, id session.OperationID) 
 }
 
 func authorizeOperation(ctx context.Context, q querier, operation session.Operation) error {
-	if err := operationLive(ctx, q, operation.CellID); err != nil {
+	if _, _, err := operationOwnerLive(ctx, q, operation.OperationSpec); err != nil {
 		return err
 	}
 	if operation.Capability == session.QuestionCapability {
@@ -281,6 +283,12 @@ func authorizeOperation(ctx context.Context, q querier, operation session.Operat
 			return ErrConflict
 		}
 		return nil
+	}
+	if operation.Capability == "permissions.inspect" {
+		if operation.GrantID != nil || operation.PermissionRevision != nil {
+			return ErrConflict
+		}
+		return validatePermissionInspection(ctx, q, operation.OperationSpec)
 	}
 	if operation.Capability == "mcp.catalog" {
 		if operation.GrantID != nil || operation.PermissionRevision != nil {
@@ -541,7 +549,7 @@ func (s *Store) ResolvePermission(ctx context.Context, id session.OperationID, a
 		if operation.State != session.OperationWaiting {
 			return ErrConflict
 		}
-		if err := operationLive(ctx, tx, operation.CellID); err != nil {
+		if _, _, err := operationOwnerLive(ctx, tx, operation.OperationSpec); err != nil {
 			return err
 		}
 		if approved {
@@ -634,7 +642,7 @@ func (s *Store) Operations(ctx context.Context, turn session.TurnID, after sessi
 	if err := pageLimit(limit); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, operationSelect+" WHERE c.turn_id=? AND o.id>? ORDER BY o.id LIMIT ?", turn, after, limit)
+	rows, err := s.db.QueryContext(ctx, operationSelect+" WHERE (o.direct_turn_id=? OR o.cell_id IN (SELECT id FROM cells WHERE turn_id=?)) AND o.id>? ORDER BY o.id LIMIT ?", turn, turn, after, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -693,7 +701,7 @@ func (s *Store) Permissions(ctx context.Context, owner session.SessionID, after 
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, permissionSelect+` JOIN operations o ON o.id=p.operation_id
- JOIN cells c ON c.id=o.cell_id JOIN turns t ON t.id=c.turn_id
+ LEFT JOIN cells c ON c.id=o.cell_id JOIN turns t ON t.id=COALESCE(c.turn_id,o.direct_turn_id)
  WHERE t.session_id=? AND p.operation_id>? ORDER BY p.operation_id LIMIT ?`, owner, after, limit)
 	if err != nil {
 		return nil, err
@@ -717,4 +725,18 @@ func (s *Store) Permissions(ctx context.Context, owner session.SessionID, after 
 		result = append(result, value)
 	}
 	return result, rows.Err()
+}
+
+func nullableCell(id session.CellID) any {
+	if id == "" {
+		return nil
+	}
+	return id
+}
+
+func nullableTurn(id session.TurnID) any {
+	if id == "" {
+		return nil
+	}
+	return id
 }

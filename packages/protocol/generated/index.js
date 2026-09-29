@@ -5,6 +5,21 @@ export const manifest = {
   "minor": 0,
   "operations": [
     {
+      "name": "tool.schemas",
+      "params": "SessionParams",
+      "result": "HostToolSchemasResult"
+    },
+    {
+      "name": "tool.call",
+      "params": "CallHostToolParams",
+      "result": "Admission"
+    },
+    {
+      "name": "shell.run",
+      "params": "RunShellParams",
+      "result": "Admission"
+    },
+    {
       "name": "executor.activity",
       "params": "SessionParams",
       "result": "ExecutorActivityResult"
@@ -710,6 +725,11 @@ export const manifest = {
       "result": "Admission"
     },
     {
+      "name": "sessions.history_page",
+      "params": "HistoryPageParams",
+      "result": "HistoryPageResult"
+    },
+    {
       "name": "sessions.history",
       "params": "HistoryParams",
       "result": "HistoryResult"
@@ -750,9 +770,29 @@ export const manifest = {
       "result": "Turn"
     },
     {
+      "name": "sessions.activity",
+      "params": "SessionParams",
+      "result": "SessionActivity"
+    },
+    {
+      "name": "inputs.page",
+      "params": "InputPageParams",
+      "result": "InputPageResult"
+    },
+    {
+      "name": "inputs.get",
+      "params": "SessionInputParams",
+      "result": "Input"
+    },
+    {
       "name": "inputs.cancel",
       "params": "InputParams",
       "result": "Input"
+    },
+    {
+      "name": "receipts.match",
+      "params": "MatchReceiptParams",
+      "result": "Admission"
     },
     {
       "name": "receipts.get",

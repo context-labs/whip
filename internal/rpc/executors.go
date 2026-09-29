@@ -218,7 +218,13 @@ func executorLease(lease executor.Lease) protocol.ExecutorLease {
 
 func executorInvocation(value executor.Invocation) protocol.ExecutorInvocation {
 	request := value.Request
-	result := protocol.ExecutorInvocation{InvocationID: protocol.ID(value.ID), Lease: executorLease(value.Lease), Kind: string(value.Kind), Name: protocol.ID(value.Name), SessionID: protocol.ID(request.SessionID), TurnID: protocol.ID(request.TurnID), Operation: request.Operation, InputPreview: request.Input, PermissionMode: request.PermissionMode, DeadlineMillis: protocol.Counter(value.Deadline.UnixMilli())}
+	origin := "turn"
+	if request.HostOperation {
+		origin = "host_operation"
+	} else if request.CellID != "" {
+		origin = "cell"
+	}
+	result := protocol.ExecutorInvocation{Origin: origin, InvocationID: protocol.ID(value.ID), Lease: executorLease(value.Lease), Kind: string(value.Kind), Name: protocol.ID(value.Name), SessionID: protocol.ID(request.SessionID), TurnID: protocol.ID(request.TurnID), Operation: request.Operation, InputPreview: request.Input, PermissionMode: request.PermissionMode, DeadlineMillis: protocol.Counter(value.Deadline.UnixMilli())}
 	if request.CellID != "" {
 		result.CellID = new(protocol.ID(request.CellID))
 	}

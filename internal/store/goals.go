@@ -115,6 +115,9 @@ func goalAdmission(ctx context.Context, q querier, owner session.SessionID, id s
 }
 
 func goalEligible(ctx context.Context, tx *sql.Tx, owner session.SessionID, except session.TurnID) error {
+	if err := requireNoDirectWork(ctx, tx, owner); err != nil {
+		return err
+	}
 	value, err := readSession(ctx, tx, owner)
 	if err != nil {
 		return err
@@ -249,10 +252,7 @@ func (s *Store) ResumeGoal(ctx context.Context, identity session.RequestIdentity
 			return result, err
 		}
 	}
-	digest, err := requestDigest("goal_resume", struct {
-		Owner session.SessionID
-		Goal  session.GoalRef
-	}{owner, ref})
+	digest, err := goalResumeDigest(owner, ref)
 	if err != nil {
 		return result, err
 	}
