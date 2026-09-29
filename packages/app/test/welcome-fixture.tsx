@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from 'react';
 import { render } from '@testing-library/react';
 import { afterEach, beforeEach, vi } from 'vitest';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -73,12 +74,18 @@ export async function fixture(remoteHost = false, providerReady = true, focused 
   runtime.queries.setQueryData(['host-execution-defaults', 'host', 'boot'], await f.client.hosts.executionDefaults());
   if (f.data.inventory.defaults) runtime.queries.setQueryData(['provider-readiness', 'host', f.data.inventory.defaults], await f.client.providerReadiness(f.data.inventory.defaults));
   for (const mock of Object.values(rpc)) mock.mockClear(); f.calls.length = 0;
+  let pane = { active: tab.id, focused };
+  const paneListeners = new Set<() => void>();
+  const paneSnapshot = () => pane;
+  const paneSubscribe = (listener: () => void) => { paneListeners.add(listener); return () => { paneListeners.delete(listener); }; };
+  const updatePane = (patch: Partial<typeof pane>) => { pane = { ...pane, ...patch }; for (const listener of paneListeners) listener(); };
   function Content() {
     useSessionTabs();
-    const current = runtime.tabs.workspace().tabs.find(item => item.id === tab.id);
-    return current?.kind === 'new' ? <Welcome tab={current} focused={focused} /> : <p>Promoted to {current?.kind === 'chat' ? current.rootId : 'nothing'}</p>;
+    const { active, focused } = useSyncExternalStore(paneSubscribe, paneSnapshot);
+    const current = runtime.tabs.workspace().tabs.find(item => item.id === active);
+    return current?.kind === 'new' ? <Welcome key={active} tab={current} focused={focused} /> : <p>Promoted to {current?.kind === 'chat' ? current.rootId : 'nothing'}</p>;
   }
   const root = createRootRoute({ component: () => <RuntimeContext.Provider value={runtime}><QueryClientProvider client={runtime.queries}><ThemeProvider initialTheme="dark"><UIProvider><Content /></UIProvider></ThemeProvider></QueryClientProvider></RuntimeContext.Provider> });
   const router = createRouter({ routeTree: root, history: createMemoryHistory({ initialEntries: ['/'] }) });
-  return { ...f, runtime, tab, rpc, on, catalog, inventory: f.data.inventory, run, connect, pickDirectory, render: () => render(<RouterProvider router={router} />) };
+  return { ...f, runtime, tab, rpc, on, catalog, inventory: f.data.inventory, run, connect, pickDirectory, router, select: (id: string) => updatePane({ active: id }), focus: (focused: boolean) => updatePane({ focused }), render: () => render(<RouterProvider router={router} />) };
 }

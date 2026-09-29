@@ -234,6 +234,9 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
     </Dialog>
     {!setupVisible && connected && (!engineAvailable || !definitionAvailable) && <Button variant="ghost" onClick={() => setShowOptions(true)}>Review unavailable session options</Button>}
     {!setupVisible && !effortAvailable && !catalog.isPending && <p role="status" {...stylex.props(styles.note)}>Choose an available reasoning effort for this model before sending.</p>}
+    {!setupVisible && <ErrorNotice type="resource" owner={`${runtimeId}:provider-status`} title="Could not load provider status"
+      error={providers.inventory.error || providers.presets.error || readiness.error}
+      action={<Button disabled={!connected || providers.inventory.isFetching || readiness.isFetching} onClick={() => { void providers.refresh(); if (provider && model) void readiness.refetch(); }}>Retry provider status</Button>} />}
     {execution.error && !tab.executionEngine && <ErrorNotice type="resource" owner={`${runtimeId}:execution-defaults`} title="Could not load execution defaults" error={execution.error} action={<Button onClick={() => void execution.refetch()}>Retry execution defaults</Button>} />}
     {tab.permissionMode === undefined && !configuration.data && (configuration.error
       ? <ErrorNotice type="resource" owner={`${runtimeId}:configuration`} title="Could not load host defaults" error={configuration.error}

@@ -103,3 +103,9 @@ Shared sidebar, search, attention, desktop notifications, first-run catalog dete
 ### Full shared-renderer integration audit
 
 After integrating native prompt inspection and conversation leaf9185083, the entire shared app typecheck passes and app/web source has no legacy SDK/protocol imports. The first full renderer run passed1188/1271 tests in97/108 suites. The83 failures remain recorded; most fixtures still used retired snapshot/event shapes. Porting the retained opening test exposed a real integration regression: pending native metadata showed paused activity, and a failed metadata read showed new-session body copy. The app now preserves neutral loading and explicit unavailable states. Six affected startup/status/error/conversation suites pass38 tests(4.20s). Input/body/streaming, creation and catalog invalidation fixtures remain in progress; the full renderer gate is not yet green.
+
+### Native navigation fixture completion — 2026-09-28
+
+The retained title invalidation and eleven sidebar-creation scenarios now use actual native SDK validation, catalog revisions, immutable agent revisions and durable creation/input commands. They preserve stale read cancellation, per-client listener retirement, host isolation, independent drafts, explicit model confirmation, secret exclusion, background focus and late creation navigation. Unsupported old hosts fail initialization before catalog reads. Missing provider metadata now displays a retryable error while retaining the first-message draft. A candidate provider-confirmation production change was discarded after correcting the fixture to the actual nested readiness selection shape.
+
+All five affected suites (welcome, sidebar creation, title invalidation, provider connections/defaults) pass63 tests4.84s; shared app type checking passes. The earlier full renderer gate remains failed until the independently assigned input/content fixture migrations are integrated and the whole suite reruns.

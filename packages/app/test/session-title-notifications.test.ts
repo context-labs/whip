@@ -1,43 +1,68 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { QueryObserver } from '@tanstack/react-query';
-import type { WhipClient } from '@whip/legacy-sdk';
+import type { Client, Transport } from '@whip/sdk';
+import type { TreeCatalogView } from '@whip/sdk/state';
 import { AppRuntime } from '../src/runtime';
 import { createFallbackStorage } from '../src/platform';
 
-const clients = vi.hoisted(() => new Map<string, WhipClient>());
-vi.mock('@whip/legacy-sdk', async importOriginal => ({ ...await importOriginal<typeof import('@whip/legacy-sdk')>(), createWhipClient: (options: { endpoint: string }) => clients.get(new URL(options.endpoint).hostname) }));
-vi.mock('@whip/legacy-sdk/state', () => ({ createSessionListView: () => ({ start: async () => {}, dispose: async () => {} }) }));
+const hosts = vi.hoisted(() => new Map<string, {
+  revision: number; major: number; calls: string[];
+  catalogs: { view: TreeCatalogView; listeners: Set<() => void> }[];
+}>());
+vi.mock('@whip/sdk/browser', () => ({
+  discoverGateway: async (endpoint: string) => ({ runtime_id: new URL(endpoint).hostname, process_epoch: 'boot' }),
+  browserSocket: (endpoint: string): Transport => async (request, _identity, options) => {
+    options.signal?.throwIfAborted();
+    const id = new URL(endpoint).hostname, host = hosts.get(id)!;
+    host.calls.push(request.method);
+    let result: unknown;
+    switch (request.method) {
+      case 'initialize': result = { major: host.major, minor: 0, runtime_id: id, process_epoch: 'boot', network_client: true, builtins: [] }; break;
+      case 'host.profiles': result = { revision: '1'.repeat(64), profiles: [{ id: 'remote', name: 'Remote', url: 'http://remote', runtime_id: 'remote', connect_on_launch: false }] }; break;
+      case 'trees.catalog': result = { revision: String(host.revision) }; break;
+      case 'trees.list': result = { revision: String(host.revision), items: [], next_cursor: null }; break;
+      case 'providers.list': result = { revision: '1'.repeat(64), routes: [], defaults: null, compaction_model: null }; break;
+      default: throw new Error('Unexpected native request: ' + request.method);
+    }
+    return { jsonrpc: '2.0', id: request.id, result };
+  },
+}));
+vi.mock('@whip/sdk/state', async importOriginal => {
+  const actual = await importOriginal<typeof import('@whip/sdk/state')>();
+  return { ...actual, createTreeCatalogView: (client: Client) => {
+    const view = actual.createTreeCatalogView(client, { pollIntervalMs: 60_000 });
+    const listeners = new Set<() => void>(), subscribe = view.subscribe;
+    vi.spyOn(view, 'subscribe').mockImplementation(listener => {
+      listeners.add(listener); const off = subscribe(listener);
+      return () => { listeners.delete(listener); off(); };
+    });
+    hosts.get(client.runtimeID)!.catalogs.push({ view, listeners });
+    return view;
+  } };
+});
 const apps: AppRuntime[] = [];
-afterEach(() => { apps.splice(0).forEach(app => app.dispose()); clients.clear(); vi.useRealTimers(); });
-
-function host(runtimeId: string, supported = true) {
-  const listeners = new Set<() => void>();
-  const titles = new Set<(params: { root_id: string }) => void>();
-  const snapshot = { state: 'connected', info: { runtime_id: runtimeId, connection_id: '1', negotiated_capabilities: supported ? ['session_title_notifications'] : [] } };
-  const client = { getSnapshot: () => snapshot, subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener); },
-    onNotification: vi.fn((method: string, listener: (params: { root_id: string }) => void) => {
-      expect(method).toBe('sessions.title.changed'); titles.add(listener); return () => titles.delete(listener);
-    }),
-    configuration: { get: vi.fn(async () => ({ revision: '1', remote_hosts: [] as { id: string; name: string; url: string; runtime_id: string; connect_on_launch: boolean }[] })) },
-    providers: { list: async () => ({}), catalogs: async () => ({}) }, sessions: { list: async () => ({ items: [] }) },
-    session: vi.fn(), events: { subscribe: vi.fn() }, connect: async () => {}, close: vi.fn(),
-  };
-  clients.set(runtimeId, client as unknown as WhipClient);
-  return { client, titles, snapshot, notify: (root_id = 'unopened') => { for (const listener of titles) listener({ root_id }); },
-    state: (state: string, connection_id = snapshot.info.connection_id) => { snapshot.state = state; snapshot.info.connection_id = connection_id; for (const listener of listeners) listener(); } };
+afterEach(() => { apps.splice(0).forEach(app => app.dispose()); hosts.clear(); vi.useRealTimers(); });
+function host(id: string) {
+  const state = { revision: 1, major: 4, calls: [] as string[], catalogs: [] as { view: TreeCatalogView; listeners: Set<() => void> }[] };
+  hosts.set(id, state); return state;
 }
-async function setup(supported = true) {
-  vi.useFakeTimers();
-  const local = host('local', supported);
-  const remote = host('remote', supported);
-  local.client.configuration.get.mockResolvedValue({ revision: '1', remote_hosts: [{ id: 'remote', name: 'Remote', url: 'http://remote', runtime_id: 'remote', connect_on_launch: false }] });
+function application() {
   const app = new AppRuntime({ defaultEndpoint: 'http://local', storage: createFallbackStorage(() => { throw new Error('memory only'); }, () => {}), copy: async () => {}, download: async () => {}, openExternal: async () => {} });
-  apps.push(app);
+  apps.push(app); return app;
+}
+async function refresh(app: AppRuntime, id: string) {
+  await app.connections.host(id)!.list!.refresh();
+  await vi.advanceTimersByTimeAsync(1);
+}
+async function setup() {
+  vi.useFakeTimers();
+  const local = host('local'), remote = host('remote'), app = application();
   await app.connect(); await app.connections.refreshProfiles(); await app.connections.connect('remote');
+  await refresh(app, 'local'); await refresh(app, 'remote');
   return { app, local, remote };
 }
 
-it('coalesces title hints across host-scoped title queries, refreshing all searches but not inactive caches or other hosts', async () => {
+it('coalesces catalog revisions across host-scoped title queries, refreshing all searches but not inactive caches or other hosts', async () => {
   const { app, local, remote } = await setup();
   app.queries.setDefaultOptions({ queries: { ...app.queries.getDefaultOptions().queries, gcTime: Infinity } });
   let title = 'Before';
@@ -59,8 +84,8 @@ it('coalesces title hints across host-scoped title queries, refreshing all searc
   const providers = app.queries.getQueryState(providerKey);
   const remoteBefore = app.queries.getQueryState(remoteKey);
   title = 'After';
-  for (let i = 0; i < 20; i++) local.notify('off-page-root');
-  await vi.advanceTimersByTimeAsync(251);
+  for (let i = 0; i < 20; i++) local.revision++;
+  await refresh(app, 'local');
   reads.forEach(read => expect(read).toHaveBeenCalledTimes(2));
   expect(app.queries.getQueryData(keys[0]!)).toBe('After');
   expect(app.queries.getQueryData(keys[2]!)).toEqual([]);
@@ -69,8 +94,8 @@ it('coalesces title hints across host-scoped title queries, refreshing all searc
   expect(app.queries.getQueryData(inactiveKey)).toBe('cached');
   expect(app.queries.getQueryState(remoteKey)).toEqual(remoteBefore);
   expect(app.queries.getQueryState(providerKey)).toEqual(providers);
-  expect(local.titles.size).toBe(1); expect(remote.titles.size).toBe(1);
-  expect(local.client.session).not.toHaveBeenCalled(); expect(local.client.events.subscribe).not.toHaveBeenCalled();
+  expect(local.catalogs[0]!.listeners.size).toBe(1); expect(remote.catalogs[0]!.listeners.size).toBe(1);
+  expect([...local.calls, ...remote.calls].some(method => method.startsWith('sessions.'))).toBe(false);
   stops.forEach(stop => stop());
 });
 
@@ -87,12 +112,12 @@ it.each([false, true])('cancels stale in-flight title reads even when it is the 
   const observer = new QueryObserver(app.queries, { queryKey: key, queryFn: read, staleTime: 0 });
   const stop = observer.subscribe(() => {});
   const oldFinish = finish, oldSignal = signal;
-  local.notify(); await vi.advanceTimersByTimeAsync(251);
+  local.revision++; await refresh(app, 'local');
   expect(oldSignal.aborted).toBe(true);
   expect(read).toHaveBeenCalledTimes(2);
   const intermediateFinish = finish, intermediateSignal = signal;
-  for (let i = 0; i < 20; i++) local.notify();
-  await vi.advanceTimersByTimeAsync(251);
+  for (let i = 0; i < 20; i++) local.revision++;
+  await refresh(app, 'local');
   expect(intermediateSignal.aborted).toBe(true);
   expect(read).toHaveBeenCalledTimes(3);
   finish('Newest'); await vi.advanceTimersByTimeAsync(1);
@@ -102,36 +127,41 @@ it.each([false, true])('cancels stale in-flight title reads even when it is the 
   stop();
 });
 
-it('owns one listener through reconnect and retires timers and pending cancellation on detach/dispose', async () => {
+it('owns one catalog listener per client and retires pending invalidation on detach/dispose', async () => {
   const { app, local, remote } = await setup();
+  const first = app.connections.host('local')!.client!;
+  const oldCatalog = local.catalogs[0]!;
+  app.connections.disconnect('local');
+  expect(oldCatalog.listeners.size).toBe(0);
+  await app.connect(); await refresh(app, 'local');
+  expect(app.connections.host('local')!.client).not.toBe(first);
+  expect(local.catalogs).toHaveLength(2);
+  expect(local.catalogs[1]!.listeners.size).toBe(1);
   const key = ['session-tab-summaries', 'local', ['inactive']];
   const invalidations = vi.spyOn(app.queries, 'invalidateQueries');
-  local.notify(); local.state('reconnecting');
-  await vi.advanceTimersByTimeAsync(251);
-  expect(invalidations).not.toHaveBeenCalled();
-  local.state('connected', '2'); local.state('connected', '2');
-  expect(local.titles.size).toBe(1);
-  expect(local.client.onNotification).toHaveBeenCalledTimes(2);
-  invalidations.mockClear();
   let finish!: () => void;
   vi.spyOn(app.queries, 'cancelQueries').mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
   app.queries.setQueryData(key, 'Before detach');
-  local.notify(); await vi.advanceTimersByTimeAsync(251);
-  const retired = [...local.titles][0]!;
+  const retired = [...local.catalogs[1]!.listeners][0]!;
+  local.revision++; await refresh(app, 'local');
   app.connections.disconnect('local');
-  expect(local.titles.size).toBe(0);
-  finish(); retired({ root_id: 'late' }); await vi.advanceTimersByTimeAsync(251);
+  expect(local.catalogs[1]!.listeners.size).toBe(0);
+  finish(); retired(); await vi.advanceTimersByTimeAsync(1);
   expect(invalidations).not.toHaveBeenCalled();
   expect(app.queries.getQueryData(key)).toBeUndefined();
-  expect(remote.titles.size).toBe(1);
-  remote.notify(); app.dispose(); await vi.advanceTimersByTimeAsync(251);
-  expect(remote.titles.size).toBe(0);
+  expect(remote.catalogs[0]!.listeners.size).toBe(1);
+  vi.spyOn(app.queries, 'cancelQueries').mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+  remote.revision++; await refresh(app, 'remote');
+  app.dispose(); finish(); await vi.advanceTimersByTimeAsync(1);
+  expect(remote.catalogs[0]!.listeners.size).toBe(0);
   expect(invalidations).not.toHaveBeenCalled();
 });
 
-it('does not register an app title listener for older hosts', async () => {
-  const { app, local, remote } = await setup(false);
-  expect(local.client.onNotification).not.toHaveBeenCalled();
-  expect(remote.client.onNotification).not.toHaveBeenCalled();
-  app.dispose();
+it('rejects older hosts before opening catalogs or metadata listeners', async () => {
+  const local = host('local'); local.major = 3;
+  const app = application();
+  await expect(app.connect()).rejects.toThrow();
+  expect(local.catalogs).toHaveLength(0);
+  expect(local.calls).toEqual(['initialize']);
+  expect(app.connections.home().client).toBeUndefined();
 });
