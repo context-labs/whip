@@ -20,6 +20,14 @@ test('uses all event ranks instead of taking p95 only over slow reported events'
   assert.equal(result.p95Rounded, null); assert.equal(result.missing, 37);
   assert.equal(result.lower.p95, 12); assert.equal(result.upper.p95, null);
 });
+test('preserves the native quantization bounds when all events are reported', () => {
+  const raw = sample();
+  raw.entries = raw.keys.map(({ startTime }, index) => ({ startTime, duration: 72,
+    processingStart: startTime + 1, processingEnd: startTime + 2, interactionId: index + 1 }));
+  const result = keyboardResult(raw);
+  assert.equal(result.missing, 0); assert.equal(result.p95Rounded, 72);
+  assert.equal(result.lower.p95, 68); assert.equal(result.upper.p95, 76);
+});
 test('rejects dropped, incomplete, ambiguous and unrelated slow event evidence', () => {
   for (const mutate of [raw => { raw.dropped = 1; }, raw => { raw.keys.pop(); }, raw => { raw.browserEventCount--; },
     raw => { raw.focused = false; }, raw => { raw.keys[0].trusted = false; },

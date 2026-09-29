@@ -55,3 +55,36 @@ own cleanup), and subsequent trials stopped at native focus loss despite the
 textarea retaining DOM focus. Exact owned PIDs were verified gone. The retained
 failure reports `run-O2RQDi` and `run-zn2tfD` show that boundary; their partial
 timings are not acceptance evidence. No focus assertion was weakened.
+
+## Full workload, natural retention
+
+The subsequent `/tmp/whip-performance-native-natural/run-VFyWn2/performance.json`
+run completed all seven existing workload groups with the same renderer. CUA
+observed the exact disposable window/path, raised the window, clicked the
+composer and restored its end-of-draft caret. Native content was 1360×960, inside
+the display work area; native and DOM focus passed before and after all 40 keys.
+All 40 native entries were reported without drops. Input p95 remained **72 ms
+(68–76 ms)**, exceeding the 50 ms target. This is separate from the successful
+isolated controls above and confirms that focus alone does not remove the full
+workload gap.
+
+The run's explicit inspection pause lasted 42.43 seconds **after** the finite
+provider delta streams began. All quantitative workloads were retained, but
+later keys consequently observed held active requests after their finite delta
+work had completed. This is not identical temporal overlap to the earlier run.
+The harness now pauses before launching any of the 16 streams, so subsequent
+measurements retain the original stream timing relationship. The pause itself
+is never included in keyboard latency.
+
+No forced collection was requested. Natural sampled aggregate Electron RSS
+peaked at 1,597,504 KiB and ended at 1,596,864 KiB. The final sequential browser
+sample reported 71,580,960 bytes used JS heap, 243,909,792 bytes embedder heap,
+20,011,411 bytes backing storage, 19,163 DOM nodes, 2,323 listeners and nine
+virtualized transcript rows. RSS sums may double-count shared pages and periodic
+sampling can miss peaks. These are investigation evidence, not a new memory
+acceptance threshold or a leak diagnosis. The earlier post-forced-GC final
+values must not be compared as natural retention.
+
+The full harness now reuses the tested keyboard classifier: absent entries
+remain unknown/unbounded after finite drainage. The complete 40/40 historical
+run retains exactly its 72 ms estimate and 68–76 ms quantization bounds.
