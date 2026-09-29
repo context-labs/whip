@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -128,9 +129,15 @@ func TestFreshIdentityAndForeignSchema(t *testing.T) {
 	if !reflect.DeepEqual(before, after) {
 		t.Fatal("foreign database was modified")
 	}
-	execTest(t, s, "PRAGMA user_version=99")
-	if _, err := Open(t.Context(), path); !errors.Is(err, ErrSchema) {
-		t.Fatalf("future schema: %v", err)
+	for _, version := range []int{55, 56, 99} {
+		execTest(t, s, fmt.Sprintf("PRAGMA user_version=%d", version))
+		if _, err := Open(t.Context(), path); !errors.Is(err, ErrSchema) {
+			t.Fatalf("unsupported schema %d: %v", version, err)
+		}
+		var retained int
+		if err := s.db.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&retained); err != nil || retained != version || s.Identity() != identity {
+			t.Fatal("rejected schema changed existing state", retained, err)
+		}
 	}
 }
 

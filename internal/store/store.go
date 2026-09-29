@@ -119,20 +119,6 @@ func Open(ctx context.Context, path string) (_ *Store, err error) {
 			if _, err := tx.ExecContext(ctx, "INSERT INTO metadata VALUES (?)", newID("runtime")); err != nil {
 				return err
 			}
-		} else if app == applicationID && (version == 55 || version == 56) {
-			// Restore provable default-spawn relationships, never old operations.
-			// DDL, restoration and the version advance commit atomically.
-			if version == 55 {
-				if _, err := tx.ExecContext(ctx, childPermissionPoliciesSchema); err != nil {
-					return fmt.Errorf("upgrade child permission policies: %w", err)
-				}
-			}
-			if err := restoreChildPermissionInheritance(ctx, tx); err != nil {
-				return fmt.Errorf("restore child permission inheritance: %w", err)
-			}
-			if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version=%d", schemaVersion)); err != nil {
-				return err
-			}
 		} else if app != applicationID || version != schemaVersion {
 			return ErrSchema
 		}

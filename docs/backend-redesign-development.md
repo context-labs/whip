@@ -6043,3 +6043,11 @@ helper. Focused store inheritance/preview/migration tests pass with the fix, as
 does the actual Starlark/QuickJS scenario exercising existing default and
 explicitly restricted children through Ask → Full Access → Ask → Full Access.
 Broader integrated validation and the remaining increments are still in progress.
+
+The user subsequently explicitly permits session invalidation during development.
+The final implementation therefore removes the schema55/56 compatibility upgrade
+and historical delegation backfill. Prior upgrade tests were useful intermediate
+evidence, not a promise retained by this slice. Older databases are rejected
+without modification; a fresh development runtime is required. Unsupported REPL
+aliases will be removed even though this changes saved QuickJS fingerprints.
+No user's existing database or running installation is modified by these edits.

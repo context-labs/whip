@@ -325,12 +325,9 @@ Current fresh [host configuration](../internal/config/host.go) is version 21;
 the [SQLite schema](../internal/store/store.go) is version 57. Version numbers in
 the implementation histories below identify their introducing checkpoints, not
 additional formats accepted by the current binary.
-SQLite has an application identifier and schema version. Schema55 and56 upgrade atomically to57. Existing child policy records become
-ongoing inheritance relationships. Missing records are restored only from a
-successful immutable agent spawn and its matching admission receipt proving
-default grant selection and the same workspace. Older direct-client receipts
-without the original selection remain restricted; the migration never guesses
-that an explicit restriction was absent. Other applications and versions are rejected.
+SQLite has an application identifier and schema version. This development format accepts only fresh stores or its exact schema version.
+Older data is rejected without modification. No upgrade/backfill path is retained;
+the user explicitly permits dev-session and checkpoint invalidation.
 Reopening preserves runtime identity, session data and seeded revisions; separate
 databases receive distinct identities. Downgrading requires restoring the
 pre-upgrade database together with its matching binary.
@@ -1501,10 +1498,11 @@ external instruction sources.
 
 Project files are unique, canonical workspace-relative paths, with at most 32
 entries. Automatic reads require a standing `files.read` grant for the exact
-workspace, including an unrevoked issuer chain. A short database transaction
+workspace, including an unrevoked issuer chain, or eligible current Full Access
+authority through the live parent-policy relationship. A short database transaction
 admits the read; descriptor-confined filesystem I/O follows outside it. One-use
-approvals cannot authorize capture. No grant omits project sources without
-probing them. Revocation prevents later admission; it cannot retract bytes
+approvals cannot authorize capture. Absent read authority omits project sources
+without probing them. Revocation prevents later admission; it cannot retract bytes
 already captured. Policies with no filesystem sources and inputs without skill
 references perform no source filesystem reads.
 
@@ -1543,7 +1541,7 @@ names stay literal. Mail, historical inputs, tool results and attachment bodies
 do not invoke skills. `discover_skills: false` suppresses automatic catalog
 rendering; explicit references and human inspection can still discover authorized
 skills. No read authority means no file probes or selection. A selected body
-requires another current standing grant check before its descriptor-confined read;
+requires another current read-authority check before its descriptor-confined read;
 losing authority after selection fails capture. The complete file is bounded to
 256 KiB, must be UTF-8 without NUL, and its frontmatter must match the selected
 metadata exactly. Body-only edits are read fresh at this admission point. All
@@ -1558,7 +1556,7 @@ frozen body. Immutable metadata records what was read without duplicating bodies
 in SQLite or claiming they can be reconstructed after edits.
 
 `skills.list` supplies one live, read-only metadata API for completion and source
-inspection. It reads current copied policy and standing authority in a database
+inspection. It reads current copied policy and effective read authority in a database
 snapshot, then reads files outside the transaction. It requires no runnable turn,
 permit or kernel and works for idle or stopped sessions. It neither claims input,
 creates permission decisions nor acknowledges mail. Results include disabled
@@ -1574,7 +1572,8 @@ IDs; an empty list selects none. Registry paths stay host-local, and unknown
 selected IDs fail clearly. The instruction-root registry uses its runtime startup snapshot;
 source files refresh for each capture. No HOME/environment discovery or implicit
 registry grants exist. A host catalog or explicit body requires standing
-`skills.read` authority for the exact named root, including the live issuer chain.
+`skills.read` authority for the exact named root, including the live issuer chain,
+or eligible Full Access. Only explicitly published and selected roots are used.
 Missing authority omits that root without opening it. Human catalog inspection
 uses the same authority. Root IDs and whole-field policy changes are copied into
 children and frozen for active turns.
@@ -1605,9 +1604,10 @@ authority. Catalog guidance names this tool and exposes no absolute host paths.
 Standing user instructions use the explicitly configured host
 `standing_instructions_file` and the captured `standing_instructions` policy
 flag. Empty host configuration fails an enabled capture clearly; a configured
-source without standing authority is omitted without probing it. Authority is
-exactly `instructions.read` on resource `standing`, including the issuer chain;
-workspace and named skill grants cannot substitute. One-use approvals do not
+source without read authority is omitted without probing it. Standing authority
+is exactly `instructions.read` on resource `standing`, including the issuer chain;
+workspace and named skill grants cannot substitute. Eligible Full Access also
+admits this explicitly selected source without creating a grant. One-use approvals do not
 authorize automatic capture. No home-directory lookup, template seeding or file
 creation occurs during execution or inspection.
 
@@ -1625,15 +1625,15 @@ belongs to `instructions.read`; an identically named skill root has separate
 `skills.read` authority.
 
 Configuration/file edits and revocation affect later turns; active turns retain
-their captured rules. Children copy the flag and can receive delegated standing
-authority. Restart preserves old audit and reads current rules on a new turn.
+their captured rules. Children copy the flag and use delegated standing authority
+or their eligible live Full Access policy. Restart preserves old audit and reads current rules on a new turn.
 Skill catalog inspection and maintenance compaction never load this file.
 Malformed authorized rules or audit failure stop before provider dispatch.
 
 Authorized ancestors use explicit host `project_roots` (at most 16 named absolute
 boundaries) and the copied nullable `instructions.project_root` selection. Neither
-publishing nor selecting a root creates authority. One standing `instructions.read`
-grant on exact resource `project:<id>` admits membership metadata and instruction
+publishing nor selecting a root creates authority. A standing `instructions.read`
+grant on exact resource `project:<id>`, or eligible Full Access, admits membership metadata and instruction
 sources from that boundary through cwd, including cwd itself. It grants no arbitrary
 file or script access and needs no additional workspace `files.read` grant. Project,
 standing-file and host-skill authorities remain distinct even when names coincide.
