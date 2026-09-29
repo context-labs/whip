@@ -2313,7 +2313,6 @@ export interface ExternalBrowserSessions {
    * @maxItems 4
    */
   items:
-    | null
     | []
     | [
         {

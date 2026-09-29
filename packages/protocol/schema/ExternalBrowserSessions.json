@@ -2,10 +2,7 @@
   "type": "object",
   "properties": {
     "items": {
-      "type": [
-        "null",
-        "array"
-      ],
+      "type": "array",
       "items": {
         "type": "object",
         "properties": {

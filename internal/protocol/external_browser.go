@@ -50,6 +50,7 @@ func externalBrowserSchema(schema *jsonschema.Schema, t reflect.Type) {
 			schema.Properties[name].MaxLength = new(4096)
 		}
 	case reflect.TypeFor[ExternalBrowserSessions]():
+		schema.Properties["items"].Type, schema.Properties["items"].Types = "array", nil
 		schema.Properties["items"].MaxItems = new(4)
 	}
 }
