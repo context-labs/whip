@@ -36,7 +36,16 @@ for (const name of names) {
     gates: [],
     errors: [],
     consoleDiagnostics: [],
-    connectionDiagnostics: [],
+    connectionDiagnostics: {
+      phases: {},
+      active: [],
+      recentClosed: [],
+      closedDetailsEvicted: 0,
+      opened: 0,
+      closed: 0,
+      maximumActive: 0,
+      overflow: false,
+    },
     observations: [],
     frames: [],
     rawMaxima: {},
@@ -144,6 +153,10 @@ for (const name of names) {
             phase,
             url: page.url(),
             message: message.text().slice(0, 4096),
+            connections: structuredClone({
+              active: result.connectionDiagnostics.active,
+              recentlyClosed: result.connectionDiagnostics.recentClosed.slice(-8),
+            }),
           });
       }
     });
@@ -155,6 +168,7 @@ for (const name of names) {
       localStorage.setItem('whip.appearance.theme.v1', JSON.stringify({ version: 1, id: 'claude-code' })),
     );
     const outstanding = new Map();
+    const connections = result.connectionDiagnostics;
     let connection = 0,
       frameBytes = 0;
     page.on('websocket', (socket) => {
@@ -168,8 +182,22 @@ for (const name of names) {
         url: socket.url(),
         initialized: false,
       };
-      if (result.connectionDiagnostics.length < 128) result.connectionDiagnostics.push(lifetime);
-      else record(new Error('Connection diagnostics bound exceeded'));
+      // The browser transport opens one initialized connection per RPC. Compact
+      // closed lifetimes; bound simultaneous ownership separately from total calls.
+      connections.opened++;
+      const phaseCounts = (connections.phases[phase] ??= {
+        opened: 0,
+        initialized: 0,
+        closed: 0,
+        closedBeforeInitialize: 0,
+      });
+      phaseCounts.opened++;
+      if (connections.active.length < 128) connections.active.push(lifetime);
+      else if (!connections.overflow) {
+        connections.overflow = true;
+        record(new Error('Active connection diagnostics bound exceeded'));
+      }
+      connections.maximumActive = Math.max(connections.maximumActive, connections.active.length);
       const settle = (request) => {
         if (request.settled) return;
         request.settled = true;
@@ -179,6 +207,15 @@ for (const name of names) {
       socket.on('close', () => {
         lifetime.closedAt = performance.now();
         lifetime.closedPhase = phase;
+        connections.closed++;
+        phaseCounts.closed++;
+        if (!lifetime.initialized) phaseCounts.closedBeforeInitialize++;
+        connections.active = connections.active.filter((item) => item !== lifetime);
+        connections.recentClosed.push(lifetime);
+        if (connections.recentClosed.length > 64) {
+          connections.recentClosed.shift();
+          connections.closedDetailsEvicted++;
+        }
         for (const request of pending.values()) settle(request);
         pending.clear();
       });
@@ -217,7 +254,10 @@ for (const name of names) {
           const response = JSON.parse(String(payload)),
             request = pending.get(response.id);
           if (!request) return;
-          if (request.method === 'initialize' && response.result) lifetime.initialized = true;
+          if (request.method === 'initialize' && response.result && !lifetime.initialized) {
+            lifetime.initialized = true;
+            phaseCounts.initialized++;
+          }
           request.error = response.error?.kind;
           request.nextCursor = response.result?.next_cursor;
           if (request.method === 'turns.cells_page')
