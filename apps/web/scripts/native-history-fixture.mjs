@@ -20,11 +20,27 @@ export async function startHistoryFixture(options = {}) {
     });
     await writeFile(join(fixture.directory, 'history-seed-owner'), nonce, { mode: 0o600 });
     const args = ['-directory', dirname(fixture.info.socket), '-root', created.root.id, '-nonce', nonce];
-    const run = () => promisify(execFile)(executable, args, { timeout: 125_000, maxBuffer: 128 << 10 });
+    const run = async phase => {
+      const started = performance.now(); let bytes = 0;
+      console.error(JSON.stringify({ event: 'native-history-helper', phase, state: 'starting' }));
+      const running = promisify(execFile)(executable, args, { timeout: 125_000, maxBuffer: 128 << 10 });
+      const report = chunk => { bytes += Buffer.byteLength(chunk); if (bytes <= 128 << 10) process.stderr.write(chunk); };
+      running.child.stderr.on('data', report);
+      try { return await running; }
+      finally {
+        running.child.stderr.off('data', report);
+        console.error(JSON.stringify({ event: 'native-history-helper', phase, state: 'closed', elapsed_ms: Math.round(performance.now() - started), stderr_bytes: bytes, pid: running.child.pid, exit_code: running.child.exitCode, signal: running.child.signalCode }));
+      }
+    };
     // Prove the seed cannot race an execution owner, even in this disposable dir.
-    await assert.rejects(run(), /fixture runtime must be stopped before seeding/);
+    await assert.rejects(run('live-owner-rejection'), /fixture runtime must be stopped before seeding/);
     let history;
-    await fixture.crashAndRestart({ beforeRestart: async () => { history = JSON.parse((await run()).stdout); } });
+    const oldRuntime = fixture.exited, owner = await client.hosts.status(deadline());
+    await fixture.crashAndRestart({ beforeRestart: async () => {
+      const [exit_code, signal] = await oldRuntime;
+      console.error(JSON.stringify({ event: 'native-history-owner', state: 'exited-before-seed', pid: owner.pid, process_epoch: owner.process_epoch, exit_code, signal }));
+      history = JSON.parse((await run('stopped-owner-seed')).stdout);
+    } });
     const current = await fixture.connect('history-fixture-check');
     assert.equal((await current.session(created.root.id).history.snapshot(deadline())).message_count, '10000');
     assert.equal(history.children.length, 100);
