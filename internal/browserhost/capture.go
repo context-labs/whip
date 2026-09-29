@@ -389,6 +389,14 @@ func (l *Lease) Execute(ctx context.Context, operationID string, check Check, co
 	l.attachment.value = next
 	l.attachment.live = true
 	l.attachment.opening = false
+	if c.operation == "allow_preview_port" {
+		// A creator can explicitly reattach its page after this committed scope
+		// change. Keep other owners' discovery scope unchanged.
+		if created, ok := c.provider.created[c.scope.TabID]; ok && created.owner == c.owner.AgentID && created.tab.TabGeneration == c.scope.TabGeneration {
+			created.tab.Preview = clonePreview(c.scope.Preview)
+			c.provider.created[c.scope.TabID] = created
+		}
+	}
 	if c.operation == "open" {
 		c.provider.created[c.scope.TabID] = createdTab{owner: c.owner.AgentID, tab: OfferedTab{TabID: c.scope.TabID, TabGeneration: c.scope.TabGeneration, ProfileID: c.scope.ProfileID, DocumentRevision: next.DocumentRevision, URL: next.URL, Title: next.Title, Preview: clonePreview(c.scope.Preview)}}
 	}

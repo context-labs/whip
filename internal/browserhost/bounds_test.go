@@ -295,3 +295,47 @@ func TestExplicitOfferReplacesOwnCandidateWithCAS(t *testing.T) {
 		t.Fatal("old candidate silently reappeared after release")
 	}
 }
+
+func TestCreatedPreviewReattachmentUsesCommittedExpandedScope(t *testing.T) {
+	h, p, _ := fixture(t)
+	execute := func(operation string, args Arguments) Attachment {
+		t.Helper()
+		capture, err := h.Resolve(context.Background(), root, operation, args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lease, err := capture.Acquire(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer lease.Close()
+		done := make(chan error, 1)
+		var result Attachment
+		go func() {
+			var err error
+			result, err = lease.Execute(context.Background(), operation, allow, commit)
+			done <- err
+		}()
+		command := next(t, p).Command
+		for command == nil {
+			command = next(t, p).Command
+		}
+		if err := p.Settle(response(command)); err != nil {
+			t.Fatal(err)
+		}
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	opened := execute("open", Arguments{URL: "http://127.0.0.1:3000", PreviewHostID: "host"})
+	expanded := execute("allow_preview_port", Arguments{AttachmentID: opened.Scope.AttachmentID, Port: 4000})
+	execute("detach", Arguments{AttachmentID: expanded.Scope.AttachmentID})
+	reopened := execute("attach", Arguments{TabID: opened.Scope.TabID})
+	if reopened.Scope.ControlLineage == expanded.Scope.ControlLineage || len(reopened.Scope.Preview.Ports) != 2 || reopened.Scope.Preview.Ports[1] != 4000 {
+		t.Fatalf("reattachment lost committed preview scope: %#v", reopened.Scope)
+	}
+	if _, err := h.Resolve(context.Background(), Identity{RootID: "root", AgentID: "child"}, "attach", Arguments{TabID: opened.Scope.TabID}); err == nil {
+		t.Fatal("creator discovery granted another owner access")
+	}
+}
