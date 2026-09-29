@@ -207,6 +207,7 @@ type Batch struct {
 	events      []Event
 	eventBytes  int
 	eventReady  chan struct{}
+	client      *CDPClient
 	busy        bool // protected by host.mu; one CDP command at a time
 	closed      bool
 }
@@ -268,7 +269,11 @@ func (l *Lease) Run(ctx context.Context, operationID string, check Check, run fu
 		if a.batch == b {
 			a.batch = nil
 		}
+		client := b.client
 		h.mu.Unlock()
+		if client != nil {
+			client.Close()
+		}
 		b.wg.Wait()
 		h.mu.Lock()
 		h.eventBytes -= b.eventBytes
@@ -282,7 +287,11 @@ func (l *Lease) Run(ctx context.Context, operationID string, check Check, run fu
 	e = run(bctx, b)
 	h.mu.Lock()
 	b.closed = true
+	client := b.client
 	h.mu.Unlock()
+	if client != nil {
+		client.Close()
+	}
 	b.wg.Wait()
 	// End is bounded teardown, never a retry. Authority revocation may make it
 	// unavailable; peer disconnect must independently discard native batch state.
