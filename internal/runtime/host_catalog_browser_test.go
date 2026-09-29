@@ -1,8 +1,9 @@
 package runtime
 
 import (
-	"github.com/context-labs/whip/internal/session"
 	"testing"
+
+	"github.com/context-labs/whip/internal/session"
 )
 
 func TestBrowserHostSchemasKeepNamedAndOfferedTargetsSeparate(t *testing.T) {
