@@ -129,3 +129,21 @@ test('bounded language server strings use standalone Unicode length checks', () 
   result.items[0].name += '🌱';
   assert.equal(validate('LanguageServersResult', result), false);
 });
+
+test('binding configuration preserves explicit none and rejects caller-supplied executor owners', () => {
+  const update = structuredClone(fixtures.find(f => f.type === 'UpdateConfigurationParams').value);
+  assert.deepEqual(update.patch.modules, []);
+  assert.equal(validate('UpdateConfigurationParams', update), true);
+  for (const key of ['tools_definition', 'hooks_definition']) {
+    assert.equal(validate('UpdateConfigurationParams', { ...update, patch: { [key]: { id: 'owner', revision: 'a'.repeat(64) } } }), false);
+  }
+  const session = structuredClone(fixtures.find(f => f.type === 'Session').value);
+  for (const modules of [null, ['unknown'], ['files', 'files']]) {
+    session.configuration.modules = modules;
+    assert.equal(validate('Session', session), false);
+  }
+  session.configuration.modules = [];
+  assert.equal(validate('Session', session), true);
+  assert.equal(session.configuration.tools_definition, null);
+  assert.equal(session.configuration.hooks_definition, null);
+});

@@ -467,6 +467,30 @@ export interface CreateTreeParams {
     revision: string;
   };
   overrides: {
+    /**
+     * @maxItems 17
+     */
+    modules?:
+      | null
+      | (
+          | "agents"
+          | "artifacts"
+          | "browser"
+          | "computer"
+          | "context"
+          | "files"
+          | "goals"
+          | "mail"
+          | "mcp"
+          | "messages"
+          | "models"
+          | "permissions"
+          | "schedules"
+          | "shell"
+          | "skills"
+          | "state"
+          | "user"
+        )[];
     automatic_title?: null | boolean;
     goals_enabled?: null | boolean;
     compaction?: null | {
@@ -497,6 +521,7 @@ export interface CreateTreeParams {
     };
     tools?: {
       [k: string]: {
+        timeout_millis: number;
         description: string;
         input_schema: unknown;
         output_schema: unknown;
@@ -544,6 +569,36 @@ export interface CreateTreeResult {
     };
     config_revision: string;
     configuration: {
+      /**
+       * @maxItems 17
+       */
+      modules: (
+        | "agents"
+        | "artifacts"
+        | "browser"
+        | "computer"
+        | "context"
+        | "files"
+        | "goals"
+        | "mail"
+        | "mcp"
+        | "messages"
+        | "models"
+        | "permissions"
+        | "schedules"
+        | "shell"
+        | "skills"
+        | "state"
+        | "user"
+      )[];
+      tools_definition: null | {
+        id: string;
+        revision: string;
+      };
+      hooks_definition: null | {
+        id: string;
+        revision: string;
+      };
       automatic_title: boolean;
       goals_enabled: boolean;
       compaction: {
@@ -574,6 +629,7 @@ export interface CreateTreeResult {
       };
       tools: {
         [k: string]: {
+          timeout_millis: number;
           description: string;
           input_schema: unknown;
           output_schema: unknown;
@@ -630,6 +686,30 @@ export interface Definition {
     id: string;
     name: string;
     defaults: {
+      /**
+       * @maxItems 17
+       */
+      modules?:
+        | null
+        | (
+            | "agents"
+            | "artifacts"
+            | "browser"
+            | "computer"
+            | "context"
+            | "files"
+            | "goals"
+            | "mail"
+            | "mcp"
+            | "messages"
+            | "models"
+            | "permissions"
+            | "schedules"
+            | "shell"
+            | "skills"
+            | "state"
+            | "user"
+          )[];
       automatic_title?: null | boolean;
       goals_enabled?: null | boolean;
       compaction?: null | {
@@ -660,6 +740,7 @@ export interface Definition {
       };
       tools?: {
         [k: string]: {
+          timeout_millis: number;
           description: string;
           input_schema: unknown;
           output_schema: unknown;
@@ -689,6 +770,30 @@ export interface DefinitionDocument {
   id: string;
   name: string;
   defaults: {
+    /**
+     * @maxItems 17
+     */
+    modules?:
+      | null
+      | (
+          | "agents"
+          | "artifacts"
+          | "browser"
+          | "computer"
+          | "context"
+          | "files"
+          | "goals"
+          | "mail"
+          | "mcp"
+          | "messages"
+          | "models"
+          | "permissions"
+          | "schedules"
+          | "shell"
+          | "skills"
+          | "state"
+          | "user"
+        )[];
     automatic_title?: null | boolean;
     goals_enabled?: null | boolean;
     compaction?: null | {
@@ -719,6 +824,7 @@ export interface DefinitionDocument {
     };
     tools?: {
       [k: string]: {
+        timeout_millis: number;
         description: string;
         input_schema: unknown;
         output_schema: unknown;
@@ -794,6 +900,36 @@ export interface ForkResult {
     };
     config_revision: string;
     configuration: {
+      /**
+       * @maxItems 17
+       */
+      modules: (
+        | "agents"
+        | "artifacts"
+        | "browser"
+        | "computer"
+        | "context"
+        | "files"
+        | "goals"
+        | "mail"
+        | "mcp"
+        | "messages"
+        | "models"
+        | "permissions"
+        | "schedules"
+        | "shell"
+        | "skills"
+        | "state"
+        | "user"
+      )[];
+      tools_definition: null | {
+        id: string;
+        revision: string;
+      };
+      hooks_definition: null | {
+        id: string;
+        revision: string;
+      };
       automatic_title: boolean;
       goals_enabled: boolean;
       compaction: {
@@ -824,6 +960,7 @@ export interface ForkResult {
       };
       tools: {
         [k: string]: {
+          timeout_millis: number;
           description: string;
           input_schema: unknown;
           output_schema: unknown;
@@ -1760,6 +1897,36 @@ export interface ListSessionsResult {
         };
         config_revision: string;
         configuration: {
+          /**
+           * @maxItems 17
+           */
+          modules: (
+            | "agents"
+            | "artifacts"
+            | "browser"
+            | "computer"
+            | "context"
+            | "files"
+            | "goals"
+            | "mail"
+            | "mcp"
+            | "messages"
+            | "models"
+            | "permissions"
+            | "schedules"
+            | "shell"
+            | "skills"
+            | "state"
+            | "user"
+          )[];
+          tools_definition: null | {
+            id: string;
+            revision: string;
+          };
+          hooks_definition: null | {
+            id: string;
+            revision: string;
+          };
           automatic_title: boolean;
           goals_enabled: boolean;
           compaction: {
@@ -1790,6 +1957,7 @@ export interface ListSessionsResult {
           };
           tools: {
             [k: string]: {
+              timeout_millis: number;
               description: string;
               input_schema: unknown;
               output_schema: unknown;
@@ -5118,6 +5286,36 @@ export interface Session {
   };
   config_revision: string;
   configuration: {
+    /**
+     * @maxItems 17
+     */
+    modules: (
+      | "agents"
+      | "artifacts"
+      | "browser"
+      | "computer"
+      | "context"
+      | "files"
+      | "goals"
+      | "mail"
+      | "mcp"
+      | "messages"
+      | "models"
+      | "permissions"
+      | "schedules"
+      | "shell"
+      | "skills"
+      | "state"
+      | "user"
+    )[];
+    tools_definition: null | {
+      id: string;
+      revision: string;
+    };
+    hooks_definition: null | {
+      id: string;
+      revision: string;
+    };
     automatic_title: boolean;
     goals_enabled: boolean;
     compaction: {
@@ -5148,6 +5346,7 @@ export interface Session {
     };
     tools: {
       [k: string]: {
+        timeout_millis: number;
         description: string;
         input_schema: unknown;
         output_schema: unknown;
@@ -5459,6 +5658,30 @@ export interface SpawnSessionParams {
     revision: string;
   };
   overrides: {
+    /**
+     * @maxItems 17
+     */
+    modules?:
+      | null
+      | (
+          | "agents"
+          | "artifacts"
+          | "browser"
+          | "computer"
+          | "context"
+          | "files"
+          | "goals"
+          | "mail"
+          | "mcp"
+          | "messages"
+          | "models"
+          | "permissions"
+          | "schedules"
+          | "shell"
+          | "skills"
+          | "state"
+          | "user"
+        )[];
     automatic_title?: null | boolean;
     goals_enabled?: null | boolean;
     compaction?: null | {
@@ -5489,6 +5712,7 @@ export interface SpawnSessionParams {
     };
     tools?: {
       [k: string]: {
+        timeout_millis: number;
         description: string;
         input_schema: unknown;
         output_schema: unknown;
@@ -5577,6 +5801,36 @@ export interface SpawnSessionResult {
     };
     config_revision: string;
     configuration: {
+      /**
+       * @maxItems 17
+       */
+      modules: (
+        | "agents"
+        | "artifacts"
+        | "browser"
+        | "computer"
+        | "context"
+        | "files"
+        | "goals"
+        | "mail"
+        | "mcp"
+        | "messages"
+        | "models"
+        | "permissions"
+        | "schedules"
+        | "shell"
+        | "skills"
+        | "state"
+        | "user"
+      )[];
+      tools_definition: null | {
+        id: string;
+        revision: string;
+      };
+      hooks_definition: null | {
+        id: string;
+        revision: string;
+      };
       automatic_title: boolean;
       goals_enabled: boolean;
       compaction: {
@@ -5607,6 +5861,7 @@ export interface SpawnSessionResult {
       };
       tools: {
         [k: string]: {
+          timeout_millis: number;
           description: string;
           input_schema: unknown;
           output_schema: unknown;
@@ -5887,6 +6142,30 @@ export interface UpdateConfigurationParams {
   session_id: string;
   expected_revision: string;
   patch: {
+    /**
+     * @maxItems 17
+     */
+    modules?:
+      | null
+      | (
+          | "agents"
+          | "artifacts"
+          | "browser"
+          | "computer"
+          | "context"
+          | "files"
+          | "goals"
+          | "mail"
+          | "mcp"
+          | "messages"
+          | "models"
+          | "permissions"
+          | "schedules"
+          | "shell"
+          | "skills"
+          | "state"
+          | "user"
+        )[];
     automatic_title?: null | boolean;
     goals_enabled?: null | boolean;
     compaction?: null | {
@@ -5917,6 +6196,7 @@ export interface UpdateConfigurationParams {
     };
     tools?: {
       [k: string]: {
+        timeout_millis: number;
         description: string;
         input_schema: unknown;
         output_schema: unknown;

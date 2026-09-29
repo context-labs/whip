@@ -829,3 +829,17 @@ uncertain host publication with a fresh read; the SDK does not replay a CAS
 against a newer revision. Automatic root policy preserves workspace bounds and
 input checks; children continue to need exact delegated grants. Product controls
 must distinguish saved policy from individual permission decisions.
+
+
+### Definition bindings
+
+Configuration `modules` is the resolved host-module list. In patches, omission
+or null inherits, while `[]` disables every module. Existing sessions may change
+the enabled subset within their original bindings; adding syntax or changing a
+custom contract requires a fresh session. This preserves globals and aliases
+across model changes while the host checks each call against its captured turn.
+
+`tools_definition` and `hooks_definition` are nullable, read-only provenance
+references derived from registered immutable definitions. They are excluded from
+configuration patches. Declaring tools/hooks alone does not connect an executor;
+at this checkpoint custom calls reject unavailable execution before admission.

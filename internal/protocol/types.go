@@ -89,14 +89,15 @@ type Instructions struct {
 	SkillRoots           []string `json:"skill_roots"`
 }
 type ToolDeclaration struct {
-	Description  string          `json:"description"`
-	InputSchema  json.RawMessage `json:"input_schema"`
-	OutputSchema json.RawMessage `json:"output_schema"`
+	TimeoutMillis int             `json:"timeout_millis" min:"0" max:"900000"`
+	Description   string          `json:"description"`
+	InputSchema   json.RawMessage `json:"input_schema"`
+	OutputSchema  json.RawMessage `json:"output_schema"`
 }
 type HookDeclaration struct {
 	Operations    []ID `json:"operations"`
 	Optional      bool `json:"optional"`
-	TimeoutMillis int  `json:"timeout_millis" min:"1" max:"60000"`
+	TimeoutMillis int  `json:"timeout_millis" min:"0" max:"60000"`
 }
 type OutputPolicy struct {
 	Schema json.RawMessage `json:"schema"`
@@ -106,18 +107,22 @@ type CompactionPolicy struct {
 	ThresholdPercent int             `json:"threshold_percent" min:"0" max:"100"`
 }
 type Configuration struct {
-	AutomaticTitle bool                       `json:"automatic_title"`
-	GoalsEnabled   bool                       `json:"goals_enabled"`
-	Compaction     CompactionPolicy           `json:"compaction"`
-	ReportMode     string                     `json:"report_mode" enum:"notice,inline,message"`
-	Model          ModelSelection             `json:"model"`
-	Instructions   Instructions               `json:"instructions"`
-	Tools          map[string]ToolDeclaration `json:"tools"`
-	Children       map[string]DefinitionRef   `json:"children"`
-	Hooks          map[string]HookDeclaration `json:"hooks"`
-	OutputSchema   json.RawMessage            `json:"output_schema"`
+	Modules         []ID                       `json:"modules"`
+	ToolsDefinition *DefinitionRef             `json:"tools_definition"`
+	HooksDefinition *DefinitionRef             `json:"hooks_definition"`
+	AutomaticTitle  bool                       `json:"automatic_title"`
+	GoalsEnabled    bool                       `json:"goals_enabled"`
+	Compaction      CompactionPolicy           `json:"compaction"`
+	ReportMode      string                     `json:"report_mode" enum:"notice,inline,message"`
+	Model           ModelSelection             `json:"model"`
+	Instructions    Instructions               `json:"instructions"`
+	Tools           map[string]ToolDeclaration `json:"tools"`
+	Children        map[string]DefinitionRef   `json:"children"`
+	Hooks           map[string]HookDeclaration `json:"hooks"`
+	OutputSchema    json.RawMessage            `json:"output_schema"`
 }
 type ConfigPatch struct {
+	Modules        []ID                       `json:"modules,omitempty"`
 	AutomaticTitle *bool                      `json:"automatic_title,omitempty"`
 	GoalsEnabled   *bool                      `json:"goals_enabled,omitempty"`
 	Compaction     *CompactionPolicy          `json:"compaction,omitempty"`

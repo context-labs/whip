@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -117,8 +119,12 @@ func (r *Runtime) kernel(ctx context.Context, id session.SessionID, revision ses
 	if err != nil {
 		return nil, err
 	}
+	initial, err := r.store.Configuration(ctx, id, 1)
+	if err != nil {
+		return nil, err
+	}
 	checkpoints := &cellCheckpoints{runtime: r, sessionID: id, historyRevision: revision, descriptor: descriptor}
-	kernel, err := process.NewKernel(process.KernelOptions{Engine: string(tree.Engine), Checkpoints: checkpoints, Manager: r.engineManager, Command: r.options.EngineCommand, Limits: process.Limits{OutputBytes: 64 << 10}, Host: process.HostFunc(func(ctx context.Context, module, operation string, arguments map[string]any) (any, error) {
+	kernel, err := process.NewKernel(process.KernelOptions{Engine: string(tree.Engine), Modules: initial.Modules, Tools: slices.Sorted(maps.Keys(initial.Tools)), Checkpoints: checkpoints, Manager: r.engineManager, Command: r.options.EngineCommand, Limits: process.Limits{OutputBytes: 64 << 10}, Host: process.HostFunc(func(ctx context.Context, module, operation string, arguments map[string]any) (any, error) {
 		call, ok := process.HostCallFromContext(ctx)
 		if !ok {
 			return nil, errors.New("missing host invocation identity")

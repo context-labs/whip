@@ -18,7 +18,7 @@ import (
 // Identity-only creation is retained solely for old store fixtures.
 func (s *Store) SpawnSession(ctx context.Context, request SpawnSession) (result session.Session, err error) {
 	err = s.write(ctx, func(tx *sql.Tx) error {
-		result, err = spawnSession(ctx, tx, request)
+		result, err = spawnSession(ctx, tx, request, nil)
 		return err
 	})
 	return

@@ -58,7 +58,7 @@ func workerMain(args []string, input io.Reader, output io.Writer, limitMemory fu
 	memoryBytes := fs.Uint64("memory-bytes", defaultMemoryBytes, "worker address-space limit")
 	outputBytes := fs.Int("output-bytes", defaultOutputBytes, "maximum captured cell output")
 	frameBytes := fs.Int("frame-bytes", defaultFrameBytes, "maximum protocol frame")
-	moduleList := fs.String("modules", "", "comma-separated host modules to install; empty installs every module")
+	moduleList := fs.String("modules", "", "comma-separated host modules to install; omitted installs every module, empty installs none")
 	toolList := fs.String("tools", "", "comma-separated custom tool names installed as the tools module; empty installs none")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -67,6 +67,11 @@ func workerMain(args []string, input io.Reader, output io.Writer, limitMemory fu
 	if err != nil {
 		return err
 	}
+	fs.Visit(func(value *flag.Flag) {
+		if value.Name == "modules" && modules == nil {
+			modules = []string{}
+		}
+	})
 	tools, err := selectedTools(*toolList)
 	if err != nil {
 		return err

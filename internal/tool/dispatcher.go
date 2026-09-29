@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -24,7 +25,7 @@ type Ledger interface {
 }
 
 type Sessions interface {
-	Session(context.Context, session.SessionID) (session.Session, error)
+	CellSession(context.Context, session.SessionID, session.CellID) (session.Session, error)
 }
 
 type Coordination interface {
@@ -52,9 +53,23 @@ func NewDispatcher(ledger Ledger, sessions Sessions, coordination Coordination) 
 }
 
 func (d *Dispatcher) Call(ctx context.Context, call Invocation) (any, session.OperationID, error) {
-	current, err := d.sessions.Session(ctx, call.SessionID)
+	current, err := d.sessions.CellSession(ctx, call.SessionID, call.CellID)
 	if err != nil {
 		return nil, "", err
+	}
+	if call.Module == "tools" {
+		declaration, enabled := current.Config.Tools[call.Name]
+		if !enabled {
+			return nil, "", fmt.Errorf("%w: custom tool is not enabled for this turn", session.ErrInvalid)
+		}
+		if err := declaration.ValidateInput(call.Arguments); err != nil {
+			return nil, "", err
+		}
+		// Declarations install guest syntax, not a live handler or executor identity.
+		return nil, "", errors.New("custom tool executor unavailable")
+	}
+	if !slices.Contains(current.Config.Modules, call.Module) {
+		return nil, "", fmt.Errorf("%w: host module is not enabled for this turn", session.ErrInvalid)
 	}
 	var prepared Prepared
 	if call.Module == "files" {

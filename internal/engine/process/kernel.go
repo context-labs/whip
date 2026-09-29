@@ -12,6 +12,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -318,8 +319,8 @@ func (manager *Manager) Close() {
 type KernelOptions struct {
 	Engine      string
 	Checkpoints CheckpointStore
-	// Modules names the host modules the worker installs. Nil installs every
-	// registered module. The list is fixed for the kernel's lifetime and is
+	// Modules names the installed host modules. Empty installs none; nil
+	// installs every registered module. The list is fixed for the kernel's lifetime and is
 	// re-applied to every replacement worker.
 	Modules []string
 	// Tools names the custom tools installed as the reserved tools module. Nil
@@ -483,7 +484,7 @@ func NewKernel(options KernelOptions) (*Kernel, error) {
 		return nil, err
 	}
 	return &Kernel{
-		engine: descriptor, checkpoints: options.Checkpoints, modules: append([]string(nil), options.Modules...), tools: append([]string(nil), options.Tools...),
+		engine: descriptor, checkpoints: options.Checkpoints, modules: slices.Clone(options.Modules), tools: append([]string(nil), options.Tools...),
 		command: command, limits: limits, manager: options.Manager, host: options.Host,
 		scratch: options.Scratch, onRestore: options.OnRestore,
 		observeHost: options.ObserveHost,
@@ -1022,7 +1023,7 @@ func (kernel *Kernel) startProcess() (err error) {
 		"-output-bytes", strconv.Itoa(kernel.limits.OutputBytes),
 		"-frame-bytes", strconv.Itoa(kernel.limits.FrameBytes),
 	)
-	if len(kernel.modules) > 0 {
+	if kernel.modules != nil {
 		args = append(args, "-modules", strings.Join(kernel.modules, ","))
 	}
 	if len(kernel.tools) > 0 {

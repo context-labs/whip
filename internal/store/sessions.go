@@ -53,7 +53,10 @@ func (s *Store) CreateTree(ctx context.Context, request CreateTree) (tree sessio
 		if err != nil {
 			return err
 		}
-		config, err := session.Resolve(request.Defaults, def.Document, request.Overrides)
+		defaults := request.Defaults.Clone()
+		// Host configuration cannot claim a registered executor's identity.
+		defaults.ToolsDefinition, defaults.HooksDefinition = nil, nil
+		config, err := session.Resolve(defaults, def.Document, request.Overrides)
 		if err != nil {
 			return err
 		}
@@ -95,6 +98,9 @@ func (s *Store) CreateTree(ctx context.Context, request CreateTree) (tree sessio
 }
 
 func insertSession(ctx context.Context, tx *sql.Tx, tree session.TreeID, parent *session.SessionID, ref session.DefinitionRef, config session.Configuration, cwd string) (session.Session, error) {
+	if err := validateBindingSources(ctx, tx, config); err != nil {
+		return session.Session{}, err
+	}
 	if !filepath.IsAbs(cwd) || session.ValidateText(cwd, 4096) != nil {
 		return session.Session{}, fmt.Errorf("%w: working directory must be an absolute path", session.ErrInvalid)
 	}
@@ -143,13 +149,16 @@ type ChildAdmission struct {
 	Admission Admission
 }
 
-func spawnSession(ctx context.Context, tx *sql.Tx, request SpawnSession) (session.Session, error) {
+func spawnSession(ctx context.Context, tx *sql.Tx, request SpawnSession, captured *session.Configuration) (session.Session, error) {
 	parent, err := readSession(ctx, tx, request.ParentID)
 	if err != nil {
 		return session.Session{}, err
 	}
 	if parent.Lifecycle != session.Active {
 		return session.Session{}, ErrStopped
+	}
+	if captured != nil {
+		parent.Config = captured.Clone()
 	}
 	ref := parent.Definition
 	var doc session.DefinitionDocument
@@ -163,6 +172,9 @@ func spawnSession(ctx context.Context, tx *sql.Tx, request SpawnSession) (sessio
 	}
 	config, err := session.Resolve(parent.Config, doc, request.Overrides)
 	if err != nil {
+		return session.Session{}, err
+	}
+	if err := session.NarrowBindings(parent.Config, config); err != nil {
 		return session.Session{}, err
 	}
 	cwd := request.WorkingDirectory
@@ -187,7 +199,7 @@ func (s *Store) SpawnChild(ctx context.Context, identity session.RequestIdentity
 		return result, err
 	}
 	err = s.write(ctx, func(tx *sql.Tx) error {
-		result, err = spawnChild(ctx, tx, identity, request)
+		result, err = spawnChild(ctx, tx, identity, request, nil)
 		return err
 	})
 	return
@@ -244,7 +256,7 @@ func readChildAdmission(ctx context.Context, tx *sql.Tx, identity session.Reques
 	return result, nil
 }
 
-func spawnChild(ctx context.Context, tx *sql.Tx, identity session.RequestIdentity, request ChildRequest) (ChildAdmission, error) {
+func spawnChild(ctx context.Context, tx *sql.Tx, identity session.RequestIdentity, request ChildRequest, captured *session.Configuration) (ChildAdmission, error) {
 	digest, err := requestDigest("spawn_child", request)
 	if err != nil {
 		return ChildAdmission{}, err
@@ -263,7 +275,7 @@ func spawnChild(ctx context.Context, tx *sql.Tx, identity session.RequestIdentit
 	if err != nil {
 		return ChildAdmission{}, err
 	}
-	child, err := spawnSession(ctx, tx, request.SpawnSession)
+	child, err := spawnSession(ctx, tx, request.SpawnSession, captured)
 	if err != nil {
 		return ChildAdmission{}, err
 	}
@@ -343,7 +355,15 @@ func (s *Store) SpawnChildOperation(ctx context.Context, id session.OperationID)
 		if !dispatch {
 			return ErrConflict
 		}
-		result, err = spawnChild(ctx, tx, identity, request)
+		var revision session.Revision
+		if err := tx.QueryRowContext(ctx, "SELECT t.config_revision FROM cells c JOIN turns t ON t.id=c.turn_id WHERE c.id=?", operation.CellID).Scan(&revision); err != nil {
+			return found(err)
+		}
+		captured, err := readConfiguration(ctx, tx, owner.ID, revision)
+		if err != nil {
+			return err
+		}
+		result, err = spawnChild(ctx, tx, identity, request, &captured)
 		if err != nil {
 			return err
 		}
@@ -479,14 +499,8 @@ func (s *Store) UpdateTree(ctx context.Context, id session.TreeID, expected sess
 	return
 }
 
-func (s *Store) Configuration(ctx context.Context, id session.SessionID, revision session.Revision) (result session.Configuration, err error) {
-	var raw string
-	err = s.db.QueryRowContext(ctx, "SELECT configuration FROM session_configurations WHERE session_id=? AND revision=?", id, revision).Scan(&raw)
-	if err != nil {
-		return result, found(err)
-	}
-	err = json.Unmarshal([]byte(raw), &result)
-	return
+func (s *Store) Configuration(ctx context.Context, id session.SessionID, revision session.Revision) (session.Configuration, error) {
+	return readConfiguration(ctx, s.db, id, revision)
 }
 
 func (s *Store) UpdateConfiguration(ctx context.Context, id session.SessionID, expected session.Revision, patch session.ConfigPatch) (result session.Session, err error) {
@@ -500,6 +514,16 @@ func (s *Store) UpdateConfiguration(ctx context.Context, id session.SessionID, e
 		}
 		config, err := session.Resolve(current.Config, session.DefinitionDocument{}, patch)
 		if err != nil {
+			return err
+		}
+		initial, err := readConfiguration(ctx, tx, id, 1)
+		if err != nil {
+			return err
+		}
+		if err := session.UpdateBindings(initial, config); err != nil {
+			return err
+		}
+		if err := validateBindingSources(ctx, tx, config); err != nil {
 			return err
 		}
 		for _, child := range config.Children {

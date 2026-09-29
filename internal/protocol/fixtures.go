@@ -186,7 +186,7 @@ func Fixtures() ([]Fixture, error) {
 		{"Part", toolMessage.Parts[0]},
 		{"SpawnSessionParams", SpawnSessionParams{Identity: RequestIdentity{ClientID: "client", RequestID: "spawn"}, ParentID: root.ID, Parts: []Part{{Type: "text", Text: "Child work"}}, GrantIDs: []ID{}}},
 		{"SubmitParams", SubmitParams{Identity: RequestIdentity{ClientID: "client", RequestID: "request"}, SessionID: child.ID, Source: "user", Parts: []Part{{Type: "text", Text: "Run this."}}}},
-		{"UpdateConfigurationParams", UpdateConfigurationParams{SessionID: child.ID, ExpectedRevision: 9007199254740993, Patch: ConfigPatch{AutomaticTitle: new(false), GoalsEnabled: new(false), Compaction: &CompactionPolicy{Model: nil, ThresholdPercent: 0}, ReportMode: new("inline"), Tools: map[string]ToolDeclaration{}, Output: &OutputPolicy{}}}},
+		{"UpdateConfigurationParams", UpdateConfigurationParams{SessionID: child.ID, ExpectedRevision: 9007199254740993, Patch: ConfigPatch{Modules: []ID{}, AutomaticTitle: new(false), GoalsEnabled: new(false), Compaction: &CompactionPolicy{Model: nil, ThresholdPercent: 0}, ReportMode: new("inline"), Tools: map[string]ToolDeclaration{}, Output: &OutputPolicy{}}}},
 		{"Turn", Turn{Goal: &GoalRef{ID: "goal_fixture", Revision: 9007199254740993}, ID: "turn_fixture", SessionID: child.ID, Kind: "prompt", HistoryRevision: 9007199254740993, ConfigRevision: 9007199254740993, State: "running", StartedAt: created.Format(time.RFC3339Nano)}},
 	}
 	result := make([]Fixture, 0, len(values)+8)

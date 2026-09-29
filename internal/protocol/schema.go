@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/context-labs/whip/internal/hostmodule"
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
@@ -242,6 +243,17 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 				{Type: "integer", Enum: []any{0}},
 				{Type: "integer", Minimum: new(2.0), Maximum: new(100.0)},
 			}}
+		}
+		if t == reflect.TypeFor[Configuration]() || t == reflect.TypeFor[ConfigPatch]() {
+			modules := schema.Properties["modules"]
+			modules.MaxItems = new(len(hostmodule.Names()))
+			modules.UniqueItems = true
+			for _, name := range hostmodule.Names() {
+				modules.Items.Enum = append(modules.Items.Enum, name)
+			}
+			if t == reflect.TypeFor[Configuration]() {
+				modules.Type, modules.Types = "array", nil
+			}
 		}
 		if t == reflect.TypeFor[Configuration]() {
 			schema.Properties["compaction"].Properties["threshold_percent"].Minimum = new(1.0)
