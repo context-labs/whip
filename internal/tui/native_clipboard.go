@@ -89,13 +89,7 @@ func nativeClipboardCommand(ctx context.Context, directory, program string, args
 	defer func() { _ = manager.Close() }()
 	stdout := nativeClipboardBuffer{limit: limit, stop: cancel}
 	stderr := nativeClipboardBuffer{limit: 16 << 10, stop: cancel}
-	env := map[string]string{}
-	for _, name := range []string{"DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "XAUTHORITY"} {
-		if value, ok := os.LookupEnv(name); ok {
-			env[name] = value
-		}
-	}
-	process, err := manager.Start(ctx, "terminal-clipboard", program, args, capability.ProcessOptions{Cwd: directory, Env: env, Stdin: strings.NewReader(""), Stdout: &stdout, Stderr: &stderr})
+	process, err := manager.Start(ctx, "terminal-clipboard", program, args, capability.ProcessOptions{Cwd: directory, Env: nativeClipboardEnvironment(), Stdin: strings.NewReader(""), Stdout: &stdout, Stderr: &stderr})
 	if err != nil {
 		return nil, err
 	}
@@ -108,4 +102,14 @@ func nativeClipboardCommand(ctx context.Context, directory, program string, args
 		return nil, fmt.Errorf("clipboard helper failed: %w", err)
 	}
 	return stdout.buffer.Bytes(), nil
+}
+
+func nativeClipboardEnvironment() map[string]string {
+	env := map[string]string{}
+	for _, name := range []string{"DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "XAUTHORITY"} {
+		if value, ok := os.LookupEnv(name); ok {
+			env[name] = value
+		}
+	}
+	return env
 }

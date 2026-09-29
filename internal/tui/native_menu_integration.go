@@ -6,6 +6,7 @@ func (m *nativeModel) openMenu(kind string) tea.Cmd {
 	if !m.navigationAllowed() {
 		return nil
 	}
+	m.closeCompletion(false)
 	m.closeMenu()
 	m.menu = newNativeMenu(&m.work, m.connection, nativeMenuOptions{Kind: kind, Owner: &m.owner, PreferencesDirectory: m.preferencesDirectory})
 	m.input.Reset()
@@ -37,7 +38,11 @@ func (m *nativeModel) closeMenu() {
 }
 
 func (m *nativeModel) close() {
+	m.closeCompletion(false)
 	m.closeMenu()
+	if m.clipboard != nil {
+		m.clipboard.close()
+	}
 	m.work.close()
 	if m.recovery != nil {
 		_ = m.recovery.root.Close()

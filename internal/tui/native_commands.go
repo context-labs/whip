@@ -69,6 +69,8 @@ func (m *nativeModel) command(text string) tea.Cmd {
 		return nil
 	}
 	switch name {
+	case "/copy":
+		return m.copyCommand(args)
 	case "/attach":
 		return m.attachCommand(args)
 	case "/help":
@@ -143,6 +145,7 @@ func (m *nativeModel) command(text string) tea.Cmd {
 		}
 		m.input.Reset()
 		m.expandTools = args == "expand"
+		m.toolExpansion = nil
 		m.status = "Tool output display: " + args
 		m.refresh()
 		return nil

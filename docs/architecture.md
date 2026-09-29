@@ -1,214 +1,112 @@
 # Architecture
 
-For the React application and component system, start with the canonical
-[frontend architecture and design guide](frontend.md). It explains frontend
-decisions, package boundaries, state ownership, and extension patterns.
+Whip's backend is Go. The native runtime owns durable sessions, accepted work
+and host execution. Every supported client connects through the same generated
+protocol: the terminal, headless CLI, ACP, MCP bridge, browser, desktop and mobile.
+Roots and children use the same session records and execution path.
 
-The TypeScript SDK in `packages/legacy-sdk` is another thin protocol client. Browser and
-Node WebSockets and Node Unix sockets feed one request/command engine; optional
-framework-independent views reconstruct daemon state, and React subscribes to
-those views. It never starts a daemon, runs an agent loop, owns provider keys, or
-creates another history database. See [SDK usage](../packages/legacy-sdk/README.md) for
-identity, cancellation, recovery, content and application ownership contracts.
+This describes the native redesign in this source tree. It does not say the
+unmerged draft stack is deployed. See the [development record](backend-redesign-development.md)
+for exact passing revisions, open acceptance and remaining retired-code removal.
 
-whip is organized around one recursive agent abstraction. A root and a child
-are both `AgentSession`s: each owns a provider loop, a bounded Starlark kernel,
-a durable transcript, and an identity. Every model sees exactly one tool,
-`rlm_exec`.
+## Ownership
 
-```mermaid
-flowchart TB
-    subgraph clients["protocol clients"]
-        TUI["TUI"]
-        RUN["whipcode run"]
-        ACP["ACP"]
-        BRIDGE["whipcode mcp serve"]
-        WEB["React web application + TypeScript SDK"]
-    end
+The detailed backend contract is [backend-domain.md](backend-domain.md). The
+[frontend guide](frontend.md) owns renderer architecture, and the
+[SDK guide](../packages/sdk/README.md) owns public TypeScript APIs.
 
-    RPC["trusted WHIP v4 daemon protocol"]
-
-    subgraph daemon["whip _daemon"]
-        ROOT["root actor"]
-        TREE["recursive AgentSession tree"]
-        POLICY["capability + budget + permission policy"]
-        SERVICES["files / shell / browser / computer"]
-        MCP["MCP client manager"]
-        STORE["SQLite journal + content store"]
-    end
-
-    KERNELS["disposable whip _kernel workers"]
-    MODELS["model providers"]
-
-    TUI & RUN & ACP & BRIDGE & WEB <--> RPC <--> ROOT
-    ROOT <--> STORE
-    ROOT --> TREE
-    TREE <--> MODELS
-    TREE <--> KERNELS
-    KERNELS -->|typed host calls| POLICY
-    POLICY --> SERVICES
-    KERNELS --> MCP
-    POLICY <--> STORE
-```
-
-## Core invariants
-
-1. **One model-facing interface.** Neither root nor child receives direct JSON
-   file, shell, MCP, or child tools. Those capabilities are Starlark modules
-   behind `rlm_exec`.
-2. **One recursive session type.** Children are not one-shot tasks. They are
-   retained sessions that can take later turns and create their own children
-   within the configured depth and budget limits.
-3. **One authority path.** Built-in effects enter the capability dispatcher;
-   state, messages, schedules, and lifecycle changes enter root-actor APIs.
-4. **Admission precedes durable execution.** Client commands are journaled
-   before a turn. Child kernel capacity is reserved before the child record is
-   committed, so a rejected spawn cannot leave a ghost agent.
-5. **Communication is explicit.** An agent response is local to that agent.
-   Parent and child exchange durable messages; notifications contain metadata,
-   never message bodies.
-6. **Large values are referenced.** SQLite holds metadata and small values.
-   Large bodies live in the content store and cross boundaries as handles and
-   bounded excerpts.
-7. **Recovery does not guess.** Committed results survive. Uncertain external
-   effects become interrupted and are not automatically replayed.
-
-## A root turn
-
-```mermaid
-sequenceDiagram
-    actor User
-    participant Client
-    participant RootActor
-    participant Agent as AgentSession
-    participant Model
-    participant Kernel
-    participant Host
-    participant Store
-
-    User->>Client: submit
-    Client->>RootActor: stable command ID
-    RootActor->>Store: admit command + inbox sequence
-    RootActor->>Agent: start turn with focused context
-    Agent->>Model: prompt + rlm_exec definition
-    Model->>Kernel: rlm_exec(Starlark)
-    Kernel->>Host: typed module calls
-    Host->>Store: authorize / reserve / commit
-    Kernel-->>Model: bounded result or handle
-    Model-->>Agent: ordinary response
-    Agent->>Store: atomically commit transcript + outcome
-    RootActor-->>Client: ordered events + stored result
-```
-
-Child turns use the same `AgentSession` model and tool path. Today the root
-actor and child wake path still use different scheduling/commit adapters; the
-single-runtime consolidation plan removes that final lifecycle split. The
-intended differences are only parent ID, delegated capabilities, effective
-budgets, and private transcript.
-
-## Process and storage boundaries
-
-- `whip _daemon` is the sole owner of the runtime database, live agents,
-  integrations, permissions, and managed processes.
-- `whip _kernel` evaluates Starlark with bounded steps, host calls, memory,
-  wall time, output, and frames. It has no ambient provider credentials or
-  direct filesystem/network API.
-- Clients use one typed WHIP v4 contract in JSON-RPC 2.0 envelopes over Unix
-  newline framing or WebSocket text messages. Transport adapters share validation
-  and application handlers. No v1 codec or build-equality attachment check remains.
-- Commands acknowledge committed acceptance; the daemon supervises execution.
-  Status and structured outcomes survive reconnect/restart, with deduplication
-  by client namespace and command ID. Queries and ephemeral secret/terminal
-  operations never enter the command journal.
-- Reconnect reads a bounded snapshot and event cursor consistently, then subscribes
-  strictly after that cursor. Raw transcript pages carry history revisions;
-  collection pages carry collection revisions. Clients discard replaced stream IDs.
-- Every connected client is trusted to answer permission requests and change
-  permission modes. There is no pairing, signing key or client authentication.
-  Agent capabilities, budgets, content grants and delegated MCP authority remain
-  daemon-enforced; browser Host/Origin validation remains transport-owned.
-- Provider onboarding, credentials, workspace completion and shared configuration
-  are execution-host services. Only presentation preferences remain client-owned.
-- SQLite WAL with synchronous=NORMAL retains daemon-crash durability. The fresh
-  schema rejects incompatible databases without deletion or migration.
-- Runtime data lives under `~/.whipcode/runtime-v2/` (or
-  `$WHIPCODE_HOME/runtime-v2/`). Pre-reset installations require the explicit
-  [manual reset](team-reset.md); old stores are not imported.
-
-## Package map
-
-| Package | Responsibility |
+| Boundary | Owns |
 | --- | --- |
-| `internal/legacy/protocol`, `packages/legacy-protocol` | typed operation/event contract, generated Draft-07 schemas, TypeScript and Ajv |
-| `internal/daemon` | shared handlers, Unix/WebSocket/HTTP adapters, root actors, recursive runtime, lifecycle |
-| `internal/legacy/session` | durable commands, transcripts, agents, messages, budgets, recovery |
-| `internal/agentdef` | agent definitions and their registry: instructions and discovery toggles, selected modules and capabilities, model and compaction defaults, named children, and the capability-to-operation mapping; `Coding()` and `JuniorDeveloper()` are the first-party definitions |
-| `internal/engine/process` | bounded kernel subprocesses, Starlark/QuickJS workers, host-module syntax and checkpoint transport |
-| `internal/rlm` | retained runtime guide, focused-context composer and presentation/tool adapters |
-| `internal/capability` | identities, grants, path policy, operation admission |
-| `internal/tools` | concrete built-in services reached through host modules |
-| `internal/mcp` | external MCP connections and named tool calls |
-| `internal/agent` | provider loop, streaming, compaction, usage accounting |
-| `internal/tui`, `internal/acp` | presentation and protocol adapters only |
-| `packages/legacy-sdk` | attach-only transports, commands, subscriptions, bounded reconstructed views and optional React hooks |
-| `packages/ui` | Base UI components, extracted StyleX tokens/styles, shared generated themes, fonts and read-only syntax rendering; no SDK or host state |
-| `packages/app` | React routes and workflows, SDK view leases, host query presentation, application drafts and preferences; no daemon/process ownership |
-| `apps/web` | browser entry, storage/clipboard/download/link adapters, Vite build and browser acceptance |
-| `internal/theme`, `cmd/themegen` | renderer-independent theme resolution and deterministic UI catalog generation |
-| `internal/webassets`, `cmd/whip/web.go` | embedded web asset serving/discovery and explicit browser launch against an existing daemon |
+| `internal/session` | Durable values, validation and identity; no runtime, SQL or provider clients |
+| `internal/store` | Complete SQL transactions and the authoritative durable facts |
+| `internal/runtime` | Scheduling, live session resources, cancellation and bounded observations |
+| `internal/runner` | The shared provider/operation loop through injected boundaries |
+| `internal/engine` | Isolated Starlark and QuickJS execution and settled checkpoints |
+| `internal/hostcmd` | Native command lifetime, provider/account managers, socket and optional gateway |
+| `internal/protocol` and `internal/rpc` | Explicit generated DTOs, validated methods and client transport boundaries |
+| Go and TypeScript clients | Identity checks, admission/recovery and bounded observation; no second execution owner |
 
-## Browser application ownership
+SQLite owns sessions, accepted inputs, receipts, turns, canonical messages,
+attempts, permissions, grants, goals, schedules and coordination evidence.
+Immutable bodies and checkpoint bytes live in content files with durable metadata.
+Runtime memory owns workers, kernels, processes, previews and subscriptions.
+Reading a retained session does not load a worker or start a model call.
 
-`createWhipApplication(platform)` creates one application runtime, TanStack Query
-client and router. The platform supplies storage, external links, clipboard and
-downloads; a future Electron shell can provide those effects without replacing
-the application or SDK. The browser entry initializes appearance before mounting
-React, connects explicitly, and disposes local resources on page teardown.
+```mermaid
+flowchart LR
+    Clients["Terminal · CLI · ACP · MCP · Web · Desktop · Mobile"]
+    API["Generated native protocol"]
+    Runtime["Runtime scheduler and lifecycle"]
+    Store[("SQL facts + immutable content")]
+    Runner["Shared runner"]
+    Provider["Captured provider request"]
+    Worker["Starlark or QuickJS worker"]
+    Effects["Authorized host operations"]
+    Clients <--> API
+    API <--> Runtime
+    Runtime <--> Store
+    Runtime --> Runner
+    Runner <--> Provider
+    Runner <--> Worker
+    Worker <--> Effects
+    Runner --> Store
+    Effects --> Store
+```
 
-The SDK remains authoritative for reconstructing session state from protocol
-snapshots, history and events. TanStack Query handles bounded host reads and
-revisioned settings, not a second conversation cache. The app keeps unsent drafts
-separate from metadata-only command recovery records. Switching recipients,
-routes, hosts or themes cannot move one recipient's late acceptance onto another
-draft. Runtime identity mismatches surface instead of silently adopting a new host.
+## An ordinary turn
 
-UI and app are private source packages compiled by the official StyleX plugin.
-The web build owns route splitting and CSS/font assets. Production UI uses no
-runtime style compiler; validated custom themes set only known CSS variables.
-The shared Go resolver owns terminal ANSI/Chroma semantics, and the UI derives
-readable browser foregrounds while retaining the exact source catalog. Theme
-changes preserve route, draft, scroll and highlighted-code identities.
+1. Admission verifies the owner and persists a stable request identity, digest,
+   receipt and input in one transaction. An exact retry resolves the existing
+   result; a changed payload under the same identity conflicts.
+2. The scheduler claims work and creates a turn with captured configuration.
+   A session has at most one active turn. Roots and children use this same path.
+3. The runner makes accounted provider attempts and executes authorized calls.
+   Provider I/O and host effects occur outside SQL transactions and scheduler locks.
+4. Canonical messages, cells, operations and terminal settlement become durable.
+   Provisional text/reasoning remains bounded live presentation, not an event store.
+5. Clients reconcile stored evidence. Disconnecting or cancelling a local wait
+   stops observation; cancelling accepted execution requires an explicit action.
 
-The daemon serves packaged assets and API traffic on its existing optional
-listener. `whipcode web` discovers and opens that endpoint; it never starts or
-replaces the daemon. Browser clients are trusted to make permission decisions,
-while internal capabilities and content grants remain daemon-enforced. See
-[web-app.md](web-app.md) for launch, development proxy and trusted-network setup.
+A model sees the engine's `execute` tool, whose code calls the captured host
+modules and custom tools. Definitions are immutable revisions. New sessions copy
+resolved defaults; turns pin configuration revisions. Changing a host default or
+model selection does not rewrite history, children, grants or settled execution.
 
-Read [rlm-runtime.md](rlm-runtime.md) for the programming model and
-[concurrency.md](concurrency.md) for ownership and ordering.
+## Recursion and recovery
 
-See [protocol-v2.md](protocol-v2.md) for the wire contract, generation workflow,
-content grants, and opt-in local/trusted-network setup.
+A tree has one root; parent and tree identities never change. Children cannot
+widen delegated authority or ancestor limits. Parent completion, cancellation,
+child deletion and worker eviction have separate meanings. Mail inspection does
+not acknowledge delivery; private state, shared state, VM globals and history
+remain distinct authorities.
 
-### Session tab ownership
+Accepted queued inputs survive restart. Completed partial history survives an
+interrupted turn. Uncertain external effects are not automatically replayed, and
+checkpoint restoration does not restore browser, terminal or executor authority.
+Missing usage or cost remains unknown. A content digest identifies bytes; an
+owner-scoped reference authorizes access to them.
 
-The web window owns up to 32 root-tab identities per connected runtime, while only
-one conversation is mounted and at most four SDK views are retained. TanStack
-Router owns selection and child/inspector search state; window sessionStorage owns
-only bounded layout metadata. The bounded `sessions.summaries` query
-supplies advisory descendant activity and human-input counts without opening roots.
-Uploads and reading bookmarks belong to AppRuntime so navigation can release a
-view without losing unsent work or the reader's place. Closing a tab has no daemon
-execution meaning. See [web-app.md](web-app.md#session-tabs) for limits and behavior.
+## Process and client boundaries
 
+The command starts one native host in a fresh `runtime-v4` directory beneath the
+selected Whip home. Existing retired stores and configuration are not migrated
+or opened. Runtime identity is durable; process epoch changes on restart. The
+bundled `_kernel` entry runs isolated workers for both engines. Old `_daemon`
+and `_web-gateway` entry points are rejected; the CLI removal and replacement
+evidence are mapped in [native CLI disposition](backend-native-cli-disposition.md).
 
-Model budget rows distinguish finite limits from explicit unlimited values.
-Root cost/token/elapsed rows always exist for accounting, even when unlimited;
-missing rows are not an unlimited fallback. Each transport attempt carries its
-model's immutable prices, while the session store atomically enforces finite
-ancestor allowances. Known usage, in-flight reservations, and uncertain exposure
-are separate counters. Model settlement can record an estimate overage and
-exhaust a finite allowance without losing the response or holding live capacity.
-Resource limits retain their strict semantics. See [concurrency](concurrency.md)
-and [frontend usage presentation](frontend.md#usage-and-execution-limits).
+The native gateway serves the packed shared renderer, discovery, WebSocket and
+scoped content routes. `whipcode web` owns a foreground gateway attached to an
+existing native host; `WHIPCODE_NETWORK=1` instead opts runtime startup into an
+in-process managed gateway. Each gateway stays pinned to its original runtime
+identity and process epoch. Host/Origin checks are not authentication; network trust
+must be explicit. Remote browser clients do not gain local terminal authority.
+Desktop's native bridge and mobile's native renderer share the same backend and
+SDK contracts. No frontend owns a provider loop, raw database or parallel copy
+of durable lifecycle/history state.
+
+Build and validation commands live in [Taskfile.yaml](../Taskfile.yaml). Final
+cutover requires the retained feature/test disposition, complete client adoption,
+performance acceptance and deletion checks in the [redesign plan](backend-redesign-plan.md).
+A green unit suite alone does not establish signed packaging, real SSH, physical
+mobile or live-provider acceptance.

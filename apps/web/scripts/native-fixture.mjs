@@ -38,9 +38,10 @@ export function fixtureExternalOrigin(value) {
 
 /** Owns the real production runtime, engines and gateway, a local fake HTTP
  * provider and one explicit fixture executor lease. No legacy runtime or DTOs. */
-export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 240_000, externalOrigin, managedDirectory = false, executeCode = false, agentResponses = false, performanceStreams = false, activityStreams = false, queueStreams = false, workers = 4, rejectInput } = {}) {
+export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 240_000, externalOrigin, managedDirectory = false, executeCode = false, agentResponses = false, performanceStreams = false, activityStreams = false, queueStreams = false, workers = 4, rejectInput, rejectionMessage = 'Explicit fixture provider rejection' } = {}) {
   if (!Number.isInteger(workers) || workers < 1 || workers > 16) throw new RangeError('Fixture workers must be within 1..16');
   if (rejectInput !== undefined && (typeof rejectInput !== 'string' || rejectInput.length < 1 || rejectInput.length > 256)) throw new RangeError('Rejected fixture input must contain 1..256 characters');
+  if (typeof rejectionMessage !== 'string' || Buffer.byteLength(rejectionMessage) > 65536) throw new RangeError('Fixture rejection message exceeds 64KiB');
   if (!Number.isInteger(lifetimeMs) || lifetimeMs < 1 || lifetimeMs > 1_800_000) throw new RangeError('Fixture lifetime must be within 1..1800000ms');
   const origin = fixtureExternalOrigin(externalOrigin);
   allowedOrigins = [...new Set([...allowedOrigins, ...(origin ? [origin] : [])])];
@@ -92,7 +93,7 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
         if (effectBytes > (16 << 20)) throw new Error('Fixture effect evidence exceeds 16MiB');
         await appendFile(join(directory, 'effects.jsonl'), effect, { mode: 0o600 });
       }
-      if (rejectInput !== undefined && text === rejectInput) { response.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: { message: 'Explicit fixture provider rejection' } })); return; }
+      if (rejectInput !== undefined && text === rejectInput) { response.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: { message: rejectionMessage } })); return; }
       const stream = !!body.stream;
       response.setHeader('Content-Type', stream ? 'text/event-stream' : 'application/json');
       const delta = value => response.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: value, finish_reason: null }] })}\n\n`);

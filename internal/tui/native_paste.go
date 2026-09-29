@@ -140,7 +140,7 @@ func (m *nativeModel) sizeInput() {
 	// SetWidth recalculates the dynamic height and scroll offset in the pinned
 	// editor, retaining its cursor/selection rather than rebuilding the model.
 	m.input.SetWidth(max(m.transcriptWidth()-2, 1))
-	m.vp.SetHeight(max(m.height-m.input.Height()-4-m.dockHeight(), 1))
+	m.vp.SetHeight(max(m.height-m.input.Height()-4-m.dockHeight()-m.completionHeight(), 1))
 	if m.follow && m.browse == nil {
 		m.vp.GotoBottom()
 	}

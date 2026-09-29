@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -158,38 +159,76 @@ func TestInteractiveInactivityTimeout(t *testing.T) {
 	}
 }
 
-// TestInteractiveKeyForwarding confirms a forwarded keystroke resets the
-// inactivity clock — pressing a key should keep the command alive past the
-// inactivity cap.
+// A ready, non-echoing PTY must stay alive while input arrives, then expire.
+// The child records received lines outside the PTY, so output cannot mask a
+// regression in the keystroke activity clock.
 func TestInteractiveKeyForwardingDelaysInactivity(t *testing.T) {
-	keys := make(chan []byte, 16)
-	go func() {
-		// poke a key every 100ms for ~600ms, longer than the 250ms cap below
-		for range 6 {
-			time.Sleep(100 * time.Millisecond)
-			keys <- []byte("x")
-		}
-		// then stop sending and let the inactivity timeout fire
-		close(keys) // sender closes; runner drains
-	}()
-
+	t.Setenv("SHELL", "/bin/sh")
+	directory := t.TempDir()
+	ctx, cancel := context.WithCancel(t.Context())
+	keys := make(chan []byte)
+	ready := make(chan struct{})
+	done := make(chan struct{})
+	var sent []time.Duration
 	start := time.Now()
-	res := Run(context.Background(), Options{
-		Command:           `cat`,
+	go func() {
+		defer close(done)
+		defer close(keys)
+		select {
+		case <-ready:
+		case <-ctx.Done():
+			return
+		}
+		for range 6 {
+			timer := time.NewTimer(100 * time.Millisecond)
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			}
+			select {
+			case keys <- []byte("x\n"):
+				sent = append(sent, time.Since(start))
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	t.Cleanup(func() { cancel(); <-done })
+
+	var output strings.Builder
+	announced := false
+	res := Run(ctx, Options{
+		Command:           `stty -echo || exit 97; printf 'ready\n'; while IFS= read -r line; do printf '%s\n' "$line" >> forwarded; done`,
+		Cwd:               directory,
 		Interactive:       true,
 		Timeout:           10 * time.Second,
 		InactivityTimeout: 250 * time.Millisecond,
 		Keys:              keys,
+		OnOutput: func(chunk string) {
+			output.WriteString(chunk)
+			if !announced && strings.Contains(strings.ReplaceAll(output.String(), "\r", ""), "ready\n") {
+				announced = true
+				close(ready)
+			}
+		},
 	})
 	elapsed := time.Since(start)
-
-	if !res.Killed {
-		t.Fatalf("expected kill after keys stop: %+v", res)
+	cancel()
+	<-done
+	received, err := os.ReadFile(filepath.Join(directory, "forwarded"))
+	if !res.Interactive || !res.Killed || res.TimedOut || res.Exit != "timed out waiting for input" {
+		t.Fatalf("expected PTY inactivity after input: result=%+v elapsed=%s sent=%v received=%q read_error=%v", res, elapsed, sent, received, err)
 	}
-	// we fed keys for ~600ms then waited ~250ms more; elapsed should be at
-	// least ~600ms — i.e. well past the 250ms cap, proving the clock reset.
+	if len(sent) != 6 || err != nil || string(received) != strings.Repeat("x\n", 6) {
+		t.Fatalf("child did not receive six lines: result=%+v elapsed=%s sent=%v received=%q read_error=%v", res, elapsed, sent, received, err)
+	}
+	if strings.TrimSpace(res.Output) != "ready" {
+		t.Fatalf("child output masked keystroke activity: %q", res.Output)
+	}
 	if elapsed < 550*time.Millisecond {
-		t.Fatalf("forwarded keys did not reset the inactivity clock: %s", elapsed)
+		t.Fatalf("forwarded keys did not reset inactivity: elapsed=%s sent=%v result=%+v", elapsed, sent, res)
 	}
 }
 

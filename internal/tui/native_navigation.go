@@ -172,6 +172,7 @@ func (m *nativeModel) attachSession(owner protocol.Session) error {
 		return err
 	}
 	m.closeMenu()
+	m.closeCompletion(false)
 	m.invalidateRead()
 	m.navigationRequest++
 	if m.owner.TreeID != owner.TreeID {
@@ -193,6 +194,7 @@ func (m *nativeModel) attachSession(owner protocol.Session) error {
 	m.browse, m.browsing, m.follow = nil, false, true
 	m.renderCache = nativeRenderCache{}
 	m.picker, m.decision, m.hiddenDecision = nil, nil, nil
+	m.palette = nil
 	m.decisions, m.decisionsHidden = nil, false
 	m.notice, m.noteRevisions = "", [2]string{}
 	m.input.SetValue(draft.text)
@@ -234,7 +236,7 @@ func (p *nativeSessionPicker) view(width, height int) string {
 		if item.Tree.Metadata.Title != nil {
 			title = *item.Tree.Metadata.Title
 		}
-		mark := "  "
+		mark := strings.Repeat(" ", ansi.StringWidth("> "))
 		if i == p.sel {
 			mark = "> "
 		}

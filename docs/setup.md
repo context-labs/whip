@@ -1,6 +1,9 @@
 # Installation and local development
 
 Detailed setup instructions for WhipCode: the `whipcode` CLI and WHIP Desktop.
+This checkout implements the native v4 backend in an unmerged redesign stack.
+Published releases and installed applications are separate; the source checks
+below do not authorize upgrading an existing installation.
 `main` is the default/stable source; `development` is the alpha integration branch.
 There is one supported CLI distribution, not a separate alpha product.
 For a pre-reset internal installation, use the [manual reset checklist](team-reset.md);
@@ -51,68 +54,52 @@ unless `WHIPCODE_VERSION` is explicitly supplied.
 Day-to-day integration uses `development` once provisioned; trusted operators may
 push directly, with PRs optional. Follow the [branch, promotion and backmerge policy](releases.md#one-source-one-candidate-one-publisher).
 
-Then run `whipcode` in your project folder. The TUI opens directly, without a
-folder-trust prompt. Tool approvals follow the session's saved permission level.
-Whip detects supported credentials on the execution host and uses your selected
-model when it is ready. Otherwise, a provider dialog opens over the composer:
-choose Inference.net (recommended), OpenRouter, OpenAI (API key or ChatGPT
-subscription) to connect and automatically use the recommended model. Other
-providers open a model picker; selecting a model returns directly to the composer.
-First-time onboarding saves your choice for new sessions.
+Then run `whipcode` in your project folder. The native terminal opens its
+composer and creates or resumes a session on the selected host. An unconfigured
+model opens **Providers and accounts**. Press **Esc** to keep drafting and use
+`/setup` to return. Opening the menu does not start account login or import
+retired credentials. Model/provider readiness distinguishes configured routes,
+credential availability, catalog discovery and actual inference; a saved key or
+successful catalog request does not prove model access.
 
-Press **Esc** to close the dialog and draft in the normal composer. `/connect`,
-`/auth`, or submitting an unconfigured draft reopens it. Type in its focused
-search field to filter providers; arrow keys select and Enter connects. Keys
-stay in a separate masked field. Connecting preserves your draft; press **Enter** to send when ready.
-Known providers already have their API URLs: choose one and paste its key.
-A **✓** marks available credentials; it does not certify inference access.
-OpenAI groups API billing and ChatGPT subscription choices without combining their
-credentials. Whip recognizes supported environment keys and explicitly configured
-local key files. Daemon startup and opening setup save missing provider entries
-that reference those keys; secret values stay in their original source.
-See [local key discovery](models-providers.md#local-key-discovery) for file configuration.
-Choose **Custom endpoint** to configure an OpenAI-compatible endpoint in
-the TUI through compact steps for its name, API root URL, and API key, host
-environment-variable name, or explicit **No authentication**. Whip discovers models; **Enter model
-manually…** covers endpoints without model discovery. **ctrl+e** on a provider
-opens connection management. Changes persist in the execution host's existing
-configuration files, including across restarts.
-Legacy `/auth provider key` also opens masked confirmation. Existing session
-choices remain intact. Fresh installations leave external Claude/Codex MCP
-imports off and the repository's `.mcp.json` source off; enable them
-explicitly later if wanted.
+Choose a provider preset or **Add custom provider…**. Presets offer their declared
+host environment variables, a masked API-key field and supported account login.
+Custom endpoints offer an explicit provider kind, URL and credential source:
+private key, host environment, private host file or no authentication. Pasted
+keys are published to bounded private files on the execution host. File sources
+require a clean absolute path to an owned private regular file. Secrets never
+belong in browser profiles or session configuration.
 
-The web and desktop welcome screen lets you draft first, connect a provider,
-choose a project folder and send. **Ask** is the initial tool permission level;
-changing it applies to the session you create. Credentials and defaults belong
-to the selected execution host. Custom OpenAI-compatible endpoints are supported through
-[provider configuration](models-providers.md#supported-provider-types-and-custom-endpoints);
-create them in the TUI, then use them from either application.
+After saving a route, choose a suggested or catalog model explicitly. `/model`
+offers session-only selection or saving the host default as well;
+`/model-for-session` offers only the session scope. Existing admitted turns retain their captured
+configuration. Menus preserve the draft and explicit confirmation controls
+changes. Account login, uncertain provisioning, logout and recovery remain
+separate actions; OpenAI subscription credentials are separate from API billing.
 
-To reuse a secrets file, add its path to the execution host's `~/.whipcode/config.json`:
+The web and desktop welcome screen also lets you draft first, connect a provider,
+choose a project folder and send. Credentials and model defaults belong to the
+selected execution host; display preferences belong to the viewing device.
 
-```json
-{
-  "providerKeySources": {
-    "envFiles": ["~/.secrets/providers.env"],
-    "keyFiles": {"CEREBRAS_API_KEY": "~/.secrets/cerebras.key"}
-  }
-}
-```
+Native host declarations live at `$WHIPCODE_HOME/runtime-v4/host.json` (default
+`~/.whipcode/runtime-v4/host.json`). The native backend does not read or migrate
+retired `config.json`, `providerKeySources` or `apiKeyEnv` declarations. Use the
+provider controls to select an explicit environment or file reference. There is
+no implicit search of secret files or another application's credentials.
+A running host sees the environment it inherited at launch; changing exported
+variables requires an intentional host restart. File credentials are resolved
+from their explicit source when a new provider call is prepared.
 
-For example, `providers.env` can contain `OPENROUTER_API_KEY=your-key`; the Cerebras
-file contains only its key. Open `/connect` or refresh **Providers & models** to
-discover them. Whip saves `apiKeyEnv` references, never copies these file values
-into its configuration, and does not search arbitrary folders or read OpenCode
-credentials. File changes are read on discovery and new client creation; reload
-an existing session after rotating a key. Newly exported environment variables
-require `whipcode daemon restart`.
-
-The CLI can also validate a named file reference with `whipcode auth openrouter --env`.
+`whipcode auth openrouter --env` selects the execution host's
+`OPENROUTER_API_KEY`; it does not validate a named secrets file. Without `--env`,
+`whipcode auth openrouter` accepts a masked prompt or the invoking environment
+and publishes a private key on the host. Native provider setup and account
+contracts are documented in [the backend domain](backend-domain.md).
 
 Known-provider metadata is bundled from Models.dev. Maintainers can run
 `task models:update` to refresh the reviewed subset and `task models:check` to
-check generated files offline. Live provider model lists remain authoritative.
+check generated files offline. Live provider catalog and inference results are
+separate evidence from bundled metadata.
 
 For a noninteractive API-key setup:
 
@@ -138,17 +125,19 @@ whipcode run --agent junior-developer --permission-mode automatic "add a unit te
 ```
 
 `--resume ID --agent NAME` asserts the session's definition and rejects a
-conflict. `starlark` remains the default language; configure `rlm.defaultEngine`
-to change the preference for new sessions. JavaScript runs in bundled QuickJS/WASM, without
+conflict. `starlark` remains the default language; use native execution settings to
+change the host preference for new sessions. JavaScript runs in bundled QuickJS/WASM, without
 Node.js or npm. Children inherit their root's language. Forks preserve it;
 `--resume ID --rlm-engine NAME` asserts the existing selection and rejects a
 conflict. Headless `--max-cost` (USD) and `--max-tokens` cap the entire session
 model ledger, including descendants; `--permission-mode automatic` explicitly
 selects the existing Full Access policy for a new session.
 
-Drop a `.mcp.json` in a repository to make its servers available through the
-selected execution language’s `mcp` module. Use `/mcp` for connection status and `/agents` for the
-durable recursive tree.
+Declare MCP servers and explicitly enable any repository `.mcp.json` source
+through native host integration settings. Publication alone grants no session
+authority. Use `/mcp` for declarations and connection controls, and `/agents` for
+the durable recursive tree. Host/server capability checks still apply to every
+agent invocation.
 
 Manage the local runtime daemon directly when testing or upgrading a checkout:
 
@@ -324,7 +313,7 @@ task update:local -- --help
 
 The normal runtime home is `~/.whipcode`; `WHIPCODE_HOME` remains supported.
 The daemon inherits your shell's runtime environment. Ordinary startup is
-socket-only; `WHIPCODE_NETWORK=1` explicitly opts into an owned gateway child,
+socket-only; `WHIPCODE_NETWORK=1` explicitly opts into an in-process managed gateway,
 and `WHIPCODE_LISTEN` alone does not. Export any custom runtime environment
 before invoking the command. A foreground `whipcode web` can serve a compatible
 running daemon without another restart.
@@ -365,7 +354,7 @@ changed source. Each invocation checks the build before starting the container.
 The container starts with no saved providers or sessions and no inherited host
 credentials. Its test project is a disposable Git repository at `/workspace`.
 The TUI opens directly to its normal composer with the provider connection
-dialog. Esc closes the dialog; `/connect` reopens it.
+dialog. Esc closes the dialog; `/setup` reopens it.
 Your installed Whip, normal daemon, and source files are separate from this test
 environment. **Quitting the TUI removes the container, its credentials, sessions,
 and test files.** Run the command again for another clean start; cached builds

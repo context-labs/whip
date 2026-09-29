@@ -256,6 +256,7 @@ func (m *nativeModel) agentsCommand(args string) tea.Cmd {
 	fields := strings.Fields(args)
 	owner := m.owner
 	if len(fields) == 0 || args == "list" {
+		indent := currentTheme().Space.PadX
 		return m.control("Agents", false, func(ctx context.Context) nativeControlResult {
 			tree, err := readNativeAgents(ctx, m.connection, owner, owner.ID)
 			if err != nil {
@@ -263,7 +264,7 @@ func (m *nativeModel) agentsCommand(args string) tea.Cmd {
 			}
 			lines := []string{"Current tree " + string(tree.tree) + " · bounded observation"}
 			for _, row := range tree.rows {
-				lines = append(lines, fmt.Sprintf("%s%s · %s · %s", strings.Repeat("  ", row.depth), row.id, row.name, nativeAgentState(row)))
+				lines = append(lines, fmt.Sprintf("%s%s · %s · %s", strings.Repeat(" ", indent*row.depth), row.id, row.name, nativeAgentState(row)))
 			}
 			if tree.partial {
 				lines = append(lines, "Limited tree observation: up to 8 pages / 512 owners plus current ancestry. /resume <exact ID> opens any known owner.")
