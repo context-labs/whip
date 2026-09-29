@@ -1,8 +1,8 @@
 import { ErrorNotice } from './error-feedback';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useWhipConnection } from '@whip/legacy-sdk/react';
-import type { Session } from '@whip/legacy-sdk';
+import type { Session } from '@whip/sdk';
+import { readSkillSuggestions } from './skill-suggestions';
 import { Button, Combobox, Dialog, Select } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { layout } from './styles';
@@ -10,16 +10,16 @@ import { layout } from './styles';
 /** Suggestions are resolved on the execution host; the browser never scans files. */
 export function CompletionPicker({
   session,
-  agentId,
+  connected,
   onSelect,
   onClose,
 }: {
   session: Session;
-  agentId: string;
+  connected: boolean;
   onSelect(text: string): void;
   onClose(): void;
 }) {
-  const connected = useWhipConnection(session.client).state === 'connected';
+  const clientKey = useMemo(() => crypto.randomUUID(), [session.client]);
   const [kind, setKind] = useState('mention');
   const [input, setInput] = useState('');
   const [prefix, setPrefix] = useState('');
@@ -30,19 +30,17 @@ export function CompletionPicker({
   const result = useQuery({
     queryKey: [
       'completion',
-      session.client.getSnapshot().info?.runtime_id,
-      session.rootId,
-      agentId,
+      session.client.runtimeID,
+      session.client.processEpoch,
+      clientKey,
+      session.id,
       kind,
       prefix,
     ],
-    queryFn: ({ signal }) =>
-      session.client.call(
-        'workspace.complete',
-        { root_id: session.rootId, agent_id: agentId, kind, prefix, limit: 32 },
-        { signal },
-      ),
-    gcTime: 0,
+    queryFn: ({ signal }) => kind === 'skill'
+      ? readSkillSuggestions(session.client, { sessionId: session.id }, prefix, 32, signal)
+      : session.client.completeWorkspace({ session_id: session.id, kind: 'mention', prefix, limit: 32 }, { signal }),
+    gcTime: 0, retry: false,
     enabled: connected,
   });
   return (
@@ -65,31 +63,28 @@ export function CompletionPicker({
           ]}
         />
         <Combobox
-          key={kind}
+          key={`${clientKey}:${session.id}:${kind}`}
           label="Search on the host"
           value={null}
           loading={result.isFetching}
+          disabled={!connected}
           onInputValueChange={setInput}
-          options={(result.data?.candidates ?? []).map((item) => ({
+          options={(connected ? result.data?.candidates ?? [] : []).map((item) => ({
             value: item.text,
             label: item.text,
             description: item.description,
           }))}
           onValueChange={(text) => {
+            if (!connected || !result.data?.candidates.some(item => item.text === text)) return;
             onSelect(text);
             onClose();
           }}
         />
-        {result.error && connected && <ErrorNotice type="resource" owner={`${session.rootId}:${agentId}:completion`} title="Could not load suggestions" error={result.error} action={<Button variant="ghost" onClick={() => void result.refetch()}>Retry</Button>} />}
+        {result.error && connected && <ErrorNotice type="resource" owner={`${session.client.runtimeID}:${session.id}:completion`} title="Could not load suggestions" error={result.error} action={<Button variant="ghost" onClick={() => void result.refetch()}>Retry</Button>} />}
         {!connected && <p role="status">Suggestions are unavailable while this host is offline.</p>}
         {result.data?.truncated && (
           <p>More matches are available. Narrow your search.</p>
         )}
-        {result.data?.warnings?.map((warning) => (
-          <p key={warning} role="status">
-            {warning}
-          </p>
-        ))}
       </div>
     </Dialog>
   );

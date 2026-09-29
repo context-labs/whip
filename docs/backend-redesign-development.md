@@ -3975,3 +3975,9 @@ behavior and actual validating SDK metadata reads: exact immutable host scope,
 selected child identity, eleven-request/1,024-record limits, disabled metadata,
 prefix fallback, malformed continuation and cancellation. Owned source types
 are clean; composer/welcome callers are still being migrated to these props.
+
+The native context picker now reads exact selected-session workspace and skill
+metadata through the validating SDK, bounds results to 32 candidates, preserves
+truncation, and disables stale/offline selection. All three focused tests pass
+(3.26 seconds), including child ownership, disabled skills, and delayed responses
+after recipient changes. Its composer caller is the next cutover step.
