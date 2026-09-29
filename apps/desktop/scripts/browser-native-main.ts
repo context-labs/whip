@@ -4,6 +4,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { EventEmitter, once } from 'node:events';
 import { readFileSync } from 'node:fs';
+import { browserNativeDiagnostics } from './browser-native-diagnostics';
 import { testBrowserControlRegressions } from './browser-control-regressions';
 import { testBrowserControl } from './browser-control-native';
 import { testBrowserDiscovery } from './browser-discovery-native';
@@ -13,19 +14,22 @@ import { ScopedBrowserDebugger } from '../src/browser-cdp';
 import { installBrowserIPC } from '../src/browser-ipc';
 import type { BrowserInventory, BrowserTabState, BrowserTarget } from '@whip/app/desktop-bridge';
 
+const diagnostics = browserNativeDiagnostics();
 const directory = process.env.BROWSER_NATIVE_DIRECTORY!;
 app.setPath('userData', path.join(directory, 'profile'));
 let window: BrowserWindow, manager: BrowserManager, cleanupIPC: () => void;
 let permitUnload = false;
 const hits = new Map<string, number>();
 const server = http.createServer((request, response) => {
-  const url = request.url!; hits.set(url, (hits.get(url) ?? 0) + 1);
+  const url = request.url!;
+  if (process.env.BROWSER_NATIVE_FAIL_NAVIGATION === '1' && url === '/page-0') { request.socket.destroy(); return; }
+  hits.set(url, (hits.get(url) ?? 0) + 1);
   if (url === '/workspace.js') { response.setHeader('Content-Type', 'application/javascript'); response.end(readFileSync(path.join(directory, 'workspace.js'))); return; }
   response.setHeader('Content-Type', 'text/html');
   if (url === '/shell') response.end('<!doctype html><h1>Application fixture</h1><iframe src="/frame"></iframe><script src="/workspace.js"></script>');
   else response.end('<!doctype html><title>Native page</title><input id="name"><h1>Browser fixture</h1>');
 });
-const pass = (name: string) => console.log('PASS', name);
+const pass = (name: string) => { diagnostics.step(name); console.log('PASS', name); };
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 async function run() {
   await app.whenReady(); server.listen(Number(process.env.BROWSER_NATIVE_PORT ?? 0), '127.0.0.1'); await once(server, 'listening');
@@ -46,7 +50,10 @@ async function run() {
     if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame || event.senderFrame.url !== origin + '/shell') throw new Error('Untrusted browser request');
   });
   await window.loadURL(origin + '/shell');
-  const call = <T>(method: string, input?: unknown): Promise<T> => window.webContents.executeJavaScript(`whipDesktop.browser.${method}(${input === undefined ? '' : JSON.stringify(input)})`);
+  const call = <T>(method: string, input?: unknown): Promise<T> => {
+    diagnostics.step(method, input);
+    return window.webContents.executeJavaScript(`whipDesktop.browser.${method}(${input === undefined ? '' : JSON.stringify(input)})`);
+  };
   let inventory = await call<BrowserInventory>('snapshot');
   let epoch = inventory.epoch;
   assert.equal(inventory.tabs.length, 0);
@@ -224,8 +231,11 @@ async function run() {
   cleanupIPC();
   await assert.rejects(call('snapshot'), /No handler/);
   pass('manager disposal destroys owned guests and unregisters the real IPC handlers');
+  diagnostics.step('BrowserControl preload/IPC');
   await testBrowserControl(window, origin);
+  diagnostics.step('BrowserControl lifecycle regressions');
   await testBrowserControlRegressions(window, origin);
+  diagnostics.step('Browser native discovery');
   await testBrowserDiscovery(window, directory, origin);
 
   // Regression: native BrowserWindow.webContents throws after close. No pre-dispose is allowed.
@@ -265,6 +275,9 @@ async function run() {
   }
 }
 app.on('window-all-closed', () => {});
-run().then(() => { console.log('NATIVE_MANAGER_OK'); app.exit(0); }).catch(error => { console.error(error); app.exit(1); }).finally(() => {
+run().then(() => { console.log('NATIVE_MANAGER_OK'); app.exit(0); }).catch(error => {
+  try { diagnostics.failure(error, window, manager); } catch (diagnosticError) { console.error('Native browser diagnostics failed', diagnosticError); }
+  console.error(error); app.exit(1);
+}).finally(() => {
   manager?.dispose(); cleanupIPC?.(); server.closeAllConnections(); server.close(); if (window && !window.isDestroyed()) window.destroy();
 });
