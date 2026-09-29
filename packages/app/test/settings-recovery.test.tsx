@@ -10,8 +10,8 @@ import { providerFixture, sessionRecord } from './provider-fixture';
 
 beforeEach(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
 afterEach(() => vi.unstubAllGlobals());
-function wire<T extends keyof ContractTypes>(name: T): ContractTypes[T] {
-  const value: unknown = structuredClone(fixtures.find(item => item.type === name && item.valid)?.value);
+function wire<T extends keyof ContractTypes>(name: T, match: (value: ContractTypes[T]) => boolean = () => true): ContractTypes[T] {
+  const value: unknown = structuredClone(fixtures.find(item => item.type === name && item.valid && match(item.value as unknown as ContractTypes[T]))?.value);
   assertValid(name, value); return value;
 }
 async function fixture() {
@@ -66,7 +66,7 @@ it('distinguishes absent receipts and requires confirmation before resending the
 });
 it('keeps identity-only creation evidence unconfirmed', async () => {
   const f = await fixture(); await f.journal.forget(f.command.record);
-  const params = wire('CreateTreeParams'), result = wire('CreateTreeResult'); params.creation_id = result.creation.id;
+  const params = wire('CreateTreeParams', value => value.engine === 'quickjs'), result = wire('CreateTreeResult'); params.creation_id = result.creation.id;
   await f.journal.put(f.client.command('trees.create', params).record);
   f.data.handlers['trees.creation'] = () => result;
   f.mount(<RecoverySettings />); fireEvent.click(await screen.findByRole('button', { name: 'Check delivery' }));
@@ -116,7 +116,7 @@ it('restores only an explicitly checked accepted creation from Settings without 
   const drafts = new Map([[welcomeDraftKey(tab.id), 'Keep this unsent task']]);
   Object.assign(f.runtime, { tabs, compositions: new CompositionStore(() => true), connections: { isAttached: () => true },
     draft: (key: string) => drafts.get(key) ?? '', setDraft: (key: string, text: string) => { drafts.set(key, text); } });
-  const params = { ...wire('CreateTreeParams'), creation_id: tab.id };
+  const params = { ...wire('CreateTreeParams', value => value.engine === 'quickjs'), creation_id: tab.id };
   const created = { ...wire('CreateTreeResult'), deleted: false, root: { ...sessionRecord('created'), parent_id: null, definition: params.definition },
     tree: { id: 'tree', engine: params.engine, metadata: params.metadata, revision: '1', created_at: '2026-09-28T00:00:00Z' },
     creation: { id: tab.id, root_id: 'created', tree_id: 'tree', created_at: '2026-09-28T00:00:00Z' } };
