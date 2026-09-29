@@ -11,6 +11,8 @@ import (
 // inheritedPermissionPolicy validates the ongoing parent-policy relationship.
 // The recorded revision is admission evidence, not an expiry: each operation
 // captures and independently validates the tree's current policy revision.
+//
+//nolint:nilnil // A nil policy is a valid absence of inherited authority.
 func inheritedPermissionPolicy(ctx context.Context, q querier, owner session.Session) (*session.PermissionPolicy, error) {
 	policy, err := readPermissionPolicy(ctx, q, owner.ID)
 	if err != nil {
@@ -41,6 +43,7 @@ func inheritedPermissionPolicy(ctx context.Context, q querier, owner session.Ses
 	return nil, nil
 }
 
+//nolint:nilnil // A nil revision means automatic authority does not apply.
 func automaticPermissionRevision(ctx context.Context, q querier, owner session.Session) (*session.Revision, error) {
 	policy, err := inheritedPermissionPolicy(ctx, q, owner)
 	if err != nil || policy == nil {
@@ -53,6 +56,8 @@ func automaticPermissionRevision(ctx context.Context, q querier, owner session.S
 }
 
 // Explicit grant selection narrows delegation and never adds policy authority.
+//
+//nolint:nilnil // A nil revision records an explicitly restricted child.
 func childPermissionRevision(ctx context.Context, q querier, parent session.Session, cwd string, grants []session.GrantID) (*session.Revision, error) {
 	if grants != nil || cwd != parent.WorkingDirectory {
 		return nil, nil

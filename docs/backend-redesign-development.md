@@ -6103,3 +6103,21 @@ been running about one second). It reported no race; this attempt is not counted
 as a pass. Its log is `/private/tmp/whip-parity-foundation-race.log`. Final
 integrated full non-race suites, focused race coverage and frozen-baseline lint
 are recorded in the completion entry below; this is not full release acceptance.
+
+Final integrated full non-race suites pass: session 1.380s, store 91.185s,
+runtime 225.148s, RPC 41.894s, protocol 5.245s and TUI 82.661s. The focused
+integrated race run passes 36 tests plus 28 subtests across store/runtime/RPC,
+including both actual engines, in 118.51s wall time with no race reports.
+The separate retired-binding regression passes in both engines. Logs are
+`/private/tmp/whip-parity-final-go.log`,
+`/private/tmp/whip-parity-final-focused-race.log` and
+`/private/tmp/whip-parity-final-pruned-bindings.log`.
+
+Pinned golangci-lint v2.13.1 passes over the whole module with zero issues against
+the unchanged `e3fed9c91918d9c36766dd47d878c1b5466238d1` baseline. Initial findings
+were formatting, an unused test assignment, bounded alias-list allocation, and
+the intentional nil result meaning no automatic authority; these are corrected
+or documented at the exact optional-authority boundary. The final command
+disables issue-count truncation, not lint checks. Its log is
+`/private/tmp/whip-parity-final-lint.log`. No dependencies, installed runtime,
+user database, deployment or merge changed during this follow-up.

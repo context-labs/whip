@@ -133,7 +133,7 @@ func executionInstructions(current session.Session, tree session.Tree) string {
 			instructions += " Spawn children with const child=await agents.spawn({prompt:\"work\", name:\"Reviewer\"}); register a wait with await agents.wait_after_cell({input_ids:[child.input_id]})."
 		}
 		instructions += " Spawn returns session_id, input_id and name after durable admission. The optional name is an immutable display label: use trimmed text without control characters, at most 128 UTF-8 bytes. Omitting name creates a stable label. Duplicate names are allowed; always use session_id for child control and mail routing, and input_id for exact waits. agents.list and agents.inspect also return names. Optional template selects one configured child alias from this turn's captured configuration. It is mutually exclusive with definition (a pinned definition reference). A template applies its defaults before explicit overrides, and cannot widen the parent's modules, custom tools, hooks or MCP selection."
-		aliases := []string{}
+		aliases := make([]string, 0, len(current.Config.Children))
 		for alias := range current.Config.Children {
 			aliases = append(aliases, alias)
 		}

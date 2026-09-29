@@ -102,11 +102,11 @@ func insertMCPTools(ctx context.Context, tx *sql.Tx, child session.Session, tool
 // effects. The tree's current policy cannot widen a child's captured MCP tools.
 func automaticOperationPermissionRevision(ctx context.Context, q querier, owner session.Session, capability, resource string) (*session.Revision, error) {
 	if requiresExplicitHostGrant(capability) {
-		return nil, nil
+		return nil, nil //nolint:nilnil // No revision means this operation has no automatic authority.
 	}
 	if owner.ParentID != nil {
 		if capability == "mcp.connect.trusted" {
-			return nil, nil
+			return nil, nil //nolint:nilnil // A child has no automatic connection authority.
 		}
 		if capability == "mcp.call.trusted" {
 			var exists bool
@@ -114,7 +114,7 @@ func automaticOperationPermissionRevision(ctx context.Context, q querier, owner 
 				return nil, err
 			}
 			if !exists {
-				return nil, nil
+				return nil, nil //nolint:nilnil // An uncaptured tool has no automatic authority.
 			}
 		}
 	}

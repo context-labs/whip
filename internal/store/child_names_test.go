@@ -127,7 +127,7 @@ func TestChildTemplateUsesCapturedAliasAndCannotWidenBindings(t *testing.T) {
 		t.Fatalf("template and definition both accepted: %v", err)
 	}
 	request.Definition = nil
-	parent, err = s.UpdateConfiguration(t.Context(), parent.ID, parent.ConfigRevision, session.ConfigPatch{Modules: []string{"files"}})
+	_, err = s.UpdateConfiguration(t.Context(), parent.ID, parent.ConfigRevision, session.ConfigPatch{Modules: []string{"files"}})
 	if err != nil {
 		t.Fatal(err)
 	}

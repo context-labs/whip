@@ -129,7 +129,7 @@ func TestKernelDoesNotExposeRetiredHostAPIs(t *testing.T) {
 			calls := 0
 			host := HostFunc(func(context.Context, string, string, map[string]any) (any, error) {
 				calls++
-				return nil, nil
+				return map[string]any{}, nil
 			})
 			kernel := testModulesKernel(t, engine, []string{"context", "agents", "state", "mail"}, host)
 			for _, operation := range []string{

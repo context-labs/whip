@@ -174,7 +174,8 @@ func TestMCPDefaultChildCatalogMatchesCallableScopeAcrossReconnect(t *testing.T)
 	// its stable identity even when the server and tool names stay the same.
 	sdkmcp.AddTool(server, &sdkmcp.Tool{Name: "visible"}, func(context.Context, *sdkmcp.CallToolRequest, struct {
 		Query string `json:"query"`
-	}) (*sdkmcp.CallToolResult, any, error) {
+	},
+	) (*sdkmcp.CallToolResult, any, error) {
 		effects.Add(1)
 		return &sdkmcp.CallToolResult{}, nil, nil
 	})
