@@ -29,7 +29,12 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
   if (rejectInput !== undefined && (typeof rejectInput !== 'string' || rejectInput.length < 1 || rejectInput.length > 256)) throw new RangeError('Rejected fixture input must contain 1..256 characters');
   if (!Number.isInteger(lifetimeMs) || lifetimeMs < 1 || lifetimeMs > 1_800_000) throw new RangeError('Fixture lifetime must be within 1..1800000ms');
   const directory = await mkdtemp('/tmp/whip-web-native-'), state = join(directory, 'state');
-  const binary = join(directory, 'runtime');
+  const binary = join(directory, 'runtime'), fixtureHome = join(directory, 'home');
+  // The runtime must not discover user credentials, MCP sources or shell startup
+  // files. Build tools keep their normal environment; the owned child does not.
+  const runtimeEnvironment = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', SHELL: '/bin/sh',
+    HOME: fixtureHome, ZDOTDIR: fixtureHome, XDG_CONFIG_HOME: join(fixtureHome, '.config'),
+    TMPDIR: join(directory, 'tmp'), WHIPCODE_HOME: join(fixtureHome, '.whipcode') };
   const lifetime = new AbortController(), holds = new Map();
   let runtime, executor, local, info, output = '', closed = false, gatewayAddress = '127.0.0.1:0';
   let effectBytes = 0;
@@ -115,7 +120,7 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
     try { await ended; } finally { clearTimeout(timer); }
   }
   async function startProcess(executable, args) {
-    lifetime.signal.throwIfAborted(); const child = spawn(executable, args, { cwd: repository, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, WHIPCODE_HOME: join(directory, 'home'), WHIP_BROWSER_DRIVER: '', WHIP_SDK_FIXTURE_DIR: '', GOTOOLCHAIN: 'go1.27.0' } });
+    lifetime.signal.throwIfAborted(); const child = spawn(executable, args, { cwd: directory, stdio: ['ignore', 'pipe', 'pipe'], env: runtimeEnvironment });
     child.stdout.on('data', record); child.stderr.on('data', record);
     try {
       const ready = await new Promise((resolve, reject) => {
@@ -156,7 +161,7 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
     else await rm(directory, { recursive: true, force: true });
   }
   try {
-    await mkdir(join(directory, 'home')); await writeFile(join(directory, 'effects.jsonl'), '', { mode: 0o600 });
+    await mkdir(fixtureHome); await mkdir(runtimeEnvironment.TMPDIR); await writeFile(join(directory, 'effects.jsonl'), '', { mode: 0o600 });
     provider.listen(0, '127.0.0.1'); await once(provider, 'listening');
     await promisify(execFile)('go', ['build', '-race=false', '-o', binary, './cmd/whip-runtime'], { cwd: repository, timeout: 120000, signal: lifetime.signal, env: { ...process.env, GOTOOLCHAIN: 'go1.27.0' } });
     await start();

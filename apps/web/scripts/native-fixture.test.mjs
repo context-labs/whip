@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { join } from 'node:path';
 import { DurableCommand } from '../../../packages/sdk/dist/index.js';
 import { deadline, eventually, startFixture } from './native-fixture.mjs';
 
@@ -8,6 +9,12 @@ test('production web fixture executes both engines, scopes consent and preserves
   try {
     let client = await fixture.connect('native-fixture-check');
     const { root } = await fixture.createRoot(client), session = client.session(root.id);
+    assert.equal((await client.hostDirectories({ path: '~', after: '', prefix: '', show_hidden: false, limit: 16 }, deadline())).path, join(fixture.directory, 'home'));
+    for (const scope of [null, root.id]) {
+      const discovery = await client.mcpImportCandidates(scope, deadline());
+      assert.deepEqual(discovery.candidates, [], 'Disposable runtime discovered external MCP configuration');
+      assert.deepEqual(discovery.source_errors, {});
+    }
     for (const [engine, code] of [['starlark', 'print("native starlark")'], ['quickjs', 'console.log("native quickjs")']]) {
       const { root: codeRoot } = await fixture.createRoot(client, { engine });
       const codeSession = client.session(codeRoot.id), requestID = 'code-' + engine;
