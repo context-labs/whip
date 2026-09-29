@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { SessionReload } from './session-reload';
 import { useExecutionView, useSessionView } from '@whip/sdk/react';
 import type { Operations } from '@whip/sdk';
 type GoalRef = NonNullable<Operations['goals.create']['params']['expected_current']>;
@@ -422,6 +423,7 @@ function Context(props: InspectorProps) {
           maxBytes={32 << 10}
         />
       </Section>
+      <SessionReload key={`${props.client.runtimeID}:${props.session.id}`} {...props} />
       <Section
         title="Workspace"
         description="This path is on the execution host. Changes use the exact configuration revision and apply while this agent is idle."
@@ -810,6 +812,7 @@ function Grants(props: InspectorProps) {
 export function Permissions(props: InspectorProps) {
   const runtime = useRuntime(),
     query = useDetailQuery(props, 'permissions.policy', { session_id: props.session.id }, true);
+  const [denial, setDenial] = useState<{ value: boolean; revision: string }>();
   const [draft, setDraft] = useState<{ mode: 'prompt' | 'automatic'; revision: string }>(),
     current = query.data;
   return (
@@ -859,6 +862,24 @@ export function Permissions(props: InspectorProps) {
             >
               Apply policy
             </Action>
+            <Select
+              label="Interactive permission requests"
+              value={(denial?.value ?? current.deny_interactive) ? 'deny' : 'allow'}
+              onValueChange={value => setDenial({ value: value === 'deny', revision: denial?.revision ?? current.revision })}
+              options={[{ value: 'allow', label: 'Allow permission requests' }, { value: 'deny', label: 'Deny interactive permission requests' }]}
+            />
+            <p>This separate tree-wide setting closes pending approval requests and denies actions that require interactive permission. It preserves the approval mode and standing grants. Intrinsic questions still work.</p>
+            <Action recoverable disabled={!props.connected || props.session.id !== props.rootId} run={async () => {
+              try {
+                await runtime.run(runtime.command(props.client, 'permissions.set_denial', {
+                  session_id: props.session.id, edit_id: crypto.randomUUID(),
+                  expected_revision: denial?.revision ?? current.revision,
+                  deny_interactive: denial?.value ?? current.deny_interactive,
+                }), 'Change interactive permission denial');
+                setDenial(undefined);
+              } finally { await query.refetch(); }
+            }}>Apply request policy</Action>
+            {denial && denial.revision !== current.revision && <p role="status">Permission requests changed while you were editing. This choice retains its original revision.</p>}
             {props.session.id !== props.rootId && (
               <p>
                 Change the shared policy from the root agent. A displayed mode does not grant
@@ -875,6 +896,7 @@ export function Permissions(props: InspectorProps) {
               disabled={!props.connected}
               onClick={() => {
                 setDraft(undefined);
+                setDenial(undefined);
                 void query.refetch();
               }}
             >
@@ -883,8 +905,7 @@ export function Permissions(props: InspectorProps) {
           </>
         )}
         <p>
-          Saved host defaults are managed in Settings. A separate deny-all interactive policy is not
-          yet available here.
+          Saved host defaults are managed in Settings.
         </p>
       </Section>
       <Grants {...props} />

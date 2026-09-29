@@ -767,7 +767,14 @@ export class AppRuntime {
               throw new RecoveryError(action.failure ?? `Workspace action is ${action.state}; inspect its saved receipt before continuing`);
             }
           }
-          terminal = true; notice('Succeeded'); await handle.forget();
+          terminal = true;
+          if (handle.method === 'sessions.reload') {
+            const reload = result as Operations['sessions.reload']['result'];
+            notice(`Reload ${reload.state}`);
+            if (reload.state === 'applied') await handle.forget();
+          } else {
+            notice('Succeeded'); await handle.forget();
+          }
         }
         await this.queries.invalidateQueries({ predicate: query => query.queryKey[1] === runtimeId });
         signal.throwIfAborted();

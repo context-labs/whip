@@ -10,7 +10,7 @@ const automaticDescription = 'Approve eligible root actions automatically; child
 async function fixture(mode: 'prompt' | 'automatic' = 'prompt', id = 'root') {
   const f = await providerFixture();
   const record = sessionRecord(id);
-  let policy = { tree_id: record.tree_id, mode, revision: '9007199254740993', updated_at: '2026-09-28T00:00:00Z' };
+  let policy = { tree_id: record.tree_id, mode, deny_interactive: false, revision: '9007199254740993', updated_at: '2026-09-28T00:00:00Z' };
   f.data.handlers['permissions.policy'] = () => policy;
   f.data.handlers['permissions.set_mode'] = request => {
     if (request.method !== 'permissions.set_mode') throw new Error('Wrong method');

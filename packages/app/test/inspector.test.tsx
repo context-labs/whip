@@ -1,3 +1,4 @@
+import userEvent from '@testing-library/user-event';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -29,6 +30,7 @@ import {
   Limits,
   formatBudgetAmount,
 } from '../src/details/session-controls';
+import { SessionReload } from '../src/details/session-reload';
 import { readStateBytes } from '../src/details/state-read';
 import type { InspectorProps } from '../src/details/shared';
 
@@ -73,6 +75,7 @@ async function fixture() {
     policy: {
       tree_id: 'tree',
       mode: 'prompt',
+    deny_interactive: false,
       revision: '9007199254740993',
       updated_at: at,
     } as Operations['permissions.policy']['result'],
@@ -741,4 +744,55 @@ it('whole-tree usage is independent of selected child and preserves exact, missi
   expect(
     f.calls.filter((call) => call.method === 'trace.page' || call.method === 'turns.attempts'),
   ).toHaveLength(0);
+});
+
+
+it('changes interactive denial independently from mode using the captured policy revision', async () => {
+  const f = await fixture();
+  f.data.policy.deny_interactive = true;
+  f.handlers['permissions.set_denial'] = request => {
+    const p = params(request, 'permissions.set_denial');
+    f.data.policy = { ...f.data.policy, deny_interactive: p.deny_interactive, revision: '9007199254740994' };
+    return { id: p.edit_id, session_id: p.session_id, expected_revision: p.expected_revision, deny_interactive: p.deny_interactive, previous_denial: true, policy: f.data.policy, created_at: at };
+  };
+  f.render(<Permissions {...f.props} session={f.client.session('session_root')} />);
+  const trigger = await screen.findByRole('combobox', { name: 'Interactive permission requests' });
+  const user = userEvent.setup();
+  await user.click(trigger);
+  await user.click(await screen.findByRole('option', { name: 'Allow permission requests' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Apply request policy' }));
+  await waitFor(() => expect(f.count('permissions.set_denial')).toBe(1));
+  expect(f.calls.find(call => call.method === 'permissions.set_denial')?.params).toMatchObject({ session_id: 'session_root', expected_revision: '9007199254740993', deny_interactive: false });
+  expect(f.count('permissions.set_mode')).toBe(0);
+  expect(f.data.policy.mode).toBe('prompt');
+});
+it('keeps accepted reload pending until an explicit exact receipt check or cancellation', async () => {
+  const f = await fixture();
+  let receipt: Operations['sessions.reload']['result'];
+  f.handlers['sessions.reload'] = request => {
+    const p = params(request, 'sessions.reload');
+    receipt = { ...sample<Operations['sessions.reload']['result']>('ReloadEdit'), id: p.edit_id, session_id: p.session_id, expected_revision: p.expected_revision, state: 'pending', revision: null, settled_at: null };
+    return receipt;
+  };
+  f.handlers['sessions.reload_edit'] = request => { expect(params(request, 'sessions.reload_edit')).toEqual({ session_id: 'session_root', edit_id: receipt.id }); return receipt; };
+  f.handlers['sessions.cancel_reload'] = request => { expect(params(request, 'sessions.cancel_reload')).toEqual({ session_id: 'session_root', edit_id: receipt.id }); receipt = { ...receipt, state: 'interrupted', settled_at: at }; return receipt; };
+  f.render(<SessionReload {...f.props} session={f.client.session('session_root')} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Reload session defaults' }));
+  await screen.findByText(/Reload pending · waiting/);
+  expect(screen.queryByText('Applied')).toBeNull();
+  expect(f.count('sessions.reload')).toBe(1); expect(f.count('sessions.reload_edit')).toBe(0);
+  expect(screen.getByRole('button', { name: 'Reload session defaults' })).toHaveProperty('disabled', true);
+  fireEvent.click(screen.getByRole('button', { name: 'Check reload outcome' }));
+  await waitFor(() => expect(f.count('sessions.reload_edit')).toBe(1));
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel pending reload' }));
+  await screen.findByText('Reload interrupted.');
+  expect(f.count('sessions.reload')).toBe(1); expect(f.count('sessions.cancel_reload')).toBe(1);
+  expect(f.records.size).toBe(1);
+});
+it('does not let child or offline inspectors request a reload', async () => {
+  const f = await fixture(); const rendered = f.render(<SessionReload {...f.props} />);
+  expect(screen.getByRole('button', { name: 'Reload session defaults' })).toHaveProperty('disabled', true);
+  rendered.rerender(f.wrap(<SessionReload {...f.props} connected={false} session={f.client.session('session_root')} />));
+  expect(screen.getByRole('button', { name: 'Reload session defaults' })).toHaveProperty('disabled', true);
+  expect(f.count('sessions.reload')).toBe(0);
 });

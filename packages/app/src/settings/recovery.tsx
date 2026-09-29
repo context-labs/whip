@@ -15,6 +15,7 @@ function outcome(evidence: RecoveryEvidence): string {
     if (evidence.turn) return `Accepted · turn ${evidence.turn.state}${evidence.turn.failure ? `: ${evidence.turn.failure}` : ''}.`;
     return `Accepted · input ${evidence.input?.state ?? 'unavailable'}.`;
   }
+  if ('host_revision' in evidence && 'configuration' in evidence) return `Reload ${evidence.state}${evidence.revision ? ` · configuration revision ${evidence.revision}` : ''}.`;
   if ('state' in evidence) return `Accepted workspace action · ${evidence.state}${evidence.failure ? `: ${evidence.failure}` : ''}.`;
   if ('input_id' in evidence && 'turn_id' in evidence) return `Input steering accepted${evidence.deleted ? ' · session deleted' : evidence.input?.steering?.consumed ? ' · consumed by its target turn' : ' · waiting for consumption'}.`;
   if ('creation' in evidence) return `Accepted root creation${evidence.root ? '' : ' · root unavailable or deleted'}.`;
@@ -58,7 +59,7 @@ function RecoveryRow({ record, client, hostName, refresh }: { record: RecoveryRe
   const [error, setError] = useState<unknown>();
   const request = useRef<AbortController | null>(null);
   useEffect(() => { request.current = null; setBusy(false); setCheck(undefined); setError(undefined); return () => request.current?.abort(); }, [client]);
-  async function action(kind: 'check' | 'retry' | 'forget' | 'restore') {
+  async function action(kind: 'check' | 'retry' | 'forget' | 'restore' | 'cancel_reload') {
     if (request.current || kind !== 'forget' && !client) return;
     const controller = new AbortController(); request.current = controller; setBusy(true); setError(undefined); setConfirm(undefined);
     try {
@@ -66,6 +67,11 @@ function RecoveryRow({ record, client, hostName, refresh }: { record: RecoveryRe
       else if (kind === 'restore' && client) await restoreCreatedChat(runtime, client, record, controller.signal);
       else if (client) {
         const command = DurableCommand.recover(client, record, { journal: runtime.recovery });
+        if (kind === 'cancel_reload' && command.method === 'sessions.reload') {
+          const current = await command.check({ signal: controller.signal });
+          if (current.state !== 'found' || !('host_revision' in current.evidence)) throw new Error('Check the exact reload receipt before cancelling.');
+          if (current.evidence.state === 'pending') await client.session(current.evidence.session_id).reloads.cancel(current.evidence.id, { signal: controller.signal });
+        }
         if (kind === 'retry') await command.retry({ signal: controller.signal });
         const found = await command.check({ signal: controller.signal });
         if (!controller.signal.aborted) setCheck(found);
@@ -80,6 +86,7 @@ function RecoveryRow({ record, client, hostName, refresh }: { record: RecoveryRe
     {!client && <p>Connect the saved runtime with this device’s original client identity to check or retry. A replacement runtime cannot receive this request.</p>}
     <details><summary>Inspect saved request</summary><pre {...stylex.props(layout.muted)} style={{ maxHeight: 240, overflow: 'auto', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{record.request.slice(0, 4096)}</pre>{record.request.length > 4096 && <p>Preview limited to 4,096 characters. Retry retains the complete original payload.</p>}</details>
     <div {...stylex.props(layout.row)}><Button disabled={!client || busy} onClick={() => void action('check')}>Check delivery</Button><Button disabled={!client || busy} onClick={() => setConfirm('retry')}>Retry exact request…</Button><Button disabled={busy} onClick={() => setConfirm('forget')}>Forget tracking…</Button></div>
+    {method === 'sessions.reload' && check?.state === 'found' && 'host_revision' in check.evidence && check.evidence.state === 'pending' && <Button disabled={!client || busy} onClick={() => void action('cancel_reload')}>Cancel pending reload</Button>}
     {method === 'trees.create' && check?.state === 'found' && 'creation' in check.evidence && !check.evidence.deleted && <>
       <p>Restore the created session to its original draft tab, including its current unsent text. This does not send a message or reopen a closed tab.</p>
       <Button disabled={!client || busy} onClick={() => void action('restore')}>Restore created session</Button>

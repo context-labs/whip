@@ -4004,3 +4004,18 @@ offline/client changes cancel queued work and discard stale picker responses.
 Recents use the native bounded activity-ordered roots API. All 20 directory
 interaction/cache tests pass (3.40 seconds), including actual validating SDK
 wire fixtures; affected source types are clean.
+
+## Shared client reload, permission denial and terminal recovery
+
+The app branch integrates the released mobile five-leaf native migration and terminal
+recovery `823dc4d51`, followed by native root reload and independent interactive-denial
+controls. Pending reload acknowledgement remains pending, survives in the existing
+journal, and can be checked/cancelled by exact receipt after reopening Settings.
+Terminal uncertainty retains a local pending descriptor before sending and requires
+explicit current-process shell inspection/selection. No real shell or installed runtime
+was touched. Native policy fixtures now include the required denial field.
+
+At this client checkpoint, shared-app source TypeScript passed and all **109 renderer
+suites / 1,314 tests passed** in25.31s (`/tmp/whip-app-parity-full.log`); the focused
+reload/denial/recovery/runtime subset passed80 tests in3.77s. Mobile controls for these
+new APIs and browser-driver UI are still being completed. This is not Phase6 closure.

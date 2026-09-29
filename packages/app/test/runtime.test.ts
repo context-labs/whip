@@ -416,3 +416,14 @@ it('disposes suspended session/execution/trace owners when closed during recover
   expect(session.view.dispose).toHaveBeenCalledOnce(); expect(session.execution.dispose).toHaveBeenCalledOnce(); expect(trace.view.dispose).toHaveBeenCalledOnce();
   expect(vi.getTimerCount()).toBe(0);
 });
+
+
+it.each(['pending', 'applied', 'conflicted', 'interrupted', 'unavailable'] as const)('preserves reload %s as its own outcome and retains unapplied receipts', async state => {
+  const app = runtime(); await app.connect();
+  const result = { id: 'reload', session_id: 'root', state };
+  const handle = command({ method: 'sessions.reload', params: { session_id: 'root', edit_id: 'reload', expected_revision: '1' }, send: vi.fn(async () => result) });
+  await expect(app.run(handle, 'Reload')).resolves.toBe(result);
+  expect(handle.wait).not.toHaveBeenCalled(); expect(handle.retry).not.toHaveBeenCalled();
+  expect(handle.forget).toHaveBeenCalledTimes(state === 'applied' ? 1 : 0);
+  expect(app.getSnapshot().commands[0]?.status).toBe(`Reload ${state}`); app.dispose();
+});

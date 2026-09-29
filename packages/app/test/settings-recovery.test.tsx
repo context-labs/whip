@@ -133,3 +133,19 @@ it('restores only an explicitly checked accepted creation from Settings without 
   expect(drafts.get('host:created:created')).toBe('Keep this unsent task');
   expect(f.count('trees.creation')).toBe(2); expect(f.count('trees.create')).toBe(0); expect(f.count('sessions.submit')).toBe(0);
 });
+
+
+it('checks and cancels an exact saved pending reload after reopening without resending it', async () => {
+  const f = await fixture(); await f.journal.forget(f.command.record);
+  let receipt: ContractTypes['ReloadEdit'] = { ...wire('ReloadEdit'), state: 'pending', revision: null, settled_at: null };
+  const params = { session_id: receipt.session_id, edit_id: receipt.id, expected_revision: receipt.expected_revision };
+  await f.journal.put(f.client.command('sessions.reload', params).record);
+  f.data.handlers['sessions.reload_edit'] = () => receipt;
+  f.data.handlers['sessions.cancel_reload'] = request => { expect(request.params).toEqual({ session_id: receipt.session_id, edit_id: receipt.id }); receipt = { ...receipt, state: 'interrupted', settled_at: '2026-09-28T00:00:00Z' }; return receipt; };
+  f.mount(<RecoverySettings />); await screen.findByText('sessions.reload · Workstation');
+  expect(f.count('sessions.reload_edit')).toBe(0);
+  fireEvent.click(screen.getByRole('button', { name: 'Check delivery' })); await screen.findByText('Reload pending.');
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel pending reload' })); await screen.findByText('Reload interrupted.');
+  expect(f.count('sessions.reload')).toBe(0); expect(f.count('sessions.reload_edit')).toBe(3); expect(f.count('sessions.cancel_reload')).toBe(1);
+  expect((await f.journal.list()).length).toBe(1);
+});

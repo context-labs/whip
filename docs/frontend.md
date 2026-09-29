@@ -3692,3 +3692,13 @@ these workflows; current UI does not manufacture their missing evidence.
 Saved root creation recovery offers an explicit restore only after a fresh SDK check verifies the exact previously acknowledged request. Identity-only evidence remains unconfirmed; an explicit exact retry can obtain acknowledgement without submitting a first message. Restore uses the original creation/tab identity, preserves current unsent text, validates the native root/tree/definition/engine, and rejects changed hosts or conflicting destination drafts. A closed descriptor stays closed. The same handover serves initial creation and saved recovery; no alternate session creation or input replay occurs.
 
 Before the first New Chat opens, the connected host warms provider inventory/presets/readiness/catalogs, permission/execution defaults and MCP import status through native read-only APIs. Only these bounded host metadata queries retain five minutes of inactive data, allowing a ready form after the last tab closes. Detach removes the host queries and prevents retired clients from continuing warmup. Session history and observations retain their existing ownership and limits.
+
+Native session reload controls preserve the distinction between accepted and applied.
+A reload captures the current host defaults and expected session revision at admission;
+it applies at an idle tree boundary and preserves explicit overrides. The app retains
+pending, conflicted, interrupted and unavailable receipts in the existing bounded
+recovery journal. Reopening Settings reads local records; checking or cancelling an
+exact reload is explicit, and neither action resends it. Interactive permission denial
+is a separate root-controlled tree policy, independent from Ask/Full Access, standing
+grants and intrinsic questions. Both policy forms retain their captured revision when
+another client changes the policy.

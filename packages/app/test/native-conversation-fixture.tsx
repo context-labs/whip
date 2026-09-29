@@ -297,6 +297,7 @@ export async function conversationFixture(owner = 'root') {
   f.data.handlers['permissions.policy'] = () => ({
     tree_id: 'tree',
     mode: 'prompt',
+    deny_interactive: false,
     revision: '1',
     updated_at: at,
   });

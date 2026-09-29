@@ -113,12 +113,14 @@ export function Action({
   disabled,
   danger = false,
   recoverable = false,
+  successLabel = 'Applied',
 }: {
   children: ReactNode;
   run: () => Promise<unknown>;
   disabled?: boolean;
   danger?: boolean;
   recoverable?: boolean;
+  successLabel?: string;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -173,7 +175,7 @@ export function Action({
       )}
       {done && (
         <span role="status" {...stylex.props(layout.muted)}>
-          Applied
+          {successLabel}
         </span>
       )}
     </div>
