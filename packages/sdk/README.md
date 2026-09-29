@@ -783,3 +783,21 @@ unknown values and `"0"` for explicit zero.
 Explicit uncatalogued selections remain valid after cache loss. New roots capture
 current host defaults; existing sessions retain their selections. These methods
 create no SDK cache, automatic refresh, fallback model selection or mutation retry.
+
+
+### Human questions
+
+`getQuestion(sessionID, operationID)` and `listQuestions({session_id, after?,
+limit, pending_only?})` read durable question evidence. Questions project their
+ordinary operation's captured request and result; pending history is not a live
+waiter. State distinguishes `pending`, `answered`, `dismissed` and `closed`, with
+a fixed deadline and explicit nullable closure evidence and an empty answer array before a
+successful answer.
+
+Use `answerQuestion(sessionID, operationID, answers)` for a human's exact choice,
+free text or dismissal. On uncertain delivery, preserve the original answer and
+inspect `getQuestion`; a caller may explicitly resend that same answer. The SDK
+never substitutes a new answer or retries on its own. A later different answer
+conflicts. After runtime interruption, unanswered questions close and do not
+resume; an already committed answer survives. Product rendering and recovery
+still belong to the later supported-client adoption work.
