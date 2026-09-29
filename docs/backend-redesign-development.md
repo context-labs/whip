@@ -4673,3 +4673,27 @@ hosted seed; vet passes. Browser mobile-search synchronization and hidden deskto
 guest first-frame screenshot failures remain separately diagnosed repair work.
 The failed hosted run remains failed; none of these local checks establishes a
 passing final hosted revision or completion of Phases5–7.
+
+The browser transfer fixture also assumed the parent could have no messages
+after child admission. A fast child can legitimately publish its completion
+mail in that interval. The replacement assertion admits only that exact child's
+completion reference and revision, rejects the direct transfer turn and ordinary
+inputs, and retains lost-acknowledgement and cancellation assertions. Thirty
+shuffled race repetitions pass in 27.777s. The earlier macOS failure in run
+36556449033 remains recorded as a failure.
+
+Mobile sidebar search now holds the actual filtered catalog response in its
+fixture, proves an existing recent-result label is not filtered readiness, and
+requires that response and settled loading state before the original selection
+and dialog-close assertions. Chromium passes all 11 workflows, including 66
+themes; Firefox passes all 10. Bounded diagnostics preserve click/query evidence
+if the failure recurs. The original missed click remains an inference because
+its hosted trace did not record those events. No product timeout or assertion
+was relaxed. Failure injection also verifies fixture process/socket cleanup.
+
+The desktop first-frame screenshot failure is still unresolved. A separate
+disposable stock Electron reproduction also reaches the same five-second
+capture deadline with a new hidden WebContentsView; this establishes first-frame
+sensitivity outside Whip, but does not prove the cause of the hosted failure.
+Failed rendering experiments were discarded. Exact final-head hosted acceptance
+is still required.
