@@ -241,6 +241,11 @@ Chrome-for-Testing binary that permits unpacked extensions. Missing prerequisite
 are reported skips, never evidence that those platform workflows passed. Existing
 production Desktop and extension permissions are not changed by these fixtures.
 
+Visible `dedicated` launches explicitly pass the host's `DISPLAY` and
+`XAUTHORITY` values when present, so Linux X11 and Xvfb authentication reaches
+the owned Chrome process. These overrides are local to that launch; the shared
+process allowlist remains unchanged and headless launches receive neither.
+
 On macOS, native `dedicated` and `headless` launches use Chromium’s
 `--use-mock-keychain` flag for their private automation profiles. This avoids
 consulting the user’s Keychain or waiting for its permission dialog. These
