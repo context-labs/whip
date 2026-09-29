@@ -3391,3 +3391,13 @@ input and completed attachment references during same-runtime recovery, and
 blocks a fresh send from that draft. Reconnection itself does not check or resend
 the command. An explicit recovery action binds the immutable record to the
 replacement client only when both runtime and client identities match.
+The native REPL renderer receives the selected `Session`, shared `SessionView`
+and shared `ExecutionView` explicitly. It renders recorded cell state independently
+of whether the exact call/result message fits the current transcript window, and
+keeps provisional execute arguments separate from committed cells. The recorded
+execute-result envelope supplies output, optional value (including explicit JSON
+null), engine metrics, restart information and checkpoint warnings. Unsafe numeric
+JSON remains verbatim. Copying output preserves its original text, while collapsed
+previews and JSON formatting are presentation only. Native scoped content reads
+are explicit, verify owner/reference/digest, limit text reads to 1 MiB and downloads
+to the shared 4 MiB contract, and discard late results after owner selection changes.
