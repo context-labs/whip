@@ -2944,3 +2944,42 @@ The same full hosted set passed for PR244 at
 `cb996cbf376ce88b8c4d25ec5723f80f1a456f7a` in
 [run36500497345](https://github.com/context-labs/whip/actions/runs/36500497345).
 PR246 analysis has passed; its platform jobs remain in progress at this check.
+
+
+## Saved root permission modes and public recovery
+
+Workspace/LSP integration is published as draft [PR247](https://github.com/context-labs/whip/pull/247)
+at `ee57e1a4d`, stacked on PR246. Hosted validation is pending. This increment
+reuses mode core `2c4499a21` as `6c11482a9`, public controls `12eb5b4f9` as
+`c14cf4027`, and LSP interaction `bc7edb149` as `f097a1002`. Main’s pure LSP
+configuration boundary, joined process stop, manual title initialization,
+provider Unicode validation and compact question declarations were preserved
+while resolving overlaps. Fresh schema37/config14/protocol4 apply.
+
+One SQL policy per tree controls root prompting; children still need exact live
+delegation. Stable edit receipts resolve before mutable state/CAS, including
+stopped roots and deleted owners. Same-value edits preserve revision and retained
+resources. Actual changes invalidate pending policy authority and language-server
+generations, while exact historical retries cannot retire newly started servers.
+New root/fork defaults are captured from fresh host snapshots; invalid values
+fail. The old blanket child/outside-workspace Full Access bypass is explicitly
+retired. Public RPC/SDK preserve safe DTOs and exact counters, expose receipt
+recovery and never automatically replay host publication.
+
+Released focused core races passed config1.539s/store5.616s/runtime8.023s/tool2.521s;
+compatibility store8.307s/tool3.549s and stopped-root1.745s passed. Public protocol3.252s/
+RPC2.118s,21 SDK tests,7 CSP/interchange checks, drift, build/vet/pinned lint0 and
+production fixture28.983s passed. LSP follow-up focused store6.481s/runtime17.749s/
+tool2.414s/capability2.623s passed, with22 SDK tests,8 CSP/interchange checks, drift,
+build/vet/pinned lint0 and production fixture29.604s (mode1.182s/files-LSP778ms).
+Parent reviewed policy admission/dispatch, receipt precedence and newly applied
+retirement semantics. Expanded integrated phase and analysis gates passed: store
+race204.723s/runtime215.476s/process111.834s/config7.283s/RPC44.376s, contract
+interchange/CSP and drift, SDK/examples, production fixture30.734s, retained
+crash fixture2.927s and selected daemon races2.640s. Pinned analysis reports zero
+issues and no reachable vulnerabilities. Logs are `/tmp/whip-modes-{phase,analysis}.log`.
+Hosted Linux, macOS, analysis and aggregate checks for PR246 at
+`9b1cce8574f0a2f3a370f0d60103eed485b10626` now pass in
+[run36501096754](https://github.com/context-labs/whip/actions/runs/36501096754).
+PR247 analysis passed; platform jobs remain in progress. Product clients and remaining
+Phase5 capabilities are still outstanding; no phase-completion claim is made.

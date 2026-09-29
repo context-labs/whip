@@ -13,6 +13,7 @@ import (
 )
 
 type CreateTree struct {
+	PermissionMode   *session.PermissionMode
 	Metadata         session.TreeMetadata
 	Engine           session.Engine
 	Resources        []session.ResourceLimit
@@ -40,6 +41,13 @@ func (s *Store) CreateTree(ctx context.Context, request CreateTree) (tree sessio
 	if err := validMetadata(request.Metadata); err != nil {
 		return tree, root, err
 	}
+	mode := session.PermissionPrompt
+	if request.PermissionMode != nil {
+		if err := request.PermissionMode.Validate(); err != nil {
+			return tree, root, err
+		}
+		mode = *request.PermissionMode
+	}
 	err = s.write(ctx, func(tx *sql.Tx) error {
 		def, err := definition(ctx, tx, request.Definition)
 		if err != nil {
@@ -66,6 +74,9 @@ func (s *Store) CreateTree(ctx context.Context, request CreateTree) (tree sessio
 			if err := initializeTitle(ctx, tx, root, nil, "manual"); err != nil {
 				return err
 			}
+		}
+		if err := insertPermissionPolicy(ctx, tx, treeID, mode); err != nil {
+			return err
 		}
 		for _, limit := range limits {
 			if _, err := setResource(ctx, tx, root.ID, 0, limit); err != nil {

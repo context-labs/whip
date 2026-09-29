@@ -756,6 +756,43 @@ The SDK exposes `grants.create/list/revoke`, `permissions.list/resolve`,
 query durable records; they do not introduce another authority cache.
 
 
+
+## Saved permission policy
+
+Fresh schema37/config14 stores one permission policy per tree: `prompt` (Ask) or
+`automatic` (Full Access), positive revision and update time. Only roots may edit
+it, including stopped roots. Children display the same tree policy but execution
+still requires their exact live delegated grant chain. The retained blanket
+child/outside-workspace Full Access bypass is deliberately retired; automatic
+mode never bypasses input validation, fixed workspace scopes or child delegation.
+
+A root without a matching grant may admit an operation under its current
+`automatic` policy. The operation captures that policy revision; dispatch checks
+it again before the effect. An actual mode change advances the revision, closes
+pending root approvals, and denies ready operations admitted through the old
+policy. Dispatched effects keep their ordinary settlement path. Explicit grants
+and intrinsic human questions retain their independent authority/lifetimes.
+
+Mode edits have caller-chosen stable IDs and exact payload digests. SQL resolves
+identical retries before current state or CAS, returning the original immutable
+receipt even after later edits or tree deletion. Reusing an ID with different
+payload conflicts. Same-value edits record a receipt at the existing revision
+and do not retire operations or language servers. Only a newly committed actual
+change invalidates the runtime’s language-server pool; replaying a historical
+change cannot stop a newly created server.
+
+New roots and forks capture the current host default through the shared config
+authority; omission defaults to `prompt`. Explicit creation mode overrides that
+default, and editing the default never changes existing trees. Invalid values
+fail validation. Exact fork retries resolve before reading mutable host defaults.
+The host default is edited through whole-file revision CAS and returns only the
+safe selected mode and revision hash.
+
+RPC/SDK expose policy reads, mode edit/receipt reads and host-default read/edit.
+Callers retain the exact mode edit identity/payload before sending and explicitly
+recover lost acknowledgements. The SDK does not automatically replay host CAS or
+maintain a separate policy cache. Product UI adoption remains a Phase6 obligation.
+
 ## Provisional output and observation
 
 The provider owns response assembly; the runner owns dispatch and commit. A
@@ -1833,7 +1870,7 @@ entries,64 directory levels or8MiB of searched bytes; rendered output is capped
 at32KiB. These are bounded observations of a changing directory, not stable
 pagination snapshots. Listing/search do not acquire mutation locks.
 
-Host config13 declares up to16 enabled stdio language servers (including the
+Host config14 declares up to16 enabled stdio language servers (including the
 built-in `gopls` entry), with bounded argv, environment and matching rules. This
 publishes availability, never session authority, and performs no installation.
 The side-effect-free `internal/lspconfig` leaf owns declarations, validation and
@@ -1844,10 +1881,11 @@ prepared diagnostic operation through the shared config authority.
 Successful write/patch settlement precedes optional automatic diagnostics. The
 latter is a separate ordinary operation with a stable source-derived identity,
 workspace resource, source operation and captured content hash. It needs standing
-`lsp.diagnostics` authority; without that authority it returns a skipped
+`lsp.diagnostics` authority or the root’s current automatic policy; without that
+authority it returns a skipped
 observation without opening a permission request or starting a process. Explicit
 `files.diagnostics` can obtain one-use approval, whose isolated server is joined
-before the call returns. Standing grants permit session-owned reuse. Child calls
+before the call returns. Standing grants and captured root automatic policy permit session-owned reuse. Child calls
 revalidate their exact issuer chain; parent revocation cannot leave delegated
 language servers usable. Diagnostics never reverse a successful file write.
 
@@ -1859,7 +1897,8 @@ messages, and rendered output is32KiB. Initialization is bounded at10seconds and
 matching-version diagnostics at1.5seconds; bounded sibling errors are included.
 Frames are at most1MiB with8KiB headers and a bounded cancellable write queue.
 
-Stop, cancellation, deletion and grant revocation invalidate pool generation and
+Stop, cancellation, deletion, grant revocation and newly applied permission-mode
+changes invalidate pool generation and
 join its clients; runtime shutdown also joins its process owner before SQL closes.
 Retirement waits for the owned process group to disappear, including descendants
 that race the first kill signal. A delayed old prepared operation cannot recreate

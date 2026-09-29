@@ -15,7 +15,7 @@ import (
 
 const (
 	FileName = "host.json"
-	Version  = 13
+	Version  = 14
 )
 
 type Provider struct {
@@ -78,6 +78,7 @@ func (m Model) resolve(defaultOutput int64) (Model, error) {
 }
 
 type Host struct {
+	DefaultPermissionMode session.PermissionMode `json:"default_permission_mode,omitempty"`
 	// LSP publishes bounded stdio server declarations without granting session authority.
 	LSP map[string]lspconfig.Config `json:"lsp"`
 	// ProjectRoots publishes named project directories without granting authority.
@@ -100,6 +101,9 @@ func Default() Host {
 }
 
 func (h Host) Validate() error {
+	if _, err := session.ResolvePermissionMode(h.DefaultPermissionMode); err != nil {
+		return err
+	}
 	if err := lspconfig.ValidateConfig(h.LSP); err != nil {
 		return fmt.Errorf("%w: %w", session.ErrInvalid, err)
 	}

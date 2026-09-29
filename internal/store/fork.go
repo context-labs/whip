@@ -62,6 +62,10 @@ func (s *Store) Fork(ctx context.Context, request session.ForkRequest, defaults 
 		if err := request.Validate(); err != nil {
 			return err
 		}
+		mode, err := session.ResolvePermissionMode(defaults.PermissionMode)
+		if err != nil {
+			return err
+		}
 		resources, err := session.ResolveResourceLimits(nil, defaults.Resources)
 		if err != nil {
 			return err
@@ -90,6 +94,9 @@ func (s *Store) Fork(ctx context.Context, request session.ForkRequest, defaults 
 		}
 		root, err := insertSession(ctx, tx, treeID, nil, source.Definition, source.Config, source.WorkingDirectory)
 		if err != nil {
+			return err
+		}
+		if err := insertPermissionPolicy(ctx, tx, treeID, mode); err != nil {
 			return err
 		}
 		for _, limit := range resources {

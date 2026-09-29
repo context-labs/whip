@@ -46,8 +46,9 @@ func (r ForkRequest) Validate() error {
 // excluded from request identity so a retry survives host configuration changes.
 // Both logical-write budgets must be supplied with finite limits.
 type ForkDefaults struct {
-	Resources []ResourceLimit
-	Budgets   []BudgetLimit
+	PermissionMode PermissionMode
+	Resources      []ResourceLimit
+	Budgets        []BudgetLimit
 }
 
 // Fork is an immutable admission receipt. IDs remain after either tree is

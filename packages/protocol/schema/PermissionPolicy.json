@@ -1,0 +1,34 @@
+{
+  "type": "object",
+  "properties": {
+    "tree_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "prompt",
+        "automatic"
+      ]
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,18}$",
+      "format": "counter"
+    },
+    "updated_at": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/PermissionPolicy",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PermissionPolicy",
+  "required": [
+    "tree_id",
+    "mode",
+    "revision",
+    "updated_at"
+  ],
+  "additionalProperties": false
+}

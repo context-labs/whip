@@ -1585,6 +1585,7 @@
   {
     "type": "HostOperation",
     "value": {
+      "permission_revision": null,
       "id": "operation_fixture",
       "session_id": "session_child",
       "turn_id": "turn_fixture",
@@ -3013,6 +3014,104 @@
     "type": "QuestionParams",
     "value": {
       "operation_id": "operation_question"
+    },
+    "valid": false
+  },
+  {
+    "type": "PermissionPolicy",
+    "value": {
+      "tree_id": "tree",
+      "mode": "automatic",
+      "revision": "9007199254740993",
+      "updated_at": "2026-09-28T00:00:00Z"
+    },
+    "valid": true
+  },
+  {
+    "type": "SetPermissionModeParams",
+    "value": {
+      "edit_id": "Edit.Mixed-Case",
+      "session_id": "root",
+      "expected_revision": "9007199254740993",
+      "mode": "automatic"
+    },
+    "valid": true
+  },
+  {
+    "type": "PermissionModeEditParams",
+    "value": {
+      "session_id": "root",
+      "edit_id": "Edit.Mixed-Case"
+    },
+    "valid": true
+  },
+  {
+    "type": "PermissionModeEdit",
+    "value": {
+      "id": "Edit.Mixed-Case",
+      "session_id": "root",
+      "expected_revision": "9007199254740993",
+      "mode": "automatic",
+      "previous_mode": "prompt",
+      "policy": {
+        "tree_id": "tree",
+        "mode": "automatic",
+        "revision": "9007199254740994",
+        "updated_at": "2026-09-28T00:00:00Z"
+      },
+      "created_at": "2026-09-28T00:00:00Z"
+    },
+    "valid": true
+  },
+  {
+    "type": "DefaultPermissionMode",
+    "value": {
+      "mode": "prompt",
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "valid": true
+  },
+  {
+    "type": "SetDefaultPermissionModeParams",
+    "value": {
+      "mode": "automatic",
+      "expected_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "valid": true
+  },
+  {
+    "type": "SetPermissionModeParams",
+    "value": {
+      "edit_id": "edit",
+      "session_id": "root",
+      "expected_revision": "0",
+      "mode": "automatic"
+    },
+    "valid": false
+  },
+  {
+    "type": "SetPermissionModeParams",
+    "value": {
+      "edit_id": "edit",
+      "session_id": "root",
+      "expected_revision": "1",
+      "mode": "FullAccess"
+    },
+    "valid": false
+  },
+  {
+    "type": "SetDefaultPermissionModeParams",
+    "value": {
+      "mode": "",
+      "expected_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "valid": false
+  },
+  {
+    "type": "SetDefaultPermissionModeParams",
+    "value": {
+      "mode": "prompt",
+      "expected_revision": "1"
     },
     "valid": false
   },

@@ -1,0 +1,79 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "expected_revision": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,18}$",
+      "format": "counter"
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "prompt",
+        "automatic"
+      ]
+    },
+    "previous_mode": {
+      "type": "string",
+      "enum": [
+        "prompt",
+        "automatic"
+      ]
+    },
+    "policy": {
+      "type": "object",
+      "properties": {
+        "tree_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "prompt",
+            "automatic"
+          ]
+        },
+        "revision": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,18}$",
+          "format": "counter"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tree_id",
+        "mode",
+        "revision",
+        "updated_at"
+      ],
+      "additionalProperties": false
+    },
+    "created_at": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/PermissionModeEdit",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PermissionModeEdit",
+  "required": [
+    "id",
+    "session_id",
+    "expected_revision",
+    "mode",
+    "previous_mode",
+    "policy",
+    "created_at"
+  ],
+  "additionalProperties": false
+}

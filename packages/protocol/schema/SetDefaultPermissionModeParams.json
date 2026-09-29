@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "properties": {
+    "expected_revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "prompt",
+        "automatic"
+      ]
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/SetDefaultPermissionModeParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SetDefaultPermissionModeParams",
+  "required": [
+    "expected_revision",
+    "mode"
+  ],
+  "additionalProperties": false
+}

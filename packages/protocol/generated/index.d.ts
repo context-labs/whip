@@ -442,6 +442,7 @@ export interface CreateScheduleParams {
   ];
 }
 export interface CreateTreeParams {
+  permission_mode?: null | ("prompt" | "automatic");
   metadata: {
     title: null | string;
     archived: boolean;
@@ -615,6 +616,10 @@ export interface CurrentGoalResult {
     completion_operation_id: null | string;
     created_at: string;
   };
+}
+export interface DefaultPermissionMode {
+  mode: "prompt" | "automatic";
+  revision: string;
 }
 export interface Definition {
   ref: {
@@ -1348,6 +1353,7 @@ export interface HistorySnapshot {
   message_count: string;
 }
 export interface HostOperation {
+  permission_revision: null | string;
   id: string;
   session_id: string;
   turn_id: string;
@@ -1379,6 +1385,7 @@ export interface HostOperationsResult {
   items:
     | null
     | {
+        permission_revision: null | string;
         id: string;
         session_id: string;
         turn_id: string;
@@ -2192,6 +2199,30 @@ export interface Permission {
   state: "pending" | "approved" | "denied" | "cancelled";
   created_at: string;
   resolved_at: null | string;
+}
+export interface PermissionModeEdit {
+  id: string;
+  session_id: string;
+  expected_revision: string;
+  mode: "prompt" | "automatic";
+  previous_mode: "prompt" | "automatic";
+  policy: {
+    tree_id: string;
+    mode: "prompt" | "automatic";
+    revision: string;
+    updated_at: string;
+  };
+  created_at: string;
+}
+export interface PermissionModeEditParams {
+  session_id: string;
+  edit_id: string;
+}
+export interface PermissionPolicy {
+  tree_id: string;
+  mode: "prompt" | "automatic";
+  revision: string;
+  updated_at: string;
 }
 export interface PermissionsParams {
   session_id: string;
@@ -5392,6 +5423,16 @@ export interface SetBudgetParams {
     limit: null | string;
   };
 }
+export interface SetDefaultPermissionModeParams {
+  expected_revision: string;
+  mode: "prompt" | "automatic";
+}
+export interface SetPermissionModeParams {
+  edit_id: string;
+  session_id: string;
+  expected_revision: string;
+  mode: "prompt" | "automatic";
+}
 export interface SetResourceParams {
   session_id: string;
   expected_revision: string;
@@ -6015,6 +6056,7 @@ export interface ContractTypes {
   CreateTreeParams: CreateTreeParams;
   CreateTreeResult: CreateTreeResult;
   CurrentGoalResult: CurrentGoalResult;
+  DefaultPermissionMode: DefaultPermissionMode;
   Definition: Definition;
   DefinitionDocument: DefinitionDocument;
   DefinitionRef: DefinitionRef;
@@ -6079,6 +6121,9 @@ export interface ContractTypes {
   OpenAILoginFlow: OpenAILoginFlow;
   Part: Part;
   Permission: Permission;
+  PermissionModeEdit: PermissionModeEdit;
+  PermissionModeEditParams: PermissionModeEditParams;
+  PermissionPolicy: PermissionPolicy;
   PermissionsParams: PermissionsParams;
   PermissionsResult: PermissionsResult;
   ProviderCatalog: ProviderCatalog;
@@ -6127,6 +6172,8 @@ export interface ContractTypes {
   SessionObservation: SessionObservation;
   SessionParams: SessionParams;
   SetBudgetParams: SetBudgetParams;
+  SetDefaultPermissionModeParams: SetDefaultPermissionModeParams;
+  SetPermissionModeParams: SetPermissionModeParams;
   SetResourceParams: SetResourceParams;
   SpawnSessionParams: SpawnSessionParams;
   SpawnSessionResult: SpawnSessionResult;
@@ -6248,6 +6295,11 @@ export interface Operations {
   "turns.operations": { params: HostOperationsParams; result: HostOperationsResult };
   "permissions.list": { params: PermissionsParams; result: PermissionsResult };
   "permissions.resolve": { params: ResolvePermissionParams; result: Permission };
+  "permissions.policy": { params: SessionParams; result: PermissionPolicy };
+  "permissions.set_mode": { params: SetPermissionModeParams; result: PermissionModeEdit };
+  "permissions.mode_edit": { params: PermissionModeEditParams; result: PermissionModeEdit };
+  "host.permission_default": { params: EmptyParams; result: DefaultPermissionMode };
+  "host.set_permission_default": { params: SetDefaultPermissionModeParams; result: DefaultPermissionMode };
   "questions.get": { params: QuestionParams; result: Question };
   "questions.list": { params: QuestionsParams; result: QuestionsResult };
   "questions.answer": { params: AnswerQuestionParams; result: Question };

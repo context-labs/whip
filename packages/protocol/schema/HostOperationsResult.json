@@ -9,6 +9,14 @@
       "items": {
         "type": "object",
         "properties": {
+          "permission_revision": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^[1-9][0-9]{0,18}$",
+            "format": "counter"
+          },
           "id": {
             "type": "string",
             "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
@@ -102,6 +110,7 @@
           }
         },
         "required": [
+          "permission_revision",
           "id",
           "session_id",
           "turn_id",

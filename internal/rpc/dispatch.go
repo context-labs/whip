@@ -99,6 +99,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return dispatchBudget(ctx, r, method, raw)
 	case "sessions.observe":
 		return dispatchObservation(ctx, r, raw)
+	case "permissions.policy", "permissions.set_mode", "permissions.mode_edit", "host.permission_default", "host.set_permission_default":
+		return dispatchPermissionMode(ctx, r, method, raw)
 	case "questions.get", "questions.list", "questions.answer":
 		return dispatchQuestion(ctx, r, method, raw)
 	case "grants.create", "grants.list", "grants.revoke", "operations.get", "turns.operations", "permissions.list", "permissions.resolve", "cells.get", "turns.cells":
@@ -141,7 +143,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 			if err != nil {
 				return nil, err
 			}
-			tree, root, err := r.CreateTree(ctx, store.CreateTree{Metadata: session.TreeMetadata(p.Metadata), Engine: session.Engine(p.Engine), Resources: protocol.ResourceLimitsDomain(p.Resources), Definition: definitionRef(p.Definition), Overrides: patch, WorkingDirectory: p.WorkingDirectory})
+			tree, root, err := r.CreateTree(ctx, store.CreateTree{PermissionMode: p.DomainPermissionMode(), Metadata: session.TreeMetadata(p.Metadata), Engine: session.Engine(p.Engine), Resources: protocol.ResourceLimitsDomain(p.Resources), Definition: definitionRef(p.Definition), Overrides: patch, WorkingDirectory: p.WorkingDirectory})
 			if err != nil {
 				return nil, err
 			}
@@ -424,6 +426,7 @@ func wireError(err error) *protocol.RPCError {
 		{store.ErrNotFound, -32004, "NOT_FOUND"},
 		{store.ErrConflict, -32009, "CONFLICT"},
 		{runtime.ErrWorkspaceChanged, -32009, "CONFLICT"},
+		{config.ErrRevisionConflict, -32009, "CONFLICT"},
 		{store.ErrBusy, -32010, "BUSY"},
 		{store.ErrLimit, -32011, "LIMIT"},
 		{runtime.ErrWorkspaceLimit, -32011, "LIMIT"},
