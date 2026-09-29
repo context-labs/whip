@@ -35,9 +35,11 @@ type Prepared struct {
 	Capability string
 	Resource   string
 	Arguments  json.RawMessage
-	Mutating   bool
-	Acquire    func(context.Context) (func(), error)
-	Run        func(context.Context, session.OperationID) (any, error)
+	// Lifetime invalidates this captured resource, including permission waits.
+	Lifetime context.Context
+	Mutating bool
+	Acquire  func(context.Context) (func(), error)
+	Run      func(context.Context, session.OperationID) (any, error)
 	// ModelTimeouts leaves request deadlines to the model attempt runner. It is
 	// valid only for models.call/batch; parent cancellation still applies.
 	ModelTimeouts bool
