@@ -65,6 +65,22 @@ func (m *nativeModel) command(text string) tea.Cmd {
 	name := fields[0]
 	args := strings.TrimSpace(strings.TrimPrefix(text, name))
 	switch name {
+	case "/help":
+		m.input.Reset()
+		m.notice = nativeHelp
+		m.refresh()
+		return nil
+	case "/report":
+		m.input.Reset()
+		m.notice = m.nativeReport()
+		m.refresh()
+		return nil
+	case "/context", "/context-doctor":
+		return m.contextDoctor(args)
+	case "/export":
+		return m.exportNative(args)
+	case "/effort":
+		return m.effortCommand(args)
 	case "/quit", "/exit", "/q":
 		return tea.Quit
 	case "/rejected":

@@ -597,6 +597,9 @@ func (m *nativeModel) submit() tea.Cmd {
 	if strings.HasPrefix(strings.TrimSpace(text), "/") {
 		return m.command(strings.TrimSpace(text))
 	}
+	if command, ok := strings.CutPrefix(text, "!"); ok {
+		return m.directShell(command)
+	}
 	return m.prompt(text, "auto")
 }
 
