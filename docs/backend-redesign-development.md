@@ -5668,3 +5668,42 @@ joining/reporting bounded failed-child output passes all SSH race/coverage check
 (5.862s) and the exact hosted integration family and failing shuffle seed
 (23.767s), plus vet and pinned lint 0. Production SSH and all deadlines/assertions
 are unchanged. A fresh hosted Linux/macOS pass is still required.
+
+#### Platform validation follow-through (2026-09-29)
+
+Draft #277 publishes the preceding increment at `1edc9d823`. Hosted run
+36584226063 passes all Linux/macOS race partitions, analysis, evals, mobile,
+Settings and the full UI gate. It exposes two new failures: dedicated Chrome on
+Linux exits before publishing its endpoint, and the Chromium REPL probe reports
+overlapping observations. Other running jobs remain pending in this snapshot.
+
+The Linux launch failure has a concrete cause: the shared process manager
+correctly filters ambient display variables, but dedicated Chrome did not pass
+them explicitly. Repair `d0769783f` supplies only `DISPLAY` and `XAUTHORITY` to
+that owned visible process. A real-process regression fails before the repair
+and passes on macOS and Linux afterward, retaining provider-secret exclusion and
+headless/ordinary process isolation. Full local native-browser acceptance passes
+(browser 15.430s/runtime 12.475s); hosted Linux headed acceptance remains pending.
+
+The next draft branch also keeps Desktop validation running after unrelated
+product failures, while requiring the same verified renderer artifact. The
+required aggregate continues to reject every failed, skipped, cancelled or
+missing dependency. Existing workflow contracts pass all ten cases, including
+executing those aggregate refusal paths, and actionlint passes both workflows.
+This change collects evidence; it does not allow publication or a green aggregate
+after another required check fails.
+
+The isolated native input diagnostic reports all 240 trusted events across six
+cases, with composer p95 of 40ms at each tested draft length. Full-workload p95
+remains 72ms against the 50ms target despite native and DOM focus. Natural final
+RSS is 1,596,864KiB, sampled immediately after work; this is not a leak diagnosis.
+That run had earlier forced-GC tab checkpoints and a 42.43s inspection pause after
+streams started. Its limits and exact artifact are in
+[the performance audit](../apps/web/scripts/native-performance-control-audit.md).
+
+Subsequent instrumentation now pauses before streams, reports missing timing
+entries as unknown, and samples tab retention passively. Forced GC remains only
+an explicitly requested final diagnostic, excluded from acceptance. All eleven
+keyboard/retention contracts pass locally (10.038s) and are included in the normal
+performance gate. A new trace and final unchanged-workload measurement are still
+required; functional success does not close the measured performance gap.
