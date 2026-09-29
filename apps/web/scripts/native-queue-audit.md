@@ -77,3 +77,35 @@ cleanup before the next browser probe began.
 Optional `WHIP_WEB_BROWSERS=electron` still uses the staged production app and
 requires its renderer digest to match. That optional run was not performed in
 this checkpoint; neither signing nor notarization evidence is claimed.
+
+## 2026-09-29 — CI queue observation readiness
+
+Run 36557957330 / job 109371591094 passed the native activity matrix, then Firefox
+failed the queue's full-last-row visibility assertion. Its screenshot shows
+rows 19–21 in the viewport while row 24 exists in the virtualized overscan. The
+runner previously scrolled after native admission ACKs, without waiting for the
+UI to observe all 24 canonical inputs; DOM visibility alone cannot prove that a
+virtualized row is inside its scroll viewport. Late observed arrivals can extend
+the old scroll bottom. The CI artifact does not record its pre-scroll count, so
+that timing explanation is an inference from the source and screenshot.
+
+The runner now waits for the canonical `aria-setsize="24"` before its one bottom
+scroll. The original 1px bottom-bound and actual hit-test assertions remain;
+geometry is sampled atomically and recorded with pre-scroll observed counts.
+No timeout, tolerance, production behavior, or retained workflow was changed.
+
+The complete Chromium+Firefox matrix passed all eight workflow groups in each
+browser. Both runs reported 24 observed rows, 1056px scroll height, 144px viewport,
+scrollTop 912, last-row bottom 778 equal to viewport bottom 778, and a successful
+hit test. Page/CSP error arrays were empty. Both runtime/browser lifetimes joined.
+Local pre-wait counts were already 24; the hosted failure is not claimed rerun.
+Renderer digest is
+`c06ea03a00b18e848547bcad4d0ea1446cc37adea7e6cbab3ff4c1f12ed87ff7`.
+
+```sh
+WHIP_QUEUE_RESULTS=/tmp/whip-native-queue-ci-readiness node apps/web/scripts/composer-queue.mjs
+```
+
+Evidence: `/tmp/whip-native-queue-ci-readiness.log` and its selected result
+directory. Syntax and whitespace checks passed. Optional Electron mode was not
+rerun for this harness-only observation-readiness correction.

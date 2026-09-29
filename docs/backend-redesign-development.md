@@ -4732,3 +4732,139 @@ engines passed in 11.03s (36.573s combined race-enabled integration run). The
 required native CLI gate adds compiled desktop replacement and removes only
 empty retired test selections; desktop maintenance uses the native localruntime
 suite. Final hosted checks and complete retired-core deletion remain pending.
+
+### Clean-machine evaluator and cancellation qualification — 2026-09-29
+
+Hosted run36555920516 atf26acf587 failed its new evaluator and package-consumer
+jobs. The direct offline observer test omitted the synthetic INFERENCE_API_KEY
+already supplied by the Doctor adapter. It now supplies only offline-fixture
+inside the test context. The isolated npm consumer previously depended on cached
+registry metadata, which npm ci need not retain. It now packs its exact installed
+React/type dependencies as local tarballs and installs all archives with an
+explicitly empty private cache. Public imports, browser bundling, consumer types
+and actual native input/history pass with that empty cache.
+
+The corrected evaluator passes87 canonical and77 retained/historical Python
+tests. The existing Linuxamd64 fixture image, with networking disabled and no
+external credential, passes six both-engine/accounting/export checks in16.608s.
+Python3.13 also exposed SQLite connection ResourceWarnings: a connection context
+manager ends a transaction but does not close the connection. Observer snapshots,
+content export, backup and report reads now close their own connections explicitly;
+the final Linux run has no ResourceWarning or ignored cleanup exception.
+
+The Linux build job failed an ACP test that treated cancellation of the upstream
+SDK's Prompt context as observation-only. That SDK explicitly sends session/cancel.
+The replacement tests separately prove that ending the bridge caller context
+preserves accepted host execution and that the SDK notification cancels the exact
+host input/provider. Ten shuffled repetitions under race detection pass22.794s;
+vet passes. No production cancellation policy or timeout changed.
+
+All other client/race/distribution/Settings/web/docs/analysis jobs in that run
+passed except macOS runtime-first, product-browser and product-desktop. The
+runtime standing-edit test sometimes consumed an automatic-title helper request
+instead of the ordinary turn it meant to inspect; its original exact-seed20-run
+stress reproduced the failure. It now keeps title execution enabled, excludes
+only that helper purpose from this instruction-evidence channel and checks each
+captured request's exact turn ID. Thirty repetitions pass25.733s with the same
+hosted seed; vet passes. Browser mobile-search synchronization and hidden desktop
+guest first-frame screenshot failures remain separately diagnosed repair work.
+The failed hosted run remains failed; none of these local checks establishes a
+passing final hosted revision or completion of Phases5–7.
+
+The browser transfer fixture also assumed the parent could have no messages
+after child admission. A fast child can legitimately publish its completion
+mail in that interval. The replacement assertion admits only that exact child's
+completion reference and revision, rejects the direct transfer turn and ordinary
+inputs, and retains lost-acknowledgement and cancellation assertions. Thirty
+shuffled race repetitions pass in 27.777s. The earlier macOS failure in run
+36556449033 remains recorded as a failure.
+
+Mobile sidebar search now holds the actual filtered catalog response in its
+fixture, proves an existing recent-result label is not filtered readiness, and
+requires that response and settled loading state before the original selection
+and dialog-close assertions. Chromium passes all 11 workflows, including 66
+themes; Firefox passes all 10. Bounded diagnostics preserve click/query evidence
+if the failure recurs. The original missed click remains an inference because
+its hosted trace did not record those events. No product timeout or assertion
+was relaxed. Failure injection also verifies fixture process/socket cleanup.
+
+The desktop first-frame screenshot failure is still unresolved. A separate
+disposable stock Electron reproduction also reaches the same five-second
+capture deadline with a new hidden WebContentsView; this establishes first-frame
+sensitivity outside Whip, but does not prove the cause of the hosted failure.
+Failed rendering experiments were discarded. Exact final-head hosted acceptance
+is still required.
+
+### Terminal originals, REPL lineage and native reading acceptance — 2026-09-29
+
+The integrated terminal adds bounded REPL navigation through exact message,
+turn and call identities. Reused provider call IDs no longer hide later cell
+output. Imported history cannot pretend to have local execution cells, and old
+or oversized evidence requires explicit reads. Nine real turns exercise cell
+navigation and foreign-turn rejection. Utility commands now use native scoped
+controls: exact `!` shell commands, effort selection, context usage and captured
+attempt inspection, bounded environment reports, help, and atomic private local
+Markdown export. Export reads the captured canonical history through its initial
+tail without growing the UI window; concurrent appends remain outside that
+snapshot. Scoped attachment descriptors are included, not embedded bytes.
+Context inspection does not claim a new-session token or injection audit.
+
+Text paste preserves original whitespace before publishing the input journal.
+Owner-local paste chips, including hidden original bytes, share the existing
+draft bounds; capacity rejection preserves the original. The terminal refuses
+to silently normalize tabs, carriage returns or oversized logical line counts.
+Explicit shell commands receive the expanded original once. Native TUI race and
+shuffle checks pass in 93.616s with REPL/utilities and in 96.102s after paste;
+focused utility vet and frozen-baseline lint pass. Image attachments, clipboard,
+copy/palette/completion and richer history editing are still in progress.
+
+Reading-position acceptance now creates 128 actual native turns in each browser.
+Chromium and Firefox pass incoming-output reading, Latest/follow, narrow touch
+layouts and two explicit older pages through the full 260-message history. All
+measured anchors move zero pixels against the existing five-pixel bound, with
+zero JavaScript or CSP failures. The native initial window is 100 records; exact
+canonical cursors replace retired event-page arithmetic.
+
+The native dock fixture creates eight actual completed children and exercises
+metadata-only navigation, separate drafts/attachment, pane reuse, inline routes,
+keyboard focus and narrow/large-type layouts. Chromium passes; Firefox passed
+two diagnostic runs with zero drift after an earlier 28-pixel split-open failure.
+That intermittent failure remains unresolved. Bounded pre/post geometry is
+retained on success and failure, and no speculative product fix was applied.
+Reading-position and dock probes are now required in content/activity CI.
+
+Hosted workflow run 36557957330 at d94e51b03 exposed a Firefox queue test that
+scrolled before all admitted rows were observed and a macOS interactive-shell
+inactivity test failure. Both remain under investigation. Its evaluator/package
+failures predate the now-merged clean-machine fixes above. Desktop first-frame
+capture, performance targets, specialized probes and final core retirement remain
+open; these checkpoints do not complete Phases 5–7.
+
+Terminal image attachment and explicit clipboard capture are now integrated.
+Client-local files are bounded before normalization (16 MiB and 64 megapixels),
+then uploaded as complete owner-scoped bodies of at most 4 MiB. An uncertain
+upload retains the exact owner, reference and bytes for explicit check/retry;
+switching owners cannot retarget it. At most eight image references enter the
+existing input journal, and rejected multipart input restores its draft. Shell
+commands reject image parts. Clipboard fixtures verify bounded output and joined
+child cleanup; no real clipboard or installed runtime was accessed. The complete
+integrated native terminal race/shuffle suite passes in 109.808s, followed by vet.
+Unsubmitted upload drafts remain ephemeral on terminal exit; accepted input
+records remain durable.
+
+Attachment confirmation now keeps the same scoped preview subtree and uses
+verified upload metadata in the existing query cache. An open preview survives
+the original input's canonical confirmation; owner, runtime, client, reference,
+digest or row retirement still closes it. Both browsers prove the same dialog
+node, one upload, one body read and no additional metadata read at confirmation,
+with zero page/CSP errors. The released leaf passes 106 tests across eight suites
+and app types; the integrated focused components pass 15 tests plus app types.
+The actual confirmation browser probe is now required in product-content CI.
+
+The queue fixture now requires the observed canonical set size of 24 before its
+single bottom scroll, then samples full-row geometry and hit-testing together.
+Both browsers pass all eight workflows; the last row and viewport bottoms are
+both 778 pixels and the hit-test succeeds, retaining the one-pixel bound. The
+late-arrival explanation for the hosted failure is inferred from source and its
+screenshot; the local run already had all 24 rows. No product policy, deadline
+or visibility requirement changed. Run 36557957330 remains failed.

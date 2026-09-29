@@ -7,6 +7,7 @@ The runner supplies a fresh WHIPCODE_HOME and retains the daemon until verificat
 """
 
 import argparse
+from contextlib import closing
 import datetime
 import errno
 import fcntl
@@ -64,7 +65,7 @@ def export_content_bodies(home, evidence, root_id):
     target_dir.mkdir(parents=True, exist_ok=True)
     manifest = {"root_id": root_id, "bodies": [], "errors": []}
     database = evidence / "sessions.db"
-    with sqlite3.connect(database.as_uri() + "?mode=ro&immutable=1", uri=True) as db:
+    with closing(sqlite3.connect(database.as_uri() + "?mode=ro&immutable=1", uri=True)) as db:
         roots = db.execute("SELECT id FROM sessions WHERE parent_id IS NULL").fetchall()
         if roots != [(root_id,)]:
             raise ValueError("content export requires the trial's single-root snapshot")
@@ -106,7 +107,7 @@ def export_content_bodies(home, evidence, root_id):
 
 def snapshot(database):
     """One read transaction of the native ledger, including deleted-child spend."""
-    with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=5) as db:
+    with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=5)) as db:
         db.row_factory = sqlite3.Row
         db.execute("BEGIN")
         trees = rows(db, "SELECT * FROM session_trees")
@@ -625,7 +626,7 @@ def _run(args, fixture_url=None):
             try:
                 if database.exists():
                     export(snapshot(database))
-                    with sqlite3.connect(database.as_uri() + "?mode=ro", uri=True) as source, sqlite3.connect(evidence / "sessions.db") as destination:
+                    with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)) as source, closing(sqlite3.connect(evidence / "sessions.db")) as destination:
                         source.backup(destination)
                     if frozen_pid is None and not daemon_stopped:
                         raise ValueError("content export requires a frozen or stopped trial daemon")

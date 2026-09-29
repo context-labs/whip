@@ -24,6 +24,7 @@ Conversation: /sessions · /resume <owner> · /rename <title> · /status
 History: /older · /newer · /latest · /export [local path]
 Edits: /stop · /start · /clear · /rewind <sequence> · /fork <title> · /fork-at <sequence> <title>
 Input: /queue <text> · /steer <text> · !<shell command>
+Images: /attach <client-local path> · /attach clipboard|check|retry|discard · Ctrl+V reads a clipboard image
 Recovery: /check · /retry · /rejected restore|discard
 Configuration: /model · /model-for-session · /effort [level|default] · /setup · /settings · /theme
 Context: /context-doctor [attempt ID] · /compact · /compact log|retry|off|model <model>|provider <provider>
@@ -31,13 +32,26 @@ Goals: /goal [text|status|resume|clear] · /goal-from-context [2..100]
 Schedules: /schedule list [cursor] · /schedule @every <duration> <text> · /schedule @at <RFC3339 time> <text> · /schedule cancel <ID>
 Instructions: /me · /memory · /permissions
 Integrations: /lsp · /mcp · /browser · /computer · /pwd · /cd <path>
-Display: /tools expand|collapse · /reasoning on|off · /report
+Agents: /agents [list|open <ID>|stop <ID>|delete <child ID>|revoke <grant ID>]
+Display: /sidebar · /dock · /repl [older|latest|turn <ID>|focus] · /tools expand|collapse · /reasoning on|off · /report
 Exit: /quit (accepted host work continues)
 
-Enter sends; Escape cancels the exact active input; PageUp/PageDown scroll; Ctrl+C twice exits.
+Enter sends; Ctrl+J/Shift+Enter inserts a newline; Escape cancels the exact active input.
+Ctrl+T focuses the agent tree; arrows select, Enter opens, Escape returns to its root.
+Ctrl+R toggles REPL; PageUp/PageDown scroll the focused pane; Ctrl+C twice exits.
+Paste collapse is opt-in in /settings; original text is restored before sending.
 Commands act on the displayed owner. Export writes a private local file. Direct shell uses the host's normal permission and receipt path.`
 
 func (m *nativeModel) directShell(command string) tea.Cmd {
+	if len(m.liveImages(command)) > 0 || m.attachmentBusy || m.attachment != nil {
+		m.status = "Direct shell does not accept image attachments; remove the chips or submit them as a prompt."
+		return nil
+	}
+	command, err := m.expandPastes(command)
+	if err != nil {
+		m.status = err.Error()
+		return nil
+	}
 	if !m.nativeAdmissionAvailable() {
 		return nil
 	}

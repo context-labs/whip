@@ -1,17 +1,19 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
+import { writeFile } from 'node:fs/promises';
 import { expect } from '@playwright/test';
 import { checkComposerPanels } from './composer-panels.mjs';
+import { deadline } from './native-fixture.mjs';
 
-// Production renderer and existing stopped REPL children only. No provider runs,
-// fabricated agent events, or additional transcript subscriptions are needed.
-export async function checkAgentDock({ page, client, root, frames, directory, name }) {
-  const child = 'repl-child';
-  const snapshot = await client.session(root).snapshot();
-  assert.ok(snapshot.agents.some(agent => agent.id === child && agent.parent_id === root));
-  const children = new Set(snapshot.agents.filter(agent => agent.parent_id === root).map(agent => agent.id));
-  const childReads = () => frames.filter(frame => frame.method === 'history.page' && frame.params?.agent_id === child);
-  const rosterReads = () => frames.filter(frame => frame.method === 'history.page' && children.has(frame.params?.agent_id));
+// Production renderer and actual completed child turns. The dock itself only
+// reads bounded metadata; opening a child authorizes that selected transcript.
+export async function checkAgentDock({ page, client, root, child, frames, directory, name }) {
+  const owner = await client.session(root).get(deadline());
+  const snapshot = await client.call('sessions.list', { tree_id: owner.tree_id, limit: 16 }, deadline());
+  assert.ok(snapshot.items.some(agent => agent.id === child && agent.parent_id === root));
+  const children = new Set(snapshot.items.filter(agent => agent.parent_id === root).map(agent => agent.id));
+  const childReads = () => frames.filter(frame => frame.method === 'sessions.history_page' && frame.params?.session_id === child);
+  const rosterReads = () => frames.filter(frame => frame.method === 'sessions.history_page' && children.has(frame.params?.session_id));
   const screenshot = label => page.screenshot({ path: join(directory, `${name}-agent-dock-${label}.png`) });
   const rootInput = page.getByRole('textbox', { name: 'Message WHIP', exact: true });
   const childInput = page.getByRole('textbox', { name: 'Message this agent', exact: true });
@@ -48,18 +50,35 @@ export async function checkAgentDock({ page, client, root, frames, directory, na
       const rect = row.getBoundingClientRect();
       return rect.bottom > viewport.top && rect.top < viewport.bottom;
     });
-    return row ? { id: row.dataset.readingId, offset: row.getBoundingClientRect().top - viewport.top } : null;
+    return row ? { id: row.dataset.readingId, offset: row.getBoundingClientRect().top - viewport.top,
+      geometry: { at: performance.now(), top: element.scrollTop, height: element.clientHeight, width: element.clientWidth,
+        rows: [...element.querySelectorAll('[data-reading-id]')].slice(0, 32).map(item => ({ id: item.dataset.readingId, top: item.getBoundingClientRect().top, height: item.getBoundingClientRect().height })) } } : null;
   });
   const assertAnchor = async (before, label) => {
     await settle();
     const after = await reading.evaluate((element, id) => {
       const row = [...element.querySelectorAll('[data-reading-id]')].find(row => row.dataset.readingId === id);
-      return row ? { id, offset: row.getBoundingClientRect().top - element.getBoundingClientRect().top } : null;
+      return row ? { id, offset: row.getBoundingClientRect().top - element.getBoundingClientRect().top,
+        geometry: { at: performance.now(), top: element.scrollTop, height: element.clientHeight, width: element.clientWidth,
+          rows: [...element.querySelectorAll('[data-reading-id]')].slice(0, 32).map(item => ({ id: item.dataset.readingId, top: item.getBoundingClientRect().top, height: item.getBoundingClientRect().height })) } } : null;
     }, before.id);
     assert.ok(after, `${label}: reading anchor must remain mounted`);
     const drift = Math.abs(after.offset - before.offset);
+    if (drift > 2) {
+      const samples = [];
+      for (let index = 0; index < 12; index++) {
+        samples.push(await reading.evaluate((element, id) => {
+          const row = [...element.querySelectorAll('[data-reading-id]')].find(row => row.dataset.readingId === id);
+          return { at: performance.now(), top: element.scrollTop, height: element.clientHeight, width: element.clientWidth,
+            rowTop: row?.getBoundingClientRect().top - element.getBoundingClientRect().top,
+            rows: [...element.querySelectorAll('[data-reading-id]')].slice(0, 32).map(row => ({ id: row.dataset.readingId, top: row.getBoundingClientRect().top, height: row.getBoundingClientRect().height })) };
+        }, before.id));
+        await page.waitForTimeout(100);
+      }
+      await writeFile(join(directory, `${name}-agent-dock-anchor-failure.json`), JSON.stringify({ label, before, after, drift, samples }, null, 2));
+    }
     assert.ok(drift <= 2, `${label}: reading anchor moved ${drift}px`);
-    readingChecks.push({ label, drift });
+    readingChecks.push({ label, drift, before, after });
   };
   const draft = 'Keep this root draft while I inspect delegated work.';
   const childDraft = 'This draft belongs only to the child.';
@@ -286,10 +305,8 @@ export async function checkAgentDock({ page, client, root, frames, directory, na
     }), 'Last agent row remains fully visible and hit-testable above composer');
     await expect(lastRow).toHaveCSS('outline-offset', '-2px');
     await screenshot(`${appearance.theme}-expanded`);
-    assert.deepEqual(await page.evaluate(() => window.cspErrors), []);
   }
   await page.emulateMedia({ reducedMotion: 'no-preference' });
-  assert.deepEqual(await page.evaluate(() => window.cspErrors), []);
   return {
     childHistoryReads: childReads().length, readingChecks,
     checks: ['single-line summary and keyboard disclosure', 'no eager child transcript reads',

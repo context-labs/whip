@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
@@ -9,7 +8,6 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/tui/ui"
 )
 
@@ -114,45 +112,6 @@ func (m *nativeModel) layoutCommand(name string) tea.Cmd {
 	m.input.Reset()
 	m.refresh()
 	return nil
-}
-
-// Draft text stays on its original owner when opening another transcript. This
-// client-local cache is bounded and never injected into history or resubmitted.
-func (m *nativeModel) switchDraft(owner protocol.ID) (string, error) {
-	current := m.input.Value()
-	if strings.HasPrefix(strings.TrimSpace(current), "/") {
-		current = ""
-	}
-	bytes := len(current)
-	count := 0
-	for id, text := range m.drafts {
-		if id != m.owner.ID {
-			bytes += len(text)
-			if text != "" {
-				count++
-			}
-		}
-	}
-	if current != "" {
-		count++
-	}
-	if len(current) > 256<<10 || bytes > 1<<20 || count > 16 {
-		return "", errors.New("local draft capacity reached; save or clear a draft before switching owners")
-	}
-	next := m.drafts[owner]
-	if m.drafts == nil {
-		m.drafts = map[protocol.ID]string{}
-	}
-	if current == "" {
-		delete(m.drafts, m.owner.ID)
-	} else {
-		m.drafts[m.owner.ID] = current
-	}
-	delete(m.drafts, owner)
-	if owner == m.owner.ID {
-		return current, nil
-	}
-	return next, nil
 }
 
 func nativeFixedRows(value string, width, height int) string {
