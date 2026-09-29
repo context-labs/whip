@@ -105,6 +105,29 @@ export class Client {
     return this.call('providers.list', {}, options);
   }
 
+  /** Bounded local credential evidence. Never publishes a route or runs a command. */
+  providerCandidates(options: CallOptions = {}): Promise<Operations['providers.candidates']['result']> {
+    return this.call('providers.candidates', {}, options);
+  }
+
+  useProviderCandidate(params: Operations['providers.use_candidate']['params'], options: CallOptions = {}): Promise<Operations['providers.use_candidate']['result']> {
+    return this.call('providers.use_candidate', params, options);
+  }
+
+  setProviderEnabled(params: Operations['providers.set_enabled']['params'], options: CallOptions = {}): Promise<Operations['providers.set_enabled']['result']> {
+    return this.call('providers.set_enabled', params, options);
+  }
+
+  /** Clears only this host's owned credentials; inspect preserved/partial outcomes. */
+  disconnectProvider(params: Operations['providers.disconnect']['params'], options: CallOptions = {}): Promise<Operations['providers.disconnect']['result']> {
+    return this.call('providers.disconnect', params, options);
+  }
+
+  /** Saves the complete Providers defaults form under one host revision. */
+  setProviderPreferences(params: Operations['providers.set_preferences']['params'], options: CallOptions = {}): Promise<Operations['providers.set_preferences']['result']> {
+    return this.call('providers.set_preferences', params, options);
+  }
+
   /** Explicit CAS edit. After lost delivery, reread; never automatically replay key publication. */
   createProvider(params: Operations['providers.create']['params'], options: CallOptions = {}): Promise<Operations['providers.create']['result']> {
     return this.call('providers.create', params, options);

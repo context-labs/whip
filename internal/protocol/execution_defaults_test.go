@@ -6,7 +6,7 @@ import (
 )
 
 func TestExecutionDefaultsContractsRetainExactCountersAndBounds(t *testing.T) {
-	base := map[string]any{"revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "engine": "quickjs", "effort": "high", "compaction_percent": 0, "goal_max_continuations": "9007199254740993", "max_attempts": 3}
+	base := map[string]any{"revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "engine": "quickjs", "effort": "high", "compaction_percent": 0, "goal_max_continuations": "9007199254740993", "max_attempts": 3, "preferences": ExecutionPreferences{Engine: "quickjs"}}
 	for _, tc := range []struct {
 		field string
 		value any
@@ -15,7 +15,9 @@ func TestExecutionDefaultsContractsRetainExactCountersAndBounds(t *testing.T) {
 		{"max_attempts", 1, true},
 		{"max_attempts", 5, true},
 		{"max_attempts", 0, false},
-		{"max_attempts", 6, false},
+		{"max_attempts", 6, true},
+		{"max_attempts", 9007199254740991, true},
+		{"max_attempts", 9007199254740992, false},
 		{"goal_max_continuations", "0", true},
 		{"goal_max_continuations", "9223372036854775807", true},
 		{"goal_max_continuations", "9223372036854775808", false},

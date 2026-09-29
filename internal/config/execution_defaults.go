@@ -38,8 +38,8 @@ func (d ExecutionDefaults) Validate() error {
 	if err := d.Engine.Validate(); err != nil {
 		return err
 	}
-	if d.MaxAttempts < 1 || d.MaxAttempts > 5 || d.GoalMaxContinuations < 0 {
-		return fmt.Errorf("%w: attempts must be 1–5 and additional goal continuations must be nonnegative", session.ErrInvalid)
+	if d.MaxAttempts < 1 || d.MaxAttempts > session.MaxModelAttempts || d.GoalMaxContinuations < 0 {
+		return fmt.Errorf("%w: attempts must be a positive exact integer and additional goal continuations must be nonnegative", session.ErrInvalid)
 	}
 	if err := (session.CompactionPolicy{ThresholdPercent: d.CompactionPercent}).Validate(); err != nil {
 		return err

@@ -16,6 +16,7 @@ import (
 
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/openaiauth"
+	"github.com/context-labs/whip/internal/session"
 )
 
 var (
@@ -288,26 +289,47 @@ func (s *Service) setup(ctx context.Context) error {
 }
 
 func (s *Service) Logout(ctx context.Context) (Status, error) {
+	return s.logout(ctx, func(clear func() error) error { return clear() })
+}
+
+// LogoutProvider orders the revision/shared-source check and local revocation
+// under the existing login lock, so an older flow cannot publish afterward.
+func (s *Service) LogoutProvider(ctx context.Context, revision, id string) (Status, config.ProviderDisconnect, error) {
+	var result config.ProviderDisconnect
+	status, err := s.logout(ctx, func(clear func() error) error {
+		var err error
+		result, err = s.config.DisconnectProvider(ctx, revision, id, "openai-codex", clear)
+		return err
+	})
+	return status, result, err
+}
+
+func (s *Service) logout(ctx context.Context, guard func(func() error) error) (Status, error) {
 	s.mu.Lock()
 	if err := s.check(ctx); err != nil {
 		s.mu.Unlock()
 		return Status{}, err
 	}
 	done := make([]<-chan struct{}, 0, len(s.flows))
-	for _, flow := range s.flows {
-		if flow.view.State == Authorizing {
-			s.finish(flow, Interrupted, "")
-			flow.cancel()
+	err := guard(func() error {
+		for _, flow := range s.flows {
+			if flow.view.State == Authorizing {
+				s.finish(flow, Interrupted, "")
+				flow.cancel()
+			}
+			done = append(done, flow.done)
 		}
-		done = append(done, flow.done)
-	}
-	err := s.auth.Logout()
+		return s.auth.Logout()
+	})
 	result := s.status(ctx)
 	s.mu.Unlock()
 	for _, finished := range done {
 		<-finished
 	}
 	if err != nil {
+		if errors.Is(err, config.ErrRevisionConflict) || errors.Is(err, session.ErrInvalid) {
+			return result, err
+		}
 		return result, ErrLogout
 	}
 	return result, nil

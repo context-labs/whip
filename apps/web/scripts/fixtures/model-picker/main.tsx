@@ -18,7 +18,7 @@ const models: CatalogModel[] = Array.from({ length: 40 }, (_, index) => ({
   reasoning_efforts: ['low', 'high'], supports_tools: true, metadata_source: 'bundled', prices: unknownPrices,
 }));
 const catalog: ModelCatalog = {
-  inventory: { revision: 'a'.repeat(64), routes: [], defaults: null, compaction_model: null }, truncated: false,
+  inventory: { revision: 'a'.repeat(64), routes: [], defaults: null, compaction_model: null, permission_mode: 'prompt' }, truncated: false,
   providers: [{ id: provider, models }, { id: 'alternate', models: models.slice(0, 1) },
     { id: 'custom-provider-with-a-very-long-name', models: models.slice(1, 2) }].map(entry => ({ ...entry,
       catalog: { provider: entry.id, state: 'missing', scope_state: 'unverified', discovery: 'not_checked', fetched_at: null, stale: false, failure: null, models: [] },

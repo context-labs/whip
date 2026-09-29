@@ -98,6 +98,10 @@ export class Hosts {
     return this.client.call('host.skills.set_defaults', { expected_revision: expectedRevision, roots }, options);
   }
   executionDefaults(options: CallOptions = {}) { return this.client.call('host.execution_defaults', {}, options); }
+  /** Saves the Execution form atomically. Zero attempts and null goal limit retain host default intent. */
+  setExecutionPreferences(expectedRevision: string, preferences: Params<'host.set_execution_preferences'>['preferences'], options: CallOptions = {}) {
+    return this.client.call('host.set_execution_preferences', { expected_revision: expectedRevision, preferences }, options);
+  }
   /** Attempts include the initial request; goal continuations exclude its initial input. Reread after uncertain CAS delivery. */
   setExecutionDefaults(expectedRevision: string, defaults: Params<'host.set_execution_defaults'>['defaults'], options: CallOptions = {}) {
     return this.client.call('host.set_execution_defaults', { expected_revision: expectedRevision, defaults }, options);

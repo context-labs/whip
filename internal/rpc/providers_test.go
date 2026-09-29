@@ -286,3 +286,42 @@ func TestProviderSocketReadsNeverExecuteCredentialCommandAndUpdateKeepsItPrivate
 		}
 	}
 }
+
+func TestProviderPreferenceFormsAndEnableStateOverSocket(t *testing.T) {
+	f := newProviderFixture(t)
+	created := createProviderFixture(t, f)
+	selected := protocol.ModelSelection{Provider: "custom", Name: "chat"}
+	saved := call[protocol.ProviderInventory](t, f.client, "providers.set_preferences", protocol.ProviderPreferencesParams{Revision: created.Revision, Defaults: protocol.ProviderDefaults{Selection: &selected}, PermissionMode: "automatic"})
+	if saved.PermissionMode != "automatic" || saved.Defaults.Name != "chat" {
+		t.Fatal("provider form fields did not publish together", saved)
+	}
+	values := protocol.ExecutionPreferences{Engine: "quickjs", CompactionPercent: 60, CompactionModel: protocol.ProviderDefaults{Selection: &selected}, MaxAttempts: 8, ImportClaude: false, ImportCodex: true}
+	written := call[protocol.HostExecutionDefaults](t, f.client, "host.set_execution_preferences", protocol.SetExecutionPreferencesParams{ExpectedRevision: saved.Revision, Preferences: values})
+	if written.MaxAttempts != 8 || written.GoalMaxContinuations != 100 || written.Preferences.GoalMaxContinuations != nil || written.Preferences.CompactionModel.Selection.Name != "chat" || written.Preferences.ImportClaude {
+		t.Fatal("execution form lost values or default intent", written)
+	}
+	requireHistoryError(t, f.client, "providers.set_preferences", protocol.ProviderPreferencesParams{Revision: saved.Revision, Defaults: protocol.ProviderDefaults{}, PermissionMode: "prompt"}, "CONFLICT")
+	disabled := call[protocol.ProviderInventory](t, f.client, "providers.set_enabled", protocol.SetProviderEnabledParams{Revision: written.Revision, Provider: "custom", Enabled: false})
+	ready := call[protocol.ProviderReadiness](t, f.client, "providers.readiness", protocol.ProviderReadinessParams{Selection: selected})
+	if !disabled.Routes[0].Disabled || !ready.Disabled || ready.CredentialState != "available" || f.requests.Load() != 0 {
+		t.Fatal("disable erased credentials or contacted provider", ready)
+	}
+}
+
+func TestProviderDisconnectSocketClearsOwnedKeyAndCatalog(t *testing.T) {
+	f := newProviderFixture(t)
+	created := createProviderFixture(t, f)
+	call[protocol.ProviderCatalog](t, f.client, "providers.refresh", protocol.ProviderParams{Provider: "custom"})
+	result := call[protocol.ProviderDisconnectResult](t, f.client, "providers.disconnect", protocol.DisconnectProviderParams{Revision: created.Revision, Provider: "custom"})
+	if result.CredentialState != "cleared" || result.LocalFailure != nil || result.Inventory.Routes[0].Credential.State == "available" {
+		t.Fatal("disconnect did not clear owned source", result)
+	}
+	if _, err := os.Stat(created.Routes[0].Credential.File); !os.IsNotExist(err) {
+		t.Fatal("owned file survived", err)
+	}
+	catalog := call[protocol.ProviderCatalog](t, f.client, "providers.catalog", protocol.ProviderParams{Provider: "custom"})
+	if catalog.State != "missing" || len(catalog.Models) != 0 || f.requests.Load() != 1 {
+		t.Fatal("disconnect retained/refreshed catalog", catalog)
+	}
+	requireHistoryError(t, f.client, "providers.disconnect", protocol.DisconnectProviderParams{Revision: created.Revision, Provider: "custom"}, "CONFLICT")
+}

@@ -140,6 +140,33 @@ leaf. Renderer binding and comparative A8/A9 acceptance still follow.
 
 Response controls are draft [#292](https://github.com/context-labs/whip/pull/292).
 
+## Increment 7 — providers and atomic settings (G2–G4 / G10–G11 / A5–A6)
+
+Restored focused key/account flows, Back/Cancel, detected/connected/disabled
+groups, source evidence, suggested models and the reference model picker.
+Detection reads do not publish a route, run credential commands or infer.
+Explicit Use rereads bundled/catalog model settings, preserving the real
+`kimi-k3-fast` 1,048,576 output ceiling. Disabled providers are excluded from
+ordinary model choices without deleting their credentials.
+
+Providers and Execution each have one atomic Save with their captured revision.
+Default effort, goal zero/default intent, accepted attempt ranges, conversation
+summary model, compaction threshold, engine and import preferences are retained.
+Clean forms follow fresh host reads; edited/error forms keep draft and revision.
+Disconnect only clears owned credentials; shared/external sources and partial
+cleanup receive truthful outcomes. Account cancellation, guarded publication and
+credential revision checks prevent stale login from republishing after removal.
+
+Integrated backend source leaves `3b7e65b3b`, `55acbc7b5`, SDK `8fbed96e7`,
+UI `69aee18f6`; duplicate startup hunks were resolved with their disabled/Default
+extensions. Nine affected Go packages pass race tests in the leaf. Combined
+protocol18/drift, all219 SDK tests/type checks, app types and79 provider/settings/
+model/welcome tests pass. Three added startup fixtures needed the new required
+disabled field; their product assertions are unchanged. Browser A5/A6 is running
+with disposable credentials; no live provider inference is used.
+
+Execution SDK is draft [#293](https://github.com/context-labs/whip/pull/293).
+
 ## Remaining work
 
 Backend/provider/settings/terminal and durable presentation prerequisites are

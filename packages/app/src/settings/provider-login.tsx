@@ -14,9 +14,9 @@ export async function readLoginFlows(client: Client, signal: AbortSignal): Promi
   const [inference, openai] = await Promise.all([client.listInferenceLogins({ signal }), client.listOpenAILogins({ signal })]);
   return [...inference.items.map(value => ({ provider: 'inference-net' as const, value })), ...openai.items.map(value => ({ provider: 'openai-codex' as const, value }))];
 }
-export function LoginFlow({ flow, client, enabled, hostName, update, refresh, leave, autoOpen = false }: {
+export function LoginFlow({ flow, client, enabled, hostName, update, refresh, prepareSetup, leave, autoOpen = false }: {
   flow: AccountFlow; client: Client; enabled: boolean; hostName: string;
-  update(flow: AccountFlow): Promise<void>; refresh(): Promise<void>; leave(message?: string): void; autoOpen?: boolean;
+  update(flow: AccountFlow): Promise<void>; refresh(): Promise<void>; prepareSetup?(signal: AbortSignal): Promise<void>; leave(message?: string): void; autoOpen?: boolean;
 }) {
   const runtime = useRuntime();
   const value = flow.value;
@@ -93,6 +93,7 @@ export function LoginFlow({ flow, client, enabled, hostName, update, refresh, le
         {choosingTeam && <Button variant="primary" disabled={busy || !team} type="submit">Continue</Button>}
         {choosingProject && <><Button variant="ghost" disabled={busy} onClick={() => { if (creating) setCreating(false); else setWorkspace(true); }}>Choose workspace</Button><Button variant="primary" disabled={busy || (creatingProject ? !name.trim() : !project)} type="submit">{creatingProject ? 'Create and connect' : 'Connect'}</Button></>}
         {recoverable && <Button variant="primary" disabled={busy} onClick={() => void action(async signal => {
+          if (value.state === 'setup_required') await prepareSetup?.(signal);
           if (flow.provider === 'inference-net') return wrapInference(client.retryInferenceLogin(value.id, { signal }));
           await client.setupOpenAIAccount({ signal }); leave('Saved account route configured.');
         })}>Continue setup</Button>}

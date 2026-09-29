@@ -44,21 +44,21 @@ func (s *Service) SetupKey(ctx context.Context, revision, id string, key *KeyPub
 			break
 		}
 	}
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
 		return Inventory{}, ErrClosed
 	}
-	if s.active[id] || len(s.active) >= 4 {
+	if s.active[id] != nil || len(s.active) >= 4 {
 		s.mu.Unlock()
 		return Inventory{}, ErrBusy
 	}
-	s.active[id] = true
+	s.active[id] = cancel
 	s.wg.Add(1)
 	s.mu.Unlock()
 	defer func() { s.mu.Lock(); delete(s.active, id); s.mu.Unlock(); s.wg.Done() }()
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
 	stop := context.AfterFunc(s.ctx, cancel)
 	defer stop()
 	var auth authorization

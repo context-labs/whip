@@ -22,7 +22,10 @@ it('saves logo policy alone against the observed host revision', async () => {
   const f = await mcpFixture(); f.mount(<MCPImportSettings client={f.client} enabled />); const control = await screen.findByRole('switch', { name: 'Look up MCP server logos on DuckDuckGo' }); await waitFor(() => expect(control.hasAttribute('disabled')).toBe(false));
   fireEvent.click(control); await waitFor(() => expect(f.count('mcp.configure')).toBe(1)); expect(f.calls.find(call => call.method === 'mcp.configure')?.params).toEqual({ revision, name: '', server: null, remove: false, imports: null, brand_icons: true });
 });
-it('import source edits preserve the other source filters and never connect', async () => {
-  const f = await mcpFixture(); f.mount(<MCPImportSettings client={f.client} enabled />); const control = await screen.findByRole('switch', { name: 'Import Claude configuration' }); await waitFor(() => expect(control.hasAttribute('disabled')).toBe(false));
-  fireEvent.click(control); await waitFor(() => expect(f.count('mcp.configure')).toBe(1)); expect(f.calls.find(call => call.method === 'mcp.configure')?.params).toMatchObject({ imports: { claude: { enabled: false, only: [], exclude: [] }, codex: null, opencode: null, project: null, offered: false }, brand_icons: null }); expect(f.count('mcp.refresh')).toBe(0);
+it('keeps source preferences in the single Execution form and opening MCP settings never changes them', async () => {
+  const f = await mcpFixture(); f.mount(<MCPImportSettings client={f.client} enabled />);
+  await screen.findByRole('switch', { name: 'Look up MCP server logos on DuckDuckGo' });
+  expect(screen.queryByRole('switch', { name: 'Import Claude configuration' })).toBeNull();
+  expect(screen.queryByRole('switch', { name: 'Import Codex configuration' })).toBeNull();
+  expect(f.count('mcp.configure')).toBe(0); expect(f.count('mcp.refresh')).toBe(0);
 });

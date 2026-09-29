@@ -14,6 +14,9 @@
             "type": "string",
             "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
           },
+          "disabled": {
+            "type": "boolean"
+          },
           "kind": {
             "type": "string",
             "enum": [
@@ -151,7 +154,7 @@
                 "max_attempts": {
                   "type": "integer",
                   "minimum": 0,
-                  "maximum": 5
+                  "maximum": 9007199254740991
                 }
               },
               "required": [
@@ -172,6 +175,7 @@
         },
         "required": [
           "id",
+          "disabled",
           "kind",
           "base_url",
           "credential",
@@ -262,6 +266,13 @@
         "effort"
       ],
       "additionalProperties": false
+    },
+    "permission_mode": {
+      "type": "string",
+      "enum": [
+        "prompt",
+        "automatic"
+      ]
     }
   },
   "$id": "https://whip.dev/protocol/v4/ProviderInventory",
@@ -271,7 +282,8 @@
     "revision",
     "routes",
     "defaults",
-    "compaction_model"
+    "compaction_model",
+    "permission_mode"
   ],
   "additionalProperties": false
 }

@@ -18,13 +18,16 @@ import (
 
 const (
 	FileName = "host.json"
-	Version  = 21
+	Version  = 22
 )
 
 type Provider struct {
-	Kind          string `json:"kind"`
-	BaseURL       string `json:"base_url"`
-	CredentialEnv string `json:"credential_env"`
+	// CredentialEpoch invalidates stale setup/catalog work after Disconnect.
+	CredentialEpoch uint64 `json:"credential_epoch,omitempty"`
+	Disabled        bool   `json:"disabled,omitempty"`
+	Kind            string `json:"kind"`
+	BaseURL         string `json:"base_url"`
+	CredentialEnv   string `json:"credential_env"`
 	// CredentialSource selects env, file, command, none, or inference-net.
 	// Empty retains the explicit CredentialEnv/no-auth shorthand. URLs never
 	// select a credential, and resolution never discovers other host files.
@@ -74,8 +77,8 @@ func (m Model) resolve(defaultOutput int64) (Model, error) {
 	if m.TimeoutMillis < 1 || m.TimeoutMillis > 600000 {
 		return Model{}, fmt.Errorf("%w: provider timeout must be 1–600000 milliseconds", session.ErrInvalid)
 	}
-	if m.MaxAttempts < 1 || m.MaxAttempts > 5 {
-		return Model{}, fmt.Errorf("%w: model attempts must be 1–5", session.ErrInvalid)
+	if m.MaxAttempts < 1 || m.MaxAttempts > session.MaxModelAttempts {
+		return Model{}, fmt.Errorf("%w: model attempts must be a positive exact integer", session.ErrInvalid)
 	}
 	return m, m.Prices.Validate()
 }

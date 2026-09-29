@@ -93,7 +93,7 @@ func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) 
 	if (route.Kind == "openai-responses" || route.Kind == "openai-codex") && (request.Selection.Temperature != nil || request.Selection.TopP != nil) {
 		return Prepared{}, fmt.Errorf("%w: temperature and top_p are unsupported by this Responses route", session.ErrInvalid)
 	}
-	if route.MaxAttempts < 1 || route.MaxAttempts > 5 {
+	if route.MaxAttempts < 1 || route.MaxAttempts > session.MaxModelAttempts {
 		return Prepared{}, fmt.Errorf("%w: invalid provider attempt limit", session.ErrInvalid)
 	}
 	if route.Kind == "openai-codex" {

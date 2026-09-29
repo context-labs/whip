@@ -6103,6 +6103,15 @@ rewind is blocked both at the control and confirmation. Focused checks cover
 131 tests and app TypeScript; comparative browser acceptance remains pending.
 See the [implementation record](frontend-ux-restoration-progress.md).
 
+## 2026-09-29 — provider and settings UX restoration
+
+Integrated focused provider flows, explicit credential candidates, disabled-route
+state, source-aware Disconnect and atomic Providers/Execution forms. Config22
+reads21 without a read-side rewrite. Original default intent and model metadata
+remain explicit. Combined protocol, SDK219, app types and79 focused UI tests pass;
+browser parity remains in progress. See the
+[restoration record](frontend-ux-restoration-progress.md).
+
 ## 2026-09-29 — bounded execution SDK and chronological cells
 
 Added exact timestamped message hydration, native cell ordinal paging and stable

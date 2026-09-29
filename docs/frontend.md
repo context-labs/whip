@@ -355,35 +355,44 @@ Access, standing grants, intrinsic questions and tool-denial policy are distinct
 
 ### Provider and model settings
 
-Provider screens use `Client.listProviders()` for explicit host routes and local
-credential evidence, with offline presets kept separate. Opening Settings or New
-Chat never discovers credentials, refreshes a provider catalog, starts sign-in,
-or changes a default. Cached and bundled model reads do not establish inference
-access. Unknown token prices remain null and display as unknown; exact decimal
-prices are formatted without passing through a JavaScript number. A current,
-successful empty provider catalog is not filled from the offline bundle.
+Provider screens read explicit host routes and a bounded set of candidate sources
+through `Client.listProviders()` and `providerCandidates()`. Candidate evidence is
+read-only: it contains source labels and availability, never secret values, and
+never runs credential commands or publishes routes. Opening Settings or New Chat
+does not refresh a catalog, start sign-in, or change a default. Using a detected
+source is an explicit CAS operation. Cached and bundled model reads do not
+establish inference access. Unknown token prices remain null and display as
+unknown; exact decimal prices are formatted without a JavaScript number. A
+current, successful empty catalog is not filled from the offline bundle.
 
-Model catalogs retain at most 4,096 choices and report truncation. A user can enter
-an exact model/provider in settings. Session model edits target the selected root
-or child using its exact configuration revision. Missing activity disables edits;
-it does not imply the session is idle. Model changes clear the old reasoning
-effort. Host model, compaction-model, and permission defaults have separate
-revisioned saves and affect future work only. Conflict or uncertain publication
-refreshes evidence without replaying the edit or adopting a fresh revision.
+Model catalogs retain at most 4,096 choices and report truncation. Session model
+edits use the selected root's exact configuration revision; child model controls
+remain read-only. Missing activity disables edits rather than implying idle.
+Model changes clear old effort, and **Default** is distinct from provider-defined
+**Off**. Providers settings saves model, effort and permission in one host CAS.
+Execution settings saves engine, compaction, limits and MCP source preferences in
+one host CAS. Conversation Model leaves compaction selection unset. Zero attempts
+means the host default; the raw goal preference distinguishes null/default from
+an explicit zero-continuation policy. These defaults affect future work only.
+Conflict or uncertain publication refreshes evidence without replaying the edit
+or adopting a fresh revision; the form retains the complete draft.
 
-Account flows retain their native Inference.net/OpenAI shapes. The UI polls only
-actively progressing flows, uses list/get to inspect lost acknowledgements, and
-exposes known persistence/setup/cleanup recovery explicitly. Uncertain project or
-key creation is never retried automatically. Pasted keys remain in the form only;
-an explicit retry of an unconfirmed publication retains the same key identity.
-Secrets never enter query data, saved commands, or the recovery journal.
+Account flows retain their native Inference.net/OpenAI shapes behind the focused
+reference login and key forms. The UI polls only actively progressing flows,
+uses list/get to inspect lost acknowledgements, and exposes known persistence,
+setup and cleanup recovery explicitly. Uncertain project or key creation is
+never retried automatically. Pasted keys remain in the form only; an explicit
+retry of an unconfirmed publication retains the same key identity. Secrets never
+enter query data, saved commands, or the recovery journal.
 
-Provider removal is explicitly labeled **Remove configured route**. It is a CAS
-operation, preserves credential files and remote accounts, and rejects dangling
-defaults. The v4 route contract has no disabled-provider flag; the UI does not
-present removal as a reversible disable operation. Account logout reports local
-revocation and remote cleanup separately. Configuring an account leaves model
-defaults unchanged, and choosing a default never submits an existing chat draft.
+Disable/Enable persists route state without changing its credentials or defaults.
+Disconnect uses the host's source-aware cleanup: owned key files may be removed,
+external credentials are preserved with an explanation, and shared credentials
+are kept while the selected route is disabled. Local and remote cleanup failures
+remain explicit and retryable. Advanced **Remove configured route** is a separate
+CAS operation that preserves credentials and rejects dangling defaults.
+Connecting an account leaves model defaults unchanged, and choosing a default
+never submits an existing chat draft.
 
 ### Dedicated Settings workspace
 

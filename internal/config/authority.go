@@ -167,6 +167,11 @@ func snapshot(raw []byte) (Snapshot, error) {
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
 		return Snapshot{}, fmt.Errorf("%w: trailing host configuration data", session.ErrInvalid)
 	}
+	// Version 22 adds optional provider lifecycle metadata. Reading a version 21
+	// file is side-effect free; its next changed publication uses the new version.
+	if host.Version == 21 {
+		host.Version = Version
+	}
 	if err := host.Validate(); err != nil {
 		return Snapshot{}, err
 	}

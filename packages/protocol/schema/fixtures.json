@@ -159,7 +159,19 @@
       "compaction_percent": 0,
       "goal_max_continuations": "9007199254740993",
       "max_attempts": 3,
-      "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+      "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "preferences": {
+        "engine": "quickjs",
+        "compaction_percent": 0,
+        "compaction_model": {
+          "selection": null,
+          "settings": null
+        },
+        "goal_max_continuations": null,
+        "max_attempts": 0,
+        "import_claude": false,
+        "import_codex": false
+      }
     },
     "valid": true
   },
@@ -1827,7 +1839,8 @@
       "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
       "routes": [],
       "defaults": null,
-      "compaction_model": null
+      "compaction_model": null,
+      "permission_mode": "prompt"
     },
     "valid": true
   },
@@ -1924,6 +1937,7 @@
     "type": "ProviderReadiness",
     "value": {
       "configured": true,
+      "disabled": false,
       "credential_state": "unchecked",
       "catalog_state": "missing",
       "model_state": "unknown",

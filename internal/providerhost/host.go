@@ -21,6 +21,7 @@ import (
 var (
 	ErrInvalid     = errors.New("invalid provider setup operation")
 	ErrMissing     = errors.New("provider route is not configured")
+	ErrDisabled    = errors.New("provider route is disabled")
 	ErrExists      = errors.New("provider route already exists")
 	ErrClosed      = errors.New("provider host service is closed")
 	ErrBusy        = errors.New("provider catalog refresh is already active or at capacity")
@@ -41,6 +42,7 @@ type CredentialStatus struct {
 // credential captures are intentionally absent from public inspection.
 type Route struct {
 	ID         string                  `json:"id"`
+	Disabled   bool                    `json:"disabled"`
 	Kind       string                  `json:"kind"`
 	BaseURL    string                  `json:"base_url"`
 	Credential CredentialStatus        `json:"credential"`
@@ -52,6 +54,7 @@ type Inventory struct {
 	Routes          []Route                 `json:"routes"`
 	Defaults        session.ModelSelection  `json:"defaults"`
 	CompactionModel *session.ModelSelection `json:"compaction_model"`
+	PermissionMode  session.PermissionMode  `json:"permission_mode"`
 }
 
 // KeyPublication is a transient input, never a saved host declaration. Reuse ID
@@ -87,7 +90,7 @@ type Service struct {
 	mu        sync.Mutex
 	wg        sync.WaitGroup
 	closed    bool
-	active    map[string]bool
+	active    map[string]context.CancelFunc
 	catalogs  map[string]catalogEntry
 }
 
@@ -108,7 +111,7 @@ func New(ctx context.Context, authority *config.Authority, client *http.Client, 
 	value.Jar = nil
 	value.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	ctx, cancel := context.WithCancel(ctx)
-	return &Service{ctx: ctx, cancel: cancel, config: authority, http: &value, lookup: lookup, openAI: openAI, inference: inference, active: map[string]bool{}, catalogs: map[string]catalogEntry{}}, nil
+	return &Service{ctx: ctx, cancel: cancel, config: authority, http: &value, lookup: lookup, openAI: openAI, inference: inference, active: map[string]context.CancelFunc{}, catalogs: map[string]catalogEntry{}}, nil
 }
 
 func (s *Service) check(ctx context.Context) error {
@@ -138,9 +141,10 @@ func (s *Service) List(ctx context.Context) (Inventory, error) {
 		return Inventory{}, err
 	}
 	result := Inventory{Revision: value.Revision, Routes: []Route{}, Defaults: value.Host.Defaults.Model.Clone(), CompactionModel: value.Host.Defaults.Compaction.Model}
+	result.PermissionMode, _ = session.ResolvePermissionMode(value.Host.DefaultPermissionMode)
 	for id, provider := range value.Host.Providers {
 		status, _, _ := s.inspect(ctx, provider)
-		result.Routes = append(result.Routes, Route{ID: id, Kind: provider.Kind, BaseURL: provider.BaseURL, Credential: status, Models: provider.Models})
+		result.Routes = append(result.Routes, Route{ID: id, Disabled: provider.Disabled, Kind: provider.Kind, BaseURL: provider.BaseURL, Credential: status, Models: provider.Models})
 	}
 	slices.SortFunc(result.Routes, func(a, b Route) int { return strings.Compare(a.ID, b.ID) })
 	s.mu.Lock()
@@ -180,6 +184,10 @@ func (s *Service) save(ctx context.Context, change Change, creating bool) (Inven
 		return Inventory{}, ErrMissing
 	}
 	provider := change.Provider
+	if exists {
+		provider.Disabled = previous.Disabled
+		provider.CredentialEpoch = previous.CredentialEpoch
+	}
 	if change.KeepCredential {
 		if creating || change.Key != nil || previous.BaseURL != provider.BaseURL || previous.Kind != provider.Kind {
 			return Inventory{}, ErrInvalid
@@ -335,4 +343,15 @@ func (s *Service) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	clear(s.catalogs)
+}
+
+// ClearDiscovery cancels work accepted before Disconnect and removes its local
+// observations. The authority's changed credential epoch rejects late writers.
+func (s *Service) ClearDiscovery(id string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if cancel := s.active[id]; cancel != nil {
+		cancel()
+	}
+	delete(s.catalogs, id)
 }

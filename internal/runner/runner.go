@@ -453,7 +453,7 @@ func (r *Runner) completePrepared(ctx context.Context, turn session.Turn, prepar
 		}
 		// Only an explicit retryable provider response permits another dispatch.
 		// Network uncertainty and settlement failures never automatically replay.
-		delay := min(max(time.Duration(number)*time.Second, failure.RetryAfter), time.Minute)
+		delay := min(max(time.Duration(min(number, 60))*time.Second, failure.RetryAfter), time.Minute)
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
@@ -469,8 +469,8 @@ func validatePrepared(prepared model.Prepared) error {
 	if prepared.Execute == nil {
 		return errors.New("provider returned no executable request")
 	}
-	if prepared.MaxAttempts > 5 {
-		return errors.New("provider attempt limit exceeds five")
+	if prepared.MaxAttempts > session.MaxModelAttempts {
+		return errors.New("provider attempt limit exceeds the exact integer bound")
 	}
 	return nil
 }

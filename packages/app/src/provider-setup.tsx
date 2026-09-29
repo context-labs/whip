@@ -5,10 +5,10 @@ import { Button } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
 import { CatalogModelPicker, useProviderCatalog } from './model-selection';
-import { modelSettings } from './model-options';
+import { modelSettings, readModelCatalog } from './model-options';
 import { SettingsGroup } from './settings/section-layout';
 import { errorMessage } from './platform';
-import { ProviderConnectionDialog, ProviderConnectionList, ProviderConnectionRow, type ProviderEntry, type useProviderConnections, locallyAvailable } from './settings/provider-connections';
+import { ProviderConnectionDialog, ProviderConnectionList, ProviderConnectionRow, type ProviderEntry, type useProviderConnections, locallyAvailable, preferredCandidate } from './settings/provider-connections';
 
 type Connections = ReturnType<typeof useProviderConnections>;
 
@@ -16,7 +16,7 @@ type Connections = ReturnType<typeof useProviderConnections>;
 export function ProviderSetup({ client, enabled, hostName, connections, onReady, actions, onExpandedChange }: {
   client: Client; enabled: boolean; hostName: string; connections: Connections; onReady(): void; actions?: ReactNode; onExpandedChange?(expanded: boolean): void;
 }) {
-  const { inventory, flows, refresh, entries } = connections;
+  const { inventory, candidates, flows, refresh, entries } = connections;
   const available = entries.filter(locallyAvailable);
   const [selected, setSelected] = useState<string>();
   const [connecting, setConnecting] = useState<string>();
@@ -40,7 +40,14 @@ export function ProviderSetup({ client, enabled, hostName, connections, onReady,
     const controller = new AbortController(); request.current = controller;
     setBusy(true); setError('');
     try {
-      await client.setProviderDefaults({ revision: inventory.data.revision, defaults: { selection: { name: model, provider: candidate.id, effort: '' }, settings: modelSettings(catalog.data, candidate.id, model) } }, { signal: controller.signal });
+      let current = inventory.data;
+      if (!candidate.route) {
+        const detected = preferredCandidate(candidate);
+        if (!detected) throw new Error('Choose a connection method first');
+        current = await client.useProviderCandidate({ revision: current.revision, provider: detected.provider, source: detected.source, environment: detected.environment }, { signal: controller.signal });
+      }
+      const models = await readModelCatalog(client, controller.signal, candidate.id);
+      await client.setProviderDefaults({ revision: current.revision, defaults: { selection: { name: model, provider: candidate.id, effort: '' }, settings: modelSettings(models, candidate.id, model) } }, { signal: controller.signal });
       await refresh();
       if (!controller.signal.aborted) onReady();
     } catch (error) {
@@ -55,9 +62,9 @@ export function ProviderSetup({ client, enabled, hostName, connections, onReady,
     {inventory.isPending && <p role="status">Checking providers on {hostName}…</p>}
     {inventory.error && enabled && <ErrorNotice type="resource" owner={`${host}:providers`} title="Could not load providers" error={inventory.error} action={refreshButton} />}
 
-    {!!available.length && <SettingsGroup title="Configured credentials" panelXstyle={styles.providerPanel}>{rows(available)}</SettingsGroup>}
+    {!!available.length && <SettingsGroup title="Already available" panelXstyle={styles.providerPanel}>{rows(available)}</SettingsGroup>}
     {candidate && <div {...stylex.props(styles.confirmation)}>
-      <p {...stylex.props(styles.note)}>Default for new sessions on {hostName}. Your first message makes the request; no inference has been tested.</p>
+      <p {...stylex.props(styles.note)}>Default for new sessions on {hostName}. Your first message makes the request.</p>
       <CatalogModelPicker label="Change model" settings model={model} provider={candidate.id} catalog={catalog.data}
         loading={catalog.isFetching} error={enabled ? catalog.error?.message : undefined} disabled={!enabled || busy}
         onChange={(model, provider) => { setSelected(provider); setPair({ model, provider }); }} />
@@ -68,6 +75,7 @@ export function ProviderSetup({ client, enabled, hostName, connections, onReady,
     <ProviderConnectionList key={host} entries={pending} enabled={enabled && !busy} hostName={hostName} onSelect={choose}
       title={available.length ? 'Connect another provider' : undefined} actions={actions} refresh={refreshButton} onExpandedChange={onExpandedChange} />
     {!inventory.isPending && !inventory.error && !entries.length && <p role="status" {...stylex.props(styles.note)}>No providers are available on this host. Try refreshing or connect a remote host.</p>}
+    {candidates.error && enabled && <ErrorNotice type="resource" owner={`${host}:provider-candidates`} title="Could not check available credentials" error={candidates.error} />}
     {flows.error && enabled && <ErrorNotice type="resource" owner={`${host}:sign-ins`} title="Could not load sign-in progress" error={flows.error} />}
     {error && <ErrorNotice type="action" owner={`${host}:default-model`} title="Could not save the default model" error={error} />}
     {active && inventory.data && <ProviderConnectionDialog key={active.id} client={client} entry={active} enabled={enabled}

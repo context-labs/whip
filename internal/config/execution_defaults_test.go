@@ -51,7 +51,7 @@ func TestExecutionDefaultsCASPersistenceAndIndependentFields(t *testing.T) {
 		func(d *ExecutionDefaults) { d.Engine = "invalid" },
 		func(d *ExecutionDefaults) { d.GoalMaxContinuations = -1 },
 		func(d *ExecutionDefaults) { d.MaxAttempts = 0 },
-		func(d *ExecutionDefaults) { d.MaxAttempts = 6 },
+		func(d *ExecutionDefaults) { d.MaxAttempts = session.MaxModelAttempts + 1 },
 		func(d *ExecutionDefaults) { d.CompactionPercent = 101 },
 		func(d *ExecutionDefaults) { d.Effort = strings.Repeat("x", 65) },
 	} {

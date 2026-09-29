@@ -43,11 +43,12 @@ function daemon(options: { held?: boolean; incompatible?: boolean; fail?: boolea
         case 'host.permission_default': result = { revision, mode: 'prompt' }; break;
         case 'host.execution_defaults': result = { ...wire('HostExecutionDefaults'), revision, engine: 'starlark', effort: '' }; break;
         case 'mcp.configuration': result = { ...wire('MCPConfiguration'), revision, imports: { claude: null, codex: null, project: null, opencode: null, offered: true } }; break;
-        case 'providers.list': result = { revision, routes: options.configured ? [route('openai')] : [], defaults: options.configured ? { provider: 'openai', name: 'gpt-6-astra', effort: '' } : null, compaction_model: null }; break;
+        case 'providers.candidates': result = { revision, items: [] }; break;
+        case 'providers.list': result = { revision, routes: options.configured ? [route('openai')] : [], defaults: options.configured ? { provider: 'openai', name: 'gpt-6-astra', effort: '' } : null, compaction_model: null, permission_mode: 'prompt' }; break;
         case 'providers.presets': result = { items: [{ ...preset('openai'), name: 'OpenAI', suggested_models: ['gpt-6-astra'] }] }; break;
         case 'providers.bundled': result = { items: [model('gpt-6-astra')] }; break;
         case 'providers.catalog': result = { provider: request.params.provider, state: 'missing', scope_state: 'unverified', discovery: 'not_checked', fetched_at: null, stale: false, failure: null, models: [] }; break;
-        case 'providers.readiness': result = { configured: !!options.configured, credential_state: options.configured ? 'available' : 'missing', catalog_state: 'missing', model_state: 'configured', inference_state: 'not_tested' }; break;
+        case 'providers.readiness': result = { configured: !!options.configured, disabled: false, credential_state: options.configured ? 'available' : 'missing', catalog_state: 'missing', model_state: 'configured', inference_state: 'not_tested' }; break;
         case 'host.attention': result = { items: [], next_cursor: null }; break;
         case 'definitions.list': result = { items: [{ ref: { id: 'coding', revision }, name: 'Coding', created_at: '2026-09-28T00:00:00Z' }], next_cursor: null }; break;
         case 'host.skills.complete':

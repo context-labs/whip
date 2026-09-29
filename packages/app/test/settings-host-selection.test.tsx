@@ -17,10 +17,10 @@ afterEach(() => vi.unstubAllGlobals());
 
 async function host(id: string, runtimeId: string) {
   const f = await providerFixture({ runtimeID: runtimeId });
-  const configuration = { revision, engine: 'starlark', effort: 'high', compaction_percent: 75, goal_max_continuations: '8', max_attempts: 2 };
+  const configuration = { revision, engine: 'starlark', effort: 'high', compaction_percent: 75, goal_max_continuations: '8', max_attempts: 2, preferences: { engine: 'starlark', compaction_percent: 75, compaction_model: { selection: null, settings: null }, goal_max_continuations: '8', max_attempts: 2, import_claude: true, import_codex: true } };
   const get = vi.fn(async () => configuration), update = vi.fn(async () => configuration);
   f.data.handlers['host.execution_defaults'] = get;
-  f.data.handlers['host.set_execution_defaults'] = update;
+  f.data.handlers['host.set_execution_preferences'] = update;
   f.data.handlers['mcp.configuration'] = (): MCPConfiguration => ({ revision, servers: [], imports: { offered: false, claude: null, codex: null, opencode: null, project: null }, brand_icons: false });
   f.data.handlers['definitions.list'] = () => ({ items: [], next_cursor: null });
   const record: HostConnection = { id, runtimeId, client: f.client, name: id === 'local' ? 'Local Mac' : 'Remote A', state: 'connected', endpoint: `https://${id}.example`, local: false, connectOnLaunch: false, device: true, profile: { id, label: id, target: { kind: 'url', endpoint: `https://${id}.example` }, runtimeId } };
@@ -43,27 +43,27 @@ async function fixture(loading = false) {
 
 it('pins an implicit execution host and keeps its dirty draft when the host disappears', async () => {
   const f = await fixture();
-  fireEvent.change(await screen.findByLabelText('Maximum attempts'), { target: { value: '5' } });
+  fireEvent.change(await screen.findByLabelText('Retry limit'), { target: { value: '5' } });
   f.publish([f.local.record]);
-  expect((screen.getByLabelText('Maximum attempts') as HTMLInputElement).value).toBe('5');
-  expect((screen.getByLabelText('Maximum attempts') as HTMLInputElement).disabled).toBe(true);
+  expect((screen.getByLabelText('Retry limit') as HTMLInputElement).value).toBe('5');
+  expect((screen.getByLabelText('Retry limit') as HTMLInputElement).disabled).toBe(true);
   expect(screen.getByText('Disconnected')).toBeTruthy();
   expect(screen.getByRole('combobox', { name: 'Execution host' }).textContent).toContain('Remote A');
   expect(f.local.get).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'General' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Stay' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-  expect((screen.getByLabelText('Maximum attempts') as HTMLInputElement).value).toBe('5');
+  expect((screen.getByLabelText('Retry limit') as HTMLInputElement).value).toBe('5');
   expect(f.remote.update).not.toHaveBeenCalled();
 });
 
 it('keeps edits on the old identity disabled until an explicit navigation after host replacement', async () => {
   const f = await fixture();
-  fireEvent.change(await screen.findByLabelText('Maximum attempts'), { target: { value: '5' } });
+  fireEvent.change(await screen.findByLabelText('Retry limit'), { target: { value: '5' } });
   const replacement = await host('remote', 'replacement-runtime');
   f.publish([f.local.record, replacement.record]);
-  expect((screen.getByLabelText('Maximum attempts') as HTMLInputElement).value).toBe('5');
-  expect((screen.getByLabelText('Maximum attempts') as HTMLInputElement).disabled).toBe(true);
+  expect((screen.getByLabelText('Retry limit') as HTMLInputElement).value).toBe('5');
+  expect((screen.getByLabelText('Retry limit') as HTMLInputElement).disabled).toBe(true);
   expect(screen.getByText(/The execution host identity changed/)).toBeTruthy();
   expect(replacement.get).not.toHaveBeenCalled();
   expect(replacement.update).not.toHaveBeenCalled();
@@ -74,7 +74,7 @@ it('waits for remote profiles to resolve before picking an implicit default host
   await screen.findByRole('heading', { name: 'Agents & execution' });
   expect(f.local.get).not.toHaveBeenCalled();
   f.publish([f.local.record, f.remote.record]);
-  await screen.findByLabelText('Maximum attempts');
+  await screen.findByLabelText('Retry limit');
   expect(f.remote.get).toHaveBeenCalledOnce();
   expect(f.local.get).not.toHaveBeenCalled();
 });

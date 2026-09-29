@@ -33,6 +33,7 @@ type catalogEntry struct {
 
 type Readiness struct {
 	Configured      bool   `json:"configured"`
+	Disabled        bool   `json:"disabled"`
 	CredentialState string `json:"credential_state"`
 	CatalogState    string `json:"catalog_state"`
 	ModelState      string `json:"model_state"`
@@ -83,6 +84,7 @@ func (s *Service) Readiness(ctx context.Context, selection session.ModelSelectio
 		return value, nil
 	}
 	value.Configured = true
+	value.Disabled = p.Disabled
 	status, _, _ := s.inspect(ctx, p)
 	value.CredentialState = status.State
 	catalog, err := s.Catalog(ctx, selection.Provider)
@@ -114,21 +116,24 @@ func (s *Service) Refresh(ctx context.Context, id string) (Catalog, error) {
 	if !ok {
 		return Catalog{}, ErrMissing
 	}
+	if p.Disabled {
+		return Catalog{}, ErrDisabled
+	}
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
 		return Catalog{}, ErrClosed
 	}
-	if s.active[id] || len(s.active) >= 4 {
+	if s.active[id] != nil || len(s.active) >= 4 {
 		s.mu.Unlock()
 		return Catalog{}, ErrBusy
 	}
-	s.active[id] = true
+	s.active[id] = cancel
 	s.wg.Add(1)
 	s.mu.Unlock()
 	defer func() { s.mu.Lock(); delete(s.active, id); s.mu.Unlock(); s.wg.Done() }()
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
 	stop := context.AfterFunc(s.ctx, cancel)
 	defer stop()
 	auth, err := s.capture(ctx, p)

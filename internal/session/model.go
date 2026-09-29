@@ -316,3 +316,6 @@ func ModelHelperLogicalID(operation OperationID, index int) (string, error) {
 	digest := sha256.Sum256(fmt.Appendf(nil, "whip.model-helper.v1\x00%s\x00%d", operation, index))
 	return "helper_" + hex.EncodeToString(digest[:]), nil
 }
+
+// MaxModelAttempts is the largest exact numeric count shared by Go and JavaScript.
+const MaxModelAttempts = 9007199254740991

@@ -37,6 +37,7 @@ it('keeps provider controls neutral while configured readiness is pending', asyn
   await act(async () =>
     resolve({
       configured: true,
+      disabled: false,
       credential_state: 'available',
       catalog_state: 'missing',
       model_state: 'configured',
@@ -65,6 +66,7 @@ it.each(['unchecked', 'refresh_required'] as const)(
     f.runtime.queries.removeQueries({ queryKey: ['provider-readiness'] });
     f.on('providers.readiness', () => ({
       configured: true,
+      disabled: false,
       credential_state,
       catalog_state: 'missing',
       model_state: 'configured',
@@ -271,7 +273,7 @@ it('shows standalone provider setup, reuses the connection dialog and restores t
   fireEvent.click(screen.getByRole('button', { name: 'Show all providers' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Connect OpenAI' }));
   fireEvent.change(await screen.findByLabelText('API key'), { target: { value: 'fixture-api-key' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Save provider', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Connect', exact: true }));
   const confirm = await screen.findByRole('button', { name: 'Use gpt-6-astra', exact: true });
   expect(f.rpc['providers.defaults']).not.toHaveBeenCalled(); expect(f.rpc['trees.create']).not.toHaveBeenCalled();
   fireEvent.click(confirm);

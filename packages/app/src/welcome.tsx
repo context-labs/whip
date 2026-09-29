@@ -112,11 +112,11 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
   const model = tab.model ?? selection?.name ?? '';
   const provider = tab.provider ?? selection?.provider ?? '';
   const levels = modelEfforts(catalogModels(catalog.data, provider), model);
-  const requestedEffort = tab.effort ?? execution.data?.effort ?? selection?.effort ?? 'off';
-  const effort = tab.effort ?? (levels.includes(requestedEffort) ? requestedEffort : 'off');
+  const requestedEffort = tab.effort ?? (execution.data?.effort || selection?.effort || 'default');
+  const effort = tab.effort ?? (levels.includes(requestedEffort) ? requestedEffort : 'default');
   const effortAvailable = tab.effort === undefined || levels.includes(effort);
-  const readiness = useQuery({ queryKey: ['provider-readiness', runtimeId, { provider, name: model, effort: effort === 'off' ? '' : effort }],
-    queryFn: ({ signal }) => client.providerReadiness({ provider, name: model, effort: effort === 'off' ? '' : effort }, { signal }), enabled: connected && !!provider && !!model, retry: false });
+  const readiness = useQuery({ queryKey: ['provider-readiness', runtimeId, { provider, name: model, effort: effort === 'default' ? '' : effort }],
+    queryFn: ({ signal }) => client.providerReadiness({ provider, name: model, effort: effort === 'default' ? '' : effort }, { signal }), enabled: connected && !!provider && !!model, retry: false });
   const ready = providerReady(readiness.data) ?? (providers.ready === false ? false : undefined);
   const readinessPending = ready === undefined && !readiness.error && !providers.inventory.error;
   const executionEngine = tab.executionEngine ?? execution.data?.engine ?? '';
@@ -152,7 +152,7 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
     try {
       await startNewChat(runtime, client, tab.id, { definition, engine: executionEngine as 'starlark' | 'quickjs',
         working_directory: cwd.trim(), metadata: { title: null, archived: false, pinned: false }, permission_mode: permission,
-        overrides: { model: { provider, name: model, effort: effort === 'off' ? '' : effort } } });
+        overrides: { model: { provider, name: model, effort: effort === 'default' ? '' : effort } } });
     } catch (error) { if (mounted.current) setError(errorMessage(error)); else runtime.report(error); }
   }
 
@@ -207,7 +207,7 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
         <PermissionModeControl value={permission} inherited={tab.permissionMode === undefined} disabled={disabled} onChange={permissionMode => updateSetup({ permissionMode: permissionMode as NewChatTab['permissionMode'] })} />
         {ready ? <CatalogModelPicker model={model} provider={provider} catalog={catalog.data} loading={catalog.isFetching}
           error={connected ? catalog.error?.message : undefined} onRetry={() => void catalog.refetch()} disabled={disabled}
-          onChange={(model, provider) => updateSetup({ model, provider, effort: modelEfforts(catalogModels(catalog.data, provider), model).includes(effort) ? effort : 'off' })}
+          onChange={(model, provider) => updateSetup({ model, provider, effort: modelEfforts(catalogModels(catalog.data, provider), model).includes(effort) ? effort : 'default' })}
           onSessionOptions={() => setShowOptions(true)} />
           : readinessPending ? <PickerSkeletons count={2} />
           : <><Button variant="ghost" disabled={disabled} onClick={openProviders}>Connect a provider</Button>
