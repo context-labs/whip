@@ -1,11 +1,27 @@
 # Native gate audit — 2026-09-29
 
 This audit starts from core-removal checkpoint `d90668cc3`. It separates the
-normal automated gate from milestone evidence; it does not declare Phases 5–7
-complete. No installed runtime, user profile, accessibility permission or live
-provider was changed. The original development checkout was not used.
+normal automated gate from milestone evidence. The user's 2026-09-29
+[first-version closeout decision](backend-redesign-closeout.md) defers named
+correctness/environment issues and signed install/update to human follow-up;
+earlier open criteria below are preserved as history, not renewed handoff blockers.
+No installed runtime, user profile, accessibility permission or live provider was
+changed. The original development checkout was not used.
 
 ## Current acceptance snapshot
+
+The candidate is `674347705b7d3fc162146a4bfd5a7174ff57de13` in draft #280.
+See the [closeout](backend-redesign-closeout.md) for its exact combined results,
+NATIVE-01 through NATIVE-04 deferred issues, environment evidence and human checklist.
+Run `36594047984` finishes with 38 successful jobs, one Desktop navigation failure,
+two dependent aggregate failures and zero skips. The aggregate remains failed;
+closeout proceeds under the user-authorized recorded-issue disposition.
+The later REPL fixture-only correction `fde8bd220` is deliberately unintegrated.
+
+## Earlier checkpoint detail
+
+The remaining matrix and narratives preserve prior checkpoints. Current candidate
+results and deferred scopes above supersede their then-pending acceptance notes.
 
 The user accepted the measured 72 ms native typing p95 on 2026-09-29 and asked
 to close speed optimization. The earlier 50 ms target is superseded for this
@@ -31,7 +47,7 @@ The [chronological record](backend-redesign-development.md) retains the earlier 
 | Providers, accounts, definitions, hooks, goals and schedules | [Provider setup](models-providers.md#provider-connections-in-settings), immutable declarations and native operation/maintenance paths are mounted in shared/mobile/terminal clients. Settings, executor and ordinary-input fixtures use the real host with deterministic transports. | Current combined client gate and representative live-provider/managed-account workflows; synthetic onboarding is not live readiness. |
 | Context, instructions, skills, history and workspace | Exact raw-history/summary boundaries and scoped originals; [image compaction regression](../internal/runtime/compaction_content_test.go), actual REPL/skills/history/restore fixtures. Published/default skill roots and explicit body grants are separate shipped controls. The slash-completion caret race is repaired with four regressions; hosted conversation checks pass in both browsers at `e85f72203`. | The earlier intermittent REPL overlap has not been causally explained; a later unchanged passing gate does not establish its repair. Final combined browser gates remain required. Settings history passes on `b1c9ca965` and `1edc9d823`; no seed optimization is claimed. |
 | Files, LSP, shell, permissions/questions and MCP | [Native family tests](backend-native-core-retirement.md#behavior-and-test-disposition), joined process/LSP ownership, direct human actions, scoped grants and real MCP self-host fixtures; mounted controls preserve root/child distinctions. | Final-head automated/lifecycle validation; live external servers remain explicit opt-in evidence. |
-| Browser/computer and native helpers | External Chrome and offered Desktop tabs have distinct scoped owners and human controls across clients. Both ambient wrappers are removed: [browser driver disposition](browser-computer-use.md#native-browser-test-ownership), [computer disposition](backend-native-computer-retirement.md). Actual private Chrome covers both drivers/engines; Desktop bridge fixtures cover real IPC. | Headed dedicated/real extension opt-ins, real accessibility/TCC and applicable platform checks are not established by headless or fake-helper tests. |
+| Browser/computer and native helpers | External Chrome and offered Desktop tabs have distinct scoped owners and human controls across clients. Both ambient wrappers are removed: [browser driver disposition](browser-computer-use.md#native-browser-test-ownership), [computer disposition](backend-native-computer-retirement.md). Actual private Chrome covers both drivers/engines; Desktop bridge fixtures cover real IPC. | Headed dedicated Chrome passes the normal native-browser gate on both OSes. Real extension, accessibility/TCC and applicable hardware checks remain separate, deferred human evidence. |
 | SDK, shared app and mobile | At `1fa8dbfb2`: protocol18 checks, SDK205/example5 tests and mobile types/226 tests. Shared app types and all1388 tests pass at the `e85f72203` increment. [Mobile readiness](backend-native-mobile-readiness.md) separately records exports, simulator and Android compilation provenance. | Final combined gates, physical-device UI/lifecycle/accessibility and signed-device checks. Simulator storage evidence does not prove Android or physical-device behavior. |
 | Go CLI, TUI and ACP | Complete normal `check:native-cli` passes at `1fa8dbfb2`, including real compiled entrypoints, SSH/update fixtures, both native TUI partitions and pure presentation complement; [CLI](backend-native-cli-disposition.md) and [terminal](native-terminal-retirement.md) dispositions retain exact semantics. Both hosted client gates now pass at `e85f72203`, including the repaired SSH and explicit-Bash packaged-runtime fixtures. | Final combined-source aggregate remains open; earlier failed SSH/Task checks are preserved as history. |
 | Shared UI | Complete `check:product-ui` passes locally at `d9545097d` and hosted at `1edc9d823`: Storybook,66 themes/14 interactions, strict CSP, isolated packed consumers, tabs/layout in both browsers and30 model-picker scenarios. Workspace regressions fail before their repairs; no tolerance changes. | Final combined-source gate. This is not all application browser workflows or actual Safari. |
