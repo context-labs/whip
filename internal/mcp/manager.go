@@ -81,9 +81,10 @@ type Tool struct {
 
 // server holds one server's live state.
 type server struct {
-	name  string
-	cfg   ServerConfig
-	owner *Manager
+	name     string
+	cfg      ServerConfig
+	owner    *Manager
+	reserved bool
 
 	status         Status
 	err            string
@@ -92,10 +93,12 @@ type server struct {
 	instr          string // server instructions from initialize (opencode injects these)
 	sess           *sdkmcp.ClientSession
 	gen            int // increments per connect; a stale session's watcher no-ops
+	refreshing     *sdkmcp.ClientSession
 	catalogChanges uint64
 	generation     string
 	connectionCtx  context.Context
 	connectionStop context.CancelFunc
+	transportJoin  func()
 	transportStop  context.CancelFunc // survives catalog/admission generation changes
 	stderr         *ringBuffer
 
@@ -188,6 +191,7 @@ func (s *server) kickAutoReconnect(m *Manager) {
 // Manager owns every MCP server connection. All methods are safe for
 // concurrent use; tool calls for different servers proceed in parallel.
 type Manager struct {
+	budget  *Budget
 	servers map[string]*server // keyed by configured name
 
 	// blocked holds servers an mcpImport policy filtered out. They never
@@ -355,6 +359,22 @@ func (m *Manager) AddServers(ctx context.Context, cfgs map[string]ServerConfig) 
 		m.mu.Unlock()
 		return result, errors.New("MCP manager is closed")
 	}
+	if m.budget != nil {
+		freshConfigs := map[string]ServerConfig{}
+		for name, cfg := range cfgs {
+			if _, exists := m.servers[name]; !exists {
+				freshConfigs[name] = cfg
+			}
+		}
+		if len(m.servers)+len(freshConfigs) > MaxServers {
+			m.mu.Unlock()
+			return result, errors.New("MCP server count exceeds root limit")
+		}
+		if err := m.budget.reserve(m, lenActive(freshConfigs), false); err != nil {
+			m.mu.Unlock()
+			return result, err
+		}
+	}
 	var fresh []*server
 	for name, cfg := range cfgs {
 		if current, exists := m.servers[name]; exists {
@@ -373,6 +393,7 @@ func (m *Manager) AddServers(ctx context.Context, cfgs map[string]ServerConfig) 
 		delete(m.attachmentBlocked, name)
 		s := newServer(name, cfg)
 		s.owner = m
+		s.reserved = m.budget != nil && !cfg.Disabled() && cfg.Valid() == ""
 		s.runCtx, s.stop = context.WithCancel(m.runCtx) //nolint:fatcontext // each server stores an independent child context
 		m.servers[name] = s
 		if s.status == StatusConnecting {
@@ -418,6 +439,9 @@ func (m *Manager) RemoveServers(names ...string) {
 		s.mu.Unlock()
 		if old != nil {
 			_ = old.Close()
+		}
+		if m.budget != nil && s.reserved {
+			m.budget.releaseServers(m, 1)
 		}
 	}
 }
@@ -477,10 +501,11 @@ func (m *Manager) defaultTransport(ctx context.Context, cfg ServerConfig, stderr
 		return nil, err
 	}
 	maps.Copy(env, resolved)
-	return &managedTransport{processes: processes, rootID: rootID, cwd: cwd, env: env, command: cfg.Command, stderr: stderr}, nil
+	return &managedTransport{processes: processes, rootID: rootID, cwd: cwd, env: env, command: cfg.Command, stderr: stderr, budget: m.budget}, nil
 }
 
 type managedTransport struct {
+	budget    *Budget
 	processes *capability.ProcessManager
 	rootID    string
 	cwd       string
@@ -500,7 +525,7 @@ func (t *managedTransport) Connect(ctx context.Context) (sdkmcp.Connection, erro
 	if err != nil {
 		return nil, err
 	}
-	transport := &sdkmcp.IOTransport{Reader: stdout, Writer: &managedInput{WriteCloser: stdin, process: process}}
+	transport := &sdkmcp.IOTransport{Reader: boundedStdio(stdout, t.budget), Writer: &managedInput{WriteCloser: stdin, process: process}}
 	return transport.Connect(ctx)
 }
 
@@ -587,9 +612,11 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 	defer cancel()
 	transportCtx, transportStop := context.WithCancel(m.runCtx)
 	connected := false
+	joinTransport := func() {}
 	defer func() {
 		if !connected {
 			transportStop()
+			joinTransport()
 		}
 	}()
 	stopStartup := context.AfterFunc(ctx, transportStop)
@@ -597,7 +624,7 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 
 	transport, err := m.connectTransport(ctx, cfg, s.stderr)
 	if err == nil {
-		transport = bindHTTPContext(transportCtx, transport)
+		transport, joinTransport = bindHTTPContext(transportCtx, transport, m.budget)
 		client := sdkmcp.NewClient(&sdkmcp.Implementation{Name: "whip", Title: "whip"}, &sdkmcp.ClientOptions{
 			ToolListChangedHandler: func(_ context.Context, request *sdkmcp.ToolListChangedRequest) {
 				s.refreshCatalog(m, request.Session)
@@ -648,13 +675,17 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 				if ir := sess.InitializeResult(); ir != nil {
 					instr = strings.TrimSpace(ir.Instructions)
 				}
-				s.defs = listed
-				s.instr = instr
+				if err = s.setCatalogLocked(listed, instr); err != nil {
+					s.mu.Unlock()
+					m.mu.Unlock()
+					break
+				}
 				s.sess = sess
 				s.gen++
 				s.generation = rand.Text()
 				s.connectionCtx, s.connectionStop = context.WithCancel(m.runCtx) //nolint:fatcontext // This is created once before returning, and derives from the manager lifetime rather than the loop context.
 				s.transportStop = transportStop
+				s.transportJoin = joinTransport
 				connected = true
 				s.setStateLocked(StatusReady, "")
 				s.autoTries = 0
@@ -672,14 +703,18 @@ func (s *server) connect(ctx context.Context, m *Manager) {
 					closing := m.closed
 					m.mu.Unlock()
 					s.mu.Lock()
+					var retired *retiredConnection
 					stale := s.gen != gen
 					if !stale {
-						s.retireLocked()
+						retired = s.retireLocked()
 						if !closing {
 							s.setStateLocked(StatusFailed, "connection closed")
 						}
 					}
 					s.mu.Unlock()
+					if retired != nil {
+						_ = retired.Close()
+					}
 					if !stale && !closing {
 						s.kickAutoReconnect(m)
 					}
@@ -734,12 +769,29 @@ const maxToolPages = 64
 // than spinning. The caller publishes the returned slice atomically.
 func listAllTools(ctx context.Context, lister toolLister) ([]*sdkmcp.Tool, error) {
 	var tools []*sdkmcp.Tool
+	bytes := 0
 	seen := map[string]bool{}
 	params := &sdkmcp.ListToolsParams{}
 	for page := 1; ; page++ {
 		res, err := lister.ListTools(ctx, params)
 		if err != nil {
 			return nil, err
+		}
+		if res == nil {
+			return nil, errors.New("MCP catalog response is empty")
+		}
+		raw, err := json.Marshal(res.Tools)
+		if err != nil {
+			return nil, err
+		}
+		bytes += len(raw)
+		if len(tools)+len(res.Tools) > maxCatalogTools || bytes > maxCatalogBytes {
+			return nil, errors.New("MCP catalog exceeds size limit")
+		}
+		for _, definition := range res.Tools {
+			if definition == nil || len(definition.Name) == 0 || len(definition.Name) > 256 || strings.ContainsRune(definition.Name, 0) {
+				return nil, errors.New("MCP catalog contains invalid tool name")
+			}
 		}
 		tools = append(tools, res.Tools...)
 		if res.NextCursor == "" {
@@ -947,7 +999,7 @@ func flattenResult(res *sdkmcp.CallToolResult) capability.MCPResult {
 	}
 	out := b.String()
 	if res.StructuredContent != nil {
-		if data, err := json.MarshalIndent(res.StructuredContent, "", "  "); err == nil {
+		if data, err := structuredJSON(res.StructuredContent); err == nil {
 			if out != "" {
 				out += "\n"
 			}
@@ -1036,6 +1088,14 @@ func (m *Manager) Enable(name string) bool {
 		return false
 	}
 	s.mu.Lock()
+	if m.budget != nil && !s.reserved {
+		if err := m.budget.reserve(m, 1, false); err != nil {
+			s.mu.Unlock()
+			m.mu.Unlock()
+			return false
+		}
+		s.reserved = true
+	}
 	s.cfg.Enabled = nil
 	start := !s.running
 	if start {
@@ -1250,6 +1310,9 @@ func (m *Manager) Close() {
 			}
 		}
 		m.workers.Wait()
+		if m.budget != nil {
+			m.budget.releaseManager(m)
+		}
 	})
 }
 
@@ -1268,7 +1331,7 @@ func defaultTransport(ctx context.Context, cfg ServerConfig, stderr *ringBuffer)
 		}
 		return &sdkmcp.StreamableClientTransport{
 			Endpoint:   cfg.URL,
-			HTTPClient: &http.Client{Transport: headerTransport(headers), CheckRedirect: sameOriginRedirect(endpoint)},
+			HTTPClient: &http.Client{Transport: newHeaderTransport(headers), CheckRedirect: sameOriginRedirect(endpoint)},
 			// Catalog notifications invalidate queued admissions before refresh.
 			DisableStandaloneSSE: false,
 		}, nil
@@ -1353,14 +1416,29 @@ func sameOriginRedirect(endpoint *url.URL) func(*http.Request, []*http.Request) 
 
 // headerTransport injects static headers (e.g. Authorization) into every
 // request of a remote server's HTTP client.
-type headerTransport map[string]string
-
-func (h headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	for k, v := range h {
-		req.Header.Set(k, v)
-	}
-	return http.DefaultTransport.RoundTrip(req)
+type headerTransport struct {
+	headers map[string]string
+	base    *http.Transport
 }
+
+func newHeaderTransport(headers map[string]string) *headerTransport {
+	base := http.DefaultTransport.(*http.Transport).Clone()
+	base.MaxResponseHeaderBytes = 64 << 10
+	base.MaxIdleConns = 4
+	base.MaxIdleConnsPerHost = 2
+	base.MaxConnsPerHost = 4
+	base.IdleConnTimeout = 30 * time.Second
+	return &headerTransport{headers: headers, base: base}
+}
+
+func (h *headerTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	request = request.Clone(request.Context())
+	for key, value := range h.headers {
+		request.Header.Set(key, value)
+	}
+	return h.base.RoundTrip(request)
+}
+func (h *headerTransport) CloseIdleConnections() { h.base.CloseIdleConnections() }
 
 // logf mirrors config.LogEvent for MCP lifecycle events (connect failures,
 // status transitions) so "why didn't my server come up?" is answerable from

@@ -514,3 +514,35 @@ func TestCheckedManagerRetainsCatalogNotificationBeforePublication(t *testing.T)
 		t.Fatalf("initial catalog was not refreshed safely: lists=%d effects=%d", lists.Load(), effects.Load())
 	}
 }
+
+func TestAcquiredCallCannotReplayOrSwitchGeneration(t *testing.T) {
+	var effects atomic.Int32
+	m := checkedManager(t, testCfg("checked"), checkedServer(&effects))
+	call := checkedCall(t, m, "write.item")
+	acquired, err := m.AcquireCall(t.Context(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := acquired.Execute(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := acquired.Execute(t.Context()); err == nil {
+		t.Fatal("replayed one-use acquired call")
+	}
+	acquired.Close()
+	acquired.Close()
+	stale, err := m.AcquireCall(t.Context(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stale.Close()
+	if !m.Reconnect("exact.server") {
+		t.Fatal("reconnect refused")
+	}
+	if _, err := stale.Execute(t.Context()); err == nil {
+		t.Fatal("old acquired call crossed reconnect")
+	}
+	if effects.Load() != 1 {
+		t.Fatalf("stale or repeated effect reached server: %d", effects.Load())
+	}
+}

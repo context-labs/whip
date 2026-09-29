@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"io"
 	"mime"
 	"net/http"
@@ -24,10 +25,10 @@ var streamHeaderGrace = 2 * time.Second
 // The SDK opens standalone SSE before Client.Connect returns, and its Close
 // sends DELETE before cancelling that stream. Both requests must remain
 // cancellable even while no ClientSession has been published to the manager.
-func bindHTTPContext(ctx context.Context, transport sdkmcp.Transport) sdkmcp.Transport {
+func bindHTTPContext(ctx context.Context, transport sdkmcp.Transport, budget *Budget) (sdkmcp.Transport, func()) {
 	remote, ok := transport.(*sdkmcp.StreamableClientTransport)
 	if !ok {
-		return transport
+		return transport, func() {}
 	}
 	client := *http.DefaultClient
 	if remote.HTTPClient != nil {
@@ -37,15 +38,17 @@ func bindHTTPContext(ctx context.Context, transport sdkmcp.Transport) sdkmcp.Tra
 	if base == nil {
 		base = http.DefaultTransport
 	}
-	client.Transport = &connectionHTTPTransport{lifetime: ctx, base: base}
+	owned := &connectionHTTPTransport{lifetime: ctx, base: base, budget: budget}
+	client.Transport = owned
 	bound := *remote
 	bound.HTTPClient = &client
-	return &connectionHTTPStartup{Transport: &bound, lifetime: ctx}
+	return &connectionHTTPStartup{Transport: &bound, lifetime: ctx, owned: owned}, owned.join
 }
 
 type connectionHTTPStartup struct {
 	sdkmcp.Transport
 	lifetime context.Context
+	owned    *connectionHTTPTransport
 }
 
 func (t *connectionHTTPStartup) Connect(ctx context.Context) (sdkmcp.Connection, error) {
@@ -55,7 +58,8 @@ func (t *connectionHTTPStartup) Connect(ctx context.Context) (sdkmcp.Connection,
 	}
 	// Closing also stops the SDK's retry backoff. HTTP cancellation alone leaves
 	// that loop on the detached SDK context. DELETE has its own cleanup deadline.
-	context.AfterFunc(t.lifetime, func() { _ = connection.Close() })
+	t.owned.workers.Add(1)
+	context.AfterFunc(t.lifetime, func() { defer t.owned.workers.Done(); _ = connection.Close() })
 	// Return the raw connection: wrapping it would hide the SDK's private
 	// sessionUpdated method and silently disable standalone notifications.
 	return connection, nil
@@ -63,13 +67,34 @@ func (t *connectionHTTPStartup) Connect(ctx context.Context) (sdkmcp.Connection,
 
 // lifetime belongs to this connection, not to an individual request or turn.
 type connectionHTTPTransport struct {
+	budget         *Budget
+	mu             sync.Mutex
+	closing        bool
+	workers        sync.WaitGroup
 	lifetime       context.Context
 	base           http.RoundTripper
 	deleteStarted  sync.Once
 	deleteDeadline time.Time
 }
 
+func (t *connectionHTTPTransport) join() {
+	t.mu.Lock()
+	t.closing = true
+	t.mu.Unlock()
+	t.workers.Wait()
+	if closer, ok := t.base.(interface{ CloseIdleConnections() }); ok {
+		closer.CloseIdleConnections()
+	}
+}
+
 func (t *connectionHTTPTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	t.mu.Lock()
+	if t.closing && request.Method != http.MethodDelete {
+		t.mu.Unlock()
+		return nil, errors.New("MCP HTTP transport is closed")
+	}
+	t.workers.Add(1)
+	t.mu.Unlock()
 	ctx := request.Context()
 	var cancel context.CancelFunc
 	var stop func() bool
@@ -82,6 +107,7 @@ func (t *connectionHTTPTransport) RoundTrip(request *http.Request) (*http.Respon
 		ctx, cancel = context.WithDeadline(ctx, t.deleteDeadline)
 	} else {
 		if err := t.lifetime.Err(); err != nil {
+			t.workers.Done()
 			return nil, err
 		}
 		ctx, cancel = context.WithCancel(ctx)
@@ -92,6 +118,7 @@ func (t *connectionHTTPTransport) RoundTrip(request *http.Request) (*http.Respon
 			stop()
 		}
 		cancel()
+		t.workers.Done()
 	})
 	if isStandaloneStream(request) {
 		return t.roundTripStream(request.Clone(ctx), finish)
@@ -103,6 +130,7 @@ func (t *connectionHTTPTransport) RoundTrip(request *http.Request) (*http.Respon
 	}
 	// SSE bodies outlive RoundTrip. Retain cancellation until EOF or Close,
 	// rather than cancelling a healthy stream when its headers arrive.
+	boundHTTPBody(response, t.budget)
 	response.Body = &connectionHTTPBody{ReadCloser: response.Body, finish: finish}
 	return response, nil
 }
@@ -127,7 +155,9 @@ func (t *connectionHTTPTransport) roundTripStream(request *http.Request, finish 
 		err      error
 	}
 	results := make(chan result, 1)
+	t.workers.Add(1)
 	go func() {
+		defer t.workers.Done()
 		response, err := t.base.RoundTrip(request) //nolint:bodyclose // the caller owns and closes the returned response
 		results <- result{response, err}
 	}()
@@ -139,15 +169,22 @@ func (t *connectionHTTPTransport) roundTripStream(request *http.Request, finish 
 			finish()
 			return nil, r.err
 		}
+		boundHTTPBody(r.response, t.budget)
 		r.response.Body = &connectionHTTPBody{ReadCloser: r.response.Body, finish: finish}
 		return r.response, nil
 	case <-request.Context().Done():
+		r := <-results
+		if r.response != nil {
+			_ = r.response.Body.Close()
+		}
 		finish()
 		return nil, request.Context().Err()
 	case <-grace.C:
 	}
 	reader, writer := io.Pipe()
+	t.workers.Add(1)
 	go func() {
+		defer t.workers.Done()
 		r := <-results
 		if r.err != nil {
 			_ = writer.CloseWithError(r.err)
@@ -160,6 +197,7 @@ func (t *connectionHTTPTransport) roundTripStream(request *http.Request, finish 
 			logf("standalone stream answered %d %s after the header grace; leaving it idle", r.response.StatusCode, mediaType)
 			return
 		}
+		boundHTTPBody(r.response, t.budget)
 		_, err := io.Copy(writer, r.response.Body)
 		_ = r.response.Body.Close()
 		_ = writer.CloseWithError(err)

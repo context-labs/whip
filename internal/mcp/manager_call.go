@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -32,16 +34,37 @@ func (s *server) unavailableLocked() error {
 
 // retireLocked cancels queued and active calls before retiring the catalog.
 // The caller closes the returned session outside the state lock.
-func (s *server) retireLocked() *sdkmcp.ClientSession {
+func (s *server) retireLocked() *retiredConnection {
 	if s.connectionStop != nil {
 		s.connectionStop()
 	}
 	if s.transportStop != nil {
 		s.transportStop()
 	}
-	old := s.sess
-	s.sess, s.defs, s.instr = nil, nil, ""
+	old := &retiredConnection{session: s.sess, join: s.transportJoin}
+	s.transportJoin = nil
+	s.sess = nil
+	s.clearCatalogLocked()
+	if old.session == nil && old.join == nil {
+		return nil
+	}
 	return old
+}
+
+type retiredConnection struct {
+	session *sdkmcp.ClientSession
+	join    func()
+}
+
+func (c *retiredConnection) Close() error {
+	var err error
+	if c.session != nil {
+		err = c.session.Close()
+	}
+	if c.join != nil {
+		c.join()
+	}
+	return err
 }
 
 func (m *Manager) lookup(name string) (*server, error) {
@@ -134,6 +157,9 @@ func (m *Manager) CallContext(call capability.MCPCall) (context.Context, error) 
 }
 
 func toolArguments(schema any, arguments json.RawMessage) (json.RawMessage, error) {
+	if len(arguments) > 1<<20 {
+		return nil, errors.New("MCP tool arguments exceed byte limit")
+	}
 	var args map[string]any
 	if len(arguments) == 0 {
 		arguments = json.RawMessage(`{}`)
@@ -181,100 +207,131 @@ func (m *Manager) ValidateArguments(call capability.MCPCall) error {
 	return err
 }
 
-// CallChecked checks the advertised schema before queueing, then rechecks the
-// exact definition and authority after acquiring the server's serialized slot.
-// Cancellation retires local work; effects already transmitted are never retried.
-func (m *Manager) CallChecked(ctx context.Context, call capability.MCPCall, before func(context.Context) error) (capability.MCPResult, error) {
-	var none capability.MCPResult
+// AcquiredCall owns one serialized server slot and the exact captured
+// descriptor lifetime. Execute is one-use; Close must run on every path.
+type AcquiredCall struct {
+	server  *server
+	call    capability.MCPCall
+	ctx     context.Context
+	cancel  context.CancelFunc
+	stop    func() bool
+	timeout time.Duration
+	close   sync.Once
+	used    atomic.Bool
+}
+
+func (m *Manager) AcquireCall(ctx context.Context, call capability.MCPCall) (*AcquiredCall, error) {
 	if err := ctx.Err(); err != nil {
-		return none, err
+		return nil, err
 	}
 	call.Arguments = slices.Clone(call.Arguments)
 	s, err := m.lookup(call.Server)
 	if err != nil {
-		return none, err
+		return nil, err
 	}
 	s.mu.Lock()
 	current, schema, err := s.descriptorLocked(call.Tool)
-	connectionCtx, timeout := s.connectionCtx, s.cfg.ToolTimeoutDuration()
+	lifetime, timeout := s.connectionCtx, s.cfg.ToolTimeoutDuration()
 	s.mu.Unlock()
 	if err != nil {
-		return none, err
+		return nil, err
 	}
 	if !matchesCall(current, call) {
-		return none, errors.New("MCP tool definition changed; resolve and admit again")
+		return nil, errors.New("MCP tool definition changed; resolve and admit again")
 	}
-	args, err := toolArguments(schema, call.Arguments)
+	arguments, err := toolArguments(schema, call.Arguments)
 	if err != nil {
-		return none, err
+		return nil, err
 	}
+	call.Arguments = arguments
 	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	stop := context.AfterFunc(connectionCtx, cancel)
-	defer stop()
-	if err := connectionCtx.Err(); err != nil {
-		return none, err
+	stop := context.AfterFunc(lifetime, cancel)
+	if err := lifetime.Err(); err != nil {
+		stop()
+		cancel()
+		return nil, err
 	}
 	select {
 	case s.calling <- struct{}{}:
-		defer func() { <-s.calling }()
 	case <-ctx.Done():
-		return none, ctx.Err()
+		stop()
+		cancel()
+		return nil, ctx.Err()
 	}
-	if err := ctx.Err(); err != nil {
+	acquired := &AcquiredCall{server: s, call: call, ctx: ctx, cancel: cancel, stop: stop, timeout: timeout}
+	if err := acquired.validate(); err != nil {
+		acquired.Close()
+		return nil, err
+	}
+	return acquired, nil
+}
+
+func (c *AcquiredCall) boundSession() (*sdkmcp.ClientSession, error) {
+	if err := c.ctx.Err(); err != nil {
+		return nil, err
+	}
+	c.server.mu.Lock()
+	defer c.server.mu.Unlock()
+	current, _, err := c.server.descriptorLocked(c.call.Tool)
+	if err != nil {
+		return nil, err
+	}
+	if !matchesCall(current, c.call) {
+		return nil, errors.New("MCP tool definition changed during admission; resolve and admit again")
+	}
+	if err := c.server.connectionCtx.Err(); err != nil {
+		return nil, err
+	}
+	return c.server.sess, nil
+}
+func (c *AcquiredCall) validate() error { _, err := c.boundSession(); return err }
+
+func (c *AcquiredCall) Close() { c.close.Do(func() { c.stop(); c.cancel(); <-c.server.calling }) }
+
+func (c *AcquiredCall) Execute(parent context.Context) (capability.MCPResult, error) {
+	var none capability.MCPResult
+	if !c.used.CompareAndSwap(false, true) {
+		return none, errors.New("MCP call already executed; automatic replay prohibited")
+	}
+	stop := context.AfterFunc(parent, c.cancel)
+	defer stop()
+	if err := parent.Err(); err != nil {
 		return none, err
 	}
-	if err := connectionCtx.Err(); err != nil {
-		return none, err
-	}
-	s.mu.Lock()
-	current, _, err = s.descriptorLocked(call.Tool)
-	s.mu.Unlock()
+	sess, err := c.boundSession()
 	if err != nil {
 		return none, err
 	}
-	if !matchesCall(current, call) {
-		return none, errors.New("MCP tool definition changed while queued; resolve and admit again")
-	}
-	if before != nil {
-		if err := before(ctx); err != nil {
-			return none, err
+	result, err := sess.CallTool(c.ctx, &sdkmcp.CallToolParams{Name: c.call.Tool, Arguments: c.call.Arguments})
+	if err != nil {
+		if errors.Is(c.ctx.Err(), context.DeadlineExceeded) {
+			return none, fmt.Errorf("mcp tool %s timed out after %s: %w", c.call.Tool, c.timeout, context.DeadlineExceeded)
 		}
-	}
-	if err := ctx.Err(); err != nil {
-		return none, err
-	}
-	s.mu.Lock()
-	current, _, err = s.descriptorLocked(call.Tool)
-	sess := s.sess
-	s.mu.Unlock()
-	if err != nil {
-		return none, err
-	}
-	if !matchesCall(current, call) {
-		return none, errors.New("MCP tool definition changed during admission; resolve and admit again")
-	}
-	if err := connectionCtx.Err(); err != nil {
-		return none, err
-	}
-	result, err := sess.CallTool(ctx, &sdkmcp.CallToolParams{Name: call.Tool, Arguments: args})
-	if err != nil {
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return none, fmt.Errorf("mcp tool %s timed out after %s: %w", call.Tool, timeout, context.DeadlineExceeded)
-		}
-		if ctx.Err() != nil {
-			return none, ctx.Err()
+		if c.ctx.Err() != nil {
+			return none, c.ctx.Err()
 		}
 		return none, err
 	}
 	if result == nil {
 		return none, errors.New("MCP server returned no tool result")
 	}
-	output := flattenResult(result)
-	if result.IsError {
-		return output, errors.New(strings.TrimPrefix(output.Text, "Error: "))
+	return checkedResult(result)
+}
+
+// CallChecked keeps the retained callback contract: validate and serialize
+// before durable authorization, then revalidate immediately before transmission.
+func (m *Manager) CallChecked(ctx context.Context, call capability.MCPCall, before func(context.Context) error) (capability.MCPResult, error) {
+	acquired, err := m.AcquireCall(ctx, call)
+	if err != nil {
+		return capability.MCPResult{}, err
 	}
-	return output, nil
+	defer acquired.Close()
+	if before != nil {
+		if err := before(acquired.ctx); err != nil {
+			return capability.MCPResult{}, err
+		}
+	}
+	return acquired.Execute(ctx)
 }
 
 // Instructions returns bounded server usage guidance and its current source.
@@ -303,27 +360,64 @@ func (s *server) refreshCatalog(m *Manager, sess *sdkmcp.ClientSession) {
 		s.mu.Unlock()
 		return
 	}
-	s.defs = nil // invalidate before fetching so an obsolete admission cannot run
+	_ = s.setCatalogLocked(nil, s.instr)
 	if s.connectionStop != nil {
 		s.connectionStop()
 	}
 	s.connectionCtx, s.connectionStop = context.WithCancel(m.runCtx)
 	s.generation = rand.Text()
-	generation, ctx, timeout := s.generation, s.connectionCtx, s.cfg.StartupTimeoutDuration()
+	if s.refreshing == sess {
+		s.mu.Unlock()
+		return
+	}
+	s.refreshing = sess
 	s.mu.Unlock()
-	m.launch("MCP catalog refresh "+s.name, func() {
-		ctx, cancel := context.WithTimeout(ctx, timeout)
-		defer cancel()
-		listed, err := listAllTools(ctx, sess)
+	if !m.launch("MCP catalog refresh "+s.name, func() {
+		for {
+			s.mu.Lock()
+			if s.sess != sess {
+				if s.refreshing == sess {
+					s.refreshing = nil
+				}
+				s.mu.Unlock()
+				return
+			}
+			generation, ctx, timeout := s.generation, s.connectionCtx, s.cfg.StartupTimeoutDuration()
+			s.mu.Unlock()
+			listed, err := listToolsWithin(ctx, timeout, sess)
+			s.mu.Lock()
+			if s.sess != sess {
+				if s.refreshing == sess {
+					s.refreshing = nil
+				}
+				s.mu.Unlock()
+				return
+			}
+			if s.generation != generation {
+				s.mu.Unlock()
+				continue
+			}
+			if err != nil {
+				s.err = "tool catalog refresh failed"
+			} else if err = s.setCatalogLocked(listed, s.instr); err != nil {
+				s.err = "tool catalog exceeds aggregate limit"
+			}
+			s.refreshing = nil
+			s.mu.Unlock()
+			return
+		}
+	}) {
 		s.mu.Lock()
-		defer s.mu.Unlock()
-		if s.sess != sess || s.generation != generation {
-			return
+		if s.refreshing == sess {
+			s.refreshing = nil
+			s.err = "tool catalog refresh unavailable"
 		}
-		if err != nil {
-			s.err = "tool catalog refresh failed"
-			return
-		}
-		s.defs = listed
-	})
+		s.mu.Unlock()
+	}
+}
+
+func listToolsWithin(parent context.Context, timeout time.Duration, sess *sdkmcp.ClientSession) ([]*sdkmcp.Tool, error) {
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+	return listAllTools(ctx, sess)
 }

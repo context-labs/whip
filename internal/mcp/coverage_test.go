@@ -81,7 +81,7 @@ func TestHeaderTransport(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
-	rt := headerTransport{"Authorization": "Bearer abc"}
+	rt := newHeaderTransport(map[string]string{"Authorization": "Bearer abc"})
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, srv.URL, nil)
 	resp, err := rt.RoundTrip(req)
 	if err != nil {
@@ -170,14 +170,14 @@ func TestDefaultTransportResolvesHeaderSecrets(t *testing.T) {
 	if !ok {
 		t.Fatalf("transport type %T", tr)
 	}
-	ht, ok := st.HTTPClient.Transport.(headerTransport)
+	ht, ok := st.HTTPClient.Transport.(*headerTransport)
 	if !ok {
 		t.Fatalf("inner transport type %T", st.HTTPClient.Transport)
 	}
-	if ht["Authorization"] != "resolved-token" || ht["X-Cmd"] != "cmd-token" || ht["X-Literal"] != "plain" {
+	if ht.headers["Authorization"] != "resolved-token" || ht.headers["X-Cmd"] != "cmd-token" || ht.headers["X-Literal"] != "plain" {
 		t.Fatalf("resolved headers: %+v", ht)
 	}
-	if _, present := ht["X-Dropped"]; present {
-		t.Fatalf("unresolvable reference must be dropped, got %q", ht["X-Dropped"])
+	if _, present := ht.headers["X-Dropped"]; present {
+		t.Fatalf("unresolvable reference must be dropped, got %q", ht.headers["X-Dropped"])
 	}
 }
