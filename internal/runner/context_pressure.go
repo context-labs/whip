@@ -64,7 +64,7 @@ func pressureThreshold(window int64, percent int) int64 {
 // Preparing is local policy resolution. If a fold changes the request, prepare
 // its replacement once; only the returned frozen request may be dispatched.
 func (r *Runner) prepareOrdinary(ctx context.Context, turn session.Turn, configuration session.Configuration, request *model.Request, size, folds *int, correction []session.Part, pressure *contextPressure) (model.Prepared, error) {
-	prepared, err := r.provider.Prepare(ctx, *request)
+	prepared, err := r.prepare(ctx, *request)
 	if err != nil {
 		return model.Prepared{}, err
 	}
@@ -76,7 +76,7 @@ func (r *Runner) prepareOrdinary(ctx context.Context, turn session.Turn, configu
 		return model.Prepared{}, err
 	}
 	if changed {
-		prepared, err = r.provider.Prepare(ctx, *request)
+		prepared, err = r.prepare(ctx, *request)
 		if err != nil {
 			return model.Prepared{}, err
 		}

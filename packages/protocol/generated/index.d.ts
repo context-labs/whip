@@ -695,6 +695,104 @@ export interface CallHostToolParams {
     arguments_base64: string;
   };
 }
+export interface CapturedText {
+  digest: string;
+  bytes: string;
+  status: "available" | "oversized" | "quota" | "storage_error";
+  /**
+   * @maxItems 4
+   */
+  chunks:
+    | []
+    | [
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        }
+      ]
+    | [
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        },
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        }
+      ]
+    | [
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        },
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        },
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        }
+      ]
+    | [
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        },
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        },
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        },
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        }
+      ];
+}
 export interface Cell {
   id: string;
   session_id: string;
@@ -864,6 +962,7 @@ export interface ComputerStatus {
   state: "disabled" | "available" | "connected" | "retired" | "closed";
   native_configured: boolean;
   platform_supported: boolean;
+  bundled_available: boolean;
 }
 export interface ConfigureComputerParams {
   revision: string;
@@ -5081,6 +5180,245 @@ export interface ModelAttemptsResult {
         finished_at: null | string;
       }[];
 }
+export interface ModelInspection {
+  session_id: string;
+  attempt_id: string;
+  turn_id: string;
+  request_digest: string;
+  capture: null | {
+    request_digest: string;
+    source_digest: string;
+    instructions: {
+      digest: string;
+      bytes: string;
+      status: "available" | "oversized" | "quota" | "storage_error";
+      /**
+       * @maxItems 4
+       */
+      chunks:
+        | []
+        | [
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            }
+          ]
+        | [
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            },
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            }
+          ]
+        | [
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            },
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            },
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            }
+          ]
+        | [
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            },
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            },
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            },
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            }
+          ];
+    };
+    notices: {
+      digest: string;
+      bytes: string;
+      status: "available" | "oversized" | "quota" | "storage_error";
+      /**
+       * @maxItems 4
+       */
+      chunks:
+        | []
+        | [
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            }
+          ]
+        | [
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            },
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            }
+          ]
+        | [
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            },
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            },
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            }
+          ]
+        | [
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            },
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            },
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            },
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            }
+          ];
+    };
+    /**
+     * @maxItems 128
+     */
+    messages: {
+      id: null | string;
+      role: "system" | "user" | "assistant" | "tool";
+      parts_digest: string;
+      parts_count: number;
+    }[];
+    tools_digest: string;
+    tools_count: number;
+    context_complete: boolean;
+  };
+  compaction: null | {
+    history_revision: string;
+    source: null | {
+      session_id: string;
+      compaction_id: string;
+    };
+    id: string;
+    session_id: string;
+    turn_id: null | string;
+    attempt_id: null | string;
+    base_id: null | string;
+    expected_revision: string;
+    through_sequence: string;
+    pinned_message_ids: null | string[];
+    text_bytes: string;
+    created_at: string;
+  };
+}
+export interface ModelInspectionParams {
+  session_id: string;
+  attempt_id: string;
+}
 export interface OpenAIAccountStatus {
   auth_state: "signed_out" | "stored" | "sign_in_required" | "unavailable";
   route_state: "configured" | "missing" | "conflict" | "unavailable";
@@ -5172,6 +5510,7 @@ export interface PermissionPolicy {
   updated_at: string;
 }
 export interface PermissionsParams {
+  pending_only?: boolean;
   session_id: string;
   after?: null | string;
   limit: number;
@@ -7601,6 +7940,7 @@ export interface RPCError {
     | "PROVIDER_KEY_STORAGE"
     | "MCP_UNAVAILABLE"
     | "BROWSER_EVENT_STALE"
+    | "HOST_UNAVAILABLE"
     | "TRANSFER_FAILED"
     | "TRANSFER_UNCERTAIN"
     | "TRANSFER_INTERRUPTED"
@@ -7868,6 +8208,7 @@ export type Response = {
       | "PROVIDER_KEY_STORAGE"
       | "MCP_UNAVAILABLE"
       | "BROWSER_EVENT_STALE"
+      | "HOST_UNAVAILABLE"
       | "TRANSFER_FAILED"
       | "TRANSFER_UNCERTAIN"
       | "TRANSFER_INTERRUPTED"
@@ -9711,6 +10052,9 @@ export interface Usage {
     overflow: boolean;
   };
 }
+export interface UseBundledComputerParams {
+  revision: string;
+}
 export interface WorkspaceAction {
   id: string;
   session_id: string;
@@ -9843,6 +10187,7 @@ export interface ContractTypes {
   Budget: Budget;
   BudgetsResult: BudgetsResult;
   CallHostToolParams: CallHostToolParams;
+  CapturedText: CapturedText;
   Cell: Cell;
   CellParams: CellParams;
   CellsParams: CellsParams;
@@ -9977,6 +10322,8 @@ export interface ContractTypes {
   Message: Message;
   ModelAttemptsParams: ModelAttemptsParams;
   ModelAttemptsResult: ModelAttemptsResult;
+  ModelInspection: ModelInspection;
+  ModelInspectionParams: ModelInspectionParams;
   OpenAIAccountStatus: OpenAIAccountStatus;
   OpenAIFlowParams: OpenAIFlowParams;
   OpenAIFlowsResult: OpenAIFlowsResult;
@@ -10092,6 +10439,7 @@ export interface ContractTypes {
   UpdateConfigurationParams: UpdateConfigurationParams;
   UpdateTreeParams: UpdateTreeParams;
   Usage: Usage;
+  UseBundledComputerParams: UseBundledComputerParams;
   WorkspaceAction: WorkspaceAction;
   WorkspaceActionParams: WorkspaceActionParams;
   WorkspaceCompletionParams: WorkspaceCompletionParams;
@@ -10120,6 +10468,7 @@ export interface Operations {
   "browser.inventory.result": { params: BrowserInventoryResultParams; result: BrowserAccepted };
   "browser.attachments": { params: SessionParams; result: BrowserAttachmentsResult };
   "browser.tabs": { params: SessionParams; result: BrowserTabsResult };
+  "models.inspection": { params: ModelInspectionParams; result: ModelInspection };
   "trace.page": { params: TracePageParams; result: TracePageResult };
   "trace.export": { params: TraceExportParams; result: TraceExportResult };
   "host.attention": { params: HostAttentionParams; result: HostAttentionResult };
@@ -10141,6 +10490,7 @@ export interface Operations {
   "shell.input": { params: ShellInputParams; result: ShellInputResult };
   "computer.status": { params: EmptyParams; result: ComputerStatus };
   "computer.configure": { params: ConfigureComputerParams; result: ComputerStatus };
+  "computer.use_bundled": { params: UseBundledComputerParams; result: ComputerStatus };
   "computer.reconnect": { params: ComputerConnectionParams; result: ComputerStatus };
   "computer.disconnect": { params: ComputerConnectionParams; result: ComputerStatus };
   "mcp.configuration": { params: EmptyParams; result: MCPConfiguration };
@@ -10302,6 +10652,7 @@ export interface Operations {
   "receipts.match": { params: MatchReceiptParams; result: Admission };
   "receipts.get": { params: RequestIdentity; result: Admission };
   "content.put": { params: PutContentParams; result: ContentReference };
+  "content.get": { params: ReadContentParams; result: ContentReference };
   "content.read": { params: ReadContentParams; result: ReadContentResult };
   "definitions.register": { params: DefinitionDocument; result: Definition };
   "definitions.get": { params: DefinitionRef; result: Definition };

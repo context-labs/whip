@@ -180,3 +180,56 @@ func TestUnsafeLogIsNeverFollowed(t *testing.T) {
 		t.Fatal("changed external file", err)
 	}
 }
+
+func TestMaintenanceExcludesLaunchAndStopsOnlySelectedEpoch(t *testing.T) {
+	paths := fixturePaths(t)
+	lease, err := localruntime.AcquireMaintenance(t.Context(), paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lease.Close() })
+	wait, cancel := context.WithTimeout(t.Context(), 40*time.Millisecond)
+	defer cancel()
+	if _, err := localruntime.Start(wait, paths, fixtureLaunch(t)); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("starter bypassed maintenance", err)
+	}
+	if status := localruntime.Inspect(t.Context(), paths); status.Process != nil {
+		t.Fatal("blocked starter created host", status)
+	}
+	selected, err := lease.Start(t.Context(), fixtureLaunch(t))
+	if err != nil || selected.Process == nil {
+		t.Fatal(selected, err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, _ = localruntime.Stop(ctx, paths)
+	})
+	stale := *selected.Process
+	stale.ProcessEpoch += "_stale"
+	if err := lease.Stop(t.Context(), stale); err == nil {
+		t.Fatal("stale selection stopped live host")
+	}
+	if current := localruntime.Inspect(t.Context(), paths); current.Process == nil || current.Process.ProcessEpoch != selected.Process.ProcessEpoch {
+		t.Fatal(current)
+	}
+	if err := lease.Stop(t.Context(), *selected.Process); err != nil {
+		t.Fatal(err)
+	}
+	if err := lease.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lease.Start(t.Context(), fixtureLaunch(t)); err == nil {
+		t.Fatal("closed lease started host")
+	}
+	if err := lease.Stop(t.Context(), *selected.Process); err == nil {
+		t.Fatal("closed lease stopped host")
+	}
+	reopened, err := localruntime.AcquireMaintenance(t.Context(), paths)
+	if err != nil {
+		t.Fatal("close retained launch exclusion", err)
+	}
+	if err := reopened.Close(); err != nil {
+		t.Fatal(err)
+	}
+}

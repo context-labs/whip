@@ -10,6 +10,7 @@ import (
 	"fmt"
 
 	"github.com/context-labs/whip/internal/account"
+	"github.com/context-labs/whip/internal/computer"
 	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/hostview"
 	"github.com/context-labs/whip/internal/inferenceaccount"
@@ -56,7 +57,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return dispatchReceiptMatch(ctx, r, raw)
 	case "workspace.inspect", "workspace.set", "run.configure":
 		return dispatchControls(ctx, r, method, raw)
-	case "trace.page", "trace.export":
+	case "models.inspection", "trace.page", "trace.export":
 		return dispatchTrace(ctx, r, method, raw)
 	case "workspace.complete", "host.attention", "host.directories.list", "host.directory.pick", "host.skills.complete", "host.themes.list", "host.themes.resolve":
 		return dispatchHostViews(ctx, r, method, raw)
@@ -87,7 +88,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 
 	case "shell.interaction", "shell.input":
 		return dispatchShell(ctx, r, method, raw)
-	case "computer.status", "computer.configure", "computer.reconnect", "computer.disconnect":
+	case "computer.status", "computer.configure", "computer.use_bundled", "computer.reconnect", "computer.disconnect":
 		return dispatchComputer(ctx, r, method, raw)
 	case "mcp.configuration", "mcp.configure", "mcp.import.candidates", "mcp.import.apply", "mcp.status", "mcp.refresh", "mcp.reload", "mcp.reconnect", "mcp.enable", "mcp.disable", "mcp.attach", "mcp.tools", "mcp.instructions", "mcp.brand.icons":
 		return dispatchMCP(ctx, r, method, raw)
@@ -165,6 +166,11 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 				return nil, fmt.Errorf("%w: invalid content encoding", session.ErrInvalid)
 			}
 			value, err := r.PutContent(ctx, session.SessionID(p.SessionID), string(p.ReferenceID), p.MediaType, data)
+			return protocol.ContentReferenceFromDomain(value), err
+		})
+	case "content.get":
+		return decode(raw, func(p protocol.ReadContentParams) (any, error) {
+			value, err := r.ContentReference(ctx, session.SessionID(p.SessionID), string(p.ReferenceID))
 			return protocol.ContentReferenceFromDomain(value), err
 		})
 	case "content.read":
@@ -507,6 +513,7 @@ func wireError(err error) *protocol.RPCError {
 		kind string
 	}{
 		{hostview.ErrUnavailable, -32036, "HOST_UNAVAILABLE"},
+		{computer.ErrBundledUnavailable, -32036, "HOST_UNAVAILABLE"},
 		{hostview.ErrPickerLimit, -32011, "LIMIT"},
 		{hostview.ErrPickerClosed, -32013, "CLOSED"},
 		{shell.ErrNotFound, -32004, "NOT_FOUND"},

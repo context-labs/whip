@@ -5,8 +5,8 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { createWhipClient } from '@whip/legacy-sdk/node';
-import type { TransportFactory } from '@whip/legacy-sdk';
+import { Client, type Transport } from '@whip/sdk';
+import { browserSocket } from '@whip/sdk/browser';
 import type { ConnectionTarget, OpenProjectRequest, ProjectEditor, ProjectEditorID } from '@whip/app/platform';
 
 const execute = promisify(execFile);
@@ -72,12 +72,12 @@ export function projectEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv
 }
 
 /** A bounded identity read; never a second owner of session views or commands. */
-export async function verifyProjectRuntime(endpoint: string | TransportFactory, runtimeId: string, signal: AbortSignal): Promise<void> {
-  const verifier = createWhipClient({ endpoint, clientId: `desktop-editor-${randomUUID()}`, expectedRuntimeId: runtimeId,
-    reconnect: false, connectTimeoutMs: 5000 });
-  try { await verifier.connect({ signal }); }
-  catch { throw new Error('The source host could not be verified. Reconnect it and confirm that it still serves this conversation’s runtime.'); }
-  finally { verifier.close(); }
+export async function verifyProjectRuntime(endpoint: string | Transport, runtimeId: string, signal: AbortSignal): Promise<void> {
+  try {
+    signal.throwIfAborted();
+    await Client.connect(typeof endpoint === 'string' ? browserSocket(endpoint, { expectedRuntimeID: runtimeId }) : endpoint,
+      { clientID: `desktop-editor-${randomUUID()}`, expectedRuntimeID: runtimeId, signal, timeoutMs: 5000 });
+  } catch { throw new Error('The source host could not be verified. Reconnect it and confirm that it still serves this conversation’s runtime.'); }
 }
 
 export class ProjectEditors {

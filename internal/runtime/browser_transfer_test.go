@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -171,11 +172,27 @@ func TestBothEnginesBrowserTransferCapturedChildAndRestart(t *testing.T) {
 				codes = map[string]string{"attach": `var a=await browser.attach({tab_id:"human-tab"}); console.log(a.tab_id)`, "transfer": `var child=await agents.spawn({prompt:"child",browser_attachments:[a.attachment_id]}); console.log("transferred")`, "read": `console.log(child.session_id)`}
 			}
 			base := cellProvider(codes)
+			childEntered := make(chan struct{})
 			provider := providerFunc(func(ctx context.Context, request model.Request) (model.Response, error) {
 				if request.Messages[0].Parts[0].Text == "child" {
-					return model.Response{Parts: []session.Part{{Type: "text", Text: "child ready"}}}, nil
+					close(childEntered)
+					<-ctx.Done()
+					return model.Response{}, ctx.Err()
 				}
-				return base(ctx, request)
+				// The script selects an explicit fixture input or its tool
+				// result. Completion mail can follow the opening input after
+				// restart; it is context, not a key in this test's code table.
+				for i, message := range slices.Backward(request.Messages) {
+					if len(message.Parts) == 0 {
+						continue
+					}
+					_, scripted := codes[message.Parts[0].Text]
+					if message.Role == session.Tool || message.Role == session.User && scripted {
+						request.Messages = request.Messages[:i+1]
+						return base(ctx, request)
+					}
+				}
+				return model.Response{}, errors.New("missing browser-transfer fixture input")
 			})
 			directory := t.TempDir()
 			r := openEngineTest(t, directory, provider)
@@ -199,12 +216,20 @@ func TestBothEnginesBrowserTransferCapturedChildAndRestart(t *testing.T) {
 			if err != nil || len(attachments) != 1 {
 				t.Fatal(attachments, err)
 			}
+			// Force the child interruption/report ordering that can otherwise race
+			// the parent's next input when the host restarts.
+			awaitMailSignal(t, childEntered)
 			fake.peer.Close()
 			if err := r.Close(); err != nil {
 				t.Fatal(err)
 			}
 			restarted := openEngineTest(t, directory, provider)
+			completion := awaitDetachedCompletion(t, restarted, root.ID)
+			if completion.Source != (session.MailSource{Kind: "completion", ID: string(child)}) {
+				t.Fatal("wrong child report", completion.Source)
+			}
 			runCellTurn(t, restarted, root.ID, "read", fmt.Sprintln(child))
+			assertMailState(t, restarted, root.ID, string(completion.ID), session.MailDelivered)
 			if entries, err := restarted.BrowserAttachments(t.Context(), child); err != nil || len(entries) != 0 {
 				t.Fatal("restart restored native ownership", entries, err)
 			}

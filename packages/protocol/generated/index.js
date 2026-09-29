@@ -75,6 +75,11 @@ export const manifest = {
       "result": "BrowserTabsResult"
     },
     {
+      "name": "models.inspection",
+      "params": "ModelInspectionParams",
+      "result": "ModelInspection"
+    },
+    {
       "name": "trace.page",
       "params": "TracePageParams",
       "result": "TracePageResult"
@@ -177,6 +182,11 @@ export const manifest = {
     {
       "name": "computer.configure",
       "params": "ConfigureComputerParams",
+      "result": "ComputerStatus"
+    },
+    {
+      "name": "computer.use_bundled",
+      "params": "UseBundledComputerParams",
       "result": "ComputerStatus"
     },
     {
@@ -982,6 +992,11 @@ export const manifest = {
     {
       "name": "content.put",
       "params": "PutContentParams",
+      "result": "ContentReference"
+    },
+    {
+      "name": "content.get",
+      "params": "ReadContentParams",
       "result": "ContentReference"
     },
     {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { session, type BrowserWindow, type WebContents } from 'electron';
-import type { BrowserCommand } from '@whip/legacy-protocol';
+import type { BrowserCommand } from '@whip/protocol';
 import type { BrowserAgentScope } from '@whip/app/desktop-bridge';
 import { BrowserManager } from '../src/browser-manager';
 import { BrowserControl } from '../src/browser-control';
@@ -35,11 +35,11 @@ export async function testBrowserControlRegressions(window: BrowserWindow, origi
     await control.select({ provider, offer: { version: 1, root_id: root, desktop_id: identity.desktopId, window_id: identity.windowId, create_profile_id: identity.createProfileId,
       offer_revision: randomUUID(), offered_tabs: [], offered_preview_hosts: [preview] } });
     const scope = (): BrowserAgentScope => ({ provider_id: provider.provider_id, provider_epoch: provider.provider_epoch, tab_id: randomUUID(), tab_generation: randomUUID(),
-      profile_id: identity.createProfileId, attachment_id: randomUUID(), attachment_generation: randomUUID(), rights: ['create', 'control', 'route'],
+      profile_id: identity.createProfileId, attachment_id: randomUUID(), attachment_generation: randomUUID(), control_lineage: randomUUID(),
       preview: { ...preview, ports: [Number(new URL(origin).port)] } });
     const a = scope(), b = scope();
-    const command = (scope: BrowserAgentScope, kind: string, args: unknown): BrowserCommand => ({ root_id: root, agent_id: agent, scope, kind, arguments: args,
-      command_id: randomUUID(), operation_id: randomUUID(), provider_epoch: provider.provider_epoch, deadline_millis: String(Date.now() + 5000) });
+    const command = (scope: BrowserAgentScope, kind: BrowserCommand['kind'], args: unknown): BrowserCommand => ({ root_id: root, agent_id: agent, scope, kind, arguments: args,
+      command_id: randomUUID(), operation_id: randomUUID(), provider_epoch: provider.provider_epoch, expected_document: '', deadline_millis: String(Date.now() + 5000) });
     assert.equal((await control.dispatch(command(a, 'open', { url: origin }))).error, undefined);
     assert.equal((await control.dispatch(command(b, 'open', { url: origin }))).error, undefined);
     const inventory = control.identity(); provider.provider_epoch = randomUUID();

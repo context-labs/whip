@@ -47,7 +47,7 @@ async function fixture(t: TestContext) {
   };
 }
 
-test('forwards ordered UTF-8 frames over the real SDK Unix transport and acknowledges sent bytes', async t => {
+test('forwards ordered UTF-8 frames over native Unix framing and acknowledges sent bytes', async t => {
   const f = await fixture(t);
   const peer = await f.open();
   // Deliver an incomplete UTF-8 code point after the first complete frame.
@@ -67,6 +67,35 @@ test('forwards ordered UTF-8 frames over the real SDK Unix transport and acknowl
   assert.equal(String((await received)[0]), '{"message":"hello"}\n');
   assert.ok(f.events.some(event => event.kind === 'sent' && event.sequence === 1 && event.buffered >= 0));
   assert.equal(f.events.some(event => event.kind === 'closed'), false);
+});
+
+test('forwards native content-sized frames above the retired one MiB cap', async t => {
+  const f = await fixture(t);
+  const peer = await f.open();
+  const frame = JSON.stringify({ data_base64: Buffer.alloc(4 << 20, 42).toString('base64') });
+  peer.write(frame + '\n');
+  const received = await f.event(event => event.kind === 'frame');
+  assert.equal((received as Extract<DesktopEvent, { kind: 'frame' }>).frame, frame);
+  f.transports.acknowledge('one', 1);
+  const chunks: Buffer[] = [];
+  let size = 0;
+  const echoed = new Promise<void>(resolve => peer.on('data', bytes => {
+    chunks.push(bytes); size += bytes.length;
+    if (size === Buffer.byteLength(frame) + 1) resolve();
+  }));
+  f.transports.send('one', 1, frame);
+  await echoed;
+  assert.equal(Buffer.concat(chunks).toString(), frame + '\n');
+  assert.equal(f.events.some(event => event.kind === 'closed'), false);
+});
+
+test('rejects invalid UTF-8 rather than replacing bytes in a native response', async t => {
+  const f = await fixture(t);
+  const peer = await f.open();
+  peer.write(Buffer.from([0xc3, 0x28, 0x0a]));
+  const closed = await f.event(event => event.kind === 'closed');
+  assert.match((closed as Extract<DesktopEvent, { kind: 'closed' }>).error, /UTF-8/);
+  assert.equal(f.events.some(event => event.kind === 'frame'), false);
 });
 
 test('closes on out-of-order acknowledgements without acknowledging another connection', async t => {
@@ -102,7 +131,7 @@ test('bounds unacknowledged receive bytes independently of frame count', async t
 test('refuses oversized fragmented input before it forms a complete frame', async t => {
   const f = await fixture(t);
   const peer = await f.open();
-  peer.write('x'.repeat((1 << 20) + 1));
+  peer.write('x'.repeat((8 << 20) + 1));
   const closed = await f.event(event => event.kind === 'closed');
   assert.match((closed as Extract<DesktopEvent, { kind: 'closed' }>).error, /frame limit/);
   assert.equal(f.events.some(event => event.kind === 'frame'), false);
@@ -110,7 +139,7 @@ test('refuses oversized fragmented input before it forms a complete frame', asyn
 
 test('rejects newline injection, wrong sequences and oversized UTF-8 outbound frames', async t => {
   const f = await fixture(t);
-  for (const [index, frame] of ['one\ntwo', 'x'.repeat(1 << 20), 'é'.repeat(1 << 19)].entries()) {
+  for (const [index, frame] of ['one\ntwo', 'x'.repeat(8 << 20), 'é'.repeat(1 << 22)].entries()) {
     const id = `invalid-${index}`;
     await f.open(id);
     f.transports.send(id, 1, frame);

@@ -3,20 +3,24 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import test, { type TestContext } from 'node:test';
 import type { OpenProjectRequest } from '@whip/app/platform';
-import { transportFixture } from '../../../packages/legacy-sdk/test/transport-fixture';
+import type { Transport } from '@whip/sdk';
 import { ProjectEditors, projectArguments, projectEnvironment, projectSSHAlias, validateOpenProject, verifyProjectRuntime } from '../src/project-open';
 
 const request: OpenProjectRequest = { app: 'cursor', directory: '/remote/project', connectionId: 'handle', runtimeId: 'runtime' };
 
 test('native project verification rejects a replacement runtime before opening any views or submitting work', async () => {
-  const f = transportFixture();
-  await verifyProjectRuntime(f.factory, f.info.runtime_id, new AbortController().signal);
-  assert.deepEqual(f.current.requests.map(item => item.method), ['initialize']);
-  await assert.rejects(verifyProjectRuntime(f.factory, 'replaced-runtime', new AbortController().signal), /host could not be verified/);
-  assert.deepEqual(f.current.requests.map(item => item.method), ['initialize']);
+  const requests: string[] = [];
+  const transport: Transport = async request => {
+    requests.push(request.method);
+    return { jsonrpc: '2.0', id: request.id, result: { major: 4, minor: 0, runtime_id: 'runtime', process_epoch: 'epoch', network_client: false, builtins: [] } };
+  };
+  await verifyProjectRuntime(transport, 'runtime', new AbortController().signal);
+  assert.deepEqual(requests, ['initialize']);
+  await assert.rejects(verifyProjectRuntime(transport, 'replaced-runtime', new AbortController().signal), /host could not be verified/);
+  assert.deepEqual(requests, ['initialize', 'initialize']);
   const controller = new AbortController(); controller.abort();
-  await assert.rejects(verifyProjectRuntime(f.factory, f.info.runtime_id, controller.signal), /host could not be verified/);
-  assert.equal(f.connections.length, 2);
+  await assert.rejects(verifyProjectRuntime(transport, 'runtime', controller.signal), /host could not be verified/);
+  assert.equal(requests.length, 2);
 });
 
 test('launcher environment preserves OS authentication without leaking provider keys or remote routing hooks', () => {

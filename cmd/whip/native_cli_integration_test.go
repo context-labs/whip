@@ -121,6 +121,11 @@ func TestNativeCompiledCLIUsesFreshHostAndRealEngines(t *testing.T) {
 		}
 		return output.String()
 	}
+	var daemon nativeDaemonStatus
+	statusOutput := run("daemon", "status", "--json")
+	if err := json.Unmarshal([]byte(statusOutput), &daemon); err != nil || daemon.Process == nil || daemon.State != "running" || daemon.Process.PID != hostProcess.Process.Pid || daemon.Socket != paths.Socket || strings.Contains(statusOutput, `"generation"`) {
+		t.Fatal(statusOutput, err)
+	}
 	for _, engine := range []string{"starlark", "quickjs"} {
 		record := filepath.Join(directory, engine+".json")
 		output := run("run", "-quiet", "-format", "json", "-record", record, "-rlm-engine", engine, "execute a real cell")
@@ -148,5 +153,11 @@ func TestNativeCompiledCLIUsesFreshHostAndRealEngines(t *testing.T) {
 	}
 	if raw, err := os.ReadFile(legacy); err != nil || string(raw) != "retired user data" {
 		t.Fatal("retired storage changed", err)
+	}
+	if output := run("daemon", "stop", "--force"); strings.TrimSpace(output) != "daemon stopped" {
+		t.Fatal(output)
+	}
+	if status := localruntime.Inspect(ctx, paths); status.State != "stopped" || status.Process != nil {
+		t.Fatal(status)
 	}
 }

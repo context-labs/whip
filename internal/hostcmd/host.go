@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,6 +26,7 @@ import (
 	"github.com/context-labs/whip/internal/runner"
 	"github.com/context-labs/whip/internal/runtime"
 	"github.com/context-labs/whip/internal/terminal"
+	"github.com/context-labs/whip/internal/webassets"
 )
 
 // Run starts the native backend in an explicitly selected private directory and
@@ -149,7 +151,11 @@ func Run(parent context.Context, args []string, out, diagnostics io.Writer) (err
 			}
 			return strings.Split(value, ",")
 		}
-		browser, startErr := gateway.Start(ctx, gateway.Options{Address: *webAddress, AllowedHosts: list(*webHosts), AllowedOrigins: list(*webOrigins), SocketPath: r.SocketPath(), RuntimeID: protocol.ID(r.Identity()), ProcessEpoch: protocol.ID(r.ProcessEpoch()), BackendDone: r.Done()})
+		var assets http.Handler
+		if webassets.Available() {
+			assets = webassets.Handler()
+		}
+		browser, startErr := gateway.Start(ctx, gateway.Options{Address: *webAddress, AllowedHosts: list(*webHosts), AllowedOrigins: list(*webOrigins), SocketPath: r.SocketPath(), RuntimeID: protocol.ID(r.Identity()), ProcessEpoch: protocol.ID(r.ProcessEpoch()), BackendDone: r.Done(), Assets: assets})
 		if startErr != nil {
 			return startErr
 		}

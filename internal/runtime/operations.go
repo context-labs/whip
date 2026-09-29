@@ -47,6 +47,10 @@ func (r *Runtime) Permissions(ctx context.Context, id session.SessionID, after s
 	return r.store.Permissions(ctx, id, after, limit)
 }
 
+func (r *Runtime) PermissionsFiltered(ctx context.Context, id session.SessionID, after session.OperationID, limit int, pendingOnly bool) ([]session.Permission, error) {
+	return r.store.PermissionsFiltered(ctx, id, after, limit, pendingOnly)
+}
+
 func (r *Runtime) ResolvePermission(ctx context.Context, id session.OperationID, approved bool) (session.Permission, error) {
 	return r.store.ResolvePermission(ctx, id, approved)
 }

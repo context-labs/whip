@@ -81,7 +81,11 @@ func runCellTurn(t *testing.T, r *Runtime, id session.SessionID, key, want strin
 	submitTest(t, r, id, key)
 	admission := waitTestWithin(t, r, key, terminal, 30*time.Second)
 	if admission.Turn.State != session.Succeeded {
-		t.Fatalf("turn %s: %+v runtime=%v", key, admission.Turn, r.Err())
+		failure := ""
+		if admission.Turn.Failure != nil {
+			failure = *admission.Turn.Failure
+		}
+		t.Fatalf("turn %s: %+v failure=%q runtime=%v", key, admission.Turn, failure, r.Err())
 	}
 	attempts, err := r.ModelAttempts(t.Context(), admission.Turn.ID, "", 100)
 	if err != nil {

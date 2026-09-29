@@ -36,6 +36,7 @@ func Operations() []Operation {
 		{"browser.inventory.result", reflect.TypeFor[BrowserInventoryResultParams](), reflect.TypeFor[BrowserAccepted]()},
 		{"browser.attachments", reflect.TypeFor[SessionParams](), reflect.TypeFor[BrowserAttachmentsResult]()},
 		{"browser.tabs", reflect.TypeFor[SessionParams](), reflect.TypeFor[BrowserTabsResult]()},
+		{"models.inspection", reflect.TypeFor[ModelInspectionParams](), reflect.TypeFor[ModelInspection]()},
 		{"trace.page", reflect.TypeFor[TracePageParams](), reflect.TypeFor[TracePageResult]()},
 		{"trace.export", reflect.TypeFor[TraceExportParams](), reflect.TypeFor[TraceExportResult]()},
 		{"host.attention", reflect.TypeFor[HostAttentionParams](), reflect.TypeFor[HostAttentionResult]()},
@@ -57,6 +58,7 @@ func Operations() []Operation {
 		{"shell.input", reflect.TypeFor[ShellInputParams](), reflect.TypeFor[ShellInputResult]()},
 		{"computer.status", reflect.TypeFor[EmptyParams](), reflect.TypeFor[ComputerStatus]()},
 		{"computer.configure", reflect.TypeFor[ConfigureComputerParams](), reflect.TypeFor[ComputerStatus]()},
+		{"computer.use_bundled", reflect.TypeFor[UseBundledComputerParams](), reflect.TypeFor[ComputerStatus]()},
 		{"computer.reconnect", reflect.TypeFor[ComputerConnectionParams](), reflect.TypeFor[ComputerStatus]()},
 		{"computer.disconnect", reflect.TypeFor[ComputerConnectionParams](), reflect.TypeFor[ComputerStatus]()},
 		{"mcp.configuration", reflect.TypeFor[EmptyParams](), reflect.TypeFor[MCPConfiguration]()},
@@ -221,6 +223,7 @@ func Operations() []Operation {
 		{"receipts.match", reflect.TypeFor[MatchReceiptParams](), reflect.TypeFor[Admission]()},
 		{"receipts.get", reflect.TypeFor[RequestIdentity](), reflect.TypeFor[Admission]()},
 		{"content.put", reflect.TypeFor[PutContentParams](), reflect.TypeFor[ContentReference]()},
+		{"content.get", reflect.TypeFor[ReadContentParams](), reflect.TypeFor[ContentReference]()},
 		{"content.read", reflect.TypeFor[ReadContentParams](), reflect.TypeFor[ReadContentResult]()},
 		{"definitions.register", reflect.TypeFor[DefinitionDocument](), reflect.TypeFor[Definition]()},
 		{"definitions.get", reflect.TypeFor[DefinitionRef](), reflect.TypeFor[Definition]()},
@@ -229,6 +232,7 @@ func Operations() []Operation {
 
 func Types() map[string]reflect.Type {
 	result := map[string]reflect.Type{}
+	result["CapturedText"] = reflect.TypeFor[CapturedText]()
 	result["BrowserEvent"] = reflect.TypeFor[BrowserEvent]()
 	result["BrowserCommand"] = reflect.TypeFor[BrowserCommand]()
 	result["BrowserCommandCancel"] = reflect.TypeFor[BrowserCommandCancel]()
@@ -354,6 +358,16 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 		}
 		attentionSchema(schema, t)
 		traceSchema(schema, t)
+		if t == reflect.TypeFor[CapturedText]() {
+			schema.Properties["chunks"].Type = "array"
+			schema.Properties["chunks"].Types = nil
+			schema.Properties["chunks"].MaxItems = new(4)
+		}
+		if t == reflect.TypeFor[ModelCapture]() {
+			schema.Properties["messages"].Type = "array"
+			schema.Properties["messages"].Types = nil
+			schema.Properties["messages"].MaxItems = new(128)
+		}
 		controlsSchema(schema, t)
 		lifecycleSchema(schema, t)
 		steeringSchema(schema, t)

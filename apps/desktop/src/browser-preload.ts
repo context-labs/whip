@@ -9,6 +9,7 @@ export function browserAgentPreload(ipc: IpcRenderer): BrowserAgentBridge {
     inventory: input => ipc.invoke('whip:browser-agent:inventory', input),
     dispatch: input => ipc.invoke('whip:browser-agent:dispatch', input),
     cancel: input => { void ipc.invoke('whip:browser-agent:cancel', input).catch(() => {}); },
+    retire: input => ipc.invoke('whip:browser-agent:retire', input),
     release: input => ipc.invoke('whip:browser-agent:release', input),
     onEvent(listener) {
       const receive = (_event: Electron.IpcRendererEvent, event: BrowserAgentEvent) => listener(event);

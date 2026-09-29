@@ -10,17 +10,18 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/context-labs/whip/internal/buildinfo"
-	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/hostcmd"
+	"github.com/context-labs/whip/internal/localruntime"
 )
 
 func syncFixture(t *testing.T) (string, desktopSyncOptions) {
 	t.Helper()
-	dir := t.TempDir()
-	t.Setenv("WHIPCODE_HOME", filepath.Join(dir, "home"))
+	dir := nativeDaemonHome(t)
 	source, target := filepath.Join(dir, "payload"), filepath.Join(dir, "whipcode")
 	for path, content := range map[string]string{source: "new backend", target: "old backend"} {
 		if err := os.WriteFile(path, []byte(content), 0o700); err != nil {
@@ -53,30 +54,28 @@ func TestDesktopSyncCLIRejectsUnownedOrMalformedUpdates(t *testing.T) {
 }
 
 func TestDesktopSyncDaemonHelper(t *testing.T) {
-	home := os.Getenv("WHIP_DESKTOP_UPDATE_TEST_HOME")
-	if home == "" {
+	if os.Getenv("WHIP_DESKTOP_UPDATE_TEST_HOME") == "" {
 		return
 	}
-	t.Setenv("WHIPCODE_HOME", home)
 	for index, arg := range os.Args {
-		if arg == "_daemon" {
-			if err := daemonCLI(os.Args[index+1:]); err != nil {
+		if arg == "_native-runtime" {
+			if err := nativeRuntimeCLI(append(os.Args[index+1:], "-scripted")); err != nil {
 				t.Fatal(err)
 			}
 			return
 		}
 	}
-	t.Fatal("helper was not launched as a daemon")
+	t.Fatal("helper was not launched as a native runtime")
 }
 
 func TestDesktopSyncCoordinatesRealOwnerAndReadiness(t *testing.T) {
 	source, options := syncFixture(t)
-	paths, err := daemonRuntimePaths()
+	paths, err := nativeRuntimePaths()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("WHIPCODE_NETWORK", "0")
-	t.Setenv("WHIP_DESKTOP_UPDATE_TEST_HOME", filepath.Dir(paths.Home))
+	t.Setenv("WHIP_DESKTOP_UPDATE_TEST_HOME", filepath.Dir(paths.Directory))
 	self, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -92,55 +91,57 @@ func TestDesktopSyncCoordinatesRealOwnerAndReadiness(t *testing.T) {
 		t.Fatal(err)
 	}
 	options.digest, _ = desktopBinaryDigest(source)
-	options.interrupt = true
-	if err := daemon.LaunchInstalledDaemon(paths, options.executable, nil); err != nil {
-		t.Fatal(err)
-	}
+	launch := localruntime.Launch{Executable: options.executable, Arguments: []string{"_native-runtime"}, Build: "previous"}
+	var ownedPIDs []int
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := stopDesktopOwner(ctx, paths); err != nil {
+		if _, err := localruntime.Stop(ctx, paths); err != nil {
 			t.Error(err)
 		}
-	})
-	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
-	defer cancel()
-	var initialPID int
-	for ctx.Err() == nil {
-		status, client := probeDaemon(paths, 50*time.Millisecond)
-		if client != nil {
-			_ = client.Close()
-			initialPID = status.PID
-			break
+		for _, pid := range ownedPIDs {
+			// These are our unreaped fixture children, never a PID from user storage.
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+			var status syscall.WaitStatus
+			_, _ = syscall.Wait4(pid, &status, 0, nil)
 		}
-		time.Sleep(10 * time.Millisecond)
+	})
+	initial, err := localruntime.Start(t.Context(), paths, launch)
+	if err != nil || initial.Process == nil {
+		t.Fatal(initial, err)
 	}
-	if initialPID == 0 {
-		log, _ := os.ReadFile(filepath.Join(paths.Home, "daemon.log"))
-		t.Fatalf("initial daemon did not become ready\n%s", log)
-	}
-	cancelled, stop := context.WithCancel(ctx)
+	ownedPIDs = append(ownedPIDs, initial.Process.PID)
+	cancelled, stop := context.WithCancel(t.Context())
 	stop()
-	if err := stopDesktopOwner(cancelled, paths); !errors.Is(err, context.Canceled) {
-		t.Fatalf("cancelled stop: %v", err)
+	if _, err := localruntime.Stop(cancelled, paths); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
 	}
-	if pid, owned, err := daemon.ActiveOwnerPID(paths.Lock); err != nil || !owned || pid != initialPID {
-		t.Fatal("cancelled update disturbed the running owner")
+	if current := localruntime.Inspect(t.Context(), paths); current.Process == nil || current.Process.ProcessEpoch != initial.Process.ProcessEpoch {
+		t.Fatal(current)
 	}
-	result, err := syncDesktopRuntime(ctx, source, options)
+	result, err := syncDesktopRuntime(t.Context(), source, options)
+	if err != nil || result.State != "approval-required" {
+		t.Fatal(result, err)
+	}
+	if current, _ := desktopBinaryDigest(options.executable); current != options.expected {
+		t.Fatal("unapproved update changed executable")
+	}
+	options.interrupt = true
+	result, err = syncDesktopRuntime(t.Context(), source, options)
 	if err != nil || result.State != "ready" {
-		log, _ := os.ReadFile(filepath.Join(paths.Home, "daemon.log"))
-		t.Fatalf("sync: %+v, %v\n%s", result, err, log)
+		raw, _ := os.ReadFile(paths.Log)
+		t.Fatalf("%+v %v\n%s", result, err, raw)
 	}
-	pid, owned, err := daemon.ActiveOwnerPID(paths.Lock)
-	if err != nil || !owned || pid == initialPID {
-		t.Fatalf("replacement ownership: %d, %v, %v", pid, owned, err)
+	current := localruntime.Inspect(t.Context(), paths)
+	if current.Process == nil || current.Process.PID == initial.Process.PID || current.Process.ProcessEpoch == initial.Process.ProcessEpoch || current.Process.RuntimeID != initial.Process.RuntimeID {
+		t.Fatal(initial, current)
 	}
-	if result, err = syncDesktopRuntime(ctx, source, options); err != nil || result.State != "ready" {
-		t.Fatalf("idempotent retry: %+v, %v", result, err)
+	ownedPIDs = append(ownedPIDs, current.Process.PID)
+	if result, err = syncDesktopRuntime(t.Context(), source, options); err != nil || result.State != "ready" {
+		t.Fatal(result, err)
 	}
-	if after, _, _ := daemon.ActiveOwnerPID(paths.Lock); after != pid {
-		t.Fatal("retry restarted the replacement owner")
+	if after := localruntime.Inspect(t.Context(), paths); after.Process == nil || after.Process.ProcessEpoch != current.Process.ProcessEpoch {
+		t.Fatal("retry restarted replacement", after)
 	}
 }
 
@@ -152,7 +153,7 @@ func TestDesktopSyncFailedReadinessKeepsVerifiedReplacement(t *testing.T) {
 	options.digest, _ = desktopBinaryDigest(source)
 	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 	defer cancel()
-	if _, err := syncDesktopRuntime(ctx, source, options); err == nil || !strings.Contains(err.Error(), "did not become ready") {
+	if _, err := syncDesktopRuntime(ctx, source, options); err == nil || !strings.Contains(err.Error(), "readiness is unconfirmed") {
 		t.Fatalf("missing readiness error: %v", err)
 	}
 	if digest, _ := desktopBinaryDigest(options.executable); digest != options.digest {
@@ -180,15 +181,17 @@ func TestDesktopSyncPreflightPreservesInstalledBinary(t *testing.T) {
 			case "cancelled":
 				cancel()
 			case "maintenance":
-				paths, err := daemonRuntimePaths()
+				paths, err := nativeRuntimePaths()
 				if err != nil {
 					t.Fatal(err)
 				}
-				lock, err := daemon.AcquireMaintenance(paths)
+				lock, err := localruntime.AcquireMaintenance(ctx, paths)
 				if err != nil {
 					t.Fatal(err)
 				}
 				defer func() { _ = lock.Close() }()
+				ctx, cancel = context.WithTimeout(ctx, 30*time.Millisecond)
+				defer cancel()
 			}
 			if _, err := syncDesktopRuntime(ctx, source, options); err == nil {
 				t.Fatal("invalid update succeeded")
@@ -205,29 +208,36 @@ func TestDesktopSyncPreflightPreservesInstalledBinary(t *testing.T) {
 	}
 }
 
-func TestDesktopSyncRequiresApprovalForAnOwnedDaemon(t *testing.T) {
+func TestDesktopSyncRejectsUnverifiedOwner(t *testing.T) {
 	source, options := syncFixture(t)
-	paths, err := daemonRuntimePaths()
+	paths, err := nativeRuntimePaths()
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner, err := daemon.AcquireOwner(paths.Lock)
+	if err := os.Mkdir(paths.Directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := os.OpenFile(paths.Lock, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = owner.Close() }()
-	result, err := syncDesktopRuntime(t.Context(), source, options)
-	if err != nil || result.State != "approval-required" {
-		t.Fatalf("result: %+v, %v", result, err)
+	defer owner.Close()
+	if err := syscall.Flock(int(owner.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
 	}
-	bytes, err := os.ReadFile(options.executable)
-	if err != nil || string(bytes) != "old backend" {
-		t.Fatalf("changed binary without approval: %q, %v", bytes, err)
+	for _, interrupt := range []bool{false, true} {
+		options.interrupt = interrupt
+		if _, err := syncDesktopRuntime(t.Context(), source, options); err == nil || !strings.Contains(err.Error(), "unverified") {
+			t.Fatal(err)
+		}
+		if data, err := os.ReadFile(options.executable); err != nil || string(data) != "old backend" {
+			t.Fatal(string(data), err)
+		}
 	}
 }
 
 func TestDesktopRuntimeRejectsUnsafePayloadsBeforeShutdown(t *testing.T) {
-	for _, kind := range []string{"missing", "empty", "directory", "oversized", "unreadable", "stage-directory"} {
+	for _, kind := range []string{"missing", "empty", "directory", "oversized", "unreadable", "stage-directory", "fifo", "symlink"} {
 		t.Run(kind, func(t *testing.T) {
 			source, options := syncFixture(t)
 			switch kind {
@@ -248,6 +258,17 @@ func TestDesktopRuntimeRejectsUnsafePayloadsBeforeShutdown(t *testing.T) {
 					t.Fatal(err)
 				}
 				if err := os.Mkdir(source, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			case "fifo", "symlink":
+				if err := os.Remove(source); err != nil {
+					t.Fatal(err)
+				}
+				if kind == "fifo" {
+					if err := syscall.Mkfifo(source, 0o600); err != nil {
+						t.Fatal(err)
+					}
+				} else if err := os.Symlink(options.executable, source); err != nil {
 					t.Fatal(err)
 				}
 			case "unreadable":
@@ -272,40 +293,61 @@ func TestDesktopRuntimeRejectsUnsafePayloadsBeforeShutdown(t *testing.T) {
 	}
 }
 
+func startInProcessSyncOwner(t *testing.T, paths localruntime.Paths) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- hostcmd.Run(ctx, []string{"-directory", paths.Directory, "-scripted", "-build", "previous"}, io.Discard, io.Discard)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Error(err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Error("host did not join")
+		}
+	})
+	wait, stop := context.WithTimeout(t.Context(), 5*time.Second)
+	defer stop()
+	for localruntime.Inspect(wait, paths).Process == nil {
+		select {
+		case <-wait.Done():
+			t.Fatal(wait.Err())
+		case <-time.After(time.Millisecond):
+		}
+	}
+}
+
 func TestDesktopRuntimeNeverStopsItself(t *testing.T) {
-	_, _ = syncFixture(t)
-	paths, err := daemonRuntimePaths()
+	source, options := syncFixture(t)
+	paths, err := nativeRuntimePaths()
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner, err := daemon.AcquireOwner(paths.Lock)
-	if err != nil {
+	startInProcessSyncOwner(t, paths)
+	options.interrupt = true
+	if _, err := syncDesktopRuntime(t.Context(), source, options); err == nil || !strings.Contains(err.Error(), "updater itself") {
 		t.Fatal(err)
 	}
-	defer owner.Close()
-	if err := stopDesktopOwner(t.Context(), paths); err == nil || !strings.Contains(err.Error(), "updater itself") {
-		t.Fatalf("self-stop was not refused: %v", err)
+	if data, err := os.ReadFile(options.executable); err != nil || string(data) != "old backend" {
+		t.Fatal(string(data), err)
 	}
 }
 
 func TestDesktopManagedDiagnosticsAndApprovalCLI(t *testing.T) {
-	// The hidden commands must remain read-only until restart approval, even
-	// when invoked through the executable's actual dispatch path.
 	_, options := syncFixture(t)
-	paths, err := daemonRuntimePaths()
+	paths, err := nativeRuntimePaths()
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner, err := daemon.AcquireOwner(paths.Lock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer owner.Close()
+	startInProcessSyncOwner(t, paths)
 	previousOwner := buildinfo.UpdateOwner
 	defer func() { buildinfo.UpdateOwner = previousOwner }()
 	buildinfo.UpdateOwner = "desktop"
-	// Point the distribution-specific environment at the same isolated home.
-	t.Setenv("WHIPCODE_HOME", filepath.Dir(paths.Home))
 	self, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -316,20 +358,17 @@ func TestDesktopManagedDiagnosticsAndApprovalCLI(t *testing.T) {
 	}
 	output := invokeMain(t, "_desktop-runtime-sync", "--executable", options.executable, "--expected-sha256", options.expected, "--sha256", digest)
 	if !strings.Contains(output, `"state":"approval-required"`) {
-		t.Fatal("dispatch bypassed restart approval")
+		t.Fatal(output)
 	}
-	metadata := invokeMain(t, "_desktop-runtime-info")
-	if !strings.Contains(metadata, `"updateOwner":"desktop"`) {
-		t.Fatal("diagnostics omitted desktop update ownership")
+	if metadata := invokeMain(t, "_desktop-runtime-info"); !strings.Contains(metadata, `"updateOwner":"desktop"`) {
+		t.Fatal(metadata)
 	}
-	var status struct {
-		State string `json:"state"`
-	}
-	if err := json.Unmarshal([]byte(invokeMain(t, "daemon", "status", "--json")), &status); err != nil || status.State != "unhealthy" {
-		t.Fatalf("owned daemon without transport: %s, %v", status.State, err)
+	var status nativeDaemonStatus
+	if err := json.Unmarshal([]byte(invokeMain(t, "daemon", "status", "--json")), &status); err != nil || status.State != "running" || status.Process == nil {
+		t.Fatal(status, err)
 	}
 	if data, err := os.ReadFile(options.executable); err != nil || string(data) != "old backend" {
-		t.Fatal("CLI diagnostics changed the installed backend")
+		t.Fatal(string(data), err)
 	}
 }
 
@@ -417,7 +456,12 @@ func TestDesktopDaemonLogTailUsesTheRequestedFile(t *testing.T) {
 	if err := os.WriteFile(name, []byte("old line\nlatest diagnostic\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	output := captureDaemonOutput(t, func() error { return tailDaemonLog(name, 1, false) })
+	file, err := os.Open(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	output := captureDaemonOutput(t, func() error { return tailDaemonLog(file, 1, false) })
 	if output != "latest diagnostic\n" {
 		t.Fatal("log tail ignored its file or line bound")
 	}

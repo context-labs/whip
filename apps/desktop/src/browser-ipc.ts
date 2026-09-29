@@ -28,6 +28,7 @@ export function installBrowserIPC(window: BrowserWindow, manager: BrowserManager
     inventory: (value: unknown) => control.inventory(value),
     dispatch: (value: unknown) => control.dispatch(value),
     cancel: (value: unknown) => control.cancel(value),
+    retire: (value: unknown) => control.retire(value),
     release: (value: unknown) => control.release(value),
   } : {};
   for (const [name, action] of Object.entries(agentMethods)) ipcMain.handle(`whip:browser-agent:${name}`, (event, value: unknown, ...extra: unknown[]) => {

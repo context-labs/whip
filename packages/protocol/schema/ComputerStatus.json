@@ -66,6 +66,9 @@
     },
     "platform_supported": {
       "type": "boolean"
+    },
+    "bundled_available": {
+      "type": "boolean"
     }
   },
   "$id": "https://whip.dev/protocol/v4/ComputerStatus",
@@ -77,7 +80,8 @@
     "generation",
     "state",
     "native_configured",
-    "platform_supported"
+    "platform_supported",
+    "bundled_available"
   ],
   "additionalProperties": false
 }

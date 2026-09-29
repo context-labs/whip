@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/context-labs/whip/internal/buildinfo"
-	"github.com/context-labs/whip/internal/legacy/protocol"
-	"github.com/context-labs/whip/internal/legacy/session"
+	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/store"
 )
 
 func TestDesktopRuntimeInfoDoesNotInitializeHome(t *testing.T) {
@@ -45,7 +45,7 @@ func testDesktopRuntimeInfoDoesNotInitializeHome(t *testing.T) {
 	if metadata.Distribution != buildinfo.Name || metadata.BuildID != version || metadata.ProtocolMajor != protocol.Major || metadata.ProtocolMinor != protocol.Minor {
 		t.Fatal("runtime metadata did not match the compiled executable")
 	}
-	if metadata.SchemaVersion != session.SchemaVersion() || metadata.SchemaVersion < 1 {
+	if metadata.SchemaVersion != store.SchemaVersion() || metadata.SchemaVersion < 1 {
 		t.Fatal("runtime metadata did not report the supported schema version")
 	}
 	if _, err := os.Stat(home); !errors.Is(err, os.ErrNotExist) {

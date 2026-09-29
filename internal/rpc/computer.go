@@ -22,6 +22,11 @@ func dispatchComputer(ctx context.Context, r *runtime.Runtime, method string, ra
 			value, err := r.ConfigureComputer(ctx, p.Revision, computerconfig.Config{Enabled: c.Enabled, HelperExecutable: c.HelperExecutable, Allow: c.Allow, Deny: c.Deny, DefaultDeny: c.DefaultDeny})
 			return computerStatus(value), err
 		})
+	case "computer.use_bundled":
+		return decode(raw, func(p protocol.UseBundledComputerParams) (any, error) {
+			value, err := r.UseBundledComputer(ctx, p.Revision)
+			return computerStatus(value), err
+		})
 	case "computer.reconnect", "computer.disconnect":
 		return decode(raw, func(p protocol.ComputerConnectionParams) (any, error) {
 			value, err := r.ChangeComputerConnection(ctx, string(p.Generation), method == "computer.reconnect")
@@ -33,5 +38,5 @@ func dispatchComputer(ctx context.Context, r *runtime.Runtime, method string, ra
 
 func computerStatus(value runtime.ComputerStatus) protocol.ComputerStatus {
 	c := value.Config
-	return protocol.ComputerStatus{Revision: value.Revision, Configuration: protocol.ComputerConfiguration{Enabled: c.Enabled, HelperExecutable: c.HelperExecutable, Allow: append([]string{}, c.Allow...), Deny: append([]string{}, c.Deny...), DefaultDeny: c.DefaultDeny}, Generation: protocol.ID(value.Control.Generation), State: value.Control.State, NativeConfigured: value.Control.NativeConfigured, PlatformSupported: value.Control.PlatformSupported}
+	return protocol.ComputerStatus{Revision: value.Revision, Configuration: protocol.ComputerConfiguration{Enabled: c.Enabled, HelperExecutable: c.HelperExecutable, Allow: append([]string{}, c.Allow...), Deny: append([]string{}, c.Deny...), DefaultDeny: c.DefaultDeny}, Generation: protocol.ID(value.Control.Generation), State: value.Control.State, NativeConfigured: value.Control.NativeConfigured, PlatformSupported: value.Control.PlatformSupported, BundledAvailable: value.BundledAvailable}
 }

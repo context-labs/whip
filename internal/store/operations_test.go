@@ -536,3 +536,41 @@ func TestOperationBoundsAndLists(t *testing.T) {
 		t.Fatalf("failed quota mutated intent: %+v %v", op, err)
 	}
 }
+
+func TestPendingPermissionsFilterBeforePageLimit(t *testing.T) {
+	s := fresh(t)
+	owner, cell := operationCell(t, s)
+	_, other := create(t, s, nil)
+	for i := range 102 {
+		id := fmt.Sprintf("permission_%03d", i)
+		operation := admitOperation(t, s, operationSpec(cell, id))
+		if i < 100 {
+			if _, err := s.ResolvePermission(t.Context(), operation.ID, false); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	all, err := s.Permissions(t.Context(), owner.ID, "", 100)
+	if err != nil || len(all) != 100 || all[0].State != session.PermissionDenied {
+		t.Fatalf("unfiltered contract changed: %d %v", len(all), err)
+	}
+	pending, err := s.PermissionsFiltered(t.Context(), owner.ID, "", 1, true)
+	if err != nil || len(pending) != 1 || pending[0].OperationID != "permission_100" {
+		t.Fatalf("pending hidden behind history: %+v %v", pending, err)
+	}
+	next, err := s.PermissionsFiltered(t.Context(), owner.ID, pending[0].OperationID, 1, true)
+	if err != nil || len(next) != 1 || next[0].OperationID != "permission_101" {
+		t.Fatalf("pending exclusive cursor: %+v %v", next, err)
+	}
+	foreign, err := s.PermissionsFiltered(t.Context(), other.ID, "", 100, true)
+	if err != nil || len(foreign) != 0 {
+		t.Fatalf("pending owner: %+v %v", foreign, err)
+	}
+	if _, err := s.ResolvePermission(t.Context(), pending[0].OperationID, false); err != nil {
+		t.Fatal(err)
+	}
+	remaining, err := s.PermissionsFiltered(t.Context(), owner.ID, "", 100, true)
+	if err != nil || len(remaining) != 1 || remaining[0].OperationID != next[0].OperationID {
+		t.Fatalf("resolved still pending: %+v %v", remaining, err)
+	}
+}

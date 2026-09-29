@@ -496,6 +496,36 @@
     "valid": true
   },
   {
+    "type": "CapturedText",
+    "value": {
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "bytes": "16777217",
+      "status": "oversized",
+      "chunks": []
+    },
+    "valid": true
+  },
+  {
+    "type": "ModelInspectionParams",
+    "value": {
+      "session_id": "session_root",
+      "attempt_id": "attempt"
+    },
+    "valid": true
+  },
+  {
+    "type": "ModelInspection",
+    "value": {
+      "session_id": "session_root",
+      "attempt_id": "attempt",
+      "turn_id": "turn",
+      "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "capture": null,
+      "compaction": null
+    },
+    "valid": true
+  },
+  {
     "type": "TracePageParams",
     "value": {
       "root_id": "session_root",
@@ -1164,7 +1194,15 @@
       "generation": "control_fixture",
       "state": "disabled",
       "native_configured": false,
-      "platform_supported": true
+      "platform_supported": true,
+      "bundled_available": false
+    },
+    "valid": true
+  },
+  {
+    "type": "UseBundledComputerParams",
+    "value": {
+      "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
     },
     "valid": true
   },
@@ -4089,6 +4127,19 @@
         }
       ],
       "grant_ids": null
+    },
+    "valid": true
+  },
+  {
+    "type": "Response",
+    "value": {
+      "jsonrpc": "2.0",
+      "id": "unavailable",
+      "error": {
+        "code": -32036,
+        "message": "host service unavailable",
+        "kind": "HOST_UNAVAILABLE"
+      }
     },
     "valid": true
   },

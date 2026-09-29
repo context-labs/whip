@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { test } from 'node:test';
 import { Client, DeliveryError } from '../../packages/sdk/dist/index.js';
@@ -17,8 +17,11 @@ test('production computer controls require reviewed authority and retain scoped 
  const stop=async()=>{if(!child||child.exitCode!==null||child.signalCode!==null)return;const ended=once(child,'exit');child.kill('SIGTERM');const timer=setTimeout(()=>child.kill('SIGKILL'),5000);try{await ended}finally{clearTimeout(timer)}};
  t.after(async()=>{await stop();await rm(directory,{recursive:true,force:true})});
  const exec=promisify(execFile);
- await exec('go',['build','-race=false','-o',binary,'./cmd/whip-runtime'],{timeout:60_000});
  await exec('go',['build','-o',helper,'./internal/computer/testdata/controlledhelper/main.go'],{timeout:60_000});
+ const helperBytes=await readFile(helper),overlay=join(directory,'overlay.json');
+ if(process.platform==='darwin')await writeFile(overlay,JSON.stringify({Replace:{[resolve('internal/computer/bin/whip-computer')]:helper}}));
+ await exec('go',['build','-race=false',...(process.platform==='darwin'?['-overlay',overlay]:[]),'-o',binary,'./cmd/whip-runtime'],{timeout:60_000});
+ if(process.platform==='darwin')await rm(helper); // publication must use embedded bytes, never a build-tree fallback
  const start=async()=>{
   child=spawn(binary,['-directory',join(directory,'state')],{stdio:['ignore','pipe','pipe']});child.stderr.on('data',chunk=>diagnostic=(diagnostic+chunk).slice(-(1<<20)));
   return new Promise((resolve,reject)=>{let text='';const cleanup=()=>{clearTimeout(timer);child.stdout.off('data',data);child.off('error',failed);child.off('exit',exited)};const failed=error=>{cleanup();reject(error)};const exited=()=>failed(new Error('runtime exited: '+diagnostic));const data=chunk=>{text+=chunk;const end=text.indexOf('\n');if(end<0)return;try{const info=JSON.parse(text.slice(0,end));cleanup();resolve(info)}catch(error){failed(error)}};const timer=setTimeout(()=>failed(new Error('runtime startup timeout: '+diagnostic)),15_000);child.stdout.on('data',data);child.on('error',failed);child.on('exit',exited)});
@@ -27,8 +30,18 @@ test('production computer controls require reviewed authority and retain scoped 
  const connect=async()=>{const transport=unixSocket(info.socket);return Client.connect(async(...args)=>{const result=await transport(...args);if(drop&&args[0].method==='tool.call'){drop=false;throw new DeliveryError('accepted reply deliberately lost')}return result},{clientID:'computer-fixture',expectedRuntimeID:info.runtime_id,...deadline()})};
  let client=await connect();
  const initial=await client.computerStatus(deadline());assert.equal(initial.state,'disabled');
- const configured=await client.configureComputer({revision:initial.revision,configuration:{enabled:true,helper_executable:helper,allow:[],deny:[],default_deny:true}},deadline());
- assert.equal(configured.state,'available');await assert.rejects(readFile(helper+'.calls'),error=>error.code==='ENOENT');
+ assert.equal(initial.bundled_available,process.platform==='darwin');
+ let setup=initial,selectedHelper=helper;
+ if(initial.bundled_available){
+  await assert.rejects(readFile(join(directory,'state','bin','whip-computer')),error=>error.code==='ENOENT');
+  setup=await client.useBundledComputer(initial.revision,deadline());selectedHelper=setup.configuration.helper_executable;
+  assert.equal(setup.state,'disabled');assert.deepEqual({...setup.configuration,helper_executable:''},initial.configuration);
+  assert.equal(selectedHelper,join(directory,'state','bin','whip-computer'));assert.deepEqual(await readFile(selectedHelper),helperBytes);
+  await assert.rejects(client.useBundledComputer(initial.revision,deadline()),error=>error.kind==='CONFLICT');
+  await assert.rejects(client.useBundledComputer(setup.revision,deadline()),error=>error.kind==='CONFLICT');
+ }else await assert.rejects(client.useBundledComputer(initial.revision,deadline()),error=>error.kind==='HOST_UNAVAILABLE');
+ const configured=await client.configureComputer({revision:setup.revision,configuration:{enabled:true,helper_executable:selectedHelper,allow:[],deny:[],default_deny:true}},deadline());
+ assert.equal(configured.state,'available');await assert.rejects(readFile(selectedHelper+'.calls'),error=>error.code==='ENOENT');
  for(const engine of ['starlark','quickjs']){
   const {root}=await client.call('trees.create',{creation_id:'computer-'+engine,engine,definition:client.builtins[0],working_directory:directory,metadata:{title:null,pinned:false,archived:false},overrides:{modules:['computer'],automatic_title:false}},deadline());
   assert.equal(root.configuration.model.provider,'');
@@ -45,9 +58,9 @@ test('production computer controls require reviewed authority and retain scoped 
   assert.deepEqual((await client.call('sessions.history',{session_id:root.id,after:'0',limit:10},deadline())).items,[]);
   assert.deepEqual((await client.call('turns.cells',{turn_id:done.turn.id,limit:10},deadline())).items,[]);
   assert.deepEqual((await client.call('turns.attempts',{turn_id:done.turn.id,limit:10},deadline())).items,[]);
-  const recorded=await readFile(helper+'.calls','utf8');await stop();info=await start();client=await connect();
+  const recorded=await readFile(selectedHelper+'.calls','utf8');await stop();info=await start();client=await connect();
   const restarted=await client.computerStatus(deadline());assert.notEqual(restarted.generation,configured.generation);assert.equal(restarted.state,'available');
-  assert.equal((await client.callTool(root.id,operation,requestID,deadline())).input.id,done.input.id);assert.equal(await readFile(helper+'.calls','utf8'),recorded);
+  assert.equal((await client.callTool(root.id,operation,requestID,deadline())).input.id,done.input.id);assert.equal(await readFile(selectedHelper+'.calls','utf8'),recorded);
  }
  await stop();assert.equal(child.exitCode,0,diagnostic);
 });

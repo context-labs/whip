@@ -34,7 +34,9 @@ export function withSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promis
 
 /** Encode UTF-8 without Node globals or an argument stack proportional to input. */
 export function utf8Base64(value: string): string {
-  const encoded = new TextEncoder().encode(value);
+  return bytesBase64(new TextEncoder().encode(value));
+}
+export function bytesBase64(encoded: Uint8Array): string {
   let binary = '';
   for (let offset = 0; offset < encoded.length; offset += 8192) binary += String.fromCharCode(...encoded.subarray(offset, offset + 8192));
   return btoa(binary);

@@ -563,6 +563,14 @@ CREATE TRIGGER attempt_transition BEFORE UPDATE ON model_attempts
  OR (OLD.state='dispatched' AND (NEW.state IN ('reserved','dispatched') OR NEW.dispatched_at IS NOT OLD.dispatched_at))
  BEGIN SELECT RAISE(ABORT, 'invalid model attempt transition'); END;
 
+CREATE TABLE model_captures (
+ attempt_id TEXT PRIMARY KEY REFERENCES model_attempts(id) ON DELETE CASCADE,
+ source_digest TEXT NOT NULL,
+ capture TEXT NOT NULL CHECK(json_valid(capture) AND length(CAST(capture AS BLOB))<=131072)
+) STRICT;
+CREATE TRIGGER model_captures_immutable BEFORE UPDATE ON model_captures
+BEGIN SELECT RAISE(ABORT,'model capture is immutable'); END;
+
 CREATE TABLE compactions (
  id TEXT PRIMARY KEY,
  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,

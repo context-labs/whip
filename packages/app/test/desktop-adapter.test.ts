@@ -114,7 +114,7 @@ it('preserves frame order, bounded backpressure and listener lifetime across the
   f.emit({ kind: 'frame', id, sequence: 1, frame: 'response' });
   expect(handlers.message).toHaveBeenCalledWith('response');
   expect(f.bridge.acknowledgeTransport).toHaveBeenCalledWith(id, 1);
-  expect(() => transport.send('x'.repeat(1 << 20))).toThrow('limit');
+  expect(() => transport.send('x'.repeat(8 << 20))).toThrow('limit');
   f.emit({ kind: 'frame', id, sequence: 3, frame: 'out of order' });
   expect(handlers.close).toHaveBeenCalledOnce();
   transport.close();
@@ -305,4 +305,18 @@ it('associates early SSH prompts with their profile and rejects prompts from a r
   expect(answerPrompt).toHaveBeenCalledExactlyOnceWith('password', null);
   platform.dispose?.();
   expect(f.listeners.size).toBe(0);
+});
+
+it('carries a bounded native content upload and response through the renderer bridge', async () => {
+  const f = fixture(), handlers = { message: vi.fn(), close: vi.fn() };
+  const transport = await desktopTransport(f.api, 'connection')(handlers, new AbortController().signal);
+  const id = f.bridge.openTransport.mock.calls[0]![0];
+  const frame = JSON.stringify({ data_base64: 'YQ=='.repeat(1 << 20) });
+  transport.send(frame);
+  expect(transport.bufferedAmount).toBe(new TextEncoder().encode(frame).length + 1);
+  f.emit({ kind: 'sent', id, sequence: 1, buffered: 0 });
+  f.emit({ kind: 'frame', id, sequence: 1, frame });
+  expect(handlers.message).toHaveBeenCalledExactlyOnceWith(frame);
+  expect(f.bridge.acknowledgeTransport).toHaveBeenCalledWith(id, 1);
+  expect(handlers.close).not.toHaveBeenCalled(); transport.close();
 });

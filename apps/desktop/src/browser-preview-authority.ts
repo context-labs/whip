@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { unixSocket } from '@whip/legacy-sdk/node';
+import { unixSocket } from '@whip/sdk/node';
 import type { ConnectionProfile } from '@whip/app/platform';
 import type { BrowserAgentSelection, BrowserAgentScope, BrowserAgentPreview } from '@whip/app/desktop-bridge';
 import { PreviewEnvironments, type PreviewIdentity, type PreviewScope } from './preview-environments';

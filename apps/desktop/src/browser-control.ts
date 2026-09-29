@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { assertValid, type BrowserInventoryRequest, type BrowserInventoryResultParams, type BrowserCommand, type BrowserCommandCancel, type BrowserProviderEventParams } from '@whip/legacy-protocol';
+import { assertValid, type BrowserInventoryRequest, type BrowserInventoryResultParams, type BrowserCommand, type BrowserCommandCancel, type BrowserProviderEventParams, type BrowserScopesRetired } from '@whip/protocol';
 import type { BrowserAgentIdentity, BrowserAgentSelection, BrowserAgentEvent, BrowserAgentResult, BrowserAgentScope, BrowserTarget, BrowserEvent } from '@whip/app/desktop-bridge';
 import { BrowserManager } from './browser-manager';
 import { ScopedBrowserDebugger } from './browser-cdp';
@@ -9,8 +9,9 @@ import { boundedString, browserID, browserURL, object } from './browser-policy';
 type Selection = { input: BrowserAgentSelection; epoch: string; lifetime: AbortController; seen: Set<string>; created: Map<string, { agentId: string; scope: BrowserAgentScope }> };
 type Operation = { id: string; lifetime: AbortController; navigating?: boolean };
 type Attachment = { selection: Selection; scope: BrowserAgentScope; agentId: string; target: BrowserTarget; sequence: bigint; debugger?: ScopedBrowserDebugger; operation?: Operation; live: boolean; lastState?: string };
-class ControlError extends Error { constructor(readonly kind: string, message: string) { super(message); } }
-function fail(kind: string, message: string): never { throw new ControlError(kind, message); }
+type FailureKind = NonNullable<BrowserAgentResult['error']>['kind'];
+class ControlError extends Error { constructor(readonly kind: FailureKind, message: string) { super(message); } }
+function fail(kind: FailureKind, message: string): never { throw new ControlError(kind, message); }
 const same = (a: unknown, b: unknown) => isDeepStrictEqual(a, b);
 const clone = <T>(value: T): T => structuredClone(value);
 
@@ -66,7 +67,7 @@ export class BrowserControl {
       let url = '';
       try { const address = new URL(live.url ?? 'about:blank'); address.username = ''; address.password = ''; url = address.href; } catch { /* Invalid metadata is omitted. */ }
       return [{ tab_id: target.tab_id, tab_generation: target.tab_generation, document_revision: live.document_revision ?? '', url,
-        title: [...(live.title ?? '')].slice(0, 128).join(''), state: attachment?.live ? 'busy' : 'available', requestable: !attachment?.live }];
+        title: [...(live.title ?? '')].slice(0, 128).join(''), state: attachment?.live ? 'busy' as const : 'available' as const, requestable: !attachment?.live }];
     });
     const result = { request_id: request.request_id, root_id: request.root_id, provider_epoch: request.provider_epoch, tabs };
     if (Buffer.byteLength(JSON.stringify(result)) > 64 * 1024) fail('browser_busy', 'Inventory result exceeds its limit');
@@ -100,6 +101,20 @@ export class BrowserControl {
     selection.lifetime.abort(); this.selections.delete(input.rootId as string);
     for (const attachment of [...this.attachments.values()]) if (attachment.selection === selection) this.revoke(attachment, 'Provider association ended');
     this.options.release?.(selection.input);
+  }
+  retire(value: unknown): void {
+    assertValid('BrowserScopesRetired', value);
+    const input = value as BrowserScopesRetired;
+    const selection = this.selections.get(input.root_id);
+    if (!selection || selection.input.provider.provider_id !== input.provider_id || selection.input.provider.provider_epoch !== input.provider_epoch) return;
+    for (const scope of input.scopes) {
+      if (scope.provider_id !== input.provider_id || scope.provider_epoch !== input.provider_epoch) fail('permission_denied', 'Retirement provider identity changed');
+    }
+    for (const scope of input.scopes) {
+      const attachment = this.attachments.get(scope.tab_id);
+      if (attachment?.selection === selection && same(attachment.scope, scope)) this.revoke(attachment, 'Control scope retired', false);
+      for (const pending of this.pending.values()) if (pending.command.root_id === input.root_id && same(pending.command.scope, scope)) pending.lifetime.abort();
+    }
   }
   cancel(value: unknown): void {
     assertValid('BrowserCommandCancel', value); const input = value as BrowserCommandCancel;
@@ -167,7 +182,7 @@ export class BrowserControl {
         this.selections.get(attachment.selection.input.offer.root_id) !== attachment.selection) fail('attachment_revoked', 'Browser attachment revoked');
     this.manager.controlledState(attachment.target); this.previewCurrent(attachment.scope, attachment);
   }
-  private event(attachment: Attachment, kind: string, method?: string, params?: unknown, operationId?: string): void {
+  private event(attachment: Attachment, kind: BrowserProviderEventParams['kind'], method?: string, params?: unknown, operationId?: string): void {
     let document = '', url = '', title = ''; try { const state = this.manager.controlledState(attachment.target); document = String(state.documentGeneration); url = state.url; title = state.title; } catch { /* Revocation may follow native removal. */ }
     const scope = attachment.scope;
     const event: BrowserProviderEventParams = { root_id: attachment.selection.input.offer.root_id, provider_epoch: scope.provider_epoch,
@@ -189,7 +204,7 @@ export class BrowserControl {
   async dispatch(value: unknown): Promise<BrowserAgentResult> {
     assertValid('BrowserCommand', value); const command = clone(value as BrowserCommand);
     const result: BrowserAgentResult = { command_id: command.command_id, root_id: command.root_id, provider_epoch: command.provider_epoch,
-      attachment_generation: command.scope.attachment_generation ?? '', document_revision: '' };
+      attachment_generation: command.scope.attachment_generation, document_revision: '', url: '', title: '' };
     let timer: ReturnType<typeof setTimeout> | undefined;
     let started = false, reserved = false;
     let signal: AbortSignal | undefined;
@@ -199,7 +214,7 @@ export class BrowserControl {
       // Operation IDs are opaque daemon invocation IDs, not native tab IDs.
       boundedString(command.operation_id, 1024);
       for (const id of [command.command_id, command.root_id, command.agent_id, command.scope.tab_id, command.scope.tab_generation, command.scope.attachment_id, command.scope.attachment_generation]) browserID(id);
-      if (!command.scope.rights?.includes('control') || command.scope.rights.some(right => !['create', 'control', 'route'].includes(right))) fail('permission_denied', 'Unsupported browser rights');
+      browserID(command.scope.control_lineage);
       const selection = this.current(command);
       if (selection.seen.has(command.command_id)) fail('outcome_unknown', 'Duplicate browser command is not replayed');
       if (selection.seen.size >= 16384 || this.pending.size >= 128 || this.pending.has(command.command_id)) fail('browser_busy', 'Native browser command capacity reached');
@@ -216,7 +231,7 @@ export class BrowserControl {
         const args = object(command.arguments, ['url', 'preview_host_id', 'tab_id', 'attachment_id', 'code', 'expected_document', 'timeout', 'port']);
         let target: BrowserTarget;
         if (command.kind === 'open') {
-          if (!command.scope.rights.includes('create') || command.scope.profile_id !== this.profileId) fail('permission_denied', 'Browser creation is not offered');
+          if (command.scope.profile_id !== this.profileId) fail('permission_denied', 'Browser creation is not offered');
           if (command.scope.preview) {
             const requested = command.scope.preview, url = new URL(browserURL(args.url));
             if (this.expanding.has(requested.environment_id)) fail('browser_busy', 'Preview scope is changing');
@@ -237,7 +252,12 @@ export class BrowserControl {
           } catch (error) { this.manager.discardUnadmitted(target); throw error; }
         } else {
           const created = selection.created.get(command.scope.tab_id);
-          const offered = (command.agent_id === command.root_id ? selection.input.offer.offered_tabs?.find(tab => tab.tab_id === command.scope.tab_id) : undefined) ?? (created?.agentId === command.agent_id ? this.identity().tabs.find(tab => tab.tab_id === command.scope.tab_id && tab.tab_generation === created.scope.tab_generation) : undefined);
+          const liveCreated = created?.agentId === command.agent_id ? this.identity().tabs.find(tab => tab.tab_id === command.scope.tab_id && tab.tab_generation === created.scope.tab_generation) : undefined;
+          // Created preview tabs use the offered creation profile. Their human
+          // inventory profile is the environment, which is not a new authority.
+          const ownCreated = liveCreated && created && same(liveCreated.preview ?? null, created.scope.preview ?? null)
+            ? { ...liveCreated, profile_id: created.scope.profile_id } : undefined;
+          const offered = (command.agent_id === command.root_id ? selection.input.offer.offered_tabs?.find(tab => tab.tab_id === command.scope.tab_id) : undefined) ?? ownCreated;
           if (!offered || offered.tab_generation !== command.scope.tab_generation || offered.profile_id !== command.scope.profile_id || !same(offered.preview ?? null, command.scope.preview ?? null)) fail('permission_denied', 'This browser page is not offered');
           target = { epoch: selection.epoch, tabId: command.scope.tab_id, generation: command.scope.tab_generation };
         }
@@ -254,13 +274,13 @@ export class BrowserControl {
         }
       } else if (command.kind === 'transfer') {
         const args = object(command.arguments, ['child_agent_id', 'attachments']); browserID(args.child_agent_id);
-        if (!Array.isArray(args.attachments) || !args.attachments.length || args.attachments.length > 8) fail('permission_denied', 'Invalid transfer');
+        if (!Array.isArray(args.attachments) || !args.attachments.length || args.attachments.length > 4) fail('permission_denied', 'Invalid transfer');
         const moves = args.attachments.map(value => {
           const item = object(value, ['parent_scope', 'child_scope']);
           const parent = item.parent_scope as BrowserAgentScope, child = item.child_scope as BrowserAgentScope;
           assertValid('BrowserCommand', { ...command, scope: parent }); assertValid('BrowserCommand', { ...command, scope: child });
           const attachment = this.attached({ ...command, scope: parent }, selection);
-          if (attachment.operation || !child || child.tab_id !== parent.tab_id || child.tab_generation !== parent.tab_generation || child.profile_id !== parent.profile_id || child.provider_id !== parent.provider_id || child.provider_epoch !== parent.provider_epoch || !same(child.preview, parent.preview) || !same(child.rights, parent.rights)) fail('browser_busy', 'Transfer is stale or busy');
+          if (attachment.operation || !child || child.tab_id !== parent.tab_id || child.tab_generation !== parent.tab_generation || child.profile_id !== parent.profile_id || child.provider_id !== parent.provider_id || child.provider_epoch !== parent.provider_epoch || !same(child.preview, parent.preview) || child.control_lineage !== parent.control_lineage) fail('browser_busy', 'Transfer is stale or busy');
           browserID(child.attachment_id); browserID(child.attachment_generation);
           return { attachment, child: clone(child) };
         });
@@ -306,29 +326,30 @@ export class BrowserControl {
               const data = (answer as { data?: unknown }).data;
               if (typeof data !== 'string') fail('unsupported_operation', 'Invalid screenshot');
               const image = Buffer.from(data, 'base64');
-              if (image.length > 8 * 1024 * 1024) fail('unsupported_operation', 'Screenshot exceeds its limit');
+              if (image.length > 4 * 1024 * 1024) fail('unsupported_operation', 'Screenshot exceeds its limit');
               result.screenshotBytes = new Uint8Array(image); result.result = {};
             } else result.result = answer;
             break;
           }
           case 'allow_preview_port': {
             const args = object(command.arguments, ['url', 'preview_host_id', 'tab_id', 'attachment_id', 'code', 'expected_document', 'timeout', 'port']);
-            if (!command.scope.preview || !command.scope.rights.includes('route') || !Number.isInteger(args.port) || (args.port as number) < 1 || (args.port as number) > 65535 || !this.options.expand) fail('permission_denied', 'Preview expansion is unavailable');
+            if (!command.scope.preview || !Number.isInteger(args.port) || (args.port as number) < 1 || (args.port as number) > 65535 || !this.options.expand) fail('permission_denied', 'Preview expansion is unavailable');
             if (attachment.operation) fail('browser_busy', 'End the active browser run before changing its preview scope');
             const environmentId = command.scope.preview.environment_id;
             if (this.expanding.has(environmentId)) fail('browser_busy', 'Preview scope is already changing');
             this.expanding.set(environmentId, attachment);
             try { await this.options.expand(selection.input, attachment.scope, args.port as number); this.assertAttachment(attachment); } finally { this.expanding.delete(environmentId); }
             attachment.scope.preview!.ports = [...new Set([...(attachment.scope.preview!.ports ?? []), args.port as number])].sort((a, b) => a - b);
+            const created = selection.created.get(attachment.scope.tab_id);
+            if (created?.agentId === command.agent_id && created.scope.tab_generation === attachment.scope.tab_generation) created.scope.preview = clone(attachment.scope.preview);
             result.result = this.metadata(attachment); break;
           }
           default: fail('unsupported_operation', 'Unknown native browser operation');
         }
       }
       signal.throwIfAborted(); this.current(command);
-      const attachment = this.attachments.get(command.scope.tab_id);
-      if (attachment) result.document_revision = String(this.manager.controlledState(attachment.target).documentGeneration);
-      else if (result.result && typeof result.result === 'object' && 'document_revision' in result.result) result.document_revision = String(result.result.document_revision);
+      const state = this.manager.controlledState({ epoch: selection.epoch, tabId: command.scope.tab_id, generation: command.scope.tab_generation });
+      result.document_revision = String(state.documentGeneration); result.url = state.url; result.title = state.title;
     } catch (error) {
       if (acquired) this.revoke(acquired, 'Admission result could not be delivered');
       result.error = { kind: error instanceof ControlError ? error.kind : (signal?.aborted || error instanceof Error && error.message === 'outcome_unknown') ? 'outcome_unknown' : started ? 'attachment_revoked' : 'unsupported_operation',

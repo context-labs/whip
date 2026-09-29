@@ -73,6 +73,11 @@
       "result": "BrowserTabsResult"
     },
     {
+      "name": "models.inspection",
+      "params": "ModelInspectionParams",
+      "result": "ModelInspection"
+    },
+    {
       "name": "trace.page",
       "params": "TracePageParams",
       "result": "TracePageResult"
@@ -175,6 +180,11 @@
     {
       "name": "computer.configure",
       "params": "ConfigureComputerParams",
+      "result": "ComputerStatus"
+    },
+    {
+      "name": "computer.use_bundled",
+      "params": "UseBundledComputerParams",
       "result": "ComputerStatus"
     },
     {
@@ -980,6 +990,11 @@
     {
       "name": "content.put",
       "params": "PutContentParams",
+      "result": "ContentReference"
+    },
+    {
+      "name": "content.get",
+      "params": "ReadContentParams",
       "result": "ContentReference"
     },
     {

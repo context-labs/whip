@@ -240,6 +240,7 @@ func (r ModelAttemptResult) Validate() error {
 }
 
 type ModelAttemptSpec struct {
+	Capture     *ModelCapture
 	ID          ModelAttemptID
 	TurnID      TurnID
 	LogicalID   string

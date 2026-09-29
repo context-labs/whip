@@ -24,7 +24,9 @@ const (
 )
 
 // Options are explicit launcher-owned policy. BackendDone is the actual runtime
-// generation's lifetime, not a browser connection or a second execution owner.
+// generation's lifetime when hosted in-process. With nil BackendDone, the gateway
+// retains a verified peer connection and closes when that observation is lost;
+// it never reconnects or binds to a replacement runtime.
 // Assets must be a v4 application; nil leaves only API discovery available.
 type Options struct {
 	Address                      string
@@ -48,7 +50,7 @@ type Server struct {
 }
 
 func Start(ctx context.Context, options Options) (*Server, error) {
-	if options.SocketPath == "" || options.RuntimeID == "" || options.ProcessEpoch == "" || options.BackendDone == nil {
+	if options.SocketPath == "" || options.RuntimeID == "" || options.ProcessEpoch == "" {
 		return nil, errors.New("gateway requires a pinned live runtime")
 	}
 	select {
@@ -71,11 +73,22 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 		cancel()
 		return nil, fmt.Errorf("verify gateway runtime: %w", err)
 	}
-	_ = upstream.Close()
+	if options.BackendDone != nil {
+		_ = upstream.Close()
+	}
 	listener, err := listen(ctx, options.Address)
 	if err != nil {
 		cancel()
+		_ = upstream.Close()
 		return nil, fmt.Errorf("listen for gateway: %w", err)
+	}
+	var peerDone chan struct{}
+	if options.BackendDone == nil {
+		peerDone = make(chan struct{})
+		go func() {
+			s.watchPeer(ctx, upstream, 10*time.Second)
+			close(peerDone)
+		}()
 	}
 	s.endpoint = "http://" + listener.Addr().String()
 	if len(s.options.AllowedHosts) == 0 {
@@ -91,6 +104,10 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 		case <-ctx.Done():
 		case <-options.BackendDone:
 			terminal = errors.New("runtime generation ended; explicitly start a new gateway")
+		case <-peerDone:
+			if ctx.Err() == nil {
+				terminal = errors.New("runtime connection ended; explicitly start a new gateway")
+			}
 		case err := <-served:
 			finished = true
 			if !errors.Is(err, http.ErrServerClosed) {
@@ -103,6 +120,10 @@ func Start(ctx context.Context, options Options) (*Server, error) {
 		s.mu.Unlock()
 		cancel()
 		_ = server.Close()
+		if peerDone != nil {
+			_ = upstream.Close()
+			<-peerDone
+		}
 		if !finished {
 			<-served
 		}

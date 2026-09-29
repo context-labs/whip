@@ -127,7 +127,10 @@ func runCLI(args []string) error {
 	}
 	c, err := connectNativeRuntime(ctx)
 	if err != nil {
-		return runContextError(err, *timeout)
+		if cause := runCancellation(ctx); cause != nil {
+			return errors.Join(runContextError(cause, *timeout), err)
+		}
+		return err
 	}
 	defer func() { _ = c.Close() }()
 	output, err := runclient.NewOutput(*format, *quiet, os.Stdout, os.Stderr)
@@ -169,7 +172,7 @@ func runCLI(args []string) error {
 			return nil
 		}}, output)
 	}
-	if ctx.Err() != nil {
+	if cause := runCancellation(ctx); cause != nil {
 		cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		cancelErr := runclient.Cancel(cleanup, c, result)
 		if cancelErr == nil && result.Record != nil {
@@ -182,7 +185,7 @@ func runCLI(args []string) error {
 			}
 		}
 		cancel()
-		err = errors.Join(runContextError(ctx.Err(), *timeout), cancelErr)
+		err = errors.Join(runContextError(cause, *timeout), cancelErr)
 	}
 	terminal := result.Admission.Turn != nil && result.Admission.Turn.FinishedAt != nil || result.Admission.Input != nil && result.Admission.Input.State == "cancelled"
 	if *noSession && result.SessionID != "" && result.Admission.Input != nil {
@@ -206,6 +209,19 @@ func runCLI(args []string) error {
 	}
 	err = errors.Join(err, output.Finish(err))
 	return err
+}
+
+// The network poller can report its socket deadline before the context timer
+// publishes Err. The CLI's wall-clock contract still requires cancellation of
+// this exact input then. An earlier transport timeout has no such authority.
+func runCancellation(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if deadline, ok := ctx.Deadline(); ok && !time.Now().Before(deadline) {
+		return context.DeadlineExceeded
+	}
+	return nil
 }
 
 func runContextError(err error, timeout time.Duration) error {

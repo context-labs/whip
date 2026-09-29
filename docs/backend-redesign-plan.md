@@ -1073,3 +1073,5 @@ Useful starting references:
 - [Accounting failure regressions](../internal/daemon/budget_test.go),
   [engine recovery tests](../internal/daemon/execution_engine_test.go), and
   [compaction regressions](../internal/daemon/manual_compaction_test.go).
+
+Desktop/gateway integration `397cb9785` passes the full temporary phase gate and pinned analysis; see the dated development record for failures repaired, exact timings and successful hosted259–261 heads. This does not close Phases5–7: renderer/mobile/TUI/ACP adoption, deferred reload/denial/ChromeDP and live/context projections, supported-target packaging and final core removal remain in progress.

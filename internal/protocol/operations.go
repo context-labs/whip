@@ -77,9 +77,10 @@ type Permission struct {
 	ResolvedAt  *string `json:"resolved_at"`
 }
 type PermissionsParams struct {
-	SessionID ID  `json:"session_id"`
-	After     *ID `json:"after,omitempty"`
-	Limit     int `json:"limit" min:"1" max:"100"`
+	PendingOnly bool `json:"pending_only,omitempty"`
+	SessionID   ID   `json:"session_id"`
+	After       *ID  `json:"after,omitempty"`
+	Limit       int  `json:"limit" min:"1" max:"100"`
 }
 type PermissionsResult struct {
 	Items []Permission `json:"items"`

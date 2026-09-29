@@ -28,6 +28,7 @@ type Request struct {
 	TurnID       session.TurnID
 	Selection    session.ModelSelection
 	Instructions string
+	Notices      string `json:"-"` // exact suffix composed by the runner; inspection only
 	Messages     []Message
 	Contents     map[string]Content
 	Tools        []Tool
@@ -77,6 +78,7 @@ type CallChunk struct {
 // admission. Execute is one external attempt; it must not hide provider retries.
 // Callbacks run synchronously and stop before Execute returns.
 type Prepared struct {
+	Capture     *session.ModelCapture
 	Snapshot    session.ModelRequestSnapshot
 	Execute     func(context.Context, func(Chunk)) (Response, error)
 	MaxAttempts int

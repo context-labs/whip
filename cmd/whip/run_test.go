@@ -585,3 +585,34 @@ func TestRunCapturesExactBudgetAndPermissionFlags(t *testing.T) {
 		t.Fatal(policy, err)
 	}
 }
+
+// Models a socket poller observing the deadline before the context timer has
+// published cancellation. Both are scheduled independently under real load.
+type unpublishedRunDeadline struct {
+	context.Context
+	deadline time.Time
+}
+
+func (c unpublishedRunDeadline) Deadline() (time.Time, bool) { return c.deadline, true }
+
+func TestRunCallerDeadlineDoesNotDependOnTimerPublication(t *testing.T) {
+	overdue := unpublishedRunDeadline{Context: context.Background(), deadline: time.Now().Add(-time.Second)}
+	if overdue.Err() != nil {
+		t.Fatal("fixture cancellation is already published")
+	}
+	if err := runCancellation(overdue); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("elapsed caller deadline missed", err)
+	}
+	pending := unpublishedRunDeadline{Context: context.Background(), deadline: time.Now().Add(time.Hour)}
+	if err := runCancellation(pending); err != nil {
+		t.Fatal("earlier transport failure would gain cancellation authority", err)
+	}
+	if err := runCancellation(context.Background()); err != nil {
+		t.Fatal("unlimited run was cancelled", err)
+	}
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := runCancellation(cancelled); !errors.Is(err, context.Canceled) {
+		t.Fatal("explicit signal cancellation lost", err)
+	}
+}

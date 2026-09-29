@@ -66,3 +66,18 @@ remaining obligations discovered by actual client adoption include:
 
 All these items remain required work. No installed runtime, existing user data,
 real account, production branch or deployed artifact was changed for validation.
+### Hosted scheduling repairs (2026-09-28)
+
+PR #259 at cbd39d5dc (run36526022483) passed the partitioned runtime suites but failed the macOS terminal slow-reader fixture. PR #260 at b9e9cfa19 (run36526214610) additionally observed an empty MCP catalog during tools/list_changed refresh. These runs are failures, not final gate evidence.
+
+The terminal fixture now waits until its queue is actually full before detaching and emits enough bytes to fill that queue plus two chunks. Failure diagnostics retain only a bounded4KiB tail. The existing15-second deadline remains. Twenty focused shuffled race repetitions passed20.013s. The MCP fixture waits for the refreshed root catalog and exact delegated child subset, checking that extra tools never appear on every poll; forty focused shuffled races passed17.144s. Both changes repair synchronization in tests without changing production behavior or skipping assertions. Hosted reruns remain pending.
+
+### Native desktop, gateway and model inspection integration — 2026-09-28
+
+The coherent integration at `397cb9785` passes complete `task check:phase`, including formatting/build/vet, all native Go race/shuffle suites, contracts, SDK/examples, public CLI, actual compiled fixtures and retained regressions. Store race passed313.939s, runtime372.290s, RPC72.644s, native CLI34.962s. Separate `task check:analysis` passes with zero findings against unchanged `e3fed9c91918d9c36766dd47d878c1b5466238d1` and no reported vulnerabilities. Logs: `/tmp/whip-desktop-native-phase-repaired.log` and `/tmp/whip-desktop-native-analysis-repaired.log`.
+
+This checkpoint integrates native daemon/status/log/updater routing, desktop local/SSH attachment and startup fixtures, bounded renderer framing, native public web/gateway owner lifetime, explicit bundled computer-helper selection, Browser preview/control ownership, scoped content metadata, pending-permission filtering and captured model/prompt/notices/compaction inspection (schema52). The renderer and mobile cutover remains a separate in-progress increment; signed matching-artifact startup/continuity and Linux packaged renderer validation are still outstanding. Nothing was installed, restarted in a user runtime, merged into a product branch or deployed.
+
+Earlier combined runs remain recorded as failures: the first SDK trace-state fixture used a1ns clock delta that rounded at epoch-sized floating point; `c2594080f` uses a deterministic small clock. The later runtime restart fixture assumed its scripted input was always the final message, ignoring canonical interrupted-child completion mail; `3ffd94dcc` forces and verifies that ordering while retaining ownership/restart checks. The CLI gate exposed a real socket/context deadline publication race; `397cb9785` recognizes the caller's already elapsed deadline before `Context.Err` publication and cancels only the exact accepted input. An earlier unrelated transport timeout remains uncertain and gains no cancellation authority. The final full gate includes all repairs.
+
+Previously pending hosted checkpoints are now verified successful: draft259 head`9cfa29e63a48c16587a6498ff02f85e0b29e1468`, run36527605325; draft260 head`a51afc4f8770bebb1ffa07b5677d96b316188cdf`, run36527639551; draft261 head`50bcd028631a96d421a4baf38f87fa77dc7c718c`, run36526837824. The new desktop checkpoint's hosted validation is pending. Phases5–7 remain incomplete; the active source-scope exclusions and retired core have not been removed.

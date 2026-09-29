@@ -1,0 +1,361 @@
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "attempt_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "turn_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "request_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "capture": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "request_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "source_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "instructions": {
+          "type": "object",
+          "properties": {
+            "digest": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "bytes": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,18})$",
+              "format": "counter"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "available",
+                "oversized",
+                "quota",
+                "storage_error"
+              ]
+            },
+            "chunks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "session_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "digest": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "size": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  },
+                  "media_type": {
+                    "type": "string"
+                  },
+                  "created_at": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "session_id",
+                  "digest",
+                  "size",
+                  "media_type",
+                  "created_at"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 4
+            }
+          },
+          "required": [
+            "digest",
+            "bytes",
+            "status",
+            "chunks"
+          ],
+          "additionalProperties": false
+        },
+        "notices": {
+          "type": "object",
+          "properties": {
+            "digest": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "bytes": {
+              "type": "string",
+              "pattern": "^(0|[1-9][0-9]{0,18})$",
+              "format": "counter"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "available",
+                "oversized",
+                "quota",
+                "storage_error"
+              ]
+            },
+            "chunks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "session_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "digest": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "size": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  },
+                  "media_type": {
+                    "type": "string"
+                  },
+                  "created_at": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "session_id",
+                  "digest",
+                  "size",
+                  "media_type",
+                  "created_at"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 4
+            }
+          },
+          "required": [
+            "digest",
+            "bytes",
+            "status",
+            "chunks"
+          ],
+          "additionalProperties": false
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "system",
+                  "user",
+                  "assistant",
+                  "tool"
+                ]
+              },
+              "parts_digest": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "parts_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1024
+              }
+            },
+            "required": [
+              "id",
+              "role",
+              "parts_digest",
+              "parts_count"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 128
+        },
+        "tools_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "tools_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1024
+        },
+        "context_complete": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "request_digest",
+        "source_digest",
+        "instructions",
+        "notices",
+        "messages",
+        "tools_digest",
+        "tools_count",
+        "context_complete"
+      ],
+      "additionalProperties": false
+    },
+    "compaction": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "history_revision": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "source": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "session_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            },
+            "compaction_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+            }
+          },
+          "required": [
+            "session_id",
+            "compaction_id"
+          ],
+          "additionalProperties": false
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "turn_id": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "attempt_id": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "base_id": {
+          "type": [
+            "null",
+            "string"
+          ],
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "expected_revision": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "through_sequence": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "pinned_message_ids": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          }
+        },
+        "text_bytes": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "created_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "history_revision",
+        "source",
+        "id",
+        "session_id",
+        "turn_id",
+        "attempt_id",
+        "base_id",
+        "expected_revision",
+        "through_sequence",
+        "pinned_message_ids",
+        "text_bytes",
+        "created_at"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ModelInspection",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ModelInspection",
+  "required": [
+    "session_id",
+    "attempt_id",
+    "turn_id",
+    "request_digest",
+    "capture",
+    "compaction"
+  ],
+  "additionalProperties": false
+}

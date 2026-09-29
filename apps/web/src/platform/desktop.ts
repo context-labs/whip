@@ -3,7 +3,7 @@ import type { DesktopBridge } from '@whip/app/desktop-bridge';
 import type { TransportFactory } from '@whip/legacy-sdk';
 import { browserStorage } from './storage';
 
-const frameLimit = 1 << 20;
+const frameLimit = 8 << 20;
 const queueLimit = 8 << 20;
 const encoder = new TextEncoder();
 
