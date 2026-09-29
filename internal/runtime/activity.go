@@ -17,3 +17,7 @@ func (r *Runtime) InputPage(ctx context.Context, owner session.SessionID, state 
 func (r *Runtime) SessionInput(ctx context.Context, owner session.SessionID, id session.InputID) (session.Input, error) {
 	return r.store.SessionInput(ctx, owner, id)
 }
+
+func (r *Runtime) TurnPage(ctx context.Context, owner session.SessionID, before session.TurnID, limit int) (session.TurnPage, error) {
+	return r.store.TurnPage(ctx, owner, before, limit)
+}

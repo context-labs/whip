@@ -302,7 +302,9 @@ func (r *Runtime) instructionRoots(ctx context.Context, cwd string, policy sessi
 func (r *Runtime) standingInstructions(ctx context.Context, turn session.TurnID) (instruction.Snapshot, error) {
 	path := r.host.StandingInstructionsFile
 	if path == "" {
-		return instruction.Snapshot{}, fmt.Errorf("%w: standing instruction file is not configured", session.ErrInvalid)
+		// No published source means discovery is disabled; never fall back to
+		// a home-directory filename or probe a path the host has not selected.
+		return instruction.Snapshot{}, nil
 	}
 	grant, err := r.store.StandingInstructionReadGrant(ctx, turn)
 	if err != nil || grant == nil {

@@ -1,0 +1,42 @@
+{
+  "type": "object",
+  "properties": {
+    "runtime_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "process_epoch": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "pid": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2147483647
+    },
+    "build": {
+      "type": "string",
+      "pattern": "^[\\s\\S]{0,256}$"
+    },
+    "started_at": {
+      "type": "string",
+      "pattern": "^[\\s\\S]{1,64}$"
+    },
+    "web_endpoint": {
+      "type": "string",
+      "maxLength": 4096
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/HostStatus",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HostStatus",
+  "required": [
+    "runtime_id",
+    "process_epoch",
+    "pid",
+    "build",
+    "started_at",
+    "web_endpoint"
+  ],
+  "additionalProperties": false
+}

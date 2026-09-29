@@ -96,14 +96,20 @@ func readInput(ctx context.Context, q querier, id session.InputID) (result sessi
 	return
 }
 
-func readTurn(ctx context.Context, q querier, id session.TurnID) (result session.Turn, err error) {
+const turnColumns = `id,session_id,config_revision,history_revision,state,failure,started_at,finished_at,
+ COALESCE((SELECT kind FROM inputs WHERE turn_id=turns.id),'prompt'),goal_id,goal_revision`
+
+func readTurn(ctx context.Context, q querier, id session.TurnID) (session.Turn, error) {
+	return scanTurn(q.QueryRowContext(ctx, "SELECT "+turnColumns+" FROM turns WHERE id=?", id))
+}
+
+func scanTurn(row scanner) (result session.Turn, err error) {
 	var started int64
 	var goalID *session.GoalID
 	var goalRevision sql.NullInt64
 	var finished sql.NullInt64
-	err = q.QueryRowContext(ctx, `SELECT id,session_id,config_revision,history_revision,state,failure,started_at,finished_at,
- COALESCE((SELECT kind FROM inputs WHERE turn_id=turns.id),'prompt'),goal_id,goal_revision FROM turns WHERE id=?`, id).
-		Scan(&result.ID, &result.SessionID, &result.ConfigRevision, &result.HistoryRevision, &result.State, &result.Failure, &started, &finished, &result.Kind, &goalID, &goalRevision)
+	err = row.Scan(&result.ID, &result.SessionID, &result.ConfigRevision, &result.HistoryRevision,
+		&result.State, &result.Failure, &started, &finished, &result.Kind, &goalID, &goalRevision)
 	if err != nil {
 		return result, found(err)
 	}

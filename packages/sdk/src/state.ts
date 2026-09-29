@@ -5,6 +5,8 @@ import { RemoteError } from './wire.js';
 import { boundedInteger, bytes, freeze } from './value.js';
 import type { DeepReadonly } from './value.js';
 export type { DeepReadonly } from './value.js';
+export { ExecutionView, createExecutionView, cellExecutionRows } from './execution-state.js';
+export type { ExecutionViewSnapshot, ExecutionViewOptions, CellExecutionRow } from './execution-state.js';
 type MessagePreview = NonNullable<Operations['sessions.observe']['result']['preview']>;
 type SessionActivity = Operations['sessions.activity']['result'];
 type TreeSummary = Operations['trees.list']['result']['items'][number];
@@ -252,7 +254,7 @@ export interface TreeCatalogSnapshot {
   error?: ObservationError;
 }
 export interface TreeCatalogOptions {
-  archived?: boolean; pinned?: boolean; maxItems?: number; maxBytes?: number; pageSize?: number; pollIntervalMs?: number;
+  search?: string; archived?: boolean; pinned?: boolean; maxItems?: number; maxBytes?: number; pageSize?: number; pollIntervalMs?: number;
 }
 
 /** A bounded metadata window plus a global invalidation head. Polling does not
@@ -271,14 +273,14 @@ export class TreeCatalogView {
   private readonly maxBytes: number;
   private readonly pageSize: number;
   private readonly interval: number;
-  private readonly filter: { archived?: boolean; pinned?: boolean };
+  private readonly filter: { search?: string; archived?: boolean; pinned?: boolean };
   constructor(private client: Client, options: TreeCatalogOptions = {}) {
     this.maxItems = boundedInteger(options.maxItems ?? 500, 'maxItems', 4096);
     this.maxBytes = boundedInteger(options.maxBytes ?? 2 << 20, 'maxBytes', 64 << 20);
     if (this.maxBytes < 4096) throw new RangeError('maxBytes must be at least 4096');
     this.pageSize = boundedInteger(options.pageSize ?? 100, 'pageSize', 100);
     this.interval = boundedInteger(options.pollIntervalMs ?? 2000, 'pollIntervalMs', 60_000);
-    this.filter = { ...(options.archived === undefined ? {} : { archived: options.archived }), ...(options.pinned === undefined ? {} : { pinned: options.pinned }) };
+    this.filter = { ...(options.search === undefined ? {} : { search: options.search }), ...(options.archived === undefined ? {} : { archived: options.archived }), ...(options.pinned === undefined ? {} : { pinned: options.pinned }) };
     this.current = freeze({ status: 'idle', runtimeID: client.runtimeID, revision: null, items: [], nextCursor: null, windowAfter: null, retainedBytes: 0, truncated: false });
   }
   getSnapshot = (): DeepReadonly<TreeCatalogSnapshot> => this.current;

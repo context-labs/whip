@@ -3561,6 +3561,72 @@ Browser child transfer, product renderer/native-client migration, and retired
 core removal remain outstanding. Phases5–6 are in progress; Phase7 is pending.
 No merge, deployment, or installed-runtime change occurred.
 
+### Native client and observation foundations (2026-09-28, in progress)
+
+The next stack branch is `codex/backend-redesign-client-cutover`, based on the
+browser integration draft #259. Integration head `22b7e5b0d` reuses the exact
+released native Go client, shared command startup, local launcher, catalog search,
+tree summaries, turn metadata, execution observer and built-in persona leaves:
+`c457abc02`, `17a78f574`, `e7a7cc02b`, `4cab2c676`, `9b422109d`, `793228ce4`,
+`8a6d98e19`, and `292cc6684`. Fresh storage is schema50; configuration remains19
+and protocol development major4. Schema49 steering remains intact. The schema50
+change adds the owner/start/id turn index and does not migrate old storage.
+
+Native Go session handles perform no I/O on construction. Durable commands retain
+exact request records, bounded journal recovery and explicit retries; observation
+cancellation never cancels accepted work. Shared `internal/hostcmd` owns the one
+native startup/shutdown path. `internal/localruntime` launches only the fresh
+runtime-v4 namespace, serializes startup with private owner/lock records, and
+never reads the legacy namespace or signals an unverified PID. Native
+`host.status/stop` verifies runtime and process epoch; stop remains local-only,
+acknowledges before normal joined shutdown, and survives acknowledgement loss.
+Disposable child-process tests are separate from the installed runtime.
+
+`trees.list` preserves bounded literal search and root working directories.
+`trees.summaries` reads at most64 selected roots in one SQL snapshot, with deep
+child activity and explicit missing roots. Neither hydrates transcript bodies or
+starts workers. `sessions.turns` pages canonical newest-first turn metadata. The
+SDK execution observer holds bounded turns/cells/operations alongside its sole
+transcript view, discarding obsolete reads after epoch/history revision changes.
+
+The real retained coding/junior-developer personas use ordinary immutable
+registration and exact module/configuration constraints; no authority is minted.
+An absent host standing-instruction publication means disabled discovery without
+probing a fallback path. Explicitly configured missing/unsafe sources still fail
+closed. Both actual engines and restart checks passed in the released leaf.
+
+Local integrated phase validation at `22b7e5b0d` is currently running; final
+results must be appended before this slice is represented as passing. Its pinned
+analysis gate passed with zero new lint findings against the unchanged baseline
+`e3fed9c91918d9c36766dd47d878c1b5466238d1`, and no reachable vulnerabilities.
+
+The predecessor input-controls draft #258 at `ae59e2e48` now has all hosted
+Linux/macOS build, store/runtime/other race, client, analysis and aggregate
+`redesign` checks passing in run `36521478534`. This supersedes the earlier
+pending note while retaining the failed pre-repair runtime aggregate-timeout
+record. Draft #259 at `8d538697d` failed its Linux browser fixture; the isolated
+repair `ff8796849` selects detected Chrome consistently and supplies an Xvfb
+display without weakening sandbox flags or removing scenarios. Its repaired
+Linux build passed in run `36522499701`; remaining jobs are still pending here.
+
+Parallel app adoption remains isolated and incomplete. Recent tested checkpoints
+include `d60f52385` exact post-disconnect lost-ACK recovery, `668d6d672` paired
+session/execution lifetimes, `c6db926b5` native desktop browser bridge,
+`9e370fcfa` verified native browser/design submission, `42d141f51` native REPL
+and scoped content, `4c3c33a5f` complete workspace recovery/steering outcome, and
+`e2e2d3454` native queue controls. Combined browser/recovery/lifetime tests passed
+152 cases; REPL integration passed11; workspace/recovery passed42; queue passed8
+using the real validating SDK. These do not prove a full app build. Native
+inspector leaf `98cfda85d` has40 focused tests and awaits parent integration.
+The current parity audit names the remaining required capabilities explicitly.
+
+The complete `task check:phase` at `22b7e5b0d` passed: active formatting/build/vet,
+all package race/shuffle tests, generated contracts, SDK/examples, production
+process fixtures and retained acceptance regressions. Store race time was
+286.639 seconds; runtime race time 338.128 seconds. `task check:analysis` also
+passed with zero new lint findings against the frozen baseline and no reported
+vulnerabilities. These are foundation integration gates, not evidence of full
+client cutover or Phases 5–7 completion.
 
 ### Browser integration hosted fixture repair (2026-09-28)
 
@@ -3600,6 +3666,15 @@ seconds respectively (`task check:race-store`), with every test covered exactly
 once by the mutually exclusive run/skip patterns. Hosted validation is pending
 for this repair; the previous hosted failure is not claimed as passed.
 
+### Native run-client integration — 2026-09-28
+
+The tested native one-turn CLI orchestration leaf `a2a569872` is integrated as
+`ab08f01c6`, followed by the verified PR 259 CI repairs in `ea0da1ef5`. The native
+run client, Go transport/client, local host launcher and shared host entrypoint
+pass combined race/shuffle tests at the integrated head: 20.311, 8.511, 3.495
+and 5.096 seconds respectively. Public CLI flag routing and remaining supported
+client cutovers are still in progress; the new package is a tested foundation.
+PR 259 repair `39c76adb6` hosted run 36523975388 is pending at this record.
 ### PR 259 extension relay publication repair — 2026-09-28
 
 Hosted run 36523975388 at `39c76adb6` exposed a real intermittent handshake

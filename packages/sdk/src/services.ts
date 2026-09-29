@@ -8,6 +8,17 @@ export class Trees {
   constructor(private readonly client: Client) {}
   get(treeID: string, options: CallOptions = {}) { return this.client.call('trees.get', { tree_id: treeID }, options); }
   list(params: Omit<Params<'trees.list'>, 'limit'> & { limit?: number } = {}, options: CallOptions = {}) { return this.client.listTrees({ limit: 100, ...params }, options); }
+  async summaries(rootIDs: readonly string[], options: CallOptions = {}) {
+    const [first, ...rest] = rootIDs;
+    if (first === undefined) throw new RangeError('Select at least one root');
+    const result = await this.client.call('trees.summaries', { root_ids: [first, ...rest] }, options);
+    const remaining = new Set(rootIDs);
+    for (const id of [...result.items.map(item => item.root_id), ...result.missing_root_ids]) {
+      if (!remaining.delete(id)) throw new TypeError('Tree summary ownership mismatch');
+    }
+    if (remaining.size) throw new TypeError('Tree summary omitted a requested root');
+    return result;
+  }
   catalog(options: CallOptions = {}) { return this.client.treeCatalog(options); }
   create(params: Omit<Params<'trees.create'>, 'creation_id'>, creationID: string, options: CallOptions = {}) { return this.client.createTree(params, creationID, options); }
   creation(creationID: string, options: CallOptions = {}) { return this.client.getTreeCreation(creationID, options); }
@@ -20,9 +31,18 @@ export class Sessions {
   list(treeID: string, params: Omit<Params<'sessions.list'>, 'tree_id' | 'limit'> & { limit?: number } = {}, options: CallOptions = {}) { return this.client.call('sessions.list', { limit: 100, ...params, tree_id: treeID }, options); }
 }
 
-/** Saved attachment declarations. Reads/edits never initiate connections. */
+/** Native host controls and saved declarations. Reads never initiate attachments. */
 export class Hosts {
   constructor(private readonly client: Client) {}
+  async status(options: CallOptions = {}) {
+    const value = await this.client.call('host.status', {}, options);
+    if (value.runtime_id !== this.client.runtimeID) throw new TypeError('Host status runtime identity mismatch');
+    return value;
+  }
+  /** Local-only explicit process control. Never replay an uncertain stop against another epoch. */
+  stop(processEpoch: string, options: CallOptions = {}) {
+    return this.client.call('host.stop', { runtime_id: this.client.runtimeID, process_epoch: processEpoch }, options);
+  }
   executionDefaults(options: CallOptions = {}) { return this.client.call('host.execution_defaults', {}, options); }
   /** Attempts include the initial request; goal continuations exclude its initial input. Reread after uncertain CAS delivery. */
   setExecutionDefaults(expectedRevision: string, defaults: Params<'host.set_execution_defaults'>['defaults'], options: CallOptions = {}) {

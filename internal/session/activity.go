@@ -36,3 +36,10 @@ type InputPage struct {
 	Items      []InputSummary
 	NextCursor *int64
 }
+
+// TurnPage exposes canonical execution metadata, including direct work that has
+// no transcript. Items are newest first, ordered by immutable start time and ID.
+type TurnPage struct {
+	Items      []Turn
+	NextCursor *TurnID
+}

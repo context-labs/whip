@@ -5,6 +5,16 @@ export const manifest = {
   "minor": 0,
   "operations": [
     {
+      "name": "host.status",
+      "params": "EmptyParams",
+      "result": "HostStatus"
+    },
+    {
+      "name": "host.stop",
+      "params": "StopHostParams",
+      "result": "HostStopAccepted"
+    },
+    {
       "name": "workspace.inspect",
       "params": "SessionParams",
       "result": "WorkspaceInspection"
@@ -810,6 +820,11 @@ export const manifest = {
       "result": "ListTreesResult"
     },
     {
+      "name": "trees.summaries",
+      "params": "TreeSummariesParams",
+      "result": "TreeSummariesResult"
+    },
+    {
       "name": "definitions.list",
       "params": "ListDefinitionsParams",
       "result": "ListDefinitionsResult"
@@ -903,6 +918,11 @@ export const manifest = {
       "name": "turns.get",
       "params": "TurnParams",
       "result": "Turn"
+    },
+    {
+      "name": "sessions.turns",
+      "params": "TurnPageParams",
+      "result": "TurnPageResult"
     },
     {
       "name": "turns.attempts",

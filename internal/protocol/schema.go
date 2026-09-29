@@ -22,6 +22,8 @@ type Operation struct {
 
 func Operations() []Operation {
 	return []Operation{
+		{"host.status", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostStatus]()},
+		{"host.stop", reflect.TypeFor[StopHostParams](), reflect.TypeFor[HostStopAccepted]()},
 		{"workspace.inspect", reflect.TypeFor[SessionParams](), reflect.TypeFor[WorkspaceInspection]()},
 		{"workspace.set", reflect.TypeFor[WorkspaceSetParams](), reflect.TypeFor[ControlEdit]()},
 		{"run.configure", reflect.TypeFor[RunConfigureParams](), reflect.TypeFor[ControlEdit]()},
@@ -186,6 +188,7 @@ func Operations() []Operation {
 		{"trees.creation", reflect.TypeFor[TreeCreationParams](), reflect.TypeFor[CreateTreeResult]()},
 		{"trees.catalog", reflect.TypeFor[EmptyParams](), reflect.TypeFor[TreeCatalog]()},
 		{"trees.list", reflect.TypeFor[ListTreesParams](), reflect.TypeFor[ListTreesResult]()},
+		{"trees.summaries", reflect.TypeFor[TreeSummariesParams](), reflect.TypeFor[TreeSummariesResult]()},
 		{"definitions.list", reflect.TypeFor[ListDefinitionsParams](), reflect.TypeFor[ListDefinitionsResult]()},
 		{"trees.get", reflect.TypeFor[TreeParams](), reflect.TypeFor[Tree]()},
 		{"trees.update", reflect.TypeFor[UpdateTreeParams](), reflect.TypeFor[Tree]()},
@@ -205,6 +208,7 @@ func Operations() []Operation {
 		{"sessions.lifecycle", reflect.TypeFor[LifecycleParams](), reflect.TypeFor[Session]()},
 		{"sessions.delete", reflect.TypeFor[SessionParams](), reflect.TypeFor[DeleteResult]()},
 		{"turns.get", reflect.TypeFor[TurnParams](), reflect.TypeFor[Turn]()},
+		{"sessions.turns", reflect.TypeFor[TurnPageParams](), reflect.TypeFor[TurnPageResult]()},
 		{"turns.attempts", reflect.TypeFor[ModelAttemptsParams](), reflect.TypeFor[ModelAttemptsResult]()},
 		{"turns.cancel", reflect.TypeFor[TurnParams](), reflect.TypeFor[Turn]()},
 		{"sessions.activity", reflect.TypeFor[SessionParams](), reflect.TypeFor[SessionActivity]()},
@@ -348,12 +352,14 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 		attentionSchema(schema, t)
 		traceSchema(schema, t)
 		controlsSchema(schema, t)
+		lifecycleSchema(schema, t)
 		steeringSchema(schema, t)
 		if t == reflect.TypeFor[InputSummary]() {
 			schema.Properties["text_preview"].MaxLength = new(512)
 		}
 		hostViewsSchema(schema, t)
 		discoverySchema(schema, t)
+		navigationSchema(schema, t)
 		if t == reflect.TypeFor[GoalFormulationRequest]() {
 			schema.Properties["tail_messages"] = &jsonschema.Schema{OneOf: []*jsonschema.Schema{
 				{Type: "integer", Enum: []any{0}},

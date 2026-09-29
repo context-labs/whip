@@ -3,6 +3,16 @@
   "minor": 0,
   "operations": [
     {
+      "name": "host.status",
+      "params": "EmptyParams",
+      "result": "HostStatus"
+    },
+    {
+      "name": "host.stop",
+      "params": "StopHostParams",
+      "result": "HostStopAccepted"
+    },
+    {
       "name": "workspace.inspect",
       "params": "SessionParams",
       "result": "WorkspaceInspection"
@@ -808,6 +818,11 @@
       "result": "ListTreesResult"
     },
     {
+      "name": "trees.summaries",
+      "params": "TreeSummariesParams",
+      "result": "TreeSummariesResult"
+    },
+    {
       "name": "definitions.list",
       "params": "ListDefinitionsParams",
       "result": "ListDefinitionsResult"
@@ -901,6 +916,11 @@
       "name": "turns.get",
       "params": "TurnParams",
       "result": "Turn"
+    },
+    {
+      "name": "sessions.turns",
+      "params": "TurnPageParams",
+      "result": "TurnPageResult"
     },
     {
       "name": "turns.attempts",

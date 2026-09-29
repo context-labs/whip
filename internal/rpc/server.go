@@ -23,10 +23,11 @@ import (
 	"github.com/context-labs/whip/internal/terminal"
 )
 
-var ErrNetworkRestricted = errors.New("human terminals are disabled for network clients")
+var ErrNetworkRestricted = errors.New("host control is restricted for network clients")
 
 // HostServices are borrowed command-owned authorities, separate from sessions.
 type HostServices struct {
+	Lifecycle        *HostLifecycle
 	Terminals        *terminal.Manager
 	NetworkTerminals bool
 	OpenAI           *account.Service
@@ -137,7 +138,7 @@ func (s *Server) connection(ctx context.Context, conn net.Conn) {
 		var err error
 		if initialized && request.Method == "initialize" {
 			err = fmt.Errorf("%w: connection is already initialized", session.ErrInvalid)
-		} else if network && !s.host.NetworkTerminals && networkRestrictedMethod(request.Method) {
+		} else if network && (request.Method == "host.stop" || !s.host.NetworkTerminals && networkRestrictedMethod(request.Method)) {
 			err = ErrNetworkRestricted
 		} else if !initialized && request.Method != "initialize" {
 			err = fmt.Errorf("%w: initialize is required", session.ErrInvalid)
@@ -158,10 +159,15 @@ func (s *Server) connection(ctx context.Context, conn net.Conn) {
 			response.Result = nil
 			response.Error = wireError(err)
 		}
-		if err := conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		writeErr := conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		if writeErr == nil {
+			writeErr = json.NewEncoder(conn).Encode(response)
+		}
+		if request.Method == "host.stop" && err == nil {
+			s.host.Lifecycle.requestStop()
 			return
 		}
-		if json.NewEncoder(conn).Encode(response) != nil {
+		if writeErr != nil {
 			return
 		}
 		if request.Method == "initialize" {

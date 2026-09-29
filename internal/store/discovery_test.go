@@ -65,7 +65,7 @@ func TestDefinitionDiscoveryRetainsEveryRevisionWithoutBodies(t *testing.T) {
 		}
 	}
 	full, err := s.DefinitionSummaries(t.Context(), nil, 100)
-	if err != nil || len(full.Items) != 3 || full.Next != nil {
+	if err != nil || len(full.Items) != len(session.Builtins())+2 || full.Next != nil {
 		t.Fatal(full, err)
 	}
 	var collected []session.DefinitionSummary
@@ -81,7 +81,13 @@ func TestDefinitionDiscoveryRetainsEveryRevisionWithoutBodies(t *testing.T) {
 		}
 		after = page.Next
 	}
-	if !reflect.DeepEqual(collected, full.Items) || collected[1].Ref.ID != "custom" || collected[2].Ref.ID != "custom" || collected[1].Ref.Revision >= collected[2].Ref.Revision {
+	var custom []session.DefinitionSummary
+	for _, item := range collected {
+		if item.Ref.ID == "custom" {
+			custom = append(custom, item)
+		}
+	}
+	if !reflect.DeepEqual(collected, full.Items) || len(custom) != 2 || custom[0].Ref.Revision >= custom[1].Ref.Revision {
 		t.Fatal(collected)
 	}
 	for _, limit := range []int{0, 101} {
@@ -91,5 +97,60 @@ func TestDefinitionDiscoveryRetainsEveryRevisionWithoutBodies(t *testing.T) {
 	}
 	if _, err := s.DefinitionSummaries(t.Context(), &session.DefinitionRef{ID: "custom", Revision: "latest"}, 1); !errors.Is(err, session.ErrInvalid) {
 		t.Fatal(err)
+	}
+}
+
+func TestTreeCatalogLiteralSearchAndWorkspaceRevision(t *testing.T) {
+	s := fresh(t)
+	tree, root := create(t, s, nil)
+	_, other := create(t, s, nil)
+	if _, err := s.UpdateTree(t.Context(), tree.ID, tree.Revision, session.TreeMetadata{Title: new("Release 100%_Ready")}); err != nil {
+		t.Fatal(err)
+	}
+	for _, search := range []string{"100%_ready", string(root.ID), string(tree.ID), root.WorkingDirectory} {
+		page, err := s.Trees(t.Context(), TreeList{Search: search, Limit: 1})
+		if err != nil || len(page.Items) != 1 || page.Items[0].RootID != root.ID || page.Items[0].WorkingDirectory != root.WorkingDirectory || page.Next != nil {
+			t.Fatal(search, page, err)
+		}
+	}
+	page, err := s.Trees(t.Context(), TreeList{Search: "100XXready", Limit: 1})
+	if err != nil || len(page.Items) != 0 {
+		t.Fatal(page, err)
+	}
+	for _, search := range []string{strings.Repeat("x", 257), "bad\x00search", string([]byte{255})} {
+		if _, err := s.Trees(t.Context(), TreeList{Search: search, Limit: 1}); !errors.Is(err, session.ErrInvalid) {
+			t.Fatal("invalid search", err)
+		}
+	}
+	before := catalogTest(t, s)
+	request := session.WorkspaceSetRequest{ID: "catalog-directory", SessionID: root.ID, ExpectedRevision: root.ConfigRevision, Path: "/new-project"}
+	if _, err := setDirectory(t, s, request, "/new-project"); err != nil {
+		t.Fatal(err)
+	}
+	if catalogTest(t, s) != before+1 {
+		t.Fatal("root path failed to invalidate catalog")
+	}
+	if _, err := s.Trees(t.Context(), TreeList{Search: "new-project", Limit: 1, ExpectedRevision: &before}); !errors.Is(err, ErrConflict) {
+		t.Fatal("search mixed catalog generations", err)
+	}
+	page, err = s.Trees(t.Context(), TreeList{Search: "new-project", Limit: 1})
+	if err != nil || len(page.Items) != 1 || page.Items[0].RootID != root.ID || page.Items[0].WorkingDirectory != "/new-project" {
+		t.Fatal(page, err)
+	}
+	if _, err := setDirectory(t, s, request, "/ignored-retry"); err != nil || catalogTest(t, s) != before+1 {
+		t.Fatal("retry changed catalog", err)
+	}
+	// Catalog failure must roll back both workspace configuration and receipt.
+	execTest(t, s, "CREATE TRIGGER catalog_fail BEFORE UPDATE ON tree_catalog BEGIN SELECT RAISE(ABORT,'injected'); END")
+	failed := session.WorkspaceSetRequest{ID: "catalog-fail", SessionID: other.ID, ExpectedRevision: other.ConfigRevision, Path: "/rollback"}
+	if _, err := setDirectory(t, s, failed, "/rollback"); err == nil {
+		t.Fatal("catalog failure ignored")
+	}
+	unchanged, err := s.Session(t.Context(), other.ID)
+	if err != nil || unchanged.WorkingDirectory != other.WorkingDirectory || unchanged.ConfigRevision != other.ConfigRevision {
+		t.Fatal(unchanged, err)
+	}
+	if _, err := s.WorkspaceSetRetry(t.Context(), failed); !errors.Is(err, ErrNotFound) {
+		t.Fatal("failed receipt escaped", err)
 	}
 }

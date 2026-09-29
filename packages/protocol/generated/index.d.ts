@@ -3416,6 +3416,18 @@ export interface HostSkillsResult {
   }[];
   truncated: boolean;
 }
+export interface HostStatus {
+  runtime_id: string;
+  process_epoch: string;
+  pid: number;
+  build: string;
+  started_at: string;
+  web_endpoint: string;
+}
+export interface HostStopAccepted {
+  runtime_id: string;
+  process_epoch: string;
+}
 export interface HostThemeResolveParams {
   name: string;
   json: string;
@@ -4300,6 +4312,7 @@ export interface ListStateParams {
   limit: number;
 }
 export interface ListTreesParams {
+  search?: string;
   expected_revision?: null | string;
   after?: null | string;
   archived?: null | boolean;
@@ -4324,6 +4337,7 @@ export interface ListTreesResult {
       created_at: string;
     };
     root_id: string;
+    working_directory: string;
   }[];
   next_cursor: null | string;
 }
@@ -9107,6 +9121,10 @@ export interface SteerInputParams {
   input_id: string;
   turn_id: string;
 }
+export interface StopHostParams {
+  runtime_id: string;
+  process_epoch: string;
+}
 export type SubmitParams = {
   [k: string]: unknown;
 } & {
@@ -9385,6 +9403,44 @@ export interface TreeCreationParams {
 export interface TreeParams {
   tree_id: string;
 }
+export interface TreeSummariesParams {
+  /**
+   * @minItems 1
+   * @maxItems 64
+   */
+  root_ids: [string, ...string[]];
+}
+export interface TreeSummariesResult {
+  /**
+   * @maxItems 64
+   */
+  items: {
+    tree: {
+      id: string;
+      metadata: {
+        title: null | string;
+        archived: boolean;
+        pinned: boolean;
+      };
+      engine: "starlark" | "quickjs";
+      revision: string;
+      created_at: string;
+    };
+    root_id: string;
+    working_directory: string;
+    activity: {
+      active_turn_count: string;
+      queued_input_count: string;
+      pending_permission_count: string;
+      pending_question_count: string;
+      active_workspace_action_count: string;
+    };
+  }[];
+  /**
+   * @maxItems 64
+   */
+  missing_root_ids: string[];
+}
 export interface Turn {
   history_revision: string;
   goal: null | {
@@ -9406,6 +9462,32 @@ export interface TurnOutputResult {
     message_id: string;
     data_base64: string;
   };
+}
+export interface TurnPageParams {
+  session_id: string;
+  before?: null | string;
+  limit: number;
+}
+export interface TurnPageResult {
+  /**
+   * @maxItems 100
+   */
+  items: {
+    history_revision: string;
+    goal: null | {
+      id: string;
+      revision: string;
+    };
+    id: string;
+    session_id: string;
+    kind: "prompt" | "compact" | "goal_formulation" | "automatic_title" | "host_operation";
+    config_revision: string;
+    state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
+    failure: null | string;
+    started_at: string;
+    finished_at: null | string;
+  }[];
+  next_cursor: null | string;
 }
 export interface TurnParams {
   turn_id: string;
@@ -9705,6 +9787,8 @@ export interface ContractTypes {
   HostProfiles: HostProfiles;
   HostSkillsParams: HostSkillsParams;
   HostSkillsResult: HostSkillsResult;
+  HostStatus: HostStatus;
+  HostStopAccepted: HostStopAccepted;
   HostThemeResolveParams: HostThemeResolveParams;
   HostThemeResolved: HostThemeResolved;
   HostThemesResult: HostThemesResult;
@@ -9840,6 +9924,7 @@ export interface ContractTypes {
   StateVersion: StateVersion;
   StateVersionsResult: StateVersionsResult;
   SteerInputParams: SteerInputParams;
+  StopHostParams: StopHostParams;
   SubmitParams: SubmitParams;
   SubscribeStateParams: SubscribeStateParams;
   TerminalAccepted: TerminalAccepted;
@@ -9862,8 +9947,12 @@ export interface ContractTypes {
   TreeCatalog: TreeCatalog;
   TreeCreationParams: TreeCreationParams;
   TreeParams: TreeParams;
+  TreeSummariesParams: TreeSummariesParams;
+  TreeSummariesResult: TreeSummariesResult;
   Turn: Turn;
   TurnOutputResult: TurnOutputResult;
+  TurnPageParams: TurnPageParams;
+  TurnPageResult: TurnPageResult;
   TurnParams: TurnParams;
   UnsubscribeStateParams: UnsubscribeStateParams;
   UpdateConfigurationParams: UpdateConfigurationParams;
@@ -9880,6 +9969,8 @@ export interface ContractTypes {
   WriteStateParams: WriteStateParams;
 }
 export interface Operations {
+  "host.status": { params: EmptyParams; result: HostStatus };
+  "host.stop": { params: StopHostParams; result: HostStopAccepted };
   "workspace.inspect": { params: SessionParams; result: WorkspaceInspection };
   "workspace.set": { params: WorkspaceSetParams; result: ControlEdit };
   "run.configure": { params: RunConfigureParams; result: ControlEdit };
@@ -10041,6 +10132,7 @@ export interface Operations {
   "trees.creation": { params: TreeCreationParams; result: CreateTreeResult };
   "trees.catalog": { params: EmptyParams; result: TreeCatalog };
   "trees.list": { params: ListTreesParams; result: ListTreesResult };
+  "trees.summaries": { params: TreeSummariesParams; result: TreeSummariesResult };
   "definitions.list": { params: ListDefinitionsParams; result: ListDefinitionsResult };
   "trees.get": { params: TreeParams; result: Tree };
   "trees.update": { params: UpdateTreeParams; result: Tree };
@@ -10060,6 +10152,7 @@ export interface Operations {
   "sessions.lifecycle": { params: LifecycleParams; result: Session };
   "sessions.delete": { params: SessionParams; result: DeleteResult };
   "turns.get": { params: TurnParams; result: Turn };
+  "sessions.turns": { params: TurnPageParams; result: TurnPageResult };
   "turns.attempts": { params: ModelAttemptsParams; result: ModelAttemptsResult };
   "turns.cancel": { params: TurnParams; result: Turn };
   "sessions.activity": { params: SessionParams; result: SessionActivity };

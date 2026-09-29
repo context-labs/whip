@@ -71,6 +71,9 @@ func Fixtures() ([]Fixture, error) {
 		name  string
 		value any
 	}{
+		{"HostStatus", HostStatus{RuntimeID: "runtime_fixture", ProcessEpoch: "boot_fixture", PID: 123, Build: "fixture", StartedAt: created.Format(time.RFC3339Nano)}},
+		{"StopHostParams", StopHostParams{RuntimeID: "runtime_fixture", ProcessEpoch: "boot_fixture"}},
+		{"HostStopAccepted", HostStopAccepted{RuntimeID: "runtime_fixture", ProcessEpoch: "boot_fixture"}},
 		{"HostExecutionDefaults", HostExecutionDefaults{Revision: ref.Revision, Engine: "quickjs", Effort: "high", CompactionPercent: 0, GoalMaxContinuations: 9007199254740993, MaxAttempts: 3}},
 		{"SetExecutionDefaultsParams", SetExecutionDefaultsParams{ExpectedRevision: ref.Revision, Defaults: ExecutionDefaults{Engine: "starlark", GoalMaxContinuations: 0, MaxAttempts: 1}}},
 		{"BrowserProviderBindParams", BrowserProviderBindParams{RootID: "session_root", Version: 2, DesktopID: "desktop", WindowID: "window", OfferRevision: "offer", CreateProfileID: "profile", OfferedTabs: []BrowserOfferedTab{{TabID: "tab", TabGeneration: "tab_generation", ProfileID: "profile", DocumentRevision: "document", URL: "https://example.test/", Title: "Example", Preview: browserScope.Preview}}, OfferedPreviewHosts: []BrowserPreviewScope{*browserScope.Preview}}},
@@ -182,7 +185,7 @@ func Fixtures() ([]Fixture, error) {
 		{"TerminalPage", TerminalPage{Terminal: TerminalInfo{ProcessEpoch: "boot_fixture", ID: "term_fixture", Cwd: "/workspace", Shell: "/bin/sh", Cols: 80, Rows: 24, Start: 9007199254740993, End: 9007199254740996, CreatedAt: created.Format(time.RFC3339Nano)}, From: 9007199254740993, Next: 9007199254740996, End: 9007199254740996, Truncated: true, DataBase64: "AAH/"}},
 		{"TreeCatalog", TreeCatalog{Revision: 9007199254740993}},
 		{"ListTreesParams", ListTreesParams{Limit: 100, Archived: new(false), Pinned: new(true)}},
-		{"ListTreesResult", ListTreesResult{Revision: 9007199254740993, Items: []TreeSummary{{Tree: Tree{ID: "tree_fixture", Metadata: TreeMetadata{Title: new("Catalog title")}, Engine: "starlark", Revision: 9007199254740993, CreatedAt: created.Format(time.RFC3339Nano)}, RootID: "session_root"}}, NextCursor: new(ID("tree_fixture"))}},
+		{"ListTreesResult", ListTreesResult{Revision: 9007199254740993, Items: []TreeSummary{{Tree: Tree{ID: "tree_fixture", Metadata: TreeMetadata{Title: new("Catalog title")}, Engine: "starlark", Revision: 9007199254740993, CreatedAt: created.Format(time.RFC3339Nano)}, RootID: "session_root", WorkingDirectory: "/workspace"}}, NextCursor: new(ID("tree_fixture"))}},
 		{"ListTreesResult", ListTreesResult{Revision: 9007199254740993, Items: []TreeSummary{}}},
 		{"ListDefinitionsParams", ListDefinitionsParams{Limit: 1, After: &DefinitionRef{ID: ID(ref.ID), Revision: ref.Revision}}},
 		{"ListDefinitionsResult", ListDefinitionsResult{Items: []DefinitionSummary{{Ref: DefinitionRef{ID: ID(ref.ID), Revision: ref.Revision}, Name: "Assistant", CreatedAt: created.Format(time.RFC3339Nano)}}}},
@@ -254,6 +257,8 @@ func Fixtures() ([]Fixture, error) {
 		{"MatchReceiptParams", MatchReceiptParams{Method: "sessions.compact", ParamsBase64: base64.StdEncoding.EncodeToString([]byte(`{"session_id":"session_root","identity":{"client_id":"client","request_id":"compact"}}`))}},
 		{"SessionActivity", SessionActivity{SessionID: child.ID, Lifecycle: "active", QueuedInputCount: 9007199254740993}},
 		{"InputPageParams", InputPageParams{SessionID: child.ID, State: "queued", After: new(Counter(9007199254740993)), Limit: 100}},
+		{"TurnPageParams", TurnPageParams{SessionID: child.ID, Before: new(ID("turn_cursor")), Limit: 100}},
+		{"TurnPageResult", TurnPageResult{Items: []Turn{{ID: "turn_direct", SessionID: child.ID, Kind: "host_operation", HistoryRevision: 9007199254740993, ConfigRevision: 9007199254740993, State: "succeeded", StartedAt: created.Format(time.RFC3339Nano), FinishedAt: new(created.Format(time.RFC3339Nano))}}, NextCursor: new(ID("turn_direct"))}},
 		{"InputPageResult", InputPageResult{Items: []InputSummary{{ID: "queued_fixture", SessionID: child.ID, Ordinal: 9007199254740993, Source: "user", Kind: "prompt", State: "queued", CreatedAt: created.Format(time.RFC3339Nano), TextPreview: "Preview", PreviewTruncated: true, AttachmentCount: 1}}, NextCursor: new(Counter(9007199254740993))}},
 		{"SessionObservation", SessionObservation{Snapshot: HistorySnapshot{Revision: 9007199254740993, SessionID: child.ID, ThroughSequence: 9007199254740995, MessageCount: 3}, Epoch: "boot_fixture", Messages: []Message{message}, Preview: &MessagePreview{AttemptID: "attempt_live", TurnID: "turn_fixture", MessageID: "message_live", Revision: 9007199254740993, Text: "In progress", Reasoning: "Considering the request", Calls: []CallPreview{{Index: 0, ID: "call_partial", Name: "execute", Arguments: `{"code":"print(`}}}}},
 		{"SessionObservation", SessionObservation{Snapshot: HistorySnapshot{Revision: 9007199254740993, SessionID: child.ID, ThroughSequence: 9007199254740995, MessageCount: 3}, Epoch: "boot_restarted", Messages: []Message{}, Preview: nil}},

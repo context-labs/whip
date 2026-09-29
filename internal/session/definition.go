@@ -141,20 +141,6 @@ type DefinitionRevision struct {
 	CreatedAt time.Time
 }
 
-// Builtins uses the same registration and revision path as user documents.
-// Returned documents do not share mutable collections across calls.
-func Builtins() []DefinitionDocument {
-	return []DefinitionDocument{{
-		ID:   "assistant",
-		Name: "Assistant",
-		Defaults: ConfigPatch{Modules: hostmodule.Names(), AutomaticTitle: new(true), GoalsEnabled: new(true), Instructions: &Instructions{
-			Text:           "Help the user complete their task. Use only the operations made available to you.",
-			ProjectFiles:   []string{"AGENTS.md"},
-			DiscoverSkills: true,
-		}},
-	}}
-}
-
 func (c Configuration) Clone() Configuration {
 	if c.Run != nil {
 		c.Run = new(*c.Run)

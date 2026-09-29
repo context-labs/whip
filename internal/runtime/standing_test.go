@@ -16,7 +16,7 @@ import (
 )
 
 func TestStandingInstructionConfigurationFailuresDoNotDispatch(t *testing.T) {
-	for _, mode := range []string{"unconfigured", "missing file", "missing directory"} {
+	for _, mode := range []string{"missing file", "missing directory"} {
 		t.Run(mode, func(t *testing.T) {
 			var calls atomic.Int32
 			r := openTest(t, t.TempDir(), providerFunc(func(context.Context, model.Request) (model.Response, error) {
@@ -74,7 +74,7 @@ func TestStandingInstructionConfigurationFailuresDoNotDispatch(t *testing.T) {
 }
 
 func TestStandingInstructionMissingAuthorityNeverProbesSource(t *testing.T) {
-	for _, mode := range []string{"no grant", "workspace grant", "wrong standing resource", "missing directory"} {
+	for _, mode := range []string{"unconfigured", "no grant", "workspace grant", "wrong standing resource", "missing directory"} {
 		t.Run(mode, func(t *testing.T) {
 			requests := make(chan model.Request, 1)
 			r := openTest(t, t.TempDir(), providerFunc(func(_ context.Context, request model.Request) (model.Response, error) {
@@ -87,9 +87,12 @@ func TestStandingInstructionMissingAuthorityNeverProbesSource(t *testing.T) {
 				t.Fatal(err)
 			}
 			path := filepath.Join(t.TempDir(), "standing.md")
-			if mode == "missing directory" {
+			switch mode {
+			case "unconfigured":
+				path = ""
+			case "missing directory":
 				path = filepath.Join(t.TempDir(), "absent", "standing.md")
-			} else {
+			default:
 				writeInstructionFile(t, path, string([]byte{0xff, 0}))
 			}
 			r.host.StandingInstructionsFile = path
@@ -111,7 +114,7 @@ func TestStandingInstructionMissingAuthorityNeverProbesSource(t *testing.T) {
 				t.Fatalf("ungranted source was probed: %+v", done.Turn)
 			}
 			request := nextInstructionRequest(t, requests)
-			if !strings.HasPrefix(request.Instructions, policy.Text) || strings.Contains(request.Instructions, "--- Standing user instructions ---") || strings.Contains(request.Instructions, path) {
+			if !strings.HasPrefix(request.Instructions, policy.Text) || strings.Contains(request.Instructions, "--- Standing user instructions ---") || path != "" && strings.Contains(request.Instructions, path) {
 				t.Fatal("ungranted source changed model instructions")
 			}
 			manifest, err := r.InstructionManifest(t.Context(), done.Turn.ID)

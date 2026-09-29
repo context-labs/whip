@@ -1,4 +1,4 @@
-package main
+package hostcmd
 
 import (
 	"bytes"
@@ -81,7 +81,7 @@ func TestCommandAccountShutdown(t *testing.T) {
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
-				result <- run(ctx, []string{"-directory", directory, "-scripted"}, ready, &diagnostics)
+				result <- Run(ctx, []string{"-directory", directory, "-scripted"}, ready, &diagnostics)
 			}()
 			t.Cleanup(func() {
 				cancel()

@@ -1,6 +1,10 @@
 {
   "type": "object",
   "properties": {
+    "search": {
+      "type": "string",
+      "maxLength": 256
+    },
     "expected_revision": {
       "type": [
         "null",

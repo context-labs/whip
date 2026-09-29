@@ -69,11 +69,16 @@
           "root_id": {
             "type": "string",
             "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "working_directory": {
+            "type": "string",
+            "maxLength": 4096
           }
         },
         "required": [
           "tree",
-          "root_id"
+          "root_id",
+          "working_directory"
         ],
         "additionalProperties": false
       },

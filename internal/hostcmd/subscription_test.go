@@ -1,4 +1,4 @@
-package main
+package hostcmd
 
 import (
 	"bytes"
@@ -152,7 +152,7 @@ func TestCommandShutdownJoinsSubscriptionRefresh(t *testing.T) {
 	var out, diagnostics bytes.Buffer
 	result := make(chan error, 1)
 	done := make(chan struct{})
-	go func() { defer close(done); result <- run(ctx, []string{"-directory", directory}, &out, &diagnostics) }()
+	go func() { defer close(done); result <- Run(ctx, []string{"-directory", directory}, &out, &diagnostics) }()
 	t.Cleanup(func() {
 		cancel()
 		unblock()

@@ -26,6 +26,46 @@ Working audit at `b81fc5ff9` (integrated executor, shell, MCP); this is evidence
 
 Imported history and compaction, fork, workspace snapshot/restore, automatic titles, account/provider authority, definition/module bindings and executor core, modes and delegated grants, root recovery/catalog, questions, files.list/search/LSP, schedules/goals/mail/state, shell run/input/jobs, and MCP trust/discovery/root ownership have existing tested checkpoints. Integration or documentation lag is not evidence that they need recreation. Broad test gates, canonical records, and draft PRs remain parent-owned.
 
+## Client-cutover reconciliation (2026-09-28, native foundations `22b7e5b0d`)
+
+The original audit above remains historical evidence. Direct human host actions,
+artifacts/permission helpers, native trace reads/export, bounded host views,
+workspace directory changes, captured run controls, authored-agent SDK helpers,
+execution defaults and native browser/computer authority have since landed in the
+stack through draft #259. Their canonical behavior and exact validation are in
+`docs/backend-domain.md` and `docs/backend-redesign-development.md`; they are not
+new implementation assignments. Native coding and junior-developer immutable
+builtins are now integrated with actual retained instructions and distinct module
+policies. The existing assistant definition stays unchanged.
+
+Phase 5 and Phase 6 remain in progress. Phase 7 has not begun deletion. Explicit
+remaining obligations discovered by actual client adoption include:
+
+- Atomic browser delegation to a spawned child, including public receipt linkage
+  and crash/ACK-loss behavior. The isolated guest checkpoint `60968f48a` is tested
+  but not yet part of this integration head; public linkage is in progress.
+- Live REPL stdout through bounded ephemeral native observation. Final committed
+  cell output alone does not satisfy the live-output workflow.
+- Whole-tree usage with reported/estimated/unknown cost, call counts and missing
+  token metadata. A bounded recent-turn window cannot stand in for whole-tree
+  totals. Derive these from the existing attempt ledger.
+- Actual shared conversation/composer/sidebar/search/action workflows, bounded
+  native input paging, requests/scheduled wakes, and their root/child ownership.
+  The isolated app branch has tested recovery, content, execution leases, browser
+  design, queue and inspector increments; the whole app is not yet migrated.
+- Retained file mentions/completion; native session skill and host skill reads
+  exist, but they do not replace workspace filename discovery.
+- Captured host-settings reload (`session.reload`), tool `deny_permissions`
+  editing, and explicit Rod/ChromeDP driver selection. No silent retirement is
+  approved. Native direct `tool.schemas` already supplies the public builtin and
+  custom-call catalog; inspectors should reuse it rather than duplicate it.
+- CLI commands, TUI, ACP, desktop startup/distribution and mobile lifecycle
+  adoption, complete supported-target gates, fresh-install/restart/packaging,
+  and final retired-core deletion. Native Go client and launcher foundations do
+  not establish those product-client milestones by themselves.
+
+All these items remain required work. No installed runtime, existing user data,
+real account, production branch or deployed artifact was changed for validation.
 ### Hosted scheduling repairs (2026-09-28)
 
 PR #259 at cbd39d5dc (run36526022483) passed the partitioned runtime suites but failed the macOS terminal slow-reader fixture. PR #260 at b9e9cfa19 (run36526214610) additionally observed an empty MCP catalog during tools/list_changed refresh. These runs are failures, not final gate evidence.

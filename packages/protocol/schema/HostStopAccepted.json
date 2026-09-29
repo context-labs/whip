@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "properties": {
+    "runtime_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "process_epoch": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/HostStopAccepted",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HostStopAccepted",
+  "required": [
+    "runtime_id",
+    "process_epoch"
+  ],
+  "additionalProperties": false
+}

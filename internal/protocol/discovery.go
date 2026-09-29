@@ -19,6 +19,7 @@ type GatewayDiscovery struct {
 }
 
 type ListTreesParams struct {
+	Search           string   `json:"search,omitempty"`
 	ExpectedRevision *Counter `json:"expected_revision,omitempty" pattern:"^[1-9][0-9]{0,18}$"`
 	After            *ID      `json:"after,omitempty"`
 	Archived         *bool    `json:"archived,omitempty"`
@@ -27,8 +28,9 @@ type ListTreesParams struct {
 }
 
 type TreeSummary struct {
-	Tree   Tree `json:"tree"`
-	RootID ID   `json:"root_id"`
+	Tree             Tree   `json:"tree"`
+	RootID           ID     `json:"root_id"`
+	WorkingDirectory string `json:"working_directory"`
 }
 
 type ListTreesResult struct {
@@ -58,7 +60,13 @@ type TreeCatalog struct {
 }
 
 func discoverySchema(schema *jsonschema.Schema, t reflect.Type) {
-	if t == reflect.TypeFor[ListTreesResult]() || t == reflect.TypeFor[ListDefinitionsResult]() {
+	if t == reflect.TypeFor[ListTreesParams]() {
+		schema.Properties["search"].MaxLength = new(256)
+	}
+	if t == reflect.TypeFor[TreeSummary]() {
+		schema.Properties["working_directory"].MaxLength = new(4096)
+	}
+	if t == reflect.TypeFor[ListTreesResult]() || t == reflect.TypeFor[ListDefinitionsResult]() || t == reflect.TypeFor[TurnPageResult]() {
 		schema.Properties["items"].Type = "array"
 		schema.Properties["items"].Types = nil
 		schema.Properties["items"].MaxItems = new(100)
