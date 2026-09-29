@@ -55,10 +55,13 @@ export async function launchDesktopPerformance(fixture, isolation) {
         const message = JSON.parse(frame);
         if (typeof message.method !== 'string' || message.method.length > 128 || state.requestTotal >= 1_000_000 ||
             !Object.hasOwn(state.requestCounts, message.method) && Object.keys(state.requestCounts).length >= 256) throw new Error('Traffic probe bounds exceeded');
+        if (message.method === 'trees.summaries' && (!Array.isArray(message.params?.root_ids) ||
+            message.params.root_ids.length > 64 || message.params.root_ids.some(id => typeof id !== 'string' || id.length > 128))) throw new Error('Summary scope probe bounds exceeded');
         state.requestCounts[message.method] = (state.requestCounts[message.method] ?? 0) + 1;
         if (state.requests.length === 8192) { state.requests.splice(0, 4096); state.prunedRequests += 4096; }
         state.requests.push({ sequence: ++state.requestTotal, id: message.id, method: message.method, session: message.params?.session_id,
-          roots: message.params?.root_ids?.length, frameBytes: Buffer.byteLength(frame), at: performance.now() });
+          roots: message.params?.root_ids?.length,
+          rootIDs: message.method === 'trees.summaries' ? message.params.root_ids : undefined, frameBytes: Buffer.byteLength(frame), at: performance.now() });
         if (message.method === 'sessions.observe') active.add(id);
         state.maximumObservations = Math.max(state.maximumObservations, active.size);
       } catch { state.overflow = true; }
@@ -147,22 +150,38 @@ export async function exerciseDesktopTabs({ host, fixture, client, ready, frame,
     await select(roots[index % 4]); await frame(); switches.push(performance.now() - started);
   }
   await select(roots[0]);
+  const sidebarIDs = await page.locator('[data-sidebar-session]').evaluateAll(rows => rows.map(row => row.dataset.sidebarSession).sort());
   const before = (await host.traffic()).requestTotal;
   await page.waitForTimeout(6100);
   const traffic = await host.traffic();
   const summaries = requestsSince(traffic, before).filter(request => request.method === 'trees.summaries');
-  const tabPolls = summaries.filter(request => request.roots === roots.length).length;
-  const sidebarPolls = summaries.filter(request => request.roots < roots.length).length;
-  assert(tabPolls >= 2 && tabPolls <= 4, `Expected one shared tab summary poll, received ${tabPolls}`);
-  assert(sidebarPolls >= 2 && sidebarPolls <= 4, `Expected one visible-sidebar aggregate poll, received ${sidebarPolls}`);
-  assert.equal(summaries.length, tabPolls + sidebarPolls);
+  const summaryPolling = summaryPollEvidence(summaries, roots, sidebarIDs);
   assert(traffic.maximumObservations <= 16); assert.equal(traffic.overflow, false);
   assert((await page.getByRole('region', { name: 'Conversation', exact: true }).count()) <= 1);
   metrics.desktopTabs = { snapshots, cachedSwitchMilliseconds: summarize(switches), maximumObservations: traffic.maximumObservations,
-    tabSummaryPollsIn6100ms: tabPolls, sidebarSummaryPollsIn6100ms: sidebarPolls, boundary: 'Playwright click through ready and two animation frames; includes automation overhead.' };
-  metrics.checks.push('Staged IPC: 1/8/32 restored metadata tabs, <=16 native session observation waits, one aggregate poll each for tabs and visible sidebar, 20 cached switches');
+    summaryPollingIn6100ms: summaryPolling, boundary: 'Playwright click through ready and two animation frames; includes automation overhead.' };
+  metrics.checks.push('Staged IPC: 1/8/32 restored metadata tabs, <=16 native session observation waits, bounded aggregate polling for tabs and visible sidebar (identical root sets remain unattributed), 20 cached switches');
   await inspector.detach();
   return roots;
+}
+
+// The two independent metadata owners can request exactly the same roots.
+// Wire evidence cannot distinguish them then; preserve that ambiguity instead
+// of assigning both to the tab owner merely because their counts match.
+export function summaryPollEvidence(requests, tabIDs, sidebarIDs) {
+  const key = ids => JSON.stringify([...ids].sort());
+  assert(sidebarIDs.length > 0 && sidebarIDs.length <= 32);
+  const tabs = key(tabIDs), sidebar = key(sidebarIDs);
+  assert(requests.every(request => key(request.rootIDs) === tabs || key(request.rootIDs) === sidebar), 'Unexpected summary root scope');
+  if (tabs === sidebar) {
+    assert(requests.length >= 4 && requests.length <= 8, `Expected two bounded aggregate poll owners, received ${requests.length}`);
+    return { sameRootSet: true, combinedPolls: requests.length, tabPolls: null, sidebarPolls: null };
+  }
+  const tabPolls = requests.filter(request => key(request.rootIDs) === tabs).length;
+  const sidebarPolls = requests.filter(request => key(request.rootIDs) === sidebar).length;
+  assert(tabPolls >= 2 && tabPolls <= 4, `Expected one shared tab summary poll, received ${tabPolls}`);
+  assert(sidebarPolls >= 2 && sidebarPolls <= 4, `Expected one visible-sidebar aggregate poll, received ${sidebarPolls}`);
+  return { sameRootSet: false, combinedPolls: requests.length, tabPolls, sidebarPolls };
 }
 
 export async function exerciseDesktopTransfer({ host, fixture, client, metrics, directory, summarize }) {
