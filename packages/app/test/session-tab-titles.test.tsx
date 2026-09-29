@@ -15,7 +15,10 @@ vi.mock('@tanstack/react-router', () => ({ Link: ({ children }: { children: Reac
   useLocation: () => ({ pathname: '/h/mac/s/active', state: {} }), useNavigate: () => vi.fn() }));
 vi.mock('../src/conversation', () => ({ SessionContent: () => null, SessionLoading: () => null }));
 vi.mock('../src/workspace-views', () => ({
-  useWorkspaceViews: (_runtime: unknown, requested: unknown) => { roots(requested); return { views: new Map(), executions: new Map(), errors: new Map() }; },
+  useWorkspaceTraces: () => ({ clients: new Map(), views: new Map(), errors: new Map() }),
+  workspaceTraceKey: ({ runtimeId, rootId, viewId }: any) => JSON.stringify([runtimeId, rootId, viewId]),
+  workspaceSessionKey: ({ runtimeId, rootId, sessionId }: any) => JSON.stringify([runtimeId, rootId, sessionId ?? rootId]),
+  useWorkspaceViews: (_runtime: unknown, requested: unknown) => { roots(requested); return { clients: new Map(), executions: new Map(), views: new Map(), errors: new Map() }; },
   workspaceRootKey: ({ runtimeId, rootId }: { runtimeId: string; rootId: string }) => JSON.stringify([runtimeId, rootId]),
 }));
 vi.mock('@whip/ui/workspace-tabs', () => ({
@@ -78,7 +81,9 @@ it.each([false, true])('updates inactive native tab titles and preserves authore
     items = [items[0]!, summary('inactive', 'Recovered by polling')];
     await act(async () => { await vi.advanceTimersByTimeAsync(2001); });
     expect(screen.getByRole('tab', { name: 'Recovered by polling' })).toBeTruthy();
-    expect(roots.mock.calls.every(([requested]) => requested.length === 1 && requested[0].rootId === 'active')).toBe(true);
+    expect(roots.mock.calls.every(([requested]) => requested.length === 1 && requested[0].rootId === 'active' && requested[0].sessionId === 'active')).toBe(true);
+    await act(async () => { runtime.tabs.visit('mac', 'active', { agent: 'child' }); });
+    expect(roots.mock.calls.at(-1)?.[0]).toEqual([{ runtimeId: 'mac', rootId: 'active', sessionId: 'child' }]);
     expect(f.count('sessions.observe')).toBe(0); expect(f.count('sessions.history_page')).toBe(0); expect(f.count('sessions.submit')).toBe(0);
   } finally { view.unmount(); runtime.dispose(); f.queries.clear(); }
 });

@@ -1,3 +1,4 @@
+import { RemoteError } from '@whip/sdk';
 import { typography } from '@whip/ui/tokens.stylex';
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, useSyncExternalStore, type ReactElement, type ReactNode, type Ref } from 'react';
 import { Link, useLocation, useNavigate } from '@tanstack/react-router';
@@ -12,7 +13,7 @@ import { isSessionTab, selectedSessionTab, sessionPanes, sessionViewPane, sessio
 import { TerminalView } from './terminal-view';
 import { BrowserView } from './browser-view';
 import { BrowserProviderControls } from './browser-provider-controls';
-import { useWorkspaceViews, workspaceRootKey } from './workspace-views';
+import { useWorkspaceViews, useWorkspaceTraces, workspaceRootKey, workspaceSessionKey, workspaceTraceKey } from './workspace-views';
 import { ChevronDown, Circle, Globe, CircleHelp, MessageSquare, MessageSquareWarning, MoreHorizontal, Pencil, Plus, SquareTerminal, X } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface } from '@whip/ui/tokens.stylex';
@@ -28,6 +29,11 @@ function Status({ item, stale }: { item?: SessionNavigationSummary; stale: boole
   if (sessionNeedsInput(item, stale)) return <MessageSquareWarning size={14} {...stylex.props(styles.attention)} aria-hidden="true" />;
   if (sessionBusy(item, stale)) return <Circle size={7} fill="currentColor" {...stylex.props(styles.running)} aria-hidden="true" />;
   return <MessageSquare size={13} aria-hidden="true" />;
+}
+
+function NativeSessionContent({ sessionId, ...props }: Omit<Parameters<typeof SessionContent>[0], 'session'> & { sessionId: string }) {
+  const session = useMemo(() => props.client.session(sessionId), [props.client, sessionId]);
+  return <SessionContent {...props} session={session} />;
 }
 
 export function SessionTabStrip({ compact, onManageHosts, utilities, children, notices, ref, sidebarHidden = false }: {
@@ -128,7 +134,17 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     const restoreFocus = viewIds.some(id => document.getElementById(workspaceTabId(id))?.closest('[data-workspace-tab]')?.contains(focused));
     // Closing a terminal tab ends its shell; a late failure has nowhere truthful to show.
     const shells = runtime.tabs.workspace().tabs.filter(tab => tab.kind === 'terminal' && viewIds.includes(tab.id));
-    for (const tab of shells) if (tab.kind === 'terminal') void runtime.connections.host(tab.runtimeId)?.client?.terminals.close(tab.terminalId).catch(() => {});
+    for (const tab of shells) if (tab.kind === 'terminal' && tab.processEpoch) {
+      try {
+        const host = runtime.connections.host(tab.runtimeId);
+        if (host?.state !== 'connected' || !host.client) throw new Error('Reconnect the owning host before closing this shell.');
+        if (host.client.processEpoch === tab.processEpoch) {
+          try { await host.client.closeTerminal({ id: tab.terminalId, process_epoch: tab.processEpoch }); }
+          catch (error) { if (!(error instanceof RemoteError && error.kind === 'NOT_FOUND')) throw error; }
+        }
+      } catch (error) { runtime.reportWorkspace(error); viewIds.splice(viewIds.indexOf(tab.id), 1); }
+    }
+    if (!viewIds.length) return;
     const selected = selectedSessionTab(runtime.tabs.workspace());
     const closing = selected && viewIds.includes(selected.id) ? selected : undefined;
     const closingCwd = closing?.kind === 'terminal' ? closing.cwd : closing ? knownCwd(closing) : undefined;
@@ -258,7 +274,8 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     }))}/>;
   const visiblePanes = matched ? panes.filter(p => !(compact || small) || p.id === workspace.focusedPaneId) : [];
   const visibleTabs = visiblePanes.flatMap(p => p.tabs.filter(t => t.id === p.selected));
-  const views = useWorkspaceViews(runtime, visibleTabs.filter(isSessionTab), hosts);
+  const views = useWorkspaceViews(runtime, visibleTabs.filter(isSessionTab).map(tab => ({ runtimeId: tab.runtimeId, rootId: tab.rootId, sessionId: tab.location.agent ?? tab.rootId })), hosts);
+  const traces = useWorkspaceTraces(runtime, visibleTabs.filter(isSessionTab).filter(tab => tab.kind === 'trace').map(tab => ({ runtimeId: tab.runtimeId, rootId: tab.rootId, viewId: tab.id })), hosts);
   return <div {...stylex.props(styles.workspace)}>
     {compact && <header {...stylex.props(styles.mobileBar)}>
       {utilities}
@@ -279,18 +296,22 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
         if (tab.kind === 'terminal') {
           const host = hosts.find(h => h.runtimeId === tab.runtimeId);
           return { id: tab.id, paneId: pane.id, label: `Pane ${panes.indexOf(pane) + 1}: ${title(tab)}`, labelledBy: compact ? undefined : workspaceTabId(tab.id),
-            content: host?.client ? <TerminalView key={tab.terminalId} tab={tab} client={host.client} focused={pane.id === workspace.focusedPaneId} />
+            content: host?.client ? <TerminalView key={tab.terminalId} tab={tab} client={host.client} connected={host.state === 'connected'} focused={pane.id === workspace.focusedPaneId} />
               : <div {...stylex.props(layout.empty)}><p role="status">{hostName(tab)} is unavailable. Connect it to continue this terminal.</p><Button variant="secondary" onClick={onManageHosts}>Manage servers</Button></div> };
         }
-        const view = views.views.get(workspaceRootKey(tab));
+        const owner = { runtimeId: tab.runtimeId, rootId: tab.rootId, sessionId: tab.location.agent ?? tab.rootId };
+        const viewKey = workspaceSessionKey(owner), traceKey = workspaceTraceKey({ ...owner, viewId: tab.id });
+        const view = views.views.get(viewKey), execution = views.executions.get(viewKey);
+        const client = hosts.find(host => host.runtimeId === tab.runtimeId)?.client;
+        const error = views.errors.get(viewKey) ?? (tab.kind === 'trace' ? traces.errors.get(traceKey) : undefined);
         return { id: tab.id, paneId: pane.id, label: `Pane ${panes.indexOf(pane) + 1}: ${title(tab)}${viewSuffix(tab.kind)}`, labelledBy: compact ? undefined : workspaceTabId(tab.id),
-          content: view && view.session.client === hosts.find(host => host.runtimeId === tab.runtimeId)?.client ? <SessionContent kind={tab.kind} key={workspaceRootKey(tab)} view={view} expectedRuntimeId={tab.runtimeId} agentId={tab.location.agent ?? tab.rootId} panel={tab.location.panel} viewId={tab.id} summaryCwd={knownCwd(tab)}/> : <>
-            <SessionTopBar kind={tab.kind} host={hostName(tab)} cwd={!tab.location.agent || tab.location.agent === tab.rootId ? knownCwd(tab) : undefined} agentName={tab.location.agent ?? 'Root'} pending={!views.errors.has(workspaceRootKey(tab))}
-              activity={<span role="status">{views.errors.has(workspaceRootKey(tab)) ? 'Session unavailable' : 'Loading session…'}</span>}
+          content: view && execution && client && views.clients.get(viewKey) === client ? <NativeSessionContent kind={tab.kind} key={viewKey} client={client} sessionId={owner.sessionId} rootId={tab.rootId} view={view} execution={execution} trace={traces.clients.get(traceKey) === client ? traces.views.get(traceKey) : undefined} expectedRuntimeId={tab.runtimeId} agentId={owner.sessionId} panel={tab.location.panel} viewId={tab.id} summaryCwd={knownCwd(tab)}/> : <>
+            <SessionTopBar kind={tab.kind} host={hostName(tab)} cwd={!tab.location.agent || tab.location.agent === tab.rootId ? knownCwd(tab) : undefined} agentName={tab.location.agent ?? 'Root'} pending={!error}
+              activity={<span role="status">{!!error ? 'Session unavailable' : 'Loading session…'}</span>}
               onChat={() => { void openSessionView(runtime, navigate, tab.id, 'chat', true); }}
               onRepl={() => { void openSessionView(runtime, navigate, tab.id, 'repl', true); }}
               onTrace={() => { void openSessionView(runtime, navigate, tab.id, 'trace', true); }} />
-            {views.errors.has(workspaceRootKey(tab)) ? <div {...stylex.props(layout.empty)}>{hosts.find(host => host.runtimeId === tab.runtimeId)?.state === 'connected' ? <ErrorNotice type="session" owner={workspaceRootKey(tab)} error={views.errors.get(workspaceRootKey(tab))} /> : <p>{hostName(tab)} is unavailable. Connect it to continue this session.</p>}<Button variant="secondary" onClick={onManageHosts}>Manage servers</Button></div> : <SessionLoading />}
+            {!!error ? <div {...stylex.props(layout.empty)}>{hosts.find(host => host.runtimeId === tab.runtimeId)?.state === 'connected' ? <ErrorNotice type="session" owner={workspaceRootKey(tab)} error={error} /> : <p>{hostName(tab)} is unavailable. Connect it to continue this session.</p>}<Button variant="secondary" onClick={onManageHosts}>Manage servers</Button></div> : <SessionLoading />}
           </> };
       })}/>
       : <>{!compact && renderStrip(focusedPane, false)}{children}</>}

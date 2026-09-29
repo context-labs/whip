@@ -24,7 +24,7 @@ export function reconcileWorkspaceViews(runtime: Pick<AppRuntime, 'acquireView'>
 export function useWorkspaceViews(runtime: AppRuntime, roots: readonly Pick<WorkspaceRoot, 'runtimeId' | 'rootId' | 'sessionId'>[], hosts: readonly HostConnection[]) {
   const leases = useRef(new Map<string, WorkspaceLease>());
   const key = JSON.stringify([...new Set(roots.map(workspaceSessionKey))].sort());
-  const [state, setState] = useState<{ views: ReadonlyMap<string, SessionView>; executions: ReadonlyMap<string, ExecutionView>; errors: ReadonlyMap<string, string> }>({ views: new Map(), executions: new Map(), errors: new Map() });
+  const [state, setState] = useState<{ clients: ReadonlyMap<string, Client>; views: ReadonlyMap<string, SessionView>; executions: ReadonlyMap<string, ExecutionView>; errors: ReadonlyMap<string, string> }>({ clients: new Map(), views: new Map(), executions: new Map(), errors: new Map() });
   useLayoutEffect(() => () => {
     for (const entry of leases.current.values()) entry.lease.release();
     leases.current.clear();
@@ -35,7 +35,7 @@ export function useWorkspaceViews(runtime: AppRuntime, roots: readonly Pick<Work
       return { runtimeId, rootId, sessionId, client: hosts.find(host => host.runtimeId === runtimeId)?.client };
     });
     const errors = reconcileWorkspaceViews(runtime, leases.current, wanted);
-    setState({ views: new Map([...leases.current].map(([id, entry]) => [id, entry.lease.view])), executions: new Map([...leases.current].map(([id, entry]) => [id, entry.lease.execution])), errors });
+    setState({ clients: new Map([...leases.current].map(([id, entry]) => [id, entry.client])), views: new Map([...leases.current].map(([id, entry]) => [id, entry.lease.view])), executions: new Map([...leases.current].map(([id, entry]) => [id, entry.lease.execution])), errors });
   }, [runtime, hosts, key]);
   return state;
 }
@@ -47,7 +47,7 @@ export const workspaceTraceKey = (owner: WorkspaceTrace) => JSON.stringify([owne
 export function useWorkspaceTraces(runtime: AppRuntime, owners: readonly WorkspaceTrace[], hosts: readonly HostConnection[]) {
   const leases = useRef(new Map<string, { client: Client; lease: ReturnType<AppRuntime['acquireTrace']> }>());
   const key = JSON.stringify([...new Set(owners.map(workspaceTraceKey))].sort());
-  const [state, setState] = useState<{ views: ReadonlyMap<string, TraceView>; errors: ReadonlyMap<string, string> }>({ views: new Map(), errors: new Map() });
+  const [state, setState] = useState<{ clients: ReadonlyMap<string, Client>; views: ReadonlyMap<string, TraceView>; errors: ReadonlyMap<string, string> }>({ clients: new Map(), views: new Map(), errors: new Map() });
   useLayoutEffect(() => () => {
     for (const entry of leases.current.values()) entry.lease.release();
     leases.current.clear();
@@ -64,7 +64,7 @@ export function useWorkspaceTraces(runtime: AppRuntime, owners: readonly Workspa
       try { leases.current.set(id, { client: owner.client, lease: runtime.acquireTrace(owner.runtimeId, owner.rootId, owner.viewId) }); }
       catch (error) { errors.set(id, error instanceof Error ? error.message : String(error)); }
     }
-    setState({ views: new Map([...leases.current].map(([id, entry]) => [id, entry.lease.view])), errors });
+    setState({ clients: new Map([...leases.current].map(([id, entry]) => [id, entry.client])), views: new Map([...leases.current].map(([id, entry]) => [id, entry.lease.view])), errors });
   }, [runtime, hosts, key]);
   return state;
 }

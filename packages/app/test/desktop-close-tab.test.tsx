@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { UIProvider } from '@whip/ui';
-import type { WhipClient } from '@whip/legacy-sdk';
+import type { Client } from '@whip/sdk';
 import { AppRuntime } from '../src/runtime';
 import { RuntimeContext } from '../src/context';
 import { AppShell } from '../src/shell';
@@ -25,7 +25,10 @@ vi.mock('../src/host-dialog', () => ({ HostDialog: () => null }));
 vi.mock('../src/attention', () => ({ Attention: () => null, DesktopAttention: () => null }));
 vi.mock('../src/connection-notice', () => ({ HostNotice: () => null }));
 vi.mock('../src/conversation', () => ({ SessionContent: () => null, SessionLoading: () => null }));
-vi.mock('../src/workspace-views', () => ({ useWorkspaceViews: (_runtime: unknown, roots: unknown) => { routing.roots(roots); return { views: new Map(), errors: new Map() }; }, workspaceRootKey: ({ runtimeId, rootId }: { runtimeId: string; rootId: string }) => JSON.stringify([runtimeId, rootId]) }));
+vi.mock('../src/workspace-views', () => ({
+  useWorkspaceTraces: () => ({ clients: new Map(), views: new Map(), errors: new Map() }),
+  workspaceTraceKey: ({ runtimeId, rootId, viewId }: any) => JSON.stringify([runtimeId, rootId, viewId]),
+  workspaceSessionKey: ({ runtimeId, rootId, sessionId }: any) => JSON.stringify([runtimeId, rootId, sessionId ?? rootId]), useWorkspaceViews: (_runtime: unknown, roots: unknown) => { routing.roots(roots); return { clients: new Map(), executions: new Map(), views: new Map(), errors: new Map() }; }, workspaceRootKey: ({ runtimeId, rootId }: { runtimeId: string; rootId: string }) => JSON.stringify([runtimeId, rootId]) }));
 // Exercise the shell, imperative tab action and real tab store; layout geometry has separate browser tests.
 vi.mock('@whip/ui/workspace-tabs', () => ({ WorkspaceDragScope: ({ children }: { children: ReactNode }) => <>{children}</>, WorkspaceTabs: ({ utilities }: { utilities: ReactNode }) => <div>{utilities}</div>, workspaceTabId: (id: string) => `tab-${id}` }));
 vi.mock('@whip/ui/workspace-layout', () => ({ WorkspaceLayout: () => null, workspacePanelId: (id: string) => `panel-${id}` }));
@@ -49,11 +52,10 @@ function fixture(path = '/h/mac/s/a', roots = ['a', 'b']) {
     onNewSession(listener) { newSessionListeners.add(listener); return () => { newSessionListeners.delete(listener); }; },
     onReopenClosedTab(listener) { reopenListeners.add(listener); return () => { reopenListeners.delete(listener); }; },
   });
-  const connected = { state: 'connected', info: { runtime_id: 'mac', negotiated_capabilities: [] } };
-  const client = { host: { attention: async () => ({ items: [] }) }, subscribe: () => () => {}, getSnapshot: () => connected, close: vi.fn() } as unknown as WhipClient;
-  // The sidebar catalog knows each session's folder before any summaries poll; closing the last tab reuses it.
-  const list = { subscribe: () => () => {}, getSnapshot: () => ({ status: 'live', page: { items: roots.map(id => ({ id, cwd: `/work/${id}` })) }, truncated: false }) };
-  const home = { ...runtime.getSnapshot().home!, client, runtimeId: 'mac', state: 'connected' as const, list };
+  const client = { runtimeID: 'mac', processEpoch: 'boot', trees: { summaries: async () => ({ items: [], missing_root_ids: [] }) }, close: vi.fn() } as unknown as Client & { close: ReturnType<typeof vi.fn> };
+  // Metadata catalog owns sidebar cwd; rendering this action fixture reads no transcript.
+  const list = { subscribe: () => () => {}, getSnapshot: () => ({ status: 'live', items: roots.map(root_id => ({ root_id, working_directory: `/work/${root_id}` })), truncated: false }) };
+  const home = { id: 'local', name: 'Local', local: true, profile: localProfile, client, runtimeId: 'mac', state: 'connected' as const, list };
   vi.spyOn(runtime, 'getSnapshot').mockReturnValue({ ...runtime.getSnapshot(), home, hosts: [home] });
   for (const root of roots) runtime.tabs.open('mac', root);
   if (roots.includes('a')) runtime.tabs.visit('mac', 'a', {});
