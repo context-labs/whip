@@ -6,7 +6,8 @@
   "engines": { "node": ">=24 <25" },
   "exports": {
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
-    "./node": { "types": "./dist/node.d.ts", "import": "./dist/node.js" }
+    "./node": { "types": "./dist/node.d.ts", "import": "./dist/node.js" },
+    "./browser": { "types": "./dist/browser.d.ts", "import": "./dist/browser.js" }
   },
   "files": ["dist"],
   "scripts": {
