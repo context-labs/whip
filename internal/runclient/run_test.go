@@ -405,7 +405,7 @@ func TestRunRegisteredDefinitionsRequireExactAmbiguousRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref, err := resolveDefinition(t.Context(), c, "custom")
+	ref, err := c.ResolveDefinition(t.Context(), "custom")
 	if err != nil || ref.Revision != first.Ref.Revision {
 		t.Fatal(ref, err)
 	}
@@ -413,7 +413,7 @@ func TestRunRegisteredDefinitionsRequireExactAmbiguousRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := resolveDefinition(t.Context(), c, "custom"); err == nil || !strings.Contains(err.Error(), "id@revision") {
+	if _, err := c.ResolveDefinition(t.Context(), "custom"); err == nil || !strings.Contains(err.Error(), "id@revision") {
 		t.Fatal(err)
 	}
 	o, _ := output(t)

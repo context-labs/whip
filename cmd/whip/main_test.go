@@ -2,23 +2,15 @@ package main
 
 import (
 	"bytes"
-	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/legacy/config"
-	"github.com/context-labs/whip/internal/legacy/session"
-	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/providerhost"
 )
 
 func TestMain(m *testing.M) {
@@ -50,8 +42,8 @@ func TestMain(m *testing.M) {
 		}
 		// A test daemon must never discover the developer's inherited keys.
 		names := []string{"OPENAI_BASE_URL", "OPENAI_API_BASE"}
-		for _, preset := range config.ProviderPresets() {
-			names = append(names, preset.EnvironmentVariables...)
+		for _, preset := range providerhost.Presets() {
+			names = append(names, preset.Environments...)
 		}
 		for _, name := range names {
 			if err := os.Unsetenv(name); err != nil {
@@ -174,103 +166,10 @@ func TestMainDispatchesHeadlessCommands(t *testing.T) {
 	})
 }
 
-// These tests capture actual daemon-factory model requests. A client-side
-// system-prompt string is insufficient evidence for a presentation-only CLI.
+// Actual client event loops send original inputs; the native host composes model context.
 func TestClientEntryPathsSendAssembledPromptToProvider(t *testing.T) {
-	for _, kind := range []string{"acp", "tui"} {
-		t.Run(kind, func(t *testing.T) {
-			if kind == "acp" {
-				testNativeACPPromptContext(t)
-				return
-			}
-			requests, titles, workingDirectory := promptRequestFixture(t)
-			standing := filepath.Join(os.Getenv("WHIPCODE_HOME"), "me.md")
-			writePromptRequestFile(t, standing, "# COMMENT_MUST_NOT_REACH_MODEL\nSTANDING_BEFORE_EDIT")
-			writePromptRequestFile(t, filepath.Join(workingDirectory, "CLAUDE.md"), "CLAUDE_REQUEST_MARKER")
-			writePromptRequestFile(t, filepath.Join(workingDirectory, "AGENTS.md"), "AGENTS_REQUEST_MARKER")
-			writePromptRequestFile(t, filepath.Join(workingDirectory, ".agents", "skills", "fixture", "SKILL.md"), "---\nname: fixture\ndescription: CATALOG_REQUEST_MARKER\n---\n")
-			submit := promptSubmitter(t, kind, workingDirectory)
-			for turn := range 2 {
-				standingMarker := "STANDING_BEFORE_EDIT"
-				if turn == 1 {
-					standingMarker = "STANDING_AFTER_EDIT"
-					writePromptRequestFile(t, standing, standingMarker)
-				}
-				submit("verify prompt environment")
-				if turn == 0 {
-					title := readPromptRequest(t, titles)
-					if len(title.Messages) != 2 || title.Messages[1].Content != "verify prompt environment" {
-						t.Fatalf("title request must contain only the accepted user prompt: %+v", title.Messages)
-					}
-				}
-				request := readPromptRequest(t, requests)
-				if len(request.Messages) < 2 || request.Messages[0].Role != "system" {
-					t.Fatalf("request has no system prompt: %#v", request.Messages)
-				}
-				prompt := request.Messages[0].Content
-				for _, marker := range []string{"rlm_exec", "never force-push", "<env>", "Current date/time:", "User:", workingDirectory, "Identity: root agent", "CLAUDE_REQUEST_MARKER", "AGENTS_REQUEST_MARKER", "CATALOG_REQUEST_MARKER", standingMarker} {
-					if !strings.Contains(prompt, marker) {
-						t.Errorf("%s turn %d actual request missing %q", kind, turn, marker)
-					}
-				}
-				if strings.Contains(prompt, "COMMENT_MUST_NOT_REACH_MODEL") || turn == 1 && strings.Contains(prompt, "STANDING_BEFORE_EDIT") {
-					t.Fatalf("%s request contains stale or commented standing instructions", kind)
-				}
-				if strings.Index(prompt, "CLAUDE_REQUEST_MARKER") > strings.Index(prompt, "AGENTS_REQUEST_MARKER") {
-					t.Fatal("project source precedence was reversed in actual request")
-				}
-			}
-		})
-	}
-}
-
-func promptRequestFixture(t *testing.T) (<-chan llm.Request, <-chan llm.Request, string) {
-	t.Helper()
-	t.Setenv("HOME", t.TempDir())
-	home := t.TempDir()
-	t.Setenv("WHIPCODE_HOME", home)
-	t.Chdir(t.TempDir())
-	workingDirectory, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	requests := make(chan llm.Request, 8)
-	titles := make(chan llm.Request, 8)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer fixture-file-key" {
-			t.Error("entrypoint did not send its configured file key")
-			http.Error(w, "missing fixture credential", http.StatusUnauthorized)
-			return
-		}
-		var request llm.Request
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		if respondToTitleRequest(t, w, request) {
-			titles <- request
-			return
-		}
-		select {
-		case requests <- request:
-		case <-r.Context().Done():
-			return
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"prompt verified\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
-	}))
-	t.Cleanup(server.Close)
-	keyPath := filepath.Join(t.TempDir(), "provider.key")
-	writePromptRequestFile(t, keyPath, "fixture-file-key\n")
-	writeConfig(t, home, fmt.Sprintf(`{
-		"defaultModel":"test", "maxRetries":0,
-		"mcpImport":{"claude":{"enabled":false},"codex":{"enabled":false}},
-		"providerKeySources":{"keyFiles":{"WHIP_PROMPT_FIXTURE_KEY":%q}},
-		"providers":{"testprov":{"baseUrl":%q,"api":"openai-completions","apiKeyEnv":"WHIP_PROMPT_FIXTURE_KEY"}},
-		"models":{"test":{"providers":["testprov"],"context":65536,"maxOut":128}}
-	}`, keyPath, server.URL))
-	useTestDaemon(t)
-	return requests, titles, workingDirectory
+	t.Run("acp", testNativeACPPromptContext)
+	t.Run("tui", testNativeTUIPromptContext)
 }
 
 func writePromptRequestFile(t *testing.T, path, text string) {
@@ -280,51 +179,5 @@ func writePromptRequestFile(t *testing.T, path, text string) {
 	}
 	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func readPromptRequest(t *testing.T, requests <-chan llm.Request) llm.Request {
-	t.Helper()
-	select {
-	case request := <-requests:
-		return request
-	case <-time.After(5 * time.Second):
-		t.Fatal("provider did not receive a request")
-		return llm.Request{}
-	}
-}
-
-func promptSubmitter(t *testing.T, kind, workingDirectory string) func(string) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
-	t.Cleanup(cancel)
-	var root *daemon.RootClient
-	var err error
-	// Mirror the presentation-only TUI's root creation and submit path.
-	root, err = daemon.NewRootClient(daemon.RootClientOptions{
-		ClientID: "prompt-tui", Connector: daemonConnector("tui", "prompt-tui"),
-		Create: &daemon.CreateSession{Kind: session.SessionKindAgent, CWD: workingDirectory, Model: "test", Provider: "testprov"},
-	})
-	if err == nil {
-		root.Start()
-		err = root.WaitLive(ctx)
-	}
-	if err != nil {
-		if root != nil {
-			_ = root.Close()
-		}
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = root.Close() })
-	return func(text string) {
-		t.Helper()
-		action, err := root.NewAction("submit", daemon.SubmitPayload{Text: text})
-		if err != nil {
-			t.Fatal(err)
-		}
-		result, err := root.Command(ctx, action)
-		if err != nil || result.Status != "succeeded" || result.Output != "prompt verified" {
-			t.Fatalf("%s submit = %#v, %v", kind, result, err)
-		}
 	}
 }

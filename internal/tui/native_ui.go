@@ -65,6 +65,10 @@ type nativeModel struct {
 	observer                        *client.Observer
 	readCancel                      context.CancelFunc
 	picker                          *nativeSessionPicker
+	menu                            *nativeMenu
+	preferencesDirectory            string
+	preferences                     nativePreferences
+	initialPrompt                   string
 	navigationRequest               uint64
 	history                         nativeTranscript
 	activity                        protocol.SessionActivity
@@ -143,7 +147,12 @@ func newNativeModel(ctx context.Context, c *client.Client, owner protocol.Sessio
 	}, nil
 }
 
-func (m *nativeModel) Init() tea.Cmd { return m.read() }
+func (m *nativeModel) Init() tea.Cmd {
+	if m.menu != nil {
+		return tea.Batch(m.read(), m.menu.Init())
+	}
+	return m.read()
+}
 
 func (m *nativeModel) read() tea.Cmd {
 	if m.reading {
@@ -238,6 +247,9 @@ func nativeTick() tea.Cmd {
 }
 
 func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
+	if m.menu != nil && m.menu.Handles(message) {
+		return m, m.updateMenu(message)
+	}
 	switch value := message.(type) {
 	case nativeNavigationResult:
 		if value.request != m.navigationRequest {
@@ -300,6 +312,11 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if renderChanged {
 			m.refresh()
+		}
+		if m.menu == nil && m.initialPrompt != "" && m.owner.Configuration.Model.Provider != "" && m.owner.Configuration.Model.Name != "" {
+			text := m.initialPrompt
+			m.initialPrompt = ""
+			return m, tea.Batch(nativeTick(), m.prompt(text, "auto"))
 		}
 		return m, nativeTick()
 	case nativeSubmission:
@@ -405,6 +422,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "Cancellation requested for turn " + string(value.turn)
 		}
 	case tea.KeyPressMsg:
+		if value.String() != "ctrl+c" {
+			m.initialPrompt = ""
+		}
 		if m.picker != nil && value.String() != "ctrl+c" {
 			return m, m.pickerKey(value)
 		}
@@ -456,6 +476,7 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.follow = m.browse == nil && m.vp.AtBottom()
 		}
 	case tea.PasteMsg:
+		m.initialPrompt = ""
 		if m.picker != nil {
 			return m, nil
 		}
@@ -492,6 +513,10 @@ func (m *nativeModel) prompt(text, delivery string) tea.Cmd {
 	}
 	if m.uncertain != nil || m.retryControl != nil {
 		m.status = "Inspect or explicitly retry the original uncertain action before another submission."
+		return nil
+	}
+	if m.owner.Configuration.Model.Provider == "" || m.owner.Configuration.Model.Name == "" {
+		m.status = "Choose a provider and model with /setup or /model before submitting. Your draft has been kept."
 		return nil
 	}
 	params := protocol.SubmitParams{Source: "user", Identity: protocol.RequestIdentity{ClientID: "tui", RequestID: protocol.ID(uuid.NewString())}, Parts: []protocol.Part{{Type: "text", Text: text}}}
@@ -625,6 +650,11 @@ func (m *nativeModel) refresh() {
 }
 
 func (m *nativeModel) View() tea.View {
+	if m.menu != nil {
+		view := tea.NewView(m.menu.View(m.width, m.height))
+		view.AltScreen = true
+		return view
+	}
 	if m.picker != nil {
 		view := tea.NewView(m.picker.view(m.width, m.height) + "\n" + ansi.Truncate(nativeDisplayText(m.status), m.width, "…"))
 		view.AltScreen = true
@@ -642,6 +672,9 @@ func (m *nativeModel) View() tea.View {
 	footer := fmt.Sprintf("%s · queued %d · permissions %d · questions %d", state, m.activity.QueuedInputCount, m.activity.PendingPermissionCount, m.activity.PendingQuestionCount)
 	view := tea.NewView(m.vp.View() + "\n" + ansi.Truncate(nativeDisplayText(m.status), m.width, "…") + "\n" + m.input.View() + "\n" + ansi.Truncate(nativeContextLabel(m.contextUsage), m.width, "…") + "\n" + ansi.Truncate(footer, m.width, "…"))
 	view.AltScreen = true
+	if nativePreferenceLabel(m.preferences.Mouse, true) == "on" {
+		view.MouseMode = tea.MouseModeCellMotion
+	}
 	return view
 }
 

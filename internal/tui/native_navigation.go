@@ -149,6 +149,7 @@ func (m *nativeModel) attachSession(owner protocol.Session) error {
 	if err != nil {
 		return err
 	}
+	m.closeMenu()
 	m.invalidateRead()
 	m.navigationRequest++
 	m.handle, m.owner = handle, owner
@@ -163,6 +164,7 @@ func (m *nativeModel) attachSession(owner protocol.Session) error {
 	m.decisions, m.decisionsHidden = nil, false
 	m.notice, m.noteRevisions = "", [2]string{}
 	m.input.Reset()
+	m.initialPrompt = ""
 	m.polls = 0
 	m.status = "Attached to " + string(owner.ID) + ". Other host work continues."
 	m.refresh()

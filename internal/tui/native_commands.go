@@ -138,6 +138,12 @@ func (m *nativeModel) command(text string) tea.Cmd {
 		return nil
 	}
 	switch name {
+	case "/model", "/model-for-session", "/theme", "/settings", "/setup":
+		if args != "" {
+			m.status = "usage: " + name
+			return nil
+		}
+		return m.openMenu(strings.TrimPrefix(name, "/"))
 	case "/rewind":
 		return m.rewindHistory(args)
 	case "/fork", "/fork-at":
