@@ -11,7 +11,7 @@ import { promisify } from 'node:util';
 import { _electron } from 'playwright';
 import { fileDigest, LocalRuntime } from '../src/runtime.ts';
 import { repositoryRoot } from '../../../scripts/renderer-artifact.mjs';
-import { startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
+import { startFixture } from '../../web/scripts/native-fixture.mjs';
 
 const execute = promisify(execFile);
 const fixture = await mkdtemp('/tmp/whip-editor-ipc-');
@@ -74,7 +74,7 @@ try {
     assert.equal(await invoke({ request }), 'opened'); finderOpened = true;
   }
   const remoteRequest = { ...request, connectionId: 'remote-url', runtimeId: remote.info.runtime_id, sshAlias: 'whip-editor-fixture' };
-  const source = { id: 'remote-url', label: 'Remote fixture', runtimeId: remote.info.runtime_id, target: { kind: 'url', endpoint: remote.info.endpoint } };
+  const source = { id: 'remote-url', label: 'Remote fixture', runtimeId: remote.info.runtime_id, target: { kind: 'url', endpoint: remote.info.web } };
   assert.match(await invoke({ request: remoteRequest, source }), /Finder.*This Mac/);
   assert.match(await invoke({ request: { ...remoteRequest, app: 'cursor', sshAlias: undefined }, source }), /Configure SSH for editors/);
   pendingServer.listen(0, '127.0.0.1'); await once(pendingServer, 'listening');
@@ -92,7 +92,7 @@ try {
   assert.match(await invoke({ request }), /source host is disconnected/);
   const output = process.env.WHIP_EDITOR_IPC_SMOKE_OUTPUT ?? path.join(repositoryRoot, '.ai-docs/plans/conversation-row-actions/native-ipc-smoke.json');
   const result = { recordedAt: new Date().toISOString(), scope: 'Current production renderer with real sandboxed preload/native IPC in isolated stock Electron; not signed installed-app acceptance',
-    rendererDigest: renderer.digest, protocolMajor: info.protocolMajor, schemaVersion: info.schemaVersion, editorDiscovery: true, localFinderLaunch: finderOpened, staleRuntimeRejected: true,
+    rendererDigest: renderer.digest, runtimeDigest: manifest.files.whipcode.sha256, protocolMajor: info.protocolMajor, schemaVersion: info.schemaVersion, editorDiscovery: true, localFinderLaunch: finderOpened, staleRuntimeRejected: true,
     missingDirectoryActionable: true, urlSourceNeverLocal: true, urlSourceNeedsAlias: true, urlSourceReleaseCancelsVerification: true, detachedNativeSourceRejected: true };
   await writeFile(output, JSON.stringify(result, null, 2) + '\n'); console.log(JSON.stringify(result, null, 2));
 } finally {
