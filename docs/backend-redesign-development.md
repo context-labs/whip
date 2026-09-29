@@ -5498,3 +5498,41 @@ Protocol17, SDK205 and example5 tests pass at that checkpoint. The subsequent
 strict external-browser inventory and discoverable host-tool schema fixes are
 released as `481d05acc` and `c0e4d5b30` with focused evidence; final hosted gates
 remain pending. Failed hosted run36577739713 is not passing evidence.
+
+#### Required-gate follow-through and platform evidence (2026-09-29)
+
+Draft #276's first exact-head run36577739713 at `d90668cc3` failed. Both build
+and complementary-race jobs exposed the package-list shell interpolation fixed
+above. Distribution jobs exposed stale workflow/native-readiness assertions;
+the offline eval harness still wrote host configuration20 while this runtime
+requires21. The conversation probe read a slash-command receipt before actual
+admission acknowledgement, and the independent UI job had no Storybook assets.
+The settings job completed both-provider controls and Chromium REPL history,
+then timed out seeding the Chromium body-history scenario. That last failure is
+not a Firefox result and is not fixed merely by the earlier local seed passes.
+
+The eval fixture version repair has actual offline Linux/arm64 evidence: both
+engines fail before the repair (30.838s), and all six isolation/accounting/export
+checks pass afterward (13.788s). The container used only synthetic credentials
+and no network. A separate timeout-fixture repair waits for an admitted provider
+turn before exercising the unchanged500ms CLI recovery timeout, proving exact
+input cancellation without counting worker startup against that assertion;
+ten race/shuffle repetitions pass16.865s.
+
+The independent UI gate now builds its own Storybook assets. That reaches and
+passes all66 theme/14 interaction checks, strict-CSP/highlighting/portals under
+Chromium, Firefox and Playwright WebKit, four packed consumers, workspace tabs
+and theme accessibility. WebKit is not actual Safari acceptance. The subsequent
+workspace-layout probe exposes drag-preview and reading-position failures under
+investigation; the full UI gate is not claimed passing.
+
+[Native mobile readiness](backend-native-mobile-readiness.md) records exact
+`d90668cc3` artifacts and limitations: mobile types,219 tests, actual lifecycle
+fixtures, Expo Doctor21/21 and both Hermes exports pass. Xcode26.6 builds the
+Release arm64 simulator application with its normal simulator signing. An owned
+then-deleted iOS26.5 simulator starts and relaunches it, preserving encrypted
+SQLCipher files that reject plaintext reads. The Android arm64 Release APK
+build passes with the repository's debug test signing; no Android device was
+available. Desktop types,156 tests,116 distribution checks and ten actual
+loopback-SSH transport checks pass. These do not claim connected-device UI,
+physical-device accessibility, production signing or real-account acceptance.

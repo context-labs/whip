@@ -1101,11 +1101,12 @@ Useful starting references:
 - [Current task gates](../Taskfile.yaml),
   [CI workflow](../.github/workflows/ci.yml), and
   [pre-commit hook](../scripts/git-hooks/pre-commit).
-- [Retained root-bound SDK](../packages/legacy-sdk/src/session.ts),
-  [Go client in daemon](../internal/daemon/root_client.go), and
-  [SDK process-restart fixture](../internal/daemon/v2_sdk_test.go).
-- [Accounting failure regressions](../internal/daemon/budget_test.go),
-  [engine recovery tests](../internal/daemon/execution_engine_test.go), and
-  [compaction regressions](../internal/daemon/manual_compaction_test.go).
+- [Native SDK sessions](../packages/sdk/src/session.ts),
+  [Go client](../internal/client/session.go), and
+  [SDK process-restart fixture](../scripts/redesign/v4-fixture.test.mjs).
+- [Accounting failure regressions](../internal/store/attempts_test.go),
+  [engine recovery tests](../internal/runtime/engine_test.go),
+  [compaction regressions](../internal/runner/compaction_test.go), and
+  [retired behavior disposition](backend-native-core-retirement.md).
 
 Desktop/gateway integration `397cb9785` passes the full temporary phase gate and pinned analysis; see the dated development record for failures repaired, exact timings and successful hosted259–261 heads. This does not close Phases5–7: renderer/mobile/TUI/ACP adoption, deferred reload/denial/ChromeDP and live/context projections, supported-target packaging and final core removal remain in progress.

@@ -9,7 +9,13 @@ connection remains the scope; app authentication, QR and notifications are defer
 The following device and signed-build evidence is historical, from before the
 native protocol-v4 backend cutover. It does not validate this redesign. Native
 backend/export checks are recorded in the [development log](backend-redesign-development.md);
-new simulator, physical-device and signed-artifact acceptance remains required.
+new physical-device and signed-distribution acceptance remains required.
+At native checkpoint `d90668cc3`, a normally signed iOS Release simulator build
+launches and reopens encrypted storage, and an Android arm64 Release APK compiles
+with local test signing. [Exact native evidence and limits](backend-native-mobile-readiness.md)
+record both artifacts, disposable simulator cleanup and separate backend tests.
+These results do not validate a physical phone, connected native UI workflows or
+later external-browser controls.
 
 On 2026-09-11 the earlier mobile UI was installed on the owner's iPhone 16 Pro
 (iOS 26.6.1). That signed preview was
