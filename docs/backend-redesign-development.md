@@ -3361,3 +3361,29 @@ all product command paths. Browser control, workspace/run controls, the complete
 renderer/desktop/mobile/CLI/TUI/ACP cutover, core deletion and final release gates
 remain open. Fake helpers do not establish real macOS permission/signing or live
 provider evidence, and the installed runtime remains untouched.
+
+The combined native-controls gate completed successfully at032091517:
+store253.852s/runtime293.846s/RPC56.711s/process115.531s race+shuffle;
+12 strict-CSP v4 contracts,105 SDK tests, generation drift and examples;
+production fixture33.266s, gateway/profile restart3.491s, Unix/browser
+executors2.509s/2.453s, shell2.156s, fake computer helper2.081s, retained
+crash3.881s and selected daemon races2.749s. Analysis passed with zero new lint
+findings and no reachable vulnerabilities. Logs are
+`/tmp/whip-native-controls-{phase,analysis}.log`. The subsequent SDK-only native
+process-epoch pin632f779f7 passed all106 SDK tests, including rejection of a
+restarted peer before a dependent request. Its log is
+`/tmp/whip-native-controls-epoch-sdk.log`; no Go behavior changed afterward.
+
+Hosted validation is now fully passing at exact published heads:
+#254 46af42ed735726549b2db99ffd7538fb18ee4fcd/run36514900483,
+#255 bcec1270f193e5f576231af2290031d8267dd448/run36514923722, and
+#256 e9400aa4f4a1712f4e9b7c2d0e9d6e7d1622e05e/run36515394834.
+Each has successful Linux/macOS build, race and client jobs, analysis and required
+aggregate. These supersede the earlier pending split-run statuses, not the
+historical failed/cancelled runs. No pull request was merged.
+
+Further retained parity audit confirms human active-turn steering and queued-input
+promotion need a v4 implementation; existing mail steering is not equivalent.
+Browser design selections also require explicit validated input presentation
+provenance, rather than inferring trusted metadata from tagged text. Both remain
+open alongside browser integration and full client adoption.

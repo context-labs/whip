@@ -1010,7 +1010,8 @@ against a newer revision. Native SSH/device profiles stay with the client.
 `framedTransport` accepts a platform-owned `FramedConnector` for a confined Unix
 bridge. It validates v4 responses, verifies the runtime on every connection,
 bounds frames/queued bytes to8MiB, joins cancellation and closes late connections.
-Each call has one connection and no replay. Network gateways must use the browser
+Pass the observed `expectedProcessEpoch` to reject a restarted native peer before
+a dependent call. Each call has one connection and no replay. Network gateways must use the browser
 transport so network restrictions and the gateway identity handshake apply.
 
 ### Typed agents and handlers
