@@ -81,7 +81,8 @@ func main() {
 	engineFlag := flag.String("rlm-engine", "", "session execution language: starlark or quickjs (immutable on resume)")
 	agentFlag := flag.String("agent", "", "agent definition for a new session: a registered id, or built-in "+strings.Join(agentdef.IDs(), " or ")+" (default coding; immutable on resume)")
 	resumeFlag := flag.String("resume", "", "resume a previous session by id (or unique prefix)")
-	benchFlag := flag.Bool("bench", false, "measure configuration and provider routing startup, then exit; for `task benchmark`")
+	benchFlag := flag.Bool("bench", false, "measure read-only native host declaration loading and selection validation; no runtime, credentials, or network")
+	benchInitFlag := flag.Bool("bench-init", false, "explicitly initialize runtime-v4/host.json, then validate declarations; no database or runtime")
 	cautiousFlag := flag.Bool("cautious", false, "require approval and save this mode for the initial session")
 	yoloFlag := flag.Bool("yolo", false, "allow files outside the project, approve automatically, and save this mode for the initial session")
 	flag.Parse()
@@ -92,6 +93,17 @@ func main() {
 
 	if *versionFlag {
 		fmt.Println(buildinfo.Name, version)
+		return
+	}
+	if *benchFlag || *benchInitFlag {
+		if flag.NArg() != 0 {
+			fmt.Fprintln(os.Stderr, "whipcode: --bench and --bench-init do not accept commands or prompt arguments")
+			os.Exit(2)
+		}
+		if err := benchCLI(*benchInitFlag, *modelFlag, *providerFlag); err != nil {
+			fmt.Fprintln(os.Stderr, "whipcode:", err)
+			os.Exit(1)
+		}
 		return
 	}
 
@@ -197,16 +209,6 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "whipcode:", err)
 		os.Exit(1)
-	}
-
-	if *benchFlag {
-		prov, _, _, err := cfg.Resolve(*modelFlag, *providerFlag)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "whipcode:", err)
-			os.Exit(1)
-		}
-		_ = prov.Key(cfg)
-		return
 	}
 
 	// Update check: concurrent with TUI and agent setup, so its

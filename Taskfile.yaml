@@ -79,7 +79,7 @@ tasks:
       - node --test apps/web/scripts/dev-proxy.test.mjs
 
   benchmark:
-    desc: "Benchmark startup: binary boot (--version) and configuration/provider resolution (-bench)"
+    desc: "Benchmark startup: binary boot (--version) and read-only native declarations/selection (-bench); no credentials or network"
     deps: [build]
     cmds:
       - |

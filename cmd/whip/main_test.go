@@ -114,12 +114,14 @@ func TestMainDispatchesHeadlessCommands(t *testing.T) {
 	t.Run("bench", func(t *testing.T) {
 		home := t.TempDir()
 		t.Setenv("WHIPCODE_HOME", home)
-		writeConfig(t, home, `{
-			"defaultModel":"test",
-			"providers":{"testprov":{"baseUrl":"http://127.0.0.1:1","api":"openai-completions","apiKey":"k"}},
-			"models":{"test":{"providers":["testprov"],"maxOut":100}}
-		}`)
 		invokeMain(t, "-bench")
+		if entries, err := os.ReadDir(home); err != nil || len(entries) != 0 {
+			t.Fatal("read-only benchmark wrote files", entries, err)
+		}
+		invokeMain(t, "-bench-init")
+		if _, err := os.Stat(filepath.Join(home, "runtime-v4", "host.json")); err != nil {
+			t.Fatal("explicit benchmark initialization did not publish host.json", err)
+		}
 	})
 
 	t.Run("browser install", func(t *testing.T) {

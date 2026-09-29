@@ -35,6 +35,8 @@ func TestMainInvalidCommandsHaveStableExitStatusAndExplanation(t *testing.T) {
 		code int
 		want string
 	}{
+		{"benchmark positional arguments", []string{"--bench", "run"}, 2, "do not accept commands"},
+		{"benchmark unknown provider", []string{"--bench", "-m", "model", "-p", "absent"}, 1, "not configured"},
 		{"conflicting permissions", []string{"--cautious", "--yolo"}, 2, "mutually exclusive"},
 		{"auth usage", []string{"auth"}, 1, "usage:"},
 		{"run format", []string{"run", "--format", "xml", "hello"}, 1, "unknown --format"},
