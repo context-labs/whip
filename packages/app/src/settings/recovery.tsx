@@ -15,6 +15,7 @@ function outcome(evidence: RecoveryEvidence): string {
     return `Accepted · input ${evidence.input?.state ?? 'unavailable'}.`;
   }
   if ('state' in evidence) return `Accepted workspace action · ${evidence.state}${evidence.failure ? `: ${evidence.failure}` : ''}.`;
+  if ('steering' in evidence) return `Input steering accepted${evidence.deleted ? ' · session deleted' : evidence.input?.steering?.consumed ? ' · consumed by its target turn' : ' · waiting for consumption'}.`;
   if ('creation' in evidence) return `Accepted root creation${evidence.root ? '' : ' · root unavailable or deleted'}.`;
   return 'Permission policy edit accepted.';
 }
