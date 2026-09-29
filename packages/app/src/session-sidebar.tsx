@@ -320,9 +320,12 @@ function SessionRows({ hosts, state, setState, onNavigate, onConnect, scroll, co
   const anchor = useRef<{ key: string; group?: string; offset: number } | null>(null);
   const rememberAnchor = () => {
     const top = scroll.current?.scrollTop ?? 0;
-    const visible = virtual.getVirtualItems().find(row => row.end > top);
-    const row = visible && rows[visible.index];
-    anchor.current = row && visible && visible.start <= top ? { key: row.key, group: row.directoryKey, offset: top - visible.start } : null;
+    // A scroll event can precede the virtualizer's visible-range update. Use the
+    // same complete row offsets as restoration rather than the previous range.
+    const index = rows.findIndex((row, index) => scrollMargin + offsets.get(row.key)! + rowHeight(index) > top);
+    const row = rows[index];
+    anchor.current = row && top >= scrollMargin
+      ? { key: row.key, group: row.directoryKey, offset: top - scrollMargin - offsets.get(row.key)! } : null;
   };
   const onScroll = useRef(rememberAnchor);
   useLayoutEffect(() => { onScroll.current = rememberAnchor; });
