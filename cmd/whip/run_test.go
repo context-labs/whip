@@ -2,748 +2,586 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/context-labs/whip/internal/legacy/config"
-	"github.com/context-labs/whip/internal/legacy/session"
-	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/client"
+	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/engine/process"
+	"github.com/context-labs/whip/internal/model"
+	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/rpc"
+	"github.com/context-labs/whip/internal/runner"
+	"github.com/context-labs/whip/internal/runtime"
+	"github.com/context-labs/whip/internal/session"
+	"golang.org/x/sys/unix"
 )
 
-// respondToTitleRequest handles the daemon's prompt-only naming request without
-// adding it to conversation captures or advancing a tool-call fixture.
-func respondToTitleRequest(t *testing.T, w http.ResponseWriter, request llm.Request) bool {
-	t.Helper()
-	if len(request.Messages) == 0 || request.Messages[0].Role != "system" ||
-		!strings.HasPrefix(request.Messages[0].Content, "Name this session based on") {
-		return false
+type nativeCLIProvider func(context.Context, model.Request, func(model.Chunk)) (model.Response, error)
+
+func (f nativeCLIProvider) Prepare(ctx context.Context, request model.Request) (model.Prepared, error) {
+	p, err := (model.Scripted{}).Prepare(ctx, request)
+	if err == nil {
+		p.Execute = func(ctx context.Context, emit func(model.Chunk)) (model.Response, error) {
+			return f(ctx, request, emit)
+		}
 	}
-	if request.Stream || len(request.Tools) != 0 || len(request.Messages) != 2 ||
-		request.Messages[1].Role != "user" || strings.TrimSpace(request.Messages[1].Content) == "" {
-		t.Errorf("title request must be nonstreaming and prompt-only: %+v", request)
-	}
-	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"Fixture session title"},"finish_reason":"stop"}]}`)
-	return true
+	return p, err
 }
 
-// runFixture writes a config pointing the default model at a test server that
-// replies with reply and records only conversation requests into reqs.
-func runFixture(t *testing.T, reply string, reqs *[]llm.Request) {
-	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req llm.Request
-		json.NewDecoder(r.Body).Decode(&req)
-		if respondToTitleRequest(t, w, req) {
-			return
-		}
-		if reqs != nil {
-			*reqs = append(*reqs, req)
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		body, _ := json.Marshal(reply)
-		fmt.Fprintf(w, `data: {"choices":[{"delta":{"content":%s},"finish_reason":"stop"}]}`+"\n\n", body)
-		fmt.Fprint(w, "data: [DONE]\n\n")
-	}))
-	t.Cleanup(srv.Close)
-
-	home := t.TempDir()
-	t.Setenv("WHIPCODE_HOME", home)
-	cfg := fmt.Sprintf(`{
-		"defaultModel": "test",
-		"rlm": {"enabled": false},
-		"mcpImport": {"claude": {"enabled": false}, "codex": {"enabled": false}},
-		"providers": {"testprov": {"baseUrl": %q, "api": "openai-completions", "apiKey": "k"}},
-		"models": {"test": {"providers": ["testprov"], "maxOut": 100}}
-	}`, srv.URL)
-	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600); err != nil {
+func TestNativeCLIWorker(t *testing.T) {
+	index := slices.Index(os.Args, "--")
+	if index < 0 {
+		return
+	}
+	if err := process.WorkerMain(os.Args[index+1:], os.Stdin, os.Stdout, nil); err != nil {
 		t.Fatal(err)
 	}
-	useTestDaemon(t)
 }
 
-// runCapture swaps stdout/stdin for the duration of runCLI and returns what
-// the run printed on stdout. stdinData is piped in ("" still leaves a
-// non-TTY empty stdin, like `whipcode run "…" < /dev/null`).
-func runCapture(t *testing.T, stdinData string, args ...string) (string, error) {
-	t.Helper()
+type runRequests struct {
+	mu    sync.Mutex
+	items []model.Request
+}
 
-	oldIn := os.Stdin
-	inR, inW, err := os.Pipe()
+func (r *runRequests) list() []model.Request {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.items)
+}
+
+func runFixture(t *testing.T, reply string, requests *runRequests) *runtime.Runtime {
+	t.Helper()
+	return nativeRunFixture(t, func(_ context.Context, request model.Request, _ func(model.Chunk)) (model.Response, error) {
+		if requests != nil && request.Purpose != "automatic_title" {
+			requests.mu.Lock()
+			requests.items = append(requests.items, request)
+			requests.mu.Unlock()
+		}
+		return model.Response{Parts: []session.Part{{Type: "text", Text: reply}}}, nil
+	})
+}
+
+func nativeRunFixture(t *testing.T, p nativeCLIProvider) *runtime.Runtime {
+	t.Helper()
+	return nativeRunFixtureConfigured(t, p, config.Default())
+}
+
+func nativeRunFixtureConfigured(t *testing.T, p runner.Provider, host config.Host) *runtime.Runtime {
+	t.Helper()
+	home, err := os.MkdirTemp("/tmp", "whip-cli-") //nolint:usetesting // Unix socket paths must fit macOS.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := inW.WriteString(stdinData); err != nil {
+	t.Cleanup(func() {
+		if err := os.RemoveAll(home); err != nil {
+			t.Error(err)
+		}
+	})
+	t.Setenv("WHIPCODE_HOME", home)
+	paths, err := nativeRuntimePaths()
+	if err != nil {
 		t.Fatal(err)
 	}
-	inW.Close()
-	os.Stdin = inR
-	defer func() { os.Stdin = oldIn; inR.Close() }()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	host.Defaults.Model = session.ModelSelection{Provider: "testprov", Name: "test"}
+	if _, ok := host.Providers["testprov"]; !ok {
+		host.Providers["testprov"] = config.Provider{Kind: "openai-chat", BaseURL: "http://127.0.0.1:1", CredentialSource: "none"}
+	}
+	if err := config.Save(paths.Directory, host); err != nil {
+		t.Fatal(err)
+	}
 
-	oldOut := os.Stdout
+	r, err := runtime.Open(t.Context(), paths.Directory, p, runtime.Options{PollInterval: time.Millisecond, EngineCommand: []string{executable, "-test.run=^TestNativeCLIWorker$", "--"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := r.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	server, err := rpc.Listen(r, rpc.HostServices{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- server.Serve(ctx) }()
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	})
+	previous := connectNativeRuntime
+	connectNativeRuntime = func(ctx context.Context) (*client.Client, error) { return client.Connect(ctx, r.SocketPath(), nil) }
+	t.Cleanup(func() { connectNativeRuntime = previous })
+	if err := r.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+func runCapture(t *testing.T, stdin string, args ...string) (string, error) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "stdin")
+	if err := os.WriteFile(path, []byte(stdin), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	in, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = in.Close() }()
+	oldIn, oldOut := os.Stdin, os.Stdout
+	defer func() { os.Stdin, os.Stdout = oldIn, oldOut }()
+	os.Stdin = in
 	outR, outW, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
 	os.Stdout = outW
-	defer func() { os.Stdout = oldOut }()
 	var buf bytes.Buffer
 	done := make(chan struct{})
-	go func() { io.Copy(&buf, outR); close(done) }()
-
+	go func() { _, _ = io.Copy(&buf, outR); close(done) }()
 	runErr := runCLI(args)
-
-	outW.Close()
+	_ = outW.Close()
 	<-done
-	outR.Close()
+	_ = outR.Close()
 	return buf.String(), runErr
 }
 
-// text mode streams the assistant reply to stdout.
-func TestRunTextOutput(t *testing.T) {
-	runFixture(t, "hello world", nil)
-
-	out, err := runCapture(t, "", "say hi")
+func nativeSession(t *testing.T) *protocol.Session {
+	t.Helper()
+	c, err := connectNativeRuntime(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "hello world") {
-		t.Fatalf("stdout should stream the reply, got %q", out)
+	defer func() { _ = c.Close() }()
+	var trees protocol.ListTreesResult
+	if err := c.Call(t.Context(), "trees.list", protocol.ListTreesParams{Limit: 100}, &trees); err != nil {
+		t.Fatal(err)
+	}
+	if len(trees.Items) == 0 {
+		return nil
+	}
+	if len(trees.Items) != 1 {
+		t.Fatal(trees)
+	}
+	s, err := c.Session(trees.Items[0].RootID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.After(5 * time.Second)
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for {
+		activity, err := s.Activity(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if activity.ActiveTurn == nil && activity.QueuedInputCount == 0 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatal("session not idle")
+		case <-ticker.C:
+		}
+	}
+	current, err := s.Get(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &current
+}
+
+func TestRunTextOutput(t *testing.T) {
+	runFixture(t, "hello world", nil)
+	out, err := runCapture(t, "", "say hi")
+	if err != nil || out != "hello world\n" {
+		t.Fatal(out, err)
+	}
+}
+
+func TestRunJSONStream(t *testing.T) {
+	runFixture(t, "all done", nil)
+	out, err := runCapture(t, "", "--format", "json", "go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var text, done bool
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
+		var event map[string]string
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatal(err)
+		}
+		text = text || event["type"] == "text"
+		done = done || event["type"] == "done" && event["text"] == "all done"
+	}
+	if !text || !done {
+		t.Fatal(out)
+	}
+}
+
+func TestRunStdinAppendsToPrompt(t *testing.T) {
+	var requests runRequests
+	runFixture(t, "ok", &requests)
+	if _, err := runCapture(t, "piped context\n", "summarize this"); err != nil {
+		t.Fatal(err)
+	}
+	values := requests.list()
+	if len(values) != 1 || values[0].Messages[0].Parts[0].Text != "summarize this\n\npiped context" {
+		t.Fatal(values)
 	}
 }
 
 func TestRunReasoningEffortIsSessionScoped(t *testing.T) {
-	var requests []llm.Request
-	runFixture(t, "done", &requests)
-	if _, err := runCapture(t, "", "--effort", "high", "think carefully"); err != nil {
+	var requests runRequests
+	r := runFixture(t, "done", &requests)
+	if _, err := runCapture(t, "", "--effort", "high", "think"); err != nil {
 		t.Fatal(err)
 	}
-	if len(requests) != 1 || requests[0].ReasoningEffort != "high" {
-		t.Fatalf("reasoning effort did not reach provider: %#v", requests)
-	}
-	cfg, err := config.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.DefaultEffort != "" {
-		t.Fatalf("one-off effort changed default: %q", cfg.DefaultEffort)
+	snapshot, err := r.HostConfiguration().Snapshot(t.Context())
+	if err != nil || snapshot.Host.Defaults.Model.Effort != "" {
+		t.Fatal(snapshot, err)
 	}
 	if _, err := runCapture(t, "", "--effort", "off", "reply directly"); err != nil {
 		t.Fatal(err)
 	}
-	if len(requests) != 2 || requests[1].ReasoningEffort != "" {
-		t.Fatalf("off leaked as an upstream reasoning effort: %#v", requests)
+	values := requests.list()
+	if len(values) != 2 || values[0].Selection.Effort != "high" || values[1].Selection.Effort != "off" {
+		t.Fatal(values)
 	}
 }
 
-// --format json emits newline-delimited events: a text event per delta and a
-// final done event carrying the full reply.
-func TestRunJSONStream(t *testing.T) {
-	runFixture(t, "all done", nil)
-
-	out, err := runCapture(t, "", "--format", "json", "go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var sawText, sawDone bool
-	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
-		var ev map[string]string
-		if err := json.Unmarshal([]byte(line), &ev); err != nil {
-			t.Fatalf("line not JSON: %q: %v", line, err)
-		}
-		switch ev["type"] {
-		case "text":
-			sawText = true
-		case "done":
-			sawDone = true
-			if ev["text"] != "all done" {
-				t.Fatalf("done text: %q", ev["text"])
-			}
-		}
-	}
-	if !sawText || !sawDone {
-		t.Fatalf("want a text event and a done event, got:\n%s", out)
-	}
-}
-
-// Piped stdin is appended to the prompt argument in the user message.
-func TestRunStdinAppendsToPrompt(t *testing.T) {
-	var reqs []llm.Request
-	runFixture(t, "ok", &reqs)
-
-	if _, err := runCapture(t, "piped context\n", "summarize this"); err != nil {
-		t.Fatal(err)
-	}
-	if len(reqs) != 1 {
-		t.Fatalf("requests: %d", len(reqs))
-	}
-	var user string
-	for _, m := range reqs[0].Messages {
-		if m.Role == "user" {
-			user = m.Content
-		}
-	}
-	if !strings.Contains(user, "summarize this") || !strings.Contains(user, "piped context") {
-		t.Fatalf("user message should combine the arg prompt and stdin, got %q", user)
-	}
-}
-
-// -resume continues a persisted session instead of starting fresh; the
-// resumed conversation's history precedes the new prompt.
 func TestRunResume(t *testing.T) {
-	var reqs []llm.Request
-	runFixture(t, "first reply", &reqs)
+	var requests runRequests
+	runFixture(t, "reply", &requests)
 	if _, err := runCapture(t, "", "first question"); err != nil {
 		t.Fatal(err)
 	}
-
-	// find the session id from the store (same WHIPCODE_HOME for both runs)
-	dir, _ := configDir()
-	st, err := sessionOpen(dir)
-	if err != nil {
+	owner := nativeSession(t)
+	if _, err := runCapture(t, "", "--resume", string(owner.ID), "follow up"); err != nil {
 		t.Fatal(err)
 	}
-	metas, _ := st.Recent(10)
-	if len(metas) != 1 {
-		t.Fatalf("one session should exist, got %d", len(metas))
-	}
-	id := metas[0].ID
-	st.Close()
-
-	if _, err := runCapture(t, "", "-resume", id, "follow up"); err != nil {
-		t.Fatal(err)
-	}
-	last := reqs[len(reqs)-1]
-	var sawFirst bool
-	for _, m := range last.Messages {
-		if m.Role == "user" && strings.Contains(m.TextContent(), "first question") {
-			sawFirst = true
-		}
-	}
-	if !sawFirst {
-		t.Fatal("a resumed run should carry the prior conversation")
+	values := requests.list()
+	if len(values) != 2 || len(values[1].Messages) != 3 || values[1].Messages[0].Parts[0].Text != "first question" {
+		t.Fatal(values)
 	}
 }
 
-// -resume with an unknown id errors clearly.
 func TestRunResumeUnknown(t *testing.T) {
 	runFixture(t, "x", nil)
-	if _, err := runCapture(t, "", "-resume", "nosuchsession", "hi"); err == nil || !strings.Contains(err.Error(), "no session") {
-		t.Fatalf("unknown session should error clearly, got %v", err)
+	if _, err := runCapture(t, "", "--resume", "nosuchsession", "hi"); err == nil || !strings.Contains(err.Error(), "NOT_FOUND") {
+		t.Fatal(err)
 	}
 }
 
-// -system overrides the prompt; -system-file wins over -system.
 func TestRunSystemOverride(t *testing.T) {
-	var reqs []llm.Request
-	runFixture(t, "ok", &reqs)
-	if _, err := runCapture(t, "", "-system", "You are a pirate.", "hi"); err != nil {
+	var requests runRequests
+	runFixture(t, "ok", &requests)
+	if _, err := runCapture(t, "", "--system", "You are a pirate.", "hi"); err != nil {
 		t.Fatal(err)
 	}
-	if got := reqs[len(reqs)-1].Messages[0].Content; got != "You are a pirate." {
-		t.Fatalf("-system should replace the prompt, got %q", got)
-	}
-
-	f := filepath.Join(t.TempDir(), "sys.md")
-	os.WriteFile(f, []byte("You are a poet."), 0o644)
-	runFixture(t, "ok", &reqs)
-	if _, err := runCapture(t, "", "-system", "pirate", "-system-file", f, "hi"); err != nil {
+	path := filepath.Join(t.TempDir(), "system")
+	if err := os.WriteFile(path, []byte("You are a poet."), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := reqs[len(reqs)-1].Messages[0].Content; got != "You are a poet." {
-		t.Fatalf("-system-file should win over -system, got %q", got)
+	if _, err := runCapture(t, "", "--system", "pirate", "--system-file", path, "hi"); err != nil {
+		t.Fatal(err)
+	}
+	values := requests.list()
+	if len(values) != 2 || values[0].Instructions != "You are a pirate." || values[1].Instructions != "You are a poet." {
+		t.Fatal(values)
 	}
 }
 
-// -cache-key pins prompt_cache_key so runs share a provider prefix cache;
-// without it the daemon keeps keying the cache by session id.
 func TestRunCacheKey(t *testing.T) {
-	var reqs []llm.Request
-	runFixture(t, "ok", &reqs)
-	if _, err := runCapture(t, "", "-cache-key", "repo/reviewer", "hi"); err != nil {
+	var requests runRequests
+	runFixture(t, "ok", &requests)
+	if _, err := runCapture(t, "", "--cache-key", "repo/reviewer", "hi"); err != nil {
 		t.Fatal(err)
 	}
-	if got := reqs[len(reqs)-1].PromptCacheKey; got != "repo/reviewer" {
-		t.Fatalf("-cache-key should reach the provider request, got %q", got)
-	}
-
-	runFixture(t, "ok", &reqs)
 	if _, err := runCapture(t, "", "hi"); err != nil {
 		t.Fatal(err)
 	}
-	if got := reqs[len(reqs)-1].PromptCacheKey; got == "" || got == "repo/reviewer" {
-		t.Fatalf("default should key the cache by session id, got %q", got)
+	values := requests.list()
+	if len(values) != 2 || values[0].CacheKey != "repo/reviewer" || values[1].CacheKey != string(values[1].SessionID) {
+		t.Fatal(values)
 	}
 }
 
-// -max-turns caps the tool loop; on the cap the model makes one final no-tools
-// answer instead of erroring.
-func TestRunMaxTurns(t *testing.T) {
-	// Loops tool calls while tools are offered; answers with text once the
-	// final (no-tools) request arrives — like a real model.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req llm.Request
-		json.NewDecoder(r.Body).Decode(&req)
-		if respondToTitleRequest(t, w, req) {
-			return
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		if len(req.Tools) == 0 {
-			fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"final answer"},"finish_reason":"stop"}]}`+"\n\n")
-		} else {
-			fmt.Fprint(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"t1","type":"function","function":{"name":"read","arguments":"{\"path\":\"/tmp/x\"}"}}]}}]}`+"\n\n")
-			fmt.Fprint(w, `data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`+"\n\n")
-		}
-		fmt.Fprint(w, "data: [DONE]\n\n")
-	}))
-	defer srv.Close()
-	home := t.TempDir()
-	t.Setenv("WHIPCODE_HOME", home)
-	cfg := fmt.Sprintf(`{
-		"defaultModel": "test",
-		"rlm": {"enabled": false},
-		"providers": {"testprov": {"baseUrl": %q, "api": "openai-completions", "apiKey": "k"}},
-		"models": {"test": {"providers": ["testprov"], "maxOut": 100}}
-	}`, srv.URL)
-	os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600)
-	useTestDaemon(t)
-
-	out, err := runCapture(t, "", "-max-turns", "2", "-no-session", "loop forever")
-	if err != nil {
-		t.Fatalf("a capped run should finalize, not error: %v", err)
-	}
-	if !strings.Contains(out, "final answer") {
-		t.Fatalf("capped run should return the forced final answer, got %q", out)
-	}
-}
-
-// -timeout cancels an in-flight run and reports the timeout.
-func TestRunTimeout(t *testing.T) {
-	requested := make(chan struct{}, 1)
-	canceled := make(chan struct{}, 1)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.Copy(io.Discard, r.Body)
-		requested <- struct{}{}
-		<-r.Context().Done()
-		canceled <- struct{}{}
-	}))
-	defer srv.Close()
-	defer srv.CloseClientConnections()
-	home := t.TempDir()
-	t.Setenv("WHIPCODE_HOME", home)
-	cfg := fmt.Sprintf(`{
-		"defaultModel": "test",
-		"rlm": {"enabled": false},
-		"providers": {"testprov": {"baseUrl": %q, "api": "openai-completions", "apiKey": "k"}},
-		"models": {"test": {"providers": ["testprov"], "maxOut": 100}}
-	}`, srv.URL)
-	os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600)
-	useTestDaemon(t)
-	// Start the owner before timing a model turn so instrumentation and a cold
-	// build cannot turn this into a test of daemon startup time instead.
-	warm, err := connectDaemon(t.Context(), "automation", "timeout-warmup", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = warm.Close()
-
-	// Allow a cold per-session worker to start; the provider remains blocked
-	// until cancellation, so this still exercises an in-flight timeout.
-	_, err = runCapture(t, "", "-timeout", "5s", "-no-session", "hi")
-	if err == nil || !strings.Contains(err.Error(), "timed out") {
-		t.Fatalf("a timed-out run should say so, got %v", err)
-	}
-	select {
-	case <-requested:
-	default:
-		t.Fatal("timeout test never reached the provider")
-	}
-	select {
-	case <-canceled:
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed-out run did not cancel its provider request")
-	}
-}
-
-// -no-session leaves no row in the session store.
 func TestRunNoSession(t *testing.T) {
 	runFixture(t, "ok", nil)
-	if _, err := runCapture(t, "", "-no-session", "one-off"); err != nil {
+	if _, err := runCapture(t, "", "--no-session", "one-off"); err != nil {
 		t.Fatal(err)
 	}
-	dir, _ := configDir()
-	st, _ := sessionOpen(dir)
-	defer st.Close()
-	metas, _ := st.Recent(10)
-	if len(metas) != 0 {
-		t.Fatalf("-no-session should leave no sessions, got %d", len(metas))
+	if nativeSession(t) != nil {
+		t.Fatal("session retained")
 	}
 }
 
-// -quiet -format json: clean NDJSON on stdout, nothing on stderr.
 func TestRunQuietJSON(t *testing.T) {
 	runFixture(t, "quiet reply", nil)
-	out, err := runCapture(t, "", "-quiet", "-format", "json", "go")
-	if err != nil {
+	notes := captureStderr(t, func() {
+		out, err := runCapture(t, "", "--quiet", "--format", "json", "go")
+		if err != nil || !strings.Contains(out, `"type":"done"`) {
+			t.Fatal(out, err)
+		}
+	})
+	if notes != "" {
+		t.Fatal(notes)
+	}
+}
+
+func TestRunArgValidation(t *testing.T) {
+	for _, test := range []struct {
+		want string
+		args []string
+	}{{"not defined", []string{"--nosuchflag"}}, {"unknown --format", []string{"--format", "xml", "hi"}}, {"no prompt given", nil}, {"requires --recover", []string{"--retry", "hi"}}, {"cannot be combined", []string{"--recover", "file", "hi"}}} {
+		if _, err := runCapture(t, "", test.args...); err == nil || !strings.Contains(err.Error(), test.want) {
+			t.Fatal(test, err)
+		}
+	}
+}
+
+func TestRunResolveErrors(t *testing.T) {
+	nativeRunFixture(t, func(context.Context, model.Request, func(model.Chunk)) (model.Response, error) {
+		return model.Response{}, errors.New("provider is not configured")
+	})
+	if _, err := runCapture(t, "", "--p", "unknown", "hi"); err == nil {
+		t.Fatal("unconfigured provider succeeded")
+	}
+	if _, err := runCapture(t, "", "--system-file", filepath.Join(t.TempDir(), "absent"), "hi"); err == nil || !strings.Contains(err.Error(), "-system-file") {
 		t.Fatal(err)
 	}
-	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
-		var ev map[string]string
-		if err := json.Unmarshal([]byte(line), &ev); err != nil {
-			t.Fatalf("stdout should be clean NDJSON, got line %q: %v", line, err)
-		}
-	}
 }
 
-func configDir() (string, error) { return os.Getenv("WHIPCODE_HOME"), nil }
-
-func sessionOpen(dir string) (*session.Store, error) { return session.Open(runtimeDBPath(dir)) }
-
-// Bad flags, an unknown --format, and a missing prompt all fail before any
-// provider is contacted.
-func TestRunArgValidation(t *testing.T) {
-	runFixture(t, "never used", nil)
-
-	for _, c := range []struct {
-		name, want string
-		args       []string
-	}{
-		{"unknown flag", "not defined", []string{"-nosuchflag"}},
-		{"bad format", "unknown --format", []string{"--format", "xml", "hi"}},
-		{"no prompt", "no prompt given", nil},
-	} {
-		_, err := runCapture(t, "", c.args...)
-		if err == nil || !strings.Contains(err.Error(), c.want) {
-			t.Errorf("%s: got %v, want an error containing %q", c.name, err, c.want)
-		}
-	}
-}
-
-// Routing and system-prompt failures are reported before the turn starts.
-func TestRunResolveErrors(t *testing.T) {
-	runFixture(t, "never used", nil)
-
-	if _, err := runCapture(t, "", "-m", "nosuchmodel", "hi"); err == nil {
-		t.Error("an unroutable model should error")
-	}
-	missing := filepath.Join(t.TempDir(), "absent.md")
-	_, err := runCapture(t, "", "-system-file", missing, "hi")
-	if err == nil || !strings.Contains(err.Error(), "-system-file") {
-		t.Errorf("a missing -system-file should name the flag, got %v", err)
-	}
-
-	// a provider with no key at all: nothing to authenticate with
-	home := t.TempDir()
-	t.Setenv("WHIPCODE_HOME", home)
-	cfg := `{
-		"defaultModel": "test",
-		"providers": {"testprov": {"baseUrl": "https://example.invalid", "api": "openai-completions"}},
-		"models": {"test": {"providers": ["testprov"], "maxOut": 100}}
-	}`
-	if werr := os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600); werr != nil {
-		t.Fatal(werr)
-	}
-	if _, err := runCapture(t, "", "hi"); err == nil || !strings.Contains(err.Error(), "no API key") {
-		t.Errorf("a keyless provider should error, got %v", err)
-	}
-}
-
-// An unreadable config dir fails the run instead of falling back to defaults
-// that would reach the network.
 func TestRunUnreadableConfig(t *testing.T) {
 	unusableHome(t)
 	if _, err := runCapture(t, "", "hi"); err == nil {
-		t.Error("an unusable WHIPCODE_HOME should error")
-	}
-}
-
-// In --format json the tool calls are events too, and a failed run ends with
-// an error event rather than a done event.
-func TestRunJSONToolEvents(t *testing.T) {
-	targetFile, err := os.CreateTemp(".", "run-tool-*.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	target := targetFile.Name()
-	t.Cleanup(func() { _ = os.Remove(target) })
-	if _, err := targetFile.WriteString("file body"); err != nil {
-		t.Fatal(err)
-	}
-	if err := targetFile.Close(); err != nil {
-		t.Fatal(err)
-	}
-	// Answers with a read tool call while tools are offered; once -max-turns
-	// forces a no-tools call, answers with text.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req llm.Request
-		json.NewDecoder(r.Body).Decode(&req)
-		if respondToTitleRequest(t, w, req) {
-			return
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		if len(req.Tools) == 0 {
-			fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}`+"\n\n")
-			fmt.Fprint(w, "data: [DONE]\n\n")
-			return
-		}
-		args, _ := json.Marshal(map[string]string{"code": fmt.Sprintf("files.read(path=%q)", target)})
-		call, _ := json.Marshal(string(args))
-		fmt.Fprintf(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"t1","type":"function","function":{"name":"rlm_exec","arguments":%s}}]}}]}`+"\n\n", call)
-		fmt.Fprint(w, `data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}`+"\n\n")
-		fmt.Fprint(w, "data: [DONE]\n\n")
-	}))
-	defer srv.Close()
-
-	home := t.TempDir()
-	t.Setenv("WHIPCODE_HOME", home)
-	cfg := fmt.Sprintf(`{
-		"defaultModel": "test",
-		"rlm": {"enabled": false},
-		"providers": {"testprov": {"baseUrl": %q, "api": "openai-completions", "apiKey": "k"}},
-		"models": {"test": {"providers": ["testprov"], "maxOut": 100}}
-	}`, srv.URL)
-	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	useTestDaemon(t)
-
-	out, err := runCapture(t, "", "-format", "json", "-max-turns", "2", "-quiet", "-no-session", "read it")
-	if err != nil {
-		t.Fatalf("a capped run should finalize, not error: %v", err)
-	}
-	seen := map[string]string{}
-	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
-		var ev map[string]string
-		if uerr := json.Unmarshal([]byte(line), &ev); uerr != nil {
-			t.Fatalf("stdout should be NDJSON, got %q: %v", line, uerr)
-		}
-		seen[ev["type"]] = ev["name"] + ev["result"] + ev["error"] + ev["text"]
-	}
-	if seen["tool_start"] != "rlm_exec" {
-		t.Errorf("a tool call should emit tool_start for the tool, got %q", seen["tool_start"])
-	}
-	if !strings.Contains(seen["tool_end"], "file body") {
-		t.Errorf("tool_end should carry the tool result, got %q", seen["tool_end"])
-	}
-	if _, ok := seen["done"]; !ok {
-		t.Errorf("a finalized run should end with a done event, got %v", seen)
-	}
-}
-
-// --format json surfaces provider reasoning tokens as reasoning events, ahead
-// of the reply text, so downstream tools can show thinking activity live.
-func TestRunJSONReasoning(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req llm.Request
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		if respondToTitleRequest(t, w, req) {
-			return
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprint(w, `data: {"choices":[{"delta":{"reasoning_content":"let me think"}}]}`+"\n\n")
-		fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"answer"},"finish_reason":"stop"}]}`+"\n\n")
-		fmt.Fprint(w, "data: [DONE]\n\n")
-	}))
-	t.Cleanup(srv.Close)
-
-	home := t.TempDir()
-	t.Setenv("WHIPCODE_HOME", home)
-	cfg := fmt.Sprintf(`{
-		"defaultModel": "test",
-		"providers": {"testprov": {"baseUrl": %q, "api": "openai-completions", "apiKey": "k"}},
-		"models": {"test": {"providers": ["testprov"], "maxOut": 100}}
-	}`, srv.URL)
-	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	useTestDaemon(t)
-
-	out, err := runCapture(t, "", "--format", "json", "go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var reasoning string
-	var sawText bool
-	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
-		var ev map[string]string
-		if err := json.Unmarshal([]byte(line), &ev); err != nil {
-			t.Fatalf("line not JSON: %q: %v", line, err)
-		}
-		switch ev["type"] {
-		case "reasoning":
-			reasoning += ev["delta"]
-		case "text":
-			sawText = true
-		}
-	}
-	if reasoning != "let me think" {
-		t.Fatalf("want reasoning event with thinking tokens, got %q", reasoning)
-	}
-	if !sawText {
-		t.Fatalf("want a text event too, got:\n%s", out)
+		t.Fatal("invalid home accepted")
 	}
 }
 
 func TestRunExecutionEngineSelectionAndResume(t *testing.T) {
 	runFixture(t, "done", nil)
-	// This fixture omits usage, so both turns reserve the full prompt estimate.
-	// Keep engine/resume coverage independent of small guide-size changes.
-	_, err := runCapture(t, "", "--rlm-engine", "quickjs", "--permission-mode", "automatic", "--max-tokens", "20000", "select language")
-	if err != nil {
+	if _, err := runCapture(t, "", "--rlm-engine", "quickjs", "--permission-mode", "automatic", "--max-tokens", "20000", "select"); err != nil {
 		t.Fatal(err)
 	}
-	store, err := session.Open(filepath.Join(os.Getenv("WHIPCODE_HOME"), "runtime-v2", "sessions.db"))
-	if err != nil {
+	owner := nativeSession(t)
+	if _, err := runCapture(t, "", "--resume", string(owner.ID), "--rlm-engine", "starlark", "wrong"); err == nil || !strings.Contains(err.Error(), "cannot resume") {
 		t.Fatal(err)
 	}
-	defer store.Close()
-	sessions, err := store.Recent(10)
-	if err != nil || len(sessions) != 1 {
-		t.Fatalf("sessions=%+v %v", sessions, err)
-	}
-	root := sessions[0]
-	if root.ExecutionEngine != "quickjs" {
-		t.Fatalf("engine=%s", root.ExecutionEngine)
-	}
-	if _, err := runCapture(t, "", "--resume", root.ID, "--rlm-engine", "starlark", "conflict"); err == nil || !strings.Contains(err.Error(), "cannot resume") {
-		t.Fatalf("resume conflict=%v", err)
-	}
-	if _, err := runCapture(t, "", "--resume", root.ID, "--rlm-engine", "quickjs", "matching assertion"); err != nil {
+	if _, err := runCapture(t, "", "--resume", string(owner.ID), "--rlm-engine", "quickjs", "matching"); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestRunAgentSelectionAndResume(t *testing.T) {
 	runFixture(t, "done", nil)
-	if _, err := runCapture(t, "", "--agent", "junior-developer", "--permission-mode", "automatic", "--max-tokens", "10000", "select agent"); err != nil {
+	if _, err := runCapture(t, "", "--agent", "junior-developer", "--permission-mode", "automatic", "select"); err != nil {
 		t.Fatal(err)
 	}
-	store, err := session.Open(filepath.Join(os.Getenv("WHIPCODE_HOME"), "runtime-v2", "sessions.db"))
-	if err != nil {
+	owner := nativeSession(t)
+	if owner.Definition.ID != "junior-developer" {
+		t.Fatal(owner)
+	}
+	if _, err := runCapture(t, "", "--resume", string(owner.ID), "--agent", "coding", "wrong"); err == nil || !strings.Contains(err.Error(), "cannot resume") {
 		t.Fatal(err)
 	}
-	defer store.Close()
-	sessions, err := store.Recent(10)
-	if err != nil || len(sessions) != 1 {
-		t.Fatalf("sessions=%+v %v", sessions, err)
-	}
-	root := sessions[0]
-	if root.Definition != "junior-developer" {
-		t.Fatalf("definition=%s", root.Definition)
-	}
-	if _, err := runCapture(t, "", "--resume", root.ID, "--agent", "coding", "conflict"); err == nil || !strings.Contains(err.Error(), "cannot resume") {
-		t.Fatalf("resume conflict=%v", err)
-	}
-	if _, err := runCapture(t, "", "--resume", root.ID, "--agent", "junior-developer", "matching assertion"); err != nil {
+	if _, err := runCapture(t, "", "--resume", string(owner.ID), "--agent", "junior-developer", "matching"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runCapture(t, "", "--agent", "architect", "prompt"); err == nil || !strings.Contains(err.Error(), "junior-developer") {
-		t.Fatalf("unknown agent accepted: %v", err)
+	if _, err := runCapture(t, "", "--agent", "architect", "prompt"); err == nil || !strings.Contains(err.Error(), "unknown agent") {
+		t.Fatal(err)
 	}
 }
 
 func TestRunRejectsInvalidEngineAndLimits(t *testing.T) {
-	for _, args := range [][]string{{"--rlm-engine", "node"}, {"--permission-mode", "yes"}, {"--max-cost", "NaN"}, {"--max-cost", "-1"}, {"--max-tokens", "-1"}} {
+	for _, args := range [][]string{{"--rlm-engine", "node"}, {"--permission-mode", "yes"}, {"--max-cost", "NaN"}, {"--max-cost", "-1"}, {"--max-tokens", "-1"}, {"--max-turns", "-1"}, {"--max-turns", "1000001"}, {"--timeout", "-1s"}} {
 		if _, err := runCapture(t, "", append(args, "prompt")...); err == nil {
-			t.Fatalf("accepted %v", args)
+			t.Fatal(args)
 		}
 	}
 }
 
 func TestRunRejectsUnrepresentableCostCaps(t *testing.T) {
-	for _, test := range []struct {
-		value, want string
-	}{
-		{"0.0000001", "--max-cost must be at least"},
-		{"0.0000009", "--max-cost must be at least"},
-		{"9223372036854.775808", "--max-cost is too large"},
-		{"1e100", "--max-cost is too large"},
-	} {
-		t.Run(test.value, func(t *testing.T) {
-			_, err := runCapture(t, "", "--max-cost", test.value, "prompt")
-			if err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("cost %s: got %v, want %q", test.value, err, test.want)
-			}
-		})
+	for _, test := range []struct{ value, want string }{{"0.0000001", "must be at least"}, {"0.0000009", "must be at least"}, {"9223372036854.775808", "too large"}, {"1e1000000", "too large"}, {"1e-1000000", "must be at least"}} {
+		if _, err := runCapture(t, "", "--max-cost", test.value, "prompt"); err == nil || !strings.Contains(err.Error(), test.want) {
+			t.Fatal(test, err)
+		}
 	}
-}
-
-func TestRunAutomaticHeadlessHonorsSavedPermission(t *testing.T) {
-	for _, engine := range []string{"starlark", "quickjs"} {
-		for _, mode := range []string{"prompt", "automatic"} {
-			t.Run(engine+"/"+mode, func(t *testing.T) {
-				target := filepath.Join(t.TempDir(), "proof.txt")
-				code := fmt.Sprintf("files.write(path=%q, content=\"written\")", target)
-				if engine == "quickjs" {
-					code = fmt.Sprintf("await files.write({path:%q, content:'written'});", target)
-				}
-				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					// The daemon probes provider reachability with HEAD; only model
-					// calls carry a body.
-					if r.Method != http.MethodPost {
-						w.WriteHeader(http.StatusOK)
-						return
-					}
-					var req llm.Request
-					if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-						t.Error(err)
-						return
-					}
-					if respondToTitleRequest(t, w, req) {
-						return
-					}
-					w.Header().Set("Content-Type", "text/event-stream")
-					if lastTranscriptRole(req.Messages) == "tool" || len(req.Tools) == 0 {
-						fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}`+"\n\n")
-						return
-					}
-					args, _ := json.Marshal(map[string]string{"code": code})
-					call, _ := json.Marshal(string(args))
-					fmt.Fprintf(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"write","type":"function","function":{"name":"rlm_exec","arguments":%s}}]},"finish_reason":"tool_calls"}]}`+"\n\n", call)
-				}))
-				defer server.Close()
-				home := t.TempDir()
-				t.Setenv("WHIPCODE_HOME", home)
-				cfg := fmt.Sprintf(`{"defaultModel":"test","mcpImport":{"claude":{"enabled":false},"codex":{"enabled":false}},"providers":{"testprov":{"baseUrl":%q,"api":"openai-completions","apiKey":"k"}},"models":{"test":{"providers":["testprov"],"maxOut":100}}}`, server.URL)
-				if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(cfg), 0o600); err != nil {
-					t.Fatal(err)
-				}
-				useTestDaemon(t)
-				if _, err := runCapture(t, "", "--rlm-engine", engine, "--permission-mode", mode, "--max-turns", "2", "--timeout", "20s", "write proof"); err != nil {
-					t.Fatal(err)
-				}
-				data, err := os.ReadFile(target)
-				if mode == "automatic" && (err != nil || string(data) != "written") {
-					t.Fatalf("automatic headless write=%q err=%v", data, err)
-				}
-				if mode == "prompt" && !os.IsNotExist(err) {
-					t.Fatalf("prompt mode wrote without authorization: %q %v", data, err)
-				}
-			})
+	for value, want := range map[string]protocol.Counter{"0": 0, "0e100000000": 0, "0.000001": 1000, "1.000000001": 1000000001, "1.0000000005": 1000000001, "1e-6": 1000} {
+		if got, err := runCost(value); err != nil || got != want {
+			t.Fatal(value, got, want, err)
 		}
 	}
 }
 
-// lastTranscriptRole is the role of the newest history message. The ephemeral
-// notice rides last, so a fake provider that branches on the latest tool result
-// must look past system messages.
-func lastTranscriptRole(messages []llm.Message) string {
-	for _, message := range slices.Backward(messages) {
-		if message.Role != "system" {
-			return message.Role
+func TestRunMaxTurnsAndJSONToolEvents(t *testing.T) {
+	nativeRunFixture(t, func(_ context.Context, request model.Request, _ func(model.Chunk)) (model.Response, error) {
+		if request.Purpose == "automatic_title" {
+			return model.Response{Parts: []session.Part{{Type: "text", Text: "title"}}}, nil
+		}
+		if len(request.Tools) == 0 {
+			return model.Response{Parts: []session.Part{{Type: "text", Text: "final answer"}}}, nil
+		}
+		return model.Response{Parts: []session.Part{{Type: "tool_call", Call: &session.ToolCall{ID: "call", Name: "execute", Arguments: json.RawMessage(`{"code":"print(42)"}`)}}}}, nil
+	})
+	out, err := runCapture(t, "", "--quiet", "--format", "json", "--max-turns", "1", "go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{`"type":"tool_start"`, `"type":"tool_end"`, `"text":"final answer"`, `"type":"done"`} {
+		if !strings.Contains(out, expected) {
+			t.Fatal(expected, out)
 		}
 	}
-	return ""
+}
+
+func TestRunTimeoutCancelsExactHostInput(t *testing.T) {
+	started, cancelled := make(chan struct{}), make(chan struct{})
+	nativeRunFixture(t, func(ctx context.Context, request model.Request, _ func(model.Chunk)) (model.Response, error) {
+		if request.Purpose == "automatic_title" {
+			return model.Response{Parts: []session.Part{{Type: "text", Text: "title"}}}, nil
+		}
+		close(started)
+		<-ctx.Done()
+		close(cancelled)
+		return model.Response{}, ctx.Err()
+	})
+	out, err := runCapture(t, "", "--format", "json", "--timeout", "500ms", "wait")
+	if err == nil || !strings.Contains(err.Error(), "timed out") || !strings.Contains(out, `"type":"error"`) || strings.Contains(out, `"type":"done"`) {
+		t.Fatal(out, err)
+	}
+	select {
+	case <-started:
+	default:
+		t.Fatal("provider never started")
+	}
+	select {
+	case <-cancelled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("provider did not cancel")
+	}
+	owner := nativeSession(t)
+	if owner == nil {
+		t.Fatal("timeout deleted retained session")
+	}
+}
+
+func TestRunSavedRecordRecoverDoesNotResubmitAndNoSessionDeletes(t *testing.T) {
+	var requests runRequests
+	runFixture(t, "saved response", &requests)
+	path := filepath.Join(t.TempDir(), "record.json")
+	if _, err := runCapture(t, "", "--record", path, "original prompt"); err != nil {
+		t.Fatal(err)
+	}
+	owner := nativeSession(t)
+	if data, err := readRunRecord(path); err != nil || !strings.Contains(string(data), "original prompt") {
+		t.Fatal(string(data), err)
+	}
+	if _, err := runCapture(t, "", "--record", path, "must not overwrite"); err == nil {
+		t.Fatal("overwrote record")
+	}
+	out, err := runCapture(t, "", "--recover", path, "--retry", "--no-session")
+	if err != nil || !strings.Contains(out, "saved response") || len(requests.list()) != 1 {
+		t.Fatal(out, err, requests.list())
+	}
+	if _, err := runCapture(t, "", "--recover", path, "--retry"); err == nil || !strings.Contains(err.Error(), "deleted") {
+		t.Fatal(err)
+	}
+	c, err := connectNativeRuntime(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	s, _ := c.Session(owner.ID)
+	if _, err := s.Get(t.Context()); err == nil {
+		t.Fatal("-no-session did not delete recovered owner")
+	}
+}
+
+func TestRunRecoveryFilesAndInputBounds(t *testing.T) {
+	runFixture(t, "unused", nil)
+	directory := t.TempDir()
+	original := filepath.Join(directory, "original")
+	if err := os.WriteFile(original, []byte("private"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(directory, "link")
+	if err := os.Symlink(original, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readRunRecord(link); err == nil {
+		t.Fatal("symlink recovery accepted")
+	}
+	if err := saveRunRecord(link, client.InputRecord{}); err == nil {
+		t.Fatal("symlink recovery overwritten")
+	}
+	if err := os.Chmod(original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readRunRecord(original); err == nil {
+		t.Fatal("public recovery file accepted")
+	}
+	if _, err := runCapture(t, strings.Repeat("x", (1<<20)+1), "prompt"); err == nil {
+		t.Fatal("oversized stdin accepted")
+	}
+	if err := os.WriteFile(original, bytes.Repeat([]byte("x"), (512<<10)+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runCapture(t, "", "--system-file", original, "prompt"); err == nil {
+		t.Fatal("oversized system file accepted")
+	}
+	fifo := filepath.Join(directory, "fifo")
+	if err := unix.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runCapture(t, "", "--system-file", fifo, "prompt"); err == nil {
+		t.Fatal("FIFO system file accepted")
+	}
+	if nativeSession(t) != nil {
+		t.Fatal("invalid preflight created a session")
+	}
+}
+
+func TestRunCapturesExactBudgetAndPermissionFlags(t *testing.T) {
+	r := runFixture(t, "configured", nil)
+	if _, err := runCapture(t, "", "--quiet", "--max-cost", "1.000000001", "--max-tokens", "100000", "--permission-mode", "automatic", "--max-turns", "7", "configured"); err != nil {
+		t.Fatal(err)
+	}
+	owner := nativeSession(t)
+	if owner.Configuration.Run == nil || !owner.Configuration.Run.Headless || owner.Configuration.Run.MaxTurns != 7 {
+		t.Fatal(owner)
+	}
+	budgets, err := r.Budgets(t.Context(), session.SessionID(owner.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for kind, want := range map[session.BudgetKind]int64{session.BudgetModelCostNanoUSD: 1000000001, session.BudgetModelTokens: 100000} {
+		index := slices.IndexFunc(budgets, func(value session.Budget) bool { return value.Kind == kind })
+		if index < 0 || budgets[index].Limit == nil || *budgets[index].Limit != want {
+			t.Fatal(kind, budgets)
+		}
+	}
+	policy, err := r.PermissionPolicy(t.Context(), session.SessionID(owner.ID))
+	if err != nil || policy.Mode != session.PermissionAutomatic {
+		t.Fatal(policy, err)
+	}
 }

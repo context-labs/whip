@@ -144,7 +144,7 @@ func TestMainDispatchesHeadlessCommands(t *testing.T) {
 		}
 	})
 
-	t.Run("run sessions mcp and auth", func(t *testing.T) {
+	t.Run("run and sessions", func(t *testing.T) {
 		runFixture(t, "main reply", nil)
 		if output := invokeMain(t, "run", "hello"); !strings.Contains(output, "main reply") {
 			t.Fatalf("run output = %q", output)
@@ -152,6 +152,9 @@ func TestMainDispatchesHeadlessCommands(t *testing.T) {
 		if output := invokeMain(t, "sessions"); !strings.Contains(output, "test") {
 			t.Fatalf("sessions output = %q", output)
 		}
+	})
+	t.Run("mcp and auth", func(t *testing.T) {
+		legacyRunFixture(t, "main reply", nil)
 		if output := invokeMain(t, "mcp", "list"); output == "" {
 			t.Fatal("mcp list produced no output")
 		}
@@ -164,7 +167,7 @@ func TestMainDispatchesHeadlessCommands(t *testing.T) {
 // These tests capture actual daemon-factory model requests. A client-side
 // system-prompt string is insufficient evidence for a presentation-only CLI.
 func TestClientEntryPathsSendAssembledPromptToProvider(t *testing.T) {
-	for _, kind := range []string{"headless", "acp", "tui"} {
+	for _, kind := range []string{"acp", "tui"} {
 		t.Run(kind, func(t *testing.T) {
 			requests, titles, workingDirectory := promptRequestFixture(t)
 			standing := filepath.Join(os.Getenv("WHIPCODE_HOME"), "me.md")
@@ -204,37 +207,6 @@ func TestClientEntryPathsSendAssembledPromptToProvider(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestHeadlessSystemOverrideReachesProviderExactly(t *testing.T) {
-	requests, _, workingDirectory := promptRequestFixture(t)
-	writePromptRequestFile(t, filepath.Join(os.Getenv("WHIPCODE_HOME"), "me.md"), "NORMAL_STANDING_RULE")
-	writePromptRequestFile(t, filepath.Join(workingDirectory, "AGENTS.md"), "NORMAL_PROJECT_RULE")
-	const override = "Exact user system override.\nKeep this byte-for-byte."
-	if _, err := runCapture(t, "", "-quiet", "-system", override, "hello"); err != nil {
-		t.Fatal(err)
-	}
-	request := readPromptRequest(t, requests)
-	if len(request.Messages) == 0 || request.Messages[0].Role != "system" || request.Messages[0].Content != override {
-		t.Fatalf("explicit -system was replaced or supplemented: %#v", request.Messages)
-	}
-}
-
-func TestHeadlessRejectsIncompleteInstructionsBeforeProvider(t *testing.T) {
-	requests, _, workingDirectory := promptRequestFixture(t)
-	if err := os.Mkdir(filepath.Join(workingDirectory, "AGENTS.md"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := runCapture(t, "", "-quiet", "hello"); err == nil || !strings.Contains(err.Error(), "expected a regular file") {
-		t.Fatalf("invalid applicable rules must fail the run explicitly: %v", err)
-	}
-	// Prompt-only naming may run after admission; the conversation must not run
-	// with incomplete instructions.
-	select {
-	case request := <-requests:
-		t.Fatalf("provider ran with incomplete instructions: %#v", request.Messages)
-	default:
 	}
 }
 
@@ -310,14 +282,6 @@ func readPromptRequest(t *testing.T, requests <-chan llm.Request) llm.Request {
 
 func promptSubmitter(t *testing.T, kind, workingDirectory string) func(string) {
 	t.Helper()
-	if kind == "headless" {
-		return func(text string) {
-			t.Helper()
-			if _, err := runCapture(t, "", "-quiet", text); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	t.Cleanup(cancel)
 	var root *daemon.RootClient

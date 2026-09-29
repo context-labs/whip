@@ -2,14 +2,12 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"time"
 
-	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/legacy/session"
+	"github.com/context-labs/whip/internal/protocol"
 )
 
 // `whipcode sessions` — list stored sessions, newest first. The scriptable
@@ -20,51 +18,44 @@ func sessionsCLI() error {
 	if args := flag.Args(); len(args) > 1 && args[1] == "export" {
 		return sessionsExportCLI(args[2:])
 	}
+	if len(flag.Args()) > 1 {
+		return errors.New("usage: whipcode sessions [export <root>]")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	clientID := daemonClientID("sessions")
-	connection, err := connectDaemon(ctx, "automation", clientID, nil)
+	connection, err := connectNativeRuntime(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = connection.Close() }()
-	payload, err := json.Marshal(map[string]int{"limit": 50})
-	if err != nil {
+	var result protocol.RecentTreesResult
+	if err := connection.Call(ctx, "trees.recent", protocol.RecentTreesParams{Limit: 50}, &result); err != nil {
 		return err
 	}
-	result, err := connection.Command(ctx, daemon.CommandParams{
-		CommandID: daemonCommandID(clientID, "list"), Scope: string(session.CommandScopeDaemon),
-		Operation: "session.list", Payload: payload,
-	})
-	if err != nil {
-		return err
-	}
-	if result.Status != "succeeded" {
-		return errors.New(result.Error)
-	}
-	var metas []session.Meta
-	if err := json.Unmarshal([]byte(result.Output), &metas); err != nil {
-		return fmt.Errorf("decode daemon session list: %w", err)
-	}
-	if len(metas) == 0 {
+	if len(result.Items) == 0 {
 		fmt.Println("no sessions yet")
 		return nil
 	}
-	for _, mt := range metas {
-		title := mt.Title
-		if title == "" {
-			title = "(untitled)"
+	for _, item := range result.Items {
+		title := "(untitled)"
+		if item.Tree.Metadata.Title != nil && *item.Tree.Metadata.Title != "" {
+			title = *item.Tree.Metadata.Title
 		}
-		fmt.Printf("%s  %-40s  %s  %s\n", mt.ID, trunc(title, 40), mt.Model, ago(mt.UpdatedAt))
+		at, err := time.Parse(time.RFC3339Nano, item.LastActivityAt)
+		if err != nil {
+			return fmt.Errorf("decode recent session activity: %w", err)
+		}
+		fmt.Printf("%s  %-40s  %s  %s\n", item.RootID, trunc(title, 40), item.Model.Name, ago(at))
 	}
 	return nil
 }
 
 func trunc(s string, n int) string {
-	if len(s) <= n {
+	runes := []rune(s)
+	if len(runes) <= n {
 		return s
 	}
-	return s[:n-1] + "…"
+	return string(runes[:n-1]) + "…"
 }
 
 func ago(t time.Time) string {

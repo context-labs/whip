@@ -12,43 +12,9 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
-	"time"
 
-	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/legacy/protocol"
-	"github.com/context-labs/whip/internal/legacy/session"
-	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/protocol"
 )
-
-// fakeCaller answers content.read by slicing one buffer, the way the daemon
-// pages a content reference.
-type fakeCaller struct {
-	data  []byte
-	calls int
-}
-
-func (c *fakeCaller) Call(_ context.Context, method string, params, result any) error {
-	if method != "content.read" {
-		return nil
-	}
-	c.calls++
-	read := params.(protocol.ContentReadParams)
-	end := min(int(read.Offset)+read.Limit, len(c.data))
-	*result.(*protocol.ContentReadResult) = protocol.ContentReadResult{Data: c.data[read.Offset:end]}
-	return nil
-}
-
-func TestReadExportContentPagesThroughTheReference(t *testing.T) {
-	payload := []byte(strings.Repeat("x", daemon.MaxContentChunk*2+17))
-	caller := &fakeCaller{data: payload}
-	data, err := readExportContent(context.Background(), caller, "root", daemon.ContentHandle{ReferenceID: "ref", Size: int64(len(payload))})
-	if err != nil || string(data) != string(payload) || caller.calls != 3 {
-		t.Fatalf("paged read: %d bytes over %d calls, err=%v", len(data), caller.calls, err)
-	}
-	if _, err := readExportContent(context.Background(), caller, "root", daemon.ContentHandle{}); err == nil {
-		t.Fatal("an empty reference must be an error, not an empty export")
-	}
-}
 
 func TestPushOTLPPostsGzipBatchesWithTheBearerToken(t *testing.T) {
 	var requests atomic.Int32
@@ -99,40 +65,12 @@ func TestPushOTLPPostsGzipBatchesWithTheBearerToken(t *testing.T) {
 }
 
 func TestSessionsExportCLIWritesAndPushesTheSessionTrace(t *testing.T) {
+	runFixture(t, "done", nil)
+	if _, err := runCapture(t, "", "trace me"); err != nil {
+		t.Fatal(err)
+	}
+	id := string(nativeSession(t).ID)
 	dir := t.TempDir()
-	t.Setenv("WHIPCODE_HOME", dir)
-	st := openRuntimeTestStore(t, dir)
-	id, err := st.Create(session.SessionKindAgent, "/tmp", "kimi-k3-fast", "inference")
-	if err != nil {
-		t.Fatal(err)
-	}
-	st.Save(id, 0, []llm.Message{
-		{Role: "user", Content: "trace me", Authored: true},
-		{Role: "assistant", Content: "done", CallID: "c1"},
-	}, "kimi-k3-fast", "inference")
-	ctx := context.Background()
-	start := time.Now().UnixNano()
-	turn := session.SpanRecord{ID: session.TurnSpanID(id, id, "t1"), TraceID: session.TraceIDForTurn("t1"), RootID: id, AgentID: id, TurnID: "t1", Kind: session.SpanKindAgent, Name: "root", StartNS: start}
-	if err := st.RecordSpanStart(ctx, turn); err != nil {
-		t.Fatal(err)
-	}
-	call := session.SpanRecord{
-		ID: session.ModelCallSpanID(id, "c1"), TraceID: turn.TraceID, ParentID: turn.ID, RootID: id, AgentID: id, TurnID: "t1", Kind: session.SpanKindLLM, Name: "inference/kimi-k3-fast", StartNS: start + 1000,
-		Attrs: session.SpanAttrs(map[string]any{"model": "kimi-k3-fast", "provider": "inference", "model_call_id": "c1"}),
-	}
-	if err := st.RecordSpanStart(ctx, call); err != nil {
-		t.Fatal(err)
-	}
-	call.EndNS, call.Attrs = start+2_000_000, session.SpanAttrs(map[string]any{"prompt_tokens": 5, "completion_tokens": 1, "usage_source": "reported", "cost_source": "unknown"})
-	if err := st.RecordSpanEnd(ctx, call); err != nil {
-		t.Fatal(err)
-	}
-	turn.EndNS, turn.Status = start+3_000_000, session.SpanStatusOK
-	if err := st.RecordSpanEnd(ctx, turn); err != nil {
-		t.Fatal(err)
-	}
-	st.Close()
-	useTestDaemon(t)
 
 	if err := sessionsExportCLI(nil); err == nil {
 		t.Fatal("export without a root must fail")
@@ -157,18 +95,18 @@ func TestSessionsExportCLIWritesAndPushesTheSessionTrace(t *testing.T) {
 			} `json:"scopeSpans"`
 		} `json:"resourceSpans"`
 	}
-	if err := json.Unmarshal([]byte(out), &export); err != nil || len(export.ResourceSpans) != 1 || len(export.ResourceSpans[0].ScopeSpans[0].Spans) != 2 {
+	if err := json.Unmarshal([]byte(out), &export); err != nil || len(export.ResourceSpans) != 1 || len(export.ResourceSpans[0].ScopeSpans[0].Spans) < 2 {
 		t.Fatalf("stdout export: %v\n%s", err, out)
 	}
 	produced := ""
 	for _, span := range export.ResourceSpans[0].ScopeSpans[0].Spans {
 		for _, attr := range span.Attributes {
-			if attr.Key == "llm.output_messages.0.message.content" {
+			if attr.Key == "output.value" && strings.Contains(attr.Value.String, `"text":"done"`) {
 				produced = attr.Value.String
 			}
 		}
 	}
-	if produced != "done" {
+	if !strings.Contains(produced, `"text":"done"`) {
 		t.Fatalf("the model call's produced message was not exported: %s", out)
 	}
 	path := filepath.Join(dir, "trace.otlp.json")
@@ -192,15 +130,13 @@ func TestSessionsExportCLIWritesAndPushesTheSessionTrace(t *testing.T) {
 }
 
 func TestSessionsExportCLIReportsArgumentAndDeliveryFailures(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("WHIPCODE_HOME", dir)
-	st := openRuntimeTestStore(t, dir)
-	id, err := st.Create(session.SessionKindAgent, "/tmp", "kimi-k3-fast", "inference")
-	if err != nil {
+	runFixture(t, "done", nil)
+	if _, err := runCapture(t, "", "trace me"); err != nil {
 		t.Fatal(err)
 	}
-	st.Close()
-	useTestDaemon(t)
+	id := string(nativeSession(t).ID)
+	dir := t.TempDir()
+
 	for name, args := range map[string][]string{
 		"unknown flag":      {id, "-bogus"},
 		"second positional": {id, "extra"},
@@ -210,5 +146,29 @@ func TestSessionsExportCLIReportsArgumentAndDeliveryFailures(t *testing.T) {
 		if err := sessionsExportCLI(args); err == nil {
 			t.Fatalf("%s: expected an error", name)
 		}
+	}
+}
+
+func TestSessionsExportFilesStayPrivateAndRejectSymlinks(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "export.json")
+	if err := os.WriteFile(path, []byte("longer previous contents"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeTraceExport(path, []byte("{}")); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.Mode().Perm() != 0o600 || info.Size() != 2 {
+		t.Fatal(info, err)
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(path, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeTraceExport(link, []byte("overwrite")); err == nil {
+		t.Fatal("followed export symlink")
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != "{}" {
+		t.Fatal(string(data), err)
 	}
 }

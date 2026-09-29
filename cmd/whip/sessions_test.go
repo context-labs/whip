@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/context-labs/whip/internal/legacy/session"
-	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/store"
 )
 
 // unusableHome points WHIPCODE_HOME at a path nested inside a regular file, so
@@ -22,113 +22,85 @@ func unusableHome(t *testing.T) {
 	t.Setenv("WHIPCODE_HOME", filepath.Join(f, "whip"))
 }
 
-// whipcode sessions lists stored sessions newest-first with id, title, model, age.
 func TestSessionsCLI(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("WHIPCODE_HOME", dir)
-
-	st := openRuntimeTestStore(t, dir)
-	id, _ := st.Create(session.SessionKindAgent, "/tmp", "kimi-k3-fast", "inference")
-	st.Save(id, 0, []llm.Message{
-		{Role: "user", Content: "how do I unstage a file", Authored: true},
-		{Role: "assistant", Content: "git restore --staged"},
-	}, "kimi-k3-fast", "inference")
-	st.Close()
-	useTestDaemon(t)
-
+	r := runFixture(t, "listed reply", nil)
+	if _, err := runCapture(t, "", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	owner := nativeSession(t)
+	tree, err := r.Tree(t.Context(), session.TreeID(owner.TreeID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.UpdateTree(t.Context(), tree.ID, tree.Revision, session.TreeMetadata{Title: new("how do I unstage a file")}); err != nil {
+		t.Fatal(err)
+	}
 	out := captureStdout(t, func() {
 		if err := sessionsCLI(); err != nil {
 			t.Fatal(err)
 		}
 	})
-	if !strings.Contains(out, "how do I unstage a file") || !strings.Contains(out, "kimi-k3-fast") {
-		t.Fatalf("sessions should list id/title/model, got:\n%s", out)
-	}
-	if !strings.Contains(out, "just now") && !strings.Contains(out, time.Now().Format("2006-01-02")) {
-		t.Fatalf("age column should render, got:\n%s", out)
+	for _, part := range []string{string(owner.ID), "how do I unstage a file", "test", "just now"} {
+		if !strings.Contains(out, part) {
+			t.Fatal(out, part)
+		}
 	}
 }
 
-// An empty store says so instead of printing an empty table, and a session
-// with no first user message yet renders as "(untitled)".
 func TestSessionsCLIEmptyAndUntitled(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("WHIPCODE_HOME", dir)
-	useTestDaemon(t)
-
+	r := runFixture(t, "reply", nil)
 	out := captureStdout(t, func() {
 		if err := sessionsCLI(); err != nil {
 			t.Fatal(err)
 		}
 	})
 	if !strings.Contains(out, "no sessions yet") {
-		t.Fatalf("an empty store should say so, got %q", out)
+		t.Fatal(out)
 	}
-
-	st := openRuntimeTestStore(t, dir)
-	id, err := st.Create(session.SessionKindAgent, "/tmp", "m", "p")
+	refs, err := r.Builtins()
 	if err != nil {
 		t.Fatal(err)
 	}
-	// no authored user message yet: the session has no title to show
-	if err := st.Save(id, 0, []llm.Message{{Role: "assistant", Content: "hi"}}, "m", "p"); err != nil {
+	if _, _, err := r.CreateTree(t.Context(), store.CreateTree{Engine: session.Starlark, Definition: refs[0], WorkingDirectory: t.TempDir()}); err != nil {
 		t.Fatal(err)
 	}
-	st.Close()
-
 	out = captureStdout(t, func() {
 		if err := sessionsCLI(); err != nil {
 			t.Fatal(err)
 		}
 	})
 	if !strings.Contains(out, "(untitled)") {
-		t.Fatalf("a titleless session should render as (untitled), got %q", out)
+		t.Fatal(out)
 	}
 }
 
-// A long title is truncated to the column width with an ellipsis.
 func TestSessionsCLITruncatesTitle(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("WHIPCODE_HOME", dir)
-
-	st := openRuntimeTestStore(t, dir)
-	id, _ := st.Create(session.SessionKindAgent, "/tmp", "m", "p")
-	long := strings.Repeat("q", 80)
-	if err := st.Save(id, 0, []llm.Message{{Role: "user", Content: long, Authored: true}}, "m", "p"); err != nil {
+	r := runFixture(t, "reply", nil)
+	refs, err := r.Builtins()
+	if err != nil {
 		t.Fatal(err)
 	}
-	st.Close()
-	useTestDaemon(t)
-
+	title := strings.Repeat("界", 80)
+	if _, _, err := r.CreateTree(t.Context(), store.CreateTree{Metadata: session.TreeMetadata{Title: &title}, Engine: session.Starlark, Definition: refs[0], WorkingDirectory: t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
 	out := captureStdout(t, func() {
 		if err := sessionsCLI(); err != nil {
 			t.Fatal(err)
 		}
 	})
-	if !strings.Contains(out, "…") || strings.Contains(out, long) {
-		t.Fatalf("a long title should be truncated with an ellipsis, got %q", out)
+	if !strings.Contains(out, strings.Repeat("界", 39)+"…") || strings.Contains(out, title) {
+		t.Fatal(out)
 	}
 }
 
-// A broken config dir and an unopenable store both surface as errors rather
-// than a panic or a silently empty listing.
 func TestSessionsCLIStoreErrors(t *testing.T) {
-	unusableHome(t)
-	if err := sessionsCLI(); err == nil {
-		t.Error("an unusable WHIPCODE_HOME should error")
-	}
-
-	dir := t.TempDir()
-	t.Setenv("WHIPCODE_HOME", dir)
-	if err := os.MkdirAll(filepath.Join(dir, "runtime-v2"), 0o700); err != nil {
+	r := runFixture(t, "reply", nil)
+	if err := r.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Mkdir(runtimeDBPath(dir), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	useTestDaemon(t)
 	if err := sessionsCLI(); err == nil {
-		t.Error("a sessions.db that is a directory should error")
+		t.Fatal("closed runtime returned a successful listing")
 	}
 }
 

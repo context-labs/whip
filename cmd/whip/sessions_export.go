@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/legacy/protocol"
-	"github.com/context-labs/whip/internal/legacy/session"
+	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/trace"
+	"golang.org/x/sys/unix"
 )
 
 // otlpPushBatchBytes keeps each pushed request under the 4 MiB body cap that
@@ -24,11 +24,11 @@ const otlpPushBatchBytes = 4<<20 - 64<<10
 
 // `whipcode sessions export <root> [-trace id] [-o file|-] [-push URL] [-token T]`
 // renders a session's spans as one OTLP/JSON ExportTraceServiceRequest. The
-// daemon builds the document; the CLI fetches it through bounded content reads
+// native host builds the document; the CLI fetches its bounded content reference
 // and either writes it or posts it to an OTLP/HTTP endpoint in gzip batches.
 func sessionsExportCLI(args []string) error {
 	fs := flag.NewFlagSet("sessions export", flag.ContinueOnError)
-	trace := fs.String("trace", "", "export one trace (one root turn) instead of the whole session")
+	traceID := fs.String("trace", "", "export one trace instead of the whole session")
 	out := fs.String("o", "", "write the OTLP/JSON here; '-' for stdout (default: <root>.otlp.json)")
 	push := fs.String("push", "", "POST the export to an OTLP/HTTP endpoint instead of writing a file, e.g. http://127.0.0.1:8799/v1/traces")
 	token := fs.String("token", os.Getenv("INFERENCE_API_KEY"), "bearer token for -push (default $INFERENCE_API_KEY)")
@@ -58,23 +58,25 @@ func sessionsExportCLI(args []string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	clientID := daemonClientID("sessions-export")
-	connection, err := connectDaemon(ctx, "automation", clientID, nil)
+	connection, err := connectNativeRuntime(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = connection.Close() }()
-	caller, ok := connection.(rpcCaller)
-	if !ok {
-		return errors.New("this daemon connection cannot issue trace queries")
-	}
 	var result protocol.TraceExportResult
-	if err := caller.Call(ctx, "trace.export", protocol.TraceExportParams{RootID: root, TraceID: *trace}, &result); err != nil {
+	if err := connection.Call(ctx, "trace.export", protocol.TraceExportParams{RootID: protocol.ID(root), TraceID: *traceID}, &result); err != nil {
 		return err
 	}
-	data, err := readExportContent(ctx, caller, root, result.Content)
+	owner, err := connection.Session(protocol.ID(root))
 	if err != nil {
 		return err
+	}
+	reference, data, err := owner.ReadContent(ctx, result.Reference.ID)
+	if err != nil {
+		return err
+	}
+	if reference != result.Reference {
+		return errors.New("trace export content identity changed")
 	}
 	if *push != "" {
 		return pushOTLP(ctx, *push, *token, data, result)
@@ -88,35 +90,37 @@ func sessionsExportCLI(args []string) error {
 		return err
 	}
 	// Exports carry prompts and tool output; keep them private to the user.
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	if err := writeTraceExport(path, data); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "exported %d spans across %d traces to %s\n", result.Spans, result.Traces, path)
 	return nil
 }
 
-// rpcCaller is the raw JSON-RPC surface the export needs from a daemon connection.
-type rpcCaller interface {
-	Call(ctx context.Context, method string, params, result any) error
-}
-
-func readExportContent(ctx context.Context, caller rpcCaller, root string, handle daemon.ContentHandle) ([]byte, error) {
-	if handle.ReferenceID == "" {
-		return nil, errors.New("the daemon returned an empty export")
+func writeTraceExport(path string, data []byte) error {
+	fd, err := unix.Open(path, unix.O_WRONLY|unix.O_CREAT|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0o600)
+	if err != nil {
+		return err
 	}
-	data := make([]byte, 0, handle.Size)
-	for offset := int64(0); offset < handle.Size; {
-		var page protocol.ContentReadResult
-		if err := caller.Call(ctx, "content.read", protocol.ContentReadParams{RootID: root, ReferenceID: handle.ReferenceID, Offset: offset, Limit: daemon.MaxContentChunk}, &page); err != nil {
-			return nil, err
-		}
-		if len(page.Data) == 0 {
-			return nil, errors.New("export content read returned no data before its end")
-		}
-		data = append(data, page.Data...)
-		offset += int64(len(page.Data))
+	file := os.NewFile(uintptr(fd), path)
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return err
 	}
-	return data, nil
+	if !info.Mode().IsRegular() || !runRecordOwned(info) {
+		return errors.New("trace export requires an owned regular file")
+	}
+	if err := file.Chmod(0o600); err != nil {
+		return err
+	}
+	if err := file.Truncate(0); err != nil {
+		return err
+	}
+	if _, err := file.Write(data); err != nil {
+		return err
+	}
+	return file.Sync()
 }
 
 // pushOTLP posts the export as gzip OTLP/JSON, split so every request stays
@@ -126,7 +130,7 @@ func pushOTLP(ctx context.Context, endpoint, token string, data []byte, result p
 }
 
 func pushOTLPWithBatchSize(ctx context.Context, endpoint, token string, data []byte, result protocol.TraceExportResult, batchBytes int) error {
-	batches, err := session.SplitOTLP(data, batchBytes)
+	batches, err := trace.SplitOTLP(data, batchBytes)
 	if err != nil {
 		return err
 	}
