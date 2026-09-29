@@ -1870,7 +1870,7 @@ entries,64 directory levels or8MiB of searched bytes; rendered output is capped
 at32KiB. These are bounded observations of a changing directory, not stable
 pagination snapshots. Listing/search do not acquire mutation locks.
 
-Host config14 declares up to16 enabled stdio language servers (including the
+Host config15 declares up to16 enabled stdio language servers (including the
 built-in `gopls` entry), with bounded argv, environment and matching rules. This
 publishes availability, never session authority, and performs no installation.
 The side-effect-free `internal/lspconfig` leaf owns declarations, validation and
@@ -1907,3 +1907,42 @@ bounded safe metadata without spawning a server, granting authority or exposing
 custom command/environment/startup errors. Status is ephemeral and resets on
 restart. The temporary retained-config alias points inward to `lspconfig`
 and must be removed with the retired core in Phase7.
+
+
+## Captured definition bindings
+
+Fresh schema38/config15 stores the resolved host module list and separate nullable
+`tools_definition` / `hooks_definition` references in each configuration. Module
+names and operation vocabulary come from the pure `internal/hostmodule` registry,
+shared with workers and wire validation. An omitted module patch inherits; an
+explicit empty list installs no host modules. The initial worker/checkpoint
+factory uses configuration revision1, including this distinction.
+
+Later configuration edits may disable and re-enable modules or custom tools
+within the initial binding ceiling. They cannot introduce new names, alter exact
+contracts or replace an executor owner. Required hooks cannot be removed;
+optional hooks may be omitted. Model edits preserve REPL globals and saved
+aliases. Every host call resolves the owning live cell and its captured turn
+configuration before preparation/admission, so a retained alias cannot bypass a
+new turn’s restrictions. A concurrently running turn keeps its captured policy.
+Instructions describe that captured enabled subset as well.
+
+Child creation compares its resolved bindings against the captured parent
+configuration in the same admission transaction. A child cannot widen module or
+tool availability or remove a required hook. Separately derived tool/hook source
+references allow a child template to replace one declaration family while
+inheriting the other. References identify exact registered immutable definitions;
+SQL verifies their contracts, and they survive fork, restart and ancestor deletion.
+Callers cannot write these owner references through configuration patches.
+
+Arbitrary host/override declarations advertise syntax without inventing executor
+ownership. A changed family loses that source reference; exact inherited subsets
+retain it. Tools validate their captured input schema before executor lookup.
+Their timeout contract preserves a five-minute default and fifteen-minute cap;
+hooks preserve thirty seconds by default and at most one minute. Hook operation
+filters distinguish null (all) from empty (none).
+
+This checkpoint pins syntax, policy and provenance. Live custom execution and
+hook invocation are a separate following increment; declarations alone grant no
+execution, and custom calls currently report executor unavailable before an
+operation or effect is admitted.

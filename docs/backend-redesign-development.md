@@ -2975,7 +2975,7 @@ build/vet/pinned lint0 and production fixture29.604s (mode1.182s/files-LSP778ms)
 Parent reviewed policy admission/dispatch, receipt precedence and newly applied
 retirement semantics. Expanded integrated phase and analysis gates passed: store
 race204.723s/runtime215.476s/process111.834s/config7.283s/RPC44.376s, contract
-interchange/CSP and drift, SDK/examples, production fixture30.734s, retained
+interchange/CSP and drift, SDK/examples, production fixture30.737s, retained
 crash fixture2.927s and selected daemon races2.640s. Pinned analysis reports zero
 issues and no reachable vulnerabilities. Logs are `/tmp/whip-modes-{phase,analysis}.log`.
 Hosted Linux, macOS, analysis and aggregate checks for PR246 at
@@ -2983,3 +2983,37 @@ Hosted Linux, macOS, analysis and aggregate checks for PR246 at
 [run36501096754](https://github.com/context-labs/whip/actions/runs/36501096754).
 PR247 analysis passed; platform jobs remain in progress. Product clients and remaining
 Phase5 capabilities are still outstanding; no phase-completion claim is made.
+
+
+## Immutable definition bindings and captured host vocabulary
+
+Permission controls are published as draft [PR248](https://github.com/context-labs/whip/pull/248)
+at `99260052c`, stacked on PR247. Hosted validation is pending. Definition leaf
+`4db6f83be` is integrated as `0e8a44167`; independently reviewed overlap resolutions
+from `7320b6d43` preserve mode/title admission, LSP vocabulary and pure boundaries,
+native Unicode checks and compact declarations. `internal/hostmodule` joins the
+active gates. Fresh schema38/config15/protocol4 apply.
+
+The initial binding ceiling now survives kernel restore and permits only captured
+subsets in later turns and children. Explicit empty module lists remain empty
+through worker CLI arguments. Separate immutable tool/hook provenance is derived
+from registered declarations, never caller-supplied owner references. Model
+updates retain globals/aliases, but every invocation checks the live cell’s
+captured policy before admission. Required hooks cannot silently disappear.
+Live custom executors/hooks remain following work; unavailable declarations do
+not fabricate operations or effects.
+
+Released focused races passed session1.361s/store2.610s/runtime10.370s/RPC2.957s/
+process7.434s; model-change/eviction regressions19.483s, protocol10 CSP/interchange,
+SDK29, generated drift, build/vet/Linux build and pinned lint0 passed. Parent
+reviewed resolution/provenance, child and edit ceilings, captured cell ownership,
+worker empty-selection semantics, wire projections and alias/restart tests.
+Expanded integrated phase and analysis gates passed: store race200.492s,
+runtime222.630s, process116.341s and RPC43.424s, with generated interchange/CSP,
+drift and SDK/examples passing. Production fixture31.648s, retained crash
+fixture4.848s and selected daemon races2.679s passed. Initial analysis found one
+extra blank line in the captured instructions; formatting was corrected and the
+final analysis reports zero issues and no reachable vulnerabilities. Logs are
+`/tmp/whip-bindings-phase.log` and `/tmp/whip-bindings-analysis-final.log`; the
+original lint result remains `/tmp/whip-bindings-analysis.log`. No full-product or Phase5 completion is
+claimed; client migration and retired-core removal remain open.

@@ -343,7 +343,6 @@ func executionInstructions(current session.Session, tree session.Tree) string {
 	}
 	if slices.Contains(current.Config.Modules, "schedules") {
 		instructions += " schedules.create accepts expression (@every 10m or @at RFC3339) and parts, and returns an owned durable schedule. Recurrences first become due at creation and catch up oldest slots, one outstanding input at a time. schedules.list accepts limit (maximum 100), after, or upcoming=true with cursor; it returns metadata with a bounded first-text-part preview and latest input/receipt identity. schedules.cancel accepts id, stops future admission, and retains already accepted inputs. Each session owns its own schedules; schedule grants use the tree ID as resource. Stopping a session pauses admission and retains due slots. A failure field marks an unrepresentable successor and requires cancellation/recreation."
-
 	}
 	if slices.Contains(current.Config.Modules, "goals") {
 		instructions += " When this turn has a captured goal, goals.complete accepts goal_id, the captured decimal-string expected_revision, and nonempty evidence up to 16 KiB. Its accepted result records a completion intent only: the goal completes after this turn finishes successfully, provided the exact goal is still current. Failed, cancelled or invalid-output turns do not complete goals. The goals.complete grant uses the tree ID as resource; goals_enabled is eligibility and never grants permission. Use the captured goal reference exactly, and do not infer completion from ordinary output text."
