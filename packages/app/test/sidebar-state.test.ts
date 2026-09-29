@@ -30,6 +30,18 @@ describe('directory navigation projection', () => {
     expect(sidebarRows(a.slice(0, 7)).some(row => row.kind === 'more')).toBe(false);
     expect(sidebarRows([...items, session('next-page', '/a')], [], new Map([['/a', 21]])).some(row => row.key === 'session:next-page')).toBe(true);
   });
+  it('excludes archived roots before grouping and paging without changing the catalog', () => {
+    const active = Array.from({ length: 7 }, (_, index) => session(`active${index}`, '/repo'));
+    const archived = [session('hidden', '/repo', true), session('hidden-directory', '/archive-only')]
+      .map(item => ({ ...item, tree: { ...item.tree, metadata: { ...item.tree.metadata, archived: true } } }));
+    const items = [archived[0]!, ...active, archived[1]!];
+    const before = structuredClone(items);
+    expect(sidebarRows(items).map(row => row.key)).toEqual(['directory:/repo', ...active.map(item => `session:${item.root_id}`)]);
+    expect(items).toEqual(before);
+    const restored = items.map(item => ({ ...item, tree: { ...item.tree, metadata: { ...item.tree.metadata, archived: false } } }));
+    expect(sidebarRows(restored).some(row => row.key === 'session:hidden')).toBe(true);
+    expect(sidebarRows(restored).some(row => row.key === 'directory:/archive-only')).toBe(true);
+  });
   it('keeps a root-level duplicate name readable', () => {
     expect(sidebarRows([session('a', '/foo'), session('b', '/repo/foo')]).filter(row => row.kind === 'directory').map(row => row.label)).toEqual(['foo · /foo', 'foo · repo']);
   });
