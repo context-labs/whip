@@ -150,7 +150,10 @@ function WorkspaceLayoutContent({ layout, focusedPaneId, onResize, onFocusPane, 
     </div>;
     const firstMinimum = minimumSize(node.first), secondMinimum = minimumSize(node.second);
     const horizontal = node.direction === 'horizontal';
-    return <Group key={node.id} id={`workspace-split-${node.id}`} orientation={node.direction} disableCursor
+    // A changed child set needs a fresh sizing owner: an existing group's cached
+    // layout gives unknown panels weight 1 until registration, collapsing readers.
+    const sizingId = `workspace-split-${encodeURIComponent(JSON.stringify([node.id, node.direction, node.first.id, node.second.id]))}`;
+    return <Group key={sizingId} id={sizingId} orientation={node.direction} disableCursor
       defaultLayout={{ [node.first.id]: node.ratio * 100, [node.second.id]: (1 - node.ratio) * 100 }}
       onLayoutChanged={(sizes, meta) => { if (meta.isUserInteraction) onResize(node.id, (sizes[node.first.id] ?? 50) / 100); }}>
       <Panel id={node.first.id} minSize={horizontal ? firstMinimum.width : firstMinimum.height}>{renderTree(node.first)}</Panel>

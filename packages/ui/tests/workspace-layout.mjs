@@ -270,6 +270,22 @@ try {
           window.__edgeDraft = document.querySelector('textarea[aria-label="Draft gamma"]');
           window.__edgeScroll = document.querySelector('[data-view-scroll="gamma"]');
           window.__edgeScroll.scrollTop = 160;
+          // Observe every committed width, including styles replaced before the next paint.
+          const section = window.__edgeScroll.closest('[data-workspace-view]');
+          let minimumWidth = parseFloat(section.style.width);
+          const record = style => {
+            const width = /(?:^|;)\s*width:\s*([\d.]+)px/.exec(style ?? '');
+            if (width) minimumWidth = Math.min(minimumWidth, Number(width[1]));
+          };
+          const consume = records => {
+            for (const entry of records) record(entry.oldValue);
+            record(section.getAttribute('style'));
+          };
+          const observer = new MutationObserver(consume);
+          observer.observe(section, { attributes: true, attributeFilter: ['style'], attributeOldValue: true });
+          window.__finishEdgeGeometry = () => {
+            consume(observer.takeRecords()); observer.disconnect(); return minimumWidth;
+          };
         });
         await externalDrag(await edgePoint('two', edge));
         await expect(page.locator(`[data-workspace-drop="${edge}"]`)).toBeVisible();
@@ -286,6 +302,8 @@ try {
           : edge === 'right' ? oldBox.x + oldBox.width <= newBox.x + 1
           : edge === 'top' ? newBox.y + newBox.height <= oldBox.y + 1
           : oldBox.y + oldBox.height <= newBox.y + 1, `${edge}: wrong split placement`);
+        assert((await page.evaluate(() => window.__finishEdgeGeometry())) >= 320,
+          `${edge}: split registration temporarily collapsed the existing reading pane`);
         assert.equal(await page.evaluate(() => window.__edgeDraft === document.querySelector('textarea[aria-label="Draft gamma"]')
           && window.__edgeScroll === document.querySelector('[data-view-scroll="gamma"]')
           && window.__edgeScroll.scrollTop === 160), true, `${edge}: original view remounted or lost reading position`);
