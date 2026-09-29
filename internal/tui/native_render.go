@@ -22,12 +22,13 @@ type nativeRenderCache struct {
 	width, theme, bytes int
 	expanded            bool
 	blocks              map[protocol.ID][]string
+	blockExpanded       map[protocol.ID]bool
 }
 
 func (c *nativeRenderCache) prepare(messages []protocol.Message, width int, expanded bool) {
 	theme := themeGeneration()
 	if c.width != width || c.theme != theme || c.expanded != expanded || c.blocks == nil {
-		*c = nativeRenderCache{width: width, theme: theme, expanded: expanded, blocks: make(map[protocol.ID][]string)}
+		*c = nativeRenderCache{width: width, theme: theme, expanded: expanded, blocks: make(map[protocol.ID][]string), blockExpanded: make(map[protocol.ID]bool)}
 	}
 	keep := make(map[protocol.ID]bool, len(messages))
 	for _, message := range messages {
@@ -37,17 +38,28 @@ func (c *nativeRenderCache) prepare(messages []protocol.Message, width int, expa
 		if !keep[id] {
 			c.bytes -= nativeRowBytes(rows)
 			delete(c.blocks, id)
+			delete(c.blockExpanded, id)
 		}
 	}
 }
 
 func (c *nativeRenderCache) message(message protocol.Message) []string {
+	return c.messageExpanded(message, c.expanded)
+}
+
+func (c *nativeRenderCache) messageExpanded(message protocol.Message, expanded bool) []string {
 	if rows, ok := c.blocks[message.ID]; ok {
-		return rows
+		if c.blockExpanded[message.ID] == expanded {
+			return rows
+		}
+		c.bytes -= nativeRowBytes(rows)
+		delete(c.blocks, message.ID)
+		delete(c.blockExpanded, message.ID)
 	}
-	rows := renderNativeMessage(message, c.width, c.expanded)
+	rows := renderNativeMessage(message, c.width, expanded)
 	if size := nativeRowBytes(rows); c.bytes+size <= nativeRenderBytes {
 		c.blocks[message.ID] = rows
+		c.blockExpanded[message.ID] = expanded
 		c.bytes += size
 	}
 	return rows

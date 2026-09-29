@@ -145,6 +145,7 @@ func (m *nativeModel) command(text string) tea.Cmd {
 		}
 		m.input.Reset()
 		m.expandTools = args == "expand"
+		m.toolExpansion = nil
 		m.status = "Tool output display: " + args
 		m.refresh()
 		return nil

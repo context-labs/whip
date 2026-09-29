@@ -76,6 +76,10 @@ type nativeModel struct {
 	imageSequence                   uint64
 	attachment                      *nativeImageUpload
 	attachmentBusy                  bool
+	selection                       *nativeSelection
+	selectionClick                  nativeSelectionClick
+	messageRows                     []nativeMessageRows
+	toolExpansion                   map[protocol.ID]bool
 	clipboard                       *nativeClipboardOwner
 	copyBusy                        bool
 	clientDirectory                 string
@@ -302,10 +306,22 @@ func nativeTick() tea.Cmd {
 }
 
 func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
+	switch message.(type) {
+	case tea.KeyPressMsg, tea.PasteMsg, tea.WindowSizeMsg:
+		m.selection = nil
+		m.selectionClick = nativeSelectionClick{}
+	}
+	if mouse, ok := message.(tea.MouseMsg); ok {
+		if command, handled := m.selectionMouse(mouse); handled {
+			return m, command
+		}
+	}
 	if m.menu != nil && m.menu.Handles(message) {
 		return m, m.updateMenu(message)
 	}
 	switch value := message.(type) {
+	case nativeSelectionTick:
+		return m, m.selectionScroll(value)
 	case nativeCopyResult:
 		m.copied(value)
 		return m, nil
@@ -564,6 +580,10 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		switch value.String() {
 		case "tab", "shift+tab":
 			return m, m.completeInput(true)
+		case "ctrl+e":
+			if m.toggleLatestTool() {
+				return m, nil
+			}
 		case "ctrl+v":
 			return m, m.attachCommand("clipboard")
 		case "ctrl+r":
@@ -805,15 +825,28 @@ func (m *nativeModel) refresh() {
 	}
 	m.renderCache.prepare(v.messages, max(width-2, 1), m.expandTools)
 	size := nativeRowBytes(rows)
+	m.messageRows = nil
+	retained := make(map[protocol.ID]bool, len(v.messages))
 	for _, message := range v.messages {
-		block := m.renderCache.message(message)
+		retained[message.ID] = true
+		block := m.renderCache.messageExpanded(message, m.toolExpanded(message.ID))
 		size += nativeRowBytes(block) + 1
 		if size > nativeRenderBytes || len(rows)+len(block)+1 > nativeRenderRows {
 			rows = append(rows, "Display limit reached; complete message bodies remain in host history.")
 			break
 		}
+		tool := false
+		for _, part := range message.Parts {
+			tool = tool || part.Type == "tool_call" || part.Type == "tool_result"
+		}
+		m.messageRows = append(m.messageRows, nativeMessageRows{id: message.ID, start: len(rows), end: len(rows) + len(block), tool: tool})
 		rows = append(rows, block...)
 		rows = append(rows, "")
+	}
+	for id := range m.toolExpansion {
+		if !retained[id] {
+			delete(m.toolExpansion, id)
+		}
 	}
 	if m.browse == nil {
 		if p := v.preview; p != nil {
@@ -841,7 +874,7 @@ func (m *nativeModel) refresh() {
 		appendText(m.notice)
 	}
 	m.rows = boundNativeRows(rows, nativeRenderBytes, nativeRenderRows)
-	m.vp.rows = func(y int) string { return m.rows[y] }
+	m.vp.rows = func(y int) string { return m.selectionRow(nativeSelectTranscript, y, m.rows[y]) }
 	m.vp.SetWidth(width)
 	m.vp.SetHeight(max(m.height-m.input.Height()-4-m.dockHeight()-m.completionHeight(), 1))
 	m.vp.setTotal(len(m.rows))
@@ -850,7 +883,7 @@ func (m *nativeModel) refresh() {
 	}
 	if m.replVisible() {
 		m.replDisplay = m.replRows(max(m.replWidth()-5, 1))
-		m.replVP.rows = func(y int) string { return m.replDisplay[y] }
+		m.replVP.rows = func(y int) string { return m.selectionRow(nativeSelectREPL, y, m.replDisplay[y]) }
 		m.replVP.SetWidth(max(m.replWidth()-5, 1))
 		m.replVP.SetHeight(max(m.height-4, 1))
 		m.replVP.setTotal(len(m.replDisplay))
@@ -858,6 +891,7 @@ func (m *nativeModel) refresh() {
 			m.replVP.GotoBottom()
 		}
 	}
+	m.validateSelection()
 }
 
 func (m *nativeModel) View() tea.View {
@@ -891,7 +925,7 @@ func (m *nativeModel) View() tea.View {
 	if completions := m.completionView(); completions != "" {
 		main += completions + "\n"
 	}
-	main += m.input.View()
+	main += m.selectedInputView()
 	if height := m.dockHeight(); height > 0 {
 		main += "\n" + nativeFixedRows("Agents · Ctrl+T focuses\n"+m.agentRows(width, height-1), width, height)
 	}
