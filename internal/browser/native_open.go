@@ -292,7 +292,21 @@ func (c *NativeConnection) launch(ctx context.Context, options NativeOptions) (s
 	if options.Config.Mode == "headless" {
 		args = append(args, "--headless=new")
 	}
-	c.process, err = options.Processes.Start(c.lifetime, options.ProcessOwner, options.Config.Executable, args, capability.ProcessOptions{Cwd: profile, CwdIdentity: info, Stdin: bytes.NewReader(nil), Stdout: io.Discard, Stderr: io.Discard})
+	var env map[string]string
+	if options.Config.Mode == "dedicated" {
+		// Visible Chrome needs the host's X display and its authentication file.
+		// Keep this authority out of the shared process environment allowlist.
+		env = make(map[string]string)
+		for _, name := range []string{"DISPLAY", "XAUTHORITY"} {
+			if value, ok := os.LookupEnv(name); ok {
+				env[name] = value
+			}
+		}
+	}
+	c.process, err = options.Processes.Start(c.lifetime, options.ProcessOwner, options.Config.Executable, args, capability.ProcessOptions{
+		Cwd: profile, CwdIdentity: info, Env: env,
+		Stdin: bytes.NewReader(nil), Stdout: io.Discard, Stderr: io.Discard,
+	})
 	if err != nil {
 		return "", errors.New("native Chrome launch failed")
 	}

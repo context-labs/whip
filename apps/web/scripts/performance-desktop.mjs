@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { _electron } from 'playwright';
 import { deadline, eventually, repository } from './native-fixture.mjs';
+import { sampleBrowserRetention } from './performance-retention.mjs';
 
 const exec = promisify(execFile);
 
@@ -77,7 +78,7 @@ export async function launchDesktopPerformance(fixture, isolation, { executableP
     rendererDigest: manifest.digest,
     traffic: () => electron.evaluate(() => globalThis.__whipPerformanceTraffic()),
     async processMemory(phase) {
-      const { stdout } = await exec('/bin/ps', ['-axo', 'pid=,ppid=,rss=,comm='], { maxBuffer: 4 << 20 });
+      const { stdout } = await exec('/bin/ps', ['-axo', 'pid=,ppid=,rss=,comm='], { maxBuffer: 4 << 20, timeout: 5000 });
       const rows = stdout.split('\n').flatMap(line => {
         const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.+)$/.exec(line);
         return match ? [{ pid: Number(match[1]), ppid: Number(match[2]), rssKiB: Number(match[3]), executable: match[4] }] : [];
@@ -183,7 +184,6 @@ export async function exerciseDesktopTabs({ host, fixture, client, ready, frame,
     roots.push((await fixture.createRoot(client)).root.id);
   }
   const snapshots = [];
-  const inspector = await context.newCDPSession(page);
   const tab = id => page.locator(`#whip-workspace-tab-${id}`);
   const select = async id => {
     await tab(id).click();
@@ -203,11 +203,10 @@ export async function exerciseDesktopTabs({ host, fixture, client, ready, frame,
     assert.equal(await page.getByRole('tab').count(), count);
     for (const id of roots.slice(1, Math.min(count, 4))) await select(id);
     await select(roots[0]); await frame();
-    await inspector.send('HeapProfiler.collectGarbage');
     const traffic = await host.traffic();
     assert.equal(traffic.overflow, false); assert(traffic.maximumObservations <= 16);
-    snapshots.push({ tabs: count, heap: await inspector.send('Runtime.getHeapUsage'),
-      activeObservations: traffic.activeObservations, memory: await host.processMemory(`tabs-${count}`),
+    snapshots.push({ tabs: count, heap: await sampleBrowserRetention(context, page),
+      activeObservations: traffic.activeObservations, memory: await host.processMemory(`tabs-${count}-natural`),
       metadataBytes: await page.evaluate(() => new TextEncoder().encode(localStorage.getItem('whip.desktop.window.main.whip.web.workspace.v3')).length) });
   }
   const switches = [];
@@ -227,7 +226,6 @@ export async function exerciseDesktopTabs({ host, fixture, client, ready, frame,
   metrics.desktopTabs = { snapshots, cachedSwitchMilliseconds: summarize(switches), maximumObservations: traffic.maximumObservations,
     summaryPollingIn6100ms: summaryPolling, boundary: 'Playwright click through ready and two animation frames; includes automation overhead.' };
   metrics.checks.push('Staged IPC: 1/8/32 restored metadata tabs, <=16 native session observation waits, bounded aggregate polling for tabs and visible sidebar (identical root sets remain unattributed), 20 cached switches');
-  await inspector.detach();
   return roots;
 }
 
@@ -248,6 +246,63 @@ export function summaryPollEvidence(requests, tabIDs, sidebarIDs) {
   assert(tabPolls >= 2 && tabPolls <= 4, `Expected one shared tab summary poll, received ${tabPolls}`);
   assert(sidebarPolls >= 2 && sidebarPolls <= 4, `Expected one visible-sidebar aggregate poll, received ${sidebarPolls}`);
   return { sameRootSet: false, combinedPolls: requests.length, tabPolls, sidebarPolls };
+}
+
+// Connected light-DOM counts only. Walk budgets bound diagnostic work; no node,
+// text, file name, URL or application object is returned or retained.
+export function desktopDOMMemoryCounts(document = globalThis.document) {
+  const limit = 100_000;
+  const counts = { connectedNodes: 0, connectedElements: 0, transcriptRows: 0,
+    markdownBlocks: 0, markdownSubtreeNodes: 0, largestMarkdownBlockNodes: 0,
+    images: 0, blobImages: 0, mountedAttachments: 0, truncated: false };
+  const walker = document.createTreeWalker(document);
+  let node;
+  while ((node = walker.nextNode())) {
+    if (counts.connectedNodes === limit) { counts.truncated = true; break; }
+    counts.connectedNodes++;
+    if (node.nodeType !== 1) continue;
+    counts.connectedElements++;
+    if (node.hasAttribute('data-reading-id')) counts.transcriptRows++;
+    if (node.tagName === 'IMG') {
+      counts.images++;
+      if (node.getAttribute('src')?.startsWith('blob:')) counts.blobImages++;
+    }
+    if (node.matches('[role="group"][aria-label="Message attachments"] button[aria-label^="Remove "]')) counts.mountedAttachments++;
+    if (!node.hasAttribute('data-markdown-block')) continue;
+    counts.markdownBlocks++;
+    if (counts.markdownSubtreeNodes === limit) { counts.truncated = true; continue; }
+    const subtree = document.createTreeWalker(node);
+    let size = 1;
+    while (subtree.nextNode()) {
+      if (counts.markdownSubtreeNodes === limit) { counts.truncated = true; break; }
+      counts.markdownSubtreeNodes++; size++;
+    }
+    counts.largestMarkdownBlockNodes = Math.max(counts.largestMarkdownBlockNodes, size);
+  }
+  return counts;
+}
+
+export async function captureDesktopMemoryPhase(host, phase) {
+  const started = performance.now();
+  const processes = await host.processMemory(phase);
+  const browser = await sampleBrowserRetention(host.context, host.page);
+  const inspector = await host.context.newCDPSession(host.page);
+  let timer, detaching;
+  const detach = () => detaching ??= inspector.detach();
+  const read = inspector.send('Runtime.evaluate', {
+    expression: `(${desktopDOMMemoryCounts.toString()})()`, returnByValue: true, timeout: 1000,
+  }).then(value => {
+    if (value.exceptionDetails || value.result.type !== 'object' || !value.result.value)
+      throw new Error('Connected DOM memory sample failed');
+    return value.result.value;
+  });
+  const expired = new Promise((_, reject) => {
+    timer = setTimeout(() => { void detach().catch(() => {}); reject(new Error('Connected DOM memory sample exceeded 10 seconds')); }, 10_000);
+  });
+  let connectedDOM;
+  try { connectedDOM = await Promise.race([read, expired]); }
+  finally { clearTimeout(timer); try { await detach(); } finally { await read.catch(() => {}); } }
+  return { phase, started, sampleMilliseconds: performance.now() - started, processes, browser, connectedDOM };
 }
 
 export async function exerciseDesktopTransfer({ host, fixture, client, metrics, directory, summarize }) {
@@ -279,15 +334,22 @@ export async function exerciseDesktopTransfer({ host, fixture, client, metrics, 
   const inputPaths = await Promise.all(files.map(async file => { const path = join(inputDirectory, file.name); await writeFile(path, file.buffer); return path; }));
   const uploads = files.map(file => ({ name: file.name, bytes: file.buffer.length,
     digest: createHash('sha256').update(file.buffer).digest('hex') }));
-  const samples = [];
+  const samples = [], phases = [];
   metrics.desktopTransfer = { inputBoundary: 'Native file input over actual files in the disposable fixture; no Playwright buffer-to-File injection.', rejectedSingleFileBytes: oversized.length,
-    uploadedBytes: uploads.reduce((sum, item) => sum + item.bytes, 0), uploads, memorySamples: samples };
+    uploadedBytes: uploads.reduce((sum, item) => sum + item.bytes, 0), uploads, memorySamples: samples, memoryPhases: phases,
+    memoryPhaseBoundary: 'Sequential passive RSS, browser heap/DOM and connected light-DOM counts, not an atomic snapshot or object attribution. At most 16 boundary samples; counts cap at 100,000 document and 100,000 Markdown descendant nodes. Nested Markdown blocks may count descendants twice; truncated counts are lower bounds. No collection or owner deletion. Boundary samples occur outside the timed transfer keys. Download decoding and native save remain one combined phase.' };
   assert(metrics.desktopTransfer.uploadedBytes > 8 << 20);
   const capture = phase => host.processMemory(phase).then(sample => {
     if (samples.length >= 256) throw new Error('Transfer memory probe overflow'); samples.push(sample);
   });
+  const boundary = async phase => {
+    if (phases.length >= 16) throw new Error('Transfer memory phase probe overflow');
+    phases.push(await captureDesktopMemoryPhase(host, phase));
+  };
+  await boundary('before-uploads-after-rejected-preview-removal');
+  let phase = 'uploads-and-typing';
   let sampling = true, samplingError;
-  const sampler = (async () => { while (sampling) { await capture('transfer'); await new Promise(resolve => setTimeout(resolve, 100)); } })()
+  const sampler = (async () => { while (sampling) { await capture(phase); await new Promise(resolve => setTimeout(resolve, 100)); } })()
     .catch(error => { samplingError = error; });
   const before = (await host.traffic()).requestTotal;
   const started = performance.now();
@@ -308,6 +370,8 @@ export async function exerciseDesktopTransfer({ host, fixture, client, metrics, 
     }
     const uploaded = await upload;
     if (uploaded.error) throw uploaded.error;
+    phase = 'verify-and-remove-uploads';
+    await boundary('uploads-and-typing-complete');
     const handles = await page.evaluate(() => window.__performanceContentHandles);
     for (const [index, item] of uploads.entries()) {
       const handle = handles.find(handle => handle.digest === item.digest && handle.size === String(item.bytes));
@@ -315,6 +379,7 @@ export async function exerciseDesktopTransfer({ host, fixture, client, metrics, 
       assert.equal(reference.session_id, session.id);
       assert.deepEqual(Buffer.from(await session.content.readBytes(reference, deadline())), files[index].buffer);
       await page.getByRole('button', { name: `Remove ${item.name}`, exact: true }).click();
+      await boundary(`upload-${index + 1}-verified-and-preview-removed`);
     }
     // This is explicit existing owner-scoped content, not an externalized tool
     // result. The current scheduled-attachment inspector uses production
@@ -324,15 +389,19 @@ export async function exerciseDesktopTransfer({ host, fixture, client, metrics, 
       { type: 'text', text: 'Desktop performance download evidence' },
       { type: 'content', reference_id: fixture.history.large_content },
     ] }, scheduleID, deadline());
+    await boundary('before-schedule-document-navigation');
+    phase = 'schedule-document-navigation';
     await page.goto(`${host.origin}/h/${fixture.info.runtime_id}/s/${session.id}?panel=goals`);
     const details = page.getByRole('dialog', { name: 'Session details', exact: true });
     await details.getByRole('button', { name: 'Read scheduled prompt', exact: true }).click();
+    await boundary('schedule-document-and-prompt-ready');
     const output = join(directory, 'desktop-scoped-content.txt');
     await host.electron.evaluate(({ dialog }, output) => {
       // Only save-dialog selection is substituted. Production IPC, bounded
       // writes, fsync and atomic rename remain unchanged.
       dialog.showSaveDialog = async () => ({ canceled: false, filePath: output });
     }, output);
+    phase = 'content-download-and-native-save';
     const downloadStarted = performance.now();
     await details.getByRole('button', { name: 'Download', exact: true }).click();
     const bytes = await eventually(async () => readFile(output), { description: 'native saved content file' });
@@ -340,7 +409,10 @@ export async function exerciseDesktopTransfer({ host, fixture, client, metrics, 
     const reference = await session.content.get(fixture.history.large_content, deadline());
     assert.equal(bytes.length, 1_400_000);
     assert.equal(createHash('sha256').update(bytes).digest('hex'), reference.digest);
+    await boundary('content-downloaded-and-native-save-verified');
     await details.getByRole('button', { name: 'Close', exact: true }).click();
+    phase = 'schedule-inspector-closed';
+    await boundary('schedule-inspector-closed');
     const operations = requestsSince(await host.traffic(), before);
     const puts = operations.filter(request => request.method === 'content.put');
     assert.equal(puts.length, 3); assert(puts.every(request => request.session === session.id));
@@ -359,8 +431,8 @@ export async function exerciseDesktopTransfer({ host, fixture, client, metrics, 
     if (samplingError) throw samplingError;
   }
   await capture('after-transfer');
-  metrics.desktopTransfer.maximumApplicationRSSKiB = Math.max(...samples.map(sample => sample.applicationRSSKiB));
-  metrics.desktopTransfer.memoryCaveat = '100ms process RSS samples may miss brief peaks; sums can double-count shared pages. Native backend RSS is separate.';
+  metrics.desktopTransfer.maximumApplicationRSSKiB = Math.max(...samples.map(sample => sample.applicationRSSKiB), ...phases.map(sample => sample.processes.applicationRSSKiB));
+  metrics.desktopTransfer.memoryCaveat = '100ms process RSS samples plus named sequential boundaries may miss brief peaks; sums can double-count shared pages. Native backend RSS is separate.';
 }
 
 export async function finishDesktopPerformance(isolation, host, fixture, succeeded, priorFailures = []) {

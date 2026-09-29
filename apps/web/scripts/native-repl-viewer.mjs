@@ -6,8 +6,9 @@ import { join } from 'node:path';
 import { chromium, firefox, expect } from '@playwright/test';
 import { deadline, eventually } from './native-fixture.mjs';
 import { startReplFixture } from './native-repl-fixture.mjs';
+import { installObservationProbe } from './native-observation-probe.mjs';
 
-const directory = process.env.WHIP_WEB_REPL_RESULTS ?? '/tmp/whip-native-repl-viewer';
+const directory = process.env.WHIP_WEB_REPL_RESULTS ?? '/tmp/whip-native-repl-viewer-results';
 const names = (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split(',');
 assert(names.length > 0 && names.length <= 2 && new Set(names).size === names.length && names.every(name => ['chromium', 'firefox'].includes(name)));
 await mkdir(directory, { recursive: true });
@@ -17,11 +18,18 @@ const allTabs = workspace => leaves(workspace.layout).flatMap(pane => pane.tabs)
 const axeSource = await readFile(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8');
 for (const name of names) {
   let seed, fixture, browser, context, page, client, root, rootID, children, baselineEffects;
-  const checks = [], errors = [], csp = [], frames = [], currentObservations = new Map(), maxObservations = new Map();
-  const report = { name, checks, errors, csp }; reports.push(report);
+  const checks = [], errors = [], csp = [], frames = [], currentObservations = new Map(), maxObservations = new Map(), rawOverlaps = [];
+  const report = { name, checks, errors, csp, observationDocuments: [], rawOverlaps }; reports.push(report);
   const check = text => { checks.push(text); console.log(`${name}: ${text}`); };
-  let frameBytes = 0;
+  let frameBytes = 0, connectionID = 0;
   const recordError = error => { if (errors.length < 64) errors.push(String(error.stack ?? error).slice(0, 4096)); };
+  const retainObservationEvidence = evidence => {
+    const index = report.observationDocuments.findIndex(item => item.documentID === evidence.documentID);
+    if ((index < 0 && report.observationDocuments.length >= 32) || Buffer.byteLength(JSON.stringify(evidence)) > (128 << 10))
+      recordError(new Error('Observation lifetime evidence overflow'));
+    else if (index < 0) report.observationDocuments.push(evidence);
+    else report.observationDocuments[index] = evidence;
+  };
   const workspace = () => page.evaluate(() => JSON.parse(sessionStorage.getItem('whip.web.workspace.v3')).workspace);
   const panel = id => page.locator(`[data-workspace-view=${JSON.stringify(id)}]`);
   const tab = id => page.locator(`[id=${JSON.stringify('whip-workspace-tab-' + encodeURIComponent(id))}]`);
@@ -108,34 +116,41 @@ for (const name of names) {
     context = await browser.newContext({ viewport: { width: 1600, height: 1040 } }); context.setDefaultTimeout(15000);
     page = await context.newPage(); report.version = browser.version();
     page.on('pageerror', recordError);
+    await page.exposeFunction('replObservationEvidence', retainObservationEvidence);
+    await page.addInitScript(installObservationProbe);
     await context.exposeFunction('replCSP', directive => { if (csp.length < 64) csp.push(String(directive).slice(0, 256)); });
     await context.addInitScript(() => {
       if (!localStorage.getItem('whip.appearance.theme.v1')) localStorage.setItem('whip.appearance.theme.v1', JSON.stringify({ version: 1, id: 'claude-code' }));
       document.addEventListener('securitypolicyviolation', event => { void window.replCSP?.(event.violatedDirective).catch(() => {}); });
     });
     page.on('websocket', socket => {
-      const pending = new Map();
-      const settle = request => {
+      const pending = new Map(), connection = ++connectionID;
+      let initial = null;
+      const settle = (request, reason) => {
         if (request.settled) return; request.settled = true;
-        if (request.method === 'sessions.observe') currentObservations.set(request.params.session_id, currentObservations.get(request.params.session_id) - 1);
+        request.settledAt = performance.now(); request.settlement = reason;
+        if (request.method === 'sessions.observe') currentObservations.get(request.params.session_id)?.delete(request);
       };
-      socket.on('close', () => { for (const request of pending.values()) settle(request); pending.clear(); });
+      socket.on('close', () => { for (const request of pending.values()) settle(request, 'close_event'); pending.clear(); });
       socket.on('framesent', ({ payload }) => {
         try {
           assert(Buffer.byteLength(payload) <= (8 << 20)); const value = JSON.parse(String(payload));
           if (!value.method) return;
           const params = value.params ?? {};
-          const request = { method: value.method, params: { session_id: params.session_id, turn_id: params.turn_id, direction: params.direction, cursor: params.cursor, before: params.before, after: params.after, limit: params.limit }, settled: false };
+          if (value.method === 'initialize') initial = { runtime: params.expected_runtime_id, epoch: params.expected_process_epoch };
+          const request = { connection, requestID: value.id, initial, sentAt: performance.now(), method: value.method, params: { session_id: params.session_id, turn_id: params.turn_id, direction: params.direction, cursor: params.cursor, before: params.before, after: params.after, limit: params.limit }, settled: false };
           frameBytes += Buffer.byteLength(JSON.stringify(request)); assert(frames.length < 20000 && frameBytes <= (4 << 20) && pending.size < 8, 'Bounded REPL read evidence overflow');
           frames.push(request); pending.set(value.id, request);
           if (request.method === 'sessions.observe') {
-            const owner = request.params.session_id, count = (currentObservations.get(owner) ?? 0) + 1;
-            currentObservations.set(owner, count); maxObservations.set(owner, Math.max(maxObservations.get(owner) ?? 0, count));
+            const owner = request.params.session_id, active = currentObservations.get(owner) ?? new Set();
+            active.add(request); currentObservations.set(owner, active);
+            maxObservations.set(owner, Math.max(maxObservations.get(owner) ?? 0, active.size));
+            if (active.size > 1) { assert(rawOverlaps.length < 32 && active.size <= 16, 'Raw observation overlap evidence overflow'); rawOverlaps.push([...active]); }
           }
         } catch (error) { recordError(error); }
       });
       socket.on('framereceived', ({ payload }) => {
-        try { assert(Buffer.byteLength(payload) <= (8 << 20)); const reply = JSON.parse(String(payload)); const request = pending.get(reply.id); if (request) { request.error = reply.error?.kind; request.nextCursor = reply.result?.next_cursor; if (request.method === 'sessions.history_page') request.messageCount = reply.result?.messages?.length; if (request.method === 'sessions.turns') { request.turnIDs = reply.result?.items?.map(item => item.id); frameBytes += Buffer.byteLength(JSON.stringify(request.turnIDs ?? [])); } if (request.method === 'turns.cells') request.cellCount = reply.result?.items?.length; assert(frameBytes <= (4 << 20)); settle(request); pending.delete(reply.id); } }
+        try { assert(Buffer.byteLength(payload) <= (8 << 20)); const reply = JSON.parse(String(payload)); const request = pending.get(reply.id); if (request) { request.error = reply.error?.kind; request.nextCursor = reply.result?.next_cursor; if (request.method === 'sessions.history_page') request.messageCount = reply.result?.messages?.length; if (request.method === 'sessions.turns') { request.turnIDs = reply.result?.items?.map(item => item.id); frameBytes += Buffer.byteLength(JSON.stringify(request.turnIDs ?? [])); } if (request.method === 'turns.cells') request.cellCount = reply.result?.items?.length; assert(frameBytes <= (4 << 20)); settle(request, 'reply'); pending.delete(reply.id); } }
         catch (error) { recordError(error); }
       });
     });
@@ -415,6 +430,8 @@ for (const name of names) {
     await mobileAction(root, 'Open REPL'); const mobileRepl = leaves((await workspace()).layout)[0].selected;
     assert.notEqual(mobileRepl, moved); await ready(mobileRepl, 'repl');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    report.maximumOwnerObservations = Object.fromEntries(maxObservations);
+    retainObservationEvidence(await page.evaluate(() => window.__readObservationProbe()));
     assert([...maxObservations.values()].every(count => count <= 1), 'Duplicate views must share the owner observation');
     const reads = new Set(['providers.list', 'providers.presets', 'host.permission_default', 'host.execution_defaults', 'mcp.configuration', 'schedules.list', 'skills.list', 'initialize', 'host.status', 'host.profiles', 'providers.get', 'providers.catalog', 'providers.bundled', 'providers.readiness', 'trees.catalog', 'trees.list', 'trees.get', 'trees.summaries', 'sessions.get', 'sessions.list', 'sessions.activity', 'sessions.history_page', 'sessions.observe', 'sessions.turns', 'inputs.page', 'turns.get', 'turns.cells', 'turns.operations', 'cells.output', 'trace.page', 'questions.list', 'permissions.list', 'permissions.policy', 'tool.schemas', 'host.attention', 'definitions.get']);
     assert.deepEqual([...new Set(frames.map(frame => frame.method))].filter(method => !reads.has(method)), [], 'Viewer issued a non-observation method');
@@ -425,7 +442,10 @@ for (const name of names) {
     report.passed = true; console.log(`${name}: ${checks.length} native REPL viewer groups passed`);
   } catch (error) {
     report.error = String(error.stack ?? error).slice(0, 16384); report.reads = frames.slice(-80);
+    report.maximumOwnerObservations = Object.fromEntries(maxObservations);
     if (page) {
+      const evidence = await page.evaluate(() => window.__readObservationProbe?.()).catch(() => null);
+      if (evidence) retainObservationEvidence(evidence);
       await screenshot('failure').catch(() => {});
       report.body = (await page.locator('body').innerText().catch(() => '')).slice(0, 16384);
     }

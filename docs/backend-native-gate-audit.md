@@ -7,7 +7,8 @@ provider was changed. The original development checkout was not used.
 
 ## Current acceptance snapshot
 
-Reconciled through native source `0265ab26c` on2026-09-29. “Implemented” and a
+Reconciled through published source `1edc9d823` and the local dedicated-browser
+repair `d0769783f` on 2026-09-29. “Implemented” and a
 passing checkpoint are distinct from final milestone acceptance. The complete
 normal CLI/TUI and staged Desktop results are from `1fa8dbfb2`; the complete UI
 result is from `d9545097d`. Neither includes every subsequent source change.
@@ -17,28 +18,45 @@ retains the earlier failures and intermediate results.
 
 | Retained family | Current native replacement and evidence | Acceptance still required |
 | --- | --- | --- |
-| Execution, engines, accounting, recursion, mail and state | [Family disposition](backend-native-core-retirement.md#behavior-and-test-disposition), both-engine store/runtime tests and [real process fixture](../scripts/redesign/v4-fixture.test.mjs); complete package discovery replaces the retired allowlist. | Complete final-head build/race/invariant gates on both hosted OSes. Earlier package passes do not imply aggregate success. |
+| Execution, engines, accounting, recursion, mail and state | [Family disposition](backend-native-core-retirement.md#behavior-and-test-disposition), both-engine store/runtime tests and [real process fixture](../scripts/redesign/v4-fixture.test.mjs); complete package discovery replaces the retired allowlist. All hosted race partitions pass on Linux/macOS at `1edc9d823`. | Final combined aggregate remains open; passing race partitions do not imply aggregate success. |
 | Providers, accounts, definitions, hooks, goals and schedules | [Provider setup](models-providers.md#provider-connections-in-settings), immutable declarations and native operation/maintenance paths are mounted in shared/mobile/terminal clients. Settings, executor and ordinary-input fixtures use the real host with deterministic transports. | Current combined client gate and representative live-provider/managed-account workflows; synthetic onboarding is not live readiness. |
-| Context, instructions, skills, history and workspace | Exact raw-history/summary boundaries and scoped originals; [image compaction regression](../internal/runtime/compaction_content_test.go), actual REPL/skills/history/restore fixtures. Published/default skill roots and explicit body grants are separate shipped controls. | Current slash-input investigation and final combined browser gates. Hosted Settings history follow-through now passes on `b1c9ca965`; no seed optimization is claimed. |
+| Context, instructions, skills, history and workspace | Exact raw-history/summary boundaries and scoped originals; [image compaction regression](../internal/runtime/compaction_content_test.go), actual REPL/skills/history/restore fixtures. Published/default skill roots and explicit body grants are separate shipped controls. The slash-completion caret race is repaired with four regressions and both-browser workflow evidence. | Hosted REPL observation-overlap diagnosis and final combined browser gates. Settings history passes on `b1c9ca965` and `1edc9d823`; no seed optimization is claimed. |
 | Files, LSP, shell, permissions/questions and MCP | [Native family tests](backend-native-core-retirement.md#behavior-and-test-disposition), joined process/LSP ownership, direct human actions, scoped grants and real MCP self-host fixtures; mounted controls preserve root/child distinctions. | Final-head automated/lifecycle validation; live external servers remain explicit opt-in evidence. |
 | Browser/computer and native helpers | External Chrome and offered Desktop tabs have distinct scoped owners and human controls across clients. Both ambient wrappers are removed: [browser driver disposition](browser-computer-use.md#native-browser-test-ownership), [computer disposition](backend-native-computer-retirement.md). Actual private Chrome covers both drivers/engines; Desktop bridge fixtures cover real IPC. | Headed dedicated/real extension opt-ins, real accessibility/TCC and applicable platform checks are not established by headless or fake-helper tests. |
 | SDK, shared app and mobile | At `1fa8dbfb2`: protocol18 checks, SDK205/example5 tests, app types/1382 tests, mobile types/226 tests. [Mobile readiness](backend-native-mobile-readiness.md) separately records exports, simulator and Android compilation provenance. | Final combined gates, physical-device UI/lifecycle/accessibility and signed-device checks. Simulator storage evidence does not prove Android or physical-device behavior. |
-| Go CLI, TUI and ACP | Complete normal `check:native-cli` passes at `1fa8dbfb2`, including real compiled entrypoints, SSH/update fixtures, both native TUI partitions and pure presentation complement; [CLI](backend-native-cli-disposition.md) and [terminal](native-terminal-retirement.md) dispositions retain exact semantics. | Newly reported hosted SSH/askpass fixture failures require causal diagnosis and final Linux/macOS reruns despite local passes. |
-| Shared UI | Complete `check:product-ui` passes at `d9545097d`: Storybook,66 themes/14 interactions, strict CSP, isolated packed consumers, tabs/layout in both browsers and30 model-picker scenarios. Workspace regressions fail before their repairs; no tolerance changes. | Repeat the complete gate on the final combined source. This is not all application browser workflows or actual Safari. |
+| Go CLI, TUI and ACP | Complete normal `check:native-cli` passes at `1fa8dbfb2`, including real compiled entrypoints, SSH/update fixtures, both native TUI partitions and pure presentation complement; [CLI](backend-native-cli-disposition.md) and [terminal](native-terminal-retirement.md) dispositions retain exact semantics. The SSH fixture's duplicate `exec` is repaired; its compiled integration block now passes hosted Linux/macOS (54.316s/48.928s). | Both hosted client gates fail later at the packaged-runtime Task shell's signal trap. The explicit-Bash repair passes the real local packaged-runtime block; final combined hosted gates remain open. |
+| Shared UI | Complete `check:product-ui` passes locally at `d9545097d` and hosted at `1edc9d823`: Storybook,66 themes/14 interactions, strict CSP, isolated packed consumers, tabs/layout in both browsers and30 model-picker scenarios. Workspace regressions fail before their repairs; no tolerance changes. | Final combined-source gate. This is not all application browser workflows or actual Safari. |
 | Desktop and distribution | Complete [staged Desktop gate](backend-native-desktop-readiness.md) passes at `1fa8dbfb2`, including166 tests,116 distribution checks, onboarding, normal/failure workspace flows and terminal/editor/browser IPC. | Signed/quarantined release, target/minimum-OS execution, real SSH hardware/account scenarios and quiet performance remain distinct. |
 
-Current hosted run36581778862 at `b1c9ca965` is not green. Its Settings job passes
-all four actual Chromium/Firefox history scenarios, with exact recorded counts
-and joined cleanup (Firefox/body seed49.047s). The model-picker and eval assertion
-failures have separate tested fixes; three Go jobs failed Task dependency proxy/
-sumdb HTTP/2 setup before product checks. Both client jobs expose SSH/askpass
-fixture failures under investigation. Preserve these outcomes until a final-head
-rerun passes; a setup failure is neither a product regression nor passing evidence.
+Hosted run36584226063 at `1edc9d823` finishes with 34 passed jobs, four failed
+leaf jobs, two failed aggregates and skipped Desktop. Analysis, evals, mobile, UI,
+Settings, product browser and all Linux/macOS race partitions pass. Three failure
+classes require follow-through: Linux dedicated Chrome loses Xvfb's display
+environment, the Chromium REPL probe reports overlapping observations, and both
+client gates reach an unsupported signal trap in Task's embedded shell. The
+launch and Task failures have reproduced local repairs; REPL still needs exact
+observer lifetime evidence. Skipped Desktop supplies no hosted acceptance.
+The earlier `b1c9ca965` run remains failed evidence; its dependency-download
+failures were neither product findings nor passing checks.
+
+Dedicated Chrome now explicitly inherits only `DISPLAY` and `XAUTHORITY`; the
+shared process environment remains restricted. The regression fails before the
+repair and passes as a real process on macOS and Linux, including unrelated-secret
+exclusion and unchanged headless/ordinary process isolation. The complete normal
+native-browser gate passes locally at `d0769783f` (browser15.430s/runtime12.475s).
+Hosted Linux headed Chrome still requires its next exact-head run.
+
+The packaged-runtime fixture now executes its existing owned-directory/trap/
+build/race sequence in explicit Bash. The original block reproduces the trap
+failure before any Go command; the repair preserves success and both build/test
+failure cleanup without running a later command after failed build. The actual
+packaged runtime integration passes in 3.413s with the same two-minute deadline,
+race, shuffle and engine assertions.
 
 The command boundaries below remain the normal complete gate; do not replace them
-with selected passing subsets. Source work still in progress includes slash-input
-follow-through and passive performance instrumentation. Those leaves are not
-included in the snapshot or retroactively covered by its results.
+with selected passing subsets. Observation-lifetime diagnosis and the measured
+Desktop performance gap remain open. Later leaves are not retroactively covered
+by earlier results.
 
 ## Gate restoration at the initial checkpoint
 
@@ -122,9 +140,14 @@ The following checks remain distinct from a green automated aggregate:
   50 ms target or memory investigation. Its final retention sample followed
   forced GC, so that sample is diagnostic and cannot stand in for natural
   end-of-work memory. The peak/after-typing samples preceded GC and remain valid.
-  Passive natural-memory/phase instrumentation and a new quiet full workload
-  are pending; `/tmp/whip-desktop-performance-readonly-analysis.md` records the
-  exact boundary and does not claim a dominant cause. The 350 MiB figure is an
+  A later focused run retains all seven groups and reports all40 native events,
+  but p95 remains72ms. Its end-of-work natural RSS is1,596,864KiB; earlier tab
+  checkpoints did force GC. A42.43second inspection pause also followed stream
+  startup, so that run does not establish unchanged temporal stream overlap.
+  [The performance audit](../apps/web/scripts/native-performance-control-audit.md)
+  preserves these boundaries. The harness now reports missing timing entries as
+  unknown and places inspection before streams. Root-cause tracing and final
+  acceptance are pending. The350MiB figure is an
   investigation trigger, not a newly invented hard pass threshold. The performance owner is recording
   subsequent measurements separately.
 - **Physical mobile and signed artifacts:** native exports and backend fixtures
@@ -178,3 +201,23 @@ gateway readiness tests passed in 0.002 seconds. The changed workflow also passe
 `actionlint`. Logs: `/tmp/whip-native-ci-publish.log` and
 `/tmp/whip-native-ci-distributions-unit.log`. The complete hosted distribution
 scenario still needs its final integrated rerun.
+
+## Passive transfer memory attribution
+
+The Desktop performance harness now labels the existing periodic RSS samples
+and adds at most16 passive boundary samples around upload completion, each
+preview removal, document navigation, and the combined content download/native
+save. Each records sampling duration, process RSS, browser heap/DOM totals, and
+numeric connected light-DOM/Markdown/attachment counts. Traversal counts cap
+at100,000 with explicit lower-bound truncation; no DOM nodes or content are
+retained by the probe. These sequential reads are not atomic allocation-owner
+evidence. They run outside the timed transfer keys and never force GC, change
+the workload, delete owners, or relax the50ms typing target. The350MiB memory
+investigation trigger remains an investigation trigger, not a pass/fail limit.
+
+The18 focused Node checks pass, including traversal bounds and diagnostic
+connection teardown on failure/stall. A small actual Chromium/CDP fixture also
+verified mounted attachment removal and subtree counts; its process-memory
+source was stubbed, so it is not a Desktop workload or memory-acceptance result.
+No idle period was added. A later unchanged-workload run must supply phase
+evidence before attributing the existing natural retention to a resource owner.

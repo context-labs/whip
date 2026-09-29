@@ -2,9 +2,11 @@ package browser
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
@@ -175,6 +177,62 @@ func TestNativeHeadlessOwnedProcess(t *testing.T) {
 			}
 			if _, err := os.Stat(filepath.Join(options.Directory, "browser", "profiles", options.Profile)); err != nil {
 				t.Fatal("retained profile missing", err)
+			}
+		})
+	}
+}
+
+func TestNativeLaunchDisplayEnvironmentIsScoped(t *testing.T) {
+	t.Setenv("DISPLAY", ":93")
+	t.Setenv("XAUTHORITY", "/fixture/display authority")
+	t.Setenv("INFERENCE_API_KEY", "must-not-reach-browser")
+	manager := capability.NewProcessManager()
+	t.Cleanup(func() { _ = manager.Close() })
+	executable := filepath.Join(t.TempDir(), "chrome-fixture")
+	script := "#!/bin/sh\nprintf 'DISPLAY=%s\\nXAUTHORITY=%s\\nINFERENCE_API_KEY=%s\\n' \"${DISPLAY-unset}\" \"${XAUTHORITY-unset}\" \"${INFERENCE_API_KEY-unset}\" > environment\n"
+	if err := os.WriteFile(executable, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"dedicated", "headless", "ordinary"} {
+		t.Run(mode, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			directory := t.TempDir()
+			var output string
+			if mode == "ordinary" {
+				process, err := manager.Start(ctx, "ordinary-test", executable, nil, capability.ProcessOptions{
+					Cwd: directory, Stdin: bytes.NewReader(nil), Stdout: io.Discard, Stderr: io.Discard,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer process.Stop()
+				if err := process.Wait(); err != nil {
+					t.Fatal(err)
+				}
+				output = filepath.Join(directory, "environment")
+			} else {
+				options := NativeOptions{
+					Config: browserconfig.Config{Mode: mode, Executable: executable}, Driver: DriverRod,
+					Directory: directory, Profile: "environment-test", ProcessOwner: mode, Processes: manager,
+				}
+				// The fixture exits without an endpoint. OpenNative must join it before
+				// returning the failure, making its recorded launch environment final.
+				if _, err := OpenNative(ctx, t.Context(), options); err == nil || !strings.Contains(err.Error(), "exited before publishing") {
+					t.Fatalf("fixture launch: %v", err)
+				}
+				output = filepath.Join(directory, "browser", "profiles", options.Profile, "environment")
+			}
+			data, err := os.ReadFile(output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "DISPLAY=unset\nXAUTHORITY=unset\nINFERENCE_API_KEY=unset\n"
+			if mode == "dedicated" {
+				want = "DISPLAY=:93\nXAUTHORITY=/fixture/display authority\nINFERENCE_API_KEY=unset\n"
+			}
+			if string(data) != want {
+				t.Fatalf("launch environment = %q, want %q", data, want)
 			}
 		})
 	}

@@ -5668,3 +5668,80 @@ joining/reporting bounded failed-child output passes all SSH race/coverage check
 (5.862s) and the exact hosted integration family and failing shuffle seed
 (23.767s), plus vet and pinned lint 0. Production SSH and all deadlines/assertions
 are unchanged. A fresh hosted Linux/macOS pass is still required.
+
+#### Platform validation follow-through (2026-09-29)
+
+Draft #277 publishes the preceding increment at `1edc9d823`. Hosted run
+36584226063 passes all Linux/macOS race partitions, analysis, evals, mobile,
+Settings and the full UI gate. It exposes two new failures: dedicated Chrome on
+Linux exits before publishing its endpoint, and the Chromium REPL probe reports
+overlapping observations. Other running jobs remain pending in this snapshot.
+
+The Linux launch failure has a concrete cause: the shared process manager
+correctly filters ambient display variables, but dedicated Chrome did not pass
+them explicitly. Repair `d0769783f` supplies only `DISPLAY` and `XAUTHORITY` to
+that owned visible process. A real-process regression fails before the repair
+and passes on macOS and Linux afterward, retaining provider-secret exclusion and
+headless/ordinary process isolation. Full local native-browser acceptance passes
+(browser 15.430s/runtime 12.475s); hosted Linux headed acceptance remains pending.
+
+The next draft branch also keeps Desktop validation running after unrelated
+product failures, while requiring the same verified renderer artifact. The
+required aggregate continues to reject every failed, skipped, cancelled or
+missing dependency. Existing workflow contracts pass all ten cases, including
+executing those aggregate refusal paths, and actionlint passes both workflows.
+This change collects evidence; it does not allow publication or a green aggregate
+after another required check fails.
+
+The isolated native input diagnostic reports all 240 trusted events across six
+cases, with composer p95 of 40ms at each tested draft length. Full-workload p95
+remains 72ms against the 50ms target despite native and DOM focus. Natural final
+RSS is 1,596,864KiB, sampled immediately after work; this is not a leak diagnosis.
+That run had earlier forced-GC tab checkpoints and a 42.43s inspection pause after
+streams started. Its limits and exact artifact are in
+[the performance audit](../apps/web/scripts/native-performance-control-audit.md).
+
+Subsequent instrumentation now pauses before streams, reports missing timing
+entries as unknown, and samples tab retention passively. Forced GC remains only
+an explicitly requested final diagnostic, excluded from acceptance. All eleven
+keyboard/retention contracts pass locally (10.038s) and are included in the normal
+performance gate. A new trace and final unchanged-workload measurement are still
+required; functional success does not close the measured performance gap.
+
+The same hosted run subsequently passes the full browser gate and both repaired
+SSH integration blocks (Linux 54.316s/macOS 48.928s). Both client jobs fail later
+at the final packaged-runtime fixture: Task's embedded shell rejects the named
+`HUP` signal trap before executing either Go command. Explicit Bash now owns
+that unchanged fixture block. An exact-block Task reproduction fails before the
+repair and passes afterward, including cleanup on successful execution, failed
+build and failed test, with no test after failed build. The actual packaged
+runtime integration passes in 3.413s with unchanged race/shuffle/engine assertions
+and two-minute deadline (`/tmp/whip-platform-runtime-fixture.log`). No product
+runtime behavior or test requirement changed.
+
+Hosted #277 run36584226063 finishes at `1edc9d823` with34 passed jobs, four failed
+leaf jobs, two propagated aggregate failures and skipped Desktop. The four
+leaves are exactly Linux dedicated Chrome, the REPL observation assertion and
+the Task trap in both client jobs. Full product-browser validation passes;
+Desktop supplies no hosted evidence because the parent workflow skipped it.
+The final remote record is `/tmp/whip-277-final-summary.md`.
+
+REPL diagnostics now retain bounded document/runtime/epoch/owner and raw socket
+overlap evidence before asserting, and their output directory matches hosted
+artifact collection. All original assertions and deadlines remain. Both local
+browsers pass ten workflow groups with one observation per owner; seven focused
+probe checks also cover refused sends/closes and lifecycle bounds. The hosted
+failure is not reproduced or declared fixed. These checks and the existing
+Desktop performance helper contracts now participate in their normal gates.
+All32 diagnostic contracts pass together in10.045s; injected Safari-driver tests
+required loopback access and never opened Safari or enabled Remote Automation.
+
+The measured long-draft parser fast path is integrated as `2c38fdfaa`. It preserves
+14,884 compared parsing cases and reduces the isolated 255,543-character ordinary
+text scan median from2.188ms to0.072ms; valid long-prose triggers are unchanged.
+Complete shared app types and1,388 tests across114 files pass in26.40s on the
+combined increment. The native50ms typing target remains open: the comparable
+baseline stopped before typing when a cached child jumped from its saved reading
+anchor to the tail after seven successful restores. Its retained failure and
+joined cleanup are recorded in the performance audit. No new UI-latency result
+or leak diagnosis is inferred from the parser microbenchmark.

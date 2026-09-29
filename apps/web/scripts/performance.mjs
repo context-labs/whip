@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { chromium } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
@@ -7,6 +7,7 @@ import { createSessionView } from '../../../packages/sdk/dist/state.js';
 import { checkComposerReading } from './composer-reading.mjs';
 import { traceInput } from './performance-trace.mjs';
 import { sampleBrowserRetention } from './performance-retention.mjs';
+import { keyboardResult } from './performance-keyboard.mjs';
 import { deadline, eventually } from './native-fixture.mjs';
 import { startHistoryFixture } from './native-history-fixture.mjs';
 
@@ -453,6 +454,14 @@ const frame = () =>
   if (await page.getByRole('button', { name: 'Latest', exact: true }).count()) await page.getByRole('button', { name: 'Latest', exact: true }).click();
   await frame();
   if (desktop) metrics.desktopBeforeStreams = await host.processMemory('near-limit-drafts-before-streams');
+  if (desktop && process.env.WHIP_WEB_PERFORMANCE_INSPECT === '1') {
+    await writeFile(join(directory, 'inspection-ready.json'), JSON.stringify({ pid: host.pid,
+      app: resolve('node_modules/electron/dist/Electron.app'), rootId: fixture.history.root_id }, null, 2), { mode: 0o600 });
+    console.log(`Awaiting owned-window inspection: ${directory}`);
+    await eventually(async () => (await readFile(join(directory, 'inspection-release'), 'utf8')) === 'continue\n',
+      { timeout: 45000, interval: 100, description: 'explicit diagnostic inspection release' });
+    metrics.nativeInspection = 'Opt-in pause released before keyboard cases; external owned-window observation/focus evidence must be recorded separately.';
+  }
   console.log('Measuring typing and accepted inputs under 16 actual provider streams');
   const concurrent = [];
   for (let index = 0; index < 15; index++) {
@@ -526,8 +535,8 @@ const frame = () =>
     // threshold and would lose the faster keyboard samples in this population.
     eventObserver.observe({ type: 'event', durationThreshold: 16 });
     window.__finishPerformanceKeyboard = () => {
-      if (document.visibilityState !== 'visible')
-        throw new Error('Browser page became hidden during keyboard timing');
+      if (document.visibilityState !== 'visible' || !document.activeElement?.hasAttribute('data-whip-composer'))
+        throw new Error('Browser page became hidden or composer lost focus during keyboard timing');
       collectEntries(eventObserver.takeRecords());
       eventObserver.disconnect();
       document.removeEventListener('keydown', recordKeydown, true);
@@ -604,85 +613,35 @@ const frame = () =>
     streamingMutations: input.streamingMutations,
   };
   const keyboard = input.keyboard;
-  assert.equal(keyboard.overflow, false);
-  assert.ok(
-    keyboard.droppedEntries === null || keyboard.droppedEntries === 0,
-    'Native EventTiming reports dropped entries',
-  );
-  assert.equal(keyboard.keydowns.length, 40);
-  assert.equal(keyboard.browserEventCount, 40);
-  assert.ok(keyboard.keydowns.every((event) => event.trusted));
-  const matchedEntries = new Set();
-  const keyDurations = keyboard.keydowns.map((event) => {
-    const matches = keyboard.entries.filter(
-      (entry) => Math.abs(entry.startTime - event.startTime) <= 0.2,
-    );
-    assert.ok(matches.length <= 1, 'Ambiguous native keyboard timing identity');
-    if (!matches.length) return null;
-    const entry = matches[0];
-    assert.ok(!matchedEntries.has(entry), 'Native entry matched multiple keys');
-    matchedEntries.add(entry);
-    assert.ok(entry.duration >= 16);
-    assert.equal(entry.duration % 8, 0, 'Unexpected native duration quantization');
-    assert.ok(entry.interactionId > 0);
-    assert.ok(Number.isFinite(entry.processingStart) && entry.processingStart >= entry.startTime);
-    assert.ok(Number.isFinite(entry.processingEnd) && entry.processingEnd >= entry.processingStart);
-    return entry.duration;
-  });
-  // Unknown slow entries within our measured input interval must fail, rather
-  // than being silently dropped and making the resulting percentile optimistic.
-  assert.ok(
-    keyboard.entries.every(
-      (entry) =>
-        matchedEntries.has(entry) ||
-        entry.startTime < keyboard.keydowns[0].startTime - 0.2 ||
-        entry.startTime > keyboard.keydowns.at(-1).startTime + 0.2,
-    ),
-    'Unmatched native keyboard timing inside the measured input interval',
-  );
-  const observedDurations = keyDurations.filter((duration) => duration !== null);
-  const censoredCount = keyDurations.length - observedDurations.length;
-  const rounded = observedDurations.slice().sort((a, b) => a - b);
-  const p95Rank = Math.ceil(keyDurations.length * 0.95);
-  const lower = summarize(
-    keyDurations.map((value) => value === null ? 0 : Math.max(0, value - 4)),
-  );
-  const upper = summarize(
-    keyDurations.map((value) => value === null ? 20 : value + 4),
-  );
+  const classified = keyboardResult({ keys: keyboard.keydowns, entries: keyboard.entries,
+    phases: keyboard.eventPhases, frames: input.samples, overflow: keyboard.overflow,
+    dropped: keyboard.droppedEntries ?? 0, browserEventCount: keyboard.browserEventCount,
+    // finishPerformanceKeyboard and the Desktop guard above already verify these.
+    visible: true, focused: true });
+  const matchedEntries = keyboard.entries.filter(entry => keyboard.keydowns.some(key => Math.abs(key.startTime - entry.startTime) <= 0.2));
   metrics.drafts.keyboardToNextPaintMilliseconds = {
-    count: keyDurations.length,
-    trustedKeydowns: keyboard.keydowns.length,
-    browserEventCount: keyboard.browserEventCount,
-    reportedCount: observedDurations.length,
-    censoredCount,
-    p95Rounded:
-      p95Rank > censoredCount ? rounded[p95Rank - censoredCount - 1] : null,
-    medianBounds: { lower: lower.median, upper: upper.median },
-    p95Bounds: { lower: lower.p95, upper: upper.p95 },
-    maxBounds: { lower: lower.max, upper: upper.max },
-    observed: summarize(observedDurations),
-    reportingThresholdMilliseconds: 16,
-    durationQuantizationMilliseconds: 8,
-    censoredUpperBoundMilliseconds: 20,
+    count: classified.count, trustedKeydowns: keyboard.keydowns.length,
+    browserEventCount: keyboard.browserEventCount, reportedCount: classified.reported,
+    missingCount: classified.missing, p95Rounded: classified.p95Rounded,
+    medianBounds: { lower: classified.lower.median, upper: classified.upper.median },
+    p95Bounds: { lower: classified.lower.p95, upper: classified.upper.p95 },
+    maxBounds: { lower: classified.lower.max, upper: classified.upper.max },
+    observed: classified.reportedDistribution,
+    reportingThresholdMilliseconds: 16, durationQuantizationMilliseconds: 8,
     droppedEntries: keyboard.droppedEntries,
     reportedPhases: {
       eventPhases: keyboard.eventPhases,
-      inputDelay: summarize([...matchedEntries].map(entry => entry.processingStart - entry.startTime)),
-      processing: summarize([...matchedEntries].map(entry => entry.processingEnd - entry.processingStart)),
+      inputDelay: summarize(matchedEntries.map(entry => entry.processingStart - entry.startTime)),
+      processing: summarize(matchedEntries.map(entry => entry.processingEnd - entry.processingStart)),
       presentationRemainderBounds: {
-        lower: summarize([...matchedEntries].map(entry => Math.max(0, entry.duration - 4 - (entry.processingEnd - entry.startTime)))),
-        upper: summarize([...matchedEntries].map(entry => Math.max(0, entry.duration + 4 - (entry.processingEnd - entry.startTime)))),
+        lower: summarize(matchedEntries.map(entry => Math.max(0, entry.duration - 4 - (entry.processingEnd - entry.startTime)))),
+        upper: summarize(matchedEntries.map(entry => Math.max(0, entry.duration + 4 - (entry.processingEnd - entry.startTime)))),
       },
-      samples: [...matchedEntries],
-      boundary: 'Reported keydown entries only, excluding threshold-censored events. Native processing timestamps separate input delay and keydown dispatch; the remaining rounded duration includes later input/default actions and browser rendering, not solely paint. Overall percentile bounds above still include all 40 keys.',
+      samples: matchedEntries,
+      boundary: 'Reported keydown entries only. Native processing timestamps separate input delay and keydown dispatch; remaining rounded duration includes later input/default actions and browser rendering, not solely paint. Overall percentile bounds above retain all 40 keys, including unknown missing events.',
     },
-    boundary:
-      'Native PerformanceEventTiming duration from trusted keyboard keydown timestamp through the next browser rendering completion, rounded to 8ms; a browser next-paint estimate, not physical display timing.',
-    censoring:
-      'All 40 keydowns are retained. Entries below the 16ms reporting threshold are absent; each absent value is conservatively bounded to 0–20ms including the 4ms rounding allowance. Percentile bounds include both reported and censored events. A rounded p95 is supplied only when its rank is represented by reported entries.',
-    deliveryCheck:
-      'Observer installed before typing at the minimum threshold; trusted capture count and browser eventCounts both equal 40. After each keyup two animation frames elapse; final frames, 250ms observer drainage, takeRecords and dropped-entry/identity checks guard against silently losing slow entries.',
+    boundary: classified.boundary,
+    deliveryCheck: 'Observer installed before typing at the minimum threshold; trusted capture count and browser eventCounts both equal 40. After each keyup two animation frames elapse; final frames, 250ms observer drainage, takeRecords and dropped-entry/identity checks guard against silent loss. A missing entry remains unknown rather than being presumed fast.',
     reference: 'https://www.w3.org/TR/event-timing/',
   };
   metrics.eventReceivedToDOMMilliseconds = summarize(input.eventLatency);

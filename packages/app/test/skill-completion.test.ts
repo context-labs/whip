@@ -21,6 +21,21 @@ describe('slash skill token parsing', () => {
     expect(skillTrigger('/pony', 0)).toBeNull();
     expect(skillTrigger('/pony', 100)).toBeNull();
   });
+  it('ignores long ordinary text and a slash that only appears after the caret', () => {
+    const text = 'a'.repeat(255543);
+    expect(skillTrigger(text, text.length)).toBeNull();
+    expect(skillTrigger(text + '/later', text.length)).toBeNull();
+    expect(skillTrigger('🙂'.repeat(32000), 64000)).toBeNull();
+  });
+  it('keeps exact slash, whitespace and middle-token caret boundaries', () => {
+    const text = 'earlier /old\n\t\u2003/pony later';
+    const from = text.indexOf('/pony');
+    expect(skillTrigger(text, from)).toBeNull();
+    expect(skillTrigger(text, from + 1)).toEqual({ start: from, end: from + 5, caret: from + 1, prefix: '' });
+    expect(skillTrigger(text, from + 3)).toEqual({ start: from, end: from + 5, caret: from + 3, prefix: 'po' });
+    expect(skillTrigger(text, text.length)).toBeNull();
+    expect(skillTrigger(text, from + 1, from + 3)).toBeNull();
+  });
   it('replaces the entire token, preserves surrounding whitespace and supports UTF-16', () => {
     const text = '🙂 /pony\nnext';
     expect(insertSkill(text, skillTrigger(text, 6)!, '$ponytail')).toEqual({ text: '🙂 $ponytail\nnext', caret: 13 });
