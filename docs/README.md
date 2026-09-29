@@ -33,8 +33,9 @@ responses and has no external provider credentials. Follow the
 Normal model work requires an explicitly configured host provider.
 
 The supported CLI controls a native runtime with `whipcode daemon
-status|start|stop|restart|logs`. `whipcode web` discovers an explicitly enabled
-gateway; it does not start or replace a runtime. Native storage lives in the
+status|start|stop|restart|logs`. With an existing native runtime, `whipcode web`
+starts its own foreground gateway. `whipcode web --url <origin>` checks and opens
+an existing gateway. Neither mode starts or replaces a runtime. Native storage lives in the
 fresh `runtime-v4` namespace. Retired configuration, protocols and stores are not
 compatibility inputs and remain untouched.
 

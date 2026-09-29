@@ -96,7 +96,10 @@ and `_web-gateway` entry points are rejected; the CLI removal and replacement
 evidence are mapped in [native CLI disposition](backend-native-cli-disposition.md).
 
 The native gateway serves the packed shared renderer, discovery, WebSocket and
-scoped content routes. Host/Origin checks are not authentication; network trust
+scoped content routes. `whipcode web` owns a foreground gateway attached to an
+existing native host; `WHIPCODE_NETWORK=1` instead opts runtime startup into an
+in-process managed gateway. Each gateway stays pinned to its original runtime
+identity and process epoch. Host/Origin checks are not authentication; network trust
 must be explicit. Remote browser clients do not gain local terminal authority.
 Desktop's native bridge and mobile's native renderer share the same backend and
 SDK contracts. No frontend owns a provider loop, raw database or parallel copy

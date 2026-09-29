@@ -233,7 +233,7 @@ These are current defaults, not permission to grow a collection without review.
 | ExecutionView beside a session | 16 turns / 128 cells / 512 operations / 4 MiB |
 | TraceView | 1,024 rows / 64 trace roots / 1 MiB; at most eight app leases, unused expiry 30 seconds |
 | Workspace | 32 tabs / four panes / 64 KiB saved layout; browser tabs additionally capped at eight |
-| Unsent text drafts | 32 / 1 MiB encoded total; storage conflicts and capacity remain visible |
+| Unsent text drafts | 32 / 1 MiB encoded total / 256 KiB each; unowned then oldest drafts are evicted at capacity, excluding the draft being edited; storage failures remain visible |
 | Browser/desktop recovery journal | 64 records / 8 MiB total / 4 MiB per record; unresolved records are never evicted to send another request |
 | Query defaults | 10-second freshness, zero inactive retention, no automatic retry/focus/reconnect refresh |
 | New Chat host metadata | Explicit inventory/catalog/defaults/definition/import keys retain five minutes; host detach clears them |

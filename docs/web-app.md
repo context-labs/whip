@@ -7,14 +7,15 @@ behavior, local setup, deployment boundaries, and validation evidence.
 The browser attaches to Local and any saved remote daemons concurrently. Each
 daemon owns its execution, credentials, permissions and durable sessions; closing
 a browser does not cancel its work. Multiple clients can use the same daemon
-concurrently. This first release is
-focused on conversations and directing agents. Editors, code review and
-standalone terminals remain later work.
+concurrently. The shared app includes conversation, REPL, trace and human
+terminal tabs; Desktop also owns native browser tabs. Terminal access requires
+the host capability and client authority described in the frontend guide.
 
 Draft text is application-owned and saved separately from command recovery
 metadata. Draft admission allows 32 non-empty drafts, 256 KiB each and 1 MiB
-total, scoped by runtime, session and recipient. At the bounds, the earliest drafts
-that no open or recently closed tab owns are dropped silently. Changes are saved after 150 ms and
+total, scoped by runtime, session and recipient. At the bounds, drafts with no
+open or recently closed tab are dropped first, then the earliest stored drafts;
+the draft being edited is retained. This eviction is silent. Changes are saved after 150 ms and
 flushed synchronously when leaving the page. Each recipient has its own storage
 entry, so saving one tab never overwrites another recipient's draft. Competing
 edits to the same recipient use the last explicit write. Reconnecting never
@@ -29,8 +30,13 @@ A missing command acknowledgement locks the matching draft against a new-ID
 resend while the app checks authoritative status. Accepted commands continue to
 completion; a definitive missing record offers an explicit retry with the original
 identity and payload. Failed lookups remain unresolved and are shown beside the
-composer that sent them. Stored identities contain no prompts and are bounded to
-1024 records; the earliest is dropped when the journal is full.
+composer that sent them. The native recovery journal retains the exact request,
+including its submitted payload, and its original runtime/client/request identities. It is separate from
+unsent drafts and bounded to 64 records, 8 MiB total and 4 MiB per record. Full or
+unavailable storage blocks new delivery with an actionable error; unresolved
+requests are never evicted to send another. Persistent writes require shared
+storage locking. Recovery does not silently retarget another runtime or replay
+uncertain work.
 
 ## Multiple execution hosts
 
@@ -41,7 +47,8 @@ app opens. **Save and connect** verifies its runtime identity. The app connects
 directly from the browser; it does not install a daemon, open SSH tunnels, or
 change listeners.
 
-Saved profiles live in `~/.whipcode/config.json` or `$WHIPCODE_HOME/config.json`
+Saved profiles live in `~/.whipcode/runtime-v4/host.json` or
+`$WHIPCODE_HOME/runtime-v4/host.json`
 under `remote_hosts`. Each entry contains an
 ID, name, URL, verified `runtime_id`, and `connect_on_launch`. The existing config
 revision check protects concurrent edits. Browsers using the same Local daemon
@@ -104,7 +111,8 @@ create nested splits, and Escape cancels. Move-to-pane menu actions provide a
 keyboard alternative. Pane dividers resize with dragging or arrow keys. Closing
 the last tab in a pane removes that pane. Up to four panes fit within the window;
 small available sizes temporarily show the focused pane without changing the saved
-tree. Other tab types and detached windows remain later work.
+tree. REPL, trace, terminal and Desktop browser tabs share this layout; detached
+windows remain separate from the saved split tree.
 
 Each strip supports drag reordering, close/close others/close right, Move left/right,
 Copy session link, and Reopen closed tab. Closing selects the right neighbor, then
@@ -128,8 +136,10 @@ If storage writes fail, layouts remain in memory and the originals stay
 recoverable on reload.
 
 Only the selected conversation in each visible pane mounts. Duplicate views of
-the same runtime/root share observation; at most four distinct roots across all
-hosts stay warm for 30 seconds after release, with least-recently-used eviction.
+the same runtime/session share observation. The app retains at most 16 session
+view leases, each bounded to 256 messages and 4 MiB with explicit history gaps.
+Unused leases expire after 30 seconds or make room for a new view. Opening
+another view when all 16 leases are in use reports the capacity limit.
 Reading anchors and composer selection are bounded memory hints; history changes fall
 back visibly to retained content instead of fetching unbounded history.
 
@@ -141,13 +151,13 @@ and attachments. Explicitly detaching a host interrupts only its transfers and
 marks its attachment references unavailable. Explicit removal and accepted
 submission clear the corresponding attachment state.
 
-The negotiated `session_summaries` capability supplies tab titles and
-running/queued agent and pending permission/question counts without opening each
-root. The window batches each host’s open IDs into a separate query every two
-visible seconds; that host’s lifecycle events coalesce refreshes. Polling pauses
-when hidden or when its source host disconnects. An unavailable host/capability or failed lookup shows unknown activity;
-authoritative missing roots show unavailable. A quiet tab is not a promise that
-all descendants, schedules or future work are complete.
+The native `trees.summaries` query supplies tab titles and running/queued agent
+and pending permission/question counts without opening each session's history.
+The window batches each host's open root IDs into a separate query every two
+visible seconds and refreshes on browser focus. Polling pauses when hidden or
+when its source host disconnects. An unavailable host or failed lookup shows
+unknown activity; authoritative missing roots show unavailable. A quiet tab is
+not a promise that all descendants, schedules or future work are complete.
 
 ## Conversation actions
 
@@ -203,10 +213,10 @@ including port `0`, bind exactly as requested; failed fixed binds never silently
 move. The default does not expose a LAN interface or configure Tailscale.
 
 Without `--url`, `whipcode web` requires an already running compatible daemon. It never starts,
-replaces, restarts or reconfigures one. A gateway needs the daemon's negotiated
-`network-client-v1` capability; an older daemon fails closed with upgrade guidance,
-not a fallback to trusted local privileges. Upgrade an incompatible daemon
-explicitly when interrupting its work is acceptable. Merely enabling web access
+replaces, restarts or reconfigures one. A gateway verifies protocol major 4 and
+pins the native runtime identity and process epoch. Its upstream connections are classified as network clients;
+an incompatible daemon fails closed without local-client privileges. Upgrade
+an incompatible daemon explicitly when interrupting its work is acceptable. Merely enabling web access
 to a compatible daemon never requires a restart.
 
 ### Optional managed startup
@@ -216,25 +226,24 @@ WHIPCODE_NETWORK=1 whipcode daemon start
 whipcode daemon status --json
 ```
 
-`WHIPCODE_NETWORK=1` opts daemon launch paths into starting the **same gateway** as
-an owned child after the socket is ready, without opening a browser. With
-`WHIPCODE_NETWORK` unset or `0`, no gateway is auto-started; explicit `whipcode web` still
-works. `WHIPCODE_LISTEN` configures the gateway bind but is not itself an opt-in.
-The whipcode distribution uses the equivalent `WHIPCODE_*` settings.
+`WHIPCODE_NETWORK=1` opts native daemon launch into an in-process gateway after
+the socket is ready, without opening a browser. With `WHIPCODE_NETWORK` unset or
+`0`, no gateway is auto-started; explicit `whipcode web` still works.
+`WHIPCODE_LISTEN` configures the bind but is not itself an opt-in.
 
-The `gateway.status` protocol query separates managed web state from daemon
-health. `init.network_endpoint` and daemon status's `network_endpoint` report
-only a ready managed endpoint, not foreground instances; foreground commands
-print their own URL. A managed failure clears the advertised endpoint, reports
-the web error, and leaves the daemon available. CLI JSON status includes
-`gateway: {state, endpoint?, error?}` and `gateway_log`;
-`whipcode daemon logs --web` reads the managed gateway's `runtime-v2/web.log` under
-the selected distribution home, alongside `daemon.log` (use `gateway_log` for
-the exact path). A managed-start failure reports an unsuccessful web startup
-without making a healthy daemon unavailable. There is no automatic child
-restart loop: run a foreground `whipcode web` for non-disruptive recovery. The parent
-reaps its child on orderly exit; lifetime-pipe EOF also stops the child after
-abrupt parent loss. A gateway never follows a replacement daemon.
+`whipcode daemon status --json` reports managed web state in
+`process.web_state`, `process.web_endpoint` and `process.web_error`, separate
+from the top-level host state. Only a ready managed gateway advertises an
+endpoint; independent foreground gateways print their own URL. A managed
+startup failure leaves the native host available and reports the web error.
+The JSON `log` field identifies the shared `runtime-v4/runtime.log`;
+`whipcode daemon logs --web` reads that same host log.
+
+The runtime owns its managed gateway's lifetime. A foreground gateway retains a
+verified connection to its original host and stops if that generation is lost;
+neither kind follows a replacement runtime. There is no automatic gateway
+restart loop. A foreground `whipcode web` can provide access without restarting
+a healthy native host.
 
 Starting an already running daemon retains its original launch configuration.
 An explicit daemon restart can apply changed managed-start settings, but it
@@ -264,7 +273,7 @@ task build
 ```
 
 `task build` builds the web workspace, copies its output into `internal/webassets/dist`,
-and embeds it in `./whip`. `task install` packages the same application before
+and embeds it in `./whipcode`. `task install` packages the same application before
 installing the binary. Generated assets are ignored; the tracked placeholder lets
 plain `go build ./cmd/whip` work without Node. Such a build reports an actionable
 missing-assets error when no browser bundle has been packaged.
@@ -274,7 +283,7 @@ For individual packaging steps:
 ```sh
 npm run build:web
 node scripts/pack-web.mjs
-go build -o whip ./cmd/whip
+go build -o whipcode ./cmd/whip
 ```
 
 When replacing a running source-built daemon, use your rebuilt binary explicitly:
@@ -314,7 +323,7 @@ WHIP_WEB_DAEMON=http://127.0.0.1:4444 npm run dev:web
 ```
 
 For another endpoint, use the foreground gateway's printed HTTP(S) origin, or a
-ready managed `network_endpoint` from `whipcode daemon status --json`. If the
+ready managed `process.web_endpoint` from `whipcode daemon status --json`. If the
 implicit-4444 bind fell back, override Vite's target with that printed origin. The
 `WHIP_WEB_DAEMON` name is retained for compatibility, but its target is the
 **gateway**. Starting Vite does not start or restart either process. A daemon
@@ -336,12 +345,12 @@ configuration.
 
 If Vite reports WebSocket proxy errors (`EPIPE`) and the app stays reconnecting,
 check that the gateway is running and the daemon is compatible. The daemon must
-match the protocol major in `internal/legacy/protocol/types.go` and support the gateway's
-`network-client-v1` handshake. An incompatible daemon requires an intentional
+match the native protocol major in `internal/protocol` and support the gateway’s
+network-classified handshake. An incompatible daemon requires an intentional
 upgrade using its original distribution and home. Stopping it interrupts active
 work; do not reset a compatible database for a protocol or origin mismatch.
 
-`GET /api/v3/web` on the gateway reports its protocol, asset availability and web
+`GET /api/v4/web` on the gateway reports its protocol, asset availability and web
 paths. A 404 can indicate unavailable discovery or a development proxy rejecting
 Host/Origin. A direct-gateway 403 with `origin is not allowed` means that exact
 browser origin must be allowed at gateway startup; requests through the local
@@ -394,14 +403,14 @@ from **Color theme**; it does not change WHIP's typography or layout. As with
 other themes, low-contrast text receives the browser's accessibility adjustment.
 
 While connected, **Custom themes** lists JSON themes from the execution host's
-`WHIPCODE_HOME/themes` directory. **Import theme JSON** accepts the existing TUI format
+`WHIPCODE_HOME/runtime-v4/themes` directory. **Import theme JSON** accepts the existing TUI format
 up to 64 KiB. The host resolves the colors and Chroma styles; the selected result
 is cached on the viewing device. Importing does not write a theme file or change
 the TUI's selected theme. Browser contrast adjustments preserve the source palette.
 
 ## Asset and protocol boundaries
 
-`GET /api/v3/web` reports whether assets are available, the protocol major and the
+`GET /api/v4/web` reports whether assets are available, the protocol major and the
 relative WebSocket/content paths. It uses the same host/origin checks as runtime
 traffic. Browser history routes fall back to the embedded application; unknown API
 and asset paths return 404. HTML is revalidated, hashed Vite assets are immutable,
@@ -416,10 +425,12 @@ runtime-management behavior of `whipcode web`.
 
 ## Validation and measured behavior
 
-The dated records below describe their original frontend builds; they are not
-acceptance evidence for the gateway migration. Current migration checks and any
-unperformed device/manual acceptance are tracked separately in the
-[gateway acceptance plan](../.ai-docs/plans/web-gateway/README.md).
+The dated records below are historical evidence for their original frontend
+builds. They do not establish native-backend, Safari, physical-phone or remote-host
+acceptance for this redesign. Current exact revisions, production fixture
+results and remaining limits are recorded in the
+[redesign development record](backend-redesign-development.md) and
+[accepted plan](backend-redesign-plan.md).
 
 ### Multiple execution hosts — September 8, 2026
 
