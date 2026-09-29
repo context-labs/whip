@@ -19,11 +19,10 @@ func TestExecutionAndClientImportBoundaries(t *testing.T) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	const prefix = "github.com/context-labs/whip/internal/"
 	allowed := map[string]map[string]bool{
-		"gateway":    {"protocol": true},
-		"hostmodule": {},
-		"engine/process": {"engine": true, "engine/quickjs": true, "gateway": {"protocol": true},
-			"hostmodule": true},
-		"model": {"session": true, "openaiauth": true, "inferenceauth": true}, "runner": {"session": true, "model": true},
+		"gateway":        {"protocol": true},
+		"hostmodule":     {},
+		"engine/process": {"engine": true, "engine/quickjs": true, "hostmodule": true},
+		"model":          {"session": true, "openaiauth": true, "inferenceauth": true}, "runner": {"session": true, "model": true},
 		// Credentials remain a host-owned leaf, independent of session execution.
 		"openaiauth":       {},
 		"inferenceauth":    {},

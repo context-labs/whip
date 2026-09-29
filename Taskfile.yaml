@@ -5,7 +5,7 @@ vars:
     sh: printf 'dev+%s' "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
   LDFLAGS: -X main.version={{.VERSION}}
   # Fast domain/runtime checks; all tests in these packages are required.
-  REDESIGN_PACKAGES: ./internal/schedule ./internal/content ./internal/session ./internal/hostmodule ./internal/store ./internal/config ./internal/protocol ./internal/model ./internal/openaiauth ./internal/inferenceauth ./internal/inferenceaccount ./internal/providerhost ./internal/account ./internal/runner ./internal/tool ./internal/instruction ./internal/skills ./internal/capability ./internal/lsp ./internal/lspconfig ./internal/workspace ./internal/runtime ./internal/rpc ./internal/client ./internal/engine ./internal/engine/quickjs ./cmd/whip-contract ./cmd/whip-runtime
+  REDESIGN_PACKAGES: ./internal/gateway ./internal/schedule ./internal/content ./internal/session ./internal/hostmodule ./internal/store ./internal/config ./internal/protocol ./internal/model ./internal/openaiauth ./internal/inferenceauth ./internal/inferenceaccount ./internal/providerhost ./internal/account ./internal/runner ./internal/tool ./internal/instruction ./internal/skills ./internal/capability ./internal/lsp ./internal/lspconfig ./internal/workspace ./internal/runtime ./internal/rpc ./internal/client ./internal/engine ./internal/engine/quickjs ./cmd/whip-contract ./cmd/whip-runtime
   # Process containment stress tests run in full at the change/CI boundary.
   REDESIGN_INTEGRATION_PACKAGES: ./internal/engine/process
   REDESIGN_ALL_PACKAGES: '{{.REDESIGN_PACKAGES}} {{.REDESIGN_INTEGRATION_PACKAGES}}'
@@ -117,7 +117,9 @@ tasks:
       - task: check:fast
       - go build {{.REDESIGN_ALL_PACKAGES}}
       - go vet {{.REDESIGN_ALL_PACKAGES}}
-      - go test -race -shuffle=on -count=1 -timeout=10m {{.REDESIGN_ALL_PACKAGES}}
+      # Race-instrumented SQLite and subprocess suites are CPU/memory intensive.
+      # Bound concurrent package binaries rather than weakening their deadlines.
+      - go test -p=2 -race -shuffle=on -count=1 -timeout=10m {{.REDESIGN_ALL_PACKAGES}}
       - task: contract
       - task: sdk
       - task: check:fixture
@@ -127,6 +129,7 @@ tasks:
     cmds:
       - npm run build
       - node --test --test-concurrency=1 scripts/redesign/v4-fixture.test.mjs
+      - node --test --test-concurrency=1 scripts/redesign/gateway-fixture.test.mjs
       - node --test --test-concurrency=1 scripts/redesign/fixture.test.mjs
 
   check:analysis:
