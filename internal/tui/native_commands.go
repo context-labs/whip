@@ -76,6 +76,8 @@ func (m *nativeModel) command(text string) tea.Cmd {
 		}
 		m.status = "No uncertain action is retained in this terminal."
 		return nil
+	case "/memory":
+		return m.memory(args)
 	case "/status":
 		return m.control("Session status", false, func(ctx context.Context) nativeControlResult {
 			owner, err := m.handle.Get(ctx)

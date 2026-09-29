@@ -75,6 +75,9 @@ type nativeModel struct {
 	controlling                     bool
 	retryControl                    tea.Cmd
 	generation                      uint64
+	notesHome                       string
+	noteRevisions                   [2]string
+	notice                          string
 }
 
 type (
@@ -265,6 +268,21 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "Accepted input " + string(value.admission.Input.ID)
 			}
 		}
+	case nativeNotesResult:
+		m.controlling = false
+		if value.err != nil {
+			m.status = "Local notes: " + value.err.Error() + "; list again before any further edit."
+			m.noteRevisions = [2]string{}
+		} else {
+			for i, snapshot := range value.values {
+				if snapshot != nil {
+					m.noteRevisions[i] = snapshot.Revision
+				}
+			}
+			m.status = "Client-local notes"
+			m.notice = nativeNotesText(value.values)
+			m.refresh()
+		}
 	case nativeControlResult:
 		m.controlling = false
 		if value.mutation {
@@ -360,6 +378,8 @@ func (m *nativeModel) prompt(text, delivery string) tea.Cmd {
 		return nil
 	}
 	m.input.Reset()
+	m.notice = ""
+	m.refresh()
 	return m.sendInput(command, "send")
 }
 
@@ -456,6 +476,10 @@ func (m *nativeModel) refresh() {
 		if p.Truncated {
 			rows = append(rows, "Output preview truncated.")
 		}
+	}
+	if m.notice != "" {
+		rows = append(rows, "", "Terminal command output · not conversation history")
+		appendText(m.notice)
 	}
 	if truncated {
 		rows = append(rows[:min(len(rows), 65536)], "Display row limit reached; complete message bodies remain in canonical history.")
