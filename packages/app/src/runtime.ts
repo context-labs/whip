@@ -652,8 +652,14 @@ export class AppRuntime {
         throw new RecoveryError('The available receipt does not establish the exact original request; inspect the saved recovery record');
       }
       // Input admissions and edit receipts have different native result shapes.
-      if (handle.method === 'workspace.capture' || handle.method === 'workspace.restore' || handle.method === 'workspace.release')
-        return { action: result.evidence } as Operations[M]['result'];
+      if (handle.method === 'workspace.capture' || handle.method === 'workspace.restore' || handle.method === 'workspace.release') {
+        const action = result.evidence;
+        if (!client || !('snapshot_id' in action)) throw new RecoveryError('Workspace receipt is unavailable');
+        const snapshot = await client.getWorkspaceSnapshot(action.session_id, action.snapshot_id, { signal });
+        if (snapshot.id !== action.snapshot_id || snapshot.session_id !== action.session_id)
+          throw new RecoveryError('Workspace snapshot does not belong to the accepted action');
+        return { action, snapshot } as Operations[M]['result'];
+      }
       return result.evidence as Operations[M]['result'];
     };
     const observe = async (mode: 'initial' | 'check' | 'retry'): Promise<Operations[M]['result']> => {

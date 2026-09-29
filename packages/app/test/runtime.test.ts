@@ -5,7 +5,7 @@ import { AppRuntime } from '../src/runtime';
 import { createFallbackStorage, type AppStorage } from '../src/platform';
 
 const mocks = vi.hoisted(() => ({
-  client: { runtimeID: 'runtime', clientID: 'client', listProviders: vi.fn(async () => ({ revision: '1', defaults: null, routes: [] })), session: vi.fn((id: string) => ({ id })) },
+  client: { runtimeID: 'runtime', clientID: 'client', getWorkspaceSnapshot: vi.fn(), listProviders: vi.fn(async () => ({ revision: '1', defaults: null, routes: [] })), session: vi.fn((id: string) => ({ id })) },
   createView: vi.fn(() => ({ start: vi.fn(async () => {}), suspend: vi.fn(async () => {}), reconnect: vi.fn(async () => {}), dispose: vi.fn(async () => {}) })),
   createExecution: vi.fn(() => ({ start: vi.fn(async () => {}), suspend: vi.fn(async () => {}), reconnect: vi.fn(async () => {}), dispose: vi.fn(async () => {}) })),
   listeners: new Set<() => void>(), catalogRevision: '1',
@@ -352,4 +352,27 @@ it('reconciles exact steering edit evidence without requiring an input-admission
   expect(await app.run(handle, 'Steer input', accepted)).toEqual(evidence);
   expect(handle.send).toHaveBeenCalledOnce(); expect(handle.check).toHaveBeenCalledOnce(); expect(handle.retry).not.toHaveBeenCalled();
   expect(accepted).toHaveBeenCalledOnce(); expect(handle.forget).toHaveBeenCalledOnce(); app.dispose();
+});
+
+
+it('recovers workspace snapshot metadata without repeating the accepted effect', async () => {
+  const app = runtime(); await app.connect();
+  const action = { id: 'restore', session_id: 'child', snapshot_id: 'snapshot', kind: 'restore', state: 'succeeded', failure: null };
+  const snapshot = { id: 'snapshot', session_id: 'child', state: 'succeeded', capture_id: 'capture' };
+  mocks.client.getWorkspaceSnapshot.mockResolvedValue(snapshot);
+  const handle = command({ method: 'workspace.restore', params: { session_id: 'child', snapshot_id: 'snapshot', action_id: 'restore' }, check: vi.fn(async () => ({ state: 'found', evidence: action })) });
+  expect(await app.run(handle, 'Restore')).toEqual({ action, snapshot });
+  expect(mocks.client.getWorkspaceSnapshot).toHaveBeenCalledWith('child', 'snapshot', { signal: expect.any(AbortSignal) });
+  expect(handle.send).toHaveBeenCalledOnce(); expect(handle.retry).not.toHaveBeenCalled(); expect(handle.forget).toHaveBeenCalledOnce(); app.dispose();
+});
+it.each(['unavailable', 'foreign'])('retains workspace recovery when snapshot metadata is %s', async state => {
+  const app = runtime(); await app.connect();
+  const action = { id: 'restore', session_id: 'child', snapshot_id: 'snapshot', kind: 'restore', state: 'succeeded', failure: null };
+  if (state === 'unavailable') mocks.client.getWorkspaceSnapshot.mockRejectedValue(new Error('Snapshot unavailable'));
+  else mocks.client.getWorkspaceSnapshot.mockResolvedValue({ id: 'snapshot', session_id: 'other' });
+  const handle = command({ method: 'workspace.restore', params: { session_id: 'child', snapshot_id: 'snapshot', action_id: 'restore' }, check: vi.fn(async () => ({ state: 'found', evidence: action })) });
+  const accepted = vi.fn();
+  await expect(app.run(handle, 'Restore', accepted)).rejects.toThrow(state === 'unavailable' ? 'Snapshot unavailable' : 'does not belong');
+  expect(handle.forget).not.toHaveBeenCalled(); expect(handle.retry).not.toHaveBeenCalled(); expect(accepted).not.toHaveBeenCalled();
+  expect(app.getSnapshot().commands[0]?.delivery).toBe('uncertain'); app.dispose();
 });

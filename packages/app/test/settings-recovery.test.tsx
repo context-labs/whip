@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { RecoveryJournal, RemoteError, type RecoveryRecord, type WorkspaceAction } from '@whip/sdk';
 import { assertValid, type ContractTypes } from '@whip/protocol';
 import fixtures from '../../protocol/schema/fixtures.json';
-import { RecoverySettings } from '../src/settings/recovery';
+import { RecoverySettings, recoveryStatus } from '../src/settings/recovery';
 import { providerFixture } from './provider-fixture';
 
 beforeEach(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
@@ -98,4 +98,11 @@ it('shows invalid local records without contacting a host', async () => {
   const f = await fixture(); f.records.set('invalid', { ...f.command.record, request: '{"method":"accounts.inference.login","params":{}}' });
   f.mount(<RecoverySettings />); await screen.findByText(/Operation cannot be journaled or replayed/);
   await waitFor(() => expect(f.calls.map(call => call.method)).toEqual(['initialize']));
+});
+
+
+it('reports native steering receipts without confusing them with permission edits', () => {
+  const evidence = wire('InputSteeringResult');
+  expect(recoveryStatus({ state: 'found', evidence: { ...evidence, deleted: true } }, true)).toBe('Input steering accepted · session deleted.');
+  expect(recoveryStatus({ state: 'found', evidence: { ...evidence, deleted: false, input: null } }, true)).toBe('Input steering accepted · waiting for consumption.');
 });
