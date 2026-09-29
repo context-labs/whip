@@ -52,6 +52,7 @@ func (m *nativeMenu) setupReply(reply nativeMenuReply) tea.Cmd {
 	case "setup-read":
 		m.setup.presets = reply.presets
 		m.showSetup()
+		return m.selectInitialSetup()
 	case "setup-saved":
 		m.showSetup()
 		m.message = reply.message

@@ -30,33 +30,36 @@ type nativeMenuChoice struct {
 // reads and detaches in-flight mutations without reconstructing or replaying
 // them. All calls join the terminal's existing nativeWork owner.
 type nativeMenu struct {
-	setup         nativeSetup
-	work          *nativeWork
-	connection    *client.Client
-	lifecycle     context.Context
-	close         context.CancelFunc
-	stopCall      context.CancelFunc
-	generation    uint64
-	options       nativeMenuOptions
-	owner         *protocol.Session
-	mode          string
-	title         string
-	message       string
-	input         textinput.Model
-	choices       []nativeMenuChoice
-	selected      int
-	busy, done    bool
-	inventory     protocol.ProviderInventory
-	catalog       protocol.ProviderCatalog
-	provider      protocol.ID
-	selection     protocol.ModelSelection
-	modelChoices  []protocol.ProviderModel
-	preferences   nativePreferences
-	originalTheme string
-	previewing    bool
+	setup                   nativeSetup
+	setupProvider, setupKey string
+	renameTree              *protocol.Tree
+	work                    *nativeWork
+	connection              *client.Client
+	lifecycle               context.Context
+	close                   context.CancelFunc
+	stopCall                context.CancelFunc
+	generation              uint64
+	options                 nativeMenuOptions
+	owner                   *protocol.Session
+	mode                    string
+	title                   string
+	message                 string
+	input                   textinput.Model
+	choices                 []nativeMenuChoice
+	selected                int
+	busy, done              bool
+	inventory               protocol.ProviderInventory
+	catalog                 protocol.ProviderCatalog
+	provider                protocol.ID
+	selection               protocol.ModelSelection
+	modelChoices            []protocol.ProviderModel
+	preferences             nativePreferences
+	originalTheme           string
+	previewing              bool
 }
 
 type nativeMenuReply struct {
+	tree            *protocol.Tree
 	presets         []protocol.ProviderPreset
 	openAI          *protocol.OpenAILoginFlow
 	inference       *protocol.InferenceFlow
@@ -101,6 +104,8 @@ func newNativeMenu(work *nativeWork, connection *client.Client, options nativeMe
 
 func (m *nativeMenu) Init() tea.Cmd {
 	switch m.options.Kind {
+	case "rename":
+		return m.readRename()
 	case "setup":
 		return m.readSetup()
 	case "model", "model-for-session":
@@ -131,6 +136,7 @@ func (m *nativeMenu) Close() {
 		m.stopCall()
 	}
 	m.input.Reset()
+	m.setupKey = ""
 	if m.previewing {
 		setSchemeOverride(m.originalTheme)
 		m.previewing = false
@@ -230,6 +236,9 @@ func (m *nativeMenu) Update(message tea.Msg) tea.Cmd {
 		if strings.HasPrefix(value.kind, "setup-") || strings.HasPrefix(value.kind, "account-") {
 			return m.setupReply(value)
 		}
+		if strings.HasPrefix(value.kind, "rename-") {
+			return m.renameReply(value)
+		}
 		return m.modelReply(value)
 	case nativeMenuInput:
 		if value.menu != m || value.generation != m.generation || m.busy {
@@ -262,6 +271,9 @@ func (m *nativeMenu) Update(message tea.Msg) tea.Cmd {
 			}
 			return nil
 		case "enter":
+			if m.mode == "rename" {
+				return m.saveRename()
+			}
 			if m.setupInput() {
 				return m.submitSetup()
 			}

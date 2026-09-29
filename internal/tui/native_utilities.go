@@ -20,15 +20,15 @@ import (
 
 const nativeHelp = `Native terminal commands
 
-Conversation: /sessions · /resume <owner> · /rename <title> · /status
+Conversation: /sessions · /resume <owner> · /rename [title] · /status
 History: /older · /newer · /latest · /export [local path] · /copy [last|repl]
 Edits: /stop · /start · /clear · /rewind [sequence] · /fork <title> · /fork-at <sequence> <title>
 Input: /queue <text> · /steer <text> · !<shell command>
 Images: /attach <client-local path> · /attach clipboard|check|retry|discard · Ctrl+V reads a clipboard image
 Recovery: /pending list|inspect <owner>|check <owner>|forget <owner> <client ID> <request ID> <digest>
 /check · /retry · /rejected restore|discard · /redraft restore|replace|discard|clear-context
-Configuration: /model · /model-for-session · /effort [level|default] · /setup · /settings · /theme
-Context: /context-doctor [attempt ID] · /compact · /compact log|retry|off|model <model>|provider <provider>
+Configuration: /model [name [provider]|refresh] · /model-for-session [name [provider]] · /effort [level|default] · /setup · /connect [provider] · /auth [provider] · /settings · /theme [name] · /mouse
+Context: /context-doctor [attempt ID] · /compact · /compact log|retry|off|<model> [provider]
 Goals: /goal [text|status|resume|clear] · /goal-from-context [2..100]
 Schedules: /schedule list [cursor] · /schedule @every <duration> <text> · /schedule @at <RFC3339 time> <text> · /schedule cancel <ID>
 Instructions: /me · /memory · /permissions

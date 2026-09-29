@@ -23,6 +23,9 @@ type nativeCommandChoice struct {
 // Only mounted native commands are advertised. Palette/completion selection
 // still routes through each command's ordinary admission and owner checks.
 var nativeCommandChoices = []nativeCommandChoice{
+	{"/auth", "Connect a host provider or account", true},
+	{"/connect", "Connect a host provider or account", true},
+	{"/mouse", "Toggle local mouse capture", true},
 	{"/agents", "Inspect the current agent tree", true},
 	{"/attach", "Attach a client-local image", false},
 	{"/browser", "Inspect browser status", true},
@@ -60,7 +63,7 @@ var nativeCommandChoices = []nativeCommandChoice{
 	{"/reasoning", "Show or hide live reasoning", false},
 	{"/redraft", "Restore or discard a staged original input", false},
 	{"/rejected", "Restore or discard the original rejected draft", false},
-	{"/rename", "Rename the displayed owner", false},
+	{"/rename", "Rename the displayed owner", true},
 	{"/repl", "Toggle the execution evidence panel", true},
 	{"/report", "Inspect a redacted issue report", true},
 	{"/resume", "Open a session by exact ID or root prefix", false},

@@ -218,7 +218,15 @@ func (m *nativeModel) command(text string) tea.Cmd {
 		return nil
 	}
 	switch name {
-	case "/model", "/model-for-session", "/theme", "/settings", "/setup":
+	case "/model", "/model-for-session":
+		return m.modelCommand(name, args)
+	case "/auth", "/connect", "/setup":
+		return m.setupCommand(args)
+	case "/theme":
+		return m.themeCommand(args)
+	case "/mouse":
+		return m.mouseCommand(args)
+	case "/settings":
 		if args != "" {
 			m.status = "usage: " + name
 			return nil
@@ -295,8 +303,7 @@ func (m *nativeModel) command(text string) tea.Cmd {
 		})
 	case "/rename":
 		if args == "" {
-			m.status = "usage: /rename <title>"
-			return nil
+			return m.openMenu("rename")
 		}
 		owner := m.owner
 		// The metadata revision is read once for this human command, then frozen
