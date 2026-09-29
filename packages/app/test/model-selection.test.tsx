@@ -1,78 +1,42 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from '@tanstack/react-router';
 import { Dialog, ThemeProvider, UIProvider } from '@whip/ui';
 import userEvent from '@testing-library/user-event';
-import type { ProviderCatalogsResult } from '@whip/legacy-protocol';
-import { useState, type ComponentProps } from 'react';
-import { modelOptions } from '../src/model-options';
-import { CatalogModelPicker, ModelPicker } from '../src/model-selection';
-import { RuntimeContext } from '../src/context';
-import type { AppRuntime } from '../src/runtime';
+import { useState } from 'react';
+import { modelOptions, readModelCatalog, priceLabel, modelSettings, type ModelCatalog } from '../src/model-options';
+import { CatalogModelPicker } from '../src/model-selection';
+import { providerFixture, model, route, revision } from './provider-fixture';
 
 beforeEach(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
 afterEach(() => vi.unstubAllGlobals());
-
-const catalog = {
-  models: { 'gpt-5.5': { providers: ['openrouter'] }, review: { id: 'gpt-5.5', providers: ['openai-codex'] } },
-  providers: {},
-  catalogs: {
-    openrouter: { models: [{ id: 'gpt-5.5', context_length: 400000, reasoning_efforts: ['low'] }] },
-    'openai-codex': { models: [
-      { id: 'gpt-5.5', context_length: 258400, reasoning_efforts: ['low', 'xhigh'] },
-      { id: 'gpt-6-astra', context_length: 258400, reasoning_efforts: ['low', 'ultra'] },
-    ] },
-  },
-} as unknown as ProviderCatalogsResult;
-
-it('offers discovered models and keeps explicit provider routes and configured aliases', () => {
-  const options = modelOptions(catalog);
-  expect(options.map(option => [option.name, option.provider])).toEqual([
-    ['gpt-5.5', 'openai-codex'], ['gpt-5.5', 'openrouter'],
-    ['gpt-6-astra', 'openai-codex'], ['review', 'openai-codex'],
-  ]);
-  expect(options.find(option => option.name === 'review')?.model.context_length).toBe(258400);
-  const shadowed = modelOptions({ ...catalog, models: { 'gpt-5.5': { id: 'gpt-6-astra', providers: ['openai-codex'] } } });
-  expect(shadowed.filter(option => option.name === 'gpt-5.5').map(option => [option.provider, option.model.id]))
-    .toEqual([['openai-codex', 'gpt-6-astra']]);
+const catalog: ModelCatalog = {
+  inventory: { revision, routes: [route(), route('openai-codex')], defaults: null, compaction_model: null }, truncated: false,
+  providers: ['openrouter', 'openai-codex'].map(id => ({ id, catalog: { provider: id, state: 'missing', scope_state: 'unverified', discovery: 'not_checked', fetched_at: null, stale: false, failure: null, models: [] }, models: [model('gpt-5.5')] })),
+};
+it('keeps exact provider routes and unknown versus free versus large prices', () => {
+  expect(modelOptions(catalog).map(option => [option.name, option.provider])).toEqual([['gpt-5.5', 'openai-codex'], ['gpt-5.5', 'openrouter']]);
+  expect(priceLabel(null)).toBe('Unknown'); expect(priceLabel('0')).toBe('Free'); expect(priceLabel('9007199254740993')).toBe('$9007199.254740993 / million tokens');
+  expect(modelSettings(catalog, 'openrouter', 'gpt-5.5')?.prices.input).toBeNull();
 });
-
-it('removes unavailable provider routes from configured and cached model choices', () => {
-  const options = modelOptions({ ...catalog, providers: { openrouter: { available: false } } });
-  expect(options.some(option => option.provider === 'openrouter')).toBe(false);
-  expect(options.some(option => option.provider === 'openai-codex')).toBe(true);
+it('a successful empty scoped catalog stays empty instead of reviving bundled membership', async () => {
+  const f = await providerFixture(); f.data.handlers['providers.catalog'] = () => ({ provider: 'openrouter', state: 'cached', scope_state: 'current', discovery: 'account_catalog', fetched_at: '2026-09-28T12:00:00Z', stale: false, failure: null, models: [] });
+  const value = await readModelCatalog(f.client, new AbortController().signal);
+  expect(modelOptions(value)).toEqual([]); expect(f.count('providers.refresh')).toBe(0);
 });
-
-it('switches the provider when the selected model name is unchanged', async () => {
-  const setModel = vi.fn(async () => ({}));
-  const queries = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  const runtime = { run: (result: Promise<unknown>) => result, report: vi.fn() } as unknown as AppRuntime;
-  const props = {
-    connected: true, root: { meta: { model: 'gpt-5.5', provider: 'openrouter' }, active_turns: {} },
-    view: { session: { setModel, client: {
-      getSnapshot: () => ({ info: { runtime_id: 'host' } }),
-      providers: { catalogs: async () => ({ result: catalog }) },
-    } } },
-  } as unknown as ComponentProps<typeof ModelPicker>;
-  const route = createRootRoute({ component: () => <QueryClientProvider client={queries}>
-    <RuntimeContext.Provider value={runtime}><ThemeProvider initialTheme="light"><UIProvider>
-      <ModelPicker {...props} />
-    </UIProvider></ThemeProvider></RuntimeContext.Provider>
-  </QueryClientProvider> });
-  const router = createRouter({ routeTree: route, history: createMemoryHistory() });
-  render(<RouterProvider router={router} />);
-  fireEvent.click(await screen.findByRole('button', { name: 'Model', exact: true }));
-  const current = await screen.findByRole('option', { name: 'gpt-5.5 · openrouter' });
-  expect(current.getAttribute('aria-selected')).toBe('true');
-  fireEvent.change(screen.getByRole('textbox', { name: 'Search models' }), { target: { value: 'openai-codex' } });
-  expect(screen.queryByRole('option', { name: 'gpt-5.5 · openrouter' })).toBeNull();
-  const subscription = screen.getByRole('option', { name: 'gpt-5.5 · openai-codex' });
-  expect(subscription.getAttribute('aria-selected')).toBe('false');
-  fireEvent.click(subscription);
-  await waitFor(() => expect(setModel).toHaveBeenCalledExactlyOnceWith('gpt-5.5', 'openai-codex'));
+it('configured models retain exact settings even without catalog membership', async () => {
+  const f = await providerFixture(); const settings = { prices: { ...model().prices, input: '9007199254740993' }, context_window_tokens: null, max_output_tokens: '4096', timeout_millis: '5000', max_attempts: 2 };
+  f.data.inventory.routes[0]!.models = { exact: settings };
+  const value = await readModelCatalog(f.client, new AbortController().signal);
+  expect(modelOptions(value).find(item => item.name === 'exact')?.model.metadata_source).toBe('configured');
+  expect(modelSettings(value, 'openrouter', 'exact')).toEqual(settings);
 });
-
+it('bounds a large host catalog and reports truncation explicitly', async () => {
+  const f = await providerFixture(); f.data.inventory.routes = Array.from({ length: 8 }, (_, i) => route('provider-' + i));
+  f.data.handlers['providers.bundled'] = () => ({ items: Array.from({ length: 1024 }, (_, i) => model('m' + i)) });
+  const value = await readModelCatalog(f.client, new AbortController().signal);
+  expect(modelOptions(value)).toHaveLength(4096); expect(value.truncated).toBe(true); expect(f.count('providers.bundled')).toBe(4);
+});
 it('shows the routing provider logo and updates it when choosing another provider for the same model', async () => {
   function Picker() {
     const [route, setRoute] = useState({ model: 'gpt-5.5', provider: 'openrouter' });
@@ -138,4 +102,27 @@ it('preserves the model selection popup for an action failure and closes on succ
   fireEvent.click(screen.getByRole('option', { name: 'gpt-5.5 · openai-codex' }));
   await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
   expect(change).toHaveBeenCalledTimes(2);
+});
+
+it('configures the selected child with its exact revision and resets effort on a model route change', async () => {
+  const { createSessionView } = await import('@whip/sdk/state');
+  const { sessionRecord } = await import('./provider-fixture');
+  const { ModelPicker } = await import('../src/model-selection');
+  const f = await providerFixture(); f.data.inventory.routes.push(route('openai-codex'));
+  const selected = sessionRecord(); const session = f.client.session(selected.id); const view = createSessionView(session);
+  const current = view.getSnapshot(); vi.spyOn(view, 'getSnapshot').mockReturnValue({ ...current, activity: { session_id: selected.id, lifecycle: 'active', active_turn: null, active_input_id: null, queued_input_count: '0', pending_permission_count: '0', pending_question_count: '0', execution_permit: false, active_workspace_action_id: null } });
+  const refresh = vi.spyOn(view, 'refresh').mockResolvedValue();
+  f.data.handlers['sessions.configure'] = () => ({ ...selected, config_revision: '9007199254740994' });
+  const root = createRootRoute({ component: () => f.wrap(<ModelPicker client={f.client} session={session} selected={selected} view={view} connected />) });
+  render(<RouterProvider router={createRouter({ routeTree: root, history: createMemoryHistory() })} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Model', exact: true })); fireEvent.click(await screen.findByRole('option', { name: 'fixture · openai-codex' }));
+  await waitFor(() => expect(f.count('sessions.configure')).toBe(1));
+  expect(f.calls.find(call => call.method === 'sessions.configure')?.params).toEqual({ session_id: 'child', expected_revision: '9007199254740993', patch: { model: { name: 'fixture', provider: 'openai-codex', effort: '' } } });
+  await waitFor(() => expect(refresh).toHaveBeenCalledOnce()); expect(f.count('providers.defaults')).toBe(0);
+});
+it('unknown activity disables model effects without treating a missing observation as idle', async () => {
+  const { createSessionView } = await import('@whip/sdk/state'); const { sessionRecord } = await import('./provider-fixture'); const { ModelPicker } = await import('../src/model-selection');
+  const f = await providerFixture(); const selected = sessionRecord(); const session = f.client.session(selected.id); const view = createSessionView(session);
+  f.mount(<ModelPicker client={f.client} session={session} selected={selected} view={view} connected />);
+  expect(screen.getByRole('button', { name: 'Model', exact: true }).hasAttribute('disabled')).toBe(true); expect(f.count('sessions.configure')).toBe(0);
 });

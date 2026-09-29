@@ -3278,3 +3278,34 @@ read-only reconciliation, never an automatic write retry. Device-owned SSH/local
 profiles and legacy URL imports keep their existing explicit verification and
 storage boundaries. Host subscriptions and concurrent probes are bounded; SDK
 catalog retention remains independently bounded.
+### V4 provider and model settings
+
+Provider screens use `Client.listProviders()` for explicit host routes and local
+credential evidence, with offline presets kept separate. Opening Settings or New
+Chat never discovers credentials, refreshes a provider catalog, starts sign-in,
+or changes a default. Cached and bundled model reads do not establish inference
+access. Unknown token prices remain null and display as unknown; exact decimal
+prices are formatted without passing through a JavaScript number. A current,
+successful empty provider catalog is not filled from the offline bundle.
+
+Model catalogs retain at most 4,096 choices and report truncation. A user can enter
+an exact model/provider in settings. Session model edits target the selected root
+or child using its exact configuration revision. Missing activity disables edits;
+it does not imply the session is idle. Model changes clear the old reasoning
+effort. Host model, compaction-model, and permission defaults have separate
+revisioned saves and affect future work only. Conflict or uncertain publication
+refreshes evidence without replaying the edit or adopting a fresh revision.
+
+Account flows retain their native Inference.net/OpenAI shapes. The UI polls only
+actively progressing flows, uses list/get to inspect lost acknowledgements, and
+exposes known persistence/setup/cleanup recovery explicitly. Uncertain project or
+key creation is never retried automatically. Pasted keys remain in the form only;
+an explicit retry of an unconfirmed publication retains the same key identity.
+Secrets never enter query data, saved commands, or the recovery journal.
+
+Provider removal is explicitly labeled **Remove configured route**. It is a CAS
+operation, preserves credential files and remote accounts, and rejects dangling
+defaults. The v4 route contract has no disabled-provider flag; the UI does not
+present removal as a reversible disable operation. Account logout reports local
+revocation and remote cleanup separately. Configuring an account leaves model
+defaults unchanged, and choosing a default never submits an existing chat draft.

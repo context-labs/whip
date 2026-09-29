@@ -3,30 +3,35 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ErrorNotice } from './error-feedback';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import type { WhipClient } from '@whip/legacy-sdk';
+import type { Client, Session, SessionRecord } from '@whip/sdk';
+import type { DeepReadonly, SessionView } from '@whip/sdk/state';
 import { Button, Combobox, Field, Input, Menu, Popover, Select, Skeleton, Tooltip, type Styled } from '@whip/ui';
 import { Check, ChevronDown, Search, SlidersHorizontal } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, surface } from '@whip/ui/tokens.stylex';
-import { useRuntime } from './context';
 import { layout } from './styles';
-import { Action, Empty, type InspectorProps } from './details/shared';
+import { Action, Empty } from './details/shared';
 import { ProviderLogo } from './provider-logo';
-import { modelOptions } from './model-options';
+import { modelOptions, priceLabel, readModelCatalog, type ModelCatalog as CatalogResult, type CatalogModel } from './model-options';
 
-type ModelProps = Pick<InspectorProps, 'view' | 'root' | 'connected'>;
-type CatalogResult = Awaited<ReturnType<ModelProps['view']['session']['client']['providers']['catalogs']>>['result'];
-type CatalogModel = NonNullable<CatalogResult>['catalogs'][string]['models'] extends (infer M)[] | null ? M : never;
+export interface ModelProps { client: Client; session: Session; selected: DeepReadonly<SessionRecord>; view: SessionView; connected: boolean }
+async function configure(props: ModelProps, model: SessionRecord['configuration']['model']) {
+  if (props.session.id !== props.selected.id || props.session.client !== props.client) throw new Error('Session configuration scope changed');
+  try { await props.session.configure(props.selected.config_revision, { model }); }
+  finally { await props.view.refresh(); }
+}
+
+function idle(view: SessionView) { const activity = view.getSnapshot().activity; return !!activity && !activity.active_turn && !activity.active_workspace_action_id; }
 
 const effortLabels: Record<string, string> = {
   off: 'Default', none: 'Default', minimal: 'Minimal', low: 'Low',
   medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max',
 };
 
-export function useProviderCatalog(client: WhipClient, connected: boolean) {
+export function useProviderCatalog(client: Client, connected: boolean, provider?: string) {
   return useQuery({
-    queryKey: ['provider-catalogs', client.getSnapshot().info?.runtime_id],
-    queryFn: ({ signal }) => client.providers.catalogs({ signal }),
+    queryKey: ['provider-catalogs', client.runtimeID, provider ?? ''],
+    queryFn: ({ signal }) => readModelCatalog(client, signal, provider),
     enabled: connected,
   });
 }
@@ -56,36 +61,36 @@ export function DraftEffortPicker({ value, levels, disabled, onChange }: {
 }
 
 /** Effort menu: only levels the selected model supports; applies immediately. */
-export function EffortPicker({ view, root, connected }: ModelProps) {
-  const runtime = useRuntime();
+export function EffortPicker(props: ModelProps) {
+  const { client, session, selected, view, connected } = props;
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<unknown>();
   const [pending, setPending] = useState(false);
   const generation = useRef(0);
-  useEffect(() => { setError(undefined); setPending(false); return () => { generation.current++; }; }, [view]);
-  const idle = !Object.keys(root.active_turns ?? {}).length;
-  const catalog = useProviderCatalog(view.session.client, connected);
-  const models = useMemo(() => catalogModels(catalog.data?.result, root.meta.provider), [catalog.data, root.meta.provider]);
-  const levels = modelEfforts(models, root.meta.model);
-  const current = root.meta.effort;
+  useEffect(() => { setError(undefined); setPending(false); return () => { generation.current++; }; }, [view, client]);
+  const canEdit = idle(view);
+  const catalog = useProviderCatalog(client, connected);
+  const models = useMemo(() => catalogModels(catalog.data, selected.configuration.model.provider), [catalog.data, selected.configuration.model.provider]);
+  const levels = modelEfforts(models, selected.configuration.model.name);
+  const current = selected.configuration.model.effort;
   return <Popover open={open} onOpenChange={value => { if (!pending) setOpen(value); }} xstyle={styles.popup}
-    trigger={<Button variant="ghost" aria-label="Reasoning effort" disabled={!connected || !idle || pending}
-      title={idle ? 'Reasoning effort' : 'Wait for active turns to finish before changing reasoning'}
+    trigger={<Button variant="ghost" aria-label="Reasoning effort" disabled={!connected || !canEdit || pending}
+      title={canEdit ? 'Reasoning effort' : 'Wait for active turns to finish before changing reasoning'}
       xstyle={styles.trigger}>
       <span {...stylex.props(layout.ellipsis)}>{effortLabel(current)}</span>
       <ChevronDown size={14} {...stylex.props(styles.chevron)} />
     </Button>}>
     {catalog.error && <ErrorNotice type="resource" owner="model-catalog" error={catalog.error} title="Could not load reasoning options" action={<Button variant="ghost" onClick={() => void catalog.refetch()}>Retry</Button>} />}
-    {error !== undefined && <ErrorNotice type="action" owner={`effort:${view.session.rootId}`} error={error} title="Could not change reasoning effort" />}
+    {error !== undefined && <ErrorNotice type="action" owner={`effort:${session.id}`} error={error} title="Could not change reasoning effort" />}
     {open && <div {...stylex.props(styles.menu)} role="listbox" aria-label="Reasoning effort" aria-activedescendant={current}>
       {levels.map(level => <button key={level} id={level} role="option" aria-selected={level === current}
-        disabled={!connected || !idle || pending}
+        disabled={!connected || !canEdit || pending}
         {...stylex.props(styles.menuItem, level === current && styles.optionActive)}
         onClick={() => {
           if (level === current) { setOpen(false); return; }
           const id = ++generation.current;
           setError(undefined); setPending(true);
-          void runtime.run(view.session.setEffort(level), 'Set reasoning effort')
+          void configure(props, { ...selected.configuration.model, effort: level === 'off' ? '' : level })
             .then(() => { if (id === generation.current) setOpen(false); })
             .catch(error => { if (id === generation.current) setError(error); })
             .finally(() => { if (id === generation.current) setPending(false); });
@@ -99,22 +104,23 @@ export function EffortPicker({ view, root, connected }: ModelProps) {
 
 /** Details for the hovered or keyboard-focused catalog model. */
 function ModelCard({ model }: { model: CatalogModel & { providers: string[] } }) {
-  const modalities = model.input_modalities?.filter(item => item !== 'text') ?? [];
   return <>
     <div {...stylex.props(styles.cardRow)}><span {...stylex.props(styles.cardLabel)}>Model</span><span {...stylex.props(styles.cardValue)} title={model.id}>{model.id}</span></div>
     <div {...stylex.props(styles.cardRow)}><span {...stylex.props(styles.cardLabel)}>Provider</span><span {...stylex.props(styles.cardValue)}>{model.providers.join(', ')}</span></div>
-    <div {...stylex.props(styles.cardRow)}><span {...stylex.props(styles.cardLabel)}>Inputs</span><span {...stylex.props(styles.cardValue)}>{['text', ...modalities].join(', ')}</span></div>
-    <div {...stylex.props(styles.cardRow)}><span {...stylex.props(styles.cardLabel)}>Reasoning</span><span {...stylex.props(styles.cardValue)}>{model.reasoning_efforts?.length ? 'Yes' : 'No'}</span></div>
-    {!!model.context_length && <div {...stylex.props(styles.cardRow)}><span {...stylex.props(styles.cardLabel)}>Context</span><span {...stylex.props(styles.cardValue)}>{model.context_length.toLocaleString()}</span></div>}
+    <div {...stylex.props(styles.cardRow)}><span {...stylex.props(styles.cardLabel)}>Inputs</span><span {...stylex.props(styles.cardValue)}>{model.input_modalities?.length ? model.input_modalities.join(', ') : 'Unknown'}</span></div>
+    <div {...stylex.props(styles.cardRow)}><span {...stylex.props(styles.cardLabel)}>Reasoning</span><span {...stylex.props(styles.cardValue)}>{model.reasoning_efforts?.length ? 'Yes' : 'Not advertised'}</span></div>
+    <div {...stylex.props(styles.cardRow)}><span {...stylex.props(styles.cardLabel)}>Context</span><span {...stylex.props(styles.cardValue)}>{model.context_window_tokens === null ? 'Unknown' : BigInt(model.context_window_tokens).toLocaleString()}</span></div>
+    <div {...stylex.props(styles.cardRow)}><span {...stylex.props(styles.cardLabel)}>Input price</span><span {...stylex.props(styles.cardValue)}>{priceLabel(model.prices.input)}</span></div>
+    <div {...stylex.props(styles.cardRow)}><span {...stylex.props(styles.cardLabel)}>Output price</span><span {...stylex.props(styles.cardValue)}>{priceLabel(model.prices.output)}</span></div>
   </>;
 }
 
-export function ModelPicker({ view, root, connected }: ModelProps) {
-  const runtime = useRuntime();
-  const catalog = useProviderCatalog(view.session.client, connected);
-  return <CatalogModelPicker key={`${view.session.client.getSnapshot().info?.runtime_id}:${view.session.rootId}`} catalog={catalog.data?.result} loading={catalog.isLoading} error={catalog.error?.message} onRetry={() => void catalog.refetch()}
-    model={root.meta.model} provider={root.meta.provider} disabled={!connected || !!Object.keys(root.active_turns ?? {}).length}
-    onChange={(model, provider) => runtime.run(view.session.setModel(model, provider), 'Change model')}  />;
+export function ModelPicker(props: ModelProps) {
+  const { client, session, selected, view, connected } = props;
+  const catalog = useProviderCatalog(client, connected);
+  return <CatalogModelPicker key={`${client.runtimeID}:${session.id}`} catalog={catalog.data} loading={catalog.isLoading} error={catalog.error?.message} onRetry={() => void catalog.refetch()}
+    model={selected.configuration.model.name} provider={selected.configuration.model.provider} disabled={!connected || !idle(view)}
+    onChange={(name, provider) => configure(props, { name, provider, effort: '' })} />;
 }
 
 /** The same catalog picker can edit a session or a settings draft. */
@@ -166,6 +172,7 @@ export function CatalogModelPicker({ catalog, loading, error, model, provider, d
       </div>
       {actionError !== undefined && <ErrorNotice type="action" owner="model-selection" error={actionError} title="Could not change model" />}
       <div role="listbox" aria-label="Models" aria-activedescendant={current} {...stylex.props(styles.list)}>
+        {catalog?.truncated && <p role="status" {...stylex.props(styles.listMeta)}>Showing the first 4,096 models. Enter an exact model in session settings for other routes.</p>}
         {loading && <p role="status" {...stylex.props(styles.listMeta)}>Loading models…</p>}
         {error && <ErrorNotice type="resource" owner="model-catalog" error={error} title="Could not load models" action={onRetry && <Button variant="ghost" onClick={onRetry}>Retry</Button>} />}
         {!loading && !error && !filtered.length && <p {...stylex.props(styles.listMeta)}>No matching models</p>}
@@ -197,17 +204,8 @@ export function CatalogModelPicker({ catalog, loading, error, model, provider, d
 }
 
 /** Composer toolbar controls: model picker + effort menu for the viewed agent. */
-export function SessionModelPicker({ agentId, ...props }: ModelProps & Pick<InspectorProps, 'agentId'>) {
-  const isRoot = agentId === props.view.session.rootId;
-  const agent = props.root.agents?.find(item => item.id === agentId);
-  if (!isRoot) {
-    const label = [agent?.model, agent?.provider].filter(Boolean).join(' · ') || 'Model unavailable';
-    return <span {...stylex.props(styles.childModel)} title="Child-agent models are set when the agent is created">{label}</span>;
-  }
-  return <>
-    <ModelPicker {...props} />
-    <EffortPicker {...props} />
-  </>;
+export function SessionModelPicker(props: ModelProps) {
+  return <><ModelPicker {...props} /><EffortPicker {...props} /></>;
 }
 
 /** Holds the mode/model/effort footprint while a session or provider inventory is still opening. */
@@ -216,35 +214,35 @@ export function PickerSkeletons({ count = 3 }: { count?: number }) {
 }
 
 /** Shared by the session inspector; the composer uses ModelPicker/EffortPicker. */
-export function ModelSelection({ view, root, connected }: ModelProps) {
-  const runtime = useRuntime();
-  const [model, setModel] = useState(root.meta.model);
-  const [provider, setProvider] = useState(root.meta.provider);
-  const [effort, setEffort] = useState(root.meta.effort);
-  const idle = !Object.keys(root.active_turns ?? {}).length;
-  const catalog = useProviderCatalog(view.session.client, connected);
-  const models = useMemo(() => catalogModels(catalog.data?.result, root.meta.provider), [catalog.data, root.meta.provider]);
+export function ModelSelection(props: ModelProps) {
+  const { client, selected, view, connected } = props;
+  const [model, setModel] = useState(selected.configuration.model.name);
+  const [provider, setProvider] = useState(selected.configuration.model.provider);
+  const [effort, setEffort] = useState(selected.configuration.model.effort);
+  const canEdit = idle(view);
+  const catalog = useProviderCatalog(client, connected);
+  const models = useMemo(() => catalogModels(catalog.data, selected.configuration.model.provider), [catalog.data, selected.configuration.model.provider]);
   return <>
-    {!idle && <Empty>Wait for active turns to finish before changing the model or reasoning.</Empty>}
+    {!canEdit && <Empty>Wait for active turns to finish before changing the model or reasoning.</Empty>}
     <Field label="Model" description="Choose a catalog model or enter an exact model ID.">
       <Combobox label="Model" value={model} onValueChange={setModel} onInputValueChange={setModel}
         loading={catalog.isLoading}
-        options={modelOptions(catalog.data?.result).filter(option => option.provider === provider).slice(0, 1000)
+        options={modelOptions(catalog.data).filter(option => option.provider === provider).slice(0, 1000)
           .map(option => ({ value: option.name, label: option.name }))} />
     </Field>
     {catalog.error && <ErrorNotice type="resource" owner="model-catalog" error={catalog.error} title="Could not load the model catalog. You can still enter an exact model ID." action={<Button variant="ghost" onClick={() => void catalog.refetch()}>Retry</Button>} />}
     <Field label="Provider">
       <Input value={provider} onChange={event => setProvider(event.target.value)} />
     </Field>
-    <Action disabled={!connected || !idle || !model.trim()}
-      run={() => runtime.run(view.session.setModel(model, provider), 'Change model')}>Apply model</Action>
-    <Field label="Reasoning effort" description={model !== root.meta.model ? 'Levels shown for the applied model.' : undefined}>
-      <Select label="Reasoning effort" value={modelEfforts(models, root.meta.model).includes(effort) ? effort : 'off'}
+    <Action disabled={!connected || !canEdit || !model.trim()}
+      run={() => configure(props, { name: model.trim(), provider: provider.trim(), effort: '' })}>Apply model</Action>
+    <Field label="Reasoning effort" description={model !== selected.configuration.model.name ? 'Levels shown for the applied model.' : undefined}>
+      <Select label="Reasoning effort" value={modelEfforts(models, selected.configuration.model.name).includes(effort) ? effort : 'off'}
         onValueChange={setEffort}
-        options={modelEfforts(models, root.meta.model).map(value => ({ value, label: effortLabel(value) }))} />
+        options={modelEfforts(models, selected.configuration.model.name).map(value => ({ value, label: effortLabel(value) }))} />
     </Field>
-    <Action disabled={!connected || !idle}
-      run={() => runtime.run(view.session.setEffort(effort), 'Set reasoning effort')}>Apply effort</Action>
+    <Action disabled={!connected || !canEdit}
+      run={() => configure(props, { ...selected.configuration.model, effort: effort === 'off' ? '' : effort })}>Apply effort</Action>
   </>;
 }
 

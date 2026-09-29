@@ -1,14 +1,5 @@
-import type { WhipClient } from '@whip/legacy-sdk';
+import type { Client } from '@whip/sdk';
 import { ProviderConnections } from './provider-connections';
-
-export function ProvidersSettings({
-  client,
-  enabled = client.getSnapshot().state === 'connected',
-}: {
-  client: WhipClient;
-  enabled?: boolean;
-}) {
-  const info = client.getSnapshot().info;
-  return <ProviderConnections
-    key={`${info?.runtime_id}:${info?.connection_id}`} client={client} enabled={enabled} />;
+export function ProvidersSettings({ client, enabled = true }: { client: Client; enabled?: boolean }) {
+  return <ProviderConnections key={client.runtimeID} client={client} enabled={enabled} />;
 }
