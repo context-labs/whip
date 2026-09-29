@@ -7,12 +7,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"syscall"
 	"time"
 
 	"golang.org/x/term"
-
-	"github.com/context-labs/whip/internal/legacy/config"
 )
 
 // authCLI implements `whipcode auth …`: turn a provider API key into a ready
@@ -23,12 +22,11 @@ import (
 // The key comes from (first hit): the positional arg, OPENROUTER_API_KEY in
 // the environment, or a masked prompt. The host discovers compatible models
 // and rejects an observed authentication error before writing. OpenRouter's
-// public catalog cannot verify a key; inference is tested on the user's first send.
+// public model catalog alone cannot verify a key; the host also checks its key
+// endpoint. Inference is tested on the user's first send.
 //
-// Storage: by default the key is written as a literal apiKey in
-// ~/.whipcode/config.json (0600). --env instead records apiKeyEnv:
-// OPENROUTER_API_KEY. --env resolves that named key on the host from its
-// inherited environment or declared providerKeySources without a terminal prompt.
+// Storage is owned by the native host. Pasted keys use a private credential
+// file; --env retains an explicit host environment reference without copying it.
 func authCLI(args []string) error {
 	if len(args) == 0 {
 		return errors.New("usage: whipcode auth <provider> [<args>]\n  providers: openai-codex (login | status | logout), inference-net (login [flags] | status | logout | key rotate), openrouter [--env] [<key>]")
@@ -47,14 +45,17 @@ func authCLI(args []string) error {
 
 func authOpenRouterCLI(args []string) error {
 	fs := flag.NewFlagSet("auth openrouter", flag.ContinueOnError)
-	envMode := fs.Bool("env", false, "store the key as apiKeyEnv: "+config.OpenRouterEnvVar+" instead of a literal in config.json")
+	envMode := fs.Bool("env", false, "use the execution host environment variable "+openRouterEnvironment+" instead of publishing a private key file")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	key := config.TrimKey(fs.Arg(0))
+	if fs.NArg() > 1 || *envMode && fs.NArg() != 0 {
+		return errors.New("usage: whipcode auth openrouter [--env | <key>]")
+	}
+	key := strings.TrimSpace(fs.Arg(0))
 	if key == "" {
-		key = config.TrimKey(os.Getenv(config.OpenRouterEnvVar))
+		key = strings.TrimSpace(os.Getenv(openRouterEnvironment))
 	}
 	if key == "" && !*envMode {
 		var err error
@@ -69,13 +70,13 @@ func authOpenRouterCLI(args []string) error {
 
 	fmt.Print("configuring OpenRouter… ")
 	if err := authOpenRouter(key, *envMode); err != nil {
-		fmt.Println("failed")
+		fmt.Println("needs attention")
 		return err
 	}
 	fmt.Println("ok")
 
 	fmt.Println("openrouter provider configured.")
-	fmt.Println("  the API key and inference have not been verified by the public model catalog.")
+	fmt.Println("  credential discovery succeeded; model inference has not been tested.")
 	fmt.Println("  run `whipcode`, then /model to choose a supported chat model and send a prompt.")
 	return nil
 }
@@ -94,8 +95,8 @@ func promptKey(prompt string) (string, error) {
 	if term.IsTerminal(syscall.Stdin) {
 		b, err := term.ReadPassword(syscall.Stdin)
 		fmt.Fprintln(os.Stderr)
-		return config.TrimKey(string(b)), err
+		return strings.TrimSpace(string(b)), err
 	}
 	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
-	return config.TrimKey(line), err
+	return strings.TrimSpace(line), err
 }
