@@ -71,8 +71,9 @@ func (s *Store) InputPage(ctx context.Context, owner session.SessionID, state st
  ORDER BY i.ordinal LIMIT ?
  ) SELECT s.id,COALESCE(i.id,''),COALESCE(i.ordinal,0),COALESCE(i.source,''),COALESCE(i.kind,''),COALESCE(i.turn_id,i.steered_turn_id),i.cancelled_at,i.created_at,
  COALESCE(substr(i.first_text,1,512),''),COALESCE(length(i.first_text)>512 OR i.text_count>1,0),COALESCE(i.attachments,0),
- (SELECT id FROM input_steering target WHERE target.input_id=i.id),(SELECT turn_id FROM input_steering target WHERE target.input_id=i.id),COALESCE(i.steered_turn_id IS NOT NULL,0)
- FROM sessions s LEFT JOIN selected i ON i.session_id=s.id WHERE s.id=? ORDER BY i.ordinal`, owner, after, state, limit+1, owner)
+ (SELECT id FROM input_steering target WHERE target.input_id=i.id),(SELECT turn_id FROM input_steering target WHERE target.input_id=i.id),COALESCE(i.steered_turn_id IS NOT NULL,0),receipt.client_id,receipt.request_id
+ FROM sessions s LEFT JOIN selected i ON i.session_id=s.id
+ LEFT JOIN receipts receipt ON receipt.input_id=i.id WHERE s.id=? ORDER BY i.ordinal`, owner, after, state, limit+1, owner)
 	if err != nil {
 		return page, err
 	}
@@ -84,7 +85,8 @@ func (s *Store) InputPage(ctx context.Context, owner session.SessionID, state st
 		var steeringID *session.InputSteeringID
 		var targetTurn *session.TurnID
 		var consumed bool
-		if err := rows.Scan(&item.SessionID, &item.ID, &item.Ordinal, &item.Source, &item.Kind, &item.TurnID, &cancelled, &created, &item.TextPreview, &item.PreviewTruncated, &item.AttachmentCount, &steeringID, &targetTurn, &consumed); err != nil {
+		var clientID, requestID *string
+		if err := rows.Scan(&item.SessionID, &item.ID, &item.Ordinal, &item.Source, &item.Kind, &item.TurnID, &cancelled, &created, &item.TextPreview, &item.PreviewTruncated, &item.AttachmentCount, &steeringID, &targetTurn, &consumed, &clientID, &requestID); err != nil {
 			return page, err
 		}
 		foundOwner = true
@@ -98,6 +100,7 @@ func (s *Store) InputPage(ctx context.Context, owner session.SessionID, state st
 		if steeringID != nil && targetTurn != nil {
 			item.Steering = &session.InputSteeringRef{ID: *steeringID, TurnID: *targetTurn, Consumed: consumed}
 		}
+		item.Identity = inputIdentity(clientID, requestID)
 		item.CreatedAt = timestamp(created.Int64)
 		item.State = session.Queued
 		if item.TurnID != nil {
@@ -122,4 +125,13 @@ func (s *Store) SessionInput(ctx context.Context, owner session.SessionID, id se
 		return session.Input{}, ErrNotFound
 	}
 	return value, err
+}
+
+// Both columns belong to the unique receipt for this local input. Nil means no
+// receipt; copied history and internal inputs must not invent client authority.
+func inputIdentity(clientID, requestID *string) *session.RequestIdentity {
+	if clientID == nil || requestID == nil {
+		return nil
+	}
+	return &session.RequestIdentity{ClientID: *clientID, RequestID: *requestID}
 }

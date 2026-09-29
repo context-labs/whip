@@ -2713,6 +2713,10 @@ export interface HistoryMetadataResult {
   items:
     | null
     | {
+        input_identity: null | {
+          client_id: string;
+          request_id: string;
+        };
         group_id: string;
         opening_input: boolean;
         source: null | {
@@ -2756,6 +2760,10 @@ export interface HistoryPageResult {
     | null
     | (
         | {
+            input_identity: null | {
+              client_id: string;
+              request_id: string;
+            };
             design_context?: null | {
               context_attachment_id: string;
               screenshot_attachment_id?: null | string;
@@ -2820,6 +2828,10 @@ export interface HistoryPageResult {
             created_at: string;
           }
         | {
+            input_identity: null | {
+              client_id: string;
+              request_id: string;
+            };
             design_context?: null | {
               context_attachment_id: string;
               screenshot_attachment_id?: null | string;
@@ -2884,6 +2896,10 @@ export interface HistoryPageResult {
             created_at: string;
           }
         | {
+            input_identity: null | {
+              client_id: string;
+              request_id: string;
+            };
             design_context?: null | {
               context_attachment_id: string;
               screenshot_attachment_id?: null | string;
@@ -2968,6 +2984,10 @@ export interface HistoryPageResult {
             created_at: string;
           }
         | {
+            input_identity: null | {
+              client_id: string;
+              request_id: string;
+            };
             design_context?: null | {
               context_attachment_id: string;
               screenshot_attachment_id?: null | string;
@@ -3043,6 +3063,10 @@ export interface HistoryResult {
     | null
     | (
         | {
+            input_identity: null | {
+              client_id: string;
+              request_id: string;
+            };
             design_context?: null | {
               context_attachment_id: string;
               screenshot_attachment_id?: null | string;
@@ -3107,6 +3131,10 @@ export interface HistoryResult {
             created_at: string;
           }
         | {
+            input_identity: null | {
+              client_id: string;
+              request_id: string;
+            };
             design_context?: null | {
               context_attachment_id: string;
               screenshot_attachment_id?: null | string;
@@ -3171,6 +3199,10 @@ export interface HistoryResult {
             created_at: string;
           }
         | {
+            input_identity: null | {
+              client_id: string;
+              request_id: string;
+            };
             design_context?: null | {
               context_attachment_id: string;
               screenshot_attachment_id?: null | string;
@@ -3255,6 +3287,10 @@ export interface HistoryResult {
             created_at: string;
           }
         | {
+            input_identity: null | {
+              client_id: string;
+              request_id: string;
+            };
             design_context?: null | {
               context_attachment_id: string;
               screenshot_attachment_id?: null | string;
@@ -3966,6 +4002,10 @@ export interface InputPageResult {
   items:
     | null
     | {
+        identity: null | {
+          client_id: string;
+          request_id: string;
+        };
         steering?: null | {
           id: string;
           turn_id: string;
@@ -4861,6 +4901,10 @@ export interface MatchReceiptParams {
 }
 export type Message =
   | {
+      input_identity: null | {
+        client_id: string;
+        request_id: string;
+      };
       design_context?: null | {
         context_attachment_id: string;
         screenshot_attachment_id?: null | string;
@@ -4925,6 +4969,10 @@ export type Message =
       created_at: string;
     }
   | {
+      input_identity: null | {
+        client_id: string;
+        request_id: string;
+      };
       design_context?: null | {
         context_attachment_id: string;
         screenshot_attachment_id?: null | string;
@@ -4989,6 +5037,10 @@ export type Message =
       created_at: string;
     }
   | {
+      input_identity: null | {
+        client_id: string;
+        request_id: string;
+      };
       design_context?: null | {
         context_attachment_id: string;
         screenshot_attachment_id?: null | string;
@@ -5073,6 +5125,10 @@ export type Message =
       created_at: string;
     }
   | {
+      input_identity: null | {
+        client_id: string;
+        request_id: string;
+      };
       design_context?: null | {
         context_attachment_id: string;
         screenshot_attachment_id?: null | string;
@@ -8033,6 +8089,10 @@ export interface ReadHistoryParams {
 }
 export interface ReadHistoryResult {
   message: {
+    input_identity: null | {
+      client_id: string;
+      request_id: string;
+    };
     group_id: string;
     opening_input: boolean;
     source: null | {
@@ -8578,6 +8638,10 @@ export interface SearchHistoryResult {
     | null
     | {
         message: {
+          input_identity: null | {
+            client_id: string;
+            request_id: string;
+          };
           group_id: string;
           opening_input: boolean;
           source: null | {
@@ -8784,6 +8848,10 @@ export interface SessionObservation {
     | null
     | (
         | {
+            input_identity: null | {
+              client_id: string;
+              request_id: string;
+            };
             design_context?: null | {
               context_attachment_id: string;
               screenshot_attachment_id?: null | string;
@@ -8848,6 +8916,10 @@ export interface SessionObservation {
             created_at: string;
           }
         | {
+            input_identity: null | {
+              client_id: string;
+              request_id: string;
+            };
             design_context?: null | {
               context_attachment_id: string;
               screenshot_attachment_id?: null | string;
@@ -8912,6 +8984,10 @@ export interface SessionObservation {
             created_at: string;
           }
         | {
+            input_identity: null | {
+              client_id: string;
+              request_id: string;
+            };
             design_context?: null | {
               context_attachment_id: string;
               screenshot_attachment_id?: null | string;
@@ -8996,6 +9072,10 @@ export interface SessionObservation {
             created_at: string;
           }
         | {
+            input_identity: null | {
+              client_id: string;
+              request_id: string;
+            };
             design_context?: null | {
               context_attachment_id: string;
               screenshot_attachment_id?: null | string;

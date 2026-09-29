@@ -2766,6 +2766,7 @@
   {
     "type": "Message",
     "value": {
+      "input_identity": null,
       "group_id": "imported_group",
       "opening_input": true,
       "source": {
@@ -2830,6 +2831,7 @@
     "type": "ReadHistoryResult",
     "value": {
       "message": {
+        "input_identity": null,
         "group_id": "turn",
         "opening_input": false,
         "source": null,
@@ -3187,6 +3189,7 @@
   {
     "type": "Message",
     "value": {
+      "input_identity": null,
       "group_id": "turn_fixture",
       "opening_input": false,
       "source": null,
@@ -3325,10 +3328,66 @@
     "valid": true
   },
   {
+    "type": "Message",
+    "value": {
+      "input_identity": {
+        "client_id": "client_fixture",
+        "request_id": "request_fixture"
+      },
+      "group_id": "turn_fixture",
+      "opening_input": false,
+      "source": null,
+      "retired_by": null,
+      "retired_revision": null,
+      "id": "authored",
+      "session_id": "session_child",
+      "turn_id": null,
+      "input_id": "input_fixture",
+      "mail": null,
+      "sequence": "9007199254740993",
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Authored input"
+        }
+      ],
+      "created_at": "2026-09-27T12:00:00.123456Z"
+    },
+    "valid": true
+  },
+  {
     "type": "InputPageResult",
     "value": {
       "items": [
         {
+          "identity": null,
+          "id": "internal_fixture",
+          "session_id": "session_child",
+          "ordinal": "1",
+          "source": "agent",
+          "kind": "prompt",
+          "state": "queued",
+          "turn_id": null,
+          "created_at": "2026-09-27T12:00:00.123456Z",
+          "text_preview": "",
+          "preview_truncated": false,
+          "attachment_count": "0"
+        }
+      ],
+      "next_cursor": null
+    },
+    "valid": true
+  },
+  {
+    "type": "InputPageResult",
+    "value": {
+      "items": [
+        {
+          "identity": {
+            "client_id": "client_fixture",
+            "request_id": "request_fixture"
+          },
           "id": "queued_fixture",
           "session_id": "session_child",
           "ordinal": "9007199254740993",
@@ -3358,6 +3417,7 @@
       "epoch": "boot_fixture",
       "messages": [
         {
+          "input_identity": null,
           "group_id": "turn_fixture",
           "opening_input": false,
           "source": null,
@@ -3934,6 +3994,7 @@
       },
       "messages": [
         {
+          "input_identity": null,
           "group_id": "turn_fixture",
           "opening_input": false,
           "source": null,
@@ -4046,6 +4107,7 @@
       },
       "items": [
         {
+          "input_identity": null,
           "group_id": "turn_fixture",
           "opening_input": false,
           "source": null,
@@ -4071,6 +4133,7 @@
           "created_at": "2026-09-27T12:00:00.123456Z"
         },
         {
+          "input_identity": null,
           "group_id": "turn_fixture",
           "opening_input": false,
           "source": null,
@@ -4098,6 +4161,7 @@
           "created_at": "2026-09-27T12:00:00.123456Z"
         },
         {
+          "input_identity": null,
           "group_id": "turn_fixture",
           "opening_input": false,
           "source": null,
@@ -4155,6 +4219,7 @@
   {
     "type": "Message",
     "value": {
+      "input_identity": null,
       "group_id": "turn_fixture",
       "opening_input": false,
       "source": null,
@@ -4952,6 +5017,7 @@
       },
       "items": [
         {
+          "input_identity": null,
           "group_id": "turn_fixture",
           "opening_input": false,
           "source": null,
@@ -4993,6 +5059,7 @@
       },
       "items": [
         {
+          "input_identity": null,
           "group_id": "turn_fixture",
           "opening_input": false,
           "source": null,

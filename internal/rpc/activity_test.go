@@ -18,7 +18,8 @@ func TestActivityRPCDiscoversAnotherClientsQueuedWorkWithoutExecution(t *testing
 		t.Fatal(value)
 	}
 	page := call[protocol.InputPageResult](t, c, "inputs.page", protocol.InputPageParams{SessionID: owner, State: "queued", Limit: 1})
-	if len(page.Items) != 1 || page.Items[0].ID != admitted.Input.ID || !page.Items[0].PreviewTruncated || page.Items[0].TextPreview == parts[0].Text {
+	if len(page.Items) != 1 || page.Items[0].ID != admitted.Input.ID || !page.Items[0].PreviewTruncated || page.Items[0].TextPreview == parts[0].Text ||
+		page.Items[0].Identity == nil || *page.Items[0].Identity != admitted.Receipt.Identity {
 		t.Fatal(page)
 	}
 	input := call[protocol.Input](t, c, "inputs.get", protocol.SessionInputParams{SessionID: owner, InputID: admitted.Input.ID})

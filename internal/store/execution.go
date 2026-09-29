@@ -509,7 +509,8 @@ func (s *Store) Claim(ctx context.Context, id session.SessionID) (result Claim, 
 
 const messageSelect = `SELECT m.id,m.session_id,COALESCE(m.turn_id,''),m.sequence,m.role,m.input_id,
  COALESCE(m.parts,i.parts),m.created_at,m.mail_id,m.mail_revision,m.mail_presentation,r.subject,r.body,mail.source_kind,mail.source_id,r.evidence_ref,COALESCE(m.design_context,i.design_context),` + historyProvenanceColumns + `
- FROM messages m LEFT JOIN inputs i ON i.id=m.input_id
+ FROM messages m LEFT JOIN inputs i ON i.id=m.input_id AND i.session_id=m.session_id
+ LEFT JOIN receipts receipt ON receipt.input_id=i.id
  LEFT JOIN mail_revisions r ON r.mail_id=m.mail_id AND r.revision=m.mail_revision
  LEFT JOIN mail ON mail.id=m.mail_id`
 
@@ -524,11 +525,13 @@ func scanMessage(row scanner) (result session.Message, err error) {
 	var sourceOwner *session.SessionID
 	var sourceMessage *session.MessageID
 	var sourceSequence sql.NullInt64
-	err = row.Scan(&result.ID, &result.SessionID, &result.TurnID, &result.Sequence, &result.Role, &result.InputID, &raw, &created, &mailID, &revision, &presentation, &subject, &body, &sourceKind, &sourceID, &evidence, &design, &result.GroupID, &result.OpeningInput, &sourceOwner, &sourceMessage, &sourceSequence, &result.RetiredBy, &result.RetiredRevision)
+	var clientID, requestID *string
+	err = row.Scan(&result.ID, &result.SessionID, &result.TurnID, &result.Sequence, &result.Role, &result.InputID, &raw, &created, &mailID, &revision, &presentation, &subject, &body, &sourceKind, &sourceID, &evidence, &design, &result.GroupID, &result.OpeningInput, &sourceOwner, &sourceMessage, &sourceSequence, &result.RetiredBy, &result.RetiredRevision, &clientID, &requestID)
 	if err != nil {
 		return result, found(err)
 	}
 	result.CreatedAt = timestamp(created)
+	result.InputIdentity = inputIdentity(clientID, requestID)
 	if sourceOwner != nil {
 		result.Source = &session.MessageSource{SessionID: *sourceOwner, MessageID: *sourceMessage, Sequence: sourceSequence.Int64}
 	}
