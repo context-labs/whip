@@ -67,7 +67,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return dispatchHostViews(ctx, r, method, raw)
 	case "tool.schemas", "tool.call", "shell.run":
 		return dispatchHostOperation(ctx, r, method, raw)
-	case "sessions.activity", "inputs.page", "inputs.get", "inputs.steer", "inputs.steering":
+	case "sessions.activity", "inputs.recent_text", "inputs.page", "inputs.get", "inputs.steer", "inputs.steering":
 		return dispatchActivity(ctx, r, method, raw)
 	case "executor.activity":
 		return decode(raw, func(p protocol.SessionParams) (any, error) {

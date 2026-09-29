@@ -1030,6 +1030,11 @@ export const manifest = {
       "result": "SessionActivity"
     },
     {
+      "name": "inputs.recent_text",
+      "params": "RecentInputTextParams",
+      "result": "InputTextPage"
+    },
+    {
       "name": "inputs.page",
       "params": "InputPageParams",
       "result": "InputPageResult"

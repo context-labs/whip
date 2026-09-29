@@ -230,6 +230,7 @@ func Operations() []Operation {
 		{"turns.attempts", reflect.TypeFor[ModelAttemptsParams](), reflect.TypeFor[ModelAttemptsResult]()},
 		{"turns.cancel", reflect.TypeFor[TurnParams](), reflect.TypeFor[Turn]()},
 		{"sessions.activity", reflect.TypeFor[SessionParams](), reflect.TypeFor[SessionActivity]()},
+		{"inputs.recent_text", reflect.TypeFor[RecentInputTextParams](), reflect.TypeFor[InputTextPage]()},
 		{"inputs.page", reflect.TypeFor[InputPageParams](), reflect.TypeFor[InputPageResult]()},
 		{"inputs.get", reflect.TypeFor[SessionInputParams](), reflect.TypeFor[Input]()},
 		{"inputs.cancel", reflect.TypeFor[InputParams](), reflect.TypeFor[Input]()},
@@ -333,6 +334,12 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 				child.MinItems = new(1)
 				child.MaxItems = new(128)
 			}
+		}
+		if t == reflect.TypeFor[InputText]() {
+			schema.Properties["text"].MaxLength = new(session.MaxInputRecallBytes)
+		}
+		if t == reflect.TypeFor[InputTextPage]() {
+			schema.Properties["items"].MaxItems = new(500)
 		}
 		if t == reflect.TypeFor[HostOperationResult]() {
 			refs := schema.Properties["content_references"]

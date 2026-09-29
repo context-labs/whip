@@ -37,3 +37,27 @@ func TestActivityRPCDiscoversAnotherClientsQueuedWorkWithoutExecution(t *testing
 		t.Fatal(value)
 	}
 }
+
+func TestRecentInputTextRPCIsBoundedCrossSessionEditorRead(t *testing.T) {
+	_, c := fixture(t)
+	first, second := create(t, c), create(t, c)
+	for i, owner := range []protocol.ID{first.Root.ID, second.Root.ID} {
+		call[protocol.Admission](t, c, "sessions.submit", protocol.SubmitParams{SessionID: owner, Identity: protocol.RequestIdentity{ClientID: "recall", RequestID: []protocol.ID{"first", "second"}[i]}, Source: "user", Parts: []protocol.Part{{Type: "text", Text: []string{"first text", "second text"}[i]}}})
+	}
+	page := call[protocol.InputTextPage](t, c, "inputs.recent_text", protocol.RecentInputTextParams{Limit: 1})
+	if len(page.Items) != 1 || page.Items[0].SessionID != second.Root.ID || page.Items[0].Text != "second text" || page.NextCursor == nil || page.ScannedCount != 1 {
+		t.Fatal(page)
+	}
+	page = call[protocol.InputTextPage](t, c, "inputs.recent_text", protocol.RecentInputTextParams{Before: page.NextCursor, Limit: 1})
+	if len(page.Items) != 1 || page.Items[0].SessionID != first.Root.ID || page.NextCursor != nil {
+		t.Fatal(page)
+	}
+	activity := call[protocol.SessionActivity](t, c, "sessions.activity", protocol.SessionParams{SessionID: first.Root.ID})
+	if activity.ActiveTurn != nil || activity.QueuedInputCount != 1 {
+		t.Fatal(activity)
+	}
+	var invalid protocol.InputTextPage
+	if err := c.Call(t.Context(), "inputs.recent_text", protocol.RecentInputTextParams{Limit: 501}, &invalid); err == nil {
+		t.Fatal("unbounded recall admitted")
+	}
+}
