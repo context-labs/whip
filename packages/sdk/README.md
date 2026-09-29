@@ -187,8 +187,8 @@ and advance sequences. `context.snapshot` returns the same boundary fields.
 Message `group_id` and `opening_input` describe whole conversation exchanges;
 nullable execution IDs and `source` distinguish copied history from local work.
 
-To rewind, stop the session explicitly, wait for active cancellation to settle,
-and cancel any unclaimed inputs. Obtain a fresh snapshot and select zero or the
+To rewind, wait for the session to be idle, with no active turn or uncancelled
+queued inputs. Rewind does not stop the session or cancel work. Obtain a fresh snapshot and select zero or the
 last sequence of a whole terminal group. Keep the edit ID and exact request before
 sending:
 

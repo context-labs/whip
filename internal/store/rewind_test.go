@@ -111,7 +111,7 @@ func TestRewindWholeGroupsRetriesRestartAndNonreusedSequences(t *testing.T) {
 }
 
 func TestRewindAdmissionBoundaries(t *testing.T) {
-	for _, kind := range []string{"active", "queued", "running", "unseen_append", "stale_revision", "midgroup", "missing", "empty"} {
+	for _, kind := range []string{"active_idle", "queued", "running", "active_queued", "active_running", "unseen_append", "stale_revision", "midgroup", "missing", "empty"} {
 		t.Run(kind, func(t *testing.T) {
 			s := fresh(t)
 			_, owner := create(t, s, nil)
@@ -121,9 +121,9 @@ func TestRewindAdmissionBoundaries(t *testing.T) {
 			request := rewindRequest(t, s, owner.ID, "rewind", 0)
 			want := ErrConflict
 			switch kind {
-			case "queued", "running":
+			case "queued", "running", "active_queued", "active_running":
 				submit(t, s, owner.ID, "pending")
-				if kind == "running" {
+				if kind == "running" || kind == "active_running" {
 					claim(t, s, owner.ID)
 					request = rewindRequest(t, s, owner.ID, request.ID, 0)
 				}
@@ -138,10 +138,10 @@ func TestRewindAdmissionBoundaries(t *testing.T) {
 			case "missing":
 				request.SessionID = "missing"
 				want = ErrNotFound
-			case "empty":
+			case "empty", "active_idle":
 				want = nil
 			}
-			if kind != "active" {
+			if kind != "active_idle" && kind != "active_queued" && kind != "active_running" {
 				rewindStopped(t, s, owner.ID)
 			}
 			_, err := s.Rewind(t.Context(), request)
@@ -290,5 +290,45 @@ func TestRewindImportedGroupBoundarySurvivesSourceDeletion(t *testing.T) {
 	}
 	if _, err := s.Rewind(t.Context(), rewindRequest(t, s, destination.ID, "all", 8)); err != nil {
 		t.Fatal("complete imported groups required live source turns", err)
+	}
+}
+
+func TestIdleRewindAndSubmissionSerializeWithoutStopping(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runtime.db")
+	s, other := openTest(t, path), openTest(t, path)
+	for i := range 8 {
+		_, owner := create(t, s, nil)
+		compactionHistoryTest(t, s, owner.ID, "history_"+strconv.Itoa(i))
+		request := rewindRequest(t, s, owner.ID, session.HistoryEditID("idle_"+strconv.Itoa(i)), 0)
+		start := make(chan struct{})
+		var workers sync.WaitGroup
+		var edit session.HistoryEdit
+		var rewindErr, submitErr error
+		workers.Go(func() { <-start; edit, rewindErr = s.Rewind(t.Context(), request) })
+		workers.Go(func() {
+			<-start
+			_, submitErr = other.Admit(t.Context(), session.RequestIdentity{ClientID: "test", RequestID: "next_" + strconv.Itoa(i)}, Submission{
+				SessionID: owner.ID, Source: session.UserInput, Parts: []session.Part{{Type: "text", Text: "continue"}},
+			})
+		})
+		close(start)
+		workers.Wait()
+		if submitErr != nil || (rewindErr != nil && !errors.Is(rewindErr, ErrBusy)) {
+			t.Fatal(rewindErr, submitErr)
+		}
+		current, err := s.Session(t.Context(), owner.ID)
+		if err != nil || current.Lifecycle != session.Active {
+			t.Fatal("rewind changed lifecycle", current, err)
+		}
+		turn := claim(t, s, owner.ID).Turn
+		if turn.HistoryRevision != current.HistoryRevision || (rewindErr == nil) != (turn.HistoryRevision == 2) {
+			t.Fatal("turn crossed rewind boundary", turn, current)
+		}
+		if rewindErr == nil {
+			retried, err := other.Rewind(t.Context(), request)
+			if err != nil || !reflect.DeepEqual(retried, edit) {
+				t.Fatal("exact retry changed during active work", retried, err)
+			}
+		}
 	}
 }

@@ -27,7 +27,7 @@ func rewindRuntimeRequest(t *testing.T, r *Runtime, owner session.SessionID, kee
 
 func TestRewindBothEnginesResetWithoutReplayAcrossDisposalAndRestart(t *testing.T) {
 	for _, engine := range []session.Engine{session.Starlark, session.QuickJS} {
-		for _, mode := range []string{"immediate_partial", "delayed_keep_all", "restart_keep_none"} {
+		for _, mode := range []string{"active_idle_partial", "immediate_partial", "delayed_keep_all", "restart_keep_none"} {
 			t.Run(string(engine)+"/"+mode, func(t *testing.T) {
 				codes := map[string]string{
 					"first":  "x = 41\nfiles.write(path=\"effect.txt\", content=\"effect survives\")\nprint(x)",
@@ -78,8 +78,10 @@ func TestRewindBothEnginesResetWithoutReplayAcrossDisposalAndRestart(t *testing.
 				if oldKernel == nil || oldKernel.historyRevision != 1 {
 					t.Fatal("fixture has no original live kernel")
 				}
-				if _, err := r.SetLifecycle(t.Context(), owner.ID, session.Stopped); err != nil {
-					t.Fatal(err)
+				if mode != "active_idle_partial" {
+					if _, err := r.SetLifecycle(t.Context(), owner.ID, session.Stopped); err != nil {
+						t.Fatal(err)
+					}
 				}
 				keep := int64(4)
 				switch mode {
@@ -90,7 +92,7 @@ func TestRewindBothEnginesResetWithoutReplayAcrossDisposalAndRestart(t *testing.
 				}
 				request := rewindRuntimeRequest(t, r, owner.ID, keep)
 				var edit session.HistoryEdit
-				if mode == "immediate_partial" {
+				if mode == "immediate_partial" || mode == "active_idle_partial" {
 					edit, err = r.Rewind(t.Context(), request)
 				} else {
 					// Deliberately omit postcommit cache disposal. The durable revision

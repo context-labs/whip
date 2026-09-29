@@ -1377,7 +1377,9 @@ count in one read. Revision-aware full history pages read that boundary and thei
 bounded messages in the same SQL snapshot. Expected-revision checks reject a
 cursor after rewind; later appends retain the revision and advance the tail.
 
-Rewind requires a stopped owner with no active turn or uncancelled queued input.
+Rewind requires an idle owner with no active turn or uncancelled queued input.
+It does not change lifecycle. Admission and turn claiming serialize with the edit;
+work admitted afterward captures the new history revision.
 The caller supplies a stable edit identity, expected revision, observed tail and
 whole terminal group boundary (or zero). One transaction records an immutable
 edit, advances revision, retires the suffix and clears incompatible summary
