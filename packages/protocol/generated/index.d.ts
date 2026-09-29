@@ -200,6 +200,52 @@ export interface AnswerQuestionParams {
     }[]
   ];
 }
+export interface AttemptPresentation {
+  group_id: string;
+  source_session_id?: null | string;
+  attempt_id: string;
+  turn_id: string;
+  message_id?: null | string;
+  state: "failed" | "cancelled" | "uncertain";
+  presentation: {
+    version: number;
+    attempt_id: string;
+    /**
+     * @maxItems 128
+     */
+    parts: (
+      | {
+          id: string;
+          text?: string;
+          type: "reasoning";
+        }
+      | {
+          end: null | number;
+          id: string;
+          start: null | number;
+          type: "text";
+        }
+      | {
+          id: string;
+          text?: string;
+          type: "text";
+        }
+      | {
+          call?: null | {
+            index: number;
+            id: string;
+            name: string;
+            arguments: string;
+          };
+          call_id?: null | string;
+          call_index: null | number;
+          id: string;
+          type: "tool_call";
+        }
+    )[];
+    truncated: boolean;
+  };
+}
 export interface AutomaticTitleDecision {
   tree_id: string;
   session_id: string;
@@ -2918,6 +2964,44 @@ export interface HistoryMetadataResult {
   items:
     | null
     | {
+        presentation?: null | {
+          version: number;
+          attempt_id: string;
+          /**
+           * @maxItems 128
+           */
+          parts: (
+            | {
+                id: string;
+                text?: string;
+                type: "reasoning";
+              }
+            | {
+                end: null | number;
+                id: string;
+                start: null | number;
+                type: "text";
+              }
+            | {
+                id: string;
+                text?: string;
+                type: "text";
+              }
+            | {
+                call?: null | {
+                  index: number;
+                  id: string;
+                  name: string;
+                  arguments: string;
+                };
+                call_id?: null | string;
+                call_index: null | number;
+                id: string;
+                type: "tool_call";
+              }
+          )[];
+          truncated: boolean;
+        };
         input_identity: null | {
           client_id: string;
           request_id: string;
@@ -2955,6 +3039,58 @@ export interface HistoryPageParams {
   limit: number;
 }
 export interface HistoryPageResult {
+  /**
+   * @maxItems 64
+   */
+  attempt_presentations?:
+    | null
+    | {
+        group_id: string;
+        source_session_id?: null | string;
+        attempt_id: string;
+        turn_id: string;
+        message_id?: null | string;
+        state: "failed" | "cancelled" | "uncertain";
+        presentation: {
+          version: number;
+          attempt_id: string;
+          /**
+           * @maxItems 128
+           */
+          parts: (
+            | {
+                id: string;
+                text?: string;
+                type: "reasoning";
+              }
+            | {
+                end: null | number;
+                id: string;
+                start: null | number;
+                type: "text";
+              }
+            | {
+                id: string;
+                text?: string;
+                type: "text";
+              }
+            | {
+                call?: null | {
+                  index: number;
+                  id: string;
+                  name: string;
+                  arguments: string;
+                };
+                call_id?: null | string;
+                call_index: null | number;
+                id: string;
+                type: "tool_call";
+              }
+          )[];
+          truncated: boolean;
+        };
+      }[];
+  attempt_presentations_truncated?: boolean;
   snapshot: {
     revision: string;
     session_id: string;
@@ -2965,6 +3101,44 @@ export interface HistoryPageResult {
     | null
     | (
         | {
+            presentation?: null | {
+              version: number;
+              attempt_id: string;
+              /**
+               * @maxItems 128
+               */
+              parts: (
+                | {
+                    id: string;
+                    text?: string;
+                    type: "reasoning";
+                  }
+                | {
+                    end: null | number;
+                    id: string;
+                    start: null | number;
+                    type: "text";
+                  }
+                | {
+                    id: string;
+                    text?: string;
+                    type: "text";
+                  }
+                | {
+                    call?: null | {
+                      index: number;
+                      id: string;
+                      name: string;
+                      arguments: string;
+                    };
+                    call_id?: null | string;
+                    call_index: null | number;
+                    id: string;
+                    type: "tool_call";
+                  }
+              )[];
+              truncated: boolean;
+            };
             input_identity: null | {
               client_id: string;
               request_id: string;
@@ -3033,6 +3207,44 @@ export interface HistoryPageResult {
             created_at: string;
           }
         | {
+            presentation?: null | {
+              version: number;
+              attempt_id: string;
+              /**
+               * @maxItems 128
+               */
+              parts: (
+                | {
+                    id: string;
+                    text?: string;
+                    type: "reasoning";
+                  }
+                | {
+                    end: null | number;
+                    id: string;
+                    start: null | number;
+                    type: "text";
+                  }
+                | {
+                    id: string;
+                    text?: string;
+                    type: "text";
+                  }
+                | {
+                    call?: null | {
+                      index: number;
+                      id: string;
+                      name: string;
+                      arguments: string;
+                    };
+                    call_id?: null | string;
+                    call_index: null | number;
+                    id: string;
+                    type: "tool_call";
+                  }
+              )[];
+              truncated: boolean;
+            };
             input_identity: null | {
               client_id: string;
               request_id: string;
@@ -3101,6 +3313,44 @@ export interface HistoryPageResult {
             created_at: string;
           }
         | {
+            presentation?: null | {
+              version: number;
+              attempt_id: string;
+              /**
+               * @maxItems 128
+               */
+              parts: (
+                | {
+                    id: string;
+                    text?: string;
+                    type: "reasoning";
+                  }
+                | {
+                    end: null | number;
+                    id: string;
+                    start: null | number;
+                    type: "text";
+                  }
+                | {
+                    id: string;
+                    text?: string;
+                    type: "text";
+                  }
+                | {
+                    call?: null | {
+                      index: number;
+                      id: string;
+                      name: string;
+                      arguments: string;
+                    };
+                    call_id?: null | string;
+                    call_index: null | number;
+                    id: string;
+                    type: "tool_call";
+                  }
+              )[];
+              truncated: boolean;
+            };
             input_identity: null | {
               client_id: string;
               request_id: string;
@@ -3189,6 +3439,44 @@ export interface HistoryPageResult {
             created_at: string;
           }
         | {
+            presentation?: null | {
+              version: number;
+              attempt_id: string;
+              /**
+               * @maxItems 128
+               */
+              parts: (
+                | {
+                    id: string;
+                    text?: string;
+                    type: "reasoning";
+                  }
+                | {
+                    end: null | number;
+                    id: string;
+                    start: null | number;
+                    type: "text";
+                  }
+                | {
+                    id: string;
+                    text?: string;
+                    type: "text";
+                  }
+                | {
+                    call?: null | {
+                      index: number;
+                      id: string;
+                      name: string;
+                      arguments: string;
+                    };
+                    call_id?: null | string;
+                    call_index: null | number;
+                    id: string;
+                    type: "tool_call";
+                  }
+              )[];
+              truncated: boolean;
+            };
             input_identity: null | {
               client_id: string;
               request_id: string;
@@ -3268,6 +3556,44 @@ export interface HistoryResult {
     | null
     | (
         | {
+            presentation?: null | {
+              version: number;
+              attempt_id: string;
+              /**
+               * @maxItems 128
+               */
+              parts: (
+                | {
+                    id: string;
+                    text?: string;
+                    type: "reasoning";
+                  }
+                | {
+                    end: null | number;
+                    id: string;
+                    start: null | number;
+                    type: "text";
+                  }
+                | {
+                    id: string;
+                    text?: string;
+                    type: "text";
+                  }
+                | {
+                    call?: null | {
+                      index: number;
+                      id: string;
+                      name: string;
+                      arguments: string;
+                    };
+                    call_id?: null | string;
+                    call_index: null | number;
+                    id: string;
+                    type: "tool_call";
+                  }
+              )[];
+              truncated: boolean;
+            };
             input_identity: null | {
               client_id: string;
               request_id: string;
@@ -3336,6 +3662,44 @@ export interface HistoryResult {
             created_at: string;
           }
         | {
+            presentation?: null | {
+              version: number;
+              attempt_id: string;
+              /**
+               * @maxItems 128
+               */
+              parts: (
+                | {
+                    id: string;
+                    text?: string;
+                    type: "reasoning";
+                  }
+                | {
+                    end: null | number;
+                    id: string;
+                    start: null | number;
+                    type: "text";
+                  }
+                | {
+                    id: string;
+                    text?: string;
+                    type: "text";
+                  }
+                | {
+                    call?: null | {
+                      index: number;
+                      id: string;
+                      name: string;
+                      arguments: string;
+                    };
+                    call_id?: null | string;
+                    call_index: null | number;
+                    id: string;
+                    type: "tool_call";
+                  }
+              )[];
+              truncated: boolean;
+            };
             input_identity: null | {
               client_id: string;
               request_id: string;
@@ -3404,6 +3768,44 @@ export interface HistoryResult {
             created_at: string;
           }
         | {
+            presentation?: null | {
+              version: number;
+              attempt_id: string;
+              /**
+               * @maxItems 128
+               */
+              parts: (
+                | {
+                    id: string;
+                    text?: string;
+                    type: "reasoning";
+                  }
+                | {
+                    end: null | number;
+                    id: string;
+                    start: null | number;
+                    type: "text";
+                  }
+                | {
+                    id: string;
+                    text?: string;
+                    type: "text";
+                  }
+                | {
+                    call?: null | {
+                      index: number;
+                      id: string;
+                      name: string;
+                      arguments: string;
+                    };
+                    call_id?: null | string;
+                    call_index: null | number;
+                    id: string;
+                    type: "tool_call";
+                  }
+              )[];
+              truncated: boolean;
+            };
             input_identity: null | {
               client_id: string;
               request_id: string;
@@ -3492,6 +3894,44 @@ export interface HistoryResult {
             created_at: string;
           }
         | {
+            presentation?: null | {
+              version: number;
+              attempt_id: string;
+              /**
+               * @maxItems 128
+               */
+              parts: (
+                | {
+                    id: string;
+                    text?: string;
+                    type: "reasoning";
+                  }
+                | {
+                    end: null | number;
+                    id: string;
+                    start: null | number;
+                    type: "text";
+                  }
+                | {
+                    id: string;
+                    text?: string;
+                    type: "text";
+                  }
+                | {
+                    call?: null | {
+                      index: number;
+                      id: string;
+                      name: string;
+                      arguments: string;
+                    };
+                    call_id?: null | string;
+                    call_index: null | number;
+                    id: string;
+                    type: "tool_call";
+                  }
+              )[];
+              truncated: boolean;
+            };
             input_identity: null | {
               client_id: string;
               request_id: string;
@@ -5162,6 +5602,44 @@ export interface MatchReceiptParams {
 }
 export type Message =
   | {
+      presentation?: null | {
+        version: number;
+        attempt_id: string;
+        /**
+         * @maxItems 128
+         */
+        parts: (
+          | {
+              id: string;
+              text?: string;
+              type: "reasoning";
+            }
+          | {
+              end: null | number;
+              id: string;
+              start: null | number;
+              type: "text";
+            }
+          | {
+              id: string;
+              text?: string;
+              type: "text";
+            }
+          | {
+              call?: null | {
+                index: number;
+                id: string;
+                name: string;
+                arguments: string;
+              };
+              call_id?: null | string;
+              call_index: null | number;
+              id: string;
+              type: "tool_call";
+            }
+        )[];
+        truncated: boolean;
+      };
       input_identity: null | {
         client_id: string;
         request_id: string;
@@ -5230,6 +5708,44 @@ export type Message =
       created_at: string;
     }
   | {
+      presentation?: null | {
+        version: number;
+        attempt_id: string;
+        /**
+         * @maxItems 128
+         */
+        parts: (
+          | {
+              id: string;
+              text?: string;
+              type: "reasoning";
+            }
+          | {
+              end: null | number;
+              id: string;
+              start: null | number;
+              type: "text";
+            }
+          | {
+              id: string;
+              text?: string;
+              type: "text";
+            }
+          | {
+              call?: null | {
+                index: number;
+                id: string;
+                name: string;
+                arguments: string;
+              };
+              call_id?: null | string;
+              call_index: null | number;
+              id: string;
+              type: "tool_call";
+            }
+        )[];
+        truncated: boolean;
+      };
       input_identity: null | {
         client_id: string;
         request_id: string;
@@ -5298,6 +5814,44 @@ export type Message =
       created_at: string;
     }
   | {
+      presentation?: null | {
+        version: number;
+        attempt_id: string;
+        /**
+         * @maxItems 128
+         */
+        parts: (
+          | {
+              id: string;
+              text?: string;
+              type: "reasoning";
+            }
+          | {
+              end: null | number;
+              id: string;
+              start: null | number;
+              type: "text";
+            }
+          | {
+              id: string;
+              text?: string;
+              type: "text";
+            }
+          | {
+              call?: null | {
+                index: number;
+                id: string;
+                name: string;
+                arguments: string;
+              };
+              call_id?: null | string;
+              call_index: null | number;
+              id: string;
+              type: "tool_call";
+            }
+        )[];
+        truncated: boolean;
+      };
       input_identity: null | {
         client_id: string;
         request_id: string;
@@ -5386,6 +5940,44 @@ export type Message =
       created_at: string;
     }
   | {
+      presentation?: null | {
+        version: number;
+        attempt_id: string;
+        /**
+         * @maxItems 128
+         */
+        parts: (
+          | {
+              id: string;
+              text?: string;
+              type: "reasoning";
+            }
+          | {
+              end: null | number;
+              id: string;
+              start: null | number;
+              type: "text";
+            }
+          | {
+              id: string;
+              text?: string;
+              type: "text";
+            }
+          | {
+              call?: null | {
+                index: number;
+                id: string;
+                name: string;
+                arguments: string;
+              };
+              call_id?: null | string;
+              call_index: null | number;
+              id: string;
+              type: "tool_call";
+            }
+        )[];
+        truncated: boolean;
+      };
       input_identity: null | {
         client_id: string;
         request_id: string;
@@ -5445,6 +6037,44 @@ export type Message =
       ];
       created_at: string;
     };
+export interface MessagePresentation {
+  version: number;
+  attempt_id: string;
+  /**
+   * @maxItems 128
+   */
+  parts: (
+    | {
+        id: string;
+        text?: string;
+        type: "reasoning";
+      }
+    | {
+        end: null | number;
+        id: string;
+        start: null | number;
+        type: "text";
+      }
+    | {
+        id: string;
+        text?: string;
+        type: "text";
+      }
+    | {
+        call?: null | {
+          index: number;
+          id: string;
+          name: string;
+          arguments: string;
+        };
+        call_id?: null | string;
+        call_index: null | number;
+        id: string;
+        type: "tool_call";
+      }
+  )[];
+  truncated: boolean;
+}
 export interface ModelAttemptsParams {
   turn_id: string;
   after?: null | string;
@@ -5494,6 +6124,44 @@ export interface ModelAttemptsResult {
         };
         state: "reserved" | "dispatched" | "succeeded" | "failed" | "cancelled" | "uncertain";
         result: null | {
+          presentation?: null | {
+            version: number;
+            attempt_id: string;
+            /**
+             * @maxItems 128
+             */
+            parts: (
+              | {
+                  id: string;
+                  text?: string;
+                  type: "reasoning";
+                }
+              | {
+                  end: null | number;
+                  id: string;
+                  start: null | number;
+                  type: "text";
+                }
+              | {
+                  id: string;
+                  text?: string;
+                  type: "text";
+                }
+              | {
+                  call?: null | {
+                    index: number;
+                    id: string;
+                    name: string;
+                    arguments: string;
+                  };
+                  call_id?: null | string;
+                  call_index: null | number;
+                  id: string;
+                  type: "tool_call";
+                }
+            )[];
+            truncated: boolean;
+          };
           state: "succeeded" | "failed" | "cancelled" | "uncertain";
           usage: {
             input: null | string;
@@ -8364,6 +9032,44 @@ export interface ReadHistoryParams {
 }
 export interface ReadHistoryResult {
   message: {
+    presentation?: null | {
+      version: number;
+      attempt_id: string;
+      /**
+       * @maxItems 128
+       */
+      parts: (
+        | {
+            id: string;
+            text?: string;
+            type: "reasoning";
+          }
+        | {
+            end: null | number;
+            id: string;
+            start: null | number;
+            type: "text";
+          }
+        | {
+            id: string;
+            text?: string;
+            type: "text";
+          }
+        | {
+            call?: null | {
+              index: number;
+              id: string;
+              name: string;
+              arguments: string;
+            };
+            call_id?: null | string;
+            call_index: null | number;
+            id: string;
+            type: "tool_call";
+          }
+      )[];
+      truncated: boolean;
+    };
     input_identity: null | {
       client_id: string;
       request_id: string;
@@ -8917,6 +9623,44 @@ export interface SearchHistoryResult {
     | null
     | {
         message: {
+          presentation?: null | {
+            version: number;
+            attempt_id: string;
+            /**
+             * @maxItems 128
+             */
+            parts: (
+              | {
+                  id: string;
+                  text?: string;
+                  type: "reasoning";
+                }
+              | {
+                  end: null | number;
+                  id: string;
+                  start: null | number;
+                  type: "text";
+                }
+              | {
+                  id: string;
+                  text?: string;
+                  type: "text";
+                }
+              | {
+                  call?: null | {
+                    index: number;
+                    id: string;
+                    name: string;
+                    arguments: string;
+                  };
+                  call_id?: null | string;
+                  call_index: null | number;
+                  id: string;
+                  type: "tool_call";
+                }
+            )[];
+            truncated: boolean;
+          };
           input_identity: null | {
             client_id: string;
             request_id: string;
@@ -9116,6 +9860,58 @@ export interface SessionInputParams {
   input_id: string;
 }
 export interface SessionObservation {
+  /**
+   * @maxItems 64
+   */
+  attempt_presentations?:
+    | null
+    | {
+        group_id: string;
+        source_session_id?: null | string;
+        attempt_id: string;
+        turn_id: string;
+        message_id?: null | string;
+        state: "failed" | "cancelled" | "uncertain";
+        presentation: {
+          version: number;
+          attempt_id: string;
+          /**
+           * @maxItems 128
+           */
+          parts: (
+            | {
+                id: string;
+                text?: string;
+                type: "reasoning";
+              }
+            | {
+                end: null | number;
+                id: string;
+                start: null | number;
+                type: "text";
+              }
+            | {
+                id: string;
+                text?: string;
+                type: "text";
+              }
+            | {
+                call?: null | {
+                  index: number;
+                  id: string;
+                  name: string;
+                  arguments: string;
+                };
+                call_id?: null | string;
+                call_index: null | number;
+                id: string;
+                type: "tool_call";
+              }
+          )[];
+          truncated: boolean;
+        };
+      }[];
+  attempt_presentations_truncated?: boolean;
   snapshot: {
     revision: string;
     session_id: string;
@@ -9127,6 +9923,44 @@ export interface SessionObservation {
     | null
     | (
         | {
+            presentation?: null | {
+              version: number;
+              attempt_id: string;
+              /**
+               * @maxItems 128
+               */
+              parts: (
+                | {
+                    id: string;
+                    text?: string;
+                    type: "reasoning";
+                  }
+                | {
+                    end: null | number;
+                    id: string;
+                    start: null | number;
+                    type: "text";
+                  }
+                | {
+                    id: string;
+                    text?: string;
+                    type: "text";
+                  }
+                | {
+                    call?: null | {
+                      index: number;
+                      id: string;
+                      name: string;
+                      arguments: string;
+                    };
+                    call_id?: null | string;
+                    call_index: null | number;
+                    id: string;
+                    type: "tool_call";
+                  }
+              )[];
+              truncated: boolean;
+            };
             input_identity: null | {
               client_id: string;
               request_id: string;
@@ -9195,6 +10029,44 @@ export interface SessionObservation {
             created_at: string;
           }
         | {
+            presentation?: null | {
+              version: number;
+              attempt_id: string;
+              /**
+               * @maxItems 128
+               */
+              parts: (
+                | {
+                    id: string;
+                    text?: string;
+                    type: "reasoning";
+                  }
+                | {
+                    end: null | number;
+                    id: string;
+                    start: null | number;
+                    type: "text";
+                  }
+                | {
+                    id: string;
+                    text?: string;
+                    type: "text";
+                  }
+                | {
+                    call?: null | {
+                      index: number;
+                      id: string;
+                      name: string;
+                      arguments: string;
+                    };
+                    call_id?: null | string;
+                    call_index: null | number;
+                    id: string;
+                    type: "tool_call";
+                  }
+              )[];
+              truncated: boolean;
+            };
             input_identity: null | {
               client_id: string;
               request_id: string;
@@ -9263,6 +10135,44 @@ export interface SessionObservation {
             created_at: string;
           }
         | {
+            presentation?: null | {
+              version: number;
+              attempt_id: string;
+              /**
+               * @maxItems 128
+               */
+              parts: (
+                | {
+                    id: string;
+                    text?: string;
+                    type: "reasoning";
+                  }
+                | {
+                    end: null | number;
+                    id: string;
+                    start: null | number;
+                    type: "text";
+                  }
+                | {
+                    id: string;
+                    text?: string;
+                    type: "text";
+                  }
+                | {
+                    call?: null | {
+                      index: number;
+                      id: string;
+                      name: string;
+                      arguments: string;
+                    };
+                    call_id?: null | string;
+                    call_index: null | number;
+                    id: string;
+                    type: "tool_call";
+                  }
+              )[];
+              truncated: boolean;
+            };
             input_identity: null | {
               client_id: string;
               request_id: string;
@@ -9351,6 +10261,44 @@ export interface SessionObservation {
             created_at: string;
           }
         | {
+            presentation?: null | {
+              version: number;
+              attempt_id: string;
+              /**
+               * @maxItems 128
+               */
+              parts: (
+                | {
+                    id: string;
+                    text?: string;
+                    type: "reasoning";
+                  }
+                | {
+                    end: null | number;
+                    id: string;
+                    start: null | number;
+                    type: "text";
+                  }
+                | {
+                    id: string;
+                    text?: string;
+                    type: "text";
+                  }
+                | {
+                    call?: null | {
+                      index: number;
+                      id: string;
+                      name: string;
+                      arguments: string;
+                    };
+                    call_id?: null | string;
+                    call_index: null | number;
+                    id: string;
+                    type: "tool_call";
+                  }
+              )[];
+              truncated: boolean;
+            };
             input_identity: null | {
               client_id: string;
               request_id: string;
@@ -9412,6 +10360,44 @@ export interface SessionObservation {
           }
       )[];
   preview: null | {
+    presentation?: null | {
+      version: number;
+      attempt_id: string;
+      /**
+       * @maxItems 128
+       */
+      parts: (
+        | {
+            id: string;
+            text?: string;
+            type: "reasoning";
+          }
+        | {
+            end: null | number;
+            id: string;
+            start: null | number;
+            type: "text";
+          }
+        | {
+            id: string;
+            text?: string;
+            type: "text";
+          }
+        | {
+            call?: null | {
+              index: number;
+              id: string;
+              name: string;
+              arguments: string;
+            };
+            call_id?: null | string;
+            call_index: null | number;
+            id: string;
+            type: "tool_call";
+          }
+      )[];
+      truncated: boolean;
+    };
     attempt_id: string;
     turn_id: string;
     message_id: string;
@@ -10796,6 +11782,7 @@ export interface WriteStateParams {
 export interface ContractTypes {
   Admission: Admission;
   AnswerQuestionParams: AnswerQuestionParams;
+  AttemptPresentation: AttemptPresentation;
   AutomaticTitleDecision: AutomaticTitleDecision;
   AutomaticTitleResult: AutomaticTitleResult;
   AutomaticTitleResultParams: AutomaticTitleResultParams;
@@ -10961,6 +11948,7 @@ export interface ContractTypes {
   MailAdmission: MailAdmission;
   MatchReceiptParams: MatchReceiptParams;
   Message: Message;
+  MessagePresentation: MessagePresentation;
   ModelAttemptsParams: ModelAttemptsParams;
   ModelAttemptsResult: ModelAttemptsResult;
   ModelInspection: ModelInspection;

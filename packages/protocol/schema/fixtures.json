@@ -1,5 +1,50 @@
 [
   {
+    "type": "MessagePresentation",
+    "value": {
+      "version": 1,
+      "attempt_id": "attempt_fixture",
+      "parts": [
+        {
+          "id": "p0",
+          "type": "reasoning",
+          "text": "Displayed thought"
+        },
+        {
+          "id": "p1",
+          "type": "text",
+          "start": 0,
+          "end": 10
+        }
+      ],
+      "truncated": false
+    },
+    "valid": true
+  },
+  {
+    "type": "AttemptPresentation",
+    "value": {
+      "group_id": "group_imported",
+      "source_session_id": "source",
+      "attempt_id": "failed_attempt",
+      "turn_id": "source_turn",
+      "state": "uncertain",
+      "presentation": {
+        "version": 1,
+        "attempt_id": "failed_attempt",
+        "parts": [
+          {
+            "id": "p0",
+            "type": "reasoning",
+            "text": "Partial thought"
+          }
+        ],
+        "truncated": false
+      }
+    },
+    "valid": true
+  },
+  {
     "type": "CellOutput",
     "value": {
       "epoch": "boot_fixture",
