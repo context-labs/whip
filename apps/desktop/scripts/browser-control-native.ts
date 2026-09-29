@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import type { BrowserWindow } from 'electron';
-import type { BrowserCommand } from '@whip/legacy-protocol';
+import type { BrowserCommand } from '@whip/protocol';
 import type { BrowserAgentIdentity, BrowserAgentScope, BrowserAgentResult, BrowserInventory, BrowserAgentEvent } from '@whip/app/desktop-bridge';
 import { BrowserManager } from '../src/browser-manager';
 import { BrowserControl } from '../src/browser-control';
@@ -36,11 +36,11 @@ export async function testBrowserControl(window: BrowserWindow, origin: string) 
     await assert.rejects(call('inventory', { ...inventoryRequest, provider_epoch: randomUUID() }), /stale/);
 
     let scope: BrowserAgentScope = { provider_id: provider.provider_id, provider_epoch: provider.provider_epoch, tab_id: randomUUID(), tab_generation: randomUUID(),
-      profile_id: identity.createProfileId, attachment_id: randomUUID(), attachment_generation: randomUUID(), rights: ['create', 'control'] };
+      profile_id: identity.createProfileId, attachment_id: randomUUID(), attachment_generation: randomUUID(), control_lineage: randomUUID() };
     let operationId = '5bc1ca6a5da15c4077dbecef67be7406:4:call_m6f3ny27oDXJdbMOSyWM29t2:024047879dbbcbcbd2d4b016b00a94f8', holder = agentId;
-    const command = (kind: string, args: unknown = {}): BrowserCommand => ({ command_id: randomUUID(), operation_id: operationId, root_id: rootId, agent_id: holder,
-      provider_epoch: provider.provider_epoch, deadline_millis: String(Date.now() + 5000), kind, scope: structuredClone(scope), arguments: args });
-    const dispatch = (kind: string, args: unknown = {}) => call<BrowserAgentResult>('dispatch', command(kind, args));
+    const command = (kind: BrowserCommand['kind'], args: unknown = {}): BrowserCommand => ({ command_id: randomUUID(), operation_id: operationId, root_id: rootId, agent_id: holder,
+      provider_epoch: provider.provider_epoch, expected_document: '', deadline_millis: String(Date.now() + 5000), kind, scope: structuredClone(scope), arguments: args });
+    const dispatch = (kind: BrowserCommand['kind'], args: unknown = {}) => call<BrowserAgentResult>('dispatch', command(kind, args));
     const opened = await dispatch('open', { url: origin + '/control' }); assert.equal(opened.error, undefined, 'open result');
     assert.equal(manager.snapshot().tabs[0].id, scope.tab_id); assert.equal(manager.snapshot().tabs[0].generation, scope.tab_generation);
     const target = { epoch: manager.snapshot().epoch, tabId: scope.tab_id, generation: scope.tab_generation };

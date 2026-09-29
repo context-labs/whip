@@ -1,4 +1,4 @@
-import type { BrowserInventoryRequest, BrowserInventoryResultParams, BrowserCommand, BrowserCommandCancel, BrowserCommandResultParams, BrowserProviderBindParams, BrowserProviderBindResult, BrowserProviderEventParams } from '@whip/legacy-protocol';
+import type { BrowserInventoryRequest, BrowserInventoryResultParams, BrowserCommand, BrowserCommandCancel, BrowserCommandResultParams, BrowserProviderBindParams, BrowserProviderBindResult, BrowserProviderEventParams, BrowserScopesRetired } from '@whip/protocol';
 import type { BrowserTabState } from './browser-types';
 
 export type BrowserAgentScope = BrowserCommand['scope'];
@@ -29,6 +29,7 @@ export interface BrowserAgentBridge {
   inventory?(request: BrowserInventoryRequest): Promise<BrowserInventoryResultParams>;
   dispatch(command: BrowserCommand): Promise<BrowserAgentResult>;
   cancel(input: BrowserCommandCancel): void;
+  retire(input: BrowserScopesRetired): Promise<void>;
   release(input: { rootId: string; providerEpoch: string }): Promise<void>;
   onEvent(listener: (event: BrowserAgentEvent) => void): () => void;
 }

@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { app, BrowserWindow, ipcMain, type WebContents, type Session } from 'electron';
 import { DesktopTransports } from '../src/transport';
 import type { ConnectionProfile, ConnectionTarget } from '@whip/app/platform';
-import type { BrowserCommand } from '@whip/legacy-protocol';
+import type { BrowserCommand } from '@whip/protocol';
 import type { BrowserAgentIdentity, BrowserAgentPreview, BrowserAgentResult, BrowserAgentScope } from '@whip/app/desktop-bridge';
 import { SSHConnection } from '../src/ssh';
 import { BrowserManager } from '../src/browser-manager';
@@ -146,12 +146,12 @@ async function run() {
     await call('select', { connectionId, projectId: manifest.projectId, provider, offer: { version: 1, root_id: rootId,
       desktop_id: identity.desktopId, window_id: identity.windowId, create_profile_id: identity.createProfileId, offer_revision: randomUUID(), offered_tabs: [], offered_preview_hosts: [preview] } });
     scope = { provider_id: provider.provider_id, provider_epoch: provider.provider_epoch, tab_id: randomUUID(), tab_generation: randomUUID(), profile_id: identity.createProfileId,
-      attachment_id: randomUUID(), attachment_generation: randomUUID(), rights: ['create', 'control', 'route'], preview: { ...preview, ports: [port] } };
+      attachment_id: randomUUID(), attachment_generation: randomUUID(), control_lineage: randomUUID(), preview: { ...preview, ports: [port] } };
   };
   let operationId = randomUUID();
-  const command = (kind: string, args: unknown = {}): BrowserCommand => ({ command_id: randomUUID(), operation_id: operationId, root_id: rootId, agent_id: agentId,
-    provider_epoch: provider.provider_epoch, deadline_millis: String(Date.now() + 20000), kind, scope: structuredClone(scope), arguments: args });
-  const dispatch = (kind: string, args: unknown = {}) => call<BrowserAgentResult>('dispatch', command(kind, args));
+  const command = (kind: BrowserCommand['kind'], args: unknown = {}): BrowserCommand => ({ command_id: randomUUID(), operation_id: operationId, root_id: rootId, agent_id: agentId,
+    provider_epoch: provider.provider_epoch, expected_document: '', deadline_millis: String(Date.now() + 20000), kind, scope: structuredClone(scope), arguments: args });
+  const dispatch = (kind: BrowserCommand['kind'], args: unknown = {}) => call<BrowserAgentResult>('dispatch', command(kind, args));
   const remoteURL = `http://127.0.0.1:${manifest.remoteHTTPPort}/`;
   await select(preview);
   assert.equal((await dispatch('open', { url: remoteURL })).error, undefined);
