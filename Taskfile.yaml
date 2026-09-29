@@ -239,7 +239,7 @@ tasks:
       - node apps/desktop/scripts/project-editors-ipc-smoke.mjs
 
   check:native-cli:
-    desc: Native lifecycle, run, recovery, session catalog/export and compiled CLI fixtures
+    desc: Native lifecycle and CLI fixtures, plus terminal client regressions
     cmds:
       # Protocol clients have independent real-host lifecycles. Keep the same
       # deadline per family without growing one aggregate timer with each client.
@@ -248,6 +248,7 @@ tasks:
       - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(Run|Native|Web|Headless|Sessions|TruncAndAgo|PushOTLP|MainDispatchesHeadlessCommands|ClientEntryPaths|DistributionMalformed)'
       - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(MCP|Acp|ACP)'
       - go test -tags=integration -count=1 -timeout=2m ./cmd/whip -run '^TestNativeCompiledCLI'
+      - go test -race -shuffle=on -count=1 -timeout=3m ./internal/tui
       - go vet ./cmd/whip
 
   check:change:
