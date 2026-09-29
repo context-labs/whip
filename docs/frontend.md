@@ -3384,3 +3384,10 @@ App command tracking distinguishes accepted workspace effects from successful
 completion. A `claimed` or `uncertain` workspace result retains its recovery
 record and displays that state; it does not continue a dependent UI action or
 forget tracking. Only a reported `succeeded` result completes that workflow.
+
+A dropped connection can abort the local submission waiter before delivery failure
+is reported. The app retains that exact command as unresolved, keeps authored
+input and completed attachment references during same-runtime recovery, and
+blocks a fresh send from that draft. Reconnection itself does not check or resend
+the command. An explicit recovery action binds the immutable record to the
+replacement client only when both runtime and client identities match.

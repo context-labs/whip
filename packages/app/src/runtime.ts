@@ -1,8 +1,8 @@
 import { QueryClient } from '@tanstack/react-query';
 import { rememberProviderReady } from './provider-readiness';
 import {
-  DeliveryError, RecoveryError, RecoveryJournal, RecoveryPersistenceError,
-  type Client, type DurableCommand, type DurableMethod, type Operations,
+  DeliveryError, DurableCommand, RecoveryError, RecoveryJournal, RecoveryPersistenceError,
+  type Client, type DurableMethod, type Operations,
   type Admission,
 } from '@whip/sdk';
 import { createSessionView, type SessionView } from '@whip/sdk/state';
@@ -211,8 +211,9 @@ export class AppRuntime {
       detached: (client, runtimeId, options?: { recovering: boolean }) => {
         this.titleListeners.get(client)?.();
         this.titleListeners.delete(client);
-        if (runtimeId) this.compositions.invalidateRuntime(runtimeId);
-        for (const [id, pending] of this.pending) if (pending.client === client) this.pending.delete(id);
+        if (runtimeId) this.compositions.invalidateRuntime(runtimeId, { preserveUploaded: options?.recovering });
+        // Durable unresolved commands survive transport replacement; only an explicit
+        // recovery action may bind their exact record to a matching new client.
         for (const [id, lease] of this.views) if (lease.client === client) {
           if (options?.recovering) void lease.view.suspend(); else this.dropView(id, lease);
         }
@@ -623,11 +624,11 @@ export class AppRuntime {
     handle: DurableCommand<M>, label: string, onAccepted?: () => void, draftKey?: string,
   ): Promise<Operations[M]['result']> {
     const { runtimeID: runtimeId, clientID } = handle.record;
-    const client = this.connections.host(runtimeId)?.client;
+    let client = this.connections.host(runtimeId)?.client;
     if (!client || client.clientID !== clientID) return Promise.reject(new Error('Reconnect the original host before sending this command'));
-    const signal = this.connections.signal(client);
+    let signal = this.connections.signal(client);
     const id = JSON.stringify([runtimeId, clientID, handle.id]);
-    const attached = () => this.connections.isAttached(client);
+    const attached = () => !!client && this.connections.isAttached(client);
     let accepted = false, uncertain = false;
     let work: Promise<Operations[M]['result']> | undefined;
     const notice = (status: string, extra: Pick<CommandNotice, 'error' | 'delivery'> = {}) =>
@@ -661,8 +662,9 @@ export class AppRuntime {
             notice('Accepted · recovery storage needs attention', { error: errorMessage(error) });
             throw error;
           }
-          if (!(error instanceof DeliveryError)) throw error;
+          if (!(error instanceof DeliveryError) && !(signal.aborted && !(error instanceof RecoveryPersistenceError))) throw error;
           uncertain = true; this.pending.set(id, pending);
+          if (signal.aborted || !attached()) throw new RecoveryError('Delivery may have reached the host. Reconnect and check the original command before sending again.');
           notice('Checking acceptance', { delivery: 'uncertain' });
           result = await check();
         }
@@ -697,7 +699,9 @@ export class AppRuntime {
         if (!attached()) throw new Error('Host changed while refreshing command results');
         return result;
       } catch (error) {
-        if (!signal.aborted && attached()) {
+        if (!this.closed) {
+          // A local wait abort says nothing about an already started send.
+          if (!accepted && signal.aborted && !(error instanceof RecoveryPersistenceError)) uncertain = true;
           if (uncertain && !accepted) {
             this.pending.set(id, pending);
             if (this.state.commands.find(item => item.id === id)?.delivery !== 'absent')
@@ -709,7 +713,19 @@ export class AppRuntime {
       }
     };
     const start = (mode: 'initial' | 'check' | 'retry') => {
-      work ??= observe(mode).finally(() => { work = undefined; });
+      if (work) return work;
+      try {
+        const current = this.connections.host(runtimeId)?.client;
+        if (!current || current.clientID !== clientID || !this.connections.isAttached(current))
+          throw new RecoveryError('Reconnect the original host and client before checking this command');
+        if (current !== client) {
+          handle = DurableCommand.recover(current, handle.record, { journal: this.recovery }) as DurableCommand<M>;
+          client = current;
+          pending.client = current;
+        }
+        signal = this.connections.signal(current);
+      } catch (error) { return Promise.reject(error); }
+      work = observe(mode).finally(() => { work = undefined; });
       return work;
     };
     const pending: PendingCommand = { client, check: () => start('check'), retry: () => start('retry') };

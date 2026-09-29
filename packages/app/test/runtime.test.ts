@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryObserver } from '@tanstack/react-query';
-import { DeliveryError, RecoveryPersistenceError, type Client, type DurableCommand, type Admission } from '@whip/sdk';
+import { DeliveryError, DurableCommand, RecoveryPersistenceError, type Client, type Admission } from '@whip/sdk';
 import { AppRuntime } from '../src/runtime';
 import { createFallbackStorage, type AppStorage } from '../src/platform';
 
@@ -290,4 +290,33 @@ it.each(['claimed', 'uncertain', 'succeeded'] as const)('keeps workspace %s dist
     expect(app.getSnapshot().commands[0]?.status).toBe(`Accepted · workspace ${state}`);
   }
   expect(accepted).toHaveBeenCalledOnce(); expect(handle.wait).not.toHaveBeenCalled(); expect(handle.retry).not.toHaveBeenCalled(); app.dispose();
+});
+
+
+it('keeps aborted possibly-sent input unresolved and explicitly checks the exact record after reconnection', async () => {
+  const app = runtime(); await app.connect();
+  const id = app.submittedInputs.add({ runtimeId: 'runtime', rootId: 'root', agentId: 'child', clientId: 'client' }, 'Retained authored work');
+  const accepted = vi.fn();
+  const handle = command({ id, send: vi.fn(async ({ signal }: { signal: AbortSignal }) => {
+    app.connections.disconnect('local', true);
+    signal.throwIfAborted();
+    throw new Error('unreachable');
+  }) });
+  await expect(app.run(handle, 'Send', accepted, 'draft')).rejects.toThrow(/may have reached/);
+  expect(app.getSnapshot().commands[0]).toMatchObject({ delivery: 'uncertain', draftKey: 'draft' });
+  expect(app.submittedInputs.getSnapshot()[0]?.id).toBe(id);
+  expect(accepted).not.toHaveBeenCalled(); expect(handle.check).not.toHaveBeenCalled(); expect(handle.retry).not.toHaveBeenCalled();
+  await expect(app.checkCommand(noticeId(id))).rejects.toThrow('Reconnect');
+  const previous = mocks.client;
+  mocks.client = { ...previous };
+  const recovered = command({ id });
+  const recover = vi.spyOn(DurableCommand, 'recover').mockReturnValue(recovered as never);
+  try {
+    await app.connect();
+    expect(recover).not.toHaveBeenCalled(); expect(recovered.send).not.toHaveBeenCalled();
+    await app.checkCommand(noticeId(id));
+    expect(recover).toHaveBeenCalledWith(mocks.client, handle.record, { journal: app.recovery });
+    expect(recovered.check).toHaveBeenCalledOnce(); expect(recovered.send).not.toHaveBeenCalled(); expect(recovered.retry).not.toHaveBeenCalled();
+    expect(accepted).toHaveBeenCalledOnce(); expect(app.getSnapshot().commands[0]?.status).toBe('succeeded');
+  } finally { app.dispose(); recover.mockRestore(); mocks.client = previous; }
 });
