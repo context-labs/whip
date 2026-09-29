@@ -1145,8 +1145,8 @@ been removed with their [behavior disposition](backend-native-core-retirement.md
 Public docs use their separate `check:docs`, `test:docs` and `build:docs` commands.
 No gate modifies an installed runtime or real account.
 
-Several retained specialized browser/performance probes are still being migrated;
-a historical filename or old green run does not establish native coverage. The
+Retained specialized browser/performance probes now use native fixtures;
+a historical filename or old green run does not establish final-revision coverage. The
 [development log](backend-redesign-development.md) records exact source, failures,
 repairs and remaining acceptance. Actual Safari, physical mobile, VoiceOver,
 remote SSH and signed packaging claims require their own evidence. Measure retained

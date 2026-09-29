@@ -7,7 +7,8 @@ and the audited mail repair in [PR #215](https://github.com/context-labs/whip/pu
 The earlier completion claim missed ordinary-mail content-reference transfer;
 the repair passes local gates and hosted Linux, macOS and analysis checks.
 The implementation remains in an unmerged draft PR stack.
-Phases 5–7 are in progress. The authorized execution scope
+Phase 5's retained-capability implementation and contract criteria are satisfied;
+Phases 6–7 final product acceptance remains in progress. The authorized execution scope
 is all phases, including client adoption and final removal of the retired core.
 Written: 2026-09-27. Planning reference: `6f02507bf`.
 
@@ -890,11 +891,11 @@ and tracked/untracked/deleted/staged file behavior and partial restore failures.
 
 Acceptance:
 
-- [ ] Each retained capability is implemented, or its explicit retirement is
+- [x] Each retained capability is implemented, or its explicit retirement is
       recorded. No feature disappears merely because its old tests were deleted.
-- [ ] Both engines pass common contract tests and their documented checkpoint
+- [x] Both engines pass common contract tests and their documented checkpoint
       fidelity/compatibility tests; shared semantics do not depend on language.
-- [ ] Compaction preserves raw transcript history and records exact boundaries.
+- [x] Compaction preserves raw transcript history and records exact boundaries.
       Fork/rewind defines conversation, checkpoint and external workspace effects
       and prevents stale client history from being silently applied.
 - [x] Goals/schedules admit ordinary inputs; due work is handled according to
@@ -906,14 +907,20 @@ Acceptance:
       formulation uses ordinary maintenance receipts. Store/runtime/RPC/SDK and
       full local phase acceptance pass. Hosted formulation validation passed in run `36484832748`;
       product-client adoption belongs to phase 6.
-- [ ] Integration reloads/model changes preserve unrelated children, grants,
+- [x] Integration reloads/model changes preserve unrelated children, grants,
       REPL and resource ownership.
-- [ ] Executor disconnect, required/optional hooks, tool schemas and output
+- [x] Executor disconnect, required/optional hooks, tool schemas and output
       validation have explicit failure behavior and matching SDK coverage.
-- [ ] Human terminal/browser resources and agent authority remain distinct;
+- [x] Human terminal/browser resources and agent authority remain distinct;
       reconnect does not silently restore revoked attachments or replay effects.
-- [ ] All retained feature families have replacement evidence and use the new
+- [x] All retained feature families have replacement evidence and use the new
       core; no compatibility wrapper delegates execution to the retired runtime.
+
+Reconciled on 2026-09-29 against the [native family disposition](backend-native-core-retirement.md),
+both-engine contract/checkpoint, reload, executor and host-resource suites, and
+the passing Linux/macOS race partitions at `1edc9d823` and `e85f72203`.
+These implementation/contract criteria do not substitute for the final client,
+live-provider, resource or platform acceptance below.
 
 Implementation progress: final-output contracts and the first context increment
 are implemented. Manual compaction, revisioned summary selection/undo, bounded
@@ -996,7 +1003,7 @@ Acceptance:
       recovery distinguishes acceptance, outcome and local observation errors.
 - [ ] Snapshot/subscription handoff, dropped events, expired replay, restart and
       lost acknowledgement recover without duplicate work or presentation.
-- [ ] Large histories/content and slow consumers remain bounded and report
+- [x] Large histories/content and slow consumers remain bounded and report
       truncation/unavailability truthfully; cross-session access is rejected.
 - [ ] Desktop native bindings, mobile suspension/resume, web content transfer,
       Go client and ACP pass their relevant transport/lifecycle checks.
@@ -1007,8 +1014,22 @@ Acceptance:
       the original runtime and request. Retired records never replay.
 - [ ] Manual product checks cover interrupted work, permissions/questions,
       children, content, drafts and navigation on the affected surfaces.
-- [ ] Examples, SDK docs and canonical frontend/protocol guides describe shipped
+- [x] Examples, SDK docs and canonical frontend/protocol guides describe shipped
       behavior. All supported client targets are now in required CI.
+
+The data/transport bound is covered by the native SDK and large-history/content
+probes; natural process retention remains a separate investigation. Automated
+Desktop/mobile/web/Go/ACP lifecycle checkpoints are recorded in the gate audit;
+the unchecked lifecycle criterion still includes unverified device behavior.
+The SDK article's public draft status is an intentional pre-redesign publication
+decision, separate from its ten source-checked native examples; see
+[the docs disposition](../apps/docs/README.md#draft-publication-and-native-sdk-coverage).
+
+On 2026-09-29 the user accepted the measured 72 ms native typing p95 and asked to
+close that speed work. It supersedes the earlier 50 ms target for this redesign
+acceptance; it does not waive reading correctness or natural memory-retention
+checks. The [performance record](../apps/web/scripts/native-performance-control-audit.md)
+retains exact measurement boundaries.
 
 Current client follow-through (2026-09-29): provider/account setup, model and
 permission controls, native root/child views, REPL, input recovery, completion,
@@ -1043,9 +1064,9 @@ backend/SDK/client artifacts with a fresh runtime/config namespace.
 
 Acceptance:
 
-- [ ] Old root/child orchestration, duplicate transcript paths, legacy migrations,
+- [x] Old root/child orchestration, duplicate transcript paths, legacy migrations,
       scratch readers, protocol shapes and superseded reducers/tests are removed.
-- [ ] No active target depends on retired execution code or compatibility
+- [x] No active target depends on retired execution code or compatibility
       aliases. Temporary exclusions and scaffolding have been removed.
 - [ ] All retained guarantees have replacement coverage; the disposition table
       contains no unresolved obligations for supported features.
@@ -1056,10 +1077,11 @@ Acceptance:
       revision and verified shared renderer where applicable.
 - [ ] Representative real-provider/engine workflows and bounded-resource checks
       have evidence. Unverified platform/manual checks remain explicitly named.
-- [ ] Release/setup docs explain fresh config/data and retain old directories
+- [x] Release/setup docs explain fresh config/data and retain old directories
       without silently importing or deleting them.
-- [ ] The normal supported-product gate replaces the temporary active-target
-      scope; this plan records completion and links to canonical documentation.
+- [x] The normal supported-product gate replaces the temporary active-target
+      scope, with whole-module discovery and required supported-client jobs.
+- [ ] This plan records final completion and links to canonical documentation.
 
 ## Decisions to settle before dependent work
 

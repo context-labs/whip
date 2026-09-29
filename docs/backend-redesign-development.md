@@ -5760,3 +5760,33 @@ pass (10.041s for the tests); prior generated output is preserved separately.
 Evidence: `/tmp/whip-performance-order-validation.log`. The complete performance
 workload is not claimed by this dependency-order check. Hosted #278 remains
 frozen for the other platform results.
+
+### Accepted typing speed and final obligation reconciliation — 2026-09-29
+
+The user explicitly accepts the measured 72 ms native typing p95 and asks to
+close the speed work. The earlier 50 ms target is superseded for this redesign
+acceptance; no further latency optimization is required. The full untraced
+baseline completes all seven workload groups and all 40 reported native keys,
+with no missing entries, native focus verified before/after, and no forced GC.
+Its rounded p95 is 72 ms (68–76 ms quantization bounds), recorded at
+`/tmp/whip-performance-native-baseline-comparable/run-niNF8k/performance.json`.
+This decision does not waive reading correctness or natural retention evidence.
+
+A read-only source/evidence audit reconciles the phase checklists: retained
+capability implementation and both-engine contracts are satisfied; native core
+removal, dynamic whole-product gate restoration, bounded SDK data/transport and
+fresh-namespace setup documentation are also complete. Exact family test
+replacements and earlier checkpoint limits remain linked. Final combined
+client/platform/live-provider/resource acceptance stays open. Canonical docs now
+state host config 21/schema 55, implemented client adoption and completed code
+removal. The public SDK article remains drafted under the original publication
+decision; its ten native source-checked examples and seven helper scenarios are
+covered by the normal docs gate, while three draft-route presentation checks
+remain explicitly pending publication. No release links or routes changed.
+
+Hosted #279 at `ad7a4955f` passes the repaired performance helper/workload gate.
+It exposes separate Firefox activity-reading and Settings assertion failures:
+the first small upward wheel leaves a zero tail gap while Latest is visible;
+the second sees two provisional-output hints in one two-operation group. Their
+captured artifacts are being examined before changing product behavior or tests.
+These are distinct from the earlier history-seed failure and from typing speed.

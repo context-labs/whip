@@ -7,6 +7,11 @@ provider was changed. The original development checkout was not used.
 
 ## Current acceptance snapshot
 
+The user accepted the measured 72 ms native typing p95 on 2026-09-29 and asked
+to close speed optimization. The earlier 50 ms target is superseded for this
+redesign acceptance. Historical measurements below retain their original
+limits; reading correctness and natural memory retention remain separate.
+
 Reconciled through published source `e85f72203` and the local performance-gate
 ordering repair `6434cb499` on 2026-09-29. “Implemented” and a passing checkpoint
 are distinct from final milestone acceptance. The complete staged Desktop gate
@@ -158,7 +163,8 @@ The following checks remain distinct from a green automated aggregate:
   [The performance audit](../apps/web/scripts/native-performance-control-audit.md)
   preserves these boundaries. The harness now reports missing timing entries as
   unknown and places inspection before streams. Root-cause tracing and final
-  acceptance are pending. The350MiB figure is an
+  retention acceptance were pending at that checkpoint. Subsequent user
+  acceptance closes the typing-speed target; the350MiB figure is an
   investigation trigger, not a newly invented hard pass threshold. The performance owner is recording
   subsequent measurements separately.
 - **Physical mobile and signed artifacts:** native exports and backend fixtures
@@ -223,7 +229,8 @@ numeric connected light-DOM/Markdown/attachment counts. Traversal counts cap
 at100,000 with explicit lower-bound truncation; no DOM nodes or content are
 retained by the probe. These sequential reads are not atomic allocation-owner
 evidence. They run outside the timed transfer keys and never force GC, change
-the workload, delete owners, or relax the50ms typing target. The350MiB memory
+the workload or delete owners. The user subsequently accepted the measured72ms
+typing result; no further latency optimization is required. The350MiB memory
 investigation trigger remains an investigation trigger, not a pass/fail limit.
 
 The18 focused Node checks pass, including traversal bounds and diagnostic
