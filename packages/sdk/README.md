@@ -994,3 +994,57 @@ Own shared view lifetimes above individual components so navigation and React
 StrictMode remounts preserve observation and app-owned drafts/reading anchors.
 React is an optional peer; transport, services and state entry points do not
 import it.
+
+### Host discovery and native framing
+
+`discoverGateway(endpoint)` from `@whip/sdk/browser` reads bounded v4 discovery
+metadata without connecting or granting trust. Pass a saved `expectedRuntimeID`
+to reject an address whose runtime changed. Use the returned identity and epoch
+with `browserSocket` for the verified connection. Changing a saved identity is
+an explicit application action. `client.hosts.profiles()` and
+`setProfiles(expectedRevision, profiles)` manage at most16 exact HTTP(S) root
+URLs and runtime pins through host-file CAS. Reads expose no credentials and
+writes never connect. After uncertain publication, inspect; do not replay
+against a newer revision. Native SSH/device profiles stay with the client.
+
+`framedTransport` accepts a platform-owned `FramedConnector` for a confined Unix
+bridge. It validates v4 responses, verifies the runtime on every connection,
+bounds frames/queued bytes to8MiB, joins cancellation and closes late connections.
+Each call has one connection and no replay. Network gateways must use the browser
+transport so network restrictions and the gateway identity handshake apply.
+
+### Typed agents and handlers
+
+Import `defineAgent` and `tool` from `@whip/sdk/agents`. Definitions register
+immutable declarations; `client.agents.serve(definition, {transport})` binds the
+exact registered revision to one explicit executor peer. The returned runtime
+can create/open sessions only with matching declarations. Its session `run`
+returns an inert recoverable command; `send` starts work, while `result` waits and
+validates the terminal structured output.
+
+Standard Schema validation applies each transform once. Tool callbacks receive
+validated input and return the output schema's input; validated transformed
+output crosses the wire. Agent model output follows the schema's input shape,
+then transforms into the caller's result. Unsafe JSON integers reject; raw
+base64 APIs retain exact bytes. Await progress acknowledgements. The default
+limits are16 active callbacks and4096 invocation IDs per lease, with no waiting
+queue or eviction/replay. Delivery uncertainty closes the lease. `close` aborts
+and joins cooperative callbacks; arbitrary JavaScript cannot be forcibly stopped.
+
+### Native controls, host previews and traces
+
+Computer status is passive. Configuration and explicit reconnect/disconnect
+preserve generation CAS; native permission prompts occur only on an explicit
+connection. `computer.run` uses ordinary durable tool admission and per-effect
+SQL grant/current host-policy checks. Screen images are typed owner-scoped
+content, never inferred from arbitrary tool text. Live native handles do not
+survive restart or interpreter discard.
+
+Host directories, directory picking, skill completion and theme methods are
+bounded human preview reads; they do not create sessions. `trees.attention`
+returns bounded canonical activity across roots/children without loading workers.
+`tracePage` returns current canonical spans and identity tombstones with a fixed
+revision and explicit cursor. Follow continuation even when a filtered page is
+empty. `exportTrace` writes a bounded OTLP JSON artifact to root-owned content;
+it does not send telemetry. Historical prepared model inputs were not recorded
+and are explicitly unavailable, rather than reconstructed from current history.

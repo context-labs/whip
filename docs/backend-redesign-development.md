@@ -3329,3 +3329,35 @@ open because supported product clients still need cutover and their own gates.
 Native computer/browser controls, host bootstrap/attention/trace, saved host
 profiles and remaining CLI controls are proceeding in isolated leaves; none of
 those unintegrated leaves is credited here. Phase7 deletion/release work remains.
+
+## Native controls, host previews, typed agents and trace integration
+
+Next integration uses fresh schema45/config18/protocol4. Reused checkpoints:
+computer helper/controller43d1ab75f/342ce0b03/27b499ef5, typed image43
+697e8f612, computer44/config17 547810b20, host previews456f409b8,
+attention5ff13a28b, gateway discovery7145e4e1e, typed SDK agentsafa6dbcd4,
+trace45 5dc507ec5, saved host profiles/config18 e63ae0891 and confined native
+frame transportbf7ba0b33. Gates and import ownership include the new packages.
+Generated contracts were rebuilt from Go after integration; computer permission
+exclusions, existing receipt matching and host-view schemas are all retained.
+
+Independent evidence includes typed agent SDK94+compile tests and real executor
+fixture4.614s; profile config race4.645s, protocol2.742s/RPC1.916s, SDK84,
+CSP/drift12, lost-ACK/SIGKILL persistence fixture4.118s; trace focused
+store6.775s/runtime2.119s/RPC3.082s/protocol3.298s/trace2.567s, production
+fixture37.795s. Native frame tests cover exact per-call identity, synchronous
+close callbacks, lost ACK without replay, aborted setup/late connection cleanup,
+malformed envelopes and queue bounds. SDK87 passed on that independent branch.
+Combined phase and analysis gates are pending; these are not whole-product passes.
+
+Hosted runs36514900483 (#254 at46af42ed7),36514923722 (#255 atbcec1270f)
+and36515394834 (#256 ate9400aa4f) show passing split build/client/analysis
+jobs so far, with race jobs still running when checked. No PR was merged.
+
+Shared app adoption is underway in a separate worktree: recovery storage uses
+cross-window transactions,64records/8MiB bounds and no unresolved eviction;
+accepted records cannot regress under stale writers. It is not yet wired into
+all product command paths. Browser control, workspace/run controls, the complete
+renderer/desktop/mobile/CLI/TUI/ACP cutover, core deletion and final release gates
+remain open. Fake helpers do not establish real macOS permission/signing or live
+provider evidence, and the installed runtime remains untouched.
