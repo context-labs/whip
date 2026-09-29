@@ -3,6 +3,7 @@ package llm
 import (
 	"encoding/json"
 	"io"
+	"maps"
 	"net/http"
 	"strings"
 	"testing"
@@ -33,9 +34,7 @@ func sseResponse(events ...any) *http.Response {
 
 func event(kind string, fields map[string]any) map[string]any {
 	event := map[string]any{"type": kind}
-	for key, value := range fields {
-		event[key] = value
-	}
+	maps.Copy(event, fields)
 	return event
 }
 
@@ -175,8 +174,8 @@ func TestEncodeMessagesReplaysThinkingBeforeToolUse(t *testing.T) {
 	req := Request{
 		Model: "claude-opus-5-5",
 		Messages: []Message{{
-			Role: "assistant",
-			Thinking: []ThinkingBlock{{Thinking: "hmm", Signature: "sig-abc"}},
+			Role:      "assistant",
+			Thinking:  []ThinkingBlock{{Thinking: "hmm", Signature: "sig-abc"}},
 			ToolCalls: []ToolCall{call},
 		}},
 	}
@@ -307,11 +306,11 @@ func TestMessagesClientTargetsMessagesEndpoint(t *testing.T) {
 	client := NewMessagesClient("https://api.inference.net/v1", "key")
 	client.HTTP = &http.Client{Transport: rtFunc(func(r *http.Request) (*http.Response, error) {
 		gotPath = r.URL.Path
-		if r.Header.Get("x-api-key") != "key" {
-			t.Fatal("missing x-api-key header")
+		if r.Header.Get("X-Api-Key") != "key" {
+			t.Fatal("missing X-Api-Key header")
 		}
-		if r.Header.Get("anthropic-version") == "" {
-			t.Fatal("missing anthropic-version header")
+		if r.Header.Get("Anthropic-Version") == "" {
+			t.Fatal("missing Anthropic-Version header")
 		}
 		return sseResponse(
 			event("message_start", nil),

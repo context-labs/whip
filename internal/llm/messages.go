@@ -65,10 +65,10 @@ func encodeMessages(req Request) ([]byte, error) {
 	thinkingEnabled := req.ReasoningEffort != "" && req.ReasoningEffort != "off" && req.ReasoningEffort != "none"
 	budget := 0
 	if thinkingEnabled {
-		if cap, ok := thinkingBudgetTokens[req.ReasoningEffort]; ok {
+		if budgetTokens, ok := thinkingBudgetTokens[req.ReasoningEffort]; ok {
 			// Anthropic requires max_tokens > budget_tokens; leave room for
 			// visible output by capping the budget at half the ceiling.
-			budget = min(cap, maxTokens/2)
+			budget = min(budgetTokens, maxTokens/2)
 		} else {
 			// Unknown effort level: a wrong budget is a hard 400 upstream.
 			// Fail loudly rather than guess.
@@ -207,9 +207,9 @@ func (c *Client) messagesOnce(ctx context.Context, body []byte, onText, onThink 
 		// Anthropic header, harmless for gateways that ignore it and
 		// required by endpoints that speak Anthropic directly.
 		hr.Header.Set("Authorization", "Bearer "+c.APIKey)
-		hr.Header.Set("x-api-key", c.APIKey)
+		hr.Header.Set("X-Api-Key", c.APIKey)
 	}
-	hr.Header.Set("anthropic-version", "2023-06-01")
+	hr.Header.Set("Anthropic-Version", "2023-06-01")
 	resp, err := c.do(hr, c.stallTimeout(chatStall))
 	if err != nil {
 		return Message{}, Usage{}, err
