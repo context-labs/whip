@@ -4,6 +4,8 @@ import { ActivityIndicator, ThemeProvider, UIProvider } from '@whip/ui';
 import type { CellExecutionRow } from '@whip/sdk/state';
 import {
   conversationActivityRows,
+  activitySummary,
+  fileOperationPath,
   isActivityGroup,
   responseCopies,
   type ActivityGroup,
@@ -14,6 +16,7 @@ import { readingTarget } from '../src/reading-positions';
 import {
   ActivityHeader,
   ActivityDetail,
+  ActivityStep,
   InlineAgent,
 } from '../src/transcript-activity';
 import { ExecutionTime, formatHostDuration } from '../src/execution-time';
@@ -61,6 +64,43 @@ const wrap = (content: React.ReactNode) => (
     <UIProvider>{content}</UIProvider>
   </ThemeProvider>
 );
+
+it('shows the canonical requested file separately from its permission scope', () => {
+  const host = { ...operation(), resource: '/workspace', arguments: { path: '<img src=x>.txt' } };
+  const item = { id: host.id, kind: 'operation' as const, host };
+  const value = { ...group([]), items: [item] };
+  const { container } = render(wrap(<>
+    <ActivityHeader group={value} open={false} toggle={vi.fn()} connected density="comfortable" />
+    <ActivityStep item={item} groupId={value.id} open={false} toggle={vi.fn()} connected last />
+    <ActivityDetail item={item} groupId={value.id} readBody={vi.fn()} connected />
+  </>));
+  expect(screen.getByTitle('<img src=x>.txt')).toBeTruthy();
+  expect(container.querySelector('[data-tool-preview]')?.textContent).toBe('<img src=x>.txt');
+  expect(screen.getByText('Permission scope: /workspace')).toBeTruthy();
+  expect(container.querySelector('img')).toBeNull();
+});
+it('does not turn missing or malformed file paths or unrelated tool arguments into file subjects', () => {
+  const base = { ...operation(), resource: '/workspace' };
+  for (const path of [null, 42, {}, [], '', '\0', 'x'.repeat(4097), 'é'.repeat(2049)])
+    expect(fileOperationPath({ ...base, arguments: { path } })).toBeUndefined();
+  for (const args of [null, [], {}, 'README.md'])
+    expect(fileOperationPath({ ...base, arguments: args })).toBeUndefined();
+  expect(fileOperationPath({ ...base, capability: 'tools.read', arguments: { path: 'README.md' } })).toBeUndefined();
+  render(wrap(<ActivityStep item={{ id: base.id, kind: 'operation', host: { ...base, arguments: {} } }}
+    groupId="group" open={false} toggle={vi.fn()} connected last />));
+  expect(screen.getByTitle('/workspace')).toBeTruthy();
+});
+it('counts distinct edited paths within the same workspace and keeps unknown edits honest', () => {
+  const hosts = [
+    { ...operation('a', 'succeeded', 'files.write'), resource: '/workspace', arguments: { path: 'a.txt' } },
+    { ...operation('a-again', 'succeeded', 'files.patch'), resource: '/workspace', arguments: { path: 'a.txt' } },
+    { ...operation('b', 'succeeded', 'files.write'), resource: '/workspace', arguments: { path: 'b.txt' } },
+    { ...operation('foreign-a', 'succeeded', 'files.write'), resource: '/other', arguments: { path: 'a.txt' } },
+    { ...operation('unknown', 'succeeded', 'files.patch'), resource: '/workspace', arguments: {} },
+  ];
+  expect(activitySummary({ ...group([]), items: hosts.map(host => ({ id: host.id, kind: 'operation', host })) }))
+    .toBe('Edited 3 files · made 1 edit');
+});
 
 it('formats recorded Go durations without changing the measurement', () => {
   for (const [raw, display] of [
