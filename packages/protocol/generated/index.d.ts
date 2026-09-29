@@ -92,6 +92,32 @@ export interface Admission {
     finished_at: null | string;
   };
 }
+export interface AnswerQuestionParams {
+  session_id: string;
+  operation_id: string;
+  /**
+   * @minItems 1
+   * @maxItems 8
+   */
+  answers: [
+    {
+      /**
+       * @minItems 0
+       * @maxItems 7
+       */
+      answer: string[];
+      dismissed: boolean;
+    },
+    ...{
+      /**
+       * @minItems 0
+       * @maxItems 7
+       */
+      answer: string[];
+      dismissed: boolean;
+    }[]
+  ];
+}
 export interface AutomaticTitleDecision {
   tree_id: string;
   session_id: string;
@@ -2325,5640 +2351,26 @@ export interface ProviderPresetsResult {
   /**
    * @maxItems 11
    */
-  items:
-    | []
-    | [
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        }
-      ]
-    | [
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        }
-      ]
-    | [
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        }
-      ]
-    | [
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        }
-      ]
-    | [
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        }
-      ]
-    | [
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        }
-      ]
-    | [
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        }
-      ]
-    | [
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        }
-      ]
-    | [
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        }
-      ]
-    | [
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        }
-      ]
-    | [
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        },
-        {
-          id: string;
-          name: string;
-          kind: "openai-chat" | "openai-responses" | "openai-codex";
-          base_url: string;
-          /**
-           * @maxItems 2
-           */
-          methods: [] | [string] | [string, string];
-          /**
-           * @maxItems 2
-           */
-          environments: [] | [string] | [string, string];
-          key_url: string;
-          /**
-           * @maxItems 16
-           */
-          suggested_models:
-            | []
-            | [string]
-            | [string, string]
-            | [string, string, string]
-            | [string, string, string, string]
-            | [string, string, string, string, string]
-            | [string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string]
-            | [string, string, string, string, string, string, string, string, string, string, string, string, string]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ]
-            | [
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string,
-                string
-              ];
-          suggested_effort: string;
-        }
-      ];
+  items: {
+    id: string;
+    name: string;
+    kind: "openai-chat" | "openai-responses" | "openai-codex";
+    base_url: string;
+    /**
+     * @maxItems 2
+     */
+    methods: [] | [string] | [string, string];
+    /**
+     * @maxItems 2
+     */
+    environments: [] | [string] | [string, string];
+    key_url: string;
+    /**
+     * @maxItems 16
+     */
+    suggested_models: string[];
+    suggested_effort: string;
+  }[];
 }
 export interface ProviderReadiness {
   configured: boolean;
@@ -7981,6 +2393,2197 @@ export interface PutContentParams {
   reference_id: string;
   media_type: string;
   data_base64: string;
+}
+export type Question =
+  | {
+      operation_id: string;
+      session_id: string;
+      turn_id: string;
+      cell_id: string;
+      request: {
+        /**
+         * @minItems 1
+         * @maxItems 8
+         */
+        questions: [
+          {
+            question: string;
+            /**
+             * @minItems 2
+             * @maxItems 6
+             */
+            options:
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ];
+            multiple: boolean;
+          },
+          ...{
+            question: string;
+            /**
+             * @minItems 2
+             * @maxItems 6
+             */
+            options:
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ];
+            multiple: boolean;
+          }[]
+        ];
+        batch: boolean;
+      };
+      state: "pending";
+      /**
+       * @minItems 0
+       * @maxItems 0
+       */
+      answers: [];
+      close_reason: null;
+      created_at: string;
+      deadline: string;
+      closed_at: null;
+    }
+  | {
+      operation_id: string;
+      session_id: string;
+      turn_id: string;
+      cell_id: string;
+      request: {
+        /**
+         * @minItems 1
+         * @maxItems 8
+         */
+        questions: [
+          {
+            question: string;
+            /**
+             * @minItems 2
+             * @maxItems 6
+             */
+            options:
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ];
+            multiple: boolean;
+          },
+          ...{
+            question: string;
+            /**
+             * @minItems 2
+             * @maxItems 6
+             */
+            options:
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ];
+            multiple: boolean;
+          }[]
+        ];
+        batch: boolean;
+      };
+      state: "answered";
+      /**
+       * @minItems 1
+       * @maxItems 8
+       */
+      answers: [
+        {
+          /**
+           * @minItems 0
+           * @maxItems 7
+           */
+          answer: string[];
+          dismissed: boolean;
+        },
+        ...{
+          /**
+           * @minItems 0
+           * @maxItems 7
+           */
+          answer: string[];
+          dismissed: boolean;
+        }[]
+      ];
+      close_reason: null;
+      created_at: string;
+      deadline: string;
+      closed_at: string;
+    }
+  | {
+      operation_id: string;
+      session_id: string;
+      turn_id: string;
+      cell_id: string;
+      request: {
+        /**
+         * @minItems 1
+         * @maxItems 8
+         */
+        questions: [
+          {
+            question: string;
+            /**
+             * @minItems 2
+             * @maxItems 6
+             */
+            options:
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ];
+            multiple: boolean;
+          },
+          ...{
+            question: string;
+            /**
+             * @minItems 2
+             * @maxItems 6
+             */
+            options:
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ];
+            multiple: boolean;
+          }[]
+        ];
+        batch: boolean;
+      };
+      state: "dismissed";
+      /**
+       * @minItems 1
+       * @maxItems 8
+       */
+      answers: [
+        {
+          /**
+           * @minItems 0
+           * @maxItems 7
+           */
+          answer: string[];
+          dismissed: boolean;
+        },
+        ...{
+          /**
+           * @minItems 0
+           * @maxItems 7
+           */
+          answer: string[];
+          dismissed: boolean;
+        }[]
+      ];
+      close_reason: null;
+      created_at: string;
+      deadline: string;
+      closed_at: string;
+    }
+  | {
+      operation_id: string;
+      session_id: string;
+      turn_id: string;
+      cell_id: string;
+      request: {
+        /**
+         * @minItems 1
+         * @maxItems 8
+         */
+        questions: [
+          {
+            question: string;
+            /**
+             * @minItems 2
+             * @maxItems 6
+             */
+            options:
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ];
+            multiple: boolean;
+          },
+          ...{
+            question: string;
+            /**
+             * @minItems 2
+             * @maxItems 6
+             */
+            options:
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ]
+              | [
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  },
+                  {
+                    label: string;
+                    description: string;
+                    recommended: boolean;
+                  }
+                ];
+            multiple: boolean;
+          }[]
+        ];
+        batch: boolean;
+      };
+      state: "closed";
+      /**
+       * @minItems 0
+       * @maxItems 0
+       */
+      answers: [];
+      close_reason: "cancelled" | "expired" | "interrupted";
+      created_at: string;
+      deadline: string;
+      closed_at: string;
+    };
+export interface QuestionParams {
+  session_id: string;
+  operation_id: string;
+}
+export interface QuestionsParams {
+  session_id: string;
+  pending_only?: boolean;
+  after?: null | string;
+  limit: number;
+}
+export interface QuestionsResult {
+  /**
+   * @minItems 0
+   * @maxItems 100
+   */
+  items: (
+    | {
+        operation_id: string;
+        session_id: string;
+        turn_id: string;
+        cell_id: string;
+        request: {
+          /**
+           * @minItems 1
+           * @maxItems 8
+           */
+          questions: [
+            {
+              question: string;
+              /**
+               * @minItems 2
+               * @maxItems 6
+               */
+              options:
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ];
+              multiple: boolean;
+            },
+            ...{
+              question: string;
+              /**
+               * @minItems 2
+               * @maxItems 6
+               */
+              options:
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ];
+              multiple: boolean;
+            }[]
+          ];
+          batch: boolean;
+        };
+        state: "pending";
+        /**
+         * @minItems 0
+         * @maxItems 0
+         */
+        answers: [];
+        close_reason: null;
+        created_at: string;
+        deadline: string;
+        closed_at: null;
+      }
+    | {
+        operation_id: string;
+        session_id: string;
+        turn_id: string;
+        cell_id: string;
+        request: {
+          /**
+           * @minItems 1
+           * @maxItems 8
+           */
+          questions: [
+            {
+              question: string;
+              /**
+               * @minItems 2
+               * @maxItems 6
+               */
+              options:
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ];
+              multiple: boolean;
+            },
+            ...{
+              question: string;
+              /**
+               * @minItems 2
+               * @maxItems 6
+               */
+              options:
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ];
+              multiple: boolean;
+            }[]
+          ];
+          batch: boolean;
+        };
+        state: "answered";
+        /**
+         * @minItems 1
+         * @maxItems 8
+         */
+        answers: [
+          {
+            /**
+             * @minItems 0
+             * @maxItems 7
+             */
+            answer: string[];
+            dismissed: boolean;
+          },
+          ...{
+            /**
+             * @minItems 0
+             * @maxItems 7
+             */
+            answer: string[];
+            dismissed: boolean;
+          }[]
+        ];
+        close_reason: null;
+        created_at: string;
+        deadline: string;
+        closed_at: string;
+      }
+    | {
+        operation_id: string;
+        session_id: string;
+        turn_id: string;
+        cell_id: string;
+        request: {
+          /**
+           * @minItems 1
+           * @maxItems 8
+           */
+          questions: [
+            {
+              question: string;
+              /**
+               * @minItems 2
+               * @maxItems 6
+               */
+              options:
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ];
+              multiple: boolean;
+            },
+            ...{
+              question: string;
+              /**
+               * @minItems 2
+               * @maxItems 6
+               */
+              options:
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ];
+              multiple: boolean;
+            }[]
+          ];
+          batch: boolean;
+        };
+        state: "dismissed";
+        /**
+         * @minItems 1
+         * @maxItems 8
+         */
+        answers: [
+          {
+            /**
+             * @minItems 0
+             * @maxItems 7
+             */
+            answer: string[];
+            dismissed: boolean;
+          },
+          ...{
+            /**
+             * @minItems 0
+             * @maxItems 7
+             */
+            answer: string[];
+            dismissed: boolean;
+          }[]
+        ];
+        close_reason: null;
+        created_at: string;
+        deadline: string;
+        closed_at: string;
+      }
+    | {
+        operation_id: string;
+        session_id: string;
+        turn_id: string;
+        cell_id: string;
+        request: {
+          /**
+           * @minItems 1
+           * @maxItems 8
+           */
+          questions: [
+            {
+              question: string;
+              /**
+               * @minItems 2
+               * @maxItems 6
+               */
+              options:
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ];
+              multiple: boolean;
+            },
+            ...{
+              question: string;
+              /**
+               * @minItems 2
+               * @maxItems 6
+               */
+              options:
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ]
+                | [
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    },
+                    {
+                      label: string;
+                      description: string;
+                      recommended: boolean;
+                    }
+                  ];
+              multiple: boolean;
+            }[]
+          ];
+          batch: boolean;
+        };
+        state: "closed";
+        /**
+         * @minItems 0
+         * @maxItems 0
+         */
+        answers: [];
+        close_reason: "cancelled" | "expired" | "interrupted";
+        created_at: string;
+        deadline: string;
+        closed_at: string;
+      }
+  )[];
 }
 export interface RPCError {
   code: number;
@@ -9376,6 +5979,7 @@ export interface WriteStateParams {
 
 export interface ContractTypes {
   Admission: Admission;
+  AnswerQuestionParams: AnswerQuestionParams;
   AutomaticTitleDecision: AutomaticTitleDecision;
   AutomaticTitleResult: AutomaticTitleResult;
   AutomaticTitleResultParams: AutomaticTitleResultParams;
@@ -9474,6 +6078,10 @@ export interface ContractTypes {
   ProviderReadiness: ProviderReadiness;
   ProviderReadinessParams: ProviderReadinessParams;
   PutContentParams: PutContentParams;
+  Question: Question;
+  QuestionParams: QuestionParams;
+  QuestionsParams: QuestionsParams;
+  QuestionsResult: QuestionsResult;
   RPCError: RPCError;
   ReadCompletionParams: ReadCompletionParams;
   ReadCompletionResult: ReadCompletionResult;
@@ -9627,6 +6235,9 @@ export interface Operations {
   "turns.operations": { params: HostOperationsParams; result: HostOperationsResult };
   "permissions.list": { params: PermissionsParams; result: PermissionsResult };
   "permissions.resolve": { params: ResolvePermissionParams; result: Permission };
+  "questions.get": { params: QuestionParams; result: Question };
+  "questions.list": { params: QuestionsParams; result: QuestionsResult };
+  "questions.answer": { params: AnswerQuestionParams; result: Question };
   "initialize": { params: InitializeParams; result: InitializeResult };
   "trees.create": { params: CreateTreeParams; result: CreateTreeResult };
   "trees.get": { params: TreeParams; result: Tree };

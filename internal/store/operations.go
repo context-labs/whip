@@ -130,13 +130,34 @@ func (s *Store) AdmitOperation(ctx context.Context, spec session.OperationSpec) 
 		if duplicate != 0 {
 			return ErrConflict
 		}
-		grant, err := matchingGrant(ctx, tx, cell.SessionID, spec.Capability, spec.Resource)
 		var grantID *session.GrantID
 		state := session.OperationWaiting
-		if err == nil {
-			grantID, state = &grant.ID, session.OperationReady
-		} else if !errors.Is(err, ErrNotFound) {
-			return err
+		if spec.Capability == session.QuestionCapability {
+			if err := validateQuestionIntent(cell.SessionID, spec); err != nil {
+				return err
+			}
+			var questions int
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM operations o JOIN cells c ON c.id=o.cell_id
+ WHERE c.turn_id=? AND o.capability=?`, cell.TurnID, session.QuestionCapability).Scan(&questions); err != nil {
+				return err
+			}
+			if questions >= session.MaxQuestionsPerTurn {
+				return ErrLimit
+			}
+			owner, err := readSession(ctx, tx, cell.SessionID)
+			if err != nil {
+				return err
+			}
+			if owner.ParentID == nil {
+				state = session.OperationReady
+			}
+		} else {
+			grant, err := matchingGrant(ctx, tx, cell.SessionID, spec.Capability, spec.Resource)
+			if err == nil {
+				grantID, state = &grant.ID, session.OperationReady
+			} else if !errors.Is(err, ErrNotFound) {
+				return err
+			}
 		}
 		created := now()
 		if _, err := tx.ExecContext(ctx, `INSERT INTO operations
@@ -154,7 +175,11 @@ func (s *Store) AdmitOperation(ctx context.Context, spec session.OperationSpec) 
 				if err != nil {
 					return err
 				}
-				result, err = settleOperation(ctx, tx, operation, session.OperationResult{State: session.OperationDenied, Failure: new("no delegated authority")})
+				failure := "no delegated authority"
+				if spec.Capability == session.QuestionCapability {
+					failure = "only the root agent can ask the user; send your parent a message instead"
+				}
+				result, err = settleOperation(ctx, tx, operation, session.OperationResult{State: session.OperationDenied, Failure: &failure})
 				return err
 			}
 			if _, err := tx.ExecContext(ctx, "INSERT INTO permissions (operation_id,state,created_at) VALUES (?,'pending',?)", spec.ID, created); err != nil {
@@ -174,6 +199,13 @@ func (s *Store) AdmitOperation(ctx context.Context, spec session.OperationSpec) 
 // commit returns true; cancellation or revocation that committed first wins.
 func (s *Store) DispatchOperation(ctx context.Context, id session.OperationID) (dispatch bool, err error) {
 	err = s.write(ctx, func(tx *sql.Tx) error {
+		operation, err := readOperation(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if operation.Capability == session.QuestionCapability {
+			return ErrConflict // BeginQuestion owns dispatch and the durable pending row together.
+		}
 		dispatch, err = dispatchOperation(ctx, tx, id)
 		return err
 	})
@@ -199,6 +231,19 @@ func dispatchOperation(ctx context.Context, tx *sql.Tx, id session.OperationID) 
 func authorizeOperation(ctx context.Context, q querier, operation session.Operation) error {
 	if err := operationLive(ctx, q, operation.CellID); err != nil {
 		return err
+	}
+	if operation.Capability == session.QuestionCapability {
+		if err := validateQuestionIntent(operation.SessionID, operation.OperationSpec); err != nil {
+			return err
+		}
+		owner, err := readSession(ctx, q, operation.SessionID)
+		if err != nil {
+			return err
+		}
+		if owner.ParentID != nil || operation.GrantID != nil {
+			return ErrConflict
+		}
+		return nil
 	}
 	if operation.GrantID == nil {
 		return ErrConflict
@@ -314,6 +359,9 @@ func (s *Store) SettleOperation(ctx context.Context, id session.OperationID, out
 		operation, err := readOperation(ctx, tx, id)
 		if err != nil {
 			return err
+		}
+		if operation.Capability == session.QuestionCapability && operation.State == session.OperationDispatched {
+			return ErrConflict // A question must answer or close its durable interaction atomically.
 		}
 		result, err = settleOperation(ctx, tx, operation, outcome)
 		return err

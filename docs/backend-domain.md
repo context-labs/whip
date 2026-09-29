@@ -1788,3 +1788,35 @@ reads at most8MiB, a route retains at most1024 models/2MiB encoded model metadat
 and the service retains at most8192 models/16MiB globally. Inventory is a compact
 projection within the bounded host declaration, and contains no executable
 credential command. There is no implicit network refresh or SDK retry loop.
+
+
+## Human questions
+
+`user.ask` is a root-only intrinsic host operation. Its immutable arguments and
+terminal result remain in the ordinary operation ledger. The small `questions`
+relation adds only the operation identity, creation/deadline and closure reason;
+it does not duplicate request or answer state. Child calls fail even if a caller
+constructs a matching grant. Asking does not create a second permission prompt.
+
+The guest may supply one question or an explicit batch of one to eight questions,
+each with two to six unique trimmed options and at most one recommendation.
+Single and multiple selection, bounded free text and per-question dismissal are
+preserved. Explicit batches keep their shape even with one entry. Dismissal
+clears its answer and returns to the surrounding turn. Request/answer documents
+are capped at256KiB, text at4096 bytes, option labels at256 bytes, and question
+operations at32 per turn. One root can have one live question at a time.
+
+Beginning a question atomically dispatches its operation and records a fixed
+five-minute deadline. Answering validates against captured intent and settles
+the same operation. An exact normalized answer retry returns its original
+outcome before deadline/lifecycle checks; a different terminal answer conflicts.
+Cancellation and answer compete in one transaction, so the first committed
+terminal outcome wins. Expired replies close the question and fail explicitly.
+
+The live cell waits with bounded polling; cancellation joins SQL closure. Startup
+closes interrupted questions without recreating a waiter or replaying a guest
+cell. Committed answers remain available after crash. Existing uncertain-cell
+recovery rules still apply to the interrupted REPL. Historical question reads
+never start or resume execution. `questions.get/list/answer` and the SDK expose
+scoped durable evidence and explicit answer submission; accepted work survives a
+client's disconnect and no client auto-generates or auto-replays an answer.

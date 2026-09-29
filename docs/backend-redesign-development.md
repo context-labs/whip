@@ -2852,3 +2852,35 @@ unresolved Phase5 families remain work; Phases6–7 are not complete.
 Hosted Linux, macOS, analysis and aggregate checks for PR242 at
 `7feeb41282777522f696fc6ad945db1ff11b0cfb` all passed in run36498599944.
 PR243 hosted analysis passed; platform jobs remain in progress at this checkpoint.
+
+
+## Durable human questions
+
+Provider integration is published as draft [PR244](https://github.com/context-labs/whip/pull/244)
+at `cb996cbf376ce88b8c4d25ec5723f80f1a456f7a`, stacked on PR243. This increment
+reuses question core `5d9ab30e9` as `790355bc0`, public `12cc3c957` as `011e7bcdd`,
+and declaration-bound `dd33f3be8` as `179ce1ad6`. Fresh schema36/config12/
+development protocol4 apply. The provider Unicode validator helper is preserved;
+TypeScript generation limits tuple expansion to4 while Go and standalone
+validators retain exact runtime collection bounds.
+
+Root-only single/batched questions now have one operation-owned request/result,
+fixed deadline, explicit dismissal/free text, exact normalized answer retries and
+atomic answer/cancellation settlement. Interrupted waits close on startup without
+claiming a resumed cell; committed answers survive. The public SDK performs no
+automatic answer or delivery replay. Parent read the SQL, runtime and domain
+boundaries and reconciled generated contracts with the integrated provider leaf.
+
+Isolated final core races passed session1.626s/store30.983s/runtime21.357s; focused
+question runtime11.460s and build/vet/pinned lint passed. Public socket/protocol
+races passed2.478s/4.413s,19 SDK tests,7 interchange/CSP checks, drift/build/vet/lint.
+The both-engine production fixture passed27.968s, including a lost answer
+acknowledgement followed by SIGKILL, committed-answer recovery, pending-question
+interruption, batch/freeform/dismissal, cancel/late conflict and child denial.
+Fresh roots after uncertain REPL interruption preserve the existing no-replay
+rule. Integrated race/shuffle passed store207.915s/runtime212.252s/process123.067s,
+RPC52.714s/session5.813s and all other active packages. Analysis reported zero
+lint issues and no reachable vulnerabilities. The full phase gate passed: production fixture31.035s, retained fixture2.626s
+and daemon regressions2.711s, with all generated contracts/SDK checks. Logs use
+`/tmp/whip-question-{phase,analysis}.log`. Saved modes, product question UI and
+Phases6–7 remain outstanding.

@@ -450,6 +450,21 @@ export const manifest = {
       "result": "Permission"
     },
     {
+      "name": "questions.get",
+      "params": "QuestionParams",
+      "result": "Question"
+    },
+    {
+      "name": "questions.list",
+      "params": "QuestionsParams",
+      "result": "QuestionsResult"
+    },
+    {
+      "name": "questions.answer",
+      "params": "AnswerQuestionParams",
+      "result": "Question"
+    },
+    {
       "name": "initialize",
       "params": "InitializeParams",
       "result": "InitializeResult"

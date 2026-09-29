@@ -94,6 +94,9 @@ func (s *Store) Recover(ctx context.Context) (count int64, err error) {
 		if err := recoverAttempts(ctx, tx); err != nil {
 			return err
 		}
+		if err := recoverQuestions(ctx, tx); err != nil {
+			return err
+		}
 		if err := recoverOperations(ctx, tx); err != nil {
 			return err
 		}

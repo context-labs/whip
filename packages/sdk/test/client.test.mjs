@@ -381,3 +381,48 @@ test('Inference remote creation uncertainty never triggers automatic replay', as
   assert.deepEqual(calls, ['accounts.inference.begin', 'accounts.inference.create_project', 'accounts.inference.rotate']);
   assert.deepEqual(await client.getInferenceLogin(id), interrupted);
 });
+
+test('human question reads and answers preserve exact identity and delivery uncertainty', async () => {
+  const pending = {
+    operation_id: 'operation_question', session_id: 'session', turn_id: 'turn', cell_id: 'cell',
+    request: { batch: true, questions: [{ question: 'Choose', options: [
+      { label: 'A', description: 'First', recommended: true }, { label: 'B', description: '', recommended: false },
+    ], multiple: false }] },
+    state: 'pending', answers: [], close_reason: null,
+    created_at: '2026-09-28T12:00:00Z', deadline: '2026-09-28T12:05:00Z', closed_at: null,
+  };
+  const answers = [{ answer: ['custom route'], dismissed: false }];
+  const accepted = { ...pending, state: 'answered', answers, closed_at: '2026-09-28T12:01:00Z' };
+  let stored = pending;
+  let loseAcknowledgement = true;
+  const calls = [];
+  const client = await Client.connect(async request => {
+    if (request.method === 'initialize') return success(request, initial);
+    calls.push(structuredClone(request));
+    if (request.method === 'questions.list') return success(request, { items: stored.state === 'pending' ? [stored] : [] });
+    if (request.method === 'questions.get') return success(request, stored);
+    assert.equal(request.method, 'questions.answer');
+    assert.deepEqual(request.params, { session_id: 'session', operation_id: 'operation_question', answers });
+    stored = accepted;
+    if (loseAcknowledgement) { loseAcknowledgement = false; throw new DeliveryError('answer acknowledgement lost'); }
+    return success(request, stored);
+  }, { clientID: 'human' });
+  assert.deepEqual(await client.listQuestions({ session_id: 'session', pending_only: true, limit: 1 }), { items: [pending] });
+  assert.deepEqual(await client.getQuestion('session', 'operation_question'), pending);
+  await assert.rejects(client.answerQuestion('session', 'operation_question', answers), DeliveryError);
+  assert.equal(calls.filter(call => call.method === 'questions.answer').length, 1);
+  assert.deepEqual(await client.getQuestion('session', 'operation_question'), accepted);
+  assert.deepEqual(await client.answerQuestion('session', 'operation_question', answers), accepted);
+  const answerCalls = calls.filter(call => call.method === 'questions.answer');
+  assert.deepEqual(answerCalls[0].params, answerCalls[1].params);
+  assert.deepEqual(await client.listQuestions({ session_id: 'session', pending_only: true, limit: 1 }), { items: [] });
+  const count = calls.length;
+  await assert.rejects(client.answerQuestion('session', 'operation_question', []), TypeError);
+  await assert.rejects(client.answerQuestion('session', 'operation_question', [{ answer: Array(8).fill('A'), dismissed: false }]), TypeError);
+  await assert.rejects(client.answerQuestion('session', 'operation_question', [{ answer: ['x'.repeat(4097)], dismissed: false }]), TypeError);
+  await assert.rejects(client.answerQuestion('session', 'operation_question', [{ answer: ['x'.repeat(4096) + '\0'], dismissed: false }]), TypeError);
+  await assert.rejects(client.answerQuestion('session', 'operation_question', answers, { signal: AbortSignal.abort() }), error => error.name === 'AbortError');
+  assert.equal(calls.length, count);
+  const invalid = await Client.connect(async request => success(request, request.method === 'initialize' ? initial : { ...pending, answers }), { clientID: 'human' });
+  await assert.rejects(invalid.getQuestion('session', 'operation_question'), TypeError);
+});

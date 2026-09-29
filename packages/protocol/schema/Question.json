@@ -1,0 +1,596 @@
+{
+  "$id": "https://whip.dev/protocol/v4/Question",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Question",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "turn_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "cell_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "request": {
+          "type": "object",
+          "properties": {
+            "questions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "question": {
+                    "type": "string",
+                    "pattern": "^(?:[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,96})$",
+                    "not": {
+                      "pattern": "^[\\s\\p{Z}]*$"
+                    }
+                  },
+                  "options": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string",
+                          "pattern": "^[^\\x00]{1,256}$"
+                        },
+                        "description": {
+                          "type": "string",
+                          "pattern": "^(?:[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,96})$"
+                        },
+                        "recommended": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "description",
+                        "recommended"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "minItems": 2,
+                    "maxItems": 6
+                  },
+                  "multiple": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "question",
+                  "options",
+                  "multiple"
+                ],
+                "additionalProperties": false
+              },
+              "minItems": 1,
+              "maxItems": 8
+            },
+            "batch": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "questions",
+            "batch"
+          ],
+          "additionalProperties": false
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "pending"
+          ]
+        },
+        "answers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "answer": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(?:[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,96})$"
+                },
+                "minItems": 0,
+                "maxItems": 7
+              },
+              "dismissed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "answer",
+              "dismissed"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 0,
+          "maxItems": 0
+        },
+        "close_reason": {
+          "type": "null"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "deadline": {
+          "type": "string"
+        },
+        "closed_at": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "operation_id",
+        "session_id",
+        "turn_id",
+        "cell_id",
+        "request",
+        "state",
+        "answers",
+        "close_reason",
+        "created_at",
+        "deadline",
+        "closed_at"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "turn_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "cell_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "request": {
+          "type": "object",
+          "properties": {
+            "questions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "question": {
+                    "type": "string",
+                    "pattern": "^(?:[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,96})$",
+                    "not": {
+                      "pattern": "^[\\s\\p{Z}]*$"
+                    }
+                  },
+                  "options": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string",
+                          "pattern": "^[^\\x00]{1,256}$"
+                        },
+                        "description": {
+                          "type": "string",
+                          "pattern": "^(?:[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,96})$"
+                        },
+                        "recommended": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "description",
+                        "recommended"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "minItems": 2,
+                    "maxItems": 6
+                  },
+                  "multiple": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "question",
+                  "options",
+                  "multiple"
+                ],
+                "additionalProperties": false
+              },
+              "minItems": 1,
+              "maxItems": 8
+            },
+            "batch": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "questions",
+            "batch"
+          ],
+          "additionalProperties": false
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "answered"
+          ]
+        },
+        "answers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "answer": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(?:[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,96})$"
+                },
+                "minItems": 0,
+                "maxItems": 7
+              },
+              "dismissed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "answer",
+              "dismissed"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 8
+        },
+        "close_reason": {
+          "type": "null"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "deadline": {
+          "type": "string"
+        },
+        "closed_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "session_id",
+        "turn_id",
+        "cell_id",
+        "request",
+        "state",
+        "answers",
+        "close_reason",
+        "created_at",
+        "deadline",
+        "closed_at"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "turn_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "cell_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "request": {
+          "type": "object",
+          "properties": {
+            "questions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "question": {
+                    "type": "string",
+                    "pattern": "^(?:[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,96})$",
+                    "not": {
+                      "pattern": "^[\\s\\p{Z}]*$"
+                    }
+                  },
+                  "options": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string",
+                          "pattern": "^[^\\x00]{1,256}$"
+                        },
+                        "description": {
+                          "type": "string",
+                          "pattern": "^(?:[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,96})$"
+                        },
+                        "recommended": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "description",
+                        "recommended"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "minItems": 2,
+                    "maxItems": 6
+                  },
+                  "multiple": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "question",
+                  "options",
+                  "multiple"
+                ],
+                "additionalProperties": false
+              },
+              "minItems": 1,
+              "maxItems": 8
+            },
+            "batch": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "questions",
+            "batch"
+          ],
+          "additionalProperties": false
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "dismissed"
+          ]
+        },
+        "answers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "answer": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(?:[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,96})$"
+                },
+                "minItems": 0,
+                "maxItems": 7
+              },
+              "dismissed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "answer",
+              "dismissed"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 8
+        },
+        "close_reason": {
+          "type": "null"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "deadline": {
+          "type": "string"
+        },
+        "closed_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "session_id",
+        "turn_id",
+        "cell_id",
+        "request",
+        "state",
+        "answers",
+        "close_reason",
+        "created_at",
+        "deadline",
+        "closed_at"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "turn_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "cell_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "request": {
+          "type": "object",
+          "properties": {
+            "questions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "question": {
+                    "type": "string",
+                    "pattern": "^(?:[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,96})$",
+                    "not": {
+                      "pattern": "^[\\s\\p{Z}]*$"
+                    }
+                  },
+                  "options": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "label": {
+                          "type": "string",
+                          "pattern": "^[^\\x00]{1,256}$"
+                        },
+                        "description": {
+                          "type": "string",
+                          "pattern": "^(?:[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,96})$"
+                        },
+                        "recommended": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "label",
+                        "description",
+                        "recommended"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "minItems": 2,
+                    "maxItems": 6
+                  },
+                  "multiple": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "question",
+                  "options",
+                  "multiple"
+                ],
+                "additionalProperties": false
+              },
+              "minItems": 1,
+              "maxItems": 8
+            },
+            "batch": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "questions",
+            "batch"
+          ],
+          "additionalProperties": false
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "closed"
+          ]
+        },
+        "answers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "answer": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^(?:[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,96})$"
+                },
+                "minItems": 0,
+                "maxItems": 7
+              },
+              "dismissed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "answer",
+              "dismissed"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 0,
+          "maxItems": 0
+        },
+        "close_reason": {
+          "type": "string",
+          "enum": [
+            "cancelled",
+            "expired",
+            "interrupted"
+          ]
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "deadline": {
+          "type": "string"
+        },
+        "closed_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation_id",
+        "session_id",
+        "turn_id",
+        "cell_id",
+        "request",
+        "state",
+        "answers",
+        "close_reason",
+        "created_at",
+        "deadline",
+        "closed_at"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}
