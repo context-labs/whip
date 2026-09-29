@@ -5597,3 +5597,45 @@ SDK build, shared app types and1382 tests across114 files, plus mobile types and
 Desktop packaging/acceptance gate are running on that source revision. The
 original development checkout remains untouched and the designated handoff
 worktree remains clean at `239f761522`.
+
+#### Final compatibility cleanup increment (2026-09-29)
+
+The published #276 head `b1c9ca965` has an exact hosted run36581778862; the previous
+failed run is retained as failed evidence. Its underlying source `1fa8dbfb2`
+now passes the complete normal native CLI/TUI gate, including compiled CLI,
+update, SSH/askpass/prompt socket, both native terminal partitions, presentation
+and complementary CLI tests. Full analysis passes pinned lint0, tidy and no
+reachable/imported-package vulnerabilities. SDK205 and example5 tests pass.
+The [complete staged Desktop gate](backend-native-desktop-readiness.md) passes
+on that same source, including all166 staged-helper tests and116 distribution
+checks, native browser controls, onboarding, normal/failure workspace flows,
+terminal and editor IPC. It used disposable ad-hoc packaging and synthetic
+provider transport; it is not signed release, real-account or performance evidence.
+
+The next isolated increment starts from that published checkpoint. Two actual
+workspace defects are repaired: a finished fill-forwards drag animation kept
+its visual effect after ownership was discarded, and replacing a split child
+reused a sizing cache with the old child IDs, briefly collapsing the existing
+content to15–31px. That transient layout wrapped text and moved the browser's
+scroll anchor from160 to320. The first fix releases the animation after retaining
+its final geometry; the second changes sizing identity when immediate pane
+membership changes while preserving the content DOM. Both new bounded browser
+regressions fail before their respective repairs, then the complete existing
+Chromium/Firefox suite passes exact draft, scroll, DOM, four-edge, zoom/RTL,
+CSP and accessibility assertions. No timeout or geometry tolerance changed.
+
+The new hosted eval gate exposed one remaining unit assertion expecting host
+version20; its writer already uses21. Correcting the assertion passes the full
+local offline gate (87 tests, one Linux-only acceptance skipped, plus77 runtime-AB
+tests). The earlier actual Linux candidate's six acceptance tests remain recorded
+separately. Three hosted jobs failed downloading/verifying Task dependencies with
+Go proxy HTTP/2 INTERNAL_ERROR before their product checks began; these are not
+code findings or passing gate evidence.
+
+The standalone model-picker geometry fixture still supplied retired fake SDK
+props, so its restored gate could not render a Model button. It now uses the
+current typed CatalogModelPicker, the same visual component used by session and
+settings controls, with native catalog metadata and no fake runtime. All30
+Chromium/Firefox geometry scenarios pass unchanged. The existing app typecheck
+now includes all four web fixture entrypoints, and passes without compatibility
+casts in the repaired fixture.
