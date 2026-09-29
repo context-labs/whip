@@ -68,7 +68,7 @@ func dispatchOperation(ctx context.Context, r *runtime.Runtime, method string, r
 			if p.After != nil {
 				after = session.OperationID(*p.After)
 			}
-			values, err := r.Permissions(ctx, session.SessionID(p.SessionID), after, p.Limit)
+			values, err := r.PermissionsFiltered(ctx, session.SessionID(p.SessionID), after, p.Limit, p.PendingOnly)
 			if err != nil {
 				return nil, err
 			}

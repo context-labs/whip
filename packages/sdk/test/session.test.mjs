@@ -81,3 +81,14 @@ test('design metadata is preserved in exact recoverable input and never invents 
   assert.equal(calls.at(-1).params.design_context.page_title, 'Edited later');
   assert.throws(() => client.session('child').submission(parts, 'invalid', { designContext: { ...design, context_part_index: 1 } }), TypeError);
 });
+
+test('pending permission pages preserve exact owner and exclusive operation cursor', async () => {
+  const { client, calls } = await clientFixture(request => {
+    assert.equal(request.method, 'permissions.list');
+    return { items: [] };
+  });
+  await client.session('child').permissions.list({ pending_only: true, after: 'operation_100', limit: 1 });
+  assert.deepEqual(calls.at(-1).params, { limit: 1, pending_only: true, after: 'operation_100', session_id: 'child' });
+  await client.session('child').permissions.list();
+  assert.deepEqual(calls.at(-1).params, { limit: 50, session_id: 'child' });
+});

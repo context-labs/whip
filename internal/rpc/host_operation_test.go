@@ -51,7 +51,16 @@ func TestHostOperationRPCModelFreeSchemasPermissionAndExactRecovery(t *testing.T
 	if op.CellID != nil || op.Origin != "host_operation" || op.State != "waiting" {
 		t.Fatal(op)
 	}
+	pending := call[protocol.PermissionsResult](t, c, "permissions.list", protocol.PermissionsParams{SessionID: tree.Root.ID, Limit: 1, PendingOnly: true})
+	if len(pending.Items) != 1 || pending.Items[0].OperationID != op.ID {
+		t.Fatal(pending)
+	}
 	call[protocol.Permission](t, c, "permissions.resolve", protocol.ResolvePermissionParams{OperationID: op.ID, Approved: true})
+	pending = call[protocol.PermissionsResult](t, c, "permissions.list", protocol.PermissionsParams{SessionID: tree.Root.ID, Limit: 1, PendingOnly: true})
+	if len(pending.Items) != 0 {
+		t.Fatal(pending)
+	}
+
 	var finished protocol.Admission
 	for {
 		finished = call[protocol.Admission](t, c, "receipts.get", request.Identity)

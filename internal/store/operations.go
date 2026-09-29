@@ -763,12 +763,18 @@ func (s *Store) Grants(ctx context.Context, owner session.SessionID, after sessi
 }
 
 func (s *Store) Permissions(ctx context.Context, owner session.SessionID, after session.OperationID, limit int) ([]session.Permission, error) {
+	return s.PermissionsFiltered(ctx, owner, after, limit, false)
+}
+
+// PermissionsFiltered keeps the operation-ID keyset while filtering before the page limit.
+func (s *Store) PermissionsFiltered(ctx context.Context, owner session.SessionID, after session.OperationID, limit int, pendingOnly bool) ([]session.Permission, error) {
 	if err := pageLimit(limit); err != nil {
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, permissionSelect+` JOIN operations o ON o.id=p.operation_id
  LEFT JOIN cells c ON c.id=o.cell_id JOIN turns t ON t.id=COALESCE(c.turn_id,o.direct_turn_id)
- WHERE t.session_id=? AND p.operation_id>? ORDER BY p.operation_id LIMIT ?`, owner, after, limit)
+ WHERE t.session_id=? AND p.operation_id>? AND (NOT ? OR p.state='pending')
+ ORDER BY p.operation_id LIMIT ?`, owner, after, pendingOnly, limit)
 	if err != nil {
 		return nil, err
 	}

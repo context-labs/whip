@@ -5510,6 +5510,7 @@ export interface PermissionPolicy {
   updated_at: string;
 }
 export interface PermissionsParams {
+  pending_only?: boolean;
   session_id: string;
   after?: null | string;
   limit: number;

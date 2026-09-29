@@ -1,6 +1,9 @@
 {
   "type": "object",
   "properties": {
+    "pending_only": {
+      "type": "boolean"
+    },
     "session_id": {
       "type": "string",
       "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
