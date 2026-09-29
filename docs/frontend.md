@@ -3581,3 +3581,22 @@ disabled skills are never suggestions. A truncated warm catalog falls back to
 one debounced 32-item prefix request. The app preserves focus/selection/IME
 behavior, cancels old scopes, and never reloads catalog metadata on warm typing.
 No skill body is read and discovery never admits work.
+Trace observers are leased per `(runtimeID, rootID, viewID)`: repeated mounts of
+one pane share its observer, but separate panes keep independent filters and
+older windows. The trace renderer subscribes without starting another read loop.
+It retains the virtualized tree/waterfall, zoom, pan, pane sizes, overview/raw
+inspection, explicit paging and explicit bounded OTLP export. Export pins the
+visible revision and downloads verified bytes through the root's content scope;
+failed delivery is never replayed automatically.
+
+Each trace page carries the host's actual `observed_at_ns`. The SDK pairs that
+exact counter with local monotonic receipt time; `traceNowNS` advances display
+only, never a committed span end. Geometry subtracts native nanoseconds with
+`BigInt` before converting relative durations to numbers. Completed zero-duration
+spans remain completed; reversed or future clock evidence is labelled instead
+of showing negative durations. Motion reduction, hidden documents and detached
+panes pause display animation. Cost and token arithmetic stays exact and labels
+loaded-window totals and missing evidence explicitly. Raw details preserve the
+canonical row, including source IDs, exact timestamps and native attributes.
+Historical model prompts absent from native request snapshots remain unavailable;
+they are not reconstructed from current configuration or transcript history.
