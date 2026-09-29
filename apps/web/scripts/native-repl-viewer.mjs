@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { chromium, firefox, expect } from '@playwright/test';
 import { deadline, eventually } from './native-fixture.mjs';
 import { startReplFixture } from './native-repl-fixture.mjs';
-import { installObservationProbe } from './native-observation-probe.mjs';
+import { assertSharedObservations, installObservationProbe, retainObservationEvidence } from './native-observation-probe.mjs';
 
 const directory = process.env.WHIP_WEB_REPL_RESULTS ?? '/tmp/whip-native-repl-viewer-results';
 const names = (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split(',');
@@ -23,13 +23,7 @@ for (const name of names) {
   const check = text => { checks.push(text); console.log(`${name}: ${text}`); };
   let frameBytes = 0, connectionID = 0;
   const recordError = error => { if (errors.length < 64) errors.push(String(error.stack ?? error).slice(0, 4096)); };
-  const retainObservationEvidence = evidence => {
-    const index = report.observationDocuments.findIndex(item => item.documentID === evidence.documentID);
-    if ((index < 0 && report.observationDocuments.length >= 32) || Buffer.byteLength(JSON.stringify(evidence)) > (128 << 10))
-      recordError(new Error('Observation lifetime evidence overflow'));
-    else if (index < 0) report.observationDocuments.push(evidence);
-    else report.observationDocuments[index] = evidence;
-  };
+  const retainEvidence = evidence => retainObservationEvidence(report.observationDocuments, evidence, recordError);
   const workspace = () => page.evaluate(() => JSON.parse(sessionStorage.getItem('whip.web.workspace.v3')).workspace);
   const panel = id => page.locator(`[data-workspace-view=${JSON.stringify(id)}]`);
   const tab = id => page.locator(`[id=${JSON.stringify('whip-workspace-tab-' + encodeURIComponent(id))}]`);
@@ -116,7 +110,7 @@ for (const name of names) {
     context = await browser.newContext({ viewport: { width: 1600, height: 1040 } }); context.setDefaultTimeout(15000);
     page = await context.newPage(); report.version = browser.version();
     page.on('pageerror', recordError);
-    await page.exposeFunction('replObservationEvidence', retainObservationEvidence);
+    await page.exposeFunction('replObservationEvidence', retainEvidence);
     await page.addInitScript(installObservationProbe);
     await context.exposeFunction('replCSP', directive => { if (csp.length < 64) csp.push(String(directive).slice(0, 256)); });
     await context.addInitScript(() => {
@@ -430,22 +424,22 @@ for (const name of names) {
     await mobileAction(root, 'Open REPL'); const mobileRepl = leaves((await workspace()).layout)[0].selected;
     assert.notEqual(mobileRepl, moved); await ready(mobileRepl, 'repl');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-    report.maximumOwnerObservations = Object.fromEntries(maxObservations);
-    retainObservationEvidence(await page.evaluate(() => window.__readObservationProbe()));
-    assert([...maxObservations.values()].every(count => count <= 1), 'Duplicate views must share the owner observation');
+    report.rawMaximumOwnerObservations = Object.fromEntries(maxObservations);
+    retainEvidence(await page.evaluate(() => window.__readObservationProbe()));
+    assertSharedObservations(report.observationDocuments);
     const reads = new Set(['providers.list', 'providers.presets', 'host.permission_default', 'host.execution_defaults', 'mcp.configuration', 'schedules.list', 'skills.list', 'initialize', 'host.status', 'host.profiles', 'providers.get', 'providers.catalog', 'providers.bundled', 'providers.readiness', 'trees.catalog', 'trees.list', 'trees.get', 'trees.summaries', 'sessions.get', 'sessions.list', 'sessions.activity', 'sessions.history_page', 'sessions.observe', 'sessions.turns', 'inputs.page', 'turns.get', 'turns.cells', 'turns.operations', 'cells.output', 'trace.page', 'questions.list', 'permissions.list', 'permissions.policy', 'tool.schemas', 'host.attention', 'definitions.get']);
     assert.deepEqual([...new Set(frames.map(frame => frame.method))].filter(method => !reads.has(method)), [], 'Viewer issued a non-observation method');
     assert.deepEqual(await fixture.effects(), baselineEffects);
     assert.deepEqual(errors, []); assert.deepEqual(csp, []);
     check('mobile picker opens a new read-only REPL, same-owner observations remain shared, drafts persist, and viewer requests never execute work');
-    report.maximumOwnerObservations = Object.fromEntries(maxObservations); report.frames = frames.length; report.evidenceBytes = frameBytes;
+    report.rawMaximumOwnerObservations = Object.fromEntries(maxObservations); report.frames = frames.length; report.evidenceBytes = frameBytes;
     report.passed = true; console.log(`${name}: ${checks.length} native REPL viewer groups passed`);
   } catch (error) {
     report.error = String(error.stack ?? error).slice(0, 16384); report.reads = frames.slice(-80);
-    report.maximumOwnerObservations = Object.fromEntries(maxObservations);
+    report.rawMaximumOwnerObservations = Object.fromEntries(maxObservations);
     if (page) {
       const evidence = await page.evaluate(() => window.__readObservationProbe?.()).catch(() => null);
-      if (evidence) retainObservationEvidence(evidence);
+      if (evidence) retainEvidence(evidence);
       await screenshot('failure').catch(() => {});
       report.body = (await page.locator('body').innerText().catch(() => '')).slice(0, 16384);
     }

@@ -85,3 +85,41 @@ export function installObservationProbe() {
     publish();
   }, { once: true });
 }
+
+function assertObservationDocument(evidence) {
+  if (!evidence || typeof evidence.documentID !== 'string' || !evidence.documentID ||
+      evidence.documentID.length > 256 || evidence.overflow !== false ||
+      !Array.isArray(evidence.faults) || evidence.faults.length ||
+      !Array.isArray(evidence.overlaps) || !evidence.maximum || typeof evidence.maximum !== 'object')
+    throw new Error('Missing, faulty or incomplete observation lifetime evidence');
+  const entries = Object.entries(evidence.maximum);
+  if (entries.length > 256) throw new Error('Observation owner evidence overflow');
+  for (const [key, count] of entries) {
+    const identity = JSON.parse(key);
+    if (!Array.isArray(identity) || identity.length !== 3 ||
+        identity.some(value => typeof value !== 'string' || !value || value.length > 256) ||
+        !Number.isSafeInteger(count) || count < 1)
+      throw new Error('Invalid verified observation owner evidence');
+    if (count > 1) throw new Error(`Duplicate views must share the owner observation: ${evidence.documentID} ${key} (${count})`);
+  }
+  if (evidence.overlaps.length) throw new Error('Active observation overlap was retained');
+}
+
+// Check every publication before replacing its document summary: an older
+// binding delivery must not erase a violation already observed by this process.
+export function retainObservationEvidence(documents, evidence, recordError) {
+  try { assertObservationDocument(evidence); } catch (error) { recordError(error); }
+  const index = documents.findIndex(item => item.documentID === evidence?.documentID);
+  if (!evidence || (index < 0 && documents.length >= 32) || Buffer.byteLength(JSON.stringify(evidence)) > (128 << 10))
+    recordError(new Error('Observation lifetime evidence overflow'));
+  else if (index < 0) documents.push(evidence);
+  else documents[index] = evidence;
+}
+
+export function assertSharedObservations(documents) {
+  if (!Array.isArray(documents) || documents.length === 0 || documents.length > 32)
+    throw new Error('Missing or incomplete observation document evidence');
+  for (const evidence of documents) assertObservationDocument(evidence);
+  if (!documents.some(evidence => Object.keys(evidence.maximum).length > 0))
+    throw new Error('No verified session observation was recorded');
+}
