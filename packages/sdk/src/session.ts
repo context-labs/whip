@@ -117,6 +117,17 @@ export class Session {
     },
   };
   readonly turns = {
+    /** Canonical costs and field-presence counts for this exact turn, including its helper calls. */
+    usage: async (turnID: string, options: CallOptions = {}) => {
+      const result = await this.client.call('usage.turn', { session_id: this.id, turn_id: turnID }, options);
+      if (result.turn_id !== turnID) throw new TypeError('Usage belongs to another turn');
+      this.checkUsage(result.usage);
+      for (const key of ['reserved', 'in_flight', 'settled', 'not_dispatched', 'uncertain'] as const) {
+        if (BigInt(result.compaction_attempts[key]) > BigInt(result.usage.attempts[key])) throw new TypeError('Compaction attempts exceed turn attempts');
+      }
+      if (BigInt(result.compaction_attempts.uncertain) > BigInt(result.compaction_attempts.settled) || BigInt(result.compactions) > BigInt(result.compaction_attempts.settled)) throw new TypeError('Compaction counts disagree');
+      return result;
+    },
     page: async (params: Page<'sessions.turns'> = {}, options: CallOptions = {}) => {
       const limit = params.limit ?? 50;
       const result = await this.client.call('sessions.turns', { ...params, limit, session_id: this.id }, options);
@@ -263,13 +274,16 @@ export class Session {
   }
   async usage(options: CallOptions = {}) {
     const result = await this.client.call('usage.get', { session_id: this.id }, options);
+    this.checkUsage(result);
+    return result;
+  }
+  private checkUsage(result: Operations['usage.get']['result']) {
     if (result.session_id !== this.id) throw new TypeError('Usage belongs to another session');
     const settled = BigInt(result.attempts.settled);
     if (BigInt(result.reported_cost.attempts) + BigInt(result.estimated_cost.attempts) + BigInt(result.unknown_cost) !== settled || BigInt(result.attempts.uncertain) > settled) throw new TypeError('Usage attempt counts disagree');
     for (const field of [result.input_tokens, result.output_tokens, result.reasoning_tokens, result.cached_input, result.cached_output, result.elapsed_millis]) {
       if (BigInt(field.known_attempts) + BigInt(field.missing_attempts) !== settled) throw new TypeError('Usage field presence counts disagree');
     }
-    return result;
   }
   readonly budgets = {
     list: (options: CallOptions = {}) => this.client.call('budgets.list', { session_id: this.id }, options),

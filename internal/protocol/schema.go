@@ -166,6 +166,7 @@ func Operations() []Operation {
 		{"mail.read", reflect.TypeFor[ReadMailParams](), reflect.TypeFor[ReadMailResult]()},
 		{"resources.list", reflect.TypeFor[SessionParams](), reflect.TypeFor[ResourcesResult]()},
 		{"resources.set", reflect.TypeFor[SetResourceParams](), reflect.TypeFor[ResourceUsage]()},
+		{"usage.turn", reflect.TypeFor[TurnUsageParams](), reflect.TypeFor[TurnUsage]()},
 		{"usage.get", reflect.TypeFor[SessionParams](), reflect.TypeFor[Usage]()},
 		{"budgets.list", reflect.TypeFor[SessionParams](), reflect.TypeFor[BudgetsResult]()},
 		{"budgets.set", reflect.TypeFor[SetBudgetParams](), reflect.TypeFor[Budget]()},

@@ -11,6 +11,11 @@ import (
 
 func dispatchBudget(ctx context.Context, r *runtime.Runtime, method string, raw json.RawMessage) (any, error) {
 	switch method {
+	case "usage.turn":
+		return decode(raw, func(p protocol.TurnUsageParams) (any, error) {
+			v, err := r.TurnUsage(ctx, session.SessionID(p.SessionID), session.TurnID(p.TurnID))
+			return protocol.TurnUsageFromDomain(v), err
+		})
 	case "usage.get":
 		return decode(raw, func(p protocol.SessionParams) (any, error) {
 			value, err := r.Usage(ctx, session.SessionID(p.SessionID))

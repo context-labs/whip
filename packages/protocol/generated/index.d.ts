@@ -10150,6 +10150,78 @@ export interface TurnPageResult {
 export interface TurnParams {
   turn_id: string;
 }
+export interface TurnUsage {
+  turn_id: string;
+  usage: {
+    session_id: string;
+    attempts: {
+      reserved: string;
+      in_flight: string;
+      settled: string;
+      not_dispatched: string;
+      uncertain: string;
+    };
+    reported_cost: {
+      value: string;
+      attempts: string;
+      overflow: boolean;
+    };
+    estimated_cost: {
+      value: string;
+      attempts: string;
+      overflow: boolean;
+    };
+    unknown_cost: string;
+    input_tokens: {
+      value: string;
+      known_attempts: string;
+      missing_attempts: string;
+      overflow: boolean;
+    };
+    output_tokens: {
+      value: string;
+      known_attempts: string;
+      missing_attempts: string;
+      overflow: boolean;
+    };
+    reasoning_tokens: {
+      value: string;
+      known_attempts: string;
+      missing_attempts: string;
+      overflow: boolean;
+    };
+    cached_input: {
+      value: string;
+      known_attempts: string;
+      missing_attempts: string;
+      overflow: boolean;
+    };
+    cached_output: {
+      value: string;
+      known_attempts: string;
+      missing_attempts: string;
+      overflow: boolean;
+    };
+    elapsed_millis: {
+      value: string;
+      known_attempts: string;
+      missing_attempts: string;
+      overflow: boolean;
+    };
+  };
+  compaction_attempts: {
+    reserved: string;
+    in_flight: string;
+    settled: string;
+    not_dispatched: string;
+    uncertain: string;
+  };
+  compactions: string;
+}
+export interface TurnUsageParams {
+  session_id: string;
+  turn_id: string;
+}
 export interface UnsubscribeStateParams {
   session_id: string;
   subscription_id: string;
@@ -10700,6 +10772,8 @@ export interface ContractTypes {
   TurnPageParams: TurnPageParams;
   TurnPageResult: TurnPageResult;
   TurnParams: TurnParams;
+  TurnUsage: TurnUsage;
+  TurnUsageParams: TurnUsageParams;
   UnsubscribeStateParams: UnsubscribeStateParams;
   UpdateConfigurationParams: UpdateConfigurationParams;
   UpdateTreeParams: UpdateTreeParams;
@@ -10860,6 +10934,7 @@ export interface Operations {
   "mail.read": { params: ReadMailParams; result: ReadMailResult };
   "resources.list": { params: SessionParams; result: ResourcesResult };
   "resources.set": { params: SetResourceParams; result: ResourceUsage };
+  "usage.turn": { params: TurnUsageParams; result: TurnUsage };
   "usage.get": { params: SessionParams; result: Usage };
   "budgets.list": { params: SessionParams; result: BudgetsResult };
   "budgets.set": { params: SetBudgetParams; result: Budget };

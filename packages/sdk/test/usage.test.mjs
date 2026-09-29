@@ -30,3 +30,27 @@ test('usage reads preserve exact aggregate values, field presence and empty or i
   await assert.rejects(session.usage({ signal: AbortSignal.abort() }), error => error.name === 'AbortError');
   assert.equal(calls.length, count);
 });
+
+
+test('turn usage pins exact owner and turn while preserving compaction attempts and committed folds', async () => {
+ const zero = { reserved:'0', in_flight:'0', settled:'0', not_dispatched:'0', uncertain:'0' };
+ let value = { turn_id:'turn', usage:fixture(), compaction_attempts:{ ...zero, settled:'1' }, compactions:'1' };
+ const client = await Client.connect(async request => {
+  if (request.method === 'initialize') return { jsonrpc:'2.0', id:request.id, result:{ major:4, minor:0, runtime_id:'runtime', process_epoch:'boot', network_client:false, builtins:[] } };
+  assert.equal(request.method,'usage.turn');
+  assert.deepEqual(request.params,{ session_id:'session_root',turn_id:'turn' });
+  return { jsonrpc:'2.0', id:request.id, result:value };
+ },{clientID:'usage'});
+ const session=client.session('session_root');
+ const read=await session.turns.usage('turn');
+ assert.equal(read.usage.input_tokens.value,'9007199254740993');
+ assert.equal(read.compactions,'1');
+ value={...value,turn_id:'foreign'};
+ await assert.rejects(session.turns.usage('turn'),/another turn/);
+ value={...value,turn_id:'turn',usage:{...fixture(),session_id:'foreign'}};
+ await assert.rejects(session.turns.usage('turn'),/another session/);
+ value={...value,usage:fixture(),compactions:'2'};
+ await assert.rejects(session.turns.usage('turn'),/counts disagree/);
+ value={...value,compactions:'1',compaction_attempts:{...zero,settled:'999'}};
+ await assert.rejects(session.turns.usage('turn'),/exceed turn attempts/);
+});

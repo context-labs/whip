@@ -710,6 +710,11 @@ export const manifest = {
       "result": "ResourceUsage"
     },
     {
+      "name": "usage.turn",
+      "params": "TurnUsageParams",
+      "result": "TurnUsage"
+    },
+    {
       "name": "usage.get",
       "params": "SessionParams",
       "result": "Usage"

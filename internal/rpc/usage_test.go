@@ -24,10 +24,12 @@ func TestUsageRPCReadsCanonicalOwnerWithoutStartingQueuedWork(t *testing.T) {
 	if err := r.Start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
+	var turnID protocol.ID
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		receipt := call[protocol.Admission](t, c, "receipts.get", identity)
 		if receipt.Turn != nil && receipt.Turn.FinishedAt != nil {
+			turnID = receipt.Turn.ID
 			break
 		}
 		if time.Now().After(deadline) {
@@ -39,7 +41,13 @@ func TestUsageRPCReadsCanonicalOwnerWithoutStartingQueuedWork(t *testing.T) {
 	if got.Attempts.Settled != 1 || got.ReportedCost.Attempts+got.EstimatedCost.Attempts+got.UnknownCost != 1 || got.InputTokens.KnownAttempts+got.InputTokens.MissingAttempts != 1 {
 		t.Fatal(got)
 	}
+	turn := call[protocol.TurnUsage](t, c, "usage.turn", protocol.TurnUsageParams{SessionID: root.ID, TurnID: turnID})
+	if turn.TurnID != turnID || turn.Usage != got || turn.Compactions != 0 || turn.CompactionAttempts != (protocol.UsageAttempts{}) {
+		t.Fatal(turn)
+	}
 	foreign := create(t, c).Root
+	requireHistoryError(t, c, "usage.turn", protocol.TurnUsageParams{SessionID: foreign.ID, TurnID: turnID}, "NOT_FOUND")
+	requireHistoryError(t, c, "usage.turn", protocol.TurnUsageParams{SessionID: root.ID, TurnID: "absent"}, "NOT_FOUND")
 	if got := call[protocol.Usage](t, c, "usage.get", protocol.SessionParams{SessionID: foreign.ID}); got.Attempts.Settled != 0 {
 		t.Fatal("cross-root usage", got)
 	}
