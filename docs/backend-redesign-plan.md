@@ -1019,7 +1019,10 @@ Acceptance:
       behavior. All supported client targets are now in required CI.
 
 The data/transport bound is covered by the native SDK and large-history/content
-probes; natural process retention remains a separate investigation. Automated
+probes. The separate bounded natural-retention investigation is complete:
+old documents collect and native transports close after navigation; settlement
+releases temporary Markdown spans. Full-workload peaks and measurement limits
+remain recorded, without inventing a memory pass threshold. Automated
 Desktop/mobile/web/Go/ACP lifecycle checkpoints are recorded in the gate audit;
 the unchecked lifecycle criterion still includes unverified device behavior.
 The SDK article's public draft status is an intentional pre-redesign publication
@@ -1028,9 +1031,9 @@ decision, separate from its ten source-checked native examples; see
 
 On 2026-09-29 the user accepted the measured 72 ms native typing p95 and asked to
 close that speed work. It supersedes the earlier 50 ms target for this redesign
-acceptance; it does not waive reading correctness or natural memory-retention
-checks. The [performance record](../apps/web/scripts/native-performance-control-audit.md)
-retains exact measurement boundaries.
+acceptance; it does not waive reading correctness. The later bounded natural
+retention check is independently complete, with full-workload limits preserved.
+The [performance record](../apps/web/scripts/native-performance-control-audit.md) retains exact measurement boundaries.
 
 Current client follow-through (2026-09-29): provider/account setup, model and
 permission controls, native root/child views, REPL, input recovery, completion,
@@ -1049,7 +1052,7 @@ have replacement evidence; slash completion and the unchanged REPL gate also
 pass hosted in both browsers at `e85f72203`. The earlier intermittent REPL
 observation overlap remains unexplained. The previously failing hosted
 Settings history seed passes at `b1c9ca965`, without an optimization claim. The [current acceptance snapshot](backend-native-gate-audit.md#current-acceptance-snapshot)
-separates those gates from quiet performance, actual Safari, physical-device,
+separates those gates from actual Safari, physical-device,
 signed-release and live-provider requirements. No Phase 5–7 completion is claimed.
 
 ### Phase 7 — Cut over and remove the retired core

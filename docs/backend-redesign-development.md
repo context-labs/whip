@@ -5831,3 +5831,38 @@ asset prerequisite. The complete affected native activity scenario passes all
 production renderer; this is passing evidence, not proof of the hosted cause.
 Artifacts: `/tmp/whip-firefox-small-scroll-passive/`; investigation:
 `/tmp/whip-firefox-small-scroll-investigation/findings.md`.
+
+
+### Closed performance investigation and final combined follow-through — 2026-09-29
+
+The single bounded retention follow-up completes and is integrated as `027612274`.
+It reuses the measured candidate package without another typing run: three full
+same-root navigations, natural 35-second samples, then explicit fixture
+settlement. Every old document naturally collects, previous native frame
+connections close, and the one provider request is not repeated. Settlement
+removes 3,999 temporary Markdown spans. Renderer RSS finishes at 461.4 MiB,
+compared with 459.0 MiB initially; no threshold was invented. All five owned
+processes join, no bound overflows and no page/probe/cleanup errors occur.
+
+The old-document retention investigation is satisfied for this bounded case,
+without establishing an accumulating app-owned leak or requiring a speculative
+product change. Full-workload peaks (1,629,712 KiB baseline / 1,693,136 KiB
+candidate), RSS/shared-page and physical-footprint limitations remain preserved
+in the [exact audit](../apps/web/scripts/native-performance-control-audit.md#retention-only-native-outcome-2026-09-29).
+The 72 ms speed result remains accepted. No further timing or memory experiment
+is planned for this investigation.
+
+Hosted #279 run `36590021190` finishes at exact `ad7a4955f`: 37 successful jobs,
+two known failed leaves (Firefox small-scroll activity and the Settings ownership
+assertion), two dependent aggregate failures and zero skips. Desktop, both
+client jobs and the repaired performance helper/workload gate pass. Final evidence:
+`/tmp/whip-279-final-summary.md`. The next draft combines the locally verified
+Settings repair, bounded scroll diagnostics and these reconciled records.
+The diagnostic writer preserves the original reading assertion if artifact
+collection also fails; its success path and workload are unchanged.
+
+Final combined hosted acceptance and the unexplained reading/observation
+failures remain open. Actual Safari automation and the bounded live-provider
+smoke still await the existing approval questions. Signed/physical-device,
+minimum-OS and real account/hardware evidence remain separately named limits;
+none are implied by deterministic fixtures or by the user's speed acceptance.

@@ -10,17 +10,20 @@ provider was changed. The original development checkout was not used.
 The user accepted the measured 72 ms native typing p95 on 2026-09-29 and asked
 to close speed optimization. The earlier 50 ms target is superseded for this
 redesign acceptance. Historical measurements below retain their original
-limits; reading correctness and natural memory retention remain separate.
+limits. Reading correctness remains separate. The bounded natural-retention
+investigation is complete: old documents collect after navigation, their native
+connections close, and settlement releases the temporary Markdown spans. The
+full-workload peaks remain recorded, with no invented memory pass threshold.
 
-Reconciled through published source `e85f72203` and the local performance-gate
-ordering repair `6434cb499` on 2026-09-29. “Implemented” and a passing checkpoint
+Reconciled through published source `ad7a4955f` and the local final
+follow-through on 2026-09-29. “Implemented” and a passing checkpoint
 are distinct from final milestone acceptance. The complete staged Desktop gate
 passes at `e85f72203`; the complete normal CLI/TUI result is from `1fa8dbfb2`
 and the complete local UI result is from `d9545097d`. Older checkpoints do not
 cover subsequent source changes.
 The [plan checklist](backend-redesign-plan.md#phase-5--port-retained-product-capabilities)
-remains open, and [the chronological record](backend-redesign-development.md)
-retains the earlier failures and intermediate results.
+records Phase 5 implementation complete and final Phase 6–7 acceptance open.
+The [chronological record](backend-redesign-development.md) retains the earlier failures and intermediate results.
 
 | Retained family | Current native replacement and evidence | Acceptance still required |
 | --- | --- | --- |
@@ -32,7 +35,7 @@ retains the earlier failures and intermediate results.
 | SDK, shared app and mobile | At `1fa8dbfb2`: protocol18 checks, SDK205/example5 tests and mobile types/226 tests. Shared app types and all1388 tests pass at the `e85f72203` increment. [Mobile readiness](backend-native-mobile-readiness.md) separately records exports, simulator and Android compilation provenance. | Final combined gates, physical-device UI/lifecycle/accessibility and signed-device checks. Simulator storage evidence does not prove Android or physical-device behavior. |
 | Go CLI, TUI and ACP | Complete normal `check:native-cli` passes at `1fa8dbfb2`, including real compiled entrypoints, SSH/update fixtures, both native TUI partitions and pure presentation complement; [CLI](backend-native-cli-disposition.md) and [terminal](native-terminal-retirement.md) dispositions retain exact semantics. Both hosted client gates now pass at `e85f72203`, including the repaired SSH and explicit-Bash packaged-runtime fixtures. | Final combined-source aggregate remains open; earlier failed SSH/Task checks are preserved as history. |
 | Shared UI | Complete `check:product-ui` passes locally at `d9545097d` and hosted at `1edc9d823`: Storybook,66 themes/14 interactions, strict CSP, isolated packed consumers, tabs/layout in both browsers and30 model-picker scenarios. Workspace regressions fail before their repairs; no tolerance changes. | Final combined-source gate. This is not all application browser workflows or actual Safari. |
-| Desktop and distribution | Complete [staged Desktop gate](backend-native-desktop-readiness.md) passes locally and hosted at exact published `e85f72203`, including166 tests,116 distribution checks, onboarding, normal/failure workspace flows and terminal/editor/browser IPC. Exact local package/helper/renderer hashes and joined cleanup are recorded. | Signed/quarantined release, target/minimum-OS execution, real SSH hardware/account scenarios and natural retention remain distinct. Typing speed is user-accepted. |
+| Desktop and distribution | Complete [staged Desktop gate](backend-native-desktop-readiness.md) passes locally and hosted at exact published `e85f72203`, including166 tests,116 distribution checks, onboarding, normal/failure workspace flows and terminal/editor/browser IPC. Exact local package/helper/renderer hashes and joined cleanup are recorded. | Signed/quarantined release, target/minimum-OS execution, real SSH hardware/account scenarios remain distinct. Typing speed is user-accepted; the bounded natural-retention investigation is complete with full-workload peak limits preserved. |
 
 Hosted run36584226063 at `1edc9d823` finishes with 34 passed jobs, four failed
 leaf jobs, two failed aggregates and skipped Desktop. Analysis, evals, mobile, UI,
@@ -75,10 +78,18 @@ and Settings assumes a unique provisional-output hint across two operation
 panels sharing one cell. The latter fixture now checks exact canonical ownership
 and passes both browsers locally; the scroll investigation remains open.
 
+Hosted #279 run `36590021190` finishes at exact `ad7a4955f` with 37 successful
+jobs, those two failed leaves, two dependent aggregate failures and no skips.
+Desktop, both client jobs and the repaired performance gate pass. The next
+increment corrects the Settings ownership assertion and adds bounded passive
+scroll diagnostics; its final combined run is still required. Neither the
+unexplained earlier REPL overlap nor the cached child-anchor failure is declared
+causally repaired by subsequent passing runs.
+
 The command boundaries below remain the normal complete gate; do not replace them
-with selected passing subsets. Observation-lifetime diagnosis and the measured
-Desktop performance gap remain open. Later leaves are not retroactively covered
-by earlier results.
+with selected passing subsets. Reading/observation reliability and the final
+combined gate remain open. Later leaves are not retroactively covered by earlier
+results. The accepted speed result requires no further optimization.
 
 ## Gate restoration at the initial checkpoint
 
@@ -243,5 +254,16 @@ The18 focused Node checks pass, including traversal bounds and diagnostic
 connection teardown on failure/stall. A small actual Chromium/CDP fixture also
 verified mounted attachment removal and subtree counts; its process-memory
 source was stubbed, so it is not a Desktop workload or memory-acceptance result.
-No idle period was added. A later unchanged-workload run must supply phase
-evidence before attributing the existing natural retention to a resource owner.
+No idle period was added to that workload. The subsequent complete untraced
+pair records the natural full-workload phase samples. A separate bounded native
+follow-up performs three same-root navigations and explicit fixture settlement,
+with natural 35-second samples and no forced GC. Every old document returns
+from two documents to one; old native transports close, and settlement removes
+3,999 fade spans. Renderer RSS finishes at 461.4 MiB versus 459.0 MiB initially.
+All five owned processes join and no diagnostic bounds overflow. This satisfies
+the old-document retention investigation for that bounded case, without proving
+every byte's owner, physical footprint, signed-package or long-duration behavior.
+The full-workload peaks remain 1,629,712 KiB baseline / 1,693,136 KiB candidate.
+Exact source, hashes, samples and limitations are in the
+[retention outcome](../apps/web/scripts/native-performance-control-audit.md#retention-only-native-outcome-2026-09-29).
+No further memory or typing experiment is required by this investigation.
