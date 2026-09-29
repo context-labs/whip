@@ -3,7 +3,9 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi"
@@ -173,7 +175,21 @@ func nativeMarkdown(text string, width int) string {
 	}
 	// Host paths never become client-local file links. In particular, do not
 	// call renderMarkdownAt: it probes the client filesystem for path labels.
-	return wrapWideLines(stripOSC8(bareSGR.Replace(stripLinePadding(strings.Trim(value, "\n")))), max(width, 1))
+	return wrapWideLines(hyperlinkGlamourLinksTo(stripLinePadding(strings.Trim(value, "\n")), nativeWebLink), max(width, 1))
+}
+
+// Only explicit web URLs become terminal hyperlinks. The host's directory is
+// not proof of a client-local path; raw terminal escape sequences are removed
+// before rendering, and renderer-provided hyperlinks are rebuilt by policy.
+func nativeWebLink(value string) string {
+	if strings.IndexFunc(value, func(r rune) bool { return unicode.IsControl(r) || unicode.IsSpace(r) }) >= 0 {
+		return ""
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Opaque != "" || parsed.User != nil || parsed.Hostname() == "" || parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return ""
+	}
+	return parsed.String()
 }
 
 func nativeResultText(output string) string {

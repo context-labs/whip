@@ -173,8 +173,34 @@ func (m *nativeModel) contextDoctor(args string) tea.Cmd {
 		} else {
 			text += "\nCapture is unavailable."
 		}
-		return nativeControlResult{notice: text}
+		var sources protocol.InstructionManifestResult
+		if err := connection.Call(ctx, "turns.instructions", protocol.TurnParams{TurnID: inspection.TurnID}, &sources); err != nil {
+			return nativeControlResult{err: err}
+		}
+		return nativeControlResult{notice: nativeBoundedNotice(text + "\n" + nativeInstructionAudit(sources.Manifest))}
 	})
+}
+
+// Raw source bytes are evidence, not additive model context: comments can be
+// filtered, metadata can be framed, and the composed base also contains host
+// identity/module/hook instructions. Never sum these rows as token occupancy.
+func nativeInstructionAudit(manifest *protocol.InstructionManifest) string {
+	if manifest == nil {
+		return "Applied instruction sources: no captured manifest for this turn."
+	}
+	var text strings.Builder
+	fmt.Fprintf(&text, "Applied instruction base: %d bytes (~%d tokens, bytes/4 heuristic only)\nInstruction digest: %s\nSource evidence (raw bytes, already represented in the composed base; not additive):", manifest.Bytes, (manifest.Bytes+3)/4, manifest.SHA256)
+	for _, source := range manifest.Sources {
+		fmt.Fprintf(&text, "\n%s · %s", source.Kind, source.Scope)
+		if source.RootID != nil {
+			fmt.Fprintf(&text, " root %s", *source.RootID)
+		}
+		fmt.Fprintf(&text, " · %s · %d bytes · %s", source.Path, source.Bytes, source.SHA256)
+		if text.Len() > nativeNoticeLimit {
+			return nativeBoundedNotice(text.String())
+		}
+	}
+	return text.String()
 }
 
 func (m *nativeModel) nativeReport() string {
