@@ -5,6 +5,16 @@ export const manifest = {
   "minor": 0,
   "operations": [
     {
+      "name": "trace.page",
+      "params": "TracePageParams",
+      "result": "TracePageResult"
+    },
+    {
+      "name": "trace.export",
+      "params": "TraceExportParams",
+      "result": "TraceExportResult"
+    },
+    {
       "name": "host.attention",
       "params": "HostAttentionParams",
       "result": "HostAttentionResult"

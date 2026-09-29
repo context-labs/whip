@@ -1,0 +1,253 @@
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "sequence": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,18})$",
+            "format": "counter"
+          },
+          "root_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "session_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "turn_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "source_kind": {
+            "type": "string",
+            "enum": [
+              "turn",
+              "attempt",
+              "cell",
+              "operation",
+              "permission",
+              "question"
+            ]
+          },
+          "source_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "span_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{16}$"
+          },
+          "span": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "trace_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{32}$"
+              },
+              "parent_span_id": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^[a-f0-9]{16}$"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "agent",
+                  "llm",
+                  "tool",
+                  "host",
+                  "wait"
+                ]
+              },
+              "name": {
+                "type": "string",
+                "maxLength": 1024
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "running",
+                  "cancelling",
+                  "reserved",
+                  "dispatched",
+                  "succeeded",
+                  "failed",
+                  "cancelled",
+                  "interrupted",
+                  "uncertain",
+                  "waiting",
+                  "ready",
+                  "denied",
+                  "pending",
+                  "approved",
+                  "answered",
+                  "expired"
+                ]
+              },
+              "start_ns": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "end_ns": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "attributes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "maxLength": 128
+                    },
+                    "text": {
+                      "type": [
+                        "null",
+                        "string"
+                      ],
+                      "maxLength": 2048
+                    },
+                    "count": {
+                      "type": [
+                        "null",
+                        "string"
+                      ],
+                      "pattern": "^(0|[1-9][0-9]{0,18})$",
+                      "format": "counter"
+                    },
+                    "flag": {
+                      "type": [
+                        "null",
+                        "boolean"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "text",
+                    "count",
+                    "flag"
+                  ],
+                  "additionalProperties": false,
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "count": {
+                          "type": "null",
+                          "pattern": "^(0|[1-9][0-9]{0,18})$",
+                          "format": "counter"
+                        },
+                        "flag": {
+                          "type": "null"
+                        },
+                        "text": {
+                          "type": "string",
+                          "maxLength": 2048
+                        }
+                      }
+                    },
+                    {
+                      "properties": {
+                        "count": {
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]{0,18})$",
+                          "format": "counter"
+                        },
+                        "flag": {
+                          "type": "null"
+                        },
+                        "text": {
+                          "type": "null",
+                          "maxLength": 2048
+                        }
+                      }
+                    },
+                    {
+                      "properties": {
+                        "count": {
+                          "type": "null",
+                          "pattern": "^(0|[1-9][0-9]{0,18})$",
+                          "format": "counter"
+                        },
+                        "flag": {
+                          "type": "boolean"
+                        },
+                        "text": {
+                          "type": "null",
+                          "maxLength": 2048
+                        }
+                      }
+                    }
+                  ]
+                },
+                "maxItems": 64
+              }
+            },
+            "required": [
+              "trace_id",
+              "parent_span_id",
+              "kind",
+              "name",
+              "state",
+              "start_ns",
+              "end_ns",
+              "attributes"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "sequence",
+          "root_id",
+          "session_id",
+          "turn_id",
+          "source_kind",
+          "source_id",
+          "span_id",
+          "span"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 2048
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "next": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "has_more": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/TracePageResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TracePageResult",
+  "required": [
+    "items",
+    "revision",
+    "next",
+    "has_more"
+  ],
+  "additionalProperties": false
+}

@@ -310,6 +310,16 @@ export class Client {
     return this.call('accounts.openai.logout', {}, options);
   }
 
+  /** Fixed-revision canonical updates. A null span deletes that ID; conflicts require a fresh scan. */
+  tracePage(params: Operations['trace.page']['params'], options: CallOptions = {}): Promise<Operations['trace.page']['result']> {
+    return this.call('trace.page', params, options);
+  }
+
+  /** Complete bounded OTLP file in root-owned content. No network export or automatic conflict retry. */
+  exportTrace(params: Operations['trace.export']['params'], options: CallOptions = {}): Promise<Operations['trace.export']['result']> {
+    return this.call('trace.export', params, options);
+  }
+
   /** Advisory exact-owner activity. Refresh from the beginning to find newly active earlier owners. */
   hostAttention(params: Operations['host.attention']['params'], options: CallOptions = {}): Promise<Operations['host.attention']['result']> {
     return this.call('host.attention', params, options);

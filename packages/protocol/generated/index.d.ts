@@ -7985,6 +7985,98 @@ export interface ToolResult {
   is_error: boolean;
   output: string;
 }
+export interface TraceExportParams {
+  root_id: string;
+  trace_id: string;
+  expected_revision: null | string;
+}
+export interface TraceExportResult {
+  reference: {
+    id: string;
+    session_id: string;
+    digest: string;
+    size: string;
+    media_type: string;
+    created_at: string;
+  };
+  revision: string;
+  spans: number;
+  traces: number;
+}
+export interface TracePageParams {
+  root_id: string;
+  after: string;
+  expected_revision: null | string;
+  trace_id: string;
+  roots_only: boolean;
+  limit: number;
+  max_bytes: number;
+}
+export interface TracePageResult {
+  /**
+   * @maxItems 2048
+   */
+  items: {
+    sequence: string;
+    root_id: string;
+    session_id: string;
+    turn_id: string;
+    source_kind: "turn" | "attempt" | "cell" | "operation" | "permission" | "question";
+    source_id: string;
+    span_id: string;
+    span: null | {
+      trace_id: string;
+      parent_span_id: null | string;
+      kind: "agent" | "llm" | "tool" | "host" | "wait";
+      name: string;
+      state:
+        | "running"
+        | "cancelling"
+        | "reserved"
+        | "dispatched"
+        | "succeeded"
+        | "failed"
+        | "cancelled"
+        | "interrupted"
+        | "uncertain"
+        | "waiting"
+        | "ready"
+        | "denied"
+        | "pending"
+        | "approved"
+        | "answered"
+        | "expired";
+      start_ns: string;
+      end_ns: null | string;
+      /**
+       * @maxItems 64
+       */
+      attributes: (
+        | {
+            count?: null;
+            flag?: null;
+            text?: string;
+            [k: string]: unknown;
+          }
+        | {
+            count?: string;
+            flag?: null;
+            text?: null;
+            [k: string]: unknown;
+          }
+        | {
+            count?: null;
+            flag?: boolean;
+            text?: null;
+            [k: string]: unknown;
+          }
+      )[];
+    };
+  }[];
+  revision: string;
+  next: string;
+  has_more: boolean;
+}
 export interface Tree {
   id: string;
   metadata: {
@@ -8439,6 +8531,10 @@ export interface ContractTypes {
   TerminalWriteParams: TerminalWriteParams;
   ToolCall: ToolCall;
   ToolResult: ToolResult;
+  TraceExportParams: TraceExportParams;
+  TraceExportResult: TraceExportResult;
+  TracePageParams: TracePageParams;
+  TracePageResult: TracePageResult;
   Tree: Tree;
   TreeCatalog: TreeCatalog;
   TreeCreationParams: TreeCreationParams;
@@ -8459,6 +8555,8 @@ export interface ContractTypes {
   WriteStateParams: WriteStateParams;
 }
 export interface Operations {
+  "trace.page": { params: TracePageParams; result: TracePageResult };
+  "trace.export": { params: TraceExportParams; result: TraceExportResult };
   "host.attention": { params: HostAttentionParams; result: HostAttentionResult };
   "host.directories.list": { params: HostDirectoriesParams; result: HostDirectoriesResult };
   "host.directory.pick": { params: HostDirectoryPickParams; result: HostDirectoryPickResult };

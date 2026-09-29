@@ -30,6 +30,87 @@
     "valid": true
   },
   {
+    "type": "TracePageParams",
+    "value": {
+      "root_id": "session_root",
+      "after": "9007199254740993",
+      "expected_revision": "9007199254740999",
+      "trace_id": "",
+      "roots_only": false,
+      "limit": 2048,
+      "max_bytes": 524288
+    },
+    "valid": true
+  },
+  {
+    "type": "TracePageResult",
+    "value": {
+      "items": [
+        {
+          "sequence": "9007199254740999",
+          "root_id": "session_root",
+          "session_id": "session_child",
+          "turn_id": "turn",
+          "source_kind": "attempt",
+          "source_id": "attempt",
+          "span_id": "6a8b8e39ebc97796",
+          "span": {
+            "trace_id": "d8f7f1faddace29cb46152807a8bffbc",
+            "parent_span_id": null,
+            "kind": "llm",
+            "name": "turn model",
+            "state": "succeeded",
+            "start_ns": "1790600000000000000",
+            "end_ns": "1790600000000001000",
+            "attributes": [
+              {
+                "key": "whip.cost.nano_usd",
+                "text": null,
+                "count": "9007199254740993",
+                "flag": null
+              },
+              {
+                "key": "whip.input.body_available",
+                "text": null,
+                "count": null,
+                "flag": false
+              },
+              {
+                "key": "gen_ai.request.model",
+                "text": "model",
+                "count": null,
+                "flag": null
+              }
+            ]
+          }
+        },
+        {
+          "sequence": "9007199254740998",
+          "root_id": "session_root",
+          "session_id": "deleted",
+          "turn_id": "gone",
+          "source_kind": "turn",
+          "source_id": "gone",
+          "span_id": "3273deed37610830",
+          "span": null
+        }
+      ],
+      "revision": "9007199254740999",
+      "next": "9007199254740999",
+      "has_more": false
+    },
+    "valid": true
+  },
+  {
+    "type": "TraceExportParams",
+    "value": {
+      "root_id": "session_root",
+      "trace_id": "",
+      "expected_revision": null
+    },
+    "valid": true
+  },
+  {
     "type": "HostAttentionResult",
     "value": {
       "items": [],
