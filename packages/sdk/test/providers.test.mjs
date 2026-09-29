@@ -4,7 +4,7 @@ import { Client, DeliveryError, RemoteError } from '../dist/index.js';
 
 const initial = { major: 4, minor: 0, runtime_id: 'runtime', process_epoch: 'boot_test', network_client: false, builtins: [] };
 const success = (request, result) => ({ jsonrpc: '2.0', id: request.id, result });
-const inventory = { revision: 'a'.repeat(64), routes: [], defaults: null, compaction_model: null };
+const inventory = { revision: 'a'.repeat(64), routes: [], defaults: null, compaction_model: null, permission_mode: 'prompt' };
 const model = { id: 'model', name: 'Exact model', prices: { input: '9007199254740993', output: '0', reasoning: null, cached_input: null, cached_output: null }, context_window_tokens: '0', advertised_context_tokens: null, effective_context_percent: null, max_output_tokens: null, reasoning_efforts: [], input_modalities: null, output_modalities: ['text'], supports_tools: false, metadata_source: 'advertised' };
 const catalog = { provider: 'custom', state: 'cached', scope_state: 'unverified', discovery: 'catalog_response', fetched_at: '2026-09-28T12:00:00.123456789Z', stale: false, failure: null, models: [model] };
 const selection = { provider: 'custom', name: 'explicit-unknown', effort: '', temperature: 0 };
@@ -20,7 +20,7 @@ test('provider helpers preserve exact nullable metadata and perform only request
       case 'providers.bundled': return success(request, { items: [{ ...model, metadata_source: 'bundled' }] });
       case 'providers.catalog': return success(request, structuredClone(catalog));
       case 'providers.refresh': return success(request, { ...structuredClone(catalog), failure: 'Discovery failed; previous observations retained' });
-      case 'providers.readiness': return success(request, { configured: true, credential_state: 'unchecked', catalog_state: 'cached', model_state: 'unknown', inference_state: 'not_tested' });
+      case 'providers.readiness': return success(request, { configured: true, disabled: false, credential_state: 'unchecked', catalog_state: 'cached', model_state: 'unknown', inference_state: 'not_tested' });
       default: return success(request, structuredClone(inventory));
     }
   }, { clientID: 'provider-setup' });
@@ -63,5 +63,35 @@ test('provider response validation rejects lossy numeric prices and secret proje
   for (const invalid of [{ ...catalog, models: [{ ...model, prices: { ...model.prices, input: 9007199254740993 } }] }, { ...catalog, key: 'private-key' }]) {
     const client = await Client.connect(async request => success(request, request.method === 'initialize' ? initial : invalid), { clientID: 'provider-invalid' });
     await assert.rejects(client.providerCatalog('custom'), TypeError);
+  }
+});
+
+test('candidate evidence, enablement, disconnect outcomes and combined preferences use only the requested native call', async () => {
+  const calls = [];
+  const candidates = { revision: inventory.revision, items: [{ provider: 'openrouter', source: 'env', environment: 'OPENROUTER_API_KEY', credential_state: 'available' }] };
+  let lost = false;
+  const client = await Client.connect(async request => {
+    if (request.method === 'initialize') return success(request, initial);
+    calls.push(structuredClone(request));
+    if (lost) throw new DeliveryError('uncertain provider publication');
+    if (request.method === 'providers.candidates') return success(request, candidates);
+    if (request.method === 'providers.disconnect') return success(request, { inventory, credential_state: 'preserved_external', local_failure: null, cleanup_failure: null });
+    return success(request, inventory);
+  }, { clientID: 'provider-preferences' });
+  assert.deepEqual(await client.providerCandidates(), candidates);
+  assert.deepEqual(calls.map(call => call.method), ['providers.candidates']);
+  const { credential_state, ...candidate } = candidates.items[0];
+  await client.useProviderCandidate({ revision: inventory.revision, ...candidate });
+  await client.setProviderEnabled({ revision: inventory.revision, provider: 'openrouter', enabled: false });
+  assert.equal((await client.disconnectProvider({ revision: inventory.revision, provider: 'openrouter' })).credential_state, 'preserved_external');
+  const preferences = { revision: inventory.revision, defaults: { selection: { ...selection, effort: 'off' }, settings: null }, permission_mode: 'automatic' };
+  await client.setProviderPreferences(preferences);
+  assert.deepEqual(calls.at(-1).params, preferences);
+  assert.deepEqual(calls.map(call => call.method), ['providers.candidates', 'providers.use_candidate', 'providers.set_enabled', 'providers.disconnect', 'providers.set_preferences']);
+  lost = true;
+  for (const operation of [() => client.useProviderCandidate({ revision: inventory.revision, ...candidate }), () => client.setProviderEnabled({ revision: inventory.revision, provider: 'openrouter', enabled: true }), () => client.disconnectProvider({ revision: inventory.revision, provider: 'openrouter' }), () => client.setProviderPreferences(preferences)]) {
+    const before = calls.length;
+    await assert.rejects(operation(), DeliveryError);
+    assert.equal(calls.length, before + 1);
   }
 });
