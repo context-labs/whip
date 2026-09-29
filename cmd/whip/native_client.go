@@ -28,11 +28,11 @@ var connectNativeRuntime = func(ctx context.Context) (*client.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	executable, err := os.Executable()
+	launch, err := nativeRuntimeLaunch()
 	if err != nil {
 		return nil, err
 	}
-	ready, err := localruntime.Start(ctx, paths, localruntime.Launch{Executable: executable, Arguments: []string{"_native-runtime"}, Build: version})
+	ready, err := launchNativeRuntime(ctx, paths, launch)
 	if err != nil {
 		return nil, err
 	}

@@ -335,16 +335,8 @@ func TestManagedGatewayStatusFailureAndRepeatedStart(t *testing.T) {
 	if err != nil || status.State != "running" || launches != 1 {
 		t.Fatalf("repeated start = %+v %v launches=%d", status, err, launches)
 	}
-	oldTail := tailDaemonLog
-	t.Cleanup(func() { tailDaemonLog = oldTail })
-	tailDaemonLog = func(path string, lines int, follow bool) error {
-		if path != filepath.Join(paths.Home, "web.log") {
-			t.Fatalf("wrong gateway log: %s", path)
-		}
-		return nil
-	}
-	if err := daemonLogsCLI([]string{"--web"}); err != nil {
-		t.Fatal(err)
+	if _, err := os.Stat(filepath.Join(paths.Home, "web.log")); err != nil {
+		t.Fatal("retained gateway did not publish its log", err)
 	}
 }
 

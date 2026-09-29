@@ -417,7 +417,12 @@ func TestDesktopDaemonLogTailUsesTheRequestedFile(t *testing.T) {
 	if err := os.WriteFile(name, []byte("old line\nlatest diagnostic\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	output := captureDaemonOutput(t, func() error { return tailDaemonLog(name, 1, false) })
+	file, err := os.Open(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	output := captureDaemonOutput(t, func() error { return tailDaemonLog(file, 1, false) })
 	if output != "latest diagnostic\n" {
 		t.Fatal("log tail ignored its file or line bound")
 	}

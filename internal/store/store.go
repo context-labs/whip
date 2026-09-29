@@ -24,6 +24,9 @@ const (
 	schemaVersion = 52
 )
 
+// SchemaVersion reports the single database format supported by this build.
+func SchemaVersion() int { return schemaVersion }
+
 // MaxPageBytes bounds hydrated collection responses as well as their row count.
 // Cursors resume after the last returned item when the byte limit ends a page.
 const MaxPageBytes = 4 << 20

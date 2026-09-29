@@ -6,8 +6,8 @@ import (
 	"io"
 
 	"github.com/context-labs/whip/internal/buildinfo"
-	"github.com/context-labs/whip/internal/legacy/protocol"
-	"github.com/context-labs/whip/internal/legacy/session"
+	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/store"
 )
 
 // desktopRuntimeInfo reads constants compiled into this executable. Packaging
@@ -25,6 +25,6 @@ func desktopRuntimeInfo(args []string, output io.Writer) error {
 		SchemaVersion int    `json:"schemaVersion"`
 	}{
 		Distribution: buildinfo.Name, BuildID: version, UpdateOwner: buildinfo.UpdateOwner,
-		ProtocolMajor: protocol.Major, ProtocolMinor: protocol.Minor, SchemaVersion: session.SchemaVersion(),
+		ProtocolMajor: protocol.Major, ProtocolMinor: protocol.Minor, SchemaVersion: store.SchemaVersion(),
 	})
 }
