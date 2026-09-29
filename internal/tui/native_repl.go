@@ -295,7 +295,7 @@ func (m *nativeModel) replRows(width int) []string {
 		}
 		for _, op := range v.operations {
 			if op.Origin == "cell" && op.CellID != nil && *op.CellID == cell.ID && op.TurnID == cell.TurnID && op.SessionID == cell.SessionID {
-				rows = append(rows, "  "+op.Capability+" · "+op.State)
+				rows = append(rows, strings.Repeat(" ", currentTheme().Space.PadX)+op.Capability+" · "+op.State)
 				if op.Result != nil && op.Result.Failure != nil {
 					appendText(*op.Result.Failure)
 				}

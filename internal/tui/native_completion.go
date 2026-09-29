@@ -312,7 +312,7 @@ func (m *nativeModel) completionView() string {
 	lines := []string{label}
 	start := max(min(max(c.selected, 0)-(height-2)/2, len(c.candidates)-height+1), 0)
 	for i := start; i < len(c.candidates) && len(lines) < height; i++ {
-		marker := "  "
+		marker := strings.Repeat(" ", ansi.StringWidth("› "))
 		if i == c.selected {
 			marker = "› "
 		}

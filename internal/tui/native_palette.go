@@ -80,7 +80,7 @@ func (p *nativeCommandPalette) view(width, height int) string {
 	count := max(height-5, 1)
 	start := max(min(p.selected-count/2, len(p.items)-count), 0)
 	for i := start; i < len(p.items) && i < start+count; i++ {
-		marker := "  "
+		marker := strings.Repeat(" ", ansi.StringWidth("› "))
 		if i == p.selected {
 			marker = "› "
 		}

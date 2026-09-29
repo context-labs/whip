@@ -236,7 +236,7 @@ func (p *nativeSessionPicker) view(width, height int) string {
 		if item.Tree.Metadata.Title != nil {
 			title = *item.Tree.Metadata.Title
 		}
-		mark := "  "
+		mark := strings.Repeat(" ", ansi.StringWidth("> "))
 		if i == p.sel {
 			mark = "> "
 		}
