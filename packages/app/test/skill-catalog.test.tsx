@@ -3,14 +3,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useRef, useState } from 'react';
 import { UIProvider } from '@whip/ui';
-import type { WhipClient } from '@whip/legacy-sdk';
-import type { CompletionResult } from '@whip/legacy-protocol';
+import type { Client, HostSkillsResult as CompletionResult } from '@whip/sdk';
 import { useSkillCompletion } from '../src/use-skill-completion';
 
 type Scope = Parameters<typeof useSkillCompletion>[0]['scope'];
-const workspace: Scope = { rootId: 'root', agentId: 'child' };
-const welcome: Scope = { cwd: '/project', definition: 'coding', permissionMode: 'prompt' };
-const global: Scope = { cwd: '', definition: 'coding', permissionMode: 'prompt' };
+const workspace: Scope = { sessionId: 'child' };
+const definition = { id: 'coding', revision: 'a'.repeat(64) };
+const welcome: Scope = { cwd: '/project', definition };
+const global: Scope = { cwd: '', definition };
 const catalog: CompletionResult = { candidates: [...Array.from({ length: 70 }, (_, i) => ({ text: `$alpha${i}`, description: '' })),
   { text: '$ponytail', description: 'Least code' }, { text: '$café', description: 'Unicode' }], truncated: false };
 
@@ -19,13 +19,15 @@ beforeEach(() => {
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
 });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
-function fixture(scope: Scope = workspace, catalogSupported = true) {
-  const call = vi.fn((_method: string, _params: unknown, _options: unknown): Promise<CompletionResult> => Promise.resolve(catalog));
-  const client = { getSnapshot: () => ({ info: { runtime_id: 'host', negotiated_capabilities:
-    ['workspace_completion', 'host_skill_completion', 'host_global_skill_completion', ...(catalogSupported ? ['skill_catalog_completion'] : [])] } }), call } as unknown as WhipClient;
+// These tests isolate composer focus/typing behavior; native wire paging is covered
+// separately with a real validating SDK client in skill-suggestions.test.ts.
+vi.mock('../src/skill-suggestions', () => ({ readSkillSuggestions: (client: { readSuggestions: Function }, scope: Scope, prefix: string, limit: number, signal: AbortSignal) => client.readSuggestions(scope, prefix, limit, signal) }));
+function fixture(scope: Scope = workspace) {
+  const call = vi.fn((_scope: Scope, _prefix: string, _limit: number, _signal: AbortSignal): Promise<CompletionResult> => Promise.resolve(catalog));
+  const client = { runtimeID: 'host', readSuggestions: call } as unknown as Client;
   const queries = new QueryClient({ defaultOptions: { queries: { staleTime: 10_000, gcTime: 0, retry: false, refetchOnWindowFocus: false, refetchOnReconnect: false } } });
   const send = vi.fn();
-  function Composer({ current = scope, connected = true, blocked = false, host = client }: { current?: Scope; connected?: boolean; blocked?: boolean; host?: WhipClient }) {
+  function Composer({ current = scope, connected = true, blocked = false, host = client }: { current?: Scope; connected?: boolean; blocked?: boolean; host?: Client }) {
     const input = useRef<HTMLTextAreaElement>(null);
     const [draft, setDraft] = useState('');
     const skills = useSkillCompletion({ client: host, owner: 'composer', scope: current, connected, blocked, draft, input, change: setDraft });
@@ -46,12 +48,12 @@ async function loaded(f: ReturnType<typeof fixture>) {
   f.type('/'); await screen.findByRole('option', { name: '/alpha0' });
 }
 
-it.each([['workspace', workspace, 'workspace.complete'], ['welcome', welcome, 'host.skills.complete'], ['global', global, 'host.skills.complete']] as const)('%s preloads once on focus, filters immediately before the row cap, and never fetches on warm typing', async (_name, scope, method) => {
+it.each([['workspace', workspace], ['welcome', welcome], ['global', global]] as const)('%s preloads once on focus, filters immediately before the row cap, and never fetches on warm typing', async (_name, scope) => {
   const f = fixture(scope);
   expect(f.call).not.toHaveBeenCalled(); f.focus();
   await loaded(f);
   expect(f.call).toHaveBeenCalledTimes(1);
-  expect(f.call).toHaveBeenCalledWith(method, expect.objectContaining({ prefix: '', limit: 1024 }), { signal: expect.any(AbortSignal) });
+  expect(f.call).toHaveBeenCalledWith(scope, '', 1024, expect.any(AbortSignal));
   expect(screen.getAllByRole('option')).toHaveLength(32);
   expect(screen.queryByRole('status')).toBeNull();
   expect(screen.queryByText(/Selection inserts a skill reference|Keep typing to narrow the list/)).toBeNull();
@@ -72,7 +74,7 @@ it.each([workspace, global])('keeps cold preload through Escape and cancels only
   const f = fixture(scope); let finish!: (value: CompletionResult) => void;
   f.call.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
   f.focus(); f.type('/po'); await waitFor(() => expect(f.call).toHaveBeenCalledTimes(1));
-  const signal = (f.call.mock.calls[0]![2] as { signal: AbortSignal }).signal;
+  const signal = f.call.mock.calls[0]![3];
   fireEvent.keyDown(f.input, { key: 'Enter' }); expect(f.send).not.toHaveBeenCalled();
   expect(f.input.value).toBe('/po');
   fireEvent.keyDown(f.input, { key: 'Escape' }); expect(signal.aborted).toBe(false);
@@ -127,32 +129,29 @@ it('starts when readiness arrives while focused and refetches through runtime re
 it('cancels and releases old scopes on A→B→A and client replacement without resurrecting menus', async () => {
   const f = fixture(); f.call.mockImplementation(() => new Promise(() => {})); f.focus(); f.type('/po');
   await waitFor(() => expect(f.call).toHaveBeenCalledTimes(1));
-  const first = (f.call.mock.calls[0]![2] as { signal: AbortSignal }).signal;
-  f.mounted.rerender(f.app({ current: { rootId: 'root', agentId: 'other' } }));
+  const first = f.call.mock.calls[0]![3];
+  f.mounted.rerender(f.app({ current: { sessionId: 'other' } }));
   await waitFor(() => expect(f.call).toHaveBeenCalledTimes(2)); expect(first.aborted).toBe(true);
   expect(screen.queryByRole('listbox')).toBeNull();
   f.mounted.rerender(f.app()); await waitFor(() => expect(f.call).toHaveBeenCalledTimes(3));
   expect(screen.queryByRole('listbox')).toBeNull(); expect(f.input.value).toBe('/po');
-  const third = (f.call.mock.calls[2]![2] as { signal: AbortSignal }).signal;
+  const third = f.call.mock.calls[2]![3];
   f.mounted.rerender(f.app({ host: { ...f.client } }));
   await waitFor(() => expect(f.call).toHaveBeenCalledTimes(4)); expect(third.aborted).toBe(true);
-  f.mounted.unmount(); expect((f.call.mock.calls[3]![2] as { signal: AbortSignal }).signal.aborted).toBe(true);
+  f.mounted.unmount(); expect(f.call.mock.calls[3]![3].aborted).toBe(true);
 });
 
-it.each([[workspace, false], [workspace, true], [global, false], [global, true]] as const)('uses same-scope debounced prefix fallback (%j, incomplete=%s)', async (scope, incomplete) => {
-  const f = fixture(scope, incomplete);
-  if (incomplete) f.call.mockResolvedValueOnce({ candidates: [{ text: '$alpha', description: '' }], truncated: true, warnings: ['Metadata was bounded.'] });
+it.each([workspace, global])('uses same-scope debounced prefix fallback after bounded discovery (%j)', async scope => {
+  const f = fixture(scope);
+  f.call.mockResolvedValueOnce({ candidates: [{ text: '$alpha', description: '' }], truncated: true });
   f.call.mockResolvedValue({ candidates: [{ text: '$outside', description: '' }], truncated: true });
   f.focus(); f.type('/outside');
   await screen.findByRole('option', { name: /outside/ });
-  expect(f.call).toHaveBeenLastCalledWith(scope === global ? 'host.skills.complete' : 'workspace.complete',
-    expect.objectContaining({ prefix: 'outside', limit: 32, ...(scope === global ? { scope: 'global' } : {}) }), { signal: expect.any(AbortSignal) });
-  if (scope === global) expect(f.call.mock.calls.every(([, params]) => !('cwd' in (params as object)))).toBe(true);
-  expect(f.call).toHaveBeenCalledTimes(incomplete ? 2 : 1);
+  expect(f.call).toHaveBeenLastCalledWith(scope, 'outside', 32, expect.any(AbortSignal));
+  expect(f.call).toHaveBeenCalledTimes(2);
   expect(screen.queryByRole('status')).toBeNull();
-  expect(screen.queryByText(/Selection inserts a skill reference|Keep typing to narrow the list/)).toBeNull();
-  if (incomplete) expect(screen.getByText('Metadata was bounded.')).toBeTruthy();
-  f.type('/other'); await waitFor(() => expect(f.call).toHaveBeenCalledTimes(incomplete ? 3 : 2));
+  expect(screen.getByText('More matches are available. Narrow your search.')).toBeTruthy();
+  f.type('/other'); await waitFor(() => expect(f.call).toHaveBeenCalledTimes(3));
 });
 
 it('refreshes on a stale focus boundary but not stale Escape, and does not reopen on refresh completion', async () => {
@@ -174,22 +173,22 @@ it.each([workspace, global])('shows a cold catalog failure without prefix compat
   const f = fixture(scope); f.call.mockRejectedValueOnce(new Error('Catalog read denied'));
   f.focus(); f.type('/po'); await screen.findByText('Could not load skills.');
   expect(f.call).toHaveBeenCalledTimes(1);
-  expect(f.call).toHaveBeenLastCalledWith(scope === global ? 'host.skills.complete' : 'workspace.complete', expect.objectContaining({ prefix: '', limit: 1024 }), { signal: expect.any(AbortSignal) });
+  expect(f.call).toHaveBeenLastCalledWith(scope, '', 1024, expect.any(AbortSignal));
   expect(screen.queryByText('No matching skills.')).toBeNull();
   fireEvent.keyDown(f.input, { key: 'Enter' }); expect(f.send).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Retry' })); await screen.findByRole('option', { name: /ponytail/ });
 });
-it('isolates global, project, definition, permission and remote-client catalogs without reopening or changing the draft', async () => {
+it('isolates global, project, immutable definition and remote-client catalogs without reopening or changing the draft', async () => {
   const f = fixture(global);
   const pending: ((value: CompletionResult) => void)[] = [];
   f.call.mockImplementation(() => new Promise(resolve => pending.push(resolve)));
   f.focus(); f.type('/po');
   await waitFor(() => expect(f.call).toHaveBeenCalledTimes(1));
-  const project = { cwd: '/remote/project', definition: 'coding', permissionMode: 'prompt' } as const;
+  const project = { cwd: '/remote/project', definition } as const;
   const contexts = [project, { ...project, cwd: '/remote/other' }, global,
-    { ...global, definition: 'research' }, { ...global, permissionMode: 'automatic' }] as const;
+    { ...global, definition: { ...definition, id: 'research' } }, { ...global, definition: { ...definition, revision: 'b'.repeat(64) } }] as const;
   for (const [index, current] of contexts.entries()) {
-    const oldSignal = (f.call.mock.calls[index]![2] as { signal: AbortSignal }).signal;
+    const oldSignal = f.call.mock.calls[index]![3];
     f.mounted.rerender(f.app({ current }));
     await waitFor(() => expect(f.call).toHaveBeenCalledTimes(index + 2));
     expect(oldSignal.aborted).toBe(true);
@@ -199,14 +198,10 @@ it('isolates global, project, definition, permission and remote-client catalogs 
     expect(f.input.selectionStart).toBe(3);
   }
   const remoteCall = vi.fn(async () => ({ candidates: [{ text: '$remote', description: '' }], truncated: false }));
-  const remote = { ...f.client, call: remoteCall, getSnapshot: () => ({ info: {
-    ...f.client.getSnapshot().info, runtime_id: 'other-host',
-  } }) } as unknown as WhipClient;
-  const oldSignal = (f.call.mock.calls.at(-1)![2] as { signal: AbortSignal }).signal;
+  const remote = { runtimeID: 'other-host', readSuggestions: remoteCall } as unknown as Client;
+  const oldSignal = f.call.mock.calls.at(-1)![3];
   f.mounted.rerender(f.app({ current: global, host: remote }));
-  await waitFor(() => expect(remoteCall).toHaveBeenCalledWith('host.skills.complete', {
-    scope: 'global', definition: 'coding', permission_mode: 'prompt', prefix: '', limit: 1024,
-  }, { signal: expect.any(AbortSignal) }));
+  await waitFor(() => expect(remoteCall).toHaveBeenCalledWith(global, '', 1024, expect.any(AbortSignal)));
   expect(oldSignal.aborted).toBe(true);
   await act(async () => pending.at(-1)!({ candidates: [{ text: '$obsolete', description: '' }], truncated: false }));
   expect(screen.queryByRole('listbox')).toBeNull();
@@ -226,12 +221,12 @@ it('only physical focus preloads globals; hiding and disconnect cancel reads and
   expect(f.call).not.toHaveBeenCalled();
   f.focus(); await waitFor(() => expect(f.call).toHaveBeenCalledTimes(1));
   f.type('/pon');
-  const first = (f.call.mock.calls[0]![2] as { signal: AbortSignal }).signal;
+  const first = f.call.mock.calls[0]![3];
   f.mounted.rerender(f.app({ blocked: true }));
   expect(first.aborted).toBe(true); expect(screen.queryByRole('listbox')).toBeNull();
   f.mounted.rerender(f.app());
   await waitFor(() => expect(f.call).toHaveBeenCalledTimes(2));
-  const second = (f.call.mock.calls[1]![2] as { signal: AbortSignal }).signal;
+  const second = f.call.mock.calls[1]![3];
   f.mounted.rerender(f.app({ connected: false }));
   expect(second.aborted).toBe(true); expect(screen.queryByRole('listbox')).toBeNull();
   f.type('/pony'); await screen.findByText('Reconnect to search skills.');

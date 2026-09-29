@@ -1,25 +1,23 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { WhipClient } from '@whip/legacy-sdk';
-import type { HostSkillCompletionParams } from '@whip/legacy-protocol';
+import type { Client } from '@whip/sdk';
+import { readSkillSuggestions, type SkillScope } from './skill-suggestions';
 import { Button, useTextareaSuggestions } from '@whip/ui';
 import { ErrorNotice } from './error-feedback';
 import { insertSkill, skillTrigger, type SkillTrigger } from './skill-completion';
 
-type Scope = { rootId: string; agentId: string } | { cwd: string; definition: string; permissionMode: HostSkillCompletionParams['permission_mode'] };
+type Scope = SkillScope;
 interface Request { scope: string; draft: string; start: number; end: number; trigger: SkillTrigger }
 
 /** Ephemeral discovery only. Each composer retains its existing draft/selection owner. */
 export function useSkillCompletion({ client, owner, scope: context, input, draft, change, connected, blocked = false, rememberSelection }: {
-  client: WhipClient; owner: string; scope: Scope; input: RefObject<HTMLTextAreaElement | null>;
+  client: Client; owner: string; scope: Scope; input: RefObject<HTMLTextAreaElement | null>;
   draft: string; change(text: string): void; connected: boolean; blocked?: boolean;
   rememberSelection?(selection: { start: number; end: number }): void;
 }) {
-  // Empty New Chat cwd is a distinct host-global scope, never a fallback folder.
-  const scope = 'rootId' in context || context.cwd.trim() ? context
-    : { scope: 'global' as const, definition: context.definition, permissionMode: context.permissionMode };
-  const global = 'scope' in scope;
-  const runtimeId = client.getSnapshot().info?.runtime_id;
+  const scope = context;
+  const global = !('sessionId' in scope) && !scope.cwd.trim();
+  const runtimeId = client.runtimeID;
   // A replaced client must not reuse reads from the previous connection lifetime.
   const clientKey = useMemo(() => crypto.randomUUID(), [client]);
   const scopeKey = JSON.stringify([runtimeId, clientKey, owner, scope]);
@@ -33,16 +31,12 @@ export function useSkillCompletion({ client, owner, scope: context, input, draft
   const open = !!current;
   const queryText = current?.trigger.prefix ?? '';
   const queryIdentity = JSON.stringify([scopeKey, queryText]);
-  const capabilities = client.getSnapshot().info?.negotiated_capabilities;
-  const supported = capabilities?.includes('rootId' in scope ? 'workspace_completion' : 'host_skill_completion') ?? false;
-  const catalogSupported = capabilities?.includes('skill_catalog_completion') ?? false;
-  const globalSupported = capabilities?.includes('host_global_skill_completion') ?? false;
-  const ready = !blocked && connected && supported && (!global || globalSupported);
+  const ready = !blocked && connected;
   const [focused, setFocused] = useState(false);
   const [warmed, setWarmed] = useState('');
-  const [incomplete, setIncomplete] = useState<{ scope: string; warnings: string[] } | null>(null);
+  const [incomplete, setIncomplete] = useState<string | null>(null);
   useEffect(() => { setIncomplete(null); }, [scopeKey]);
-  const fallback = !catalogSupported || incomplete?.scope === scopeKey;
+  const fallback = incomplete === scopeKey;
   // Keep the observer after blur/Escape: zero inactive retention must not discard
   // an in-scope catalog on dismissal. Only the focused composer starts warming.
   useEffect(() => {
@@ -66,13 +60,11 @@ export function useSkillCompletion({ client, owner, scope: context, input, draft
   }, [queries, enabled, readIdentity]);
   const result = useQuery({
     queryKey,
-    queryFn: ({ signal }) => 'rootId' in scope
-      ? client.call('workspace.complete', { root_id: scope.rootId, agent_id: scope.agentId, kind: 'skill', prefix, limit }, { signal })
-      : client.call('host.skills.complete', { ...('scope' in scope ? { scope: scope.scope } : { cwd: scope.cwd }), definition: scope.definition, permission_mode: scope.permissionMode, prefix, limit }, { signal }),
+    queryFn: ({ signal }) => readSkillSuggestions(client, scope, prefix, limit, signal),
     enabled, gcTime: 0, retry: false, refetchOnWindowFocus: false,
   });
   useEffect(() => {
-    if (!fallback && result.data?.truncated) setIncomplete({ scope: scopeKey, warnings: result.data.warnings ?? [] });
+    if (!fallback && result.data?.truncated) setIncomplete(scopeKey);
   }, [fallback, result.data, scopeKey]);
   // Only focus/open boundaries refresh stale catalogs. Typing never toggles
   // enabled or the catalog key, even after its ten-second freshness expires.
@@ -123,8 +115,6 @@ export function useSkillCompletion({ client, owner, scope: context, input, draft
     });
   }
   const status = !connected ? 'Reconnect to search skills.'
-    : !supported ? 'Skill suggestions require a newer host.'
-    : global && !globalSupported ? 'Update this host or choose a project folder to browse skills.'
     : cold ? (loading === readIdentity ? 'Loading skills…' : '')
     : result.error ? (data ? 'Showing saved skills. Refresh failed.' : 'Could not load skills.')
     : candidates.length ? undefined
@@ -132,7 +122,7 @@ export function useSkillCompletion({ client, owner, scope: context, input, draft
   const suggestions = useTextareaSuggestions({
     input, open, queryKey: queryIdentity, label: 'Skills', status,
     options: candidates.map(candidate => ({ value: candidate.text, label: '/' + candidate.text.slice(1), description: candidate.description })),
-    detail: [...(incomplete?.scope === scopeKey ? incomplete.warnings : []), ...(data?.warnings ?? [])].filter(Boolean).join(' '),
+    detail: data?.truncated ? 'More matches are available. Narrow your search.' : undefined,
     feedback: ready && result.error ? <ErrorNotice type="resource" owner={`${owner}:slash-skills`} title={data ? 'Could not refresh skills' : 'Could not load skills'} error={result.error}
       action={<Button variant="ghost" onClick={() => { input.current?.focus({ preventScroll: true }); void result.refetch(); }}>Retry</Button>} /> : undefined,
     onSelect: select, onDismiss: dismiss,

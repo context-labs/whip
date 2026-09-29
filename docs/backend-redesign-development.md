@@ -3969,3 +3969,9 @@ Trace/session runtime lifetime and workspace reconciliation tests pass 40 cases
 (2.90 seconds); affected source files also pass strict type checking within the
 still-partially-migrated application. Remaining legacy-screen errors continue
 to prevent a full app type/build gate and are not waived.
+
+Native skill suggestions pass 26 tests across retained composer interaction
+behavior and actual validating SDK metadata reads: exact immutable host scope,
+selected child identity, eleven-request/1,024-record limits, disabled metadata,
+prefix fallback, malformed continuation and cancellation. Owned source types
+are clean; composer/welcome callers are still being migrated to these props.

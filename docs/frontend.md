@@ -3572,3 +3572,12 @@ reconciliation releases obsolete pane leases before admitting replacements and
 only visible trace panes acquire them. Host recovery suspends and reconnects
 existing owners; exact-root deletion and app disposal retire them, including
 when the app closes after its transport has already detached for recovery.
+
+Slash skill completion uses native `skills.list` for an exact selected session,
+or `host.skills.complete` with explicit global/project scope and an immutable
+definition reference for a new draft. Session warming reads at most 1,024
+metadata records in eleven requests and retains at most 1 MiB of display text;
+disabled skills are never suggestions. A truncated warm catalog falls back to
+one debounced 32-item prefix request. The app preserves focus/selection/IME
+behavior, cancels old scopes, and never reloads catalog metadata on warm typing.
+No skill body is read and discovery never admits work.
