@@ -12,7 +12,7 @@ const manifest = JSON.parse(await readFile(join(repository, 'apps/web/renderer-m
 await mkdir(directory, { recursive: true });
 const reports = [];
 for (const name of names) {
-  let fixture, browser, page, drop, lostID;
+  let fixture, browser, page, drop, lostID, liveSocket;
   const report = { name, rendererDigest: manifest.digest, checks: [] }, frames = [], errors = []; reports.push(report);
   try {
     fixture = await startFixture({ executeCode: true, lifetimeMs: 600000 });
@@ -26,9 +26,10 @@ for (const name of names) {
     page.on('pageerror', error => { if (errors.length < 32) errors.push(error.message); });
     await page.routeWebSocket('**/*', socket => {
       const server = socket.connectToServer();
+      liveSocket = () => { void socket.close({ code: 1011, reason: 'Fixture interrupted idle observation' }); void server.close(); };
       socket.onMessage(message => {
         const frame = JSON.parse(String(message)); assert(frames.length < 10000); frames.push(frame);
-        if (frame.method === 'permissions.resolve' && drop) { const mode = drop; drop = undefined; if (mode === 'before') { void socket.close({ code: 1011, reason: 'Fixture interrupted before publication' }); void server.close(); return; } lostID = frame.id; }
+        if (['permissions.resolve', 'questions.answer'].includes(frame.method) && drop) { const mode = drop; drop = undefined; if (mode === 'before') { void socket.close({ code: 1011, reason: 'Fixture interrupted before publication' }); void server.close(); return; } lostID = frame.id; }
         server.send(message);
       });
       server.onMessage(message => { const frame = JSON.parse(String(message)); if (frame.id === lostID && frame.result) { lostID = undefined; void socket.close({ code: 1011, reason: 'Fixture lost decision acknowledgement' }); void server.close(); return; } socket.send(message); });
@@ -63,6 +64,51 @@ for (const name of names) {
     assert.equal(await readFile(join(fixture.directory, second.arguments.path), 'utf8'), 'Explicit fixture content.');
     const grants = await session.grants.list({ limit: 32 }, deadline()); assert.equal(grants.items.filter(grant => grant.operation_id === null && grant.capability === 'files.write').length, 0);
     report.checks.push('lost accepted approval remains pinned until exact read-check; no replay or standing authority');
+    // Human-question drafts and exact attempted answers share the same recovery boundary.
+    const created = await fixture.createRoot(client, { engine: 'starlark', title: 'Question recovery' });
+    const questionsSession = client.session(created.root.id), batchRequest = randomUUID();
+    await questionsSession.submit([{ type: 'text', text: 'question:batch' }], batchRequest, deadline());
+    const batch = await eventually(async () => (await questionsSession.questions.list({ pending_only: true }, deadline())).items[0]);
+    await page.goto(`${fixture.info.web}/h/${client.runtimeID}/s/${created.root.id}`);
+    await page.getByRole('radio', { name: /Proceed/ }).click();
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await page.getByRole('checkbox', { name: /Web/ }).click();
+    await page.getByLabel('Write your own response').fill('Keep my additional answer');
+    const beforeDraft = count('initialize'); liveSocket();
+    await eventually(async () => count('initialize') > beforeDraft, { description: 'question draft replacement peer' });
+    await expect(page.getByLabel('Write your own response')).toHaveValue('Keep my additional answer');
+    await expect(page.getByRole('checkbox', { name: /Web/ })).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByRole('button', { name: 'Back', exact: true })).toBeEnabled();
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await expect(page.getByRole('radio', { name: /Proceed/ })).toHaveAttribute('aria-checked', 'true');
+    assert.equal(count('questions.answer'), 0);
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    drop = 'before'; await page.getByRole('button', { name: 'Skip', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Retry same response', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Check answer state', exact: true }).click();
+    assert.equal(count('questions.answer'), 1);
+    assert.equal((await questionsSession.questions.get(batch.operation_id, deadline())).state, 'pending');
+    await page.getByRole('button', { name: 'Retry same response', exact: true }).click();
+    await expect(page.getByLabel('Write your own response')).toHaveCount(0);
+    await client.wait(batchRequest, deadline());
+    const answerFrames = frames.filter(frame => frame.method === 'questions.answer');
+    assert.equal(answerFrames.length, 2); assert.deepEqual(answerFrames[0].params, answerFrames[1].params);
+    assert.deepEqual(answerFrames[0].params, { session_id: created.root.id, operation_id: batch.operation_id, answers: [{ answer: ['Proceed'], dismissed: false }, { answer: ['Web', 'Keep my additional answer'], dismissed: false }, { answer: [], dismissed: true }] });
+    report.checks.push('authored batch choices, custom text and page survive idle socket loss; unpublished response retains exact answers for read-check and explicit retry');
+    const singleRequest = randomUUID();
+    await questionsSession.submit([{ type: 'text', text: 'question:single' }], singleRequest, deadline());
+    const single = await eventually(async () => (await questionsSession.questions.list({ pending_only: true }, deadline())).items[0]);
+    await page.getByLabel('Write your own response').fill('Exact accepted answer');
+    drop = 'after'; await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Check answer state', exact: true })).toBeVisible();
+    await expect(page.getByLabel('Write your own response')).toHaveValue('Exact accepted answer');
+    assert.equal(count('questions.answer'), 3);
+    assert.equal((await questionsSession.questions.get(single.operation_id, deadline())).state, 'answered');
+    await page.getByRole('button', { name: 'Check answer state', exact: true }).click();
+    await expect(page.getByLabel('Write your own response')).toHaveCount(0);
+    await client.wait(singleRequest, deadline()); assert.equal(count('questions.answer'), 3);
+    report.checks.push('published response remains visible after its reply is lost and the pending list empties; exact read-check retires it without replay');
     assert.deepEqual(errors, []); Object.assign(report, { browser: browser.version(), passed: true });
     await page.screenshot({ path: join(directory, `${name}-completed.png`), fullPage: true });
   } catch (error) { report.error = String(error.stack ?? error); report.errors = errors; if (page) { report.body = (await page.locator('body').innerText()).slice(0,16000); await page.screenshot({ path: join(directory, `${name}-failure.png`), fullPage: true }); } throw error; }
