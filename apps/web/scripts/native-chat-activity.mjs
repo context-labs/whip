@@ -6,16 +6,23 @@ import { chromium, firefox, expect } from '@playwright/test';
 import { deadline, eventually, repository, startFixture } from './native-fixture.mjs';
 import { checkComposerReading } from './composer-reading.mjs';
 import { checkActivityReading } from './native-activity-reading.mjs';
+import { isolateDesktopPerformance, launchDesktopPerformance, finishDesktopPerformance } from './performance-desktop.mjs';
+import { dropFixtureExecutable, checkManualFinderDrop } from './native-finder-drop.mjs';
 
 const directory = process.env.WHIP_CHAT_ACTIVITY_RESULTS ?? '/tmp/whip-native-chat-activity-results';
 await mkdir(directory, { recursive: true });
 const report = [];
-for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split(',')) {
-  let fixture, browser, page;
+const names = (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split(',');
+assert(names.length > 0 && names.length <= 3 && new Set(names).size === names.length && names.every(name => ['chromium', 'firefox', 'electron'].includes(name)));
+const manualDrop = process.env.WHIP_CHAT_NATIVE_DROP === '1';
+assert(!manualDrop || names.length === 1 && names[0] === 'electron', 'Manual Finder drop requires only the isolated Electron fixture');
+assert(!manualDrop || process.stdin.isTTY, 'Manual Finder drop requires an interactive terminal');
+for (const name of names) {
+  const desktop = name === 'electron';
+  let fixture, browser, page, isolation, host, succeeded = false;
   const errors = [], traffic = [], csp = [];
   try {
-    assert(['chromium', 'firefox'].includes(name));
-    fixture = await startFixture({ activityStreams: true, lifetimeMs: 900_000 });
+    fixture = await startFixture({ activityStreams: true, lifetimeMs: 900_000, managedDirectory: desktop });
     await mkdir(join(fixture.directory, 'source'));
     await writeFile(join(fixture.directory, 'persisted.md'), 'Persisted fixture body.');
     for (const file of ['one', 'two', 'three', ...Array.from({ length: 128 }, (_, index) => `file-${index}`)])
@@ -27,8 +34,15 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
       const handle = session.submission([{ type: 'text', text: `Reading fixture ${index + 1}. ` + 'A retained paragraph for the reading and draft checks. '.repeat(8) }], randomUUID());
       await handle.send(deadline()); assert.equal((await handle.wait(deadline())).turn.state, 'succeeded');
     }
-    browser = await ({ chromium, firefox }[name]).launch();
-    page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    if (desktop) {
+      isolation = await isolateDesktopPerformance();
+      const executablePath = manualDrop ? await dropFixtureExecutable(isolation.directory) : undefined;
+      host = await launchDesktopPerformance(fixture, isolation, { executablePath });
+      page = host.page; await page.setViewportSize({ width: 1280, height: 900 });
+    } else {
+      browser = await ({ chromium, firefox }[name]).launch();
+      page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    }
     page.setDefaultTimeout(15_000);
     page.on('pageerror', error => { if (errors.length < 64) errors.push(error.stack ?? error.message); });
     page.on('console', message => {
@@ -46,13 +60,13 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
       if (!localStorage.getItem('whip.appearance.theme.v1')) localStorage.setItem('whip.appearance.theme.v1', JSON.stringify({ version: 1, id: 'claude-code' }));
       document.addEventListener('securitypolicyviolation', event => { void window.__recordActivityCSP(event.violatedDirective).catch(() => {}); });
     });
-    const manifest = JSON.parse(await readFile(join(repository, 'apps/web/renderer-manifest.json'), 'utf8'));
+    const manifest = JSON.parse(await readFile(join(repository, desktop ? 'apps/desktop/.stage/app/renderer-manifest.json' : 'apps/web/renderer-manifest.json'), 'utf8'));
     for (const [path, file] of Object.entries(manifest.files)) {
       const response = await fetch(fixture.info.web + '/' + path);
       assert.equal(response.status, 200);
       assert.equal(createHash('sha256').update(new Uint8Array(await response.arrayBuffer())).digest('hex'), file.sha256);
     }
-    const url = `${fixture.info.web}/h/${client.runtimeID}/s/${root.id}`;
+    const url = `${host?.origin ?? fixture.info.web}/h/${client.runtimeID}/s/${root.id}`;
     await page.goto(url); await page.getByRole('textbox', { name: 'Message WHIP', exact: true }).waitFor();
     const reading = page.getByRole('region', { name: 'Conversation', exact: true });
     const dock = page.locator('[data-current-activity]');
@@ -62,6 +76,22 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     const screenshot = label => page.screenshot({ path: join(directory, `${name}-${label}.png`) });
     const run = async text => { const handle = session.submission([{ type: 'text', text }], randomUUID()); await handle.send(deadline()); return handle; };
     const checks = [];
+    if (manualDrop) {
+      report.push({ browser: name, rendererDigest: manifest.digest, nativeEvents: await checkManualFinderDrop(page, directory) });
+      assert.deepEqual(errors, []); assert.deepEqual(csp, []); succeeded = true;
+      await writeFile(join(directory, 'results.json'), JSON.stringify(report, null, 2));
+      continue;
+    }
+    if (desktop) {
+      const chrome = await page.locator('[data-workspace-tab-strip]').evaluate(strip => ({
+        height: strip.parentElement.getBoundingClientRect().height,
+        drag: getComputedStyle(strip.parentElement).getPropertyValue('-webkit-app-region'),
+        tab: getComputedStyle(strip.querySelector('[data-workspace-tab]')).getPropertyValue('-webkit-app-region'),
+      }));
+      assert.equal(chrome.height, 48); assert.equal(chrome.drag, 'drag'); assert.equal(chrome.tab, 'no-drag');
+      await writeFile(join(directory, 'electron-session-chrome.json'), JSON.stringify(chrome, null, 2));
+      checks.push('staged native main/preload; actual 48px drag chrome and no-drag interactive tabs');
+    }
     console.log(`${name}: live reasoning and canonical restored file activity`);
     const saved = await run('activity:saved');
     const thought = page.locator('[data-activity-group]').filter({ hasText: 'Thought' });
@@ -148,16 +178,35 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), appearance.label);
       await screenshot(appearance.label);
     }
+    if (desktop) {
+      const cdp = await page.context().newCDPSession(page);
+      try {
+        await cdp.send('Emulation.clearDeviceMetricsOverride');
+        await host.electron.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window.setSize(1280, 960); window.webContents.setZoomFactor(4); });
+        await expect.poll(() => page.evaluate(() => innerWidth)).toBeLessThanOrEqual(320);
+        const geometry = await page.evaluate(() => ({ width: innerWidth, height: innerHeight, scrollWidth: document.documentElement.scrollWidth }));
+        assert(geometry.width >= 300 && geometry.scrollWidth <= geometry.width, `Desktop 400% zoom overflow: ${JSON.stringify(geometry)}`);
+        await expect(dock).toBeInViewport(); await screenshot('zoom-400');
+        await writeFile(join(directory, 'electron-zoom.json'), JSON.stringify(geometry, null, 2));
+        checks.push('actual native 400% zoom retains activity dock without horizontal overflow');
+      } finally {
+        try { await host.electron.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1)); } finally { await cdp.detach(); }
+      }
+    }
     await page.setViewportSize({ width: 1280, height: 900 });
-    const historyReads = () => traffic.filter(item => item.method === 'sessions.history_page' && item.session === root.id).length;
-    const priorHistoryReads = historyReads();
+    const observedTraffic = async () => {
+      if (!host) return traffic;
+      const native = await host.traffic(); assert.equal(native.overflow, false); assert.equal(native.prunedRequests, 0); return native.requests;
+    };
+    const historyReads = async owner => (await observedTraffic()).filter(item => item.method === 'sessions.history_page' && item.session === owner).length;
+    const priorHistoryReads = await historyReads(root.id);
     fixture.release('activity-reads');
     await expect(dock.getByRole('status')).toHaveText('Waiting for work to continue');
-    assert.equal(historyReads(), priorHistoryReads, 'A host phase transition must not rehydrate canonical history');
+    assert.equal(await historyReads(root.id), priorHistoryReads, 'A host phase transition must not rehydrate canonical history');
     const workTurn = (await work.check(deadline())).evidence.turn.id;
     const child = await eventually(async () => (await session.turns.operations(workTurn, {}, deadline())).items.find(item => item.capability === 'agents.spawn')?.result?.value?.session_id);
     await expect(page.locator(`[data-inline-agent="${child}"]`)).toHaveCount(1);
-    assert.equal(traffic.filter(item => item.method === 'sessions.history_page' && item.session === child).length, 0, 'An inline child summary must not hydrate its private transcript');
+    assert.equal(await historyReads(child), 0, 'An inline child summary must not hydrate its private transcript');
     assert.equal(await group.getAttribute('data-activity-group'), groupID);
     fixture.release('activity-child');
     await expect(dock.getByRole('status')).toHaveText('Writing a response');
@@ -203,6 +252,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     report.push({ browser: name, rendererDigest: manifest.digest, checks, maximumTreeRows,
       dispositions: ['Native reasoning is live preview only, never restored from completed history.', 'Actual files.read operations settle before the explicit fixture executor hold; no injected Reading-files phase.', 'agents.wait_after_cell settles the cell and releases execution permission; UI reports Waiting for work to continue instead of an invented active agents.wait operation.'] });
     await writeFile(join(directory, 'results.json'), JSON.stringify(report, null, 2));
+    succeeded = true;
   } catch (error) {
     await page?.screenshot({ path: join(directory, `${name}-failure.png`) }).catch(() => {});
     const surface = await page?.locator('[aria-label=Conversation]').evaluate(element => ({
@@ -211,5 +261,8 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     })).catch(() => undefined);
     await writeFile(join(directory, `${name}-failure.json`), JSON.stringify({ error: error.stack, errors, csp, surface, traffic: traffic.slice(-200), fixture: fixture?.output }, null, 2));
     throw error;
-  } finally { try { await browser?.close(); } finally { await fixture?.close(); } }
+  } finally {
+    if (isolation) await finishDesktopPerformance(isolation, host, fixture, succeeded);
+    else try { await browser?.close(); } finally { await fixture?.close(); }
+  }
 }
