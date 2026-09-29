@@ -1,14 +1,20 @@
 # Backend redesign development
 
-This is the working loop for [the redesign plan](backend-redesign-plan.md).
-Phases 1–2 add the new domain, SQLite store, host configuration, v4 contract,
-runtime, runner and SDK described in [backend-domain.md](backend-domain.md).
-The new v4 process fixture is required. The retained legacy product fixture
-remains a separate reference while later capabilities are ported.
+This is the working loop and chronological evidence record for
+[the redesign plan](backend-redesign-plan.md). The current source uses the native
+Go runtime, protocol v4, SDK and supported clients; the retired execution roots,
+legacy SDK/protocol and ambient browser/computer wrappers are removed.
+Phases 5–7 remain open. Start with the [current acceptance snapshot](backend-native-gate-audit.md#current-acceptance-snapshot)
+for exact passing revisions and outstanding requirements.
+
+The dated/checkpoint sections below preserve what was true when recorded.
+Statements there that clients were unported, wrappers remained, or a gate was
+pending are historical, not the current implementation status. A later subset
+pass does not retroactively make an earlier failed full gate pass.
 
 ## Start working
 
-Use Go from `go.mod`, Node 24, and Task 3.48.0. From this checkout:
+Use Go from `go.mod`, Node 24, and Task 3.48.0. From an isolated checkout:
 
 ```sh
 npm ci --no-audit --no-fund
@@ -16,67 +22,42 @@ task check:fast
 task check:change
 ```
 
-The integration branch is `codex/backend-redesign`. Open implementation PRs
-against that branch, or stack a phase PR on its pending predecessor. The redesign
-workflow also runs for PRs into phase branches. Keep each PR focused on a behavior
-or invariant. Current
-production gates on `main` and `development` remain unchanged.
+Implementation PRs remain an unmerged draft stack against
+`codex/backend-redesign` or their pending predecessors. The reusable normal
+workflow owns the same supported-product gates for the redesign branches.
+Use disposable homes, databases, profiles and packaged artifacts; do not attach
+tests to an installed runtime.
 
 | Command | Purpose |
 | --- | --- |
-| `task check:fast` | Active Go formatting, core tests and process-package build; no npm install needed |
-| `task check:change` | Fast gate, active builds/vet/race tests, generated contracts, SDK/examples, real-runtime fixture |
-| `task check:phase` | Change gate plus selected admission/recovery/accounting integration regressions |
-| `task check:analysis` | New lint findings since the frozen baseline, plus reachable vulnerability checks on the active packages |
-| `task check:fixture` | Rebuild SDK and run the isolated process-restart scenario |
-| `task dev:redesign -- --minutes=10` | Start a disposable scripted-provider daemon for manual SDK/app work |
-| `task dev:v4 -- -directory /tmp/whip-example/state` | Start the new scripted runtime with explicit private storage |
+| `task check:fast` | Whole-module formatting and fast regressions, complete non-race runtime suite, process build |
+| `task check:build` | Fast gate, model metadata, all Go test compilation, vet and TUI lock analysis |
+| `task check:change` | Build, complete complementary Go race groups, native contracts/SDK/clients/process fixtures and actual disposable Chrome |
+| `task check:analysis` | Pinned lint against the frozen baseline, whole-module vulnerability scan and tidy drift |
+| `task ci` / `task check:phase` | Complete normal host gate, including product UI/content/settings, docs, evals, distribution and applicable mobile/Desktop/driver checks |
+| `task check:fixture` | Production native process, gateway/executor/shell/computer/browser, self-host MCP and packaged-worker fixtures |
+| `task dev:fixture -- --minutes=10` | Disposable native web/mobile product fixture |
+| `task dev:v4 -- -directory /tmp/whip-example/state` | Scripted native runtime with explicit private storage |
 
-The optional repository pre-commit hook uses `check:fast` on the integration
-branch and `codex/backend-redesign-*` branches. Other branches retain the current
-hook. `task hooks` installs the repository hook if desired; this is a local Git
-configuration choice, not a prerequisite for CI.
+The optional repository pre-commit hook runs the same lightweight `check:fast`
+on every branch, with pinned lint when the contributor has opted into lint
+tooling. Full slow product/race gates remain explicit. `task hooks` installs
+this local Git configuration only when desired.
 
 ## Active scope
 
-`REDESIGN_PACKAGES` in [Taskfile.yaml](../Taskfile.yaml) lists the fast Go checks.
-`REDESIGN_INTEGRATION_PACKAGES` adds the extracted subprocess implementation;
-their union, `REDESIGN_ALL_PACKAGES`, is used by build, vet, race and analysis:
+[Taskfile.yaml](../Taskfile.yaml) discovers every remaining Go package with
+`go list ./...`; no redesign allowlist or retired test package is excluded.
+Store, runtime, TUI and CLI race partitions are complementary, including future
+test names/examples in their remainder groups. The source of package ownership
+is [the domain contract](backend-domain.md); old-suite replacement evidence is
+[the retirement disposition](backend-native-core-retirement.md).
 
-- `internal/content`: retained immutable content and access primitives.
-- `internal/session`: pure durable values, pinned definitions and configuration resolution.
-- `internal/store`: fresh schema, uniform root/child records and atomic transitions.
-- `internal/config`: explicit fresh host files and credential references.
-- `internal/protocol`: independent v4 DTOs, schemas and interchange fixtures.
-- `internal/model`, `internal/runner`: injected provider adapter and ordinary execution loop.
-- `internal/instruction`, `internal/skills`: confined instruction-source capture and retained skill metadata parsing; full suites run in the active gate.
-- `internal/runtime`: exclusive ownership, scheduling, cancellation and cleanup.
-- `internal/engine`, `internal/engine/quickjs`: guest execution contract and bundled QuickJS implementation.
-- `internal/engine/process`: isolated workers, process limits and checkpoint transport; full tests run at the change/CI boundary.
-- `internal/rpc`, `internal/client`: v4 transport mapping and initial Go client.
-- `cmd/whip-contract`: deterministic v4 generation and fixture validation.
-- `cmd/whip-runtime`: explicit-directory new runtime entry point.
-
-All tests in these packages are active. Add new domain/store/runtime packages as
-they land. Remove old packages only when their retained guarantees have been
-replaced or their retirement is recorded. `go test -run` cannot hide test files
-that fail to compile.
-
-The process package's full race suite takes about 85 seconds locally, exercising
-resource exhaustion, cancellation and worker lifecycle. It remains required by
-`check:change`, `check:phase` and CI. `check:fast` checks its formatting and build
-without running this subprocess stress suite on each local edit.
-
-The phase gate separately names four existing daemon regressions: admission
-before provider construction, queued child input across restart, settlement
-failure without provider replay, and accounting-lock ordering. They are temporary
-reference checks, not a requirement to preserve actors or child-specific APIs.
-
-Both TypeScript contract packages, both SDKs and their examples are active.
-The v4 fixture uses Unix sockets; the retained legacy fixture uses Unix sockets
-and WebSocket. Full web/desktop/mobile/TUI/ACP suites
-remain milestone obligations in phases 5–6. A shared contract change must expand
-checks to every client already ported to that contract.
+One native TypeScript contract and SDK serve the shared app, web, Desktop,
+mobile, examples and browser executors. All supported clients are in normal CI.
+`check:invariants` preserves admission-before-execution, queued child restart,
+settlement without replay and nonblocking cancellation/capacity guarantees from
+the former daemon regressions. The old fixture remains only in Git history.
 
 ## New v4 disposable fixture
 
@@ -86,7 +67,7 @@ scheduler/runner/store/RPC through `@whip/sdk`. It explicitly builds the product
 binary with `-race=false`, including its memory-limited engine subprocesses.
 Required Go package suites separately exercise backend and engine code with
 `-race`; the runtime integration suite combines a race-instrumented host with
-production workers. `WHIP_SDK_RACE` affects only the retained legacy fixture.
+production workers.
 No test contacts a real provider or touches an installed daemon. Synthetic
 private subscription credentials are confined to its disposable directory, with
 a rejecting proxy guarding the no-dispatch scenarios. The runnable SDK example
@@ -108,10 +89,13 @@ directory. The workflow still has an overall job deadline.
 For manual v4 work, run `task dev:v4 -- -directory /tmp/whip-example/state`, then
 the [SDK example](../packages/sdk/examples/session.mjs) using its printed socket.
 The chosen directory is retained for inspection and later reopening. Stop with
-SIGINT/SIGTERM. Phase 2's provider acknowledges text; engine/tool execution is
-added in Phase 3.
+SIGINT/SIGTERM. The scripted provider is deterministic fixture input; production
+workers and native authority still own any engine/tool execution.
 
-## Retained legacy disposable fixture
+## Historical retained fixture (removed at core cutover)
+
+The following describes the earlier comparison fixture, not a runnable current
+command. Its native replacement is above and in the retirement disposition.
 
 The existing SDK fixture starts a real daemon and SQLite database in a temporary
 home. `WHIP_SDK_AGENTS_FIXTURE=1` selects its actual agent loop and Starlark runtime
@@ -130,7 +114,7 @@ Permission and external-effect rules still apply. This is test input, not a
 production provider API. The existing fixture's `/control/release` controls its
 fake-runner mode; it is not a provider barrier in real-runtime mode.
 
-The [acceptance scenario](../scripts/redesign/fixture.test.mjs) verifies:
+The [historical acceptance scenario](https://github.com/context-labs/whip/blob/c9db05507e37e963d6cdf7dd8a51a1f1f49f449c/scripts/redesign/fixture.test.mjs) verifies:
 
 1. Fresh isolated storage and protocol attachment over both transports.
 2. Accepted input completes after the submitting client detaches.
@@ -145,34 +129,23 @@ CI uploads that directory on failure. Fixture-startup failures also retain their
 original temporary directory through the existing SDK helper.
 
 This retained scenario is not evidence for the new core. The v4 fixture above
-now establishes lost-acknowledgement and queued-input crash behavior; mid-effect
-recovery remains a Phase 3 obligation.
+subsequently established lost-acknowledgement and queued-input crash behavior;
+mid-effect recovery was still a Phase 3 obligation at this historical checkpoint.
 
 ## CI
 
-[backend-redesign.yml](../.github/workflows/backend-redesign.yml) runs on PRs into
-the integration branch and pushes to it. Linux and macOS run the phase gate with
-required Go race suites and production-binary SDK acceptance; a separate job
-runs pinned lint/vulnerability tools.
-Their Go compiler caches have separate keys from each other and production CI,
-so the first successful run can save the tools and race builds it actually uses.
-The `redesign` aggregate requires every job to succeed, including after failure
-or cancellation. It has no percentage-coverage gate. The existing production CI
-and coverage floor remain intact.
+[ci.yml](../.github/workflows/ci.yml) owns the complete normal gate;
+[backend-redesign.yml](../.github/workflows/backend-redesign.yml) calls it and
+retains the branch-required `redesign` aggregate. Required Linux/macOS jobs,
+platform jobs and cross-compilation targets must succeed; failed, cancelled,
+skipped or missing dependencies fail the aggregate. Coverage is diagnostic,
+without a rewrite-wide percentage floor.
 
-Lint uses the repository's existing configuration and reports findings on code
-changed since a frozen baseline revision. That baseline does not advance as
-phases land. Five inherited findings are recorded below rather than suppressed
-in source.
-Those files now live in internal/legacy/session, outside the new active core.
-Vulnerability checks have no baseline exclusion. Newly added packages have no
-baseline code to exclude.
-
-The active [integration-branch ruleset](https://github.com/context-labs/whip/rules/24090266)
-requires the `redesign` context from GitHub Actions, with an up-to-date base. Its
-only target is `refs/heads/codex/backend-redesign`. This is a repository setting
-separate from the workflow file; its effective branch rules were read back after
-creation. Remote failure/success evidence is recorded below.
+Lint remains v2.13.1 against frozen baseline
+`e3fed9c91918d9c36766dd47d878c1b5466238d1`; the baseline does not advance with
+checkpoints. Vulnerability checks have no baseline exclusion. The old baseline
+findings and original ruleset setup below are historical evidence, not current
+package exclusions or a fresh read of remote branch settings.
 
 ## Baseline and phase 0 evidence
 
@@ -5641,21 +5614,32 @@ now includes all four web fixture entrypoints, and passes without compatibility
 casts in the repaired fixture.
 
 
+#### Current acceptance reconciliation (2026-09-29)
+
+The [current acceptance matrix](backend-native-gate-audit.md#current-acceptance-snapshot)
+distinguishes implemented controls from final validation. Native provider/account
+UI and external Chrome controls are mounted across supported clients; both
+ambient wrapper retirements are integrated through `0265ab26c`. Earlier progress
+paragraphs remain checkpoint history.
+
 Combined browser-retirement revision `b8372f26c` passes the complete normal build
 (fast packages, full runtime suite, all test compilation, vet and UI-lock checks),
-full pinned analysis (lint0, tidy, no reachable/imported-package vulnerabilities),
-and expanded required real-Chrome race gate (browser32.068s/runtime19.944s).
-The normal complete UI gate also passes on the exact equivalent UI/model-fixture
-leaves at `d9545097d`; no skipped stage or widened tolerance was needed.
+full pinned analysis (lint 0, tidy, no reachable/imported-package vulnerabilities),
+and expanded required real-Chrome race gate (browser 32.068s/runtime 19.944s).
+The complete normal UI gate passes at equivalent isolated UI/model-fixture
+checkpoint `d9545097d`: SDK/Storybook, all 66 themes and 14 interaction checks,
+strict CSP, isolated production/development packed consumers, workspace tabs
+and both-browser layout, and all 30 model-picker scenarios. No stage, tolerance
+or assertion was weakened. Log: `/tmp/whip-product-ui-complete.log`.
 
-The published parent `b1c9ca965` now has a passing hosted Settings gate in
-run36581778862, job109451534346. Both REPL and body-history scenarios pass under
-Chromium and Firefox; the full stopped-owner seeds take49.576s and49.057s, with
-joined runtime exit0 between scenarios. The earlier timeout is not explained by
-this passing run, and no optimization or durability/deadline change is claimed.
-The same hosted run still fails SSH proxy fixtures on both OSes and a later
-slash-completion selection scenario; those have active follow-through. The
-model-picker and eval assertion failures have tested repairs in this increment.
+Published parent `b1c9ca965` has a passing hosted Settings gate in run 36581778862,
+job 109451534346. All four Chromium/Firefox REPL/body-history scenarios pass;
+stopped-owner seed processes close in 49.576s and 49.057s, including the latter's
+49.047s seed itself, with joined runtime exit 0 between scenarios. This passing
+run does not explain the earlier timeout or establish an optimization. The
+aggregate still fails: model-picker/eval assertion repairs were absent from that
+head, three jobs failed Task dependency HTTP/2 setup before checks, and SSH proxy
+fixtures on both OSes plus a later slash-selection scenario require follow-through.
 
 The performance audit corrected an evidence boundary: the earlier visible
 Desktop sample's final heap/DOM counters and after-work RSS followed forced GC.
@@ -5664,4 +5648,6 @@ cannot establish natural retention. The harness now captures natural heap/DOM
 and after-work RSS first; optional forced-GC output is explicitly separate and
 excluded from acceptance. Seven bounded sampler/cleanup tests pass and are part
 of the normal performance gate. No new performance result or target pass is
-claimed until a quiet run of the corrected workload.
+claimed until a quiet run of the corrected workload. Final-head comprehensive
+checks and separate platform/live requirements remain mandatory; Phases 5–7
+are not complete.

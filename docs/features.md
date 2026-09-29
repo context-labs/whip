@@ -93,8 +93,9 @@ configuration and root-owned connection generations. Web/Desktop, mobile, CLI
 and TUI expose explicit revisioned configuration and exact connection controls.
 The old `browser.mode` configuration does not activate them in the native host.
 [Browser and computer use](browser-computer-use.md) describes current ownership;
-unused wrapper retirement and final platform evidence remain in the development
-record.
+ambient browser/computer wrappers are removed. Exact native driver replacement
+evidence is recorded there; final platform/performance acceptance remains in
+[the gate audit](backend-native-gate-audit.md#current-acceptance-snapshot).
 
 ## Provider loop and models
 

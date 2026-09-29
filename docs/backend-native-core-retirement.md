@@ -29,7 +29,7 @@ failure cases move to native public boundaries:
 | Model attempts, billing and storage failure | `store/attempts_test.go`, `budgets_test.go`, `runtime/provider_test.go`, `output_test.go`; atomic accounting/settlement retry never repeats provider dispatch. |
 | Root/child execution, capacity and delegation | `store/delegation_test.go`, `resources_test.go`, `budgets_test.go`, `runtime/recursion_test.go`, `capacity_test.go`; one execution path, captured grants, ancestor limits and reusable worker capacity. |
 | Mail and explicit state | `store/mail_test.go`, `mail_evidence_test.go`, `state*_test.go`, `runtime/mail_evidence_test.go`; immutable revisions, exact recipient ownership and retained evidence after sender deletion. |
-| Context, compaction and imported history | `runner/compaction*_test.go`, `context_pressure_test.go`, `context_recovery_test.go`, `store/compaction_test.go`; immutable raw history, exact whole-exchange coverage, captured helper routes and recorded accounting. Image-bearing context bounds have a separate regression repair. |
+| Context, compaction and imported history | `runner/compaction*_test.go`, `context_pressure_test.go`, `context_recovery_test.go`, `store/compaction_test.go`; immutable raw history, exact whole-exchange coverage, captured helper routes and recorded accounting. `runner/compaction_content_test.go` and `runtime/compaction_content_test.go` cover bounded folding before image hydration, unchanged raw history and indivisible-input refusal. |
 | Fork, rewind and workspace effects | `store/fork*_test.go`, `rewind_test.go`, `runtime/fork_test.go`, `rewind_test.go`, `workspace_test.go`; provenance, receipts/tombstones and separate explicitly authorized workspace effects. |
 | Steering and direct human operations | `store/steering_test.go`, `runtime/steering_test.go`, `host_operation_test.go`; original input identity, captured target turn, safe boundary, model-free human actions and distinct observer cancellation. |
 | Provider adapters and continuation | `model/openai_*`, `sampling_test.go`, `reasoning_test.go`, `subscription_test.go`; exact supported wire behavior, malformed-call refusal, usage evidence and private continuation scoped to its attempt. Automatic partial-stream regeneration is intentionally retired. |
@@ -39,7 +39,7 @@ failure cases move to native public boundaries:
 | Permission policy and grants | `store/operations_test.go`, `grant_scope_test.go`, `permission_mode_test.go`, denial tests; SQL-owned authority, exact operation identity, revocation and child scope replace the old dispatcher/cache. |
 | Files, LSP, shell and human terminals | `tool` workspace/list/search suites, `runtime/lsp_test.go`, `shell_test.go` and `terminal`; captured/revalidated paths, bounded outputs and joined lifetime. Human terminals retain separate ownership. |
 | MCP discovery/import/calls | Native `Manager.ResolveTool`/`CallChecked`, `runtime/mcp*_test.go`, `rpc/mcp_test.go`, real disposable self-host fixtures; exact generations, import trust, delegated catalogs, bounded typed results and joined processes. |
-| Browser/computer/native helper | `runtime/browser_test.go`, `external_browser_test.go`, transfer/driver tests, `computer_test.go`, `browserhost` and Desktop bridge tests; human resources remain distinct from agent authority. Native external Chrome configuration, root generations, dispatch checks and bounded uploads are integrated; explicit controls now cover shared Web/Desktop, mobile, CLI and TUI. The unused computer helper lifecycle is removed with [replacement evidence](backend-native-computer-retirement.md); unused browser-wrapper removal remains an explicit obligation. |
+| Browser/computer/native helper | `runtime/browser_test.go`, `external_browser_test.go`, transfer/driver tests, `computer_test.go`, `browserhost` and Desktop bridge tests; human resources remain distinct from agent authority. Native external Chrome configuration, root generations, dispatch checks and bounded uploads are integrated; explicit controls now cover shared Web/Desktop, mobile, CLI and TUI. The unused computer helper lifecycle is removed with [replacement evidence](backend-native-computer-retirement.md); ambient browser managers, discovery/launch fallback and retry wrappers are also removed with [native driver/lifetime replacement evidence](browser-computer-use.md#native-browser-test-ownership). Actual headed/extension/platform acceptance remains distinct. |
 | Trace and OTLP | `store/trace_test.go`, `runtime/trace_test.go`, `trace`; exact counters, causal IDs, body ownership, bounded transport and restart/deletion evidence. |
 | SDK transport, views and recovery | Current `packages/sdk/test` suites and native gateway/executor/shell/computer/browser process fixtures; bounded observation, exact admission recovery and no SDK execution authority. |
 | Client lifecycle and distribution | [CLI disposition](backend-native-cli-disposition.md), [terminal disposition](native-terminal-retirement.md), native web/Desktop/mobile/ACP fixtures, `hostcmd` and `localruntime`; actual disposable binary startup, verified identities and no installed-runtime mutation. |
@@ -65,15 +65,20 @@ the old unconditional 24k-token hot window or identical provider token costs.
 Unknown/low-pressure windows retain their selected evidence until bounded,
 manual or reactive compaction. This is the accepted context ownership change,
 not permission to fail before foldable history can be compacted; the audited
-multi-image hydration failure has a dedicated repair and acceptance requirement.
+multi-image hydration failure is repaired in `c0999eef9`. Native regressions cover
+multiple valid images exceeding the aggregate request bound, incremental folding,
+accounting/SQL rollback and refusal of an indivisible current input without replay.
 
-## Remaining leaf cleanup
+## Shared leaf disposition
 
 The old `capability.Authority`/`Ledger`/`Dispatcher`, permission-rule cache and
 `browser.DesktopProvider` broker had no native consumers. `ErrStaleAdmission`
 remains with native workspace revalidation, and `DesktopError` stays with the
 native Desktop backends. `capability.Workspaces`, process/PTY
 helpers, MCP call/result leaves, Desktop native backends and browser drivers stay.
+The unused computer wrapper is removed in `f567bb709`; browser wrapper retirement
+in `0265ab26c` removes ambient ownership and automatic batch retry, retaining
+explicit native/desktop transports and joined process ownership.
 
 Skill import still uses explicit `ForeignDirs`/`Scan` and the pure bounded
 `ParsePromptMetadata`. The unused ambient `DefaultDirs`/`DirsFor`, duplicate
@@ -106,5 +111,7 @@ Go distribution targets. Coverage profiles are diagnostic: the accepted plan
 removed the temporary rewrite-wide 90% floor. Actual Safari, signed platform and
 physical-device/live-provider evidence retain their distinct requirements.
 
-The development record gives exact checkpoint results and outstanding failures.
+The [current gate audit](backend-native-gate-audit.md#current-acceptance-snapshot)
+maps exact CLI/TUI/UI/Desktop passes and remaining acceptance. The chronological
+development record preserves earlier checkpoint results and failures.
 Passing selected leaves or compilation alone does not complete Phases 5–7.
