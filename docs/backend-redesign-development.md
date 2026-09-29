@@ -4702,6 +4702,37 @@ checkpoints do not complete Phases5–7: performance targets, remaining speciali
 probes, canonical documentation, final active-import removal and exact final-head
 platform/package validation remain open.
 
+### Retired CLI daemon removal and native update acceptance — 2026-09-29
+
+The supported CLI already used native lifecycle, protocol and account services.
+This increment removes its old daemon factory, client connector, PID-only
+management and separate gateway subprocess. The retired `_daemon` and
+`_web-gateway` entry points fail explicitly before filesystem initialization or
+prompt admission. `_kernel` remains the actual shared worker for both engines;
+its descriptor now matches the native runtime binary without a retired prompt
+guide digest. Neither default nor integration-tagged cmd/whip source directly
+imports the retired packages. Remaining terminal dependencies are still open.
+
+The old fixtures were audited against native replacements before removal; the
+scenario map is docs/backend-native-cli-disposition.md. Native preflight and
+diagnostics tests replace the mixed legacy desktop checks. The compiled desktop
+update fixture now uses real private native binaries and protocol clients. It
+preserves approval and byte checks, stable runtime/new process identities,
+sessions, history, an unconfigured model selection, a future schedule, native
+host configuration and untouched retired configuration. It verifies a lost
+success response does not restart again. Reading an unconfigured owner's history
+stays available without restoring a worker, as required by the native contract.
+The initial fixture used @every24h, whose first occurrence is immediately due;
+the final future-preservation case explicitly schedules 24 hours ahead.
+
+The selected CLI/desktop baseline passed race checks in 8.132s. After deletion,
+the full CLI suite passed shuffle/race in 73.225s, then vet and semantic
+diagnostics. Compiled native update passed in 22.67s and both real execution
+engines passed in 11.03s (36.573s combined race-enabled integration run). The
+required native CLI gate adds compiled desktop replacement and removes only
+empty retired test selections; desktop maintenance uses the native localruntime
+suite. Final hosted checks and complete retired-core deletion remain pending.
+
 ### Clean-machine evaluator and cancellation qualification — 2026-09-29
 
 Hosted run36555920516 atf26acf587 failed its new evaluator and package-consumer
@@ -4837,3 +4868,17 @@ both 778 pixels and the hit-test succeeds, retaining the one-pixel bound. The
 late-arrival explanation for the hosted failure is inferred from source and its
 screenshot; the local run already had all 24 rows. No product policy, deadline
 or visibility requirement changed. Run 36557957330 remains failed.
+
+Final combined CLI retirement verification passes both binary builds, integration
+vet and pinned frozen-baseline lint with zero issues. Lint identified one orphan
+legacy title-response fixture; semantic references confirmed no remaining caller,
+and it was deleted. The CLI has no direct retired LLM import either. This does
+not yet remove retained terminal dependencies from the final executable.
+
+Parent run 36559029153 at 98f75aa9e passes evaluator/package examples, all Linux
+and macOS Go/client/race checks, distributions, Settings, web, mobile, docs and
+analysis. The aggregate remains failed: Firefox's separate middle-click search
+result did not open a page, and desktop failed an earlier guest navigation before
+reaching the previously failing capture. Both need exact event diagnostics; a
+successful local rerun is not treated as closure. Run 36560260360 is the current
+workflow checkpoint at d800463fe, with hosted validation still in progress.

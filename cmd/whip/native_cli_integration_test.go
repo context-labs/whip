@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/engine/process"
 	"github.com/context-labs/whip/internal/localruntime"
 	"github.com/context-labs/whip/internal/session"
 )
@@ -80,6 +82,21 @@ func TestNativeCompiledCLIUsesFreshHostAndRealEngines(t *testing.T) {
 		t.Fatal(err)
 	}
 	environment := []string{"HOME=" + directory, "WHIPCODE_HOME=" + home, "PATH=/usr/bin:/bin:/usr/sbin:/sbin"}
+	for _, entry := range []string{"_daemon", "_web-gateway"} {
+		command := exec.CommandContext(ctx, binary, entry)
+		command.Env = environment
+		output, err := command.CombinedOutput()
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || exit.ExitCode() != 1 || !strings.Contains(string(output), "retired private entry point") {
+			t.Fatalf("retired entry %s: %v %s", entry, err, output)
+		}
+	}
+	if entries, err := os.ReadDir(home); err != nil || len(entries) != 2 {
+		t.Fatalf("retired entry created a legacy runtime: %v %v", entries, err)
+	}
+	if entries, err := os.ReadDir(paths.Directory); err != nil || len(entries) != 1 || entries[0].Name() != "host.json" {
+		t.Fatalf("retired entry started native execution: %v %v", entries, err)
+	}
 	var diagnostics bytes.Buffer
 	hostProcess := exec.CommandContext(ctx, binary, "_native-runtime", "-directory", paths.Directory)
 	hostProcess.Env = environment
@@ -127,6 +144,10 @@ func TestNativeCompiledCLIUsesFreshHostAndRealEngines(t *testing.T) {
 		t.Fatal(statusOutput, err)
 	}
 	for _, engine := range []string{"starlark", "quickjs"} {
+		var descriptor process.EngineDescriptor
+		if err := json.Unmarshal([]byte(run("_kernel", "-engine", engine, "-describe")), &descriptor); err != nil || descriptor.ID != engine || descriptor.Build == "" || descriptor.GuideSHA256 != "" {
+			t.Fatalf("native worker descriptor: %+v %v", descriptor, err)
+		}
 		record := filepath.Join(directory, engine+".json")
 		output := run("run", "-quiet", "-format", "json", "-record", record, "-rlm-engine", engine, "execute a real cell")
 		observedCell := false

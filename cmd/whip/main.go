@@ -53,23 +53,13 @@ func main() {
 		}
 		return
 	}
-	if len(os.Args) > 1 && os.Args[1] == "_web-gateway" {
-		if err := gatewayChildCLI(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "whipcode gateway:", err)
-			os.Exit(1)
-		}
-		return
+	if len(os.Args) > 1 && (os.Args[1] == "_web-gateway" || os.Args[1] == "_daemon") {
+		fmt.Fprintln(os.Stderr, "whipcode: retired private entry point; use daemon start with the native runtime")
+		os.Exit(1)
 	}
 	if len(os.Args) > 1 && os.Args[1] == "_native-runtime" {
 		if err := nativeRuntimeCLI(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "whipcode runtime:", err)
-			os.Exit(1)
-		}
-		return
-	}
-	if len(os.Args) > 1 && os.Args[1] == "_daemon" {
-		if err := daemonCLI(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "whipcode daemon:", err)
 			os.Exit(1)
 		}
 		return

@@ -47,7 +47,8 @@ func TestMainInvalidCommandsHaveStableExitStatusAndExplanation(t *testing.T) {
 		{"acp flag", []string{"acp", "--unknown"}, 1, "flag provided but not defined"},
 		{"browser usage", []string{"browser", "unknown"}, 1, "want: install"},
 		{"kernel flag", []string{"_kernel", "--unknown"}, 1, "flag provided but not defined"},
-		{"daemon flag", []string{"_daemon", "--unknown"}, 1, "flag provided but not defined"},
+		{"retired daemon", []string{"_daemon", "--unknown"}, 1, "retired private entry point"},
+		{"retired gateway", []string{"_web-gateway"}, 1, "retired private entry point"},
 		{"runtime metadata usage", []string{"_desktop-runtime-info", "extra"}, 1, "could not read runtime build metadata"},
 	} {
 		t.Run(test.name, func(t *testing.T) {

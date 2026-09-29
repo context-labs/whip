@@ -392,33 +392,44 @@ func TestDesktopDaemonPreflightRejectsUnsafeStartup(t *testing.T) {
 	for _, kind := range []string{"flags", "network", "no-home", "home-file", "maintenance", "database"} {
 		t.Run(kind, func(t *testing.T) {
 			source, _ := syncFixture(t)
-			args := []string{}
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+			defer cancel()
+			var err error
 			switch kind {
 			case "flags":
-				args = []string{"--invalid"}
+				err = nativeRuntimeCLI([]string{"--invalid"})
 			case "network":
 				t.Setenv("WHIPCODE_NETWORK", "invalid")
+				_, err = nativeRuntimeLaunch()
 			case "no-home":
 				t.Setenv("WHIPCODE_HOME", "")
 				t.Setenv("HOME", "")
+				_, err = nativeRuntimePaths()
 			case "home-file":
-				t.Setenv("WHIPCODE_HOME", source)
+				err = hostcmd.Run(ctx, []string{"-directory", filepath.Join(source, localruntime.Namespace)}, io.Discard, io.Discard)
 			case "maintenance", "database":
-				paths, err := daemonRuntimePaths()
-				if err != nil {
-					t.Fatal(err)
+				paths, resolveErr := nativeRuntimePaths()
+				if resolveErr != nil {
+					t.Fatal(resolveErr)
 				}
 				if kind == "maintenance" {
-					if err := os.WriteFile(filepath.Join(paths.Runtime, "maintenance.lock"), nil, 0o644); err != nil {
-						t.Fatal(err)
+					lease, acquireErr := localruntime.AcquireMaintenance(ctx, paths)
+					if acquireErr != nil {
+						t.Fatal(acquireErr)
 					}
-				} else if err := os.Mkdir(filepath.Join(paths.Home, "sessions.db"), 0o700); err != nil {
-					t.Fatal(err)
+					defer lease.Close()
+					_, err = localruntime.Start(ctx, paths, localruntime.Launch{Executable: "/usr/bin/false"})
+					if !errors.Is(err, context.DeadlineExceeded) {
+						t.Fatalf("startup bypassed maintenance: %v", err)
+					}
+				} else {
+					if makeErr := os.MkdirAll(filepath.Join(paths.Directory, "state.db"), 0o700); makeErr != nil {
+						t.Fatal(makeErr)
+					}
+					err = hostcmd.Run(ctx, []string{"-directory", paths.Directory}, io.Discard, io.Discard)
 				}
 			}
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
-			defer cancel()
-			if err := runDaemon(ctx, args); err == nil {
+			if err == nil {
 				t.Fatal("unsafe startup was accepted")
 			}
 		})
@@ -435,22 +446,26 @@ func TestDesktopDiagnosticsReportUnhealthyOwnerAndRejectMalformedCommands(t *tes
 			t.Fatal("invalid daemon command accepted")
 		}
 	}
-	output := captureDaemonOutput(t, func() error {
-		printDaemonStatus(daemonStatus{State: "unhealthy", PID: 123, Error: "fixture owner did not respond", NetworkEndpoint: "http://127.0.0.1:8080"})
-		return nil
-	})
-	for _, part := range []string{"unhealthy", "123", "fixture owner did not respond", "http://127.0.0.1:8080"} {
+	nativeDaemonHome(t)
+	paths, err := nativeRuntimePaths()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(paths.Directory, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	output := captureDaemonOutput(t, func() error { return daemonStatusCLI(nil) })
+	for _, part := range []string{"unhealthy", "error:", paths.Directory, paths.Socket, paths.Log} {
 		if !strings.Contains(output, part) {
-			t.Fatalf("diagnostic omitted %q", part)
+			t.Fatalf("diagnostic omitted %q: %s", part, output)
 		}
 	}
-	if printablePID(0) != "unknown" {
-		t.Fatal("missing owner PID was reported as a real process")
+	if strings.Contains(output, "pid:") {
+		t.Fatal("unverified owner was reported as a real process")
 	}
-	_, _ = syncFixture(t)
 	t.Setenv("WHIPCODE_HOME", "")
 	t.Setenv("HOME", "")
-	if _, err := daemonStatusPaths(); err == nil {
+	if _, err := nativeRuntimePaths(); err == nil {
 		t.Fatal("missing home was accepted")
 	}
 }
