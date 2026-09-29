@@ -108,7 +108,7 @@ function records() {
       'gen_ai.usage.input_tokens': 1200n,
       'gen_ai.usage.output_tokens': 30n,
       'whip.cost.nano_usd': 4000000n,
-      'whip.cost.source': 'estimated',
+      'whip.cost.source': 'prices',
       'whip.input.body_available': false,
       'whip.request.digest': 'captured-digest',
     }),
@@ -244,6 +244,7 @@ it('renders native hierarchy and exact measured durations without opening anothe
   expect(totals).toContain('1,230 + unknown');
   fireEvent.click(screen.getByRole('treeitem', { name: 'kimi-k3-fast · 2.0s' }));
   expect(screen.getByText(/Historical model request bodies were not retained/)).toBeDefined();
+  expect(screen.getByText('Catalog estimate')).toBeDefined();
   fireEvent.click(screen.getByRole('button', { name: 'Raw' }));
   const raw = screen.getByRole('region', { name: 'Raw span' }).textContent!;
   expect(raw).toContain('1790600000100000001');

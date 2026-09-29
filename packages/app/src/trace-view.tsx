@@ -652,7 +652,7 @@ function SpanDetails({
     ...(span.kind === 'llm'
       ? ([
           ['model', text(attrs['gen_ai.request.model']) || span.name],
-          ['cost source', text(attrs['whip.cost.source']) || 'unknown'],
+          ['cost source', attrs['whip.cost.source'] === 'provider' ? 'Provider reported' : attrs['whip.cost.source'] === 'prices' ? 'Catalog estimate' : 'Unknown'],
         ] as [string, string][])
       : []),
     ...(group ? [['loaded descendants', String(sums!.descendants)] as [string, string]] : []),

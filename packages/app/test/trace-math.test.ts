@@ -170,7 +170,7 @@ describe('roll-ups', () => {
       startMs: 1,
       attrs: {
         'whip.cost.nano_usd': 1000n,
-        'whip.cost.source': 'reported',
+        'whip.cost.source': 'provider',
         'gen_ai.usage.input_tokens': 10n,
         'gen_ai.usage.output_tokens': 5n,
       },
@@ -182,7 +182,7 @@ describe('roll-ups', () => {
       startMs: 2,
       attrs: {
         'whip.cost.nano_usd': 500n,
-        'whip.cost.source': 'estimated',
+        'whip.cost.source': 'prices',
         'gen_ai.usage.input_tokens': 20n,
       },
     }),

@@ -241,7 +241,7 @@ function addSpan(span: TraceSpan, sums: Sums) {
   const { attrs } = span;
   const source = attrs['whip.cost.source'];
   const cost =
-    source === 'reported' || source === 'estimated' ? count(attrs['whip.cost.nano_usd']) : null;
+    source === 'provider' || source === 'prices' ? count(attrs['whip.cost.nano_usd']) : null;
   const input = count(attrs['gen_ai.usage.input_tokens']),
     output = count(attrs['gen_ai.usage.output_tokens']);
   sums.costNanoUSD = add(sums.costNanoUSD, cost);
