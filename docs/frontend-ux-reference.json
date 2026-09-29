@@ -1,0 +1,84 @@
+{
+  "captured_date": "2026-09-29",
+  "selection": "user_approved_latest_development_with_captured_refinements",
+  "migration_base": "446160bb49ce00334de4d9b70030949f5e6f9702",
+  "historical_baseline": "e3fed9c91918d9c36766dd47d878c1b5466238d1",
+  "development_head": "12f0ea0768b7d769765596c35c049fe80edfaeba",
+  "overlay_sha256": "04255978030cbe6289a7eeb2d02b92d1f47c7d52361a0d3ef0f6f6a70140c7c6",
+  "overlay_files": [
+    {
+      "path": "apps/web/scripts/browser-toolbar.mjs",
+      "sha256": "c053a66f8cfef26ef780a8bc2bda29e651d7bec0d8da10299ca3c9b150b4fd33",
+      "bytes": 10675
+    },
+    {
+      "path": "apps/web/scripts/new-chat-tabs.mjs",
+      "sha256": "cb96642c6c63f8bbf969bd0dce1cf96ea9582d0c4831e8bcfcfb8470436d2225",
+      "bytes": 21850
+    },
+    {
+      "path": "apps/web/scripts/performance.mjs",
+      "sha256": "3c66727afb9728ddf4fa0eb525d5ed7e45c4e34cf7fbbf054b80013715505b71",
+      "bytes": 35032
+    },
+    {
+      "path": "apps/web/scripts/repl-viewer.mjs",
+      "sha256": "d196469fe5fa283be310a1e9e6034d98db98a6eab478a1405096c6cc55739d57",
+      "bytes": 28282
+    },
+    {
+      "path": "apps/web/scripts/session-actions.mjs",
+      "sha256": "15f01be31160216671ea271a6b3b661dfa015caad0cf613b9ae830c1ccbe8a60",
+      "bytes": 9848
+    },
+    {
+      "path": "apps/web/scripts/session-tabs.mjs",
+      "sha256": "3a8c460bce539f3e3e7242227c80f862b1b6dabb5cc20dde28ac27fbc4a1a315",
+      "bytes": 21298
+    },
+    {
+      "path": "apps/web/scripts/settings-conversation.mjs",
+      "sha256": "e67ae7e09fdc383dc6459a8ad57a9f2db96a02af5419166ae6d746b39abfa648",
+      "bytes": 18074
+    },
+    {
+      "path": "apps/web/scripts/workspace-layout.mjs",
+      "sha256": "0300450f4a66bd38d0fe1c050a02876d173b9f3d2f484f77e6c5423e4eea3817",
+      "bytes": 31093
+    },
+    {
+      "path": "docs/frontend.md",
+      "sha256": "7928b9ce0a3bfeb96c97ae2f17e2df420433f475d44533e714eb914e4061e8aa",
+      "bytes": 205208
+    },
+    {
+      "path": "packages/app/src/session-tab-strip.tsx",
+      "sha256": "3fa7ec8bfe6260a34f7a6964735e05de2af088bc262b43ca5d3534a80170f226",
+      "bytes": 33705
+    },
+    {
+      "path": "packages/app/src/session-top-bar.tsx",
+      "sha256": "02e6f49b43328d97c379d3a4f9b1a33fa1ec7aa6b5f351234b03b01191f8680f",
+      "bytes": 4859
+    },
+    {
+      "path": "packages/app/test/session-top-bar.test.tsx",
+      "sha256": "ae651b2bfacac8186e8cd25ff484676dc21073f417d303c2cf557c1983f8e7e1",
+      "bytes": 8172
+    },
+    {
+      "path": "packages/ui/src/overlays.tsx",
+      "sha256": "6b1b36a41820f68abac4b000807736da45a65857c42e3e523dfd983222eca7cb",
+      "bytes": 8487
+    },
+    {
+      "path": "packages/ui/tests/workspace-tabs.mjs",
+      "sha256": "e16e2a8f26b04fc804149cd2e8844c0f8c67342ab0f1c46eaf5fed0c75e79ee9",
+      "bytes": 23693
+    }
+  ],
+  "private_snapshot": "/private/tmp/whip-frontend-reference-o_1z8_kl",
+  "source_checkout_untouched": true,
+  "overlay_published": false,
+  "reconstruction_note": "Use the development commit and the verified private overlay in an isolated reference checkout. Hashes do not reconstruct the overlay; obtain an approved snapshot copy before remote implementation."
+}

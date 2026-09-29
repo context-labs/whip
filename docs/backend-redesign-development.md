@@ -6012,3 +6012,38 @@ are unchanged; no child-policy rows are backfilled. Integrity and foreign-key
 checks pass. Exact local evidence is `child-policy-fix-verification.json`,
 `runtime-manifest.json`, `build-evidence.json` and `launch-status.json`. The build
 log is `/private/tmp/whip-subagent-debug/package-build.log`.
+
+
+## 2026-09-29 — research frontend UX restoration against the approved reference
+
+The user requested an in-depth restoration plan, with the latest development
+frontend as the UX reference and minimal compatibility changes over the current
+native SDK. They approved proposing small backend/SDK additions where needed
+and preserving rare truthful inline recovery while ordinary flows match the old
+application. This is planning work; no production code or runtime was changed.
+
+The [restoration plan](frontend-ux-restoration-plan.md) is stacked on
+`446160bb49ce00334de4d9b70030949f5e6f9702` / draft #283 and preserves its child
+policy fix and the preceding provider output-limit fix. The approved reference
+is development `12f0ea0768b7d769765596c35c049fe80edfaeba` plus an immutable private
+capture of its 14 changed files. The [manifest](frontend-ux-reference.json)
+records exact hashes. The original development checkout, handoff checkout and
+both installed runtimes remain untouched; the uncommitted source overlay is not
+published by this PR.
+
+The research separates presentation and loading restoration available with the
+existing SDK from real prerequisites: durable ordered display reasoning,
+provider enable/disable, credential candidate evidence and source-aware disconnect,
+atomic combined defaults and their value semantics, human terminal
+fidelity/observation and remote folder creation. It
+specifies six implementation increments with evidence requirements, a comparative
+acceptance matrix and limits for
+already discarded history. Permission Remember scope is an explicit pending
+product decision, not an implicit broadening of native authority.
+
+The activity audit's claim that the old durable reasoning was invented fixture
+data is corrected. The old production path actually persisted that presentation;
+current native fixture success does not establish parity. Existing NATIVE
+acceptance findings remain open. This documentation-only checkpoint validates
+links, reference hashes and diff scope; it does not claim new product execution,
+UX parity or release acceptance.
