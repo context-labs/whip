@@ -7,18 +7,17 @@ import (
 )
 
 var operations = map[string][]string{
-	"context":     {"inspect", "search", "read", "history"},
+	"context":     {"inspect", "search", "read"},
 	"files":       {"list", "search", "read", "write", "patch", "diagnostics"},
 	"skills":      {"read"},
 	"shell":       {"run", "read", "start", "poll", "tail", "wait", "kill", "list"},
 	"browser":     {"list_tabs", "open", "attach", "run", "detach", "allow_preview_port"},
 	"computer":    {"run"},
 	"models":      {"call", "batch"},
-	"agents":      {"spawn", "submit", "wait", "wait_after_cell", "inspect", "list", "stop", "delete", "pending_reports", "read_report"},
-	"messages":    {"send", "list", "read", "complete", "ack", "defer"},
+	"agents":      {"spawn", "submit", "wait_after_cell", "inspect", "list", "stop", "delete", "pending_reports", "read_report"},
 	"mail":        {"send", "list", "read", "complete", "defer"},
 	"mcp":         {"list_servers", "list_tools", "search", "describe", "instructions", "call", "refresh", "reconnect"},
-	"state":       {"unsubscribe", "get", "read", "write", "append", "list", "history", "private_get", "private_set", "private_append", "private_cas", "private_list", "blackboard_get", "blackboard_set", "blackboard_append", "blackboard_cas", "blackboard_history", "subscribe", "subscriptions", "cancel_subscription"},
+	"state":       {"get", "read", "write", "append", "list", "history", "subscribe", "subscriptions", "unsubscribe"},
 	"artifacts":   {"put", "inspect", "read"},
 	"goals":       {"complete"},
 	"schedules":   {"create", "list", "cancel"},

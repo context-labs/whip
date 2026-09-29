@@ -122,3 +122,33 @@ func TestKernelExplicitEmptyModulesStayEmptyAfterRestart(t *testing.T) {
 		})
 	}
 }
+
+func TestKernelDoesNotExposeRetiredHostAPIs(t *testing.T) {
+	for _, engine := range []string{EngineStarlark, EngineQuickJS} {
+		t.Run(engine, func(t *testing.T) {
+			calls := 0
+			host := HostFunc(func(context.Context, string, string, map[string]any) (any, error) {
+				calls++
+				return nil, nil
+			})
+			kernel := testModulesKernel(t, engine, []string{"context", "agents", "state", "mail"}, host)
+			for _, operation := range []string{
+				"messages.send", "agents.wait", "context.history", "state.private_get",
+				"state.private_set", "state.private_append", "state.private_cas", "state.private_list",
+				"state.blackboard_get", "state.blackboard_set", "state.blackboard_append",
+				"state.blackboard_cas", "state.blackboard_history", "state.cancel_subscription",
+			} {
+				code := operation + "()"
+				if engine == EngineQuickJS {
+					code = "await " + code
+				}
+				if _, err := kernel.Exec(t.Context(), Cell{Code: code}); err == nil {
+					t.Errorf("retired operation %s remained callable", operation)
+				}
+			}
+			if calls != 0 {
+				t.Fatalf("retired bindings made %d host calls", calls)
+			}
+		})
+	}
+}
