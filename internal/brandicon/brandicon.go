@@ -62,9 +62,15 @@ type Resolver struct {
 }
 
 func New(dir string) *Resolver {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.MaxResponseHeaderBytes = 64 << 10
-	transport.MaxConnsPerHost = inFlight
+	// Own the transport rather than asserting or borrowing a process-wide
+	// RoundTripper, which may be a credential adapter or an application wrapper.
+	transport := &http.Transport{
+		Proxy:             http.ProxyFromEnvironment,
+		DialContext:       (&net.Dialer{Timeout: 4 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		ForceAttemptHTTP2: true, MaxIdleConns: inFlight, IdleConnTimeout: 90 * time.Second,
+		TLSHandshakeTimeout: 4 * time.Second, ExpectContinueTimeout: time.Second,
+		MaxResponseHeaderBytes: 64 << 10, MaxConnsPerHost: inFlight,
+	}
 	return &Resolver{
 		dir: dir,
 		client: &http.Client{
