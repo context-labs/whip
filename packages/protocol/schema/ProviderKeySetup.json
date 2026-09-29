@@ -1,0 +1,72 @@
+{
+  "type": "object",
+  "properties": {
+    "revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "provider": {
+      "type": "string",
+      "enum": [
+        "openrouter",
+        "inference-net"
+      ]
+    },
+    "environment": {
+      "type": "boolean"
+    },
+    "key": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "key": {
+          "type": "string",
+          "maxLength": 65536,
+          "pattern": "^[!-~]+$"
+        }
+      },
+      "required": [
+        "id",
+        "key"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ProviderKeySetup",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProviderKeySetup",
+  "required": [
+    "revision",
+    "provider",
+    "environment",
+    "key"
+  ],
+  "additionalProperties": false,
+  "if": {
+    "properties": {
+      "environment": {
+        "const": true
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "key": {
+        "type": "null"
+      }
+    }
+  },
+  "else": {
+    "properties": {
+      "key": {
+        "type": "object"
+      }
+    }
+  }
+}

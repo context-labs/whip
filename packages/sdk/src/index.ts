@@ -107,6 +107,11 @@ export class Client {
     return this.call('providers.create', params, options);
   }
 
+  /** Validates canonical provider discovery before explicit key/route CAS; never retries. */
+  setupProviderKey(params: Operations['providers.setup_key']['params'], options: CallOptions = {}): Promise<Operations['providers.setup_key']['result']> {
+    return this.call('providers.setup_key', params, options);
+  }
+
   updateProvider(params: Operations['providers.update']['params'], options: CallOptions = {}): Promise<Operations['providers.update']['result']> {
     return this.call('providers.update', params, options);
   }

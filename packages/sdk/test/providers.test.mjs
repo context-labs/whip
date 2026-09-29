@@ -27,6 +27,7 @@ test('provider helpers preserve exact nullable metadata and perform only request
   await client.providerPresets();
   assert.equal((await client.bundledProviderModels('custom')).items[0].prices.input, '9007199254740993');
   await client.listProviders();
+  await client.setupProviderKey({ revision: inventory.revision, provider: "openrouter", environment: false, key: change.key });
   await client.createProvider(change);
   await client.updateProvider({ ...change, key: null, keep_credential: true, declaration: { ...change.declaration, credential: null } });
   await client.setProviderDefaults({ revision: inventory.revision, defaults: { selection, settings: null } });
@@ -35,7 +36,7 @@ test('provider helpers preserve exact nullable metadata and perform only request
   assert.ok((await client.refreshProviderCatalog('custom')).failure);
   assert.equal((await client.providerReadiness(selection)).inference_state, 'not_tested');
   await client.removeProvider({ revision: inventory.revision, provider: 'custom', replacement: { selection: null, settings: null } });
-  assert.deepEqual(calls.map(value => value.method), ['presets', 'bundled', 'list', 'create', 'update', 'defaults', 'compaction', 'catalog', 'refresh', 'readiness', 'remove'].map(value => `providers.${value}`));
+  assert.deepEqual(calls.map(value => value.method), ['presets', 'bundled', 'list', 'setup_key', 'create', 'update', 'defaults', 'compaction', 'catalog', 'refresh', 'readiness', 'remove'].map(value => `providers.${value}`));
   const before = calls.length;
   await assert.rejects(client.createProvider({ ...change, key: { id: 'stable-key', key: 'control\nsecret' } }), TypeError);
   await assert.rejects(client.listProviders({ signal: AbortSignal.abort() }), error => error.name === 'AbortError');
@@ -51,9 +52,10 @@ test('provider mutation uncertainty and key durability do not trigger automatic 
     if (request.method === 'providers.list') return success(request, inventory);
     throw new DeliveryError('acknowledgement lost');
   }, { clientID: 'provider-recovery' });
+  await assert.rejects(client.setupProviderKey({ revision: inventory.revision, provider: 'openrouter', environment: false, key: change.key }), DeliveryError);
   await assert.rejects(client.createProvider(change), DeliveryError);
   await assert.rejects(client.updateProvider(change), error => error instanceof RemoteError && error.kind === 'PROVIDER_KEY_PENDING');
-  assert.deepEqual(calls, ['providers.create', 'providers.update']);
+  assert.deepEqual(calls, ['providers.setup_key', 'providers.create', 'providers.update']);
   assert.deepEqual(await client.listProviders(), inventory);
 });
 

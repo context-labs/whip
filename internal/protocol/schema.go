@@ -91,6 +91,7 @@ func Operations() []Operation {
 		{"providers.presets", reflect.TypeFor[EmptyParams](), reflect.TypeFor[ProviderPresetsResult]()},
 		{"providers.bundled", reflect.TypeFor[ProviderParams](), reflect.TypeFor[ProviderModelsResult]()},
 		{"providers.list", reflect.TypeFor[EmptyParams](), reflect.TypeFor[ProviderInventory]()},
+		{"providers.setup_key", reflect.TypeFor[ProviderKeySetup](), reflect.TypeFor[ProviderInventory]()},
 		{"providers.create", reflect.TypeFor[ChangeProviderParams](), reflect.TypeFor[ProviderInventory]()},
 		{"providers.update", reflect.TypeFor[ChangeProviderParams](), reflect.TypeFor[ProviderInventory]()},
 		{"providers.remove", reflect.TypeFor[RemoveProviderParams](), reflect.TypeFor[ProviderInventory]()},

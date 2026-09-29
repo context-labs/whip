@@ -5638,6 +5638,15 @@ export interface ProviderInventory {
     top_p?: null | number;
   };
 }
+export interface ProviderKeySetup {
+  revision: string;
+  provider: "openrouter" | "inference-net";
+  environment: boolean;
+  key: null | {
+    id: string;
+    key: string;
+  };
+}
 export interface ProviderModelsResult {
   /**
    * @maxItems 1024
@@ -10338,6 +10347,7 @@ export interface ContractTypes {
   ProviderCatalog: ProviderCatalog;
   ProviderDefaultsParams: ProviderDefaultsParams;
   ProviderInventory: ProviderInventory;
+  ProviderKeySetup: ProviderKeySetup;
   ProviderModelsResult: ProviderModelsResult;
   ProviderParams: ProviderParams;
   ProviderPresetsResult: ProviderPresetsResult;
@@ -10522,6 +10532,7 @@ export interface Operations {
   "providers.presets": { params: EmptyParams; result: ProviderPresetsResult };
   "providers.bundled": { params: ProviderParams; result: ProviderModelsResult };
   "providers.list": { params: EmptyParams; result: ProviderInventory };
+  "providers.setup_key": { params: ProviderKeySetup; result: ProviderInventory };
   "providers.create": { params: ChangeProviderParams; result: ProviderInventory };
   "providers.update": { params: ChangeProviderParams; result: ProviderInventory };
   "providers.remove": { params: RemoveProviderParams; result: ProviderInventory };

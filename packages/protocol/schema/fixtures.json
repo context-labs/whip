@@ -1350,6 +1350,19 @@
     "valid": true
   },
   {
+    "type": "ProviderKeySetup",
+    "value": {
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "provider": "openrouter",
+      "environment": false,
+      "key": {
+        "id": "fixture-key",
+        "key": "fixture-private"
+      }
+    },
+    "valid": true
+  },
+  {
     "type": "ProviderPresetsResult",
     "value": {
       "items": [

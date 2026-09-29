@@ -345,6 +345,11 @@ export const manifest = {
       "result": "ProviderInventory"
     },
     {
+      "name": "providers.setup_key",
+      "params": "ProviderKeySetup",
+      "result": "ProviderInventory"
+    },
+    {
       "name": "providers.create",
       "params": "ChangeProviderParams",
       "result": "ProviderInventory"

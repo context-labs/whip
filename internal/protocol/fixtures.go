@@ -152,6 +152,7 @@ func Fixtures() ([]Fixture, error) {
 		{"MCPInstructionsResult", MCPInstructionsResult{Server: "fixture", Generation: "generation", Resource: "resource", Text: "Use visible", ContentParts: []ContentReference{}, Bytes: 11}},
 		{"MCPBrandIconsResult", MCPBrandIconsResult{Icons: map[string]string{}}},
 		{"ProviderParams", ProviderParams{Provider: "explicit"}},
+		{"ProviderKeySetup", ProviderKeySetup{Revision: strings.Repeat("a", 64), Provider: "openrouter", Key: &ProviderKeyPublication{ID: "fixture-key", Key: "fixture-private"}}},
 		{"ProviderPresetsResult", ProviderPresetsResult{Items: []ProviderPreset{{ID: "openai", Name: "OpenAI", Kind: "openai-responses", BaseURL: "https://api.openai.com/v1", Methods: []string{"api_key"}, Environments: []string{"OPENAI_API_KEY"}, SuggestedModels: []string{"gpt-6-astra"}}}}},
 		{"ProviderModelsResult", ProviderModelsResult{Items: []ProviderModel{{ID: "model", Prices: ModelPrices{Input: new(Counter(9007199254740993)), Output: new(Counter(0))}, ContextWindowTokens: new(Counter(1000000)), ReasoningEfforts: []string{}, MetadataSource: "advertised"}}}},
 		{"ProviderInventory", ProviderInventory{Revision: ref.Revision, Routes: []ProviderRoute{}}},
