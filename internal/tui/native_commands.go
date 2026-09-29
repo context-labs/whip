@@ -138,6 +138,14 @@ func (m *nativeModel) command(text string) tea.Cmd {
 		return m.standing(args)
 	case "/memory":
 		return m.memory(args)
+	case "/mcp":
+		return m.mcpCommand(args)
+	case "/lsp":
+		return m.lspCommand(args)
+	case "/browser":
+		return m.browserCommand(args)
+	case "/computer", "/computer-use":
+		return m.computerCommand(args)
 	case "/compact":
 		return m.compactionCommand(args)
 	case "/goal", "/goal-from-context":
