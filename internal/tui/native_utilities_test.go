@@ -25,10 +25,12 @@ func TestNativeDirectShellUsesJournalPermissionAndExactReceipt(t *testing.T) {
 	if result := nativeUIControl(t, m, "/permissions mode automatic"); result.err != nil {
 		t.Fatal(result.err)
 	}
-	text := "printf 'once\\n' >> direct.txt; printf '  original output\\n'"
+	text := "  printf 'once\\n' >> direct.txt\n\nprintf '  original output\\n'  "
 	// Human shell work does not require a model selection in the composer.
 	m.owner.Configuration.Model = protocol.ModelSelection{}
-	m.input.SetValue("!" + text)
+	m.preferences.CollapsePaste = new(true)
+	m.input.SetValue("!")
+	m.pasteText(text)
 	command := m.submit()
 	if command == nil {
 		t.Fatal(m.status)

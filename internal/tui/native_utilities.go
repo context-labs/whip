@@ -31,13 +31,22 @@ Goals: /goal [text|status|resume|clear] · /goal-from-context [2..100]
 Schedules: /schedule list [cursor] · /schedule @every <duration> <text> · /schedule @at <RFC3339 time> <text> · /schedule cancel <ID>
 Instructions: /me · /memory · /permissions
 Integrations: /lsp · /mcp · /browser · /computer · /pwd · /cd <path>
-Display: /tools expand|collapse · /reasoning on|off · /report
+Agents: /agents [list|open <ID>|stop <ID>|delete <child ID>|revoke <grant ID>]
+Display: /sidebar · /dock · /repl [older|latest|turn <ID>|focus] · /tools expand|collapse · /reasoning on|off · /report
 Exit: /quit (accepted host work continues)
 
-Enter sends; Escape cancels the exact active input; PageUp/PageDown scroll; Ctrl+C twice exits.
+Enter sends; Ctrl+J/Shift+Enter inserts a newline; Escape cancels the exact active input.
+Ctrl+T focuses the agent tree; arrows select, Enter opens, Escape returns to its root.
+Ctrl+R toggles REPL; PageUp/PageDown scroll the focused pane; Ctrl+C twice exits.
+Paste collapse is opt-in in /settings; original text is restored before sending.
 Commands act on the displayed owner. Export writes a private local file. Direct shell uses the host's normal permission and receipt path.`
 
 func (m *nativeModel) directShell(command string) tea.Cmd {
+	command, err := m.expandPastes(command)
+	if err != nil {
+		m.status = err.Error()
+		return nil
+	}
 	if !m.nativeAdmissionAvailable() {
 		return nil
 	}

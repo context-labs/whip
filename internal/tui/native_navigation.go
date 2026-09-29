@@ -188,7 +188,8 @@ func (m *nativeModel) attachSession(owner protocol.Session) error {
 	m.picker, m.decision, m.hiddenDecision = nil, nil, nil
 	m.decisions, m.decisionsHidden = nil, false
 	m.notice, m.noteRevisions = "", [2]string{}
-	m.input.SetValue(draft)
+	m.input.SetValue(draft.text)
+	m.pastes = draft.pastes
 	m.initialPrompt = ""
 	m.polls = 0
 	m.status = "Attached to " + string(owner.ID) + ". Other host work continues."

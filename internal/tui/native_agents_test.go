@@ -159,9 +159,9 @@ func TestNativeLayoutBoundsAndDraftCapacity(t *testing.T) {
 	m.preferencesDirectory = t.TempDir()
 	root := m.owner
 	other := nativeNavigationRoot(t, m, "draft-other", "Other")
-	m.drafts = map[protocol.ID]string{}
+	m.drafts = map[protocol.ID]nativeDraft{}
 	for i := range 16 {
-		m.drafts[protocol.ID(fmt.Sprintf("draft-%d", i))] = "saved"
+		m.drafts[protocol.ID(fmt.Sprintf("draft-%d", i))] = nativeDraft{text: "saved"}
 	}
 	m.input.SetValue("current unsent")
 	if err := m.attachSession(other); err == nil || m.owner.ID != root.ID || m.input.Value() != "current unsent" {

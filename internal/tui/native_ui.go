@@ -68,7 +68,9 @@ type nativeModel struct {
 	agents                          *nativeAgentTree
 	agentSelection                  protocol.ID
 	agentsFocus, dock               bool
-	drafts                          map[protocol.ID]string
+	drafts                          map[protocol.ID]nativeDraft
+	pastes                          map[string]string
+	pasteSequence                   uint64
 	work                            nativeWork
 	connection                      *client.Client
 	handle                          *client.Session
@@ -558,6 +560,7 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(value)
+		m.sizeInput()
 		return m, cmd
 	case tea.MouseWheelMsg:
 		if m.replVisible() && value.X >= m.width-m.replWidth() {
@@ -582,9 +585,7 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		var cmd tea.Cmd
-		m.input, cmd = m.input.Update(value)
-		return m, cmd
+		return m, m.pasteText(value.Content)
 	}
 	return m, nil
 }
@@ -604,6 +605,11 @@ func (m *nativeModel) submit() tea.Cmd {
 }
 
 func (m *nativeModel) prompt(text, delivery string) tea.Cmd {
+	text, err := m.expandPastes(text)
+	if err != nil {
+		m.status = err.Error()
+		return nil
+	}
 	if m.rejected != nil {
 		m.status = "A rejected draft is retained. /rejected restore or /rejected discard before another submission."
 		return nil
@@ -652,6 +658,8 @@ func (m *nativeModel) submitPreparedInput(command *client.InputCommand) tea.Cmd 
 		}
 	}
 	m.input.Reset()
+	m.pastes = nil
+	m.sizeInput()
 	m.notice = ""
 	m.latest()
 	return m.sendInput(command, "send")
@@ -725,6 +733,7 @@ func (m *nativeModel) cancelTurn(id protocol.ID) tea.Cmd {
 func (m *nativeModel) refresh() {
 	width := m.transcriptWidth()
 	m.input.SetWidth(max(width-2, 1))
+	m.sizeInput()
 	var rows []string
 	appendText := func(text string) {
 		rows = append(rows, nativePlainRows(text, max(width-2, 1), false)...)
@@ -862,7 +871,12 @@ func (m *nativeModel) restoreRejectedDraft() bool {
 	if err := json.Unmarshal(m.rejected.Record().Params, &params); err != nil || len(params.Parts) != 1 || params.Parts[0].Type != "text" {
 		return false
 	}
-	m.input.SetValue(params.Parts[0].Text)
+	if len(params.Parts[0].Text) > nativeDraftLimit {
+		return false
+	}
+	m.input.Reset()
+	m.pastes = nil
+	m.pasteText(params.Parts[0].Text)
 	m.rejected = nil
 	return true
 }
