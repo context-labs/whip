@@ -23,15 +23,15 @@ try {
   await run('daemon', 'start');
   const status = JSON.parse(await run('daemon', 'status', '--json'));
   assert.equal(status.state, 'running');
-  assert.ok(status.network_endpoint, 'Managed gateway must publish its ready endpoint');
-  const base = (await run('web', '--url', status.network_endpoint, '--no-open')).trim();
+  assert.ok(status.process.web_endpoint, 'Managed gateway must publish its ready endpoint');
+  const base = (await run('web', '--url', status.process.web_endpoint, '--no-open')).trim();
   for (const name of ['index.html', ...Object.keys(renderer.files).filter(name => name.endsWith('.js'))]) {
     const response = await fetch(new URL(name, base), { signal: AbortSignal.timeout(10_000) });
     assert.equal(response.status, 200);
     const bytes = Buffer.from(await response.arrayBuffer());
     assert.equal(createHash('sha256').update(bytes).digest('hex'), renderer.files[name].sha256, `Served renderer differs: ${name}`);
   }
-  assert.equal(status.daemon_build, info.buildId);
+  assert.equal(status.process.build, info.buildId);
   const hash = createHash('sha256');
   for await (const bytes of createReadStream(binary)) hash.update(bytes);
   await writeFile(path.join(path.dirname(binary), 'linux-runtime.json'), JSON.stringify({ ...info, sha256: hash.digest('hex'),

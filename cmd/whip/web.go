@@ -12,15 +12,16 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"slices"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
-	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/legacy/protocol"
+	"github.com/context-labs/whip/internal/buildinfo"
+	"github.com/context-labs/whip/internal/gateway"
+	"github.com/context-labs/whip/internal/localruntime"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/webassets"
-	"github.com/context-labs/whip/internal/webgateway"
 )
 
 var (
@@ -65,82 +66,11 @@ func runWeb(ctx context.Context, args []string) error {
 		ready(endpoint)
 		return nil
 	}
-	paths, err := daemonStatusPaths()
+	paths, err := nativeRuntimePaths()
 	if err != nil {
 		return err
 	}
-	return runGateway(ctx, paths, nil, func(record gatewayReady) error { ready(record.Endpoint); return nil })
-}
-
-// Both public foreground and private managed modes use this runner. The Open
-// factory always narrows socket privileges and fails closed on old daemons.
-func runGateway(ctx context.Context, paths daemon.RuntimePaths, expected *gatewayReady, ready func(gatewayReady) error) error {
-	options := gatewayEnvironment()
-	options.SocketPath = paths.Socket
-	options.Open = func(ctx context.Context) (webgateway.Client, error) {
-		client, err := dialGatewayClient(ctx, paths)
-		if err != nil {
-			return nil, err
-		}
-		if expected != nil {
-			init := client.InitializeResult()
-			if init.RuntimeID != expected.RuntimeID || init.Generation != expected.Generation {
-				_ = client.Close()
-				return nil, errors.New("daemon generation changed; start the gateway again")
-			}
-		}
-		return client, nil
-	}
-	// Check compatibility before assets, so an old/stopped runtime has an
-	// actionable error even in an unpackaged development binary.
-	checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	client, err := options.Open(checkCtx)
-	cancel()
-	if err != nil {
-		return err
-	}
-	initializedCheck := client.InitializeResult()
-	_ = client.Close()
-	if expected == nil {
-		expected = &gatewayReady{RuntimeID: initializedCheck.RuntimeID, Generation: initializedCheck.Generation}
-	}
-	if !gatewayAssetsAvailable() {
-		return errors.New("this executable was built without web assets; run `npm ci && task build`, then run `whipcode web` again")
-	}
-	server, err := webgateway.Start(ctx, options)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = server.Close() }()
-	initialized := server.InitializeResult()
-	if err := ready(gatewayReady{Endpoint: server.Endpoint(), RuntimeID: initialized.RuntimeID, Generation: initialized.Generation}); err != nil {
-		return err
-	}
-	select {
-	case <-ctx.Done():
-		return nil
-	case <-server.Done():
-		if ctx.Err() != nil {
-			return nil
-		}
-		return server.Err()
-	}
-}
-
-func dialGatewayClient(ctx context.Context, paths daemon.RuntimePaths) (*daemon.Client, error) {
-	client, err := daemon.DialClient(ctx, paths, daemon.InitializeParams{
-		ProtocolMajor: daemon.ProtocolMajor, BuildID: version,
-		ClientID: daemonClientID("web-gateway"), ClientKind: "automation",
-		Capabilities: []string{protocol.NetworkClientCapability},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("connect to running daemon: %w; inspect `whipcode daemon status` or run `whipcode daemon start` explicitly", err)
-	}
-	if !slices.Contains(client.InitializeResult().NegotiatedCapabilities, protocol.NetworkClientCapability) {
-		_ = client.Close()
-		return nil, errors.New("the running daemon does not support the network-client safety capability; update it and explicitly run `whipcode daemon restart` (interrupts active work)")
-	}
-	return client, nil
+	return runNativeGateway(ctx, paths, func(endpoint string) error { ready(endpoint); return nil })
 }
 
 func validateWebEndpoint(endpoint string) (string, error) {
@@ -165,7 +95,7 @@ func validateWebEndpoint(endpoint string) (string, error) {
 }
 
 func checkWebAssets(ctx context.Context, endpoint string) error {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"/api/v3/web", nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"/api/v4/web", nil)
 	if err != nil {
 		return err
 	}
@@ -181,20 +111,64 @@ func checkWebAssets(ctx context.Context, endpoint string) error {
 		}
 		return fmt.Errorf("endpoint does not expose the web app (HTTP %d); check the URL and gateway build", response.StatusCode)
 	}
-	var info struct {
-		Available     bool   `json:"available"`
-		ProtocolMajor int    `json:"protocol_major"`
-		WebSocketPath string `json:"websocket_path"`
-		ContentPath   string `json:"content_path"`
+	raw, err := io.ReadAll(io.LimitReader(response.Body, 4097))
+	if err != nil || len(raw) > 4096 {
+		return errors.New("invalid or oversized gateway web discovery")
 	}
-	if err := json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&info); err != nil {
+	if err := protocol.Validate("GatewayDiscovery", raw); err != nil {
 		return fmt.Errorf("invalid gateway web discovery: %w", err)
 	}
-	if info.ProtocolMajor != daemon.ProtocolMajor || info.WebSocketPath != "/api/v3/ws" || info.ContentPath != "/api/v3/content/" {
+	var info protocol.GatewayDiscovery
+	if err := json.Unmarshal(raw, &info); err != nil {
+		return err
+	}
+	if info.Major != protocol.Major || info.WebSocketPath != "/api/v4/ws" || info.ContentPath != "/api/v4/content/" {
 		return errors.New("gateway web protocol is incompatible; update the gateway executable")
 	}
 	if !info.Available {
 		return errors.New("this gateway was built without web assets; run `npm ci && task build` and start the gateway again")
 	}
 	return nil
+}
+
+// The foreground listener observes one exact owner. It never creates runtime
+// files, changes host policy, or adopts a replacement after connection loss.
+func runNativeGateway(ctx context.Context, paths localruntime.Paths, ready func(string) error) error {
+	status := localruntime.Inspect(ctx, paths)
+	if status.State != "running" || status.Process == nil {
+		return fmt.Errorf("native runtime is %s: %s; inspect whipcode daemon status or run whipcode daemon start explicitly", status.State, status.Error)
+	}
+	if !gatewayAssetsAvailable() {
+		return errors.New("this executable was built without web assets; run npm ci && task build, then run whipcode web again")
+	}
+	list := func(value string) []string {
+		var result []string
+		for item := range strings.SplitSeq(value, ",") {
+			if item = strings.TrimSpace(item); item != "" {
+				result = append(result, item)
+			}
+		}
+		return result
+	}
+	server, err := gateway.Start(ctx, gateway.Options{
+		Address:      strings.TrimSpace(os.Getenv(buildinfo.Env("LISTEN"))),
+		AllowedHosts: list(os.Getenv(buildinfo.Env("ALLOWED_HOSTS"))), AllowedOrigins: list(os.Getenv(buildinfo.Env("ALLOWED_ORIGINS"))),
+		SocketPath: paths.Socket, RuntimeID: status.Process.RuntimeID, ProcessEpoch: status.Process.ProcessEpoch, Assets: webassets.Handler(),
+	})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = server.Close() }()
+	if err := ready(server.Endpoint()); err != nil {
+		return err
+	}
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-server.Done():
+		if ctx.Err() != nil {
+			return nil
+		}
+		return server.Err()
+	}
 }

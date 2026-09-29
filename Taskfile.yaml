@@ -5,7 +5,7 @@ vars:
     sh: printf 'dev+%s' "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
   LDFLAGS: -X main.version={{.VERSION}}
   # Fast domain/runtime checks; all tests in these packages are required.
-  REDESIGN_PACKAGES: ./internal/browser ./internal/browser/extrelay ./internal/browserhost ./internal/trace ./internal/computer ./internal/computerconfig ./internal/helperprogram ./internal/hostview ./internal/theme ./internal/terminal ./internal/mcp ./internal/mcpconfig ./internal/jsonc ./internal/secretref ./internal/brandicon ./internal/gateway ./internal/executor ./internal/bashrun ./internal/shell ./internal/schedule ./internal/content ./internal/session ./internal/hostmodule ./internal/store ./internal/config ./internal/protocol ./internal/model ./internal/openaiauth ./internal/inferenceauth ./internal/inferenceaccount ./internal/providerhost ./internal/account ./internal/runner ./internal/tool ./internal/instruction ./internal/skills ./internal/capability ./internal/lsp ./internal/lspconfig ./internal/workspace ./internal/runtime ./internal/rpc ./internal/client ./internal/runclient ./internal/localruntime ./internal/hostcmd ./internal/engine ./internal/engine/quickjs ./cmd/whip-contract ./cmd/whip-runtime
+  REDESIGN_PACKAGES: ./internal/browser ./internal/browser/extrelay ./internal/browserhost ./internal/trace ./internal/computer ./internal/computerconfig ./internal/helperprogram ./internal/hostview ./internal/theme ./internal/terminal ./internal/mcp ./internal/mcpconfig ./internal/jsonc ./internal/secretref ./internal/brandicon ./internal/gateway ./internal/webassets ./internal/executor ./internal/bashrun ./internal/shell ./internal/schedule ./internal/content ./internal/session ./internal/hostmodule ./internal/store ./internal/config ./internal/protocol ./internal/model ./internal/openaiauth ./internal/inferenceauth ./internal/inferenceaccount ./internal/providerhost ./internal/account ./internal/runner ./internal/tool ./internal/instruction ./internal/skills ./internal/capability ./internal/lsp ./internal/lspconfig ./internal/workspace ./internal/runtime ./internal/rpc ./internal/client ./internal/runclient ./internal/localruntime ./internal/hostcmd ./internal/engine ./internal/engine/quickjs ./cmd/whip-contract ./cmd/whip-runtime
   # Process containment stress tests run in full at the change/CI boundary.
   REDESIGN_INTEGRATION_PACKAGES: ./internal/engine/process
   REDESIGN_ALL_PACKAGES: '{{.REDESIGN_PACKAGES}} {{.REDESIGN_INTEGRATION_PACKAGES}}'
@@ -196,7 +196,7 @@ tasks:
   check:native-cli:
     desc: Native lifecycle, run, recovery, session catalog/export and compiled CLI fixtures
     cmds:
-      - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(Daemon|Desktop|ForcedDaemon|Run|Native|Headless|Sessions|TruncAndAgo|PushOTLP|MainDispatchesHeadlessCommands|ClientEntryPaths|DistributionMalformed)'
+      - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(Daemon|Desktop|ForcedDaemon|Run|Native|Web|Headless|Sessions|TruncAndAgo|PushOTLP|MainDispatchesHeadlessCommands|ClientEntryPaths|DistributionMalformed)'
       - go test -tags=integration -count=1 -timeout=2m ./cmd/whip -run '^TestNativeCompiledCLI'
       - go vet ./cmd/whip
 

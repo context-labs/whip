@@ -36,15 +36,25 @@ func fixture(t *testing.T) (*runtime.Runtime, *client.Client, Options) {
 			t.Error(err)
 		}
 	})
-	rpcServer, err := rpc.Listen(r, rpc.HostServices{})
+	ctx, cancel := context.WithCancel(t.Context())
+	ownerEnded := make(chan struct{})
+	go func() {
+		defer close(ownerEnded)
+		select {
+		case <-r.Done():
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	rpcServer, err := rpc.Listen(r, rpc.HostServices{Lifecycle: rpc.NewHostLifecycle(protocol.ID(r.Identity()), protocol.ID(r.ProcessEpoch()), os.Getpid(), "fixture", time.Now(), cancel)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- rpcServer.Serve(ctx) }()
 	t.Cleanup(func() {
 		cancel()
+		<-ownerEnded
 		if err := <-done; err != nil {
 			t.Error(err)
 		}
@@ -182,6 +192,49 @@ func TestHostOriginPolicyAndDiscovery(t *testing.T) {
 	for _, host := range []string{"", "host/path", "user@host", "host?x", "host#fragment"} {
 		if validateHosts([]string{host}) == nil {
 			t.Fatalf("accepted host %q", host)
+		}
+	}
+}
+
+func TestPackagedAssetsShareNativeHostPolicyAndDiscovery(t *testing.T) {
+	_, _, options := fixture(t)
+	// Fake fixture bytes prove handler wiring only, not renderer acceptance.
+	options.Assets = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "fixture-renderer") })
+	s, err := Start(t.Context(), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	for _, path := range []string{"/api/v4/web", "/h/runtime/s/session"} {
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, s.Endpoint()+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := (&http.Client{Timeout: time.Second}).Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := io.ReadAll(io.LimitReader(response.Body, 4097))
+		response.Body.Close()
+		if err != nil || response.StatusCode != http.StatusOK {
+			t.Fatal(response.StatusCode, err)
+		}
+		if path == "/api/v4/web" {
+			var discovery protocol.GatewayDiscovery
+			if json.Unmarshal(raw, &discovery) != nil || !discovery.Available || discovery.ProcessEpoch != options.ProcessEpoch {
+				t.Fatalf("discovery %s", raw)
+			}
+		} else if string(raw) != "fixture-renderer" {
+			t.Fatalf("assets %s", raw)
+		}
+		request.Host = "untrusted.example"
+		response, err = (&http.Client{Timeout: time.Second}).Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusForbidden {
+			t.Fatal("asset/discovery bypassed host policy")
 		}
 	}
 }
