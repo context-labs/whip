@@ -3415,3 +3415,41 @@ fork and source deletion). Analysis passed with zero new lint findings and no
 reachable vulnerabilities before the final runner-only test addition. The full
 phase gate for this integrated checkpoint is pending below; these focused results
 do not mark Phases 5–7 complete.
+
+
+## Separate CI runners for large race suites
+
+Draft #257's hosted run 36517034403 passed macOS race, both builds, both client
+gates and analysis, but Linux store/runtime each exhausted the existing 10-minute
+package deadline. The tests active at timeout had run for only 1 second; both
+stacks were making ordinary SQLite progress rather than demonstrating a stuck
+individual test. The overall job finished 19m44s with failure. This is not a
+passing release gate.
+
+CI now gives the complete store suite and complete runtime suite separate
+runners on each OS. A third race job runs every other active package, derived
+from the same active-package union with only those two exact paths excluded.
+The local `check:race` remains the complete union. Race/shuffle/count flags,
+10-minute package deadlines, 20-minute job deadlines and the required aggregate
+are unchanged. The workflow still requires all builds, all client checks and
+analysis. Hosted results for the repaired head remain pending.
+
+
+The combined workspace/run and design checkpoint passed `task check:phase` and
+`task check:analysis` at `8012242eb`. Store/runtime/RPC/process race suites passed
+in 265.377s/339.914s/57.751s/123.985s respectively. Contract generation and strict
+CSP checks, 109 native SDK tests, 466 retained SDK tests and 6 example checks passed.
+The production v4 fixture passed in 96.792s, including workspace/run controls
+205ms and design provenance 319ms. Gateway passed 12.762s, Unix/browser executors
+5.678s/3.121s, shell 2.593s, fake computer helper 2.336s, retained crash 4.195s and
+selected daemon races 2.743s. Analysis found zero new lint issues and no reachable
+vulnerabilities. Exact logs: `/tmp/whip-input-controls-phase-final.log` and
+`/tmp/whip-input-controls-analysis-final.log`.
+
+Earlier attempts failed on a wall-clock-dependent assertion and an invalid test
+fixture literal; `038cb331e` made the timestamp deterministic and `8012242eb`
+derived the actual typed design presentation. Only the final successful runs
+above establish this checkpoint. The subsequent merge brings in #257's separate
+race-runner CI repair (`4d3b155cb`) without changing Go runtime behavior. Hosted
+checks for this new checkpoint remain pending. Phases 5–6 remain in progress and
+Phase 7 remains pending; no installed runtime was modified.
