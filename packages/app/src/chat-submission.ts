@@ -23,7 +23,7 @@ export interface ChatSubmission {
 export type ChatSubmissionResult =
   | { status: 'skipped'; delivery?: CommandNotice['delivery'] }
   | { status: 'completed'; accepted: boolean }
-  | { status: 'failed'; error: unknown; accepted: boolean; outcome?: string; delivery?: CommandNotice['delivery'] };
+  | { status: 'failed'; error: unknown; accepted: boolean; outcome?: string; turnId?: string; delivery?: CommandNotice['delivery'] };
 
 /** Shared chat admission path. Never reads or overwrites a destination's draft. */
 export async function submitChatInput({
@@ -83,7 +83,7 @@ export async function submitChatInput({
     if (inputId && !command?.delivery) runtime.submittedInputs.remove(inputId, runtimeId);
     // Missing admission is not a rejection: retain the frozen command and authored input.
     // Recovery belongs to runtime.run; never retry here with a new command ID.
-    return { status: 'failed', error, accepted, outcome: command?.status, delivery: command?.delivery };
+    return { status: 'failed', error, accepted, outcome: command?.status, ...(command?.turnId ? { turnId: command.turnId } : {}), delivery: command?.delivery };
   } finally {
     if (token) runtime.compositions.finishSubmission(key, token);
   }

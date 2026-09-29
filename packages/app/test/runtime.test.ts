@@ -244,7 +244,7 @@ describe('v4 command acceptance and local lifetimes', () => {
   it('keeps authoritative interruption distinct from uncertain delivery', async () => {
     const app = runtime(); await app.connect(); const result = admission(); result.turn!.state = 'interrupted'; result.turn!.failure = 'Process restarted';
     await expect(app.run(command({ send: async () => result, wait: async () => result }), 'Send')).rejects.toThrow('Process restarted');
-    expect(app.getSnapshot().commands[0]?.status).toBe('interrupted'); expect(app.getSnapshot().commands[0]?.delivery).toBeUndefined(); app.dispose();
+    expect(app.getSnapshot().commands[0]).toMatchObject({ status: 'interrupted', turnId: result.turn!.id }); expect(app.getSnapshot().commands[0]?.delivery).toBeUndefined(); app.dispose();
   });
   it('known host acceptance survives failed local persistence and clears the authored draft once', async () => {
     const app = runtime(); await app.connect(); const accepted = vi.fn(); const handle = command();

@@ -3981,3 +3981,13 @@ metadata through the validating SDK, bounds results to 32 candidates, preserves
 truncation, and disables stale/offline selection. All three focused tests pass
 (3.26 seconds), including child ownership, disabled skills, and delayed responses
 after recipient changes. Its composer caller is the next cutover step.
+
+Native composer cutover preserves shared recipient drafts, per-pane caret/focus,
+IME and slash completion, queue/steer delivery, and admission recovery. It uses
+the exact native selected session and explicit tree root for attachments. Pause
+verifies canonical turn ownership before cancelling and prevents duplicate clicks.
+Terminal notices now retain their authoritative turn ID; composer feedback yields
+only to that exact recipient/turn, replacing the old error-text/sequence heuristic.
+The combined composer, submission, runtime and picker suites pass 96 tests
+(3.75 seconds), with affected source types clean. Conversation callers and the
+remaining application still need migration before the complete frontend gate.

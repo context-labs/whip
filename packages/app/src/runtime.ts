@@ -42,6 +42,7 @@ export interface CommandNotice {
   status: string;
   error?: string;
   draftKey?: string;
+  turnId?: string;
   delivery?: 'uncertain' | 'absent';
 }
 interface PendingCommand {
@@ -687,7 +688,7 @@ export class AppRuntime {
     const attached = () => !!client && this.connections.isAttached(client);
     let accepted = false, uncertain = false;
     let work: Promise<Operations[M]['result']> | undefined;
-    const notice = (status: string, extra: Pick<CommandNotice, 'error' | 'delivery'> = {}) =>
+    const notice = (status: string, extra: Pick<CommandNotice, 'error' | 'delivery' | 'turnId'> = {}) =>
       this.commandNotice({ id, commandId: handle.id, runtimeId, label, draftKey, status, ...extra });
     const accept = (value: unknown) => {
       if (value && typeof value === 'object' && 'receipt' in value) this.submittedInputs.acknowledge(value as Admission, runtimeId);
@@ -744,7 +745,7 @@ export class AppRuntime {
           this.submittedInputs.acknowledge(outcome, runtimeId);
           terminal = true;
           const status = outcome.receipt.deleted_at ? 'deleted' : outcome.input?.state === 'cancelled' ? 'cancelled' : outcome.turn?.state ?? 'unavailable';
-          notice(status, outcome.turn?.failure ? { error: outcome.turn.failure } : {});
+          notice(status, { ...(outcome.turn ? { turnId: outcome.turn.id } : {}), ...(outcome.turn?.failure ? { error: outcome.turn.failure } : {}) });
           await handle.forget();
           if (status !== 'succeeded') throw new Error(outcome.turn?.failure ?? `${label}: ${status}`);
           result = outcome as Operations[M]['result'];

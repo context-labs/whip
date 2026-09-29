@@ -8,7 +8,8 @@ import {
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { UIProvider } from '@whip/ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { Session } from '@whip/legacy-sdk';
+import type { DurableCommand, DurableMethod } from '@whip/sdk';
+import { providerFixture } from './provider-fixture';
 import { Composer } from '../src/composer';
 import { RuntimeContext } from '../src/context';
 import type { AppRuntime, CommandNotice } from '../src/runtime';
@@ -17,7 +18,10 @@ import { CompositionStore } from '../src/compositions';
 import { SubmittedInputs } from '../src/input-presentation';
 import { SessionTabs } from '../src/session-tabs';
 
-beforeEach(() => {
+let native: Awaited<ReturnType<typeof providerFixture>>;
+beforeEach(async () => {
+  native = await providerFixture({ runtimeID: 'runtime' });
+  native.data.handlers['skills.list'] = () => ({ items: [{ name: 'ponytail', description: 'Least code that works.', disabled: false, source: { kind: 'skill_metadata', scope: 'project', root_id: null, path: '/project/SKILL.md', bytes: '1', sha256: 'a'.repeat(64) } }], next_after: null });
   vi.stubGlobal('ResizeObserver', class {
     observe() {}
     disconnect() {}
@@ -26,13 +30,14 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-function fixture(catalog = false) {
+function fixture() {
   const onAccepted = vi.fn();
   const drafts = new Map<string, string>([
     ['runtime:root:a', 'same draft'],
     ['runtime:root:b', 'same draft'],
   ]);
   const draftListeners = new Map<string, Set<() => void>>();
+  const handles: DurableCommand<DurableMethod>[] = [];
   const waits: { accepted(): void; finish(): void; reject(error: Error): void }[] = [];
   const snapshot = { commands: [] as CommandNotice[], endpoint: 'http://localhost' };
   const runtime = {
@@ -45,16 +50,12 @@ function fixture(catalog = false) {
     setDraft: (key: string, text: string) => { drafts.set(key, text); draftListeners.get(key)?.forEach(fn => fn()); },
     subscribeDraft: (key: string, fn: () => void) => { const listeners = draftListeners.get(key) ?? new Set(); listeners.add(fn); draftListeners.set(key, listeners); return () => { listeners.delete(fn); }; },
     report: vi.fn(),
-    run: (_handle: unknown, _label: string, accepted: () => void) =>
-      new Promise((resolve, reject) => waits.push({ accepted, reject, finish: () => resolve({ result: { inbox_seq: String(waits.length) } }) })),
+    run: (handle: DurableCommand<DurableMethod>, _label: string, accepted: () => void) => {
+      handles.push(handle);
+      return new Promise((resolve, reject) => waits.push({ accepted, reject, finish: () => resolve({}) }));
+    },
   } as unknown as AppRuntime;
-  const connection = { state: 'connected', info: { runtime_id: 'runtime', negotiated_capabilities: ['workspace_completion', ...(catalog ? ['skill_catalog_completion'] : [])] } };
-  const session = {
-    rootId: 'root',
-    client: { clientId: 'composer-test', getSnapshot: () => connection, subscribe: () => () => {}, call: vi.fn(async () => ({ candidates: [{ text: '$ponytail', description: 'Least code that works.' }] })) },
-    command: vi.fn(() => ({})),
-    submit: vi.fn(() => ({})),
-  } as unknown as Session;
+  const session = native.client.session('a');
   const queries = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 10_000 } } });
   const app = (agentId: string, viewId?: string, active = false, lastTurn?: ComponentProps<typeof Composer>['lastTurn'], extra: Partial<ComponentProps<typeof Composer>> = {}) => (
     <RuntimeContext.Provider value={runtime}>
@@ -62,8 +63,8 @@ function fixture(catalog = false) {
         <Composer
           key={viewId ?? agentId}
           viewId={viewId}
-          session={session}
-          agentId={agentId}
+          session={native.client.session(agentId)}
+          rootId="root"
           connected
           runtimeId="runtime"
           active={active}
@@ -74,7 +75,7 @@ function fixture(catalog = false) {
       </UIProvider></QueryClientProvider>
     </RuntimeContext.Provider>
   );
-  return { drafts, waits, app, session, runtime, snapshot, onAccepted };
+  return { drafts, waits, handles, app, session, runtime, snapshot, onAccepted };
 }
 
 it('keeps the wake notice, agent dock, and queue in the composer region in that order', () => {
@@ -294,35 +295,40 @@ it('restores independent caret positions for two views of the same recipient', (
   expect(restored.map(input => [input.selectionStart, input.selectionEnd])).toEqual([[1, 3], [6, 8]]);
 });
 
-for (const previous of [undefined, { event_seq: '10', error: 'EOF' }]) {
-  it(`keeps an accepted failure before a recorded turn visible${previous ? ' beside an older identical failure' : ''}`, async () => {
+for (const previous of [undefined, { id: 'older', session_id: 'a', state: 'failed' as const }]) {
+  it(`keeps an accepted failure visible without an exact canonical turn identity${previous ? ' beside an older failure' : ''}`, async () => {
     const f = fixture();
-    render(f.app('a', undefined, false, previous));
+    const mounted = render(f.app('a', undefined, false, previous));
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
     await act(async () => { f.waits[0]!.accepted(); f.waits[0]!.reject(new Error('EOF')); });
-    const notice = screen.getByRole('alert');
-    expect(notice.textContent).toContain('Your message could not complete');
-    expect(notice.closest('[data-error-type]')?.getAttribute('data-error-type')).toBe('submission');
+    expect(screen.getByRole('alert').textContent).toContain('Your message could not complete');
+    mounted.rerender(f.app('a', undefined, false, { id: 'newer', session_id: 'a', state: 'failed' }));
+    expect(screen.getByRole('alert').textContent).toContain('EOF');
     expect(f.runtime.report).not.toHaveBeenCalled();
   });
 }
-it('suppresses only a newly recorded matching failure after accepted submission', async () => {
-  const f = fixture();
-  const rendered = render(f.app('a', undefined, false, { event_seq: '10', error: 'EOF' }));
+it.each(['failed', 'cancelled', 'interrupted'] as const)('defers %s feedback only to the exact recorded recipient and turn', async state => {
+  const f = fixture(); const mounted = render(f.app('a'));
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  const input = f.runtime.submittedInputs.getSnapshot()[0]!;
+  f.snapshot.commands.push({ id: 'terminal', commandId: input.id, runtimeId: 'runtime', label: 'Message child', status: state, draftKey: 'runtime:root:a', turnId: 'exact-turn' });
   await act(async () => { f.waits[0]!.accepted(); f.waits[0]!.reject(new Error('EOF')); });
-  expect(screen.getByRole('alert').textContent).toContain('EOF');
-  rendered.rerender(f.app('a', undefined, false, { event_seq: '11', error: 'Provider overloaded' }));
-  expect(screen.getByRole('alert').textContent).toContain('EOF');
-  rendered.rerender(f.app('a', undefined, false, { event_seq: '12', error: 'EOF' }));
-  expect(screen.queryByRole('alert')).toBeNull();
+  for (const turn of [
+    { id: 'unrelated', session_id: 'a', state },
+    { id: 'exact-turn', session_id: 'other', state },
+    { id: 'exact-turn', session_id: 'a', state: 'running' as const },
+  ]) {
+    mounted.rerender(f.app('a', undefined, false, turn));
+    expect(document.querySelector('[data-error-type="submission"]')).not.toBeNull();
+  }
+  mounted.rerender(f.app('a', undefined, false, { id: 'exact-turn', session_id: 'a', state }));
+  expect(document.querySelector('[data-error-type="submission"]')).toBeNull();
 });
-it('does not hide a rejected submission when an unrelated turn records the same error', async () => {
-  const f = fixture();
-  const rendered = render(f.app('a'));
+it('does not hide a rejected submission beside another failed turn', async () => {
+  const f = fixture(); const mounted = render(f.app('a'));
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
-  await act(async () => { f.waits[0]!.reject(new Error('EOF')); });
-  rendered.rerender(f.app('a', undefined, false, { event_seq: '12', error: 'EOF' }));
+  await act(async () => f.waits[0]!.reject(new Error('EOF')));
+  mounted.rerender(f.app('a', undefined, false, { id: 'unrelated', session_id: 'a', state: 'failed' }));
   expect(screen.getByRole('alert').textContent).toContain('EOF');
   expect(f.runtime.draft('runtime:root:a')).toBe('same draft');
 });
@@ -364,43 +370,14 @@ for (const outcome of ['cancelled', 'interrupted']) {
   });
 }
 
-for (const truncated of [false, true]) {
-  it(`${truncated ? 'matches an explicitly truncated' : 'does not match a merely similar'} recorded error`, async () => {
-    const f = fixture();
-    const rendered = render(f.app('a'));
-    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
-    await act(async () => { f.waits[0]!.accepted(); f.waits[0]!.reject(new Error('EOF while streaming response')); });
-    rendered.rerender(f.app('a', undefined, false, { event_seq: '12', error: 'EOF', error_truncated: truncated }));
-    expect(screen.queryByRole('alert') === null).toBe(truncated);
-  });
-}
-
-for (const outcome of ['cancelled', 'interrupted']) {
-  it(`defers ${outcome} submission feedback only to a newer matching recorded turn without error details`, async () => {
-    const f = fixture();
-    const rendered = render(f.app('a', undefined, false, { event_seq: '10', status: outcome }));
-    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
-    const input = f.runtime.submittedInputs.getSnapshot()[0]!;
-    f.snapshot.commands.push({ id: 'terminal', commandId: input.id, runtimeId: 'runtime', label: 'Message child', status: outcome, draftKey: 'runtime:root:a' });
-    await act(async () => { f.waits[0]!.accepted(); f.waits[0]!.reject(new Error(`Message child: ${outcome}`)); });
-    expect(screen.getByRole('status').textContent).toContain(`Your message was ${outcome}`);
-    rendered.rerender(f.app('a', undefined, false, { event_seq: '11', status: outcome === 'cancelled' ? 'interrupted' : 'cancelled' }));
-    expect(screen.getByRole('status').textContent).toContain(`Your message was ${outcome}`);
-    rendered.rerender(f.app('a', undefined, false, { event_seq: '12', status: outcome }));
-    expect(document.querySelector('[data-error-type="submission"]')).toBeNull();
-    expect(f.runtime.report).not.toHaveBeenCalled();
-  });
-}
-
-
 it('switches from Send to Stop after accepting an active-turn draft', async () => {
   const f = fixture();
-  const session = { ...f.session, cancelTurn: vi.fn(), agents: { cancelTurn: vi.fn() } } as unknown as Session;
-  render(<RuntimeContext.Provider value={f.runtime}><QueryClientProvider client={new QueryClient()}><UIProvider><Composer session={session} agentId="a" runtimeId="runtime" connected activeTurn="turn" queueEnabled /></UIProvider></QueryClientProvider></RuntimeContext.Provider>);
+  render(<RuntimeContext.Provider value={f.runtime}><QueryClientProvider client={new QueryClient()}><UIProvider><Composer session={f.session} rootId="root" runtimeId="runtime" connected activeTurn="turn" queueEnabled /></UIProvider></QueryClientProvider></RuntimeContext.Provider>);
   expect(screen.queryByLabelText('Message delivery')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Pause this turn' })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
-  expect(f.session.command).toHaveBeenCalledWith('agent.submit', expect.objectContaining({ delivery: 'queued', text: 'same draft' }), expect.anything());
+  expect(f.handles[0]?.method).toBe('sessions.submit');
+  expect(f.handles[0]?.params).toMatchObject({ session_id: 'a', delivery: 'queued', parts: [{ type: 'text', text: 'same draft' }] });
   await act(async () => { f.waits[0]!.accepted(); f.waits[0]!.finish(); });
   expect((screen.getByLabelText('Message this agent') as HTMLTextAreaElement).value).toBe('');
   expect(screen.queryByRole('button', { name: 'Queue message' })).toBeNull();
@@ -443,11 +420,11 @@ it.each(['root', 'a'])('inserts a skill for %s without sending/queuing, includin
   act(() => input.focus());
   fireEvent.change(input, { target: { value: 'Use /po' } });
   await screen.findByRole('option', { name: /ponytail/ });
-  expect(f.session.client.call).toHaveBeenCalledWith('workspace.complete', { root_id: 'root', agent_id: agentId, kind: 'skill', prefix: 'po', limit: 32 }, { signal: expect.any(AbortSignal) });
+  expect(native.calls.find(call => call.method === 'skills.list')?.params).toEqual({ session_id: agentId, prefix: '', limit: 100 });
   fireEvent.keyDown(input, { key: 'Enter' });
   expect(input.value).toBe('Use $ponytail ');
   fireEvent.keyDown(input, { key: 'Enter', repeat: true });
-  expect(f.session.submit).not.toHaveBeenCalled(); expect(f.waits).toHaveLength(0);
+  expect(native.calls.some(call => call.method === 'sessions.submit')).toBe(false); expect(f.waits).toHaveLength(0);
   fireEvent.keyDown(input, { key: 'Enter' });
   expect(f.waits).toHaveLength(1);
   await act(async () => { f.waits[0]!.accepted(); f.waits[0]!.finish(); });
@@ -484,13 +461,37 @@ it('Add context dialog roundtrip does not resurrect the inline picker', async ()
 });
 
 it.each(['root', 'a'])('preloads and locally filters the active %s composer catalog', async agentId => {
-  const f = fixture(true); render(f.app(agentId, 'view', true));
+  const f = fixture(); render(f.app(agentId, 'view', true));
   const input = screen.getByRole('textbox') as HTMLTextAreaElement;
   act(() => input.focus());
-  await waitFor(() => expect(f.session.client.call).toHaveBeenCalledWith('workspace.complete', expect.objectContaining({ root_id: 'root', agent_id: agentId, prefix: '', limit: 1024 }), { signal: expect.any(AbortSignal) }));
+  await waitFor(() => expect(native.calls.find(call => call.method === 'skills.list')?.params).toEqual({ session_id: agentId, prefix: '', limit: 100 }));
   fireEvent.change(input, { target: { value: '/' } }); await screen.findByRole('option', { name: /ponytail/ });
   for (const value of ['/p', '/po', '/p']) {
     fireEvent.change(input, { target: { value } }); expect(screen.getByRole('option', { name: /ponytail/ })).toBeTruthy();
   }
-  expect(f.session.client.call).toHaveBeenCalledTimes(1); expect(f.session.submit).not.toHaveBeenCalled();
+  expect(native.count('skills.list')).toBe(1); expect(native.count('sessions.submit')).toBe(0);
+});
+
+const activeTurn = (sessionId: string) => ({ id: 'turn', session_id: sessionId, history_revision: '9007199254740993', config_revision: '9007199254740994', goal: null, kind: 'prompt', state: 'running', failure: null, started_at: '2026-09-28T00:00:00Z', finished_at: null });
+it.each(['root', 'a'])('pauses only the exact %s turn through the validating native client', async sessionId => {
+  const f = fixture(); f.runtime.setDraft(`runtime:root:${sessionId}`, '');
+  native.data.handlers['turns.get'] = () => activeTurn(sessionId);
+  let finish!: () => void;
+  native.data.handlers['turns.cancel'] = () => new Promise(resolve => { finish = () => resolve({ ...activeTurn(sessionId), state: 'cancelling' }); });
+  render(f.app(sessionId, undefined, false, undefined, { activeTurn: 'turn' }));
+  const pause = screen.getByRole('button', { name: 'Pause this turn' });
+  fireEvent.click(pause); fireEvent.click(pause);
+  await waitFor(() => expect(native.count('turns.cancel')).toBe(1));
+  expect(pause).toHaveProperty('disabled', true);
+  expect(native.calls.filter(call => call.method !== 'initialize').map(call => [call.method, call.params])).toEqual([['turns.get', { turn_id: 'turn' }], ['turns.cancel', { turn_id: 'turn' }]]);
+  await act(async () => finish());
+  expect(pause).toHaveProperty('disabled', false); expect(f.waits).toHaveLength(0);
+});
+it('refuses to cancel a turn owned by another recipient', async () => {
+  const f = fixture(); f.runtime.setDraft('runtime:root:a', '');
+  native.data.handlers['turns.get'] = () => activeTurn('foreign');
+  render(f.app('a', undefined, false, undefined, { activeTurn: 'turn' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Pause this turn' }));
+  expect((await screen.findByRole('alert')).textContent).toContain('another session');
+  expect(native.count('turns.cancel')).toBe(0);
 });
