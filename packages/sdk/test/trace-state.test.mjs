@@ -311,7 +311,10 @@ test('trace display timing keeps exact host nanoseconds and only advances by non
   await view.start();
   const value = view.getSnapshot();
   assert.equal(value.observedAtNS, '1790600000000001000');
-  assert.equal(traceNowNS(value, value.receivedAtMs + 12.5), 1790600000012501000n);
+  assert.ok(Number.isFinite(value.receivedAtMs));
+  // Fractional performance.now() origins can round subtraction by a nanosecond.
+  // Keep the elapsed-clock arithmetic deterministic while testing the real sample above.
+  assert.equal(traceNowNS({ ...value, receivedAtMs: 1000 }, 1012.5), 1790600000012501000n);
   assert.equal(traceNowNS(value, value.receivedAtMs - 500), 1790600000000001000n);
   await view.suspend();
   assert.equal(traceNowNS(view.getSnapshot(), value.receivedAtMs + 99999), 1790600000000001000n);
