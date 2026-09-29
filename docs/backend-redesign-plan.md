@@ -982,8 +982,10 @@ Retain the host/gateway authorization boundary for these account operations.
 
 Acceptance:
 
-- [ ] Every supported client builds against the new generated contract and
-      exercises submission, observation and explicit cancellation.
+- [x] Every supported client builds against the new generated contract and
+      exercises submission, observation and explicit cancellation. Native Go,
+      CLI/TUI, ACP, SDK, shared web/Desktop and mobile gates have replacement
+      coverage; full feature parity and final-revision gates remain below.
 - [x] Uniform session handles/history/views work for roots and children. SDK
       recovery distinguishes acceptance, outcome and local observation errors.
 - [ ] Snapshot/subscription handoff, dropped events, expired replay, restart and
@@ -992,12 +994,27 @@ Acceptance:
       truncation/unavailability truthfully; cross-session access is rejected.
 - [ ] Desktop native bindings, mobile suspension/resume, web content transfer,
       Go client and ACP pass their relevant transport/lifecycle checks.
-- [ ] Fresh namespaces for local recovery records/caches prevent old identities
+- [x] Fresh namespaces for local recovery records/caches prevent old identities
       from targeting the new runtime. Unsupported peers fail initialization.
+      Browser/Desktop use the v4 exact-request journal, mobile preserves only
+      bounded receipt metadata after restart, and terminal/run recovery pins
+      the original runtime and request. Retired records never replay.
 - [ ] Manual product checks cover interrupted work, permissions/questions,
       children, content, drafts and navigation on the affected surfaces.
 - [ ] Examples, SDK docs and canonical frontend/protocol guides describe shipped
       behavior. All supported client targets are now in required CI.
+
+Current client follow-through (2026-09-29): the native terminal is the default;
+provider/account menus, root/child controls, REPL, original paste/image input,
+scoped completion, palette/shortcuts, copy and rendered selection have integrated
+race coverage. Actual native browser probes cover bounded history, reading
+position, attachment confirmation, queue/dock workflows and turn failures.
+Canonical architecture, setup, gateway and package guides now describe native
+ownership and storage. Remaining work includes terminal history/panel controls,
+standing-grant creation in the shared app, specialized browser fixtures, the
+intermittent Desktop screenshot/navigation failures and the 50 ms input/RSS
+acceptance. The development record names exact passing revisions and failed
+hosted runs; none of these increments completes the phase.
 
 ### Phase 7 — Cut over and remove the retired core
 

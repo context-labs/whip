@@ -4882,3 +4882,95 @@ result did not open a page, and desktop failed an earlier guest navigation befor
 reaching the previously failing capture. Both need exact event diagnostics; a
 successful local rerun is not treated as closure. Run 36560260360 is the current
 workflow checkpoint at d800463fe, with hosted validation still in progress.
+
+
+### Native terminal selection and client acceptance checkpoint — 2026-09-29
+
+The next isolated branch, `codex/backend-redesign-client-completion`, builds on
+CLI retirement `91ab222cdd7171476fff7527e8457b92da60487a` (#269). Native terminal
+palette/completion, exact owner-local clipboard copy, rendered mouse selection
+and individual tool-block expansion are integrated through `fbd2cbeff`.
+Completion is bounded to 64 rows/256 KiB with joined deadlines and stale-owner
+rejection. Path/skill suggestions use host services and do not grant authority.
+Copy retains at most 1 MiB of captured loaded text, uses Bubble Tea OSC52, and
+owns one bounded foreground clipboard helper until replacement/detachment.
+Selection preserves Unicode and blank lines, rejects stale geometry/history,
+and never changes canonical messages. Real clipboard policy remains untested;
+fixture helpers prove lifetime, exact bytes, output bounds and cleanup.
+
+The complete native TUI race/shuffle group passes in 109.396s after selection,
+then vet passes. The earlier copy integration passes in 107.725s; the retained
+non-native group passes in 9.010s and spacing-affected native checks in 11.276s.
+Pinned golangci-lint v2.13.1 against frozen baseline
+`e3fed9c91918d9c36766dd47d878c1b5466238d1` reports zero issues for TUI, bashrun and
+CLI; both native executables build. Hosted run 36560260360 exposed a layout
+literal ratchet failure on macOS and aggregate three-minute TUI timeout on
+Linux. The native spacing now derives from theme/glyph widths. CI retains the
+same complete test set in complementary native/retained groups, each with the
+original three-minute deadline; the timeout was observed while a new test was
+initializing its store, not as a proven deadlock.
+
+The shell inactivity fixture now waits for an actual non-echoing PTY readiness
+marker, records six received lines outside the PTY, cancels and joins its sender,
+and checks the exact inactivity result. Terminal output cannot mask a broken
+key activity reset. The original 250 ms inactivity and 550 ms lower elapsed
+bounds remain. Fifteen race repetitions pass in 16.254s, the full bashrun race
+package in 8.576s, and vet passes. The earlier macOS failure had no key-delivery
+evidence; its precise cause is not retrospectively claimed proven.
+
+SDK build, consumer types and all 201 tests pass. Encoding now uses the native
+Uint8Array base64 API when available and preserves the portable fallback;
+12 tests cover exact views, padding and UTF-8. In one unchanged staged before/
+after workload, three 3 MiB uploads improve from 1321.5 to 993.7 ms. Renderer
+identities are `434fd24db73351a53734d49c73f50060c2532a618c812d73d79aea766f248daf`
+and `b9532f278f9ad208785fef5a40fe65ec156f7daaf4249557051b3f565ea7d096`.
+Native streamed-input p95 changes from 88±4 to 72±4 ms, but encoding is absent
+from that path and receives no causal credit. Peak RSS grows from 1,588,832 to
+1,638,848 KiB; neither memory acceptance nor the 50 ms input target is met.
+These are one measured pair, not a broad performance guarantee.
+
+The integrated production renderer packs as
+`a4f135049db656e01df42d51be116a08260cc76eca4ebd04c65f92ae3a1f9ccd`.
+A fresh-worktree fixture attempt first failed because no renderer had been
+packaged; after packing, production fixture/queue checks pass five tests in
+9.517s. App and Desktop types pass. The native rejection fixture caps synthetic
+provider bodies at 64 KiB and proves that a large private body becomes only the
+sanitized canonical HTTP 400 failure. Integrated turn-failure leaf `ccedf663a`
+passes eight workflows per browser in Chromium 153/Firefox 155: 18 themed/width
+layouts each, exact child/turn and healthy-root negatives, committed cells,
+reload, crash/restart, old-epoch rejection, no replay and later child success.
+Exactly 11 provider attempts include legitimate child completion reports. Raw
+provider-body truncation UI is deliberately replaced by sanitization, not claimed
+as retained raw-error coverage. The audit accompanies the probe, which is now
+required in product-activity CI.
+
+The separate middle-click sidebar probe now holds and observes the exact native
+filtered result before exercising the original popup/inspector assertions.
+Both browsers pass (11 Chromium/10 Firefox workflows). The precise hosted
+dropped-click cause remains inferred. Desktop fixtures now retain a bounded
+navigation event ring, underlying rejection and guest geometry on failure.
+An injected ERR_EMPTY_RESPONSE proves the artifact and joined process/profile
+cleanup; the normal production fixture passes locally. This is diagnostic
+coverage, not a fix for intermittent hosted navigation or hidden first capture.
+
+Hosted run 36560578233 at #269's exact head fails both unsplit TUI client jobs and
+Desktop's first hidden-guest screenshot; its macOS store-rest job failed before
+tests because the Go dependency proxy timed out. Only that setup-failed job was
+requested again after the run completed. All other product/build/race/analysis
+jobs passed. The original failure remains recorded; the next checkpoint's
+hosted results must be assessed independently.
+
+Architecture/setup/gateway/mobile and SDK/app/protocol entry guides are reconciled
+with actual native code. They distinguish the independent foreground gateway
+from the in-process managed gateway, fresh host/client storage, bounded exact
+browser recovery versus mobile receipt-only persistence, and historical device/
+remote-host evidence. Documentation corrects draft eviction descriptions to the
+existing implementation; no new draft policy was introduced. All relative file
+links in the updated guides resolve.
+
+Remaining obligations include richer terminal history/context controls,
+shared-app standing-grant creation (listing/revocation alone was insufficient),
+other specialized browser probes, Desktop failures, performance acceptance and
+final old-core/package/test removal. Signed release, actual remote SSH, physical
+mobile, VoiceOver, Safari and live-provider acceptance remain explicitly
+unverified. No installed runtime or original development checkout was modified.

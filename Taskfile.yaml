@@ -232,6 +232,7 @@ tasks:
       - node apps/web/scripts/native-chat-activity.mjs
       - node apps/web/scripts/composer-queue.mjs
       - node apps/web/scripts/agent-dock.mjs
+      - node apps/web/scripts/turn-failures.mjs
 
   check:product-settings:
     desc: Native Settings, provider connections, stored conversation and REPL workflows
