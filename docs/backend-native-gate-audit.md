@@ -28,13 +28,14 @@ retains the earlier failures and intermediate results.
 | Shared UI | Complete `check:product-ui` passes locally at `d9545097d` and hosted at `1edc9d823`: Storybook,66 themes/14 interactions, strict CSP, isolated packed consumers, tabs/layout in both browsers and30 model-picker scenarios. Workspace regressions fail before their repairs; no tolerance changes. | Final combined-source gate. This is not all application browser workflows or actual Safari. |
 | Desktop and distribution | Complete [staged Desktop gate](backend-native-desktop-readiness.md) passes at `1fa8dbfb2`, including166 tests,116 distribution checks, onboarding, normal/failure workspace flows and terminal/editor/browser IPC. | Signed/quarantined release, target/minimum-OS execution, real SSH hardware/account scenarios and quiet performance remain distinct. |
 
-Hosted run36584226063 at `1edc9d823` is not green. Analysis, evals, mobile, UI,
+Hosted run36584226063 at `1edc9d823` finishes with 34 passed jobs, four failed
+leaf jobs, two failed aggregates and skipped Desktop. Analysis, evals, mobile, UI,
 Settings, product browser and all Linux/macOS race partitions pass. Three failure
 classes require follow-through: Linux dedicated Chrome loses Xvfb's display
 environment, the Chromium REPL probe reports overlapping observations, and both
 client gates reach an unsupported signal trap in Task's embedded shell. The
 launch and Task failures have reproduced local repairs; REPL still needs exact
-observer lifetime evidence. Other jobs are not counted as passed until they finish.
+observer lifetime evidence. Skipped Desktop supplies no hosted acceptance.
 The earlier `b1c9ca965` run remains failed evidence; its dependency-download
 failures were neither product findings nor passing checks.
 

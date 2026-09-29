@@ -5718,3 +5718,10 @@ build and failed test, with no test after failed build. The actual packaged
 runtime integration passes in 3.413s with unchanged race/shuffle/engine assertions
 and two-minute deadline (`/tmp/whip-platform-runtime-fixture.log`). No product
 runtime behavior or test requirement changed.
+
+Hosted #277 run36584226063 finishes at `1edc9d823` with34 passed jobs, four failed
+leaf jobs, two propagated aggregate failures and skipped Desktop. The four
+leaves are exactly Linux dedicated Chrome, the REPL observation assertion and
+the Task trap in both client jobs. Full product-browser validation passes;
+Desktop supplies no hosted evidence because the parent workflow skipped it.
+The final remote record is `/tmp/whip-277-final-summary.md`.
