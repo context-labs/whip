@@ -434,9 +434,7 @@ export type BrowserEvent = {
 } & (
   | {
       cancel?: null;
-      command?: {
-        [k: string]: unknown;
-      };
+      command?: {};
       inventory?: null;
       method?: "browser.command";
       retired?: null;
@@ -446,18 +444,14 @@ export type BrowserEvent = {
   | {
       cancel?: null;
       command?: null;
-      inventory?: {
-        [k: string]: unknown;
-      };
+      inventory?: {};
       method?: "browser.inventory";
       retired?: null;
       revoked?: null;
       [k: string]: unknown;
     }
   | {
-      cancel?: {
-        [k: string]: unknown;
-      };
+      cancel?: {};
       command?: null;
       inventory?: null;
       method?: "browser.command.cancel";
@@ -471,9 +465,7 @@ export type BrowserEvent = {
       inventory?: null;
       method?: "browser.provider.revoked";
       retired?: null;
-      revoked?: {
-        [k: string]: unknown;
-      };
+      revoked?: {};
       [k: string]: unknown;
     }
   | {
@@ -481,9 +473,7 @@ export type BrowserEvent = {
       command?: null;
       inventory?: null;
       method?: "browser.scopes.retired";
-      retired?: {
-        [k: string]: unknown;
-      };
+      retired?: {};
       revoked?: null;
       [k: string]: unknown;
     }
