@@ -4,6 +4,8 @@ import { HostConnections } from '../src/hosts';
 import { AppRuntime } from '../src/runtime';
 import { createFallbackStorage, resolveURLConnection, urlProfile, type AppPlatform, type AppStorage } from '../src/platform';
 import type { DesktopBridge, DesktopEvent } from '../src/desktop-bridge';
+import { providerFixture } from './provider-fixture';
+import type { HostConnection } from '../src/hosts';
 import { mountApplication } from '../../../apps/web/src/bootstrap';
 
 const renderStartup = vi.hoisted(() => vi.fn());
@@ -133,4 +135,28 @@ it('lets browsers leave after a successful final text flush and preserves the ba
   expect(dispose).not.toHaveBeenCalled();
   act(() => window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false })));
   expect(dispose).toHaveBeenCalledOnce();
+});
+
+
+it('reports startup readiness only for an attached native local client with matching identity', async () => {
+  const measurement = window as Window & { whipStartupMeasurement?: boolean; whipStartupSnapshot?: () => { sdkState: string; sdkConnected: boolean; tabCount: number; newDraftMatchesRoute: boolean } };
+  measurement.whipStartupMeasurement = true;
+  const f = fixture();
+  try {
+    const { client } = await providerFixture({ runtimeID: 'host' });
+    const home = { id: 'local', runtimeId: 'host', local: true, state: 'connected', profile: { target: { kind: 'local' } }, client } as HostConnection;
+    const current = f.app.runtime.getSnapshot();
+    const snapshot = vi.spyOn(f.app.runtime, 'getSnapshot').mockReturnValue({ ...current, home });
+    const attached = vi.spyOn(f.app.runtime.connections, 'isAttached').mockReturnValue(false);
+    expect(measurement.whipStartupSnapshot!().sdkConnected).toBe(false);
+    attached.mockReturnValue(true);
+    expect(measurement.whipStartupSnapshot!()).toMatchObject({ sdkState: 'connected', sdkConnected: true });
+    snapshot.mockReturnValue({ ...current, home: { ...home, runtimeId: 'another' } });
+    expect(measurement.whipStartupSnapshot!().sdkConnected).toBe(false);
+    snapshot.mockReturnValue({ ...current, home: { ...home, state: 'closed' } });
+    expect(measurement.whipStartupSnapshot!()).toMatchObject({ sdkState: 'closed', sdkConnected: false });
+    expect(Object.keys(measurement.whipStartupSnapshot!()).sort()).toEqual(['newDraftMatchesRoute', 'sdkConnected', 'sdkState', 'tabCount']);
+    act(() => f.app.dispose());
+    expect(measurement.whipStartupSnapshot).toBeUndefined();
+  } finally { delete measurement.whipStartupMeasurement; }
 });

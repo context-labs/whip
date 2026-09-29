@@ -27,7 +27,7 @@ export function EmptyWorkspace({ missing = false, subject = 'draft' }: { missing
   // First run: every host that has answered holds an empty catalog. Status is ignored; polls flip it to stale and back.
   const lists = useMemo(() => hosts.flatMap(host => host.list ? [host.list] : []), [hosts]);
   const subscribe = useCallback((listener: () => void) => { const offs = lists.map(list => list.subscribe(listener)); return () => { for (const off of offs) off(); }; }, [lists]);
-  const firstRun = useSyncExternalStore(subscribe, () => !missing && lists.length > 0 && lists.every(list => { const page = list.getSnapshot().page; return !!page && !page.items?.length; }));
+  const firstRun = useSyncExternalStore(subscribe, () => !missing && lists.length > 0 && lists.every(list => { const catalog = list.getSnapshot(); return catalog.revision !== null && catalog.windowAfter === null && !catalog.nextCursor && !catalog.items.length; }));
   const local = hosts.find(host => host.local);
   if (!missing && local?.profile.target.kind === 'local' && runtime.platform.localRuntime && local.state !== 'connected' && !hosts.some(host => !host.local && host.client)) {
     return <div data-empty-workspace="setup" {...stylex.props(layout.setupPage)}><div {...stylex.props(layout.setupColumn)}>

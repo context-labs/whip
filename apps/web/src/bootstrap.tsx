@@ -16,13 +16,12 @@ export function mountApplication(platform: AppPlatform, desktop?: DesktopBridge)
   const measurement = window as Window & { whipStartupMeasurement?: boolean; whipStartupSnapshot?: () => unknown };
   const startupSnapshot = () => {
     const home = application.runtime.getSnapshot().home;
-    const connection = home?.client?.getSnapshot();
     const workspace = application.runtime.tabs.workspace();
     const draft = workspace.tabs.length === 1 ? workspace.tabs[0] : undefined;
     return Object.freeze({
-      sdkState: connection?.state ?? 'unverified',
+      sdkState: home?.state ?? 'unverified',
       sdkConnected: !!home?.local && home.profile?.target.kind === 'local' && home.state === 'connected' &&
-        connection?.state === 'connected' && !!home.runtimeId && connection.info?.runtime_id === home.runtimeId,
+        !!home.client && !!home.runtimeId && home.client.runtimeID === home.runtimeId && application.runtime.connections.isAttached(home.client),
       tabCount: Math.min(workspace.tabs.length, 33),
       newDraftMatchesRoute: draft?.kind === 'new' && application.router.state.location.pathname === `/new/${draft.id}`,
     });

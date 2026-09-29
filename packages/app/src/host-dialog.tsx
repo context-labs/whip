@@ -184,7 +184,7 @@ export function ServerManager() {
             <HostIcon size={16} aria-hidden {...stylex.props(styles.icon)} />
             <SettingsRow xstyle={[settingsSection.rowContent, styles.serverDetails]} label={<span {...stylex.props(styles.name)}>{host.name}</span>} description={<span {...stylex.props(styles.address)}>{address}</span>}>
               <div {...stylex.props(layout.row, layout.wrap)}>
-                <StatusIndicator tone={host.state === 'connected' ? 'success' : host.error ? 'error' : host.state === 'incompatible' ? 'warning' : 'neutral'}>{status}</StatusIndicator>
+                <StatusIndicator tone={host.state === 'connected' ? 'success' : host.error ? 'error' : 'neutral'}>{status}</StatusIndicator>
                 <Menu onOpenChange={open => { if (open) returnFocus.current = triggers.current[host.id]; }} trigger={<IconButton ref={element => { if (element) triggers.current[host.id] = element; else delete triggers.current[host.id]; }} label={`Actions for ${host.name}`} variant="ghost" disabled={pending || localPending}><MoreHorizontal size={18} /></IconButton>} items={items} />
               </div>
             </SettingsRow>

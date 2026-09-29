@@ -3,7 +3,7 @@ import { typography } from '@whip/ui/tokens.stylex';
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQueries } from '@tanstack/react-query';
-import type { SessionCatalogPage } from '@whip/legacy-protocol';
+import { clientQueryKey } from './client-query-key';
 import { Button, ContextMenu, Dialog, IconButton, Input, Menu, Select, type DialogProps } from '@whip/ui';
 import { Code2, CornerDownLeft, MoreHorizontal, Search } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
@@ -27,7 +27,7 @@ function SearchDialog({ onOpenChange, finalFocus }: Props) {
   const [filter, setFilter] = useState('');
   const [search, setSearch] = useState('');
   const [term, setTerm] = useState('');
-  const [cursors, setCursors] = useState<Record<string, SessionCatalogPage['next_cursor']>>({});
+  const [cursors, setCursors] = useState<Record<string, { after: string; revision: string } | undefined>>({});
   const [selected, setSelected] = useState<string>();
   const input = useRef<HTMLInputElement>(null);
   const results = useRef<HTMLDivElement>(null);
@@ -49,7 +49,7 @@ function SearchDialog({ onOpenChange, finalFocus }: Props) {
     };
   }, [visibleHosts]);
   const recent = useSyncExternalStore(catalogs.subscribe, catalogs.getSnapshot, catalogs.getSnapshot);
-  const revisions = JSON.stringify(visibleHosts.map((host, index) => [host.runtimeId, recent[index]?.page?.revision]));
+  const revisions = JSON.stringify(visibleHosts.map((host, index) => [host.client ? clientQueryKey(host.client) : host.id, recent[index]?.revision]));
   const previousRevisions = useRef(new Map<string, string>());
   useEffect(() => {
     const current = new Map<string, string>(JSON.parse(revisions));
@@ -59,20 +59,23 @@ function SearchDialog({ onOpenChange, finalFocus }: Props) {
     // Reuse catalog observation; other clients invalidate only their host's
     // on-demand search and cursors, without a second background list poller.
     setCursors(cursors => Object.fromEntries(Object.entries(cursors).filter(([id]) => !changed.has(id))));
-    void runtime.queries.invalidateQueries({ predicate: query => query.queryKey[0] === 'session-search' && changed.has(query.queryKey[1] as string) });
+    void runtime.queries.invalidateQueries({ predicate: query => query.queryKey[0] === 'session-search' && changed.has(query.queryKey[2] as string) });
   }, [runtime, revisions]);
   useEffect(() => {
     const timer = setTimeout(() => { setTerm(search.trim()); setCursors({}); setSelected(undefined); }, 200);
     return () => clearTimeout(timer);
   }, [search]);
-  const queries = useQueries({ queries: visibleHosts.map(host => ({
-    queryKey: ['session-search', host.runtimeId, term, 'all', cursors[host.runtimeId ?? '']],
-    queryFn: ({ signal }: { signal: AbortSignal }) => host.client!.sessions.list({ search: term, status: 'all', cursor: cursors[host.runtimeId!], limit: 64, max_bytes: 256 << 10 }, { signal }),
-    enabled: !!host.client && host.state === 'connected',
-    refetchOnMount: 'always' as const,
-    // Keep only the landing page warm; typed searches and cursor pages stay transient.
-    gcTime: !term && !cursors[host.runtimeId ?? ''] ? 5 * 60_000 : 0,
-  })) });
+  const queries = useQueries({ queries: visibleHosts.map(host => {
+    const key = host.client ? clientQueryKey(host.client) : host.id;
+    const cursor = cursors[key];
+    return {
+      queryKey: ['session-search', host.runtimeId, key, term, cursor],
+      queryFn: ({ signal }: { signal: AbortSignal }) => host.client!.trees.list({ search: term, after: cursor?.after, expected_revision: cursor?.revision, limit: 64 }, { signal }),
+      enabled: !!host.client && host.state === 'connected',
+      refetchOnMount: 'always' as const,
+      gcTime: 0,
+    };
+  }) });
   const groups = visibleHosts.map((host, index) => {
     const query = queries[index]!;
     const connected = !!host.client && host.state === 'connected';
@@ -84,7 +87,7 @@ function SearchDialog({ onOpenChange, finalFocus }: Props) {
       error: connected ? query.error?.message : undefined,
     };
   });
-  const items = groups.flatMap(group => group.items.map(session => ({ session, host: group.host, key: JSON.stringify([group.host.runtimeId, session.id]) })));
+  const items = groups.flatMap(group => group.items.map(session => ({ session, host: group.host, key: JSON.stringify([group.host.runtimeId, session.root_id]) })));
   const loading = groups.some(group => group.loading);
   const current = Math.max(0, items.findIndex(item => item.key === selected));
   const settling = search.trim() !== term;
@@ -93,8 +96,8 @@ function SearchDialog({ onOpenChange, finalFocus }: Props) {
     results.current?.querySelector<HTMLElement>(`[data-search-index="${current}"]`)?.scrollIntoView({ block: 'nearest' });
   }, [current]);
   const close = () => onOpenChange(false);
-  const cursor = (runtimeId: string, value: SessionCatalogPage['next_cursor']) => {
-    setCursors(current => ({ ...current, [runtimeId]: value }));
+  const cursor = (key: string, value?: { after: string; revision: string }) => {
+    setCursors(current => Object.fromEntries([...Object.entries(current).filter(([id]) => id !== key), [key, value]].slice(-4)));
     setSelected(undefined);
     results.current?.scrollTo(0, 0);
   };
@@ -118,44 +121,45 @@ function SearchDialog({ onOpenChange, finalFocus }: Props) {
       {groups.map(group => {
         const { host, page, query } = group;
         const runtimeId = host.runtimeId ?? '';
+        const key = host.client ? clientQueryKey(host.client) : host.id;
         const start = offset;
         offset += group.items.length;
         return <section key={host.id} aria-label={`${host.name} search results`}>
           {hosts.length > 1 && <h3 {...stylex.props(styles.host)}>{host.name}</h3>}
           {group.items.map((session, position) => {
             const index = start + position;
-            const saved = runtime.tabs.preferred(runtimeId, session.id);
-            const menuItems = actions.items({ runtimeId, rootId: session.id, title: session.title, archived: session.archived });
-            return <ContextMenu key={session.id} items={menuItems} onOpenChange={actions.prepare}><div data-search-index={index} {...stylex.props(styles.result, sessionMarker, index === current && styles.highlighted)}
+            const saved = runtime.tabs.preferred(runtimeId, session.root_id);
+            const menuItems = actions.items({ runtimeId, rootId: session.root_id, title: session.tree.metadata.title ?? '', archived: session.tree.metadata.archived });
+            return <ContextMenu key={session.root_id} items={menuItems} onOpenChange={actions.prepare}><div data-search-index={index} {...stylex.props(styles.result, sessionMarker, index === current && styles.highlighted)}
               onPointerMove={() => setSelected(items[index]!.key)} onFocus={() => setSelected(items[index]!.key)}>
-              <Link to="/h/$runtimeId/s/$rootId" params={{ runtimeId, rootId: session.id }} search={sessionSearch(saved)} state={{ whipViewId: saved?.id }} preload={false}
-                title={`${host.name}\n${session.title || 'Untitled session'}\n${session.cwd}`} aria-label={`${session.title || 'Untitled session'} · ${host.name}${session.cwd ? ` · ${session.cwd}` : ''}`}
+              <Link to="/h/$runtimeId/s/$rootId" params={{ runtimeId, rootId: session.root_id }} search={sessionSearch(saved)} state={{ whipViewId: saved?.id }} preload={false}
+                title={`${host.name}\n${session.tree.metadata.title || 'Untitled session'}\n${session.working_directory}`} aria-label={`${session.tree.metadata.title || 'Untitled session'} · ${host.name}${session.working_directory ? ` · ${session.working_directory}` : ''}`}
                 {...stylex.props(styles.link)} onClick={event => {
                   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-                  try { runtime.tabs.open(runtimeId, session.id, session.title); close(); }
-                  catch (error) { event.preventDefault(); setActionError({ owner: `${runtimeId}:${session.id}`, error }); }
+                  try { runtime.tabs.open(runtimeId, session.root_id, session.tree.metadata.title ?? undefined); close(); }
+                  catch (error) { event.preventDefault(); setActionError({ owner: `${runtimeId}:${session.root_id}`, error }); }
                 }}>
-                <Code2 size={18} aria-hidden="true" /><span {...stylex.props(layout.grow, layout.ellipsis)}>{session.title || 'Untitled session'}{session.archived ? ' · Archived' : ''}</span>
-                {index === current ? <CornerDownLeft size={16} aria-hidden="true" /> : <span {...stylex.props(styles.date)}>{updatedLabel(session.updated_at)}</span>}
+                <Code2 size={18} aria-hidden="true" /><span {...stylex.props(layout.grow, layout.ellipsis)}>{session.tree.metadata.title || 'Untitled session'}{session.tree.metadata.archived ? ' · Archived' : ''}</span>
+                {index === current ? <CornerDownLeft size={16} aria-hidden="true" /> : <span title="Created" {...stylex.props(styles.date)}>{createdLabel(session.tree.created_at)}</span>}
               </Link>
-              <Menu trigger={<IconButton label={`Actions for ${session.title || 'Untitled session'} on ${host.name}`} variant="ghost" xstyle={[sidebarStyles.icon, sidebarStyles.sessionMenu]}><MoreHorizontal size={14} /></IconButton>} items={menuItems} onOpenChange={actions.prepare} />
+              <Menu trigger={<IconButton label={`Actions for ${session.tree.metadata.title || 'Untitled session'} on ${host.name}`} variant="ghost" xstyle={[sidebarStyles.icon, sidebarStyles.sessionMenu]}><MoreHorizontal size={14} /></IconButton>} items={menuItems} onOpenChange={actions.prepare} />
             </div></ContextMenu>;
           })}
           {group.connected && !group.items.length && !group.error && <p role="status" {...stylex.props(styles.notice)}>{group.loading ? 'Loading sessions…' : term ? 'No matching sessions.' : 'No recent sessions yet.'}</p>}
           {!group.connected && <p role="status" {...stylex.props(styles.notice)}>Sessions unavailable while {host.name} is offline. <Link to="/settings" search={{ section: "connections" }} onClick={close}>Manage servers</Link></p>}
           {group.error && <ErrorNotice type="resource" owner={`session-search:${host.id}`} error={group.error} title={`Could not load sessions on ${host.name}`} action={<Button variant="ghost" onClick={() => {
-            if (cursors[runtimeId]) cursor(runtimeId, undefined); else void query.refetch();
+            if (cursors[key]) cursor(key); else void query.refetch();
           }}>Retry {hosts.length > 1 ? host.name : ''}</Button>} />}
-          {page?.has_more && <Button variant="ghost" disabled={settling || group.loading} onClick={() => cursor(runtimeId, page.next_cursor)}>Load more sessions{hosts.length > 1 ? ` on ${host.name}` : ''}</Button>}
-          {cursors[runtimeId] && <Button variant="ghost" onClick={() => cursor(runtimeId, undefined)}>First results{hosts.length > 1 ? ` on ${host.name}` : ''}</Button>}
+          {page?.next_cursor && <Button variant="ghost" disabled={settling || group.loading} onClick={() => cursor(key, { after: page.next_cursor!, revision: page.revision })}>Load more sessions{hosts.length > 1 ? ` on ${host.name}` : ''}</Button>}
+          {cursors[key] && <Button variant="ghost" onClick={() => cursor(key)}>First results{hosts.length > 1 ? ` on ${host.name}` : ''}</Button>}
         </section>;
       })}
       {!groups.length && <p role="status" {...stylex.props(styles.notice)}>No hosts selected.</p>}
     </div>
-    <span role="status" {...stylex.props(layout.srOnly)}>{active ? `${active.session.title || 'Untitled session'} on ${active.host.name}, result ${current + 1} of ${items.length}` : ''}</span>
+    <span role="status" {...stylex.props(layout.srOnly)}>{active ? `${active.session.tree.metadata.title || 'Untitled session'} on ${active.host.name}, result ${current + 1} of ${items.length}` : ''}</span>
   </Dialog>;
 }
-function updatedLabel(value: string) {
+function createdLabel(value: string) {
   const time = Date.parse(value);
   if (!Number.isFinite(time)) return '';
   const days = Math.max(0, Math.floor((Date.now() - time) / 86_400_000));

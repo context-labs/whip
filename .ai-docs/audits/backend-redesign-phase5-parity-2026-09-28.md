@@ -95,3 +95,7 @@ Terminal rendering now uses native bounded reads and exact process epochs, prese
 ### Native selected-pane checkpoint
 
 Visible panes now lease and render their exact selected root or child session through the native Client, SessionView and ExecutionView. Trace observers remain separate per-pane leases and reject obsolete client ownership. Native terminal close preserves uncertain same-epoch outcomes for inspection; confirmed missing or previous-process terminals close locally. The three focused pane/title/desktop-close suites pass 39 tests (4.00s), including child selection and exact owner requests. Conversation rendering is being integrated from its independently tested leaf; aggregate app typechecking remains pending that cutover.
+
+### Native navigation and shell checkpoint
+
+Shared sidebar, search, attention, desktop notifications, first-run catalog detection and bootstrap readiness now use native catalog/session metadata and canonical host attachment state. Exact child attention links, revision-bound keyset pages, bounded cursor storage, replacement-client isolation, visible overflow and large decimal counts are covered with the actual SDK codec and catalog view. Ten focused suites pass 48 tests (4.30s); owned source TypeScript is clean. Legacy conversation callers still prevent the aggregate typecheck until the released conversation leaf is integrated. No installed runtime or user session was touched.

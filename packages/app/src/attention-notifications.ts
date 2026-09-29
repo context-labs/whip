@@ -1,55 +1,47 @@
 import type { QueryClient } from '@tanstack/react-query';
-import type { WhipClient } from '@whip/legacy-sdk';
-import type { HostAttentionResult } from '@whip/legacy-protocol';
+import type { Client } from '@whip/sdk';
+import { clientQueryKey } from './client-query-key';
+import type { HostAttentionResult, HostAttentionParams } from '@whip/protocol';
 import type { AppNotification } from './platform';
 
 const rootsLimit = 256;
-const questionLimit = 64;
-export function attentionQuery(client: WhipClient, runtimeId: string | undefined, after?: string) {
+export function attentionQuery(client: Client | undefined, runtimeId: string | undefined, after: HostAttentionParams['after'] = null) {
   return {
-    queryKey: ['host-attention', runtimeId, after],
-    queryFn: ({ signal }: { signal: AbortSignal }) => client.host.attention({ after_id: after, limit: 64, max_bytes: 256 << 10 }, { signal }),
+    queryKey: ['host-attention', runtimeId, client ? clientQueryKey(client) : null, after],
+    queryFn: ({ signal }: { signal: AbortSignal }) => client!.hostAttention({ after, limit: 64, max_bytes: 256 << 10 }, { signal }),
   };
 }
 
-type AttentionItem = {
-  rootId: string; title: string; permissions: string; questionCount: number;
-  questionIds: string[]; completeQuestions: boolean;
-};
+type AttentionItem = { rootId: string; sessionId: string; title: string; permissions: string; questionCount: string };
 export type AttentionScan = { items: AttentionItem[]; complete: boolean };
 
-/** Reuse the UI's first page; bound additional reads without opening root views. */
-export async function scanAttention(client: WhipClient, queries: QueryClient, runtimeId: string, signal: AbortSignal): Promise<AttentionScan> {
+/** Reuse the UI's first page; bound additional reads without opening conversations. */
+export async function scanAttention(client: Client, queries: QueryClient, runtimeId: string, signal: AbortSignal): Promise<AttentionScan> {
   signal.throwIfAborted();
-  let page = await queries.fetchQuery({ ...attentionQuery(client, runtimeId), staleTime: 0 });
+  let page = await queries.fetchQuery({ ...attentionQuery(client, runtimeId), staleTime: 0, gcTime: 0 });
   const result: AttentionScan = { items: [], complete: true };
   const cursors = new Set<string>();
   for (let number = 0; number < 4; number++) {
     signal.throwIfAborted();
-    result.complete &&= !page.truncated && (page.items?.length ?? 0) <= 64;
-    result.items.push(...(page.items ?? []).slice(0, 64).map(summarize));
-    if (!page.has_more) return result;
-    const after = page.next_after_id;
-    if (number === 3 || !after || after.length > 256 || cursors.has(after)) break;
-    cursors.add(after);
-    page = await client.host.attention({ after_id: after, limit: 64, max_bytes: 256 << 10 }, { signal });
+    result.complete &&= page.items.length <= 64;
+    result.items.push(...page.items.slice(0, 64).map(summarize));
+    if (!page.next_cursor) return result;
+    const after = page.next_cursor;
+    const key = JSON.stringify(after);
+    if (number === 3 || cursors.has(key)) break;
+    cursors.add(key);
+    page = await client.hostAttention({ after, limit: 64, max_bytes: 256 << 10 }, { signal });
   }
   result.complete = false;
   return result;
 }
 
-function summarize(item: NonNullable<HostAttentionResult['items']>[number]): AttentionItem {
-  const questions = item.questions ?? [];
-  const ids = questions.slice(0, questionLimit).map(question => question.question_id)
-    .filter((id): id is string => !!id && id.length <= 256);
-  return {
-    rootId: item.root_id, title: item.title.slice(0, 256), permissions: item.pending_permissions,
-    questionCount: questions.length, questionIds: ids,
-    completeQuestions: questions.length <= questionLimit && ids.length === questions.length,
-  };
+function summarize(item: HostAttentionResult['items'][number]): AttentionItem {
+  return { rootId: item.root_id, sessionId: item.session_id, title: (item.title ?? '').slice(0, 256),
+    permissions: item.activity.pending_permission_count, questionCount: item.activity.pending_question_count };
 }
 
-type SeenRoot = { id: string; permissions: bigint; questions: number; ids: Set<string>; completeQuestions: boolean };
+type SeenRoot = { id: string; permissions: bigint; questions: bigint };
 
 /** Advisory attention deltas only: disappearance and idle counts are never completion. */
 export class AttentionNotifications {
@@ -67,31 +59,30 @@ export class AttentionNotifications {
     const seen = new Set<string>();
     const notifications: AppNotification[] = [];
     for (const item of scan.items.slice(0, rootsLimit)) {
-      if (!item.rootId || item.rootId.length > 256 || seen.has(item.rootId)) continue;
-      seen.add(item.rootId);
-      const previous = this.roots.get(item.rootId);
+      if (!item.rootId || item.rootId.length > 256 || !item.sessionId || item.sessionId.length > 256 || seen.has(item.sessionId)) continue;
+      seen.add(item.sessionId);
+      const previous = this.roots.get(item.sessionId);
       const permissions = BigInt(item.permissions) > 0n ? BigInt(item.permissions) : 0n;
-      const ids = new Set(item.questionIds.slice(0, questionLimit));
+      const questions = BigInt(item.questionCount);
       const changed = previous
-        ? permissions > previous.permissions || item.questionCount > previous.questions
-          || (item.completeQuestions && previous.completeQuestions && [...ids].some(id => !previous.ids.has(id)))
-        : this.initialized && this.completeBaseline && (permissions > 0n || item.questionCount > 0);
-      const entry: SeenRoot = { id: previous?.id ?? crypto.randomUUID(), permissions, questions: item.questionCount, ids, completeQuestions: item.completeQuestions };
-      this.roots.delete(item.rootId); this.roots.set(item.rootId, entry);
+        ? permissions > previous.permissions || questions > previous.questions
+        : this.initialized && this.completeBaseline && (permissions > 0n || questions > 0n);
+      const entry: SeenRoot = { id: previous?.id ?? crypto.randomUUID(), permissions, questions };
+      this.roots.delete(item.sessionId); this.roots.set(item.sessionId, entry);
       if (this.roots.size > rootsLimit) this.roots.delete(this.roots.keys().next().value!);
       let path: string;
-      try { path = `/h/${encodeURIComponent(runtimeId)}/s/${encodeURIComponent(item.rootId)}`; }
+      try { path = `/h/${encodeURIComponent(runtimeId)}/s/${encodeURIComponent(item.rootId)}${item.sessionId === item.rootId ? '' : `?agent=${encodeURIComponent(item.sessionId)}`}`; }
       catch { continue; }
       if (changed && this.initialized) notifications.push({
         id: entry.id,
         title: item.title.replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 256) || 'Whip needs your attention',
-        body: `${permissions} permission ${permissions === 1n ? 'request' : 'requests'} · ${item.questionCount} ${item.questionCount === 1 ? 'question' : 'questions'} awaiting your response.`,
+        body: `${permissions} permission ${permissions === 1n ? 'request' : 'requests'} · ${item.questionCount} ${questions === 1n ? 'question' : 'questions'} awaiting your response.`,
         path,
       });
     }
     // Only a complete successful scan can establish that pending requests cleared.
     if (scan.complete) for (const [id, entry] of this.roots) if (!seen.has(id)) {
-      entry.permissions = 0n; entry.questions = 0; entry.ids.clear(); entry.completeQuestions = true;
+      entry.permissions = 0n; entry.questions = 0n;
     }
     this.initialized = true; this.completeBaseline = scan.complete;
     return notifications;

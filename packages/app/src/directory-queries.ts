@@ -1,17 +1,12 @@
 import { queryOptions, type QueryClient } from '@tanstack/react-query';
 import type { Client } from '@whip/sdk';
 
-const clientKeys = new WeakMap<Client, string>();
-function clientKey(client: Client) {
-  let key = clientKeys.get(client);
-  if (!key) { key = crypto.randomUUID(); clientKeys.set(client, key); }
-  return key;
-}
+import { clientQueryKey } from './client-query-key';
 
 type Listing = { path?: string; prefix?: string; hidden?: boolean; after?: string };
 export function directoryOptions(client: Client, { path, prefix, hidden = false, after }: Listing = {}) {
   return queryOptions({
-    queryKey: ['directories', client.runtimeID, client.processEpoch, clientKey(client), path || '~', prefix || '', hidden, after ?? ''],
+    queryKey: ['directories', client.runtimeID, client.processEpoch, clientQueryKey(client), path || '~', prefix || '', hidden, after ?? ''],
     queryFn: ({ signal }) => client.call('host.directories.list', { path: path || '~', prefix: prefix || '', show_hidden: hidden, after: after ?? '', limit: 64 }, { signal }),
     staleTime: 10_000, gcTime: 60_000, retry: false, networkMode: 'always',
     refetchOnWindowFocus: false, refetchOnReconnect: false,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { emptySidebarState, newSessionSearch, readSidebarState, setDirectoryCollapsed, sidebarMaxWidth, sidebarRows, sidebarWidth } from '../src/sidebar-state';
 
-const session = (id: string, cwd: string, pinned = false) => ({ id, cwd, pinned, title: id, kind: 'root', model: '', provider: '', updated_at: '', truncated: false });
+const session = (id: string, cwd: string, pinned = false) => ({ root_id: id, working_directory: cwd, tree: { id: `tree:${id}`, metadata: { title: id, pinned, archived: false }, engine: 'starlark' as const, revision: '1', created_at: '2026-09-28T00:00:00Z' } });
 describe('directory navigation projection', () => {
   it('groups exact directories in catalog order without merging worktrees or resolving paths', () => {
     const items = [session('pinned', '/repo/main', true), session('recent', '/worktrees/main'), session('older', '/repo/main'), session('unknown', ''), session('relative', './repo/main')];
@@ -16,14 +16,14 @@ describe('directory navigation projection', () => {
     const b = Array.from({ length: 8 }, (_, index) => session(`b${index}`, '/b'));
     const items = [...a, ...b];
     const visible = (limit = 7, collapsed: string[] = []) => sidebarRows(items, collapsed, new Map([['/a', limit]]));
-    expect(visible().filter(row => row.kind === 'session').map(row => row.session.id)).toEqual([...a.slice(0, 7), ...b.slice(0, 7)].map(item => item.id));
+    expect(visible().filter(row => row.kind === 'session').map(row => row.session.root_id)).toEqual([...a.slice(0, 7), ...b.slice(0, 7)].map(item => item.root_id));
     expect(visible().filter(row => row.kind === 'more')).toEqual([
       { key: 'more:/a', kind: 'more', cwd: '/a', expanded: false, visibleCount: 7 },
       { key: 'more:/b', kind: 'more', cwd: '/b', expanded: false, visibleCount: 7 },
     ]);
-    expect(visible(14).filter(row => row.kind === 'session').map(row => row.session.id)).toEqual([...a.slice(0, 14), ...b.slice(0, 7)].map(item => item.id));
+    expect(visible(14).filter(row => row.kind === 'session').map(row => row.session.root_id)).toEqual([...a.slice(0, 14), ...b.slice(0, 7)].map(item => item.root_id));
     expect(visible(14).find(row => row.key === 'more:/a')).toMatchObject({ expanded: false, visibleCount: 14 });
-    expect(visible(21).filter(row => row.kind === 'session').map(row => row.session.id)).toEqual([...a, ...b.slice(0, 7)].map(item => item.id));
+    expect(visible(21).filter(row => row.kind === 'session').map(row => row.session.root_id)).toEqual([...a, ...b.slice(0, 7)].map(item => item.root_id));
     expect(visible(21).find(row => row.key === 'more:/a')).toMatchObject({ expanded: true, visibleCount: 17 });
     expect(visible(7).filter(row => row.kind === 'session')).toHaveLength(14);
     expect(visible(21, ['/a']).some(row => row.key === 'more:/a')).toBe(false);

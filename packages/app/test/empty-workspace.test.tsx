@@ -19,7 +19,7 @@ function fixture({ missing = false, subject, items = [{ id: 's1' }], commands = 
   const storage = { keys: () => [...values.keys()], getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); }, removeItem: (key: string) => { values.delete(key); } };
   const runtime = new AppRuntime({ storage, defaultEndpoint: 'http://localhost:8080', copy: async () => {}, download: async () => {}, openExternal: async () => {} });
   runtimes.push(runtime);
-  const list = { subscribe: () => () => {}, getSnapshot: () => ({ status: 'live', page: { items }, truncated: false }) };
+  const list = { subscribe: () => () => {}, getSnapshot: () => ({ status: 'live', revision: '1', windowAfter: null, nextCursor: null, items, truncated: false }) };
   const host = { id: 'local', runtimeId: 'host', name: 'Local', state: 'connected', list } as unknown as HostConnection;
   vi.spyOn(runtime, 'getSnapshot').mockReturnValue({ ...runtime.getSnapshot(), hosts: [host] });
   const route = createRootRoute({

@@ -1,5 +1,5 @@
-import type { SessionCatalogPage } from '@whip/legacy-protocol';
-import type { DeepReadonly } from '@whip/legacy-sdk/state';
+import type { ListTreesResult } from '@whip/protocol';
+import type { DeepReadonly } from '@whip/sdk/state';
 
 export const sidebarStorageKey = 'whip.web.sidebar.v1';
 export const defaultSidebarWidth = 320;
@@ -43,15 +43,15 @@ export function setDirectoryCollapsed(state: SidebarState, runtimeId: string, cw
   return { ...state, hosts };
 }
 
-type Session = NonNullable<DeepReadonly<SessionCatalogPage>['items']>[number];
+type Session = DeepReadonly<ListTreesResult>['items'][number];
 export type SidebarRow = { key: string; kind: 'directory'; cwd: string; label: string } | { key: string; kind: 'session'; session: Session } | { key: string; kind: 'more'; cwd: string; expanded: boolean; visibleCount: number };
 export const defaultDirectorySessionLimit = 7;
 const directoryName = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) || path || 'Other sessions';
 export function sidebarRows(items: readonly Session[], collapsed: readonly string[] = [], limits: ReadonlyMap<string, number> = new Map()): SidebarRow[] {
   const groups = new Map<string, Session[]>();
   for (const session of items) {
-    const group = groups.get(session.cwd);
-    if (group) group.push(session); else groups.set(session.cwd, [session]);
+    const group = groups.get(session.working_directory);
+    if (group) group.push(session); else groups.set(session.working_directory, [session]);
   }
   const names = new Map<string, string[]>();
   for (const cwd of groups.keys()) {
@@ -79,7 +79,7 @@ export function sidebarRows(items: readonly Session[], collapsed: readonly strin
     if (hidden.has(cwd)) continue;
     const visibleCount = Math.min(sessions.length, limits.get(cwd) ?? defaultDirectorySessionLimit);
     for (const session of sessions.slice(0, visibleCount)) {
-      rows.push({ key: `session:${session.id}`, kind: 'session', session });
+      rows.push({ key: `session:${session.root_id}`, kind: 'session', session });
     }
     if (sessions.length > defaultDirectorySessionLimit) rows.push({ key: `more:${cwd}`, kind: 'more', cwd, expanded: visibleCount === sessions.length, visibleCount });
   }
