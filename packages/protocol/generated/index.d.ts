@@ -442,6 +442,7 @@ export interface CreateScheduleParams {
   ];
 }
 export interface CreateTreeParams {
+  creation_id: string;
   permission_mode?: null | ("prompt" | "automatic");
   metadata: {
     title: null | string;
@@ -547,7 +548,13 @@ export interface CreateTreeParams {
   working_directory: string;
 }
 export interface CreateTreeResult {
-  tree: {
+  creation: {
+    id: string;
+    tree_id: string;
+    root_id: string;
+    created_at: string;
+  };
+  tree: null | {
     id: string;
     metadata: {
       title: null | string;
@@ -558,7 +565,7 @@ export interface CreateTreeResult {
     revision: string;
     created_at: string;
   };
-  root: {
+  root: null | {
     history_revision: string;
     id: string;
     tree_id: string;
@@ -654,6 +661,7 @@ export interface CreateTreeResult {
     lifecycle: "active" | "stopped";
     created_at: string;
   };
+  deleted: boolean;
 }
 export interface CurrentGoalResult {
   goal: null | {
@@ -1841,6 +1849,30 @@ export interface ListCompletionsResult {
         omitted_parts: string;
       }[];
 }
+export interface ListDefinitionsParams {
+  after?: null | {
+    id: string;
+    revision: string;
+  };
+  limit: number;
+}
+export interface ListDefinitionsResult {
+  /**
+   * @maxItems 100
+   */
+  items: {
+    ref: {
+      id: string;
+      revision: string;
+    };
+    name: string;
+    created_at: string;
+  }[];
+  next_cursor: null | {
+    id: string;
+    revision: string;
+  };
+}
 export interface ListMailParams {
   session_id: string;
   state?: null | ("pending" | "delivered" | "done");
@@ -2013,6 +2045,34 @@ export interface ListStateParams {
   scope: "session" | "tree";
   after?: null | string;
   limit: number;
+}
+export interface ListTreesParams {
+  expected_revision?: null | string;
+  after?: null | string;
+  archived?: null | boolean;
+  pinned?: null | boolean;
+  limit: number;
+}
+export interface ListTreesResult {
+  revision: string;
+  /**
+   * @maxItems 100
+   */
+  items: {
+    tree: {
+      id: string;
+      metadata: {
+        title: null | string;
+        archived: boolean;
+        pinned: boolean;
+      };
+      engine: "starlark" | "quickjs";
+      revision: string;
+      created_at: string;
+    };
+    root_id: string;
+  }[];
+  next_cursor: null | string;
 }
 export interface MailAdmission {
   mail_id: string;
@@ -6106,6 +6166,12 @@ export interface Tree {
   revision: string;
   created_at: string;
 }
+export interface TreeCatalog {
+  revision: string;
+}
+export interface TreeCreationParams {
+  creation_id: string;
+}
 export interface TreeParams {
   tree_id: string;
 }
@@ -6383,6 +6449,8 @@ export interface ContractTypes {
   LifecycleParams: LifecycleParams;
   ListCompletionsParams: ListCompletionsParams;
   ListCompletionsResult: ListCompletionsResult;
+  ListDefinitionsParams: ListDefinitionsParams;
+  ListDefinitionsResult: ListDefinitionsResult;
   ListMailParams: ListMailParams;
   ListMailResult: ListMailResult;
   ListSchedulesParams: ListSchedulesParams;
@@ -6391,6 +6459,8 @@ export interface ContractTypes {
   ListSkillsParams: ListSkillsParams;
   ListSkillsResult: ListSkillsResult;
   ListStateParams: ListStateParams;
+  ListTreesParams: ListTreesParams;
+  ListTreesResult: ListTreesResult;
   MailAdmission: MailAdmission;
   Message: Message;
   ModelAttemptsParams: ModelAttemptsParams;
@@ -6468,6 +6538,8 @@ export interface ContractTypes {
   ToolCall: ToolCall;
   ToolResult: ToolResult;
   Tree: Tree;
+  TreeCatalog: TreeCatalog;
+  TreeCreationParams: TreeCreationParams;
   TreeParams: TreeParams;
   Turn: Turn;
   TurnOutputResult: TurnOutputResult;
@@ -6585,6 +6657,10 @@ export interface Operations {
   "questions.answer": { params: AnswerQuestionParams; result: Question };
   "initialize": { params: InitializeParams; result: InitializeResult };
   "trees.create": { params: CreateTreeParams; result: CreateTreeResult };
+  "trees.creation": { params: TreeCreationParams; result: CreateTreeResult };
+  "trees.catalog": { params: EmptyParams; result: TreeCatalog };
+  "trees.list": { params: ListTreesParams; result: ListTreesResult };
+  "definitions.list": { params: ListDefinitionsParams; result: ListDefinitionsResult };
   "trees.get": { params: TreeParams; result: Tree };
   "trees.update": { params: UpdateTreeParams; result: Tree };
   "trees.title_decision": { params: TreeParams; result: AutomaticTitleDecision };

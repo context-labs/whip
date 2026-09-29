@@ -296,6 +296,48 @@ export class Client {
     return this.call('goals.formulation', { session_id: sessionID, attempt_id: attemptID }, options);
   }
 
+  /** Persist creationID and the exact payload before sending. An explicit retry preserves the original destination. */
+  createTree(params: Omit<Operations['trees.create']['params'], 'creation_id'>, creationID: string, options: CallOptions = {}): Promise<Operations['trees.create']['result']> {
+    return this.call('trees.create', { ...params, creation_id: creationID }, options);
+  }
+
+  /** Original creation evidence and the current destination, including a durable deletion tombstone. */
+  getTreeCreation(creationID: string, options: CallOptions = {}): Promise<Operations['trees.creation']['result']> {
+    return this.call('trees.creation', { creation_id: creationID }, options);
+  }
+
+  /** Invalidation head for every tree, including unopened and off-page metadata. No polling is started. */
+  treeCatalog(options: CallOptions = {}): Promise<Operations['trees.catalog']['result']> {
+    return this.call('trees.catalog', {}, options);
+  }
+
+  /** Capture revision on the first page and pass expected_revision on later pages. A conflict requires a fresh traversal. */
+  listTrees(params: Operations['trees.list']['params'], options: CallOptions = {}): Promise<Operations['trees.list']['result']> {
+    return this.call('trees.list', params, options);
+  }
+
+  /** Streams bounded pages at one revision. A changed catalog throws CONFLICT; yielded pages must then be discarded. */
+  async *treePages(params: Omit<Operations['trees.list']['params'], 'after'>, options: CallOptions = {}): AsyncGenerator<Operations['trees.list']['result']> {
+    const request = structuredClone(params);
+    let after: string | undefined;
+    let revision = request.expected_revision;
+    for (;;) {
+      const page = await this.listTrees({ ...request, after, expected_revision: revision }, options);
+      if (revision !== undefined && page.revision !== revision) throw new TypeError('Catalog revision mismatch');
+      revision = page.revision;
+      const next = page.next_cursor;
+      if (next !== null && after !== undefined && next <= after) throw new TypeError('Catalog cursor did not advance');
+      yield page;
+      if (next === null) return;
+      after = next;
+    }
+  }
+
+  /** All immutable revisions, without configuration bodies or a mutable latest alias. */
+  listDefinitions(params: Operations['definitions.list']['params'], options: CallOptions = {}): Promise<Operations['definitions.list']['result']> {
+    return this.call('definitions.list', params, options);
+  }
+
   /** Immutable naming intent. Its receipt_identity may precede admission; this read never starts work. */
   getAutomaticTitleDecision(treeID: string, options: CallOptions = {}): Promise<Operations['trees.title_decision']['result']> {
     return this.call('trees.title_decision', { tree_id: treeID }, options);

@@ -505,6 +505,26 @@ export const manifest = {
       "result": "CreateTreeResult"
     },
     {
+      "name": "trees.creation",
+      "params": "TreeCreationParams",
+      "result": "CreateTreeResult"
+    },
+    {
+      "name": "trees.catalog",
+      "params": "EmptyParams",
+      "result": "TreeCatalog"
+    },
+    {
+      "name": "trees.list",
+      "params": "ListTreesParams",
+      "result": "ListTreesResult"
+    },
+    {
+      "name": "definitions.list",
+      "params": "ListDefinitionsParams",
+      "result": "ListDefinitionsResult"
+    },
+    {
       "name": "trees.get",
       "params": "TreeParams",
       "result": "Tree"

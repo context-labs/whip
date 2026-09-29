@@ -3017,3 +3017,49 @@ final analysis reports zero issues and no reachable vulnerabilities. Logs are
 `/tmp/whip-bindings-phase.log` and `/tmp/whip-bindings-analysis-final.log`; the
 original lint result remains `/tmp/whip-bindings-analysis.log`. No full-product or Phase5 completion is
 claimed; client migration and retired-core removal remain open.
+
+
+## Stable root creation and global catalog invalidation
+
+Definition bindings are published as draft [PR249](https://github.com/context-labs/whip/pull/249)
+at `855e8f530`, stacked on PR248. Hosted validation is pending. Reused discovery
+`9c90a212f` as `d3718cfd5`, creation core `6caf5456f` as `63d3090fc`, and public
+controls `dd5c72b20` as `88d207988`. Parent retained definition-source stripping
+when moving root admission into its receipt-owning transaction, preserved all
+newer protocol families, and regenerated declarations/validators. Fresh
+schema39/config15/protocol4 apply.
+
+Stable caller IDs now recover lost root-creation acknowledgements before mutable
+host reads, including restart and deleted-root tombstones. Catalog head/pages
+observe off-page metadata/title/membership changes without hydrating roots or
+history. Manual same-value metadata intent keeps the original increment/automatic
+title supersession behavior. Helper counter exhaustion cannot prevent actual
+billing/candidate settlement. RPC/SDK require explicit identity/revision recovery;
+no automatic replay, poller or second catalog truth cache was added.
+
+Released focused races passed store6.798s/runtime2.064s/protocol2.240s/RPC2.434s;
+full protocol0.726s/RPC7.632s, client compile, vet/build/lint0,10 CSP/interchange,
+35 SDK tests and drift passed. Final production fixture43 stages38.900s includes
+both-engine lost creation reply → SIGKILL → changed defaults → exact recovery,
+fresh-default capture, fallback title invalidation, delete/restart/tombstone,
+off-page filter/title changes and stale iterator rejection (new stage396ms).
+Parent reviewed caller-only digest, retry/transaction precedence, tombstone
+projection, catalog atomicity and preserved binding provenance. Expanded phase
+and analysis gates passed: store race207.734s/runtime219.539s/process114.360s/
+RPC45.088s, generated interchange/CSP and drift, SDK/examples, production
+fixture31.630s, retained crash fixture2.289s and selected daemon races2.739s.
+Pinned analysis reports zero issues and no reachable vulnerabilities. The first
+phase run caught one newly integrated
+binding socket fixture without its now-required creation identity; it was updated
+to preserve that identity, without changing production validation. Original failure
+log is `/tmp/whip-root-recovery-phase.log`; final phase output is
+`/tmp/whip-root-recovery-phase-final.log` and analysis is
+`/tmp/whip-root-recovery-analysis.log`.
+Phases5–7 remain open; all supported product clients still need migration.
+
+Hosted Linux, macOS, analysis and aggregate checks for PR247 at
+`ee57e1a4d1a37be9129db3fdbd053fde45d9880c` passed in
+[run36502087075](https://github.com/context-labs/whip/actions/runs/36502087075).
+PR248 at `99260052cad3c559a378a455de529be55269a1a2` has passing Linux and analysis;
+macOS remains in progress. PR249 at `855e8f530b8d8aac6a20ff5a2f9eb989c34bf018`
+has passing analysis with both platform jobs in progress at this check.

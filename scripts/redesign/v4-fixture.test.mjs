@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { filesLSPAcceptance } from './files-lsp-fixture.mjs';
 import { execFile, spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import http from 'node:http';
@@ -12,6 +12,8 @@ import { test } from 'node:test';
 import { Client, DeliveryError, RemoteError } from '../../packages/sdk/dist/index.js';
 import { unixSocket as socketTransport } from '../../packages/sdk/dist/node.js';
 import { workspaceAcceptance } from './workspace-fixture.mjs';
+import { discoveryAcceptance } from './discovery-fixture.mjs';
+import { creationCatalogAcceptance } from './creation-fixture.mjs';
 
 const exec = promisify(execFile);
 const deadline = () => ({ signal: AbortSignal.timeout(15_000) });
@@ -159,7 +161,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
         definition: client.builtins[0], overrides: { report_mode: 'message', model: { provider: 'scripted', name: 'scripted', effort: '' } },
         working_directory: runtime.directory,
       };
-      const { root, tree } = await client.call('trees.create', createParams, deadline());
+      const { root, tree } = await client.call('trees.create', { ...createParams, creation_id: randomUUID() }, deadline());
       const page = () => client.call('sessions.history', { session_id: root.id, after: '0', limit: 100 }, deadline());
       assert.deepEqual((await page()).items, []);
 
@@ -244,6 +246,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
       await assert.rejects(Client.connect(unixSocket(runtime.info.socket), { clientID: 'wrong', expectedRuntimeID: 'different', ...deadline() }), error => error instanceof RemoteError && error.kind === 'IDENTITY');
       return { client, createParams };
     });
+    await stage('root creation receipts and catalog revisions', () => creationCatalogAcceptance(runtime, client, createParams, evidence, { dropAcknowledgement, unixSocket, deadline }));
     await stage('host account projections', () => accountAcceptance(runtime, client, evidence));
     await stage('Inference account projections', () => inferenceAccountAcceptance(runtime, client, evidence));
     await stage('workspace snapshots and restore', () => workspaceAcceptance(runtime, client, createParams, evidence, { dropAcknowledgement, unixSocket, deadline }));
@@ -281,6 +284,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await stage('human questions', () => questionAcceptance(runtime, client, createParams, evidence));
     await stage('saved permission modes', () => permissionModeAcceptance(runtime, client, createParams, evidence));
     await stage('streaming', () => streamAcceptance(runtime, client, createParams, evidence));
+    await stage('catalog discovery', () => discoveryAcceptance(runtime, client, createParams, evidence, deadline));
   } catch (error) {
     failure = error;
   } finally {
@@ -335,7 +339,7 @@ async function providerAcceptance(runtime, client, createParams, evidence) {
     };
     await writeFile(path, JSON.stringify(host), { mode: 0o600 });
     await runtime.start(null);
-    const { root } = await client.call('trees.create', {
+    const { root } = await client.call('trees.create', { creation_id: randomUUID(),
       ...createParams, overrides: { model: { provider: 'fixture', name: 'fixture-model', effort: '', temperature: 0, top_p: 0.75 } },
     }, deadline());
     const image = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7S8AAAAASUVORK5CYII=';
@@ -344,7 +348,7 @@ async function providerAcceptance(runtime, client, createParams, evidence) {
     assert.deepEqual(await client.call('content.put', upload, deadline()), reference);
     const read = await client.call('content.read', { session_id: root.id, reference_id: reference.id }, deadline());
     assert.equal(read.data_base64, image);
-    const { root: foreign } = await client.call('trees.create', createParams, deadline());
+    const { root: foreign } = await client.call('trees.create', { ...createParams, creation_id: randomUUID() }, deadline());
     await assert.rejects(client.call('content.read', { session_id: foreign.id, reference_id: reference.id }, deadline()), error => error instanceof RemoteError && error.kind === 'NOT_FOUND');
     await assert.rejects(client.submit(foreign.id, [{ type: 'content', reference_id: reference.id }], 'foreign-content', deadline()), error => error instanceof RemoteError && error.kind === 'NOT_FOUND');
     await client.submit(root.id, [{ type: 'text', text: 'HTTP provider round trip' }, { type: 'content', reference_id: reference.id }], 'http-provider', deadline());
@@ -435,7 +439,7 @@ async function modelHelpersAcceptance(runtime, client, createParams, evidence) {
     await writeFile(path, JSON.stringify(host), { mode: 0o600 });
     await runtime.start(null);
     for (const engine of ['starlark', 'quickjs']) {
-      const { root } = await client.call('trees.create', {
+      const { root } = await client.call('trees.create', { creation_id: randomUUID(),
         ...createParams, engine, overrides: { report_mode: 'message', model: { provider: 'helpers', name: engine, effort: 'low', temperature: 0, top_p: 0.5 } },
       }, deadline());
       for (const capability of ['models.call', 'models.batch']) {
@@ -566,7 +570,7 @@ async function responsesAcceptance(runtime, client, createParams, evidence) {
     await writeFile(path, JSON.stringify(host), { mode: 0o600 });
     await runtime.start(null);
     for (const engine of ['starlark', 'quickjs']) {
-      const { root } = await client.call('trees.create', { ...createParams, engine, overrides: { ...createParams.overrides, model: { provider: 'responses', name: 'responses', effort: 'off' } } }, deadline());
+      const { root } = await client.call('trees.create', { creation_id: randomUUID(), ...createParams, engine, overrides: { ...createParams.overrides, model: { provider: 'responses', name: 'responses', effort: 'off' } } }, deadline());
       for (const capability of ['context.inspect', 'context.read']) {
         await client.call('grants.create', { id: `${root.id}-${capability}`, session_id: root.id, capability, resource: root.tree_id, issuer_id: null }, deadline());
       }
@@ -668,7 +672,7 @@ async function engineAcceptance(runtime, client, createParams, evidence) {
     await writeFile(path, JSON.stringify(host), { mode: 0o600 });
     await runtime.start(null);
     for (const engine of ['starlark', 'quickjs']) {
-      const { root } = await client.call('trees.create', {
+      const { root } = await client.call('trees.create', { creation_id: randomUUID(),
         ...createParams, engine, overrides: { model: { provider: 'engine', name: 'engine', effort: '' } },
       }, deadline());
       const history = () => client.call('sessions.history', { session_id: root.id, after: '0', limit: 100 }, deadline());
@@ -754,7 +758,7 @@ async function operationAcceptance(runtime, client, createParams, evidence) {
     for (const engine of ['starlark', 'quickjs']) {
       const workspace = join(runtime.directory, engine + '-effects');
       await mkdir(workspace);
-      const { root } = await client.call('trees.create', {
+      const { root } = await client.call('trees.create', { creation_id: randomUUID(),
         ...createParams, engine, working_directory: workspace,
         overrides: { model: { provider: 'operations', name: 'operations', effort: '' } },
       }, deadline());
@@ -850,7 +854,7 @@ async function streamAcceptance(runtime, client, createParams, evidence) {
     };
     await writeFile(path, JSON.stringify(host), { mode: 0o600 });
     await runtime.start(null);
-    const { root } = await client.call('trees.create', {
+    const { root } = await client.call('trees.create', { creation_id: randomUUID(),
       ...createParams, overrides: { model: { provider: 'stream', name: 'stream', effort: '' } },
     }, deadline());
     const observe = () => client.call('sessions.observe', { session_id: root.id, after: '0', limit: 100 }, deadline());
@@ -939,7 +943,7 @@ async function streamAcceptance(runtime, client, createParams, evidence) {
 
 
 async function budgetAcceptance(client, createParams, evidence) {
-  const { root } = await client.call('trees.create', createParams, deadline());
+  const { root } = await client.call('trees.create', { ...createParams, creation_id: randomUUID() }, deadline());
   const initial = await client.call('budgets.list', { session_id: root.id }, deadline());
   assert.equal(initial.items.length, 6);
   assert.ok(initial.items.filter(budget => budget.kind.startsWith('model_')).every(budget => budget.limit === null && budget.revision === '0' && budget.used === '0'));
@@ -966,7 +970,7 @@ async function budgetAcceptance(client, createParams, evidence) {
 }
 
 async function writeAllowanceAcceptance(runtime, client, createParams, evidence) {
-  const { root } = await client.call('trees.create', createParams, deadline());
+  const { root } = await client.call('trees.create', { ...createParams, creation_id: randomUUID() }, deadline());
   const inspect = sessionID => client.call('budgets.list', { session_id: sessionID }, deadline());
   const initial = await inspect(root.id);
   for (const [kind, limit] of [['logical_writes', '3'], ['logical_write_bytes', '11']]) {
@@ -1007,7 +1011,7 @@ async function writeAllowanceAcceptance(runtime, client, createParams, evidence)
 }
 
 async function mailAcceptance(runtime, client, createParams, evidence) {
-  const { root } = await client.call('trees.create', createParams, deadline());
+  const { root } = await client.call('trees.create', { ...createParams, creation_id: randomUUID() }, deadline());
   const child = await client.spawn({ parent_id: root.id, overrides: {}, parts: [{ type: 'text', text: 'mail sender' }], grant_ids: [] }, 'mail-child', deadline());
   await client.wait('mail-child', deadline());
   const params = { sender_id: child.session.id, recipient_id: root.id, delivery: 'next_turn', subject: 'Read-only inspection', body: 'This body remains canonical mail.' };
@@ -1057,7 +1061,7 @@ async function mailAcceptance(runtime, client, createParams, evidence) {
 }
 
 async function mailEvidenceAcceptance(runtime, client, createParams, evidence) {
-  const { root } = await client.call('trees.create', createParams, deadline());
+  const { root } = await client.call('trees.create', { ...createParams, creation_id: randomUUID() }, deadline());
   const sender = await client.spawn({ parent_id: root.id, overrides: {}, parts: [{ type: 'text', text: 'evidence sender' }], grant_ids: [] }, 'evidence-sender', deadline());
   const recipient = await client.spawn({ parent_id: root.id, overrides: {}, parts: [{ type: 'text', text: 'evidence recipient' }], grant_ids: [] }, 'evidence-recipient', deadline());
   await client.wait('evidence-sender', deadline());
@@ -1117,7 +1121,7 @@ async function mailEvidenceAcceptance(runtime, client, createParams, evidence) {
 }
 
 async function stateAcceptance(runtime, client, createParams, evidence) {
-  const { root } = await client.call('trees.create', createParams, deadline());
+  const { root } = await client.call('trees.create', { ...createParams, creation_id: randomUUID() }, deadline());
   const encode = raw => Buffer.from(raw).toString('base64');
   const params = { session_id: root.id, scope: 'session', key: 'exact', expected_revision: '0', data_base64: encode('[9007199254740993]') };
   let dropped;
@@ -1155,7 +1159,7 @@ async function stateAcceptance(runtime, client, createParams, evidence) {
 }
 
 async function stateSubscriptionAcceptance(runtime, client, createParams, evidence) {
-  const { root } = await client.call('trees.create', createParams, deadline());
+  const { root } = await client.call('trees.create', { ...createParams, creation_id: randomUUID() }, deadline());
   const { session: author } = await client.spawn({ parent_id: root.id, overrides: {}, parts: [{ type: 'text', text: 'state author' }], grant_ids: [] }, 'state-notifications-child', deadline());
   await client.wait('state-notifications-child', deadline());
   const params = { session_id: root.id, key: 'topic', after: '0', delivery: 'next_turn' };
@@ -1192,7 +1196,7 @@ async function stateSubscriptionAcceptance(runtime, client, createParams, eviden
 
 
 async function resourceAcceptance(runtime, client, createParams, evidence) {
-  const { root } = await client.call('trees.create', {
+  const { root } = await client.call('trees.create', { creation_id: randomUUID(),
     ...createParams,
     resources: [{ kind: 'descendants', limit: '1' }, { kind: 'runnable_descendants', limit: '0' }],
   }, deadline());
@@ -1255,7 +1259,7 @@ async function resourceAcceptance(runtime, client, createParams, evidence) {
 
 
 async function completionAcceptance(runtime, client, createParams, evidence) {
-  const { root } = await client.call('trees.create', { ...createParams, overrides: { ...createParams.overrides, report_mode: 'notice' } }, deadline());
+  const { root } = await client.call('trees.create', { creation_id: randomUUID(), ...createParams, overrides: { ...createParams.overrides, report_mode: 'notice' } }, deadline());
   const prompt = '🙂'.repeat(1800);
   const child = await client.spawn({ parent_id: root.id, overrides: { report_mode: 'inline' }, parts: [{ type: 'text', text: prompt }], grant_ids: [] }, 'report-inline', deadline());
   const finished = await client.wait('report-inline', deadline());
@@ -1298,7 +1302,7 @@ async function completionAcceptance(runtime, client, createParams, evidence) {
 
   // Fill the parent's retained-content allowance. The child's completion still
   // commits, remains independently inspectable, and survives source deletion.
-  const pressured = await client.call('trees.create', createParams, deadline());
+  const pressured = await client.call('trees.create', { ...createParams, creation_id: randomUUID() }, deadline());
   const data = Buffer.alloc(4 << 20, 'p').toString('base64');
   for (let i = 0; i < 16; i++) {
     await client.call('content.put', { session_id: pressured.root.id, reference_id: 'report-fill-' + i, media_type: 'application/octet-stream', data_base64: data }, deadline());
@@ -1357,7 +1361,7 @@ async function outputAcceptance(runtime, client, createParams, evidence) {
     await writeFile(path, JSON.stringify(host), { mode: 0o600 });
     await runtime.start(null);
     const schema = { type: 'object', properties: { count: { type: 'integer' } }, required: ['count'], additionalProperties: false };
-    const { root } = await client.call('trees.create', {
+    const { root } = await client.call('trees.create', { creation_id: randomUUID(),
       ...createParams, overrides: { ...createParams.overrides, model: { provider: 'fixture', name: 'fixture-model', effort: '' }, output: { schema } },
     }, deadline());
     const output = turnID => client.call('turns.output', { turn_id: turnID }, deadline());
@@ -1432,7 +1436,7 @@ async function contextAcceptance(runtime, client, createParams, evidence) {
     };
     await writeFile(path, JSON.stringify(host), { mode: 0o600 });
     await runtime.start(null);
-    const { root } = await client.call('trees.create', {
+    const { root } = await client.call('trees.create', { creation_id: randomUUID(),
       ...createParams, overrides: { ...createParams.overrides, model: { provider: 'fixture', name: 'fixture-model', effort: '' } },
     }, deadline());
     const history = () => client.call('sessions.history', { session_id: root.id, after: '0', limit: 100 }, deadline());
@@ -1505,7 +1509,7 @@ async function contextAcceptance(runtime, client, createParams, evidence) {
     const matches = await client.call('context.search', { session_id: root.id, after: '0', through_sequence: snapshot.through_sequence, query: 'context marker', limit: 100 }, deadline());
     assert.equal(matches.matches.length, 7);
     assert.ok(matches.matches.every(match => BigInt(match.message.sequence) <= BigInt(snapshot.through_sequence)));
-    const foreign = await client.call('trees.create', createParams, deadline());
+    const foreign = await client.call('trees.create', { ...createParams, creation_id: randomUUID() }, deadline());
     await assert.rejects(client.call('context.read', { session_id: foreign.root.id, message_id: raw.items[0].id, offset: '0', length: 10 }, deadline()), error => error.kind === 'NOT_FOUND');
     await assert.rejects(client.call('context.compaction', { session_id: foreign.root.id, compaction_id: selected.compaction_id }, deadline()), error => error.kind === 'NOT_FOUND');
     const undone = await client.call('context.select', { session_id: root.id, expected_revision: selected.revision, compaction_id: null }, deadline());
@@ -1593,7 +1597,7 @@ async function contextRecoveryAcceptance(runtime, client, createParams, evidence
     await writeFile(path, JSON.stringify(host), { mode: 0o600 });
     await runtime.start(null);
     for (const engine of states.keys()) {
-      const { root } = await client.call('trees.create', {
+      const { root } = await client.call('trees.create', { creation_id: randomUUID(),
         ...createParams, engine, overrides: { model: { provider: 'context', name: `context-${engine}`, effort: '' } },
       }, deadline());
       const requestID = `context-recovery-${engine}`;
@@ -1686,7 +1690,7 @@ async function contextPolicyAcceptance(runtime, client, createParams, evidence) 
     await writeFile(path, JSON.stringify(host), { mode: 0o600 });
     await runtime.start(null);
     const model = name => ({ provider: 'policy', name, effort: '' });
-    const { root } = await client.call('trees.create', {
+    const { root } = await client.call('trees.create', { creation_id: randomUUID(),
       ...createParams, overrides: { model: model('conversation'), compaction: { model: model('helper-a'), threshold_percent: 50 } },
     }, deadline());
     const submit = async index => {
@@ -1795,7 +1799,7 @@ async function instructionAcceptance(runtime, client, createParams, evidence) {
     await writeFile(path, JSON.stringify(host), { mode: 0o600 });
     await runtime.start(null);
     const policy = { text: 'CONFIGURED_INSTRUCTIONS_BEFORE', project_files: ['AGENTS.md'], discover_skills: true, skill_roots: [], standing_instructions: false, project_root: null };
-    const { root } = await client.call('trees.create', {
+    const { root } = await client.call('trees.create', { creation_id: randomUUID(),
       ...createParams, engine: 'quickjs', working_directory: workspace,
       overrides: { ...createParams.overrides, model: { provider: 'instructions', name: 'instructions', effort: '' }, instructions: policy },
     }, deadline());
@@ -1936,7 +1940,7 @@ async function hostSkillAcceptance(runtime, client, createParams, evidence) {
       await writeFile(join(workspace, '.agents', 'skills', 'same', 'SKILL.md'), '---\nname: same\ndescription: WORKSPACE_DUPLICATE\n---\nWORKSPACE_SAME_BODY');
       await writeFile(globalPath, metadata + 'GLOBAL_BEFORE');
       const policy = { text: '', project_files: [], discover_skills: true, skill_roots: ['unused', 'team'], standing_instructions: false, project_root: null };
-      const { root } = await client.call('trees.create', { ...createParams, engine, working_directory: workspace,
+      const { root } = await client.call('trees.create', { creation_id: randomUUID(), ...createParams, engine, working_directory: workspace,
         overrides: { ...createParams.overrides, model: { provider: 'hostskills', name: engine, effort: '' }, instructions: policy },
       }, deadline());
       assert.deepEqual((await client.call('skills.list', { session_id: root.id, limit: 100 }, deadline())).items, []);
@@ -2042,7 +2046,7 @@ async function standingInstructionAcceptance(runtime, client, createParams, evid
     const workspace = join(runtime.directory, 'standing-workspace');
     await mkdir(workspace);
     const policy = { text: 'ordinary configured text', project_files: [], discover_skills: false, skill_roots: [], standing_instructions: true, project_root: null };
-    const { root } = await client.call('trees.create', { ...createParams, engine: 'quickjs', working_directory: workspace,
+    const { root } = await client.call('trees.create', { creation_id: randomUUID(), ...createParams, engine: 'quickjs', working_directory: workspace,
       overrides: { ...createParams.overrides, model: { provider: 'standing', name: 'standing', effort: '' }, instructions: policy },
     }, deadline());
     await client.submit(root.id, [{ type: 'text', text: 'no standing authority' }], 'standing-denied', deadline());
@@ -2159,7 +2163,7 @@ async function projectInstructionAcceptance(runtime, client, createParams, evide
       await writeFile(join(workspace, 'AGENTS.md'), 'PROJECT_LOCAL_RULE');
       await writeFile(skillPath, metadata + 'PROJECT_BODY_BEFORE');
       const policy = { text: '', project_files: ['CLAUDE.md', 'AGENTS.md'], discover_skills: true, skill_roots: [], standing_instructions: false, project_root: 'repo' };
-      const { root } = await client.call('trees.create', { ...createParams, engine, working_directory: alias,
+      const { root } = await client.call('trees.create', { creation_id: randomUUID(), ...createParams, engine, working_directory: alias,
         overrides: { ...createParams.overrides, model: { provider: 'projects', name: engine, effort: '' }, instructions: policy },
       }, deadline());
       assert.deepEqual((await client.call('skills.list', { session_id: root.id, limit: 100 }, deadline())).items, []);
@@ -2223,7 +2227,7 @@ async function projectInstructionAcceptance(runtime, client, createParams, evide
 
 
 async function scheduleAcceptance(runtime, client, createParams, evidence) {
-  const { root } = await client.call('trees.create', { ...createParams, resources: [{ kind: 'schedules', limit: '2' }] }, deadline());
+  const { root } = await client.call('trees.create', { creation_id: randomUUID(), ...createParams, resources: [{ kind: 'schedules', limit: '2' }] }, deadline());
   for (const clientID of ['schedule', 'operation']) {
     await assert.rejects(client.call('sessions.submit', { identity: { client_id: clientID, request_id: 'collision' }, session_id: root.id, source: 'user', parts: [{ type: 'text', text: 'collision' }] }, deadline()), error => error.kind === 'INVALID');
     await assert.rejects(client.call('sessions.spawn', { identity: { client_id: clientID, request_id: 'collision' }, parent_id: root.id, parts: [{ type: 'text', text: 'collision' }], overrides: {}, grant_ids: [] }, deadline()), error => error.kind === 'INVALID');
@@ -2318,7 +2322,7 @@ async function subscriptionAdmissionAcceptance(runtime, client, createParams, ev
     await runtime.start(null, { HTTPS_PROXY: endpoint, https_proxy: endpoint, NO_PROXY: '', no_proxy: '' });
     for (const engine of ['starlark', 'quickjs']) {
       for (const [kind, limit] of [['model_cost_nano_usd', '1'], ['model_tokens', '527999']]) {
-        const { root } = await client.call('trees.create', { ...createParams, engine, overrides: { ...createParams.overrides, model: { provider: 'subscription', name: 'gpt-6-astra', effort: '' } } }, deadline());
+        const { root } = await client.call('trees.create', { creation_id: randomUUID(), ...createParams, engine, overrides: { ...createParams.overrides, model: { provider: 'subscription', name: 'gpt-6-astra', effort: '' } } }, deadline());
         await client.call('budgets.set', { session_id: root.id, expected_revision: '0', budget: { kind, limit } }, deadline());
         const id = `subscription:${engine}:${kind}`;
         await client.submit(root.id, [{ type: 'text', text: 'must not contact provider' }], id, deadline());
@@ -2347,7 +2351,7 @@ async function goalAcceptance(runtime, client, createParams, evidence) {
   const receipt = identity => client.call('receipts.get', identity, deadline());
   const finish = identity => until(() => receipt(identity), value => value.turn?.finished_at || value.input?.state === 'cancelled');
   const paused = (owner, id) => until(() => client.getGoal(owner, id, deadline()), value => value.state === 'paused');
-  const { root: idle } = await client.call('trees.create', createParams, deadline());
+  const { root: idle } = await client.call('trees.create', { ...createParams, creation_id: randomUUID() }, deadline());
   assert.equal((await client.currentGoal(idle.id, deadline())).goal, null);
   const defaults = await client.createGoal({ session_id: idle.id, expected_current: null, spec: { text: 'default allowance' }, start: false }, 'goal-default', deadline());
   assert.equal(defaults.goal.spec.max_continuations, '100');
@@ -2356,16 +2360,16 @@ async function goalAcceptance(runtime, client, createParams, evidence) {
   const old = await client.createGoal({ session_id: idle.id, expected_current: null, spec: { text: 'default allowance' }, start: false }, defaults.id, deadline());
   assert.equal(old.current, false); assert.equal(old.goal.state, 'superseded'); assert.equal(old.initial, null);
   await client.cancelGoal(idle.id, replacement.id, deadline());
-  const { root: disabled } = await client.call('trees.create', { ...createParams, overrides: { ...createParams.overrides, goals_enabled: false } }, deadline());
+  const { root: disabled } = await client.call('trees.create', { creation_id: randomUUID(), ...createParams, overrides: { ...createParams.overrides, goals_enabled: false } }, deadline());
   assert.equal(disabled.configuration.goals_enabled, false);
   await assert.rejects(client.createGoal({ session_id: disabled.id, expected_current: null, spec: { text: 'disabled' }, start: false }, 'goal-disabled', deadline()), error => error.kind === 'INVALID');
 
   // Saturate the worker so the lost acknowledgement is definitely for queued initial work.
   await runtime.stop(); await runtime.start('1h');
-  const { root: blocker } = await client.call('trees.create', createParams, deadline());
+  const { root: blocker } = await client.call('trees.create', { ...createParams, creation_id: randomUUID() }, deadline());
   await client.submit(blocker.id, [{ type: 'text', text: 'hold goal queue' }], 'goal-blocker', deadline());
   await until(() => client.recover('goal-blocker', deadline()), value => value.turn?.state === 'running');
-  const { root: queued } = await client.call('trees.create', createParams, deadline());
+  const { root: queued } = await client.call('trees.create', { ...createParams, creation_id: randomUUID() }, deadline());
   const params = { session_id: queued.id, expected_current: null, spec: { text: 'accepted exactly once', max_continuations: '0' }, start: true };
   let dropped;
   const proxy = join(runtime.directory, 'goal-drop.sock');
@@ -2376,7 +2380,7 @@ async function goalAcceptance(runtime, client, createParams, evidence) {
   } finally { await close(); }
   assert.equal(dropped.initial.input.state, 'queued');
   // The disabled queued goal is retired by Claim without a synthetic failed turn.
-  const { root: changing } = await client.call('trees.create', createParams, deadline());
+  const { root: changing } = await client.call('trees.create', { ...createParams, creation_id: randomUUID() }, deadline());
   const disabledQueued = await client.createGoal({ session_id: changing.id, expected_current: null, spec: { text: 'disable before claim' }, start: true }, 'goal-queued-disabled', deadline());
   await client.call('sessions.configure', { session_id: changing.id, expected_revision: changing.config_revision, patch: { goals_enabled: false } }, deadline());
   await runtime.stop('SIGKILL'); await runtime.start('0s');
@@ -2394,7 +2398,7 @@ async function goalAcceptance(runtime, client, createParams, evidence) {
 
   // A dispatched initial attempt becomes uncertain on restart and never auto-replays.
   await runtime.stop(); await runtime.start('1h');
-  const { root: interruptedOwner } = await client.call('trees.create', createParams, deadline());
+  const { root: interruptedOwner } = await client.call('trees.create', { ...createParams, creation_id: randomUUID() }, deadline());
   const interruptedParams = { session_id: interruptedOwner.id, expected_current: null, spec: { text: 'requires explicit resume', max_continuations: '1' }, start: true };
   const active = await client.createGoal(interruptedParams, 'goal-interrupted', deadline());
   const running = await until(() => receipt(active.initial.receipt.identity), value => value.turn?.state === 'running');
@@ -2442,7 +2446,7 @@ async function goalAcceptance(runtime, client, createParams, evidence) {
     host.providers.goals = { kind: 'openai-chat', base_url: `http://127.0.0.1:${server.address().port}/v1`, credential_env: '', models: { goals: { max_output_tokens: 500, timeout_millis: 10000, max_attempts: 1 } } };
     await writeFile(path, JSON.stringify(host), { mode: 0o600 }); await runtime.start(null);
     for (const engine of ['starlark', 'quickjs']) {
-      const { root } = await client.call('trees.create', { ...createParams, engine, overrides: { ...createParams.overrides, model: { provider: 'goals', name: 'goals', effort: '' } } }, deadline());
+      const { root } = await client.call('trees.create', { creation_id: randomUUID(), ...createParams, engine, overrides: { ...createParams.overrides, model: { provider: 'goals', name: 'goals', effort: '' } } }, deadline());
       const grant = await client.call('grants.create', { id: `goal-grant-${engine}`, session_id: root.id, capability: 'goals.complete', resource: root.tree_id }, deadline());
       const child = await client.spawn({ parent_id: root.id, parts: [{ type: 'text', text: 'initialize child' }], overrides: {}, grant_ids: [grant.id] }, `goal-child-${engine}`, deadline());
       await client.wait(`goal-child-${engine}`, deadline());
@@ -2506,7 +2510,7 @@ async function goalFormulationAcceptance(runtime, client, createParams, evidence
       models: Object.fromEntries(['starlark', 'quickjs'].map(engine => [engine, { max_output_tokens: 500, timeout_millis: 30000, max_attempts: 2 }])),
     };
     await writeFile(path, JSON.stringify(host), { mode: 0o600 }); await runtime.start(null);
-    const create = engine => client.call('trees.create', {
+    const create = engine => client.call('trees.create', { creation_id: randomUUID(),
       ...createParams, engine, overrides: { report_mode: 'message', model: { provider: 'formulation', name: engine, effort: 'low', temperature: 0, top_p: 0.5 } },
     }, deadline());
     for (const engine of ['starlark', 'quickjs']) {
@@ -2654,7 +2658,7 @@ async function automaticTitleAcceptance(runtime, client, createParams, evidence)
       const capturedSource = [...normalized].slice(0, 300).join('');
       const fallback = [...normalized].slice(0, 64).join('');
       const helperModel = { provider: 'titles', name: 'captured-title', effort: 'low', temperature: 0, top_p: 0.5 };
-      const { root, tree } = await client.call('trees.create', {
+      const { root, tree } = await client.call('trees.create', { creation_id: randomUUID(),
         ...createParams, engine, metadata: { title: null, pinned: false, archived: false },
         resources: [{ kind: 'queued_inputs', limit: '1' }],
         overrides: {
@@ -2749,7 +2753,7 @@ async function contentOwnerAcceptance(runtime, client, createParams, evidence) {
   const referenceID = 'same-opaque-handle';
   const owners = [];
   for (const text of ['first owner: café', 'second owner: 界🙂']) {
-    const { root } = await client.call('trees.create', createParams, deadline());
+    const { root } = await client.call('trees.create', { ...createParams, creation_id: randomUUID() }, deadline());
     const params = { session_id: root.id, reference_id: referenceID, media_type: 'text/plain', data_base64: Buffer.from(text).toString('base64') };
     const reference = await client.call('content.put', params, deadline());
     assert.deepEqual(await client.call('content.put', params, deadline()), reference);
@@ -2759,7 +2763,7 @@ async function contentOwnerAcceptance(runtime, client, createParams, evidence) {
     await assert.rejects(client.call('content.put', { ...params, data_base64: Buffer.from('conflicting bytes').toString('base64') }, deadline()), error => error.kind === 'CONFLICT');
     owners.push({ root, params, reference, text });
   }
-  const { root: unrelated } = await client.call('trees.create', createParams, deadline());
+  const { root: unrelated } = await client.call('trees.create', { ...createParams, creation_id: randomUUID() }, deadline());
   await assert.rejects(client.call('content.read', { session_id: unrelated.id, reference_id: referenceID }, deadline()), error => error.kind === 'NOT_FOUND');
   await runtime.stop(); await runtime.start();
   for (const value of owners) assert.deepEqual(await client.call('content.put', value.params, deadline()), value.reference);
@@ -2899,7 +2903,7 @@ async function rewindAcceptance(runtime, client, createParams, evidence) {
     await runtime.start(null);
     for (const engine of ['starlark', 'quickjs']) for (const kind of ['root', 'child']) {
       const prefix = `rewind:${engine}:${kind}`;
-      const { root } = await client.call('trees.create', { ...createParams, engine, overrides: { model: { provider: 'rewind', name: 'rewind', effort: '' } } }, deadline());
+      const { root } = await client.call('trees.create', { creation_id: randomUUID(), ...createParams, engine, overrides: { model: { provider: 'rewind', name: 'rewind', effort: '' } } }, deadline());
       let owner = root;
       const seed = `${prefix}:seed`;
       if (kind === 'child') {
@@ -2976,7 +2980,7 @@ async function forkAcceptance(runtime, client, createParams, evidence) {
     const prefix = `fork:${engine}:${kind}`;
     const referenceID = 'opaque-fork-handle';
     const content = Buffer.from(`content belonging to ${prefix}: 界🙂`).toString('base64');
-    const { root } = await client.call('trees.create', { ...createParams, engine }, deadline());
+    const { root } = await client.call('trees.create', { creation_id: randomUUID(), ...createParams, engine }, deadline());
     await client.call('content.put', { session_id: root.id, reference_id: referenceID, media_type: 'text/plain', data_base64: content }, deadline());
     const parts = [{ type: 'text', text: `${prefix} keeps ${referenceID} unchanged` }, { type: 'content', reference_id: referenceID }];
     let source = root;
@@ -3157,10 +3161,10 @@ async function providerSetupAcceptance(runtime, client, createParams, evidence) 
     const settings = { prices: live.models[0].prices, context_window_tokens: '64000', max_output_tokens: '4096', timeout_millis: '30000', max_attempts: 1 };
     const configured = await client.setProviderDefaults({ revision: created.revision, defaults: { selection, settings } }, deadline());
     const { model: _model, ...overrides } = createParams.overrides;
-    const first = await client.call('trees.create', { ...createParams, overrides }, deadline());
+    const first = await client.call('trees.create', { creation_id: randomUUID(), ...createParams, overrides }, deadline());
     assert.deepEqual(first.root.configuration.model, selection);
     const changed = await client.setProviderDefaults({ revision: configured.revision, defaults: { selection: { ...selection, name: 'second-explicit-model' }, settings: null } }, deadline());
-    const second = await client.call('trees.create', { ...createParams, overrides }, deadline());
+    const second = await client.call('trees.create', { creation_id: randomUUID(), ...createParams, overrides }, deadline());
     assert.equal(second.root.configuration.model.name, 'second-explicit-model');
     assert.equal((await client.call('sessions.get', { session_id: first.root.id }, deadline())).configuration.model.name, selection.name);
     const ready = await client.providerReadiness(second.root.configuration.model, deadline());
@@ -3232,7 +3236,7 @@ async function questionAcceptance(runtime, client, createParams, evidence) {
     await writeFile(path, JSON.stringify(host), { mode: 0o600 });
     await runtime.start(null);
     for (const engine of ['starlark', 'quickjs']) {
-      const createRoot = async () => (await client.call('trees.create', {
+      const createRoot = async () => (await client.call('trees.create', { creation_id: randomUUID(),
         ...createParams, engine, overrides: { report_mode: 'notice', model: { provider: 'questions', name: 'questions', effort: '' } },
       }, deadline())).root;
       let root = await createRoot();
@@ -3377,14 +3381,14 @@ async function permissionModeAcceptance(runtime, client, createParams, evidence)
     await runtime.start(null);
     const initialDefault = await client.getDefaultPermissionMode(deadline());
     const automaticDefault = await client.setDefaultPermissionMode({ expected_revision: initialDefault.revision, mode: 'automatic' }, deadline());
-    const { root: defaultRoot } = await client.call('trees.create', createParams, deadline());
+    const { root: defaultRoot } = await client.call('trees.create', { ...createParams, creation_id: randomUUID() }, deadline());
     assert.equal((await client.getPermissionPolicy(defaultRoot.id, deadline())).mode, 'automatic');
     const promptDefault = await client.setDefaultPermissionMode({ expected_revision: automaticDefault.revision, mode: 'prompt' }, deadline());
     await assert.rejects(client.setDefaultPermissionMode({ expected_revision: automaticDefault.revision, mode: 'automatic' }, deadline()), error => error instanceof RemoteError && error.kind === 'CONFLICT');
     assert.deepEqual(await client.getDefaultPermissionMode(deadline()), promptDefault);
     assert.equal((await client.getPermissionPolicy(defaultRoot.id, deadline())).mode, 'automatic');
     for (const engine of ['starlark', 'quickjs']) {
-      const { root } = await client.call('trees.create', { ...createParams, engine, permission_mode: 'prompt', overrides: { report_mode: 'notice', model: { provider: 'modes', name: 'modes', effort: '' } } }, deadline());
+      const { root } = await client.call('trees.create', { creation_id: randomUUID(), ...createParams, engine, permission_mode: 'prompt', overrides: { report_mode: 'notice', model: { provider: 'modes', name: 'modes', effort: '' } } }, deadline());
       const policy = await client.getPermissionPolicy(root.id, deadline());
       assert.equal(policy.mode, 'prompt');
       const samePrompt = await client.setPermissionMode({ session_id: root.id, expected_revision: policy.revision, mode: 'prompt' }, `${engine}.Same-Prompt`, deadline());

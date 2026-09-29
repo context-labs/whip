@@ -1,0 +1,44 @@
+{
+  "type": "object",
+  "properties": {
+    "expected_revision": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[1-9][0-9]{0,18}$",
+      "format": "counter"
+    },
+    "after": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "archived": {
+      "type": [
+        "null",
+        "boolean"
+      ]
+    },
+    "pinned": {
+      "type": [
+        "null",
+        "boolean"
+      ]
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ListTreesParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ListTreesParams",
+  "required": [
+    "limit"
+  ],
+  "additionalProperties": false
+}

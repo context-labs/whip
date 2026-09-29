@@ -1,0 +1,74 @@
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "revision": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            },
+            "required": [
+              "id",
+              "revision"
+            ],
+            "additionalProperties": false
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^[\\s\\S]{0,256}$"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "name",
+          "created_at"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 100
+    },
+    "next_cursor": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "revision": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "id",
+        "revision"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ListDefinitionsResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ListDefinitionsResult",
+  "required": [
+    "items",
+    "next_cursor"
+  ],
+  "additionalProperties": false
+}

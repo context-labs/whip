@@ -463,6 +463,219 @@
     "valid": true
   },
   {
+    "type": "TreeCreationParams",
+    "value": {
+      "creation_id": "MiXeD:Creation"
+    },
+    "valid": true
+  },
+  {
+    "type": "CreateTreeParams",
+    "value": {
+      "creation_id": "MiXeD:Creation",
+      "metadata": {
+        "title": null,
+        "archived": false,
+        "pinned": false
+      },
+      "engine": "quickjs",
+      "definition": {
+        "id": "assistant",
+        "revision": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f"
+      },
+      "overrides": {},
+      "working_directory": "/workspace"
+    },
+    "valid": true
+  },
+  {
+    "type": "CreateTreeResult",
+    "value": {
+      "creation": {
+        "id": "MiXeD:Creation",
+        "tree_id": "tree_fixture",
+        "root_id": "session_root",
+        "created_at": "2026-09-27T12:00:00.123456Z"
+      },
+      "tree": {
+        "id": "tree_fixture",
+        "metadata": {
+          "title": null,
+          "archived": false,
+          "pinned": false
+        },
+        "engine": "quickjs",
+        "revision": "1",
+        "created_at": "2026-09-27T12:00:00.123456Z"
+      },
+      "root": {
+        "history_revision": "9007199254740993",
+        "id": "session_root",
+        "tree_id": "tree_fixture",
+        "parent_id": null,
+        "definition": {
+          "id": "assistant",
+          "revision": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f"
+        },
+        "config_revision": "9007199254740993",
+        "configuration": {
+          "modules": [
+            "agents",
+            "artifacts",
+            "browser",
+            "computer",
+            "context",
+            "files",
+            "goals",
+            "mail",
+            "mcp",
+            "messages",
+            "models",
+            "permissions",
+            "schedules",
+            "shell",
+            "skills",
+            "state",
+            "user"
+          ],
+          "tools_definition": null,
+          "hooks_definition": null,
+          "automatic_title": true,
+          "goals_enabled": true,
+          "compaction": {
+            "model": null,
+            "threshold_percent": 50
+          },
+          "report_mode": "notice",
+          "model": {
+            "provider": "fixture",
+            "name": "scripted",
+            "effort": ""
+          },
+          "instructions": {
+            "project_root": null,
+            "text": "Help the user complete their task. Use only the operations made available to you.",
+            "project_files": [
+              "AGENTS.md"
+            ],
+            "discover_skills": true,
+            "standing_instructions": false,
+            "skill_roots": null
+          },
+          "tools": null,
+          "children": null,
+          "hooks": null,
+          "output_schema": null
+        },
+        "working_directory": "/workspace",
+        "lifecycle": "active",
+        "created_at": "2026-09-27T12:00:00.123456Z"
+      },
+      "deleted": false
+    },
+    "valid": true
+  },
+  {
+    "type": "CreateTreeResult",
+    "value": {
+      "creation": {
+        "id": "Deleted:Creation",
+        "tree_id": "tree_fixture",
+        "root_id": "session_root",
+        "created_at": "2026-09-27T12:00:00.123456Z"
+      },
+      "tree": null,
+      "root": null,
+      "deleted": true
+    },
+    "valid": true
+  },
+  {
+    "type": "TreeCatalog",
+    "value": {
+      "revision": "9007199254740993"
+    },
+    "valid": true
+  },
+  {
+    "type": "ListTreesParams",
+    "value": {
+      "archived": false,
+      "pinned": true,
+      "limit": 100
+    },
+    "valid": true
+  },
+  {
+    "type": "ListTreesResult",
+    "value": {
+      "revision": "9007199254740993",
+      "items": [
+        {
+          "tree": {
+            "id": "tree_fixture",
+            "metadata": {
+              "title": "Catalog title",
+              "archived": false,
+              "pinned": false
+            },
+            "engine": "starlark",
+            "revision": "9007199254740993",
+            "created_at": "2026-09-27T12:00:00.123456Z"
+          },
+          "root_id": "session_root"
+        }
+      ],
+      "next_cursor": "tree_fixture"
+    },
+    "valid": true
+  },
+  {
+    "type": "ListTreesResult",
+    "value": {
+      "revision": "9007199254740993",
+      "items": [],
+      "next_cursor": null
+    },
+    "valid": true
+  },
+  {
+    "type": "ListDefinitionsParams",
+    "value": {
+      "after": {
+        "id": "assistant",
+        "revision": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f"
+      },
+      "limit": 1
+    },
+    "valid": true
+  },
+  {
+    "type": "ListDefinitionsResult",
+    "value": {
+      "items": [
+        {
+          "ref": {
+            "id": "assistant",
+            "revision": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f"
+          },
+          "name": "Assistant",
+          "created_at": "2026-09-27T12:00:00.123456Z"
+        }
+      ],
+      "next_cursor": null
+    },
+    "valid": true
+  },
+  {
+    "type": "ListDefinitionsResult",
+    "value": {
+      "items": [],
+      "next_cursor": null
+    },
+    "valid": true
+  },
+  {
     "type": "AutomaticTitleDecision",
     "value": {
       "tree_id": "tree_fixture",

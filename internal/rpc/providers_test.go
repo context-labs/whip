@@ -2,6 +2,7 @@ package rpc_test
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -133,7 +134,7 @@ func TestProviderSocketSetupCatalogDefaultsAndCredentialPrivacy(t *testing.T) {
 	if *configured.Routes[0].Models[selected.Name].Prices.Input != 9007199254740993 {
 		t.Fatal("exact persisted price changed")
 	}
-	root := call[protocol.CreateTreeResult](t, f.client, "trees.create", protocol.CreateTreeParams{Engine: "starlark", Definition: f.client.Builtins()[0], WorkingDirectory: t.TempDir()})
+	root := call[protocol.CreateTreeResult](t, f.client, "trees.create", protocol.CreateTreeParams{CreationID: protocol.ID(rand.Text()), Engine: "starlark", Definition: f.client.Builtins()[0], WorkingDirectory: t.TempDir()})
 	if root.Root.Configuration.Model.Name != selected.Name || root.Root.Configuration.Model.Temperature == nil || *root.Root.Configuration.Model.Temperature != 0 {
 		t.Fatal("new root missed current provider default")
 	}

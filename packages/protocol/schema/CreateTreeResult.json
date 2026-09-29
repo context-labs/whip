@@ -1,8 +1,38 @@
 {
   "type": "object",
   "properties": {
-    "tree": {
+    "creation": {
       "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "tree_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "root_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "created_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "tree_id",
+        "root_id",
+        "created_at"
+      ],
+      "additionalProperties": false
+    },
+    "tree": {
+      "type": [
+        "null",
+        "object"
+      ],
       "properties": {
         "id": {
           "type": "string",
@@ -57,7 +87,10 @@
       "additionalProperties": false
     },
     "root": {
-      "type": "object",
+      "type": [
+        "null",
+        "object"
+      ],
       "properties": {
         "history_revision": {
           "type": "string",
@@ -461,14 +494,19 @@
         "created_at"
       ],
       "additionalProperties": false
+    },
+    "deleted": {
+      "type": "boolean"
     }
   },
   "$id": "https://whip.dev/protocol/v4/CreateTreeResult",
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "CreateTreeResult",
   "required": [
+    "creation",
     "tree",
-    "root"
+    "root",
+    "deleted"
   ],
   "additionalProperties": false
 }

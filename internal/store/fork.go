@@ -129,6 +129,9 @@ func (s *Store) Fork(ctx context.Context, request session.ForkRequest, defaults 
 		if err := initializeTitle(ctx, tx, root, nil, "fork"); err != nil {
 			return err
 		}
+		if err := bumpTreeCatalog(ctx, tx); err != nil {
+			return err
+		}
 		result, err = readFork(ctx, tx, request.ID)
 		return err
 	})

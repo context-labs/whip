@@ -734,3 +734,21 @@ CREATE TABLE automatic_title_results (
 ) STRICT;
 CREATE TRIGGER automatic_title_result_immutable BEFORE UPDATE ON automatic_title_results
  BEGIN SELECT RAISE(ABORT, 'automatic title result is immutable'); END;
+
+-- Creation receipts retain caller delivery identity after destination deletion.
+CREATE TABLE tree_creations (
+ id TEXT PRIMARY KEY, digest TEXT NOT NULL,
+ tree_id TEXT NOT NULL UNIQUE, root_id TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL
+) STRICT;
+CREATE TRIGGER tree_creation_immutable BEFORE UPDATE ON tree_creations BEGIN SELECT RAISE(ABORT,'immutable tree creation'); END;
+CREATE TRIGGER tree_creation_retained BEFORE DELETE ON tree_creations BEGIN SELECT RAISE(ABORT,'retained tree creation'); END;
+
+CREATE TABLE tree_catalog (
+ singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+ revision INTEGER NOT NULL CHECK(revision>0)
+) STRICT;
+INSERT INTO tree_catalog VALUES (1,1);
+CREATE TRIGGER tree_catalog_revision BEFORE UPDATE ON tree_catalog
+ WHEN NEW.singleton<>OLD.singleton OR NEW.revision<>OLD.revision+1
+ BEGIN SELECT RAISE(ABORT,'invalid catalog revision'); END;
+CREATE TRIGGER tree_catalog_retained BEFORE DELETE ON tree_catalog BEGIN SELECT RAISE(ABORT,'retained tree catalog'); END;
