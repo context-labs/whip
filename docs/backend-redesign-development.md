@@ -5817,3 +5817,17 @@ their owned runtimes (48.432s Chromium/46.954s Firefox), using renderer
 No product code, workload, deadline or geometry changes; the untouched body
 scenario is not claimed by this focused repair. Evidence:
 `/tmp/whip-settings-provisional-evidence.md` and its exact ownership reports.
+
+The first-gesture Firefox failure is not reproduced locally. The original full
+activity workload passes; a controlled delayed-measurement experiment preserves
+the 12 px upward movement, and bounded browser experiments reject a no-op
+scroll-write explanation. No speculative product repair or settlement wait is
+introduced. Integrated `0a61fdb64` adds passive bounded wheel/scroll/resize/frame
+evidence around the unchanged first gesture, written on success or failure and
+retired on completion, page hide, unmount or a ten-second deadline. Four
+lifecycle/bounds contracts pass and now join the normal activity gate after its
+asset prerequisite. The complete affected native activity scenario passes all
+12 checks in each browser, with at most 30 mounted tree rows and the same
+production renderer; this is passing evidence, not proof of the hosted cause.
+Artifacts: `/tmp/whip-firefox-small-scroll-passive/`; investigation:
+`/tmp/whip-firefox-small-scroll-investigation/findings.md`.
