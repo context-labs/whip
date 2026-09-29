@@ -114,7 +114,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     for (const host of hosts.slice(1)) {
       await manage();
       await addHost(host);
-      await page.getByRole('region', { name: `${host.name} sessions`, exact: true }).getByRole('link', { name: `Shared title ${host.name}`, exact: true }).waitFor();
+      await page.getByRole('region', { name: 'Projects', exact: true }).locator(`[data-sidebar-runtime="${host.runtimeId}"][data-sidebar-session="${host.root}"]`).getByRole('link', { name: `Shared title ${host.name}`, exact: true }).waitFor();
     }
     const profiles = (await hosts[0].client.hosts.profiles(deadline())).profiles;
     assert.deepEqual(profiles.map(profile => profile.name), ['Remote A', 'Remote B']);
@@ -122,7 +122,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     const peer = await browser.newContext();
     const peerPage = await peer.newPage();
     await peerPage.goto(origin(local));
-    for (const host of hosts) await peerPage.getByRole('region', { name: `${host.name} sessions`, exact: true }).waitFor();
+    for (const host of hosts) await peerPage.getByRole('region', { name: 'Projects', exact: true }).locator(`[data-sidebar-runtime="${host.runtimeId}"][data-sidebar-session="${host.root}"]`).waitFor();
     await peer.close();
     checks.push('UI saves two verified profiles only in Local config; a fresh browser discovers all three hosts');
 
@@ -172,7 +172,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
 
     // Build the mixed workspace through ordinary sidebar and tab-menu actions.
     for (const host of hosts) {
-      await page.getByRole('region', { name: `${host.name} sessions`, exact: true }).getByRole('link', { name: `Shared title ${host.name}`, exact: true }).click();
+      await page.getByRole('region', { name: 'Projects', exact: true }).locator(`[data-sidebar-runtime="${host.runtimeId}"][data-sidebar-session="${host.root}"]`).getByRole('link', { name: `Shared title ${host.name}`, exact: true }).click();
       const opened = panes((await workspace()).layout).flatMap(pane => pane.tabs).find(tab => tab.rootId === host.root && tab.runtimeId === host.runtimeId);
       assert(opened); host.initialView = opened.id;
       await ready(opened.id);
