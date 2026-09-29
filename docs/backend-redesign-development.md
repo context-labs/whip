@@ -4396,3 +4396,35 @@ Native `--bench`/`--bench-init` and installer/update acceptance are integrated a
 documented above. Main/default TUI routing, remaining specialized browser probes,
 active eval consumers, final package/entrypoint gates and retired-core deletion
 remain explicit next work. Phases5–7 are not complete at this checkpoint.
+
+### Focused-context evals use native execution and accounting
+
+`evals/rlm` now uses the shipping native runner, provider adapter, shared attempt
+budget and SQLite ledger with the existing restricted synthetic corpus host and
+both actual isolated engines. It no longer imports retired agent, agentdef, LLM,
+legacy configuration, RLM orchestration or tools. The exact text/handle/byte-span
+checks and negative-evidence cases remain. Two stateless reviewers now make real
+scripted HTTP calls through native helper accounting; all four calls appear in
+the same durable ledger. A two-call budget test proves the root and reviewers
+cannot bypass shared admission. Provider charges, known-free charges and unknown
+prices retain distinct results. Initial fixture failures revealed incomplete SSE
+headers/terminators accepted by the retired adapter; the scripted server now
+produces valid complete streams. No native completion assertion was weakened.
+
+Final shuffled race checks passed all deterministic fixtures in10.697s, including
+both engines and shared-budget refusal; vet passed. Pinned Go1.27 lint against
+`e3fed9c91918d9c36766dd47d878c1b5466238d1` passed with zero new issues before the
+final cost-source label correction (native `prices`, not retired `estimated`).
+The final narrow check is recorded on integration. A first lint invocation found
+one avoidable output concatenation; it was replaced with strings.Builder. A
+concurrent-lint lock refusal was infrastructure, not a passing check.
+
+The report keeps unknown usage/cost counts and marks the retired local token
+estimate null; native declared input bounds and fixture context targets are named
+separately from actual single-call reported input or peak context occupancy. Live
+evals remain opt-in and require an explicit native declaration directory; they
+read it without discovering or starting installed runtimes. Restricted API-route
+live evaluation does not claim account-managed product acceptance or actual live
+provider evidence. This package now belongs to the required active gates. Python
+benchmark observation and the frozen historical study adapters are a separate
+remaining disposition; historical results have not been rewritten.
