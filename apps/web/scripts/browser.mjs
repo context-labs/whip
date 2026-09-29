@@ -3,8 +3,8 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { chromium, firefox } from '@playwright/test';
-import { createWhipClient } from '../../../packages/legacy-sdk/dist/index.js';
-import { eventually, startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
+import { randomUUID } from 'node:crypto';
+import { deadline as callDeadline, eventually, startFixture } from './native-fixture.mjs';
 
 // The fixture embeds the packaged production app. Build and pack before running;
 // no user daemon, home, credentials, or provider account is used by these tests.
@@ -12,28 +12,20 @@ const requested = (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split(',
 const resultsDirectory = process.env.WHIP_WEB_BROWSER_RESULTS ?? '/tmp/whip-web-browser-results';
 await mkdir(resultsDirectory, { recursive: true });
 const log = (scope, phase) => console.log(`[${new Date().toISOString()}] ${scope}: ${phase}`);
-log('fixture', 'compiling and starting isolated daemon');
+log('fixture', 'compiling and starting isolated native runtime');
 const fixture = await startFixture();
 log('fixture', `ready at ${fixture.directory}`);
-const providerBaseURL = fixture.info.frontend + '/v1';
-await writeFile(join(fixture.directory, 'home', 'config.json'), JSON.stringify({
-  defaultModel: 'model', defaultProvider: 'provider',
-  providers: { provider: { name: 'Isolated fixture', baseUrl: providerBaseURL, api: 'openai-completions', auth: 'none' } },
-  models: { model: { providers: ['provider'] } },
-}));
-await writeFile(join(fixture.directory, 'home', 'models.json'), JSON.stringify({
-  provider: { baseUrl: providerBaseURL, fetchedAt: new Date().toISOString(), models: [
-    { id: 'model' }, { id: 'replacement', reasoningEfforts: ['low', 'medium', 'high'] },
-  ] },
-}));
 const results = {};
 const axeSource = await readFile(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8');
 const milliseconds = samples => {
   const sorted = samples.slice().sort((a, b) => a - b);
   return { count: sorted.length, median: sorted[Math.floor(sorted.length / 2)] ?? 0, p95: sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * .95) - 1)] ?? 0 };
 };
-const origin = () => fixture.info.endpoint.replace(/^ws/, 'http').replace('/api/v3/ws', '');
+const origin = () => fixture.info.web;
 const route = rootId => `/h/${fixture.info.runtime_id}/s/${rootId}`;
+const textOf = message => message.parts.filter(part => part.type === 'text').map(part => part.text).join('\n');
+const messagesOf = async session => (await session.history.page({ direction: 'forward', limit: 100 }, callDeadline())).messages;
+async function complete(session, text) { const requestID = randomUUID(); await session.submit([{ type: 'text', text }], requestID, callDeadline()); return session.client.wait(requestID, callDeadline()); }
 
 function observe(page) {
   const requests = [];
@@ -52,7 +44,7 @@ function observe(page) {
       try {
         const message = JSON.parse(String(payload));
         requests.push(message);
-        if (message.method === 'command.submit') inflight.set(message.id, performance.now());
+        if (message.method === 'sessions.submit') inflight.set(message.id, performance.now());
       } catch { /* Non-JSON frames are diagnosed by the SDK. */ }
     });
     socket.on('framereceived', ({ payload }) => {
@@ -60,7 +52,8 @@ function observe(page) {
         const message = JSON.parse(String(payload));
         if (message.id && !message.method) replies.add(message.id);
         if (message.error) rpcErrors.push({ id: message.id, error: message.error });
-        if (message.result?.command_id && message.result?.status) outcomes.push(message.result);
+        if (message.result?.receipt) outcomes.push(message.result);
+        if (message.result?.items?.some(item => item.finished_at)) outcomes.push(...message.result.items);
         if (inflight.has(message.id)) { acceptance.push(performance.now() - inflight.get(message.id)); inflight.delete(message.id); }
       } catch { /* See SDK protocol validation. */ }
     });
@@ -69,7 +62,7 @@ function observe(page) {
 }
 async function measurePresentation(page) {
   await page.addInitScript(() => {
-    const samples = []; const pending = [];
+    const samples = []; const pending = []; const seen = new Set();
     window.__whipEventToView = samples;
     const check = () => {
       for (let index = pending.length - 1; index >= 0; index--) {
@@ -85,9 +78,13 @@ async function measurePresentation(page) {
         super(...args);
         this.addEventListener('message', message => {
           try {
-            const event = JSON.parse(message.data).params?.event;
-            if (event?.kind !== 'stream.tool.output') return;
-            const text = event.payload?.text;
+            const preview = JSON.parse(message.data).result?.preview;
+            if (!preview?.cell_id) return;
+            const key = preview.cell_id + ':' + preview.revision;
+            if (seen.has(key)) return;
+            if (seen.size >= 256) throw new Error('Paint probe exceeded its retained sample bound');
+            seen.add(key);
+            const text = preview.text?.trimEnd();
             if (typeof text !== 'string' || !text) return;
             pending.push({ text, start: performance.now() });
             if (pending.length > 128) pending.shift();
@@ -104,7 +101,7 @@ async function ready(page) {
 }
 async function send(page, text) {
   await page.getByLabel('Message WHIP', { exact: true }).fill(text);
-  await page.getByRole('button', { name: 'Send message', exact: true }).click();
+  await page.getByRole('button', { name: /^(Send|Queue) message$/ }).click();
   await eventually(async () => (await page.getByLabel('Message WHIP', { exact: true }).inputValue()) === '', { description: 'authoritative acceptance clears draft' });
 }
 async function selectTheme(page, id) {
@@ -135,7 +132,7 @@ async function accessible(page, state) {
 }
 
 try {
-  const discovery = await (await fetch(origin() + '/api/v3/web', { signal: AbortSignal.timeout(10_000) })).json();
+  const discovery = await (await fetch(origin() + '/api/v4/web', { signal: AbortSignal.timeout(10_000) })).json();
   assert.equal(discovery.available, true, 'Build and pack the application before compiling the fixture');
   for (const name of requested) {
     const launcher = { chromium, firefox }[name];
@@ -152,24 +149,21 @@ try {
     const observed = observe(page);
     const observations = [observed];
     await measurePresentation(page);
-    const client = createWhipClient({ endpoint: fixture.info.endpoint, clientId: `web-test-${name}-${crypto.randomUUID()}`, clientKind: 'human' });
+    let client = await fixture.connect(`web-test-${name}-${randomUUID()}`);
     const checks = [];
     const recovery = [];
     let rootId;
     let stoppingCommand;
     const deadline = setTimeout(() => {
       log(name, `120s browser deadline exceeded during ${phase}`);
-      client.close();
       void browser.close();
     }, 120_000);
     deadline.unref();
     try {
       progress('attach/deep link and empty-state accessibility');
-      await client.connect();
-      const created = await client.sessions.create({ cwd: fixture.directory, model: 'model', provider: 'provider' }).result({ signal: AbortSignal.timeout(15_000) });
-      assert.equal(created.status, 'succeeded'); rootId = created.result.root_id;
-      const session = client.session(rootId);
-      await session.rename(`Browser ${name}`).result({ signal: AbortSignal.timeout(15_000) });
+      const created = await fixture.createRoot(client, { title: `Browser ${name}` });
+      rootId = created.root.id;
+      let session = client.session(rootId);
       const response = await page.goto(origin() + route(rootId));
       const csp = response.headers()['content-security-policy'];
       assert.ok(csp && !csp.includes("'unsafe-eval'") && !csp.includes("'unsafe-inline'"));
@@ -200,7 +194,7 @@ try {
       const modelSearch = page.getByRole('textbox', { name: 'Search models', exact: true });
       await modelSearch.fill('replacement');
       await page.getByRole('option', { name: 'replacement · provider', exact: true }).click();
-      await eventually(async () => (await session.snapshot()).meta.model === 'replacement', { description: 'composer model selection reaches the host' });
+      await eventually(async () => (await session.get(callDeadline())).configuration.model.name === 'replacement', { description: 'composer model selection reaches the host' });
       await modelSearch.waitFor({ state: 'hidden' });
       // Host acceptance precedes browser replay, which changes toolbar geometry.
       // Wait for the displayed model and popup focus return before another click.
@@ -209,11 +203,11 @@ try {
       const effortTrigger = page.getByRole('button', { name: 'Reasoning effort', exact: true });
       await effortTrigger.click();
       await page.getByRole('option', { name: 'Medium', exact: true }).click();
-      await eventually(async () => (await session.snapshot()).meta.effort === 'medium');
+      await eventually(async () => (await session.get(callDeadline())).configuration.model.effort === 'medium');
       await page.getByRole('listbox', { name: 'Reasoning effort', exact: true }).waitFor({ state: 'hidden' });
       await page.screenshot({ path: join(resultsDirectory, `${name}-model-picker.png`) });
       assert.equal(await composer.inputValue(), 'Keep this draft while changing the model');
-      assert.equal((await session.snapshot()).messages?.length ?? 0, 0, 'Changing models submitted the message draft');
+      assert.equal((await messagesOf(session)).length, 0, 'Changing models submitted the message draft');
       await page.reload(); await ready(page);
       assert.ok((await modelTrigger.innerText()).includes('replacement'));
       assert.equal(await effortTrigger.innerText(), 'Medium');
@@ -233,11 +227,11 @@ try {
       const toolStreamKey = `tool-stream-browser-${name}`;
       await send(page, `hold:${toolStreamKey}`);
       const activity = page.locator('[data-activity-group]');
-      await eventually(async () => (await activity.count()) === 1 && (await activity.innerText()).includes('2 executions'), { description: 'two cumulative executions in one activity group' });
-      assert.equal(await page.locator('[data-message-id^="live:"]').count(), 1, 'Text deltas must append to one live row');
+      await eventually(async () => (await activity.count()) === 1 && (await activity.innerText()).includes('Called 1 tool · 1 execution'), { description: 'two cumulative executions in one activity group' });
+      assert.equal(await page.locator('[data-message-role="assistant"][data-message-id]').filter({ hasText: `hold:${toolStreamKey}` }).count(), 1, 'Streamed prose must hand over to one canonical model-call row');
       const presentationLatency = await eventually(async () => {
         const samples = await page.evaluate(() => window.__whipEventToView);
-        return samples.length >= 2 && samples;
+        return samples.length >= 1 && samples;
       }, { description: 'grouped output updates are painted' });
       const tools = page.locator('[data-activity-detail]');
       await eventually(async () => (await tools.count()) === 2);
@@ -245,13 +239,13 @@ try {
       assert.equal(await modelTrigger.isEnabled(), false);
       assert.equal(await effortTrigger.isEnabled(), false);
       for (let index = 0; index < 2; index++) {
-        const text = await tools.nth(index).innerText();
-        assert.match(text, /print\(1\)/);
+        assert.match(await tools.nth(index).getByRole('region', { name: 'Executed code', exact: true }).innerText(), /print\("first"\)/);
+        const text = await tools.nth(index).getByRole('region', { name: /^(Output|Live output · provisional)$/ }).innerText();
         assert.equal((text.match(/first/g) ?? []).length, 1);
         assert.equal((text.match(/second/g) ?? []).length, 1);
       }
       const preservedExecutions = async () => {
-        await eventually(async () => (await activity.count()) === 1 && (await activity.innerText()).includes('2 executions'));
+        await eventually(async () => (await activity.count()) === 1 && (await activity.innerText()).includes('Called 1 tool · 1 execution'));
         const toggle = activity.locator('[data-activity-content]');
         if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
         assert.deepEqual(await tools.evaluateAll(cells => cells.map(cell => cell.getAttribute('data-activity-detail'))), cellIds);
@@ -269,7 +263,7 @@ try {
       assert.equal(await page.getByRole('region', { name: 'Conversation', exact: true }).count(), 1);
       await preservedExecutions();
       await fixture.release(toolStreamKey);
-      await eventually(async () => Object.keys((await session.snapshot()).active_turns).length === 0, { description: 'held tool turn completes' });
+      await eventually(async () => !(await session.activity(callDeadline())).active_turn, { description: 'held tool turn completes' });
       checks.push('delta/cumulative streams stay grouped across theme changes and reload; draft/theme persist');
 
       progress('host context completion');
@@ -278,14 +272,19 @@ try {
       await page.getByRole('combobox', { name: 'Search on the host', exact: true }).fill('web-browser-context');
       await page.getByRole('option', { name: /web-browser-context\.txt/ }).click();
       assert.match(await page.getByLabel('Message WHIP', { exact: true }).inputValue(), /@web-browser-context\.txt/);
-      assert.ok(observed.requests.some(item => item.method === 'workspace.complete' && item.params.agent_id === rootId));
+      assert.ok(observed.requests.some(item => item.method === 'workspace.complete' && item.params.session_id === rootId));
       checks.push('context completion queries the execution host and inserts an unsent reference');
 
       progress('text and PNG upload/preview');
       await page.locator('input[type=file]').setInputFiles({ name: 'browser-note.txt', mimeType: 'text/plain', buffer: Buffer.from('Browser attachment body is visible in history.') });
       await page.getByText('browser-note.txt · Ready', { exact: true }).waitFor();
       await send(page, 'Read the attached browser note.');
-      await eventually(async () => (await page.locator('[data-message-id]').filter({ hasText: 'Browser attachment body is visible in history.' }).count()) >= 1, { description: 'text attachment is materialized in transcript' });
+      const attachedText = page.locator('[data-message-role="user"]').filter({ hasText: 'Read the attached browser note.' });
+      await eventually(() => attachedText.evaluate(element => !!element.closest('[data-reading-seq]')?.getAttribute('data-reading-seq')), { description: 'attachment has canonical history sequence' });
+      await attachedText.getByRole('button', { name: 'Preview Attachment 1', exact: true }).click();
+      const attachmentDialog = page.getByRole('dialog', { name: 'Attachment 1', exact: true });
+      await attachmentDialog.getByText('Browser attachment body is visible in history.', { exact: true }).waitFor();
+      await attachmentDialog.getByRole('button', { name: 'Close', exact: true }).click();
       const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=', 'base64');
       await page.locator('input[type=file]').setInputFiles({ name: 'tiny.png', mimeType: 'image/png', buffer: png });
       const imagePreview = page.getByRole('button', { name: 'Preview tiny.png', exact: true });
@@ -293,47 +292,54 @@ try {
       await eventually(async () => (await imagePreview.getAttribute('title')) === 'tiny.png', { description: 'PNG upload completes' });
       await eventually(() => imagePreview.getByAltText('tiny.png', { exact: true }).evaluate(image => image.complete && image.naturalWidth === 1 && image.naturalHeight === 1), { description: 'draft PNG thumbnail decodes' });
       await send(page, 'Inspect the tiny image.');
-      await eventually(async () => page.getByAltText('Attached image', { exact: true }).first().evaluate(image => image.complete && image.naturalWidth === 1 && image.naturalHeight === 1), { description: 'inline PNG attachment preview decodes' });
-      checks.push('real text and image uploads reach history with automatic inline PNG preview');
+      await eventually(async () => page.locator('[data-message-role="user"]').filter({ hasText: 'Inspect the tiny image.' }).getByAltText('Attachment 1', { exact: true }).evaluate(image => image.complete && image.naturalWidth === 1 && image.naturalHeight === 1), { description: 'inline PNG attachment preview decodes' });
+      checks.push('real text and image uploads reach scoped history previews with automatic inline PNG decoding');
 
 
       progress('two-client permission resolution');
       const peer = await context.newPage(); const peerObserved = observe(peer); observations.push(peerObserved);
       await peer.goto(origin() + route(rootId)); await ready(peer);
-      await client.permissions.setMode(rootId, true).result({ signal: AbortSignal.timeout(15_000) });
+      const policy = await session.permissions.policy(callDeadline());
+      await session.permissions.setMode({ mode: 'prompt', expected_revision: policy.revision }, randomUUID(), callDeadline());
       await send(page, `permission:${name}`);
       await page.getByRole('button', { name: 'Allow once', exact: true }).waitFor();
       await peer.getByRole('button', { name: 'Allow once', exact: true }).waitFor();
       await accessible(page, 'pending permission');
-      const permission = (await session.snapshot()).permissions.find(item => item.status === 'pending');
+      const permission = (await session.permissions.list({ pending_only: true }, callDeadline())).items[0];
       assert.ok(permission);
       await page.getByRole('button', { name: 'Allow once', exact: true }).click();
       await page.getByRole('button', { name: 'Allow once', exact: true }).waitFor({ state: 'hidden' });
       await peer.getByRole('button', { name: 'Allow once', exact: true }).waitFor({ state: 'hidden' });
-      const snapshot = await session.snapshot();
-      assert.equal((snapshot.permissions ?? []).filter(item => item.id === permission.id && item.status === 'pending').length, 0);
-      assert.equal(observed.requests.filter(item => item.method === 'permission.decide').length, 1);
-      assert.equal(peerObserved.requests.filter(item => item.method === 'permission.decide').length, 0);
+      const pending = await session.permissions.list({ pending_only: true }, callDeadline());
+      assert.equal(pending.items.filter(item => item.operation_id === permission.operation_id).length, 0);
+      assert.equal(observed.requests.filter(item => item.method === 'permissions.resolve').length, 1);
+      assert.equal(peerObserved.requests.filter(item => item.method === 'permissions.resolve').length, 0);
       checks.push('two real browser clients share one permission resolution');
       progress('concurrent command identities and independent drafts');
       // Drafts are shared by runtime/root/recipient. Exercise concurrent recovery
       // writes with distinct recipients instead of racing edits to one draft.
-      const other = await client.sessions.create({ cwd: fixture.directory, model: 'model', provider: 'provider' }).result({ signal: AbortSignal.timeout(15_000) });
-      assert.equal(other.status, 'succeeded');
-      await peer.goto(origin() + route(other.result.root_id)); await ready(peer);
-      for (let index = 0; index < 8; index++) await Promise.all([send(page, `Parallel A ${index}`), send(peer, `Parallel B ${index}`)]);
-      for (const [target, prefix] of [[session, 'Parallel A'], [client.session(other.result.root_id), 'Parallel B']]) {
+      const other = await fixture.createRoot(client);
+      await peer.goto(origin() + route(other.root.id)); await ready(peer);
+      const beforeParallel = [observed.requests.length, peerObserved.requests.length];
+      for (let index = 0; index < 8; index++) await Promise.all([send(page, `hold:Parallel A ${index}`), send(peer, `hold:Parallel B ${index}`)]);
+      const submitted = [...observed.requests.slice(beforeParallel[0]), ...peerObserved.requests.slice(beforeParallel[1])].filter(item => item.method === 'sessions.submit');
+      assert.equal(submitted.length, 16);
+      const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('whip.web.recovery.v4')).map(entry => entry.record));
+      // Completed native commands are deliberately forgotten. Keep these turns
+      // held until every exact original request is proved present in the shared journal.
+      for (const request of submitted) assert.ok(saved.some(record => record.runtimeID === fixture.info.runtime_id
+        && record.clientID === request.params.identity.client_id
+        && JSON.stringify(JSON.parse(record.request).params) === JSON.stringify(request.params)), 'Concurrent tabs lost an unfinished exact request');
+      for (let index = 0; index < 8; index++) for (const recipient of ['A', 'B']) fixture.release(`Parallel ${recipient} ${index}`);
+      for (const [target, prefix] of [[session, 'hold:Parallel A'], [client.session(other.root.id), 'hold:Parallel B']]) {
         const texts = await eventually(async () => {
-          const messages = (await target.snapshot()).messages ?? [];
-          const sent = messages.filter(message => message.role === 'user' && String(message.content).startsWith(prefix)).map(message => message.content);
+          const messages = await messagesOf(target);
+          const sent = messages.filter(message => message.role === 'user' && textOf(message).startsWith(prefix)).map(textOf);
           return sent.length >= 8 ? sent : false;
         }, { description: `${prefix} messages persist exactly once` });
         assert.deepEqual(texts, Array.from({ length: 8 }, (_, index) => `${prefix} ${index}`));
       }
-      const identities = await page.evaluate(() => JSON.parse(localStorage.getItem('whip.web.recovery.v1')).map(record => record.commandId));
-      const submitted = [...observed.requests, ...peerObserved.requests].filter(item => item.method === 'command.submit').map(item => item.params.command_id);
-      assert.ok(submitted.every(id => identities.includes(id)), 'Concurrent tabs lost command recovery identities');
-      checks.push('concurrent tabs retain all submitted recovery identities');
+      checks.push('concurrent tabs retain all unfinished exact requests and commit each once');
       await page.getByLabel('Message WHIP', { exact: true }).fill('Root A draft survives another tab');
       await peer.getByLabel('Message WHIP', { exact: true }).fill('Root B draft survives another tab');
       await eventually(async () => (await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('whip.web.draft.v1:')).map(key => localStorage.getItem(key)))).filter(text => text?.includes('draft survives another tab')).length === 2, { description: 'independent recipient drafts both persist' });
@@ -344,13 +350,13 @@ try {
 
       await peer.close();
 
-      progress('hover subscription bounds and route-owned inspector');
-      const watchedBeforeHover = observed.requests.filter(item => item.method === 'events.subscribe').length;
-      await page.locator(`a[href="${route(other.result.root_id)}"]`).first().hover();
+      progress('hover history-read bounds and route-owned inspector');
+      const watchedBeforeHover = observed.requests.filter(item => item.method === 'sessions.history_page').length;
+      await page.locator(`a[href="${route(other.root.id)}"]`).first().hover();
       // Longer than the router's ordinary intent-preload delay. Hovering a link
-      // must never acquire a root view or one of the daemon's subscriptions.
+      // must never acquire a root view or hydrate history.
       await page.waitForTimeout(300);
-      assert.equal(observed.requests.filter(item => item.method === 'events.subscribe').length, watchedBeforeHover);
+      assert.equal(observed.requests.filter(item => item.method === 'sessions.history_page').length, watchedBeforeHover);
       await page.goto(origin() + route(rootId) + '?panel=goals'); await ready(page);
       const details = page.getByRole('dialog', { name: 'Session details', exact: true });
       await details.getByRole('combobox', { name: 'Inspector section', exact: true }).filter({ hasText: 'Goals & schedules' }).waitFor();
@@ -360,7 +366,7 @@ try {
       await details.getByRole('button', { name: 'Close', exact: true }).click();
       await details.waitFor({ state: 'hidden' });
       assert.equal(new URL(page.url()).searchParams.has('panel'), false);
-      checks.push('route-owned details survive reload; hovering session links consumes no subscriptions');
+      checks.push('route-owned details survive reload; hovering session links performs no history hydration');
 
       if (name === 'chromium') {
         progress('renderer freeze/thaw');
@@ -368,7 +374,7 @@ try {
         const frozenText = 'Authoritative work completed while the renderer was frozen.';
         try {
           await lifecycle.send('Page.setWebLifecycleState', { state: 'frozen' });
-          assert.equal((await session.submit({ text: frozenText }).result({ signal: AbortSignal.timeout(15_000) })).status, 'succeeded');
+          assert.equal((await complete(session, frozenText)).turn.state, 'succeeded');
         } finally {
           await lifecycle.send('Page.setWebLifecycleState', { state: 'active' });
           await lifecycle.detach();
@@ -381,18 +387,19 @@ try {
       progress('daemon crash/restart recovery');
       const held = `hold:restart-${name}`;
       await send(page, held);
-      const heldId = observed.requests.find(item => item.method === 'command.submit' && item.params.payload?.text === held)?.params.command_id;
-      assert.ok(heldId);
+      const heldRequest = observed.requests.find(item => item.method === 'sessions.submit' && item.params.parts?.some(part => part.type === 'text' && part.text === held));
+      assert.ok(heldRequest);
       await eventually(async () => (await fixture.effects()).filter(item => item === held).length === 1, { description: 'accepted work began before crash' });
       const initializesBefore = observed.requests.filter(item => item.method === 'initialize').length;
       const started = performance.now();
       await fixture.crashAndRestart();
-      await client.whenConnected(AbortSignal.timeout(15_000));
+      client = await fixture.connect(client.clientID); session = client.session(rootId);
       await ready(page);
       await eventually(async () => observed.requests.filter(item => item.method === 'initialize').length > initializesBefore, { description: 'browser reinitializes after daemon restart' });
       recovery.push(performance.now() - started);
       assert.equal((await fixture.effects()).filter(item => item === held).length, 1, 'Restart must not repeat uncertain external effects');
-      await eventually(() => observed.outcomes.some(item => item.command_id === heldId && item.status === 'interrupted'), { description: 'original browser command reconciles to interrupted' });
+      await eventually(async () => (await client.call('receipts.match', { method: 'sessions.submit', params_base64: Buffer.from(JSON.stringify(heldRequest.params)).toString('base64') }, callDeadline())).turn?.state === 'interrupted', { description: 'exact accepted browser command has a durable interrupted outcome' });
+      await eventually(async () => !(await page.getByRole('button', { name: 'Pause this turn', exact: true }).count()), { description: 'browser retires the interrupted turn control' });
       checks.push('crash/restart reconnect without duplicate admitted work');
 
       progress('wrong-runtime route guard');
@@ -400,11 +407,11 @@ try {
       activePage = wrong;
       await wrong.goto(origin() + `/h/wrong-runtime/s/${rootId}`);
       await wrong.getByText('Unavailable host wrong-ru is unavailable. Connect it to continue this session.', { exact: true }).waitFor();
-      assert.equal(wrongObserved.requests.filter(item => ['root.snapshot', 'events.subscribe', 'history.page'].includes(item.method)).length, 0);
+      assert.equal(wrongObserved.requests.filter(item => ['sessions.get', 'sessions.observe', 'sessions.history_page'].includes(item.method)).length, 0);
       await wrong.close(); activePage = page; checks.push('wrong-runtime routes never open or subscribe roots');
 
       progress('phone layout, scroll anchoring and latest');
-      for (let index = 0; index < 28; index++) await session.submit({ text: `Message ${index}\n\n${'A readable paragraph for scrolling. '.repeat(18)}` }).result({ signal: AbortSignal.timeout(15_000) });
+      for (let index = 0; index < 28; index++) await complete(session, `Message ${index}\n\n${'A readable paragraph for scrolling. '.repeat(18)}`);
       const phone = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true }); const phoneObserved = observe(phone); observations.push(phoneObserved);
       activePage = phone;
       phone.setDefaultTimeout(15_000);
@@ -461,13 +468,13 @@ try {
       };
       const before = await stableAnchor();
       const requestsBefore = phoneObserved.requests.length;
-      await session.submit({ text: 'New output must not steal the reading position.' }).result({ signal: AbortSignal.timeout(15_000) });
-      await eventually(() => phoneObserved.requests.slice(requestsBefore).some(item => item.method === 'root.snapshot' && phoneObserved.replies.has(item.id)), { description: 'phone receives completed turn snapshot' });
+      await complete(session, 'New output must not steal the reading position.');
+      await eventually(() => phoneObserved.requests.slice(requestsBefore).some(item => item.method === 'sessions.observe' && phoneObserved.replies.has(item.id)), { description: 'phone receives completed turn snapshot' });
       await phone.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       const after = await stableAnchor();
       assert.equal(after.id, before.id, `New output changed the reading anchor: ${JSON.stringify({ before, after })}`);
       assert.ok(Math.abs(after.offset - before.offset) < 5, `New output moved the reading anchor: ${JSON.stringify({ before, after })}`);
-      assert.equal(phoneObserved.requests.slice(requestsBefore).filter(item => item.method === 'history.page').length, 0, 'Incoming-output check must not also paginate history');
+      assert.equal(phoneObserved.requests.slice(requestsBefore).filter(item => item.method === 'sessions.history_page').length, 0, 'Incoming-output check must not also paginate history');
       await phone.getByRole('button', { name: 'Latest', exact: true }).click();
       await eventually(async () => conversation.evaluate(element => element.scrollHeight - element.scrollTop - element.clientHeight < 64), { description: 'jump to latest' });
       progress('phone prompt and permission denial');
@@ -475,18 +482,18 @@ try {
       await phone.getByRole('button', { name: 'Deny', exact: true }).click();
       await phone.getByRole('button', { name: 'Deny', exact: true }).waitFor({ state: 'hidden' });
       await eventually(() => phone.getByLabel('Message WHIP', { exact: true }).evaluate(element => document.activeElement === element), { description: 'permission resolution returns focus to the same composer' });
-      await eventually(async () => Object.keys((await session.snapshot()).active_turns).length === 0, { description: 'phone permission denial resolves the turn' });
+      await eventually(async () => !(await session.activity(callDeadline())).active_turn, { description: 'phone permission denial resolves the turn' });
       progress('phone stops turn from another client');
       // Daemon completion precedes the browser's replay. Retire the previous
       // turn's control before admitting new work so this clicks the new target.
       await phone.getByRole('button', { name: 'Pause this turn', exact: true }).waitFor({ state: 'hidden' });
-      const remoteTurn = session.submit({ text: `hold:phone-stop-${name}` });
+      const remoteTurn = session.submission([{ type: 'text', text: `hold:phone-stop-${name}` }], randomUUID());
       stoppingCommand = remoteTurn;
-      await remoteTurn.accepted({ signal: AbortSignal.timeout(15_000) });
-      const expectedTurn = await eventually(async () => (await session.snapshot()).active_turns[rootId], { description: 'new remote turn is active before phone cancellation' });
+      await remoteTurn.send(callDeadline());
+      const expectedTurn = await eventually(async () => (await session.activity(callDeadline())).active_turn?.id, { description: 'new remote turn is active before phone cancellation' });
       await phone.getByRole('button', { name: 'Pause this turn', exact: true }).click();
-      await eventually(() => phoneObserved.requests.some(item => item.method === 'command.submit' && item.params.operation === 'cancel' && item.params.payload.turn_id === expectedTurn), { description: 'phone submits cancellation for the new exact turn' });
-      assert.equal((await remoteTurn.result({ signal: AbortSignal.timeout(15_000) })).status, 'cancelled');
+      await eventually(() => phoneObserved.requests.some(item => item.method === 'turns.cancel' && item.params.turn_id === expectedTurn), { description: 'phone submits cancellation for the new exact turn' });
+      assert.equal((await remoteTurn.wait(callDeadline())).turn.state, 'cancelled');
       await phone.getByRole('button', { name: 'Pause this turn', exact: true }).waitFor({ state: 'hidden' });
       checks.push('touch viewport submits, denies permission, and stops a turn begun by another client');
       progress('phone accessibility');
@@ -495,11 +502,11 @@ try {
       await phone.screenshot({ path: join(resultsDirectory, `${name}-phone.png`), fullPage: true });
       await phone.close(); checks.push('320/390px phone header controls, readable scroll anchoring and jump to latest');
       assert.deepEqual([...observed.errors, ...peerObserved.errors, ...wrongObserved.errors, ...phoneObserved.errors], []);
-      results[name] = { passed: true, checks, acceptance_ms: milliseconds(observed.acceptance), event_to_view_ms: milliseconds(presentationLatency), restart_recovery_ms: milliseconds(recovery), command_status_requests: observed.requests.filter(item => item.method === 'command.status').length };
+      results[name] = { passed: true, checks, acceptance_ms: milliseconds(observed.acceptance), event_to_view_ms: milliseconds(presentationLatency), restart_recovery_ms: milliseconds(recovery), receipt_match_requests: observed.requests.filter(item => item.method === 'receipts.match').length };
       await page.screenshot({ path: join(resultsDirectory, `${name}-desktop.png`), fullPage: true });
     } catch (error) {
       log(name, `FAILED during ${phase}: ${error.stack ?? error}`);
-      const pendingCommand = stoppingCommand ? await stoppingCommand.status({ signal: AbortSignal.timeout(3_000) }).catch(error => ({ lookupError: String(error) })) : undefined;
+      const pendingCommand = stoppingCommand ? await stoppingCommand.check({ signal: AbortSignal.timeout(3_000) }).catch(error => ({ lookupError: String(error) })) : undefined;
       const stopControls = await activePage.evaluate(() => [...document.querySelectorAll('button')].filter(button => button.getAttribute('aria-label') === 'Pause this turn').map(button => ({ text: button.textContent, disabled: button.disabled, visible: !!button.getClientRects().length }))).catch(error => ({ readError: String(error) }));
       results[name] = { passed: false, phase, checks, pendingCommand, stopControls, error: String(error), cause: error.cause ? String(error.cause) : undefined, stack: error.stack, browserErrors: observations.flatMap(item => item.errors), rpcErrors: observations.flatMap(item => item.rpcErrors), recentRequests: observations.flatMap(item => item.requests.slice(-20)).map(item => ({ method: item.method, operation: item.params?.operation, commandId: item.params?.command_id, turnId: item.params?.payload?.turn_id, text: item.params?.payload?.text })) };
       await activePage.screenshot({ path: join(resultsDirectory, `${name}-failure.png`), fullPage: true, timeout: 5_000 }).catch(() => {});
@@ -507,7 +514,6 @@ try {
       await writeFile(join(resultsDirectory, `${name}-failure.html`), await activePage.content().catch(() => 'Page unavailable'));
     } finally {
       clearTimeout(deadline);
-      client.close();
       await browser.close();
       await writeFile(join(resultsDirectory, 'report.json'), JSON.stringify(results, null, 2) + '\n');
       log(name, results[name]?.passed ? 'PASSED' : 'FAILED (artifacts saved)');
