@@ -106,37 +106,33 @@ func (m *nativeMenu) chooseLocalSetting(choice nativeMenuChoice) {
 		m.openThemes()
 		return
 	}
-	// Re-read before changing one field so another client preference edit is not
-	// replaced with the stale snapshot displayed by this menu.
-	value, err := readNativePreferences(m.options.PreferencesDirectory)
+	value, err := updateNativePreferences(m.options.PreferencesDirectory, func(value *nativePreferences) {
+		switch m.mode {
+		case "theme":
+			value.Theme = choice.id
+			if value.Theme == "auto" {
+				value.Theme = ""
+			}
+		case "settings":
+			switch choice.id {
+			case "mouse":
+				value.Mouse = new(nativePreferenceLabel(value.Mouse, true) != "on")
+			case "thinking":
+				value.Thinking = new(nativePreferenceLabel(value.Thinking, true) != "on")
+			case "collapse_paste":
+				value.CollapsePaste = new(nativePreferenceLabel(value.CollapsePaste, true) != "on")
+			case "sidebar":
+				value.Sidebar = new(nativePreferenceLabel(value.Sidebar, true) != "on")
+			case "repl":
+				value.Repl = new(nativePreferenceLabel(value.Repl, false) != "on")
+			}
+		}
+	})
 	if err != nil {
 		m.message = err.Error()
 		return
 	}
-	switch m.mode {
-	case "theme":
-		value.Theme = choice.id
-		if value.Theme == "auto" {
-			value.Theme = ""
-		}
-	case "settings":
-		switch choice.id {
-		case "mouse":
-			value.Mouse = new(nativePreferenceLabel(value.Mouse, true) != "on")
-		case "thinking":
-			value.Thinking = new(nativePreferenceLabel(value.Thinking, true) != "on")
-		case "collapse_paste":
-			value.CollapsePaste = new(nativePreferenceLabel(value.CollapsePaste, true) != "on")
-		case "sidebar":
-			value.Sidebar = new(nativePreferenceLabel(value.Sidebar, true) != "on")
-		case "repl":
-			value.Repl = new(nativePreferenceLabel(value.Repl, false) != "on")
-		}
-	}
-	if err := saveNativePreferences(m.options.PreferencesDirectory, value); err != nil {
-		m.message = err.Error()
-		return
-	}
+
 	m.preferences = value
 	if m.mode == "theme" {
 		setSchemeOverride(value.Theme)
