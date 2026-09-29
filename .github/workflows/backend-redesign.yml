@@ -90,6 +90,8 @@ jobs:
           cache: npm
       - run: go install github.com/go-task/task/v3/cmd/task@v3.48.0
       - run: npm ci --no-audit --no-fund
+      - if: matrix.gate == 'product-desktop'
+        run: node node_modules/electron/install.js
       - if: matrix.gate == 'product-browser' || matrix.gate == 'product-examples'
         run: npx playwright install --with-deps chromium firefox
       - name: Required ${{ matrix.gate }} gate

@@ -21,7 +21,7 @@
     "test:example": "npm run build && node examples/client/smoke.mjs",
     "dev:web": "npm run dev -w @whip/web",
     "build:web": "npm run build -w @whip/sdk && npm run build -w @whip/web && node scripts/renderer-artifact.mjs",
-    "check:web": "tsc -p packages/app/tsconfig.json --noEmit && npm run build:web",
+    "check:web": "npm run build:web && tsc -p packages/app/tsconfig.json --noEmit",
     "test:web": "vitest run --config apps/web/vitest.config.ts",
     "storybook": "npm run storybook -w @whip/ui",
     "build:storybook": "npm run build:storybook -w @whip/ui",

@@ -4198,3 +4198,30 @@ product jobs. Specialized Settings/provider/conversation and desktop performance
 harnesses continue independently. Distribution acceptance still exposes the
 retained long-home socket-fallback contract and managed-gateway failure semantics
 for explicit reconciliation; they are not waived by short-path fixture success.
+
+### Clean product-gate repair after draft 265
+
+Hosted backend run `36543645270` at `239f76152` failed only the Linux clients
+job and aggregate: the combined run/catalog CLI invocation exhausted its3-minute
+aggregate timer while a retained daemon test had run3 seconds. Renderer run
+`36544662706` at `7afc0d691` independently hit the same group deadline, this time
+in `TestRunNoSession` after11 seconds. These are failed runs, not green evidence.
+The group is now split by actual lifecycle ownership into retained daemon/model,
+ordinary native run, and remaining native/catalog/browser tests. Each still uses
+race detection, one count, shuffle, and the original3-minute bound. An exact-set
+comparison against `go test -list` proves all58 tests at the renderer head occur
+once in disjoint7/23/28 groups (four additional tests since the54-test backend
+checkpoint). Under the recorded failing seed `1790671198575510378`, all three
+local groups passed in3.152/20.563/16.450 seconds.
+
+The first clean product jobs also exposed missing setup concealed by existing
+local build outputs: web type checking ran before SDK emission, docs requested a
+nonexistent protocol `build` script, and desktop packaging lacked Electron's
+explicit binary install. Web checking now builds its declared inputs before
+checking shared-app types; docs runs the real protocol check; the desktop CI job
+uses the explicit Electron installer already required by the retained desktop
+workflow. No product assertion was removed. In a fresh exact-PR worktree with
+`npm ci`, web production build/types, protocol checks, all79 docs tests, docs
+build (four pages/65 files), and all18 web-pack tests passed; the exact Electron
+license and executable inputs are present. Hosted validation of this repair is
+pending. No installed application or runtime was touched.
