@@ -45,7 +45,9 @@ func (p *nativeUIProvider) Prepare(ctx context.Context, request hostmodel.Reques
 			}
 			return hostmodel.Response{Parts: []session.Part{{Type: "tool_call", Call: &session.ToolCall{ID: "execute-native-tui", Name: "execute", Arguments: arguments}}}}, nil
 		}
-		emit(hostmodel.Chunk{Text: "answer: "})
+		if emit != nil {
+			emit(hostmodel.Chunk{Text: "answer: "})
+		}
 		if text == "hold" {
 			p.once.Do(func() { close(p.entered) })
 			select {

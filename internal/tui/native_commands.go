@@ -9,10 +9,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/google/uuid"
 
+	"github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/protocol"
 )
 
 type nativeControlResult struct {
+	input          *client.InputCommand
 	generation     uint64
 	attach         *protocol.Session
 	picker         *nativeSessionPicker
@@ -136,6 +138,10 @@ func (m *nativeModel) command(text string) tea.Cmd {
 		return m.standing(args)
 	case "/memory":
 		return m.memory(args)
+	case "/goal", "/goal-from-context":
+		return m.goalCommand(name, args)
+	case "/schedule":
+		return m.scheduleCommand(args)
 	case "/permissions":
 		return m.permissionsCommand(args)
 	case "/status":

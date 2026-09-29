@@ -345,7 +345,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "Input acceptance is uncertain; inspect the original request before submitting again. " + value.err.Error()
 		} else if value.err != nil {
 			m.status = "Input rejected: " + value.err.Error()
-			m.rejected = value.command
+			if value.command != nil && value.command.Record().Method == "sessions.submit" {
+				m.rejected = value.command
+			}
 			if m.input.Value() == "" && m.restoreRejectedDraft() {
 				m.status += ". Original draft restored."
 			} else if m.rejected != nil {
@@ -406,6 +408,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		} else {
 			m.status = value.label
+			if value.input != nil {
+				return m, m.submitPreparedInput(value.input)
+			}
 			if value.attach != nil {
 				if err := m.attachSession(*value.attach); err != nil {
 					m.status = "Session attachment failed: " + err.Error()
@@ -562,6 +567,14 @@ func (m *nativeModel) prompt(text, delivery string) tea.Cmd {
 	command, err := m.handle.Submission(params)
 	if err != nil {
 		m.status = err.Error()
+		return nil
+	}
+	return m.submitPreparedInput(command)
+}
+
+func (m *nativeModel) submitPreparedInput(command *client.InputCommand) tea.Cmd {
+	if m.uncertain != nil || m.rejected != nil || m.retryControl != nil || m.sending {
+		m.status = "Resolve the original pending input before another admission."
 		return nil
 	}
 	if m.recovery != nil {
