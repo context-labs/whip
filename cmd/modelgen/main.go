@@ -24,9 +24,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/context-labs/whip/internal/legacy/config"
-	"github.com/context-labs/whip/internal/legacy/config/modelsdev"
+	"github.com/context-labs/whip/internal/modelcatalog"
 	"github.com/context-labs/whip/internal/openaiauth"
+	"github.com/context-labs/whip/internal/providerhost"
 )
 
 const maxInput = 32 << 20
@@ -44,7 +44,7 @@ type options struct {
 func main() {
 	o := options{}
 	flag.StringVar(&o.input, "input", "", "read upstream JSON from a local file instead of downloading")
-	flag.StringVar(&o.snapshot, "out", "internal/legacy/config/modelsdev/catalog.json", "bundled snapshot path")
+	flag.StringVar(&o.snapshot, "out", "internal/modelcatalog/catalog.json", "bundled snapshot path")
 	flag.StringVar(&o.environment, "environment-out", "apps/desktop/src/provider-environment.ts", "generated desktop environment path")
 	flag.BoolVar(&o.check, "check", false, "validate existing snapshot and generated artifacts without network access")
 	flag.Parse()
@@ -62,10 +62,10 @@ func main() {
 
 func run(ctx context.Context, o options, log io.Writer) error {
 	oldData, readErr := os.ReadFile(o.snapshot)
-	var old modelsdev.Snapshot
+	var old modelcatalog.Snapshot
 	if readErr == nil {
 		var err error
-		old, err = modelsdev.Decode(oldData)
+		old, err = modelcatalog.Decode(oldData)
 		if err != nil {
 			return err
 		}
@@ -115,7 +115,7 @@ func run(ctx context.Context, o options, log io.Writer) error {
 		}
 	} else {
 		var err error
-		input, err = fetch(ctx, &http.Client{Timeout: 30 * time.Second}, modelsdev.SourceURL)
+		input, err = fetch(ctx, &http.Client{Timeout: 30 * time.Second}, modelcatalog.SourceURL)
 		if err != nil {
 			return err
 		}
@@ -201,21 +201,21 @@ type upstreamModel struct {
 	} `json:"cost"`
 }
 
-func normalize(input []byte, old modelsdev.Snapshot, now time.Time) (modelsdev.Snapshot, error) {
+func normalize(input []byte, old modelcatalog.Snapshot, now time.Time) (modelcatalog.Snapshot, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(input, &raw); err != nil {
-		return modelsdev.Snapshot{}, fmt.Errorf("decode upstream catalog: %w", err)
+		return modelcatalog.Snapshot{}, fmt.Errorf("decode upstream catalog: %w", err)
 	}
 	digest := sha256.Sum256(input)
-	snapshot := modelsdev.Snapshot{SchemaVersion: modelsdev.SchemaVersion, SourceURL: modelsdev.SourceURL, InputSHA256: hex.EncodeToString(digest[:]), RetrievedAt: now.Format(time.RFC3339), Providers: map[string]modelsdev.ProviderInfo{}}
+	snapshot := modelcatalog.Snapshot{SchemaVersion: modelcatalog.SchemaVersion, SourceURL: modelcatalog.SourceURL, InputSHA256: hex.EncodeToString(digest[:]), RetrievedAt: now.Format(time.RFC3339), Providers: map[string]modelcatalog.ProviderInfo{}}
 	if old.InputSHA256 == snapshot.InputSHA256 {
 		snapshot.RetrievedAt = old.RetrievedAt
 	}
-	for _, policy := range config.ProviderPresetPolicy() {
+	for _, policy := range providerhost.Presets() {
 		if policy.ID == openaiauth.Provider {
 			continue
 		}
-		id := config.ModelsDevProviderID(policy.ID)
+		id := modelcatalog.ProviderID(policy.ID)
 		data, ok := raw[id]
 		if !ok {
 			return snapshot, fmt.Errorf("required Models.dev provider %q is missing", id)
@@ -227,12 +227,12 @@ func normalize(input []byte, old modelsdev.Snapshot, now time.Time) (modelsdev.S
 		if source.ID != id {
 			return snapshot, fmt.Errorf("provider %s has mismatched ID", id)
 		}
-		provider := modelsdev.ProviderInfo{ID: id, Name: source.Name, API: source.API, Env: source.Env, Models: map[string]modelsdev.Model{}}
+		provider := modelcatalog.ProviderInfo{ID: id, Name: source.Name, API: source.API, Env: source.Env, Models: map[string]modelcatalog.Model{}}
 		for modelID, source := range source.Models {
 			if source.ID != modelID {
 				return snapshot, fmt.Errorf("provider %s model %s has mismatched ID", id, modelID)
 			}
-			model := modelsdev.Model{ID: modelID, Name: source.Name, ContextLength: source.Limit.Context, MaxCompletionTokens: source.Limit.Output, SupportsTools: source.ToolCall, Reasoning: source.Reasoning, InputModalities: source.Modalities.Input, OutputModalities: source.Modalities.Output}
+			model := modelcatalog.Model{ID: modelID, Name: source.Name, ContextLength: source.Limit.Context, MaxCompletionTokens: source.Limit.Output, SupportsTools: source.ToolCall, Reasoning: source.Reasoning, InputModalities: source.Modalities.Input, OutputModalities: source.Modalities.Output}
 			if source.ReasoningOptions != nil {
 				model.ReasoningEfforts = []string{}
 			}
@@ -243,7 +243,7 @@ func normalize(input []byte, old modelsdev.Snapshot, now time.Time) (modelsdev.S
 			}
 			if source.Cost != nil {
 				var err error
-				model.Pricing = &modelsdev.Pricing{}
+				model.Pricing = &modelcatalog.Pricing{}
 				model.Pricing.Prompt, err = perToken(source.Cost.Input)
 				if err != nil {
 					return snapshot, fmt.Errorf("%s/%s input cost: %w", id, modelID, err)
@@ -283,8 +283,8 @@ func perToken(number json.Number) (string, error) {
 	return value.FloatString(digits), nil
 }
 
-func validate(snapshot modelsdev.Snapshot, log io.Writer) error {
-	if snapshot.SchemaVersion != modelsdev.SchemaVersion || snapshot.SourceURL != modelsdev.SourceURL {
+func validate(snapshot modelcatalog.Snapshot, log io.Writer) error {
+	if snapshot.SchemaVersion != modelcatalog.SchemaVersion || snapshot.SourceURL != modelcatalog.SourceURL {
 		return errors.New("invalid Models.dev snapshot provenance")
 	}
 	if sum, err := hex.DecodeString(snapshot.InputSHA256); err != nil || len(sum) != sha256.Size {
@@ -294,12 +294,12 @@ func validate(snapshot modelsdev.Snapshot, log io.Writer) error {
 		return fmt.Errorf("invalid Models.dev retrieval date: %w", err)
 	}
 	expected := 0
-	for _, policy := range config.ProviderPresetPolicy() {
+	for _, policy := range providerhost.Presets() {
 		if policy.ID == openaiauth.Provider {
 			continue
 		}
 		expected++
-		id := config.ModelsDevProviderID(policy.ID)
+		id := modelcatalog.ProviderID(policy.ID)
 		provider, ok := snapshot.Providers[id]
 		if !ok || provider.ID != id || !validText(provider.Name) || len(provider.Env) == 0 || len(provider.Models) == 0 {
 			return fmt.Errorf("invalid or missing Models.dev provider %s", id)
@@ -315,8 +315,8 @@ func validate(snapshot modelsdev.Snapshot, log io.Writer) error {
 				return fmt.Errorf("provider %s contains invalid API URL", id)
 			}
 		}
-		if strings.TrimRight(provider.API, "/") != policy.Provider.BaseURL {
-			fmt.Fprintf(log, "%s endpoint override retained: upstream %q; Whip %q\n", policy.ID, provider.API, policy.Provider.BaseURL)
+		if strings.TrimRight(provider.API, "/") != policy.BaseURL {
+			fmt.Fprintf(log, "%s endpoint override retained: upstream %q; Whip %q\n", policy.ID, provider.API, policy.BaseURL)
 		}
 		for id, model := range provider.Models {
 			if model.ID != id || !validText(id) || !validText(model.Name) {
@@ -354,7 +354,7 @@ func validate(snapshot modelsdev.Snapshot, log io.Writer) error {
 				continue
 			}
 			found := false
-			for _, model := range config.RetainedPresetModels(policy.ID) {
+			for _, model := range providerhost.RetainedModels(policy.ID) {
 				if model.ID == modelID {
 					found = true
 					break
@@ -376,14 +376,14 @@ func validText(value string) bool {
 	return strings.TrimSpace(value) != "" && len(value) <= 512 && !strings.ContainsFunc(value, func(r rune) bool { return r < 32 || r == 127 })
 }
 
-func environment(snapshot modelsdev.Snapshot) []byte {
+func environment(snapshot modelcatalog.Snapshot) []byte {
 	names := []string{}
-	for _, policy := range config.ProviderPresetPolicy() {
+	for _, policy := range providerhost.Presets() {
 		if policy.ID == openaiauth.Provider {
 			continue
 		}
-		names = append(names, policy.EnvironmentVariables...)
-		names = append(names, snapshot.Providers[config.ModelsDevProviderID(policy.ID)].Env...)
+		names = append(names, policy.Environments...)
+		names = append(names, snapshot.Providers[modelcatalog.ProviderID(policy.ID)].Env...)
 	}
 	slices.Sort(names)
 	names = slices.Compact(names)
@@ -396,12 +396,12 @@ func environment(snapshot modelsdev.Snapshot) []byte {
 	return []byte(out.String())
 }
 
-func encode(snapshot modelsdev.Snapshot) ([]byte, error) {
+func encode(snapshot modelcatalog.Snapshot) ([]byte, error) {
 	data, err := json.MarshalIndent(snapshot, "", "  ")
 	return append(data, '\n'), err
 }
 
-func modelCount(snapshot modelsdev.Snapshot) int {
+func modelCount(snapshot modelcatalog.Snapshot) int {
 	count := 0
 	for _, p := range snapshot.Providers {
 		count += len(p.Models)
@@ -409,7 +409,7 @@ func modelCount(snapshot modelsdev.Snapshot) int {
 	return count
 }
 
-func changes(log io.Writer, before, after modelsdev.Snapshot) {
+func changes(log io.Writer, before, after modelcatalog.Snapshot) {
 	ids := make([]string, 0, len(after.Providers))
 	for id := range after.Providers {
 		ids = append(ids, id)

@@ -4299,3 +4299,22 @@ full localruntime/hostcmd races passed5.073/5.422s. Vet and pinned baseline lint
 passed with zero new issues. The leaf is included in required package and import
 boundary gates. The full installer/update probe is next; this result alone does
 not claim distribution or Phase7 completion.
+
+### Native model catalog generator and single snapshot owner
+
+`cmd/modelgen` no longer depends on retired configuration/provider types. The
+existing tested snapshot codec, all provenance/catalog bytes and license moved
+unchanged into `internal/modelcatalog`; native providerhost now consumes that
+leaf, removing its12,653-line duplicate catalog and second partial decoder.
+Native preset declarations and the same explicit Inference.net model overrides
+supply generator policy. Temporary retained config readers import the pure leaf
+until their final deletion; no new native package imports retired core.
+
+Generator, codec and providerhost race/shuffle suites pass1.772/1.617/3.207s;
+the retained consumer suite passes1.597s, native import boundaries1.863s, Go vet
+and pinned baseline lint pass with zero new issues. The existing offline
+`modelgen -check` confirms normalized snapshot bytes and generated desktop
+environment names are unchanged. No upstream download, credential resolution,
+default selection or live membership inference occurred. Required package/import
+gates include the new leaf and generator. Remaining retired consumers/evals and
+complete CLI/TUI cutover still prevent Phase7 completion.

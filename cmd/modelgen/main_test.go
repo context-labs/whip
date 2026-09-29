@@ -14,21 +14,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/context-labs/whip/internal/legacy/config"
-	"github.com/context-labs/whip/internal/legacy/config/modelsdev"
+	"github.com/context-labs/whip/internal/modelcatalog"
 	"github.com/context-labs/whip/internal/openaiauth"
+	"github.com/context-labs/whip/internal/providerhost"
 )
 
 // Fixtures use the actual policy IDs but supply no external services or keys.
 func fixture(t *testing.T) []byte {
 	t.Helper()
 	raw := map[string]upstreamProvider{}
-	for _, p := range config.ProviderPresetPolicy() {
+	for _, p := range providerhost.Presets() {
 		if p.ID == openaiauth.Provider {
 			continue
 		}
-		id := config.ModelsDevProviderID(p.ID)
-		provider := upstreamProvider{ID: id, Name: p.Provider.Name, Env: p.EnvironmentVariables, Models: map[string]upstreamModel{}}
+		id := modelcatalog.ProviderID(p.ID)
+		provider := upstreamProvider{ID: id, Name: p.Name, Env: p.Environments, Models: map[string]upstreamModel{}}
 		ids := append([]string{"test-model"}, p.SuggestedModels...)
 		for _, modelID := range ids {
 			model := upstreamModel{ID: modelID, Name: modelID, ToolCall: new(true), Reasoning: new(true)}
@@ -66,7 +66,7 @@ func TestNormalizePreservesPresenceAndExactPrices(t *testing.T) {
 	raw["cerebras"], _ = json.Marshal(provider)
 	input, _ = json.Marshal(raw)
 	now := time.Date(2026, 9, 9, 0, 0, 0, 0, time.UTC)
-	snapshot, err := normalize(input, modelsdev.Snapshot{}, now)
+	snapshot, err := normalize(input, modelcatalog.Snapshot{}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestNormalizePreservesPresenceAndExactPrices(t *testing.T) {
 		t.Fatalf("incorrect per-token pricing: %+v", model.Pricing)
 	}
 	data, _ := encode(snapshot)
-	roundtrip, err := modelsdev.Decode(data)
+	roundtrip, err := modelcatalog.Decode(data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestNormalizePreservesPresenceAndExactPrices(t *testing.T) {
 }
 
 func TestNormalizeDoesNotInventReasoningEfforts(t *testing.T) {
-	snapshot, err := normalize(fixture(t), modelsdev.Snapshot{}, time.Now())
+	snapshot, err := normalize(fixture(t), modelcatalog.Snapshot{}, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +225,7 @@ func TestNormalizeRejectsMissingPolicyDefault(t *testing.T) {
 	delete(provider.Models, "gpt-6-astra")
 	raw["openai"] = provider
 	input, _ = json.Marshal(raw)
-	snapshot, err := normalize(input, modelsdev.Snapshot{}, time.Now())
+	snapshot, err := normalize(input, modelcatalog.Snapshot{}, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2368,3 +2368,13 @@ symlinks, other owners, public modes and non-socket occupants are rejected witho
 repairing permissions or replacing files. Only that owner removes a stale socket.
 RPC retains its100-byte bound and0600 socket. Closing the owner removes an empty
 fallback directory only; there is no recursive cleanup of unexpected contents.
+
+## Offline model catalog maintenance
+
+`internal/modelcatalog` owns the reviewed Models.dev snapshot, provenance, codec
+and immutable-copy helpers. The provider host and `cmd/modelgen` share that single
+source; ordinary builds and checks never download a catalog. Generator policy
+comes from native `providerhost.Presets` and explicit retained metadata overrides.
+The generated desktop environment inventory still combines declared names with
+reviewed upstream aliases. Offline candidates never establish live membership,
+credentials, model defaults or price evidence for an actual provider attempt.

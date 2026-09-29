@@ -3,20 +3,15 @@ package config
 import (
 	"slices"
 
-	"github.com/context-labs/whip/internal/legacy/config/modelsdev"
+	"github.com/context-labs/whip/internal/modelcatalog"
 )
 
 // ModelsDevProviderID maps Whip's stable IDs to the upstream catalog.
-func ModelsDevProviderID(id string) string {
-	if id == InferenceNetProvider {
-		return "inference"
-	}
-	return id
-}
+func ModelsDevProviderID(id string) string { return modelcatalog.ProviderID(id) }
 
 func augmentProviderPresets(presets []ProviderPreset) []ProviderPreset {
 	for i := range presets {
-		metadata, ok := modelsdev.Metadata(ModelsDevProviderID(presets[i].ID))
+		metadata, ok := modelcatalog.Metadata(ModelsDevProviderID(presets[i].ID))
 		if !ok {
 			continue
 		}

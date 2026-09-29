@@ -1,6 +1,6 @@
-// Package modelsdev contains the reviewed, build-time Models.dev snapshot.
+// Package modelcatalog contains the reviewed, build-time Models.dev snapshot.
 // No catalog lookup performs network or credential access.
-package modelsdev
+package modelcatalog
 
 import (
 	_ "embed"
@@ -121,4 +121,12 @@ func clonePointer[T any](value *T) *T {
 		return nil
 	}
 	return new(*value)
+}
+
+// ProviderID maps the native Inference.net preset to its upstream catalog key.
+func ProviderID(id string) string {
+	if id == "inference-net" {
+		return "inference"
+	}
+	return id
 }

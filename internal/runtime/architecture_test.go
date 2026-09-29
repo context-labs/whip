@@ -10,7 +10,7 @@ import (
 )
 
 func TestExecutionAndClientImportBoundaries(t *testing.T) {
-	command := exec.CommandContext(t.Context(), "go", "list", "-json", "./internal/runtimepath", "./internal/clientnotes", "./internal/acp", "./internal/imageutil", "./internal/trace", "./internal/hostview", "./internal/theme", "./internal/computer", "./internal/computerconfig", "./internal/helperprogram", "./internal/browser", "./internal/browserhost", "./internal/terminal", "./internal/mcp", "./internal/mcpconfig", "./internal/jsonc", "./internal/secretref", "./internal/brandicon", "./internal/bashrun", "./internal/shell", "./internal/executor", "./internal/gateway", "./internal/webassets", "./internal/hostmodule", "./internal/engine/process", "./internal/model", "./internal/openaiauth", "./internal/inferenceauth", "./internal/account", "./internal/providerhost", "./internal/capability", "./internal/lsp", "./internal/lspconfig", "./internal/inferenceaccount", "./internal/runner", "./internal/tool", "./internal/instruction", "./internal/skills", "./internal/workspace", "./internal/runtime", "./internal/rpc", "./internal/client", "./internal/hostcmd", "./internal/localruntime", "./internal/runclient")
+	command := exec.CommandContext(t.Context(), "go", "list", "-json", "./internal/modelcatalog", "./internal/runtimepath", "./internal/clientnotes", "./internal/acp", "./internal/imageutil", "./internal/trace", "./internal/hostview", "./internal/theme", "./internal/computer", "./internal/computerconfig", "./internal/helperprogram", "./internal/browser", "./internal/browserhost", "./internal/terminal", "./internal/mcp", "./internal/mcpconfig", "./internal/jsonc", "./internal/secretref", "./internal/brandicon", "./internal/bashrun", "./internal/shell", "./internal/executor", "./internal/gateway", "./internal/webassets", "./internal/hostmodule", "./internal/engine/process", "./internal/model", "./internal/openaiauth", "./internal/inferenceauth", "./internal/account", "./internal/providerhost", "./internal/capability", "./internal/lsp", "./internal/lspconfig", "./internal/inferenceaccount", "./internal/runner", "./internal/tool", "./internal/instruction", "./internal/skills", "./internal/workspace", "./internal/runtime", "./internal/rpc", "./internal/client", "./internal/hostcmd", "./internal/localruntime", "./internal/runclient")
 	command.Dir = "../.."
 	raw, err := command.Output()
 	if err != nil {
@@ -26,6 +26,7 @@ func TestExecutionAndClientImportBoundaries(t *testing.T) {
 		"mcp":            {"buildinfo": true, "capability": true, "jsonc": true, "mcpconfig": true, "secretref": true},
 		"mcpconfig":      {},
 		"clientnotes":    {},
+		"modelcatalog":   {},
 		"runtimepath":    {},
 		"jsonc":          {},
 		"secretref":      {"capability": true},
@@ -44,7 +45,7 @@ func TestExecutionAndClientImportBoundaries(t *testing.T) {
 		"inferenceauth":    {},
 		"inferenceaccount": {"inferenceauth": true},
 		"account":          {"config": true, "openaiauth": true},
-		"providerhost":     {"config": true, "model": true, "session": true, "openaiauth": true, "inferenceauth": true},
+		"providerhost":     {"modelcatalog": true, "config": true, "model": true, "session": true, "openaiauth": true, "inferenceauth": true},
 		"capability":       {"buildinfo": true},
 		"lsp":              {"capability": true, "lspconfig": true},
 		"lspconfig":        {},
