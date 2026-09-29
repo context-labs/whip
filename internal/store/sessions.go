@@ -44,11 +44,11 @@ func (s *Store) CreateTree(ctx context.Context, request CreateTree) (session.Tre
 	return *result.Tree, *result.Root, nil
 }
 
-func insertSession(ctx context.Context, tx *sql.Tx, tree session.TreeID, parent *session.SessionID, ref session.DefinitionRef, config session.Configuration, cwd string) (session.Session, error) {
-	return insertSessionID(ctx, tx, session.SessionID(newID("session")), tree, parent, ref, config, cwd)
+func insertSession(ctx context.Context, tx *sql.Tx, tree session.TreeID, parent *session.SessionID, ref session.DefinitionRef, config session.Configuration, cwd string, fields session.ReloadOverrides) (session.Session, error) {
+	return insertSessionID(ctx, tx, session.SessionID(newID("session")), tree, parent, ref, config, cwd, fields)
 }
 
-func insertSessionID(ctx context.Context, tx *sql.Tx, id session.SessionID, tree session.TreeID, parent *session.SessionID, ref session.DefinitionRef, config session.Configuration, cwd string) (session.Session, error) {
+func insertSessionID(ctx context.Context, tx *sql.Tx, id session.SessionID, tree session.TreeID, parent *session.SessionID, ref session.DefinitionRef, config session.Configuration, cwd string, fields session.ReloadOverrides) (session.Session, error) {
 	if parent != nil {
 		config = config.Clone()
 		config.Run = nil
@@ -72,7 +72,7 @@ func insertSessionID(ctx context.Context, tx *sql.Tx, id session.SessionID, tree
 	if _, err := tx.ExecContext(ctx, "INSERT INTO sessions (id,tree_id,parent_id,definition_id,definition_revision,config_revision,lifecycle,created_at) VALUES (?,?,?,?,?,1,'active',?)", id, tree, parent, ref.ID, ref.Revision, created); err != nil {
 		return session.Session{}, err
 	}
-	if _, err := tx.ExecContext(ctx, "INSERT INTO session_configurations VALUES (?,1,?,?,?)", id, raw, filepath.Clean(cwd), created); err != nil {
+	if _, err := tx.ExecContext(ctx, "INSERT INTO session_configurations VALUES (?,1,?,?,?,?)", id, raw, filepath.Clean(cwd), created, fields); err != nil {
 		return session.Session{}, err
 	}
 	return readSession(ctx, tx, id)
@@ -123,7 +123,7 @@ func spawnSessionID(ctx context.Context, tx *sql.Tx, id session.SessionID, reque
 	if err != nil {
 		return session.Session{}, err
 	}
-	child, err := insertSessionID(ctx, tx, id, parent.TreeID, &parent.ID, resolved.Definition, resolved.Configuration, resolved.WorkingDirectory)
+	child, err := insertSessionID(ctx, tx, id, parent.TreeID, &parent.ID, resolved.Definition, resolved.Configuration, resolved.WorkingDirectory, session.AllReloadOverrides)
 	if err != nil {
 		return child, err
 	}
@@ -507,7 +507,7 @@ func (s *Store) UpdateConfiguration(ctx context.Context, id session.SessionID, e
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, "INSERT INTO session_configurations VALUES (?,?,?,?,?)", id, expected+1, raw, current.WorkingDirectory, now()); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO session_configurations VALUES (?,?,?,?,?,(SELECT override_fields|? FROM session_configurations WHERE session_id=? AND revision=?))`, id, expected+1, raw, current.WorkingDirectory, now(), session.ExplicitReloadOverrides(patch), id, expected); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, "UPDATE sessions SET config_revision=? WHERE id=?", expected+1, id); err != nil {

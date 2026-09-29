@@ -99,7 +99,7 @@ func (s *Store) CreateRoot(ctx context.Context, request session.TreeCreationRequ
 		if _, err := tx.ExecContext(ctx, "INSERT INTO session_trees VALUES (?,?,?,1,?)", treeID, metadata, engine, created); err != nil {
 			return err
 		}
-		root, err := insertSession(ctx, tx, treeID, nil, request.Definition, config, request.WorkingDirectory)
+		root, err := insertSession(ctx, tx, treeID, nil, request.Definition, config, request.WorkingDirectory, session.ExplicitReloadOverrides(request.Overrides))
 		if err != nil {
 			return err
 		}

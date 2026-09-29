@@ -379,6 +379,9 @@ func (s *Store) Claim(ctx context.Context, id session.SessionID) (result Claim, 
 		if current.Lifecycle != session.Active {
 			return ErrStopped
 		}
+		if err := reloadPending(ctx, tx, current.TreeID); err != nil {
+			return err
+		}
 		var active int
 		if err := tx.QueryRowContext(ctx, `SELECT
  (SELECT count(*) FROM turns WHERE session_id=? AND state IN ('running','cancelling')) +

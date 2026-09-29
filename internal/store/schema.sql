@@ -80,7 +80,8 @@ CREATE TRIGGER history_revision_transition BEFORE UPDATE OF history_revision ON 
 CREATE TABLE session_configurations (
  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
  revision INTEGER NOT NULL CHECK(revision > 0), configuration TEXT NOT NULL CHECK(json_valid(configuration)),
- working_directory TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(session_id,revision)
+ working_directory TEXT NOT NULL, created_at INTEGER NOT NULL,
+ override_fields INTEGER NOT NULL DEFAULT 127 CHECK(override_fields BETWEEN 0 AND 127), PRIMARY KEY(session_id,revision)
 ) STRICT;
 CREATE TRIGGER configuration_immutable BEFORE UPDATE ON session_configurations
  BEGIN SELECT RAISE(ABORT, 'configuration revision is immutable'); END;
@@ -954,3 +955,24 @@ CREATE TRIGGER run_controls_root_only BEFORE INSERT ON session_configurations
  WHEN json_type(NEW.configuration,'$.run') IS NOT NULL AND json_type(NEW.configuration,'$.run')<>'null'
  AND EXISTS(SELECT 1 FROM sessions WHERE id=NEW.session_id AND parent_id IS NOT NULL)
  BEGIN SELECT RAISE(ABORT,'run controls belong only to a root'); END;
+
+
+-- A reload captures safe session preferences once. Receipts outlive the owner;
+-- pending controls can apply after restart without replaying external effects.
+CREATE TABLE session_reloads (
+ id TEXT PRIMARY KEY, digest TEXT NOT NULL, session_id TEXT NOT NULL, tree_id TEXT NOT NULL,
+ expected_revision INTEGER NOT NULL CHECK(expected_revision>0), host_revision TEXT NOT NULL CHECK(length(host_revision)=64),
+ configuration TEXT NOT NULL CHECK(json_valid(configuration)),
+ state TEXT NOT NULL CHECK(state IN('pending','applied','conflicted','interrupted','unavailable')),
+ revision INTEGER CHECK(revision=expected_revision+1), created_at INTEGER NOT NULL, settled_at INTEGER,
+ CHECK((state='pending')=(settled_at IS NULL)), CHECK((state='applied')=(revision IS NOT NULL))
+) STRICT;
+CREATE UNIQUE INDEX session_reload_pending ON session_reloads(tree_id) WHERE state='pending';
+CREATE INDEX session_reload_ready ON session_reloads(id) WHERE state='pending';
+CREATE TRIGGER session_reload_transition BEFORE UPDATE ON session_reloads
+ WHEN OLD.state<>'pending' OR NEW.state='pending' OR OLD.id<>NEW.id OR OLD.digest<>NEW.digest
+ OR OLD.session_id<>NEW.session_id OR OLD.tree_id<>NEW.tree_id OR OLD.expected_revision<>NEW.expected_revision
+ OR OLD.host_revision<>NEW.host_revision OR OLD.configuration<>NEW.configuration OR OLD.created_at<>NEW.created_at
+ BEGIN SELECT RAISE(ABORT, 'reload evidence is immutable'); END;
+CREATE TRIGGER session_reload_retained BEFORE DELETE ON session_reloads
+ BEGIN SELECT RAISE(ABORT, 'reload evidence is retained'); END;

@@ -361,7 +361,7 @@ func TestResourceAbsoluteDepthBoundThroughInheritedScopes(t *testing.T) {
 	// the final allowed and first denied edges use the public transaction.
 	if err := s.write(t.Context(), func(tx *sql.Tx) error {
 		for range session.MaxSessionDepth - 1 {
-			child, err := insertSession(t.Context(), tx, root.TreeID, &parent, root.Definition, root.Config, root.WorkingDirectory)
+			child, err := insertSession(t.Context(), tx, root.TreeID, &parent, root.Definition, root.Config, root.WorkingDirectory, session.AllReloadOverrides)
 			if err != nil {
 				return err
 			}

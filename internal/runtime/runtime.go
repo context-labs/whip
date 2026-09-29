@@ -82,6 +82,7 @@ type Runtime struct {
 	runnable         int
 	waiting          int
 	resumptions      []*workerResumption
+	reloadCursor     string            // owned only by the scheduling goroutine
 	queueCursor      store.QueueCursor // owned only by the scheduling goroutine
 	preferResumption bool
 	started, closed  bool
@@ -316,6 +317,9 @@ func (r *Runtime) run(ctx context.Context) {
 		scheduleCursor, err = r.admitSchedules(ctx, scheduleCursor)
 		if err == nil {
 			completionCursor, err = r.publishCompletions(ctx, completionCursor)
+		}
+		if err == nil {
+			err = r.processReloads(ctx)
 		}
 		if err == nil {
 			err = r.schedule(ctx, &workers)
