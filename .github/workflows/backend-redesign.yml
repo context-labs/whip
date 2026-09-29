@@ -19,6 +19,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-15]
+        gate: [build, race, clients]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
@@ -31,23 +32,25 @@ jobs:
           cache-dependency-path: |
             go.sum
             Taskfile.yaml
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - if: matrix.gate == 'clients'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           cache: npm
       - run: go install github.com/go-task/task/v3/cmd/task@v3.48.0
-      - run: npm ci --no-audit --no-fund
-      - name: Active scope and real-runtime acceptance
+      - if: matrix.gate == 'clients'
+        run: npm ci --no-audit --no-fund
+      - name: Required ${{ matrix.gate }} gate
         env:
           # The retained legacy fixture uses this; v4 acceptance builds the
           # production binary. Required Go package suites still run with -race.
           WHIP_SDK_RACE: '1'
-        run: task check:phase
+        run: task check:${{ matrix.gate }}
       - name: Failure artifacts
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: redesign-failure-${{ matrix.os }}
+          name: redesign-failure-${{ matrix.os }}-${{ matrix.gate }}
           path: test-results/redesign/
           if-no-files-found: ignore
 
