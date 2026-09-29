@@ -208,6 +208,8 @@ tasks:
       - node apps/web/scripts/session-search.mjs
       - node apps/web/scripts/session-tabs.mjs
       - node apps/web/scripts/user-messages.mjs
+      - node apps/web/scripts/sidebar.mjs
+      - node --test --test-concurrency=1 apps/web/scripts/native-history-fixture.test.mjs apps/web/scripts/native-tool-output.test.mjs
 
   check:product-mobile:
     desc: Mobile types, UI, real native backend lifecycle and both platform bundles
