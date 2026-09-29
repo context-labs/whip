@@ -1,5 +1,6 @@
 import { QueryClient } from '@tanstack/react-query';
 import { rememberProviderReady } from './provider-readiness';
+import { readModelCatalog } from './model-options';
 import {
   DeliveryError, DurableCommand, RecoveryError, RecoveryJournal, RecoveryPersistenceError,
   type Client, type DurableMethod, type Operations,
@@ -132,7 +133,7 @@ export class AppRuntime {
 
   constructor(readonly platform: AppPlatform) {
     // New Chat can unmount completely between drafts. Keep only its host metadata warm.
-    for (const key of ['provider-list', 'runtime-configuration', 'provider-catalogs', 'definitions'])
+    for (const key of ['provider-list', 'provider-presets', 'provider-readiness', 'provider-catalogs', 'host-permission-default', 'host-execution-defaults', 'mcp-configuration', 'definitions'])
       this.queries.setQueryDefaults([key], { gcTime: 5 * 60_000 });
     try {
       const saved = platform.windowStorage?.getItem(settingsReturnKey);
@@ -325,6 +326,14 @@ export class AppRuntime {
     if (!runtimeId || !client) return Promise.resolve();
     return this.queries.prefetchQuery({ queryKey: ['provider-list', runtimeId], queryFn: ({ signal }) => client.listProviders({ signal }) })
       .then(async () => {
+        if (!this.connections.isAttached(client)) return;
+        await Promise.all([
+          this.queries.prefetchQuery({ queryKey: ['provider-presets', runtimeId], queryFn: ({ signal }) => client.providerPresets({ signal }) }),
+          this.queries.prefetchQuery({ queryKey: ['provider-catalogs', runtimeId, ''], queryFn: ({ signal }) => readModelCatalog(client, signal) }),
+          this.queries.prefetchQuery({ queryKey: ['host-permission-default', runtimeId, client.processEpoch], queryFn: ({ signal }) => client.getDefaultPermissionMode({ signal }) }),
+          this.queries.prefetchQuery({ queryKey: ['host-execution-defaults', runtimeId, client.processEpoch], queryFn: ({ signal }) => client.hosts.executionDefaults({ signal }) }),
+          this.queries.prefetchQuery({ queryKey: ['mcp-configuration', runtimeId], queryFn: ({ signal }) => client.mcpConfiguration({ signal }) }),
+        ]);
         const inventory = this.queries.getQueryData<Operations['providers.list']['result']>(['provider-list', runtimeId]);
         if (!inventory) return;
         if (!inventory.defaults) { rememberProviderReady(this.platform.storage, runtimeId, false); return; }

@@ -321,6 +321,7 @@ it('sends multiple images without text only after scoped uploads finish and clea
   expect(f.rpc['trees.create']).toHaveBeenCalledOnce();
   expect(f.rpc['sessions.submit']).not.toHaveBeenCalled();
   expect(f.runtime.compositions.get('host:created:created').sending).toBe(true);
+  await waitFor(() => expect(f.rpc['content.put']).toHaveBeenCalled());
   await act(async () => release());
   await waitFor(() => expect(f.rpc['sessions.submit']).toHaveBeenCalledWith(expect.objectContaining({ session_id: 'created', parts: [
     { type: 'content', reference_id: expect.any(String) }, { type: 'content', reference_id: expect.any(String) },

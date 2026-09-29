@@ -3,8 +3,9 @@ import { webcrypto } from 'node:crypto';
 import { JSDOM } from 'jsdom';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { manifest } from '@whip/legacy-protocol';
-import type { TransportFactory, TransportHandlers } from '@whip/legacy-sdk';
+import type { FramedConnector, FrameHandlers, Request } from '@whip/sdk';
+import fixtures from '../../../packages/protocol/schema/fixtures.json';
+import { revision, model, preset, route } from '../../../packages/app/test/provider-fixture';
 import { localProfile, type AppLocalRuntime, type LocalRuntimeStatus } from '@whip/app/platform';
 import { mountApplication } from '../../web/src/bootstrap';
 
@@ -22,51 +23,47 @@ function storage() {
 function daemon(options: { held?: boolean; incompatible?: boolean; fail?: boolean; configured?: boolean; globalSkills?: boolean } = {}) {
   const methods: string[] = [], unexpected: string[] = [];
   const skillRequests: unknown[] = [];
-  const capabilities = options.globalSkills ? ['host_skill_completion', 'host_global_skill_completion', 'skill_catalog_completion'] : [];
-  let handlers: TransportHandlers;
-  let holdReads = false;
-  const factory: TransportFactory = async current => {
-    handlers = current;
-    return { kind: 'unix', bufferedAmount: 0, close() {}, send(text) {
-      const request = JSON.parse(text) as { id?: string; method: string; params?: { operation?: string } };
+  const live = new Set<FrameHandlers>();
+  let holdReads = false, disconnected = false;
+  const wire = (name: string): any => structuredClone(fixtures.find(item => item.type === name && item.valid)!.value);
+  const factory: FramedConnector = async handlers => {
+    live.add(handlers);
+    return { kind: 'unix', bufferedAmount: 0, close() { live.delete(handlers); }, send(text) {
+      const request = JSON.parse(text) as Request;
       methods.push(request.method);
+      if (disconnected) { handlers.close(new Error('Test disconnect')); return; }
       if (holdReads) return;
       let result: unknown;
       switch (request.method) {
         case 'initialize':
           if (options.held) return;
-          if (options.fail) { handlers.message(JSON.stringify({ jsonrpc: '2.0', id: request.id, error: { code: -32000, message: 'Test handshake failure' } })); return; }
-          result = {
-          protocol_major: manifest.major + (options.incompatible ? 1 : 0), protocol_minor: manifest.minor, runtime_id: 'host', connection_id: 'connection', generation: '1',
-          host_platform: 'darwin', host_architecture: 'arm64', build_id: 'test', capabilities, negotiated_capabilities: capabilities,
-          execution_engines: [{ id: 'starlark', language: 'starlark', label: 'Starlark' }], default_execution_engine: 'starlark',
-          operations: manifest.operations.map(operation => ({ ...operation })),
-          limits: { frame_bytes: 1 << 20, connections: 64, in_flight_requests: 32, outbound_messages: 1024, outbound_bytes: String(8 << 20), root_subscriptions: 16, content_chunk_bytes: 256 << 10, upload_bytes: String(64 << 20) },
-        }; break;
-        case 'config.get': result = { revision: '1', remote_hosts: [], default_execution_engine: 'starlark', import_claude: false, import_codex: false, mcp_import_offered: true, brand_icons: false, default_model: options.configured ? 'gpt-6-astra' : '', default_provider: options.configured ? 'openai' : '', default_effort: '', compact_model: '', compact_provider: '', compact_percent: 70, goal_max_rounds: 1, max_retries: 1 }; break;
-        case 'provider.discover':
-        case 'provider.list': result = { revision: '1', selection: { ready: !!options.configured, model: options.configured ? 'gpt-6-astra' : '', provider: options.configured ? 'openai' : '', reason: options.configured ? '' : 'not configured' }, providers: [{ id: 'openai', name: 'OpenAI', custom: false, methods: ['api_key'], suggested_model: 'gpt-6-astra', status: { provider: 'openai', configured: !!options.configured, available: !!options.configured, key_source: options.configured ? 'literal' : 'none', warnings: [] } }] }; break;
-        case 'host.attention': result = { items: [], has_more: false, truncated: false }; break;
-        case 'definitions.list': result = { items: [] }; break;
+          if (options.fail) { handlers.message(JSON.stringify({ jsonrpc: '2.0', id: request.id, error: { code: -32000, kind: 'INTERNAL', message: 'Test handshake failure' } })); return; }
+          result = { major: options.incompatible ? 3 : 4, minor: 0, runtime_id: 'host', process_epoch: 'boot', network_client: false, builtins: [{ id: 'coding', revision }] }; break;
+        case 'host.profiles': result = { revision, profiles: [] }; break;
+        case 'host.permission_default': result = { revision, mode: 'prompt' }; break;
+        case 'host.execution_defaults': result = { ...wire('HostExecutionDefaults'), revision, engine: 'starlark', effort: '' }; break;
+        case 'mcp.configuration': result = { ...wire('MCPConfiguration'), revision, imports: { claude: null, codex: null, project: null, opencode: null, offered: true } }; break;
+        case 'providers.list': result = { revision, routes: options.configured ? [route('openai')] : [], defaults: options.configured ? { provider: 'openai', name: 'gpt-6-astra', effort: '' } : null, compaction_model: null }; break;
+        case 'providers.presets': result = { items: [{ ...preset('openai'), name: 'OpenAI', suggested_models: ['gpt-6-astra'] }] }; break;
+        case 'providers.bundled': result = { items: [model('gpt-6-astra')] }; break;
+        case 'providers.catalog': result = { provider: request.params.provider, state: 'missing', scope_state: 'unverified', discovery: 'not_checked', fetched_at: null, stale: false, failure: null, models: [] }; break;
+        case 'providers.readiness': result = { configured: !!options.configured, credential_state: options.configured ? 'available' : 'missing', catalog_state: 'missing', model_state: 'configured', inference_state: 'not_tested' }; break;
+        case 'host.attention': result = { items: [], next_cursor: null }; break;
+        case 'definitions.list': result = { items: [{ ref: { id: 'coding', revision }, name: 'Coding', created_at: '2026-09-28T00:00:00Z' }], next_cursor: null }; break;
         case 'host.skills.complete':
-          expect(options.globalSkills).toBe(true);
           skillRequests.push(request.params);
-          result = { candidates: [{ text: '$global-fixture', description: 'Host-global fixture skill' }], truncated: false }; break;
-        case 'provider.login.list': result = { flows: [] }; break;
-        case 'sessions.revision': result = { revision: '1' }; break;
-        case 'sessions.list': result = { revision: '1', items: [], has_more: false }; break;
-        case 'query':
-          if (request.params?.operation === 'provider.catalogs') { result = { result: { models: {}, providers: { openai: { base_url: 'https://provider.invalid', available: !!options.configured } }, catalogs: { openai: { fetched_at: '2026-01-01T00:00:00Z', base_url: 'https://provider.invalid', models: [{ id: 'gpt-6-astra', reasoning_efforts: [] }] } } } }; break; }
-          // Every other request is a fixture bug, never silently treated as success.
+          result = { candidates: options.globalSkills ? [{ text: '$global-fixture', description: 'Host-global fixture skill' }] : [], truncated: false }; break;
+        case 'accounts.inference.list': case 'accounts.openai.list': result = { items: [] }; break;
+        case 'trees.catalog': result = { revision: '1' }; break;
+        case 'trees.list': result = { revision: '1', items: [], next_cursor: null }; break;
         default:
-          unexpected.push(request.method + (request.params?.operation ? ':' + request.params.operation : ''));
-          handlers.message(JSON.stringify({ jsonrpc: '2.0', id: request.id, error: { code: -32601, message: 'Unexpected test request' } }));
-          return;
+          unexpected.push(request.method);
+          handlers.message(JSON.stringify({ jsonrpc: '2.0', id: request.id, error: { code: -32601, kind: 'METHOD', message: 'Unexpected test request' } })); return;
       }
       handlers.message(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }));
     } };
   };
-  return { factory, methods, unexpected, skillRequests, holdReads: () => { holdReads = true; }, disconnect: () => { options.held = true; handlers.close(new Error('Test disconnect')); } };
+  return { factory, methods, unexpected, skillRequests, holdReads: () => { holdReads = true; }, disconnect: () => { disconnected = true; for (const handlers of live) handlers.close(new Error('Test disconnect')); } };
 }
 
 beforeEach(() => {
@@ -141,7 +138,7 @@ it.each([false, true])('sets up a clean Mac without an error and enters the exis
   expect(api.restart).not.toHaveBeenCalled();
   expect(platform.resolveConnection).toHaveBeenCalledOnce();
   expect(app.runtime.tabs.workspace().tabs).toHaveLength(1);
-  expect(server.methods).not.toContain('sessions.create');
+  expect(server.methods).not.toContain('trees.create');
   expect(server.unexpected).toEqual([]);
 });
 
@@ -182,7 +179,7 @@ it.each([false, true])('reopens New Chat from zero tabs without a loading layout
     expect(screen.getByRole('button', { name: 'Connect OpenAI', exact: true })).toBeTruthy();
     expect(screen.queryByRole('textbox', { name: 'Your first message' })).toBeNull();
   }
-  expect(server.methods).not.toContain('sessions.create');
+  expect(server.methods).not.toContain('trees.create');
 });
 
 async function observe(mutate?: (document: Document, view: JSDOM['window']) => void) {
@@ -206,8 +203,8 @@ it('accepts the connected, visible, zero-interaction first-launch frontdoor thro
   expect(screen.getAllByRole('button', { name: 'New session', exact: true }).length).toBeGreaterThan(0);
   expect(screen.queryByRole('textbox', { name: 'Your first message' })).toBeNull();
   expect(document.querySelector('[aria-label="Provider setup"]')).toBeNull();
-  expect(server.methods).toContain('initialize'); expect(server.methods).toContain('provider.list');
-  expect(server.unexpected).toEqual([]); expect(server.methods).not.toContain('sessions.create');
+  expect(server.methods).toContain('initialize'); expect(server.methods).toContain('providers.list');
+  expect(server.unexpected).toEqual([]); expect(server.methods).not.toContain('trees.create');
   const observed = await observe();
   expect(observed.painted).toBe(true);
   expect(observed).toMatchObject({ host: true, noNotice: true, frontdoor: true, sdkConnected: true, appVisible: true, home: false, visible: true, fonts: true, painted: true, pathname: '/' });
@@ -226,7 +223,7 @@ it.each([false, true])('enters actual onboarding after the real New session acti
   const tab = app.runtime.tabs.workspace().tabs[0]!;
   expect(tab.kind).toBe('new');
   expect(app.router.state.location.pathname).toBe(`/new/${tab.id}`);
-  expect(server.unexpected).toEqual([]); expect(server.methods).not.toContain('sessions.create');
+  expect(server.unexpected).toEqual([]); expect(server.methods).not.toContain('trees.create');
   expect(app.runtime.queries.getQueryCache().getAll().filter(query => query.state.error).map(query => query.queryKey)).toEqual([]);
   expect(await observe()).toMatchObject({ home: true, frontdoor: false, sdkConnected: true, draftPath: `/new/${tab.id}`, pathname: `/new/${tab.id}` });
 });
@@ -243,7 +240,7 @@ it('projects only bounded current state, not identities/capabilities, and fails 
   const { app, server } = await boot();
   const read = (window as Window & { whipStartupSnapshot: () => unknown }).whipStartupSnapshot;
   expect(read()).toEqual({ sdkState: 'connected', sdkConnected: true, tabCount: 0, newDraftMatchesRoute: false });
-  await act(async () => server.disconnect());
+  await act(async () => { server.disconnect(); await app.runtime.connections.home().list?.refresh(); });
   expect(await observe()).toMatchObject({ frontdoor: false, sdkConnected: false });
   expect(read()).not.toMatchObject({ sdkConnected: true });
   await act(async () => app.dispose());
@@ -303,14 +300,14 @@ it('discovers global skills after New session with a ready provider without choo
   expect(app.runtime.tabs.workspace().tabs[0]).toMatchObject({ kind: 'new', cwd: '' });
   act(() => input.focus());
   await waitFor(() => expect(server.skillRequests).toEqual([{
-    scope: 'global', definition: 'coding', permission_mode: 'prompt', prefix: '', limit: 1024,
+    scope: 'global', cwd: '', definition: { id: 'coding', revision }, prefix: '', limit: 1024,
   }]));
   fireEvent.change(input, { target: { value: '/global' } });
   await screen.findByRole('option', { name: /global-fixture/ });
   fireEvent.keyDown(input, { key: 'Enter' });
   expect(input.value).toBe('$global-fixture ');
   expect((screen.getByRole('button', { name: 'Send first message' }) as HTMLButtonElement).disabled).toBe(true);
-  expect(server.methods).not.toContain('sessions.create');
+  expect(server.methods).not.toContain('trees.create');
   expect(server.methods).not.toContain('root.snapshot');
   expect(server.unexpected).toEqual([]);
   expect(server.skillRequests).toHaveLength(1);
