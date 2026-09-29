@@ -352,8 +352,10 @@ func TestHostDirectoryCreateRPC(t *testing.T) {
 
 func TestHostDirectoryCreateInvalidParams(t *testing.T) {
 	parent := t.TempDir()
-	for _, raw := range []string{"", "null", "[]", "{", "{}", `{"parent":1,"name":"x"}`, `{"parent":"/tmp","name":false}`,
-		`{"parent":"/tmp","name":"x","extra":true}`, `{"parent":"/tmp","name":"x"} {}`} {
+	for _, raw := range []string{
+		"", "null", "[]", "{", "{}", `{"parent":1,"name":"x"}`, `{"parent":"/tmp","name":false}`,
+		`{"parent":"/tmp","name":"x","extra":true}`, `{"parent":"/tmp","name":"x"} {}`,
+	} {
 		_, rpcErr, handled := (&Server{}).handleHost(t.Context(), rpcMessage{Method: "host.directory.create", Params: json.RawMessage(raw)})
 		if !handled || rpcErr == nil || rpcErr.Code != -32602 {
 			t.Fatalf("malformed params %q: %v handled=%v", raw, rpcErr, handled)
