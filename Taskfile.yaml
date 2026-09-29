@@ -193,6 +193,51 @@ tasks:
       - task: check:fixture
       - task: check:retained
 
+  check:product-web:
+    desc: Shared app, web assets, UI and browser support regressions
+    cmds:
+      - task: web
+
+  check:product-browser:
+    desc: Native production web acceptance in Chromium and Firefox
+    cmds:
+      - task: web-assets
+      - node --test --test-concurrency=1 apps/web/scripts/native-fixture.test.mjs apps/web/scripts/native-stream-fixture.test.mjs
+      - node apps/web/scripts/browser.mjs
+      - node apps/web/scripts/snapshot-refresh.mjs
+      - node apps/web/scripts/session-search.mjs
+      - node apps/web/scripts/session-tabs.mjs
+      - node apps/web/scripts/user-messages.mjs
+
+  check:product-mobile:
+    desc: Mobile types, UI, real native backend lifecycle and both platform bundles
+    cmds:
+      - npm run check:mobile
+      - npm run test:mobile
+      - npm run test:backend -w @whip/mobile
+      - npm run export:mobile
+
+  check:product-desktop:
+    desc: Apple Silicon desktop types, distribution, disposable packaging and staged acceptance
+    platforms: [darwin/arm64]
+    env:
+      WHIP_ONBOARDING_SMOKE_OUTPUT: '{{.ROOT_DIR}}/test-results/redesign/desktop/onboarding.json'
+      WHIP_DESKTOP_SMOKE_OUTPUT: '{{.ROOT_DIR}}/test-results/redesign/desktop/workspace.json'
+      WHIP_DESKTOP_SMOKE_ARTIFACTS: '{{.ROOT_DIR}}/test-results/redesign/desktop/workspace'
+      WHIP_DESKTOP_TERMINAL_ARTIFACTS: '{{.ROOT_DIR}}/test-results/redesign/desktop/terminal'
+      WHIP_EDITOR_IPC_SMOKE_OUTPUT: '{{.ROOT_DIR}}/test-results/redesign/desktop/editor-ipc.json'
+    cmds:
+      - npm run check:desktop
+      - npm run test:desktop
+      - node --test apps/desktop/scripts/onboarding-fixture.test.mjs
+      - npm run package:desktop
+      - BROWSER_NATIVE_DAEMON=1 node apps/desktop/scripts/browser-native.mjs
+      - node apps/desktop/scripts/onboarding-smoke.mjs
+      - node apps/desktop/scripts/smoke.mjs
+      - WHIP_WEB_TURN_FAILURE_FIXTURE=1 node apps/desktop/scripts/smoke.mjs
+      - node apps/desktop/scripts/terminal-smoke.mjs
+      - node apps/desktop/scripts/project-editors-ipc-smoke.mjs
+
   check:native-cli:
     desc: Native lifecycle, run, recovery, session catalog/export and compiled CLI fixtures
     cmds:
