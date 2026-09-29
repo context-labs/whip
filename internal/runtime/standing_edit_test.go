@@ -18,7 +18,11 @@ import (
 func TestHostStandingEditsUseActivePublicationWithoutCreatingGrants(t *testing.T) {
 	requests := make(chan model.Request, 2)
 	r := openTest(t, t.TempDir(), providerFunc(func(_ context.Context, request model.Request) (model.Response, error) {
-		requests <- request
+		// Title maintenance can dispatch between these two ordinary turns. Its
+		// deliberately separate prompt is not standing-instruction evidence.
+		if request.Purpose != session.AutomaticTitlePurpose {
+			requests <- request
+		}
 		return model.Response{Parts: []session.Part{{Type: "text", Text: "done"}}}, nil
 	}))
 	owner := createTest(t, r)
@@ -55,22 +59,23 @@ func TestHostStandingEditsUseActivePublicationWithoutCreatingGrants(t *testing.T
 		t.Fatal(err)
 	}
 	submitTest(t, r, owner.ID, "without-standing-grant")
-	if result := waitTest(t, r, "without-standing-grant", terminal); result.Turn.State != session.Succeeded {
+	result := waitTest(t, r, "without-standing-grant", terminal)
+	if result.Turn.State != session.Succeeded {
 		t.Fatal(result.Turn)
 	}
-	if request := nextInstructionRequest(t, requests); strings.Contains(request.Instructions, "New rule.") {
+	if request := nextInstructionRequest(t, requests); request.TurnID != result.Turn.ID || strings.Contains(request.Instructions, "New rule.") {
 		t.Fatal("human edit created agent authority")
 	}
 	if _, err := r.CreateGrant(t.Context(), session.Grant{ID: "standing", SessionID: owner.ID, Capability: "instructions.read", Resource: "standing"}); err != nil {
 		t.Fatal(err)
 	}
 	submitTest(t, r, owner.ID, "with-standing-grant")
-	result := waitTest(t, r, "with-standing-grant", terminal)
+	result = waitTest(t, r, "with-standing-grant", terminal)
 	if result.Turn.State != session.Succeeded {
 		t.Fatal(result.Turn)
 	}
-	if request := nextInstructionRequest(t, requests); !strings.Contains(request.Instructions, "New rule.") || strings.Contains(request.Instructions, "# edited") {
-		t.Fatal("updated source did not use existing capture/filtering")
+	if request := nextInstructionRequest(t, requests); request.TurnID != result.Turn.ID || !strings.Contains(request.Instructions, "New rule.") || strings.Contains(request.Instructions, "# edited") {
+		t.Fatalf("updated source did not use existing capture/filtering: purpose=%q turn=%s instructions=%q", request.Purpose, request.TurnID, request.Instructions)
 	}
 	manifest, err := r.InstructionManifest(t.Context(), result.Turn.ID)
 	if err != nil || manifest == nil || len(manifest.Sources) != 1 || manifest.Sources[0].Bytes != int64(len(*after.Text)) {

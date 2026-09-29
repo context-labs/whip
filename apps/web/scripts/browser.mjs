@@ -8,7 +8,7 @@ import { deadline as callDeadline, eventually, startFixture } from './native-fix
 
 // The fixture embeds the packaged production app. Build and pack before running;
 // no user daemon, home, credentials, or provider account is used by these tests.
-const requested = (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split(',');
+const requested = (process.env.WHIP_WEB_BROWSERS ?? process.env.WHIP_SDK_BROWSERS ?? 'chromium,firefox').split(',');
 const resultsDirectory = process.env.WHIP_WEB_BROWSER_RESULTS ?? '/tmp/whip-web-browser-results';
 await mkdir(resultsDirectory, { recursive: true });
 const log = (scope, phase) => console.log(`[${new Date().toISOString()}] ${scope}: ${phase}`);

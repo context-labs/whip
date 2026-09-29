@@ -117,7 +117,7 @@ func dropSubmitAcknowledgement(t *testing.T, target string) (string, *atomic.Int
 	return socket, &submissions
 }
 
-func TestBridgeCallerAbortDoesNotCancelHostInput(t *testing.T) {
+func TestBridgeCallerContextDoesNotCancelHostInput(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
 	f := nativeFixture(t, func(ctx context.Context, _ model.Request, _ func(model.Chunk)) (model.Response, error) {
 		close(entered)
@@ -130,20 +130,20 @@ func TestBridgeCallerAbortDoesNotCancelHostInput(t *testing.T) {
 	}, nil)
 	id := f.newSession(t)
 	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		_, err := f.conn.Prompt(ctx, acpsdk.PromptRequest{SessionId: id, Prompt: []acpsdk.ContentBlock{acpsdk.TextBlock("keep running")}})
+		// Call the bridge boundary directly: ClientSideConnection.Prompt sends
+		// an explicit session/cancel notification when its context ends.
+		_, err := f.bridge.Prompt(ctx, acpsdk.PromptRequest{SessionId: id, Prompt: []acpsdk.ContentBlock{acpsdk.TextBlock("keep running")}})
 		done <- err
 	}()
 	<-entered
 	cancel()
 	select {
 	case err := <-done:
-		if err == nil {
-			t.Fatal("cancelled observation returned success")
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("caller observation did not abort")
+		t.Fatalf("attachment-owned observation ended with its caller: %v", err)
+	default:
 	}
 	s := f.bridge.getSession(id)
 	s.mu.Lock()
@@ -155,8 +155,49 @@ func TestBridgeCallerAbortDoesNotCancelHostInput(t *testing.T) {
 	}
 	close(release)
 	settled, err := command.Wait(t.Context())
-	if err != nil || settled.Turn.State != "succeeded" {
-		t.Fatalf("host did not complete independently: %+v %v", settled, err)
+	if err != nil || settled.Turn == nil || settled.Turn.State != "succeeded" {
+		t.Fatalf("host did not complete independently: turn=%+v %v", settled.Turn, err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	await(t, func() bool { return len(s.turnCh) == 0 })
+}
+
+func TestBridgeSDKCallerAbortSendsExplicitHostCancellation(t *testing.T) {
+	entered, cancelled := make(chan struct{}), make(chan struct{})
+	f := nativeFixture(t, func(ctx context.Context, _ model.Request, _ func(model.Chunk)) (model.Response, error) {
+		close(entered)
+		<-ctx.Done()
+		close(cancelled)
+		return model.Response{}, ctx.Err()
+	}, nil)
+	id := f.newSession(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := f.conn.Prompt(ctx, acpsdk.PromptRequest{SessionId: id, Prompt: []acpsdk.ContentBlock{acpsdk.TextBlock("cancel through SDK")}})
+		done <- err
+	}()
+	<-entered
+	cancel()
+	var cancelledRequest *acpsdk.RequestError
+	if err := <-done; !errors.As(err, &cancelledRequest) || cancelledRequest.Code != -32800 {
+		t.Fatalf("SDK caller abort: %v", err)
+	}
+	select {
+	case <-cancelled:
+	case <-time.After(5 * time.Second):
+		t.Fatal("SDK session/cancel did not cancel provider")
+	}
+	s := f.bridge.getSession(id)
+	s.mu.Lock()
+	command := s.current
+	s.mu.Unlock()
+	settled, err := command.Wait(t.Context())
+	if err != nil || settled.Turn == nil || settled.Turn.State != "cancelled" {
+		t.Fatalf("explicit SDK cancellation: turn=%+v %v", settled.Turn, err)
 	}
 	await(t, func() bool { return len(s.turnCh) == 0 })
 }

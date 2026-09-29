@@ -12,7 +12,7 @@ import tarfile
 import tempfile
 
 from .common import EVALS, REPO, atomic_write, file_hash, read_json, utc_now, value_hash, write_json, MODEL
-from .observe import catalog_cache, fetch_models, write_config
+from .observe import configure_catalog, fetch_models, write_config
 from .prepare_ripgrep import prepare as prepare_ripgrep
 
 
@@ -56,11 +56,21 @@ def source_snapshot(repo, ref=None):
     with tarfile.open(fileobj=buffer, mode="w") as archive:
         for name in sorted(set(names) - {""}):
             path = repo / name
-            if not path.exists():
-                continue
             if path.name == ".env" or path.name.startswith(".env.") or path.name in ("credentials.json", "secrets.json"):
                 continue
-            if not path.is_file() or path.is_symlink():
+            if path.is_symlink():
+                target = os.readlink(path)
+                if Path(target).is_absolute() or not path.resolve().is_relative_to(repo):
+                    raise ValueError("source link escapes repository: " + name)
+                # Match git archive: preserve an internal link as metadata,
+                # never read its target through the link or copy an external tree.
+                info = tarfile.TarInfo(name)
+                info.type, info.linkname = tarfile.SYMTYPE, target
+                archive.addfile(info)
+                continue
+            if not path.exists():
+                continue
+            if not path.is_file():
                 raise ValueError("unsupported source entry: " + name)
             data = path.read_bytes()
             info = tarfile.TarInfo(name)
@@ -149,9 +159,8 @@ def catalog(protocol):
 
 
 def contract(candidate, protocol, model):
-    return {"engine": candidate["engine"], "configuration": candidate["configuration"],
-            "catalog_model": model, "commit_instruction": protocol["commit_instruction"],
-            "catalog_cache": {protocol["provider"]: catalog_cache(protocol["endpoint"], model)}}
+    return {"evidence_schema": "native-v4", "engine": candidate["engine"], "configuration": configure_catalog(candidate["configuration"], model),
+            "catalog_model": model, "commit_instruction": protocol["commit_instruction"]}
 
 
 def pull_images(tasks):

@@ -4,7 +4,6 @@ from decimal import Decimal
 import json
 import os
 from pathlib import Path
-import re
 import signal
 import threading
 import time
@@ -19,29 +18,9 @@ from .report import build_result, compare_results, empty_trial, money, normalize
 from .tasks import load_spec, prepare_tasks
 
 
-def default_engine():
-    home = Path(os.environ.get("WHIP_HOME", Path.home() / ".whip"))
-    config = home / "config.json"
-    value = "starlark"
-    if config.exists():
-        # Whip's config is JSONC: preserve quoted strings while removing comments
-        # and trailing commas. This reads one preference; it never copies the home.
-        string = r'"(?:\\.|[^"\\])*"'
-        text = re.sub(string + r'|//[^\n]*|/\*[\s\S]*?\*/',
-                      lambda m: m[0] if m[0].startswith('"') else ' ', config.read_text())
-        text = re.sub(string + r'|,(?=\s*[}\]])', lambda m: m[0] if m[0].startswith('"') else '', text)
-        try:
-            value = json.loads(text).get("rlm", {}).get("defaultEngine", "starlark")
-        except (ValueError, AttributeError) as error:
-            raise ValueError("cannot read configured engine; repair Whip config or specify --engines") from error
-    if value not in ("starlark", "quickjs"):
-        raise ValueError("invalid configured execution engine")
-    return value
-
-
 def plan_run(args, *, evals=EVALS):
     lock, profiles, protocol = load_spec(evals)
-    engines = args.engines.split(",") if args.engines else [default_engine()]
+    engines = args.engines.split(",") if args.engines else [protocol["default_engine"]]
     if not 1 <= len(engines) <= 2 or len(set(engines)) != len(engines) or set(engines) - {"starlark", "quickjs"}:
         raise ValueError("choose one or two distinct engines: starlark,quickjs")
     if args.against and len(engines) != 1:

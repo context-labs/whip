@@ -2,6 +2,13 @@
 
 Use `whip-eval` for new Frontier evaluations. It runs the real Whip CLI and
 native Harbor/Pier graders, freezes the inputs, and writes a comparable report.
+The current runtime contract is native-v4 with a separate baseline track. It creates
+a private runtime-v4/host.json, explicitly grants the disposable workspace, and
+observes the native ledger. Engine selection defaults to the frozen protocol
+(starlark); use --engines for a different engine. Personal or retired runtime
+configuration is never read. Historical results retain their original contract.
+See [native observer acceptance](native-observer.md) for qualification and the
+retained scenario map.
 Kimi K3 on Inference.net, with high reasoning effort, was the initial model route; since 2026-09-13 the pinned route is `kimi-k3-fast` (`frontier/protocol.json`, `whip_evals.common.MODEL`), after the provider renamed `kimi-k3` and its stream stalled on long calls. Reports from the two routes are separate environments.
 
 **Execution environments:** the native Docker workflow and its retained reports

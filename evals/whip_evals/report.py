@@ -1,5 +1,6 @@
 """Offline normalization, paired statistics, and one JSON/Markdown/CSV projection."""
 from collections import Counter
+from contextlib import closing
 import csv
 from decimal import Decimal
 from datetime import datetime
@@ -14,6 +15,35 @@ import statistics
 from .common import (SCHEMA_VERSION, atomic_write, file_hash, inside, number,
                      read_json, utc_now, value_hash, write_json)
 from .observe import aggregate, rows
+
+
+# Read-only normalization of archived v2 evidence; never an execution adapter.
+def historical_aggregate(calls):
+    totals = {"input_tokens": 0, "output_tokens": 0, "cache_tokens": 0,
+              "reported_cost_usd": 0.0, "ledger_cost_usd": 0.0, "reported_cost_calls": 0,
+              "unknown_usage_calls": 0, "unknown_cost_calls": 0, "pending_calls": 0,
+              "model_calls": len(calls), "peak_input_tokens": 0}
+    for call in calls:
+        if call["status"] == "running":
+            totals["pending_calls"] += 1
+        usage = (call.get("result") or {}).get("Usage", {})
+        dispatched = (call.get("result") or {}).get("Dispatched", call["status"] != "rejected")
+        if dispatched and call["usage_source"] != "reported":
+            totals["unknown_usage_calls"] += 1
+        input_tokens = usage.get("prompt_tokens", 0)
+        output_tokens = usage.get("completion_tokens", 0)
+        cached = (usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
+        totals["input_tokens"] += input_tokens
+        totals["output_tokens"] += output_tokens
+        totals["cache_tokens"] += cached
+        totals["peak_input_tokens"] = max(totals["peak_input_tokens"], input_tokens)
+        if usage.get("cost") is not None:
+            totals["reported_cost_usd"] += usage["cost"]
+            totals["reported_cost_calls"] += 1
+        if dispatched and call["cost_source"] not in ("reported", "estimated"):
+            totals["unknown_cost_calls"] += 1
+        totals["ledger_cost_usd"] += call["cost_micros"] / 1_000_000
+    return totals
 
 
 def quantile(values, fraction):
@@ -92,7 +122,7 @@ def span_counts(database):
     if database is None:
         return {"span_count": None, "open_span_count": None}
     try:
-        with sqlite3.connect(f"file:{database}?mode=ro&immutable=1", uri=True) as db:
+        with closing(sqlite3.connect(f"file:{database}?mode=ro&immutable=1", uri=True)) as db:
             if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='spans'").fetchone():
                 return {"span_count": None, "open_span_count": None}
             total, open_spans = db.execute("SELECT count(*), coalesce(sum(end_ns=0), 0) FROM spans").fetchone()
@@ -200,27 +230,33 @@ def normalize_trial(trial, raw, artifact_root):
     duration = outcome.get("agent_duration_seconds")
     row["agent_seconds"] = duration if number(duration) and final else None
     calls = state.get("calls")
+    native_ledger = state.get("evidence_schema") == "native-v4"
     # The copied database is the canonical ledger. A partial or desynchronized
     # upload must not make edited state.json totals eligible for promotion.
     if paths["sessions.db"]:
         try:
-            with sqlite3.connect(paths["sessions.db"].as_uri() + "?mode=ro&immutable=1", uri=True) as db:
+            with closing(sqlite3.connect(paths["sessions.db"].as_uri() + "?mode=ro&immutable=1", uri=True)) as db:
                 db.row_factory = sqlite3.Row
-                roots = [row["id"] for row in db.execute("SELECT id FROM sessions")]
+                roots = [row["id"] for row in db.execute("SELECT id FROM sessions WHERE parent_id IS NULL" if native_ledger else "SELECT id FROM sessions")]
                 if roots != [(state.get("root") or {}).get("id")]:
                     errors.append("accounting_root_mismatch")
-                copied_calls = rows(db, "SELECT * FROM model_calls ORDER BY rowid")
+                copied_calls = rows(db,
+                    "SELECT a.* FROM model_attempts a JOIN attempt_budget_ancestors b ON b.attempt_id=a.id WHERE b.session_id=? ORDER BY a.rowid",
+                    ((state.get("root") or {}).get("id"),)) if native_ledger else rows(db, "SELECT * FROM model_calls ORDER BY rowid")
             if calls != copied_calls:
                 errors.append("accounting_snapshot_mismatch")
         except sqlite3.Error:
             errors.append("unreadable_accounting_snapshot")
-    computed = aggregate(calls) if calls is not None else {}
+    computed = (aggregate if native_ledger else historical_aggregate)(calls) if calls is not None else {}
     # Complete accounting: every dispatched call reported usage and a cost, and
     # nothing about the evidence is in doubt. Unknown usage never becomes zero.
     row["accounting_complete"] = not errors and all(computed.get(key) == 0 for key in
                                                     ("unknown_usage_calls", "unknown_cost_calls", "pending_calls"))
     if calls is not None:
-        row["known_cost_usd"] = money(sum(Decimal(call["cost_micros"]) for call in calls) / 1_000_000)
+        if native_ledger:
+            row["known_cost_usd"] = str((sum(Decimal(call["cost_nano_usd"] or 0) for call in calls) / 1_000_000_000).quantize(Decimal("0.000000001")))
+        else:
+            row["known_cost_usd"] = money(sum(Decimal(call["cost_micros"]) for call in calls) / 1_000_000)
     elif number(metrics.get("ledger_cost_usd")):
         row["known_cost_usd"] = money(metrics["ledger_cost_usd"])
     if row["accounting_complete"]:
@@ -229,10 +265,12 @@ def normalize_trial(trial, raw, artifact_root):
     # and the unknown-usage count beside them says how firm they are.
     for key in ("unknown_cost_calls", "unknown_usage_calls", "model_calls", "input_tokens", "output_tokens", "cache_tokens"):
         row[key] = computed.get(key, metrics.get(key))
+    if native_ledger and computed.get("unknown_cache_calls", 0):
+        row["cache_tokens"] = None
     row["diagnostics"] = {key: metrics.get(key) for key in (
         "peak_input_tokens", "sampled_peak_container_rss_bytes", "sampled_container_cpu_seconds",
         "reported_cost_usd", "reported_cost_calls")}
-    row["diagnostics"].update(agent_count=len(state.get("agents", [])), turn_count=len(state.get("turns", [])),
+    row["diagnostics"].update(agent_count=len(state.get("sessions" if native_ledger else "agents", [])), turn_count=len(state.get("turns", [])),
                               **span_counts(paths["sessions.db"]))
     row["evidence_complete"] = not errors and row["cleanup_complete"] is True
     row["error_codes"].extend(sorted(set(errors)))

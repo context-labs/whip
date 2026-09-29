@@ -4,7 +4,12 @@ For new evaluations, use the [canonical evaluation workflow](../README.md).
 This directory retains the historical studies, preregistrations, evidence and
 tests. Shared adapter/observer modules now import `evals/whip_evals`; exact
 historical reproduction uses each study's already frozen source and binary.
-Current compatibility entry points are not an untouched historical harness.
+Current compatibility entry points run the native-v4 adapter and are not an
+untouched historical harness. Newly recorded recipes name that runtime and its
+explicit delegated workspace policy. Historical read-only result/integrity
+readers remain local to this directory; they do not execute the retired runtime.
+The retained tests now exercise native observation and mounted evidence; the
+[scenario map](../native-observer.md) records replaced schema/polling assumptions.
 
 This runs the actual Whip daemon, recursive agents, worker subprocesses, host
 tools, accounting, and checkpoint storage against `kimi-k3` on

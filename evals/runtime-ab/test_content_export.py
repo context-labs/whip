@@ -14,7 +14,7 @@ class ExportContentTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.home, self.evidence = self.root / "home", self.root / "evidence"
-        self.source = self.home / "runtime-v2" / "artifacts" / "sha256"
+        self.source = self.home / "runtime-v4" / "artifacts" / "sha256"
         self.source.mkdir(parents=True)
         self.evidence.mkdir()
         self.data = b'large stream event body'
@@ -22,12 +22,11 @@ class ExportContentTests(unittest.TestCase):
         self.body = self.source / self.digest
         self.body.write_bytes(self.data)
         with sqlite3.connect(self.evidence / "sessions.db") as db:
-            for sql in ("CREATE TABLE sessions(id)", "CREATE TABLE content_objects(digest,size)", "CREATE TABLE content_references(id,digest,size)", "CREATE TABLE content_grants(reference_id,root_id)"):
+            for sql in ("CREATE TABLE sessions(id,parent_id,tree_id)", "CREATE TABLE content_bodies(digest,size)", "CREATE TABLE content_references(id,digest,owner_session_id)"):
                 db.execute(sql)
-            db.execute("INSERT INTO sessions VALUES ('root')")
-            db.execute("INSERT INTO content_objects VALUES (?,?)", (self.digest, len(self.data)))
-            db.execute("INSERT INTO content_references VALUES ('ref',?,?)", (self.digest, len(self.data)))
-            db.execute("INSERT INTO content_grants VALUES ('ref','root')")
+            db.execute("INSERT INTO sessions VALUES ('root',NULL,'tree')")
+            db.execute("INSERT INTO content_bodies VALUES (?,?)", (self.digest, len(self.data)))
+            db.execute("INSERT INTO content_references VALUES ('ref',?,'root')", (self.digest,))
 
     def test_copies_verified_owned_body_once_from_final_snapshot(self):
         database = self.evidence / "sessions.db"
@@ -40,7 +39,7 @@ class ExportContentTests(unittest.TestCase):
 
     def test_other_root_reference_is_excluded(self):
         with sqlite3.connect(self.evidence / "sessions.db") as db:
-            db.execute("UPDATE content_grants SET root_id='other'")
+            db.execute("UPDATE content_references SET owner_session_id='other'")
         manifest = export_content_bodies(self.home, self.evidence, "root")
         self.assertEqual(manifest["bodies"], [])
 

@@ -1,4 +1,4 @@
-"""Author small native-shaped records in temporary directories; execute nothing."""
+"""Frozen v2 evidence normalization and offline statistics; execute nothing."""
 import hashlib
 import json
 from pathlib import Path
@@ -7,7 +7,8 @@ import tempfile
 import unittest
 
 from whip_evals.common import read_json, write_json
-from whip_evals.observe import aggregate, rows
+from whip_evals.observe import rows
+from whip_evals.report import historical_aggregate as aggregate
 from whip_evals.report import (build_result, compare_trials, empty_trial, normalize_trial,
                                summarize, termination, write_report)
 

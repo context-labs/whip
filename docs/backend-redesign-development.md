@@ -4592,3 +4592,108 @@ provider-save guards and responsive theme controls. Logs/artifacts:
 No product polling policy, deadline or read assertion changed. The earlier hosted
 run remains failed; client/desktop results and the next exact-head run remain
 separate evidence.
+
+### Native Python evaluation and public package entry points — 2026-09-29
+
+Python trials now create a private native-v4 host/tree with explicit delegated
+workspace authority and observe native turns, inputs, operations, permissions,
+goals, mail and the immutable attempt ancestry ledger. Finality uses database
+commit quiescence plus verified exact-process freeze and matching settled readback.
+Scoped content is exported with byte/digest checks. Exact integer nanodollars
+remain authoritative; missing usage, cache usage and cost remain unknown. Reports
+verify state.json against the copied database. New trials use a separate baseline
+track; archived results and frozen source hashes remain unchanged. Historical
+analysis readers are read-only and never execute the retired runtime.
+
+Full deterministic qualification at6497bc957 passed all eight combinations of
+Harbor/Pier, Starlark/QuickJS and shared/separate verifiers, including Pier's
+no-network tasks. Every trial passed hidden grading, accounting/evidence checks
+and owned cleanup with zero external model calls. The Linuxamd64 candidate ran
+on an arm64 Docker host; this proves emulated correctness, not native performance
+or model proficiency. Evidence:
+/private/tmp/whip-native-eval-observer/evals/artifacts/doctor-20260929T101726Z-dca1fc2967/doctor.json.
+The integrated backend separately passed both-engine offline Linuxarm64 tests,
+including native report normalization/tamper rejection, in13.001s. Canonical
+Python checks pass87 tests (optional Linux acceptance skipped on macOS); retained
+native/historical checks pass77. Full scenario mapping is evals/native-observer.md.
+Required Linux CI now includes this native evaluation gate.
+
+The first doctor attempt stopped before a trial because dirty source capture
+rejected the repository's internal skill symlink. The preparation fix preserves
+internal relative links as archive metadata, rejects absolute/escaping links and
+never follows an external target; extraction and negative paths are tested. A
+clean frozen-source run then supplied the eight-way qualification above.
+
+Root npm generate/build/check/test/acceptance/browser/package commands now target
+the supported native protocol and SDK. The package gate installs private4.0.0
+archives outside the repository, checks all public imports, browser bundling and
+positive/negative consumer types, then submits a real native input and verifies
+history. Its first fixture run failed because renderer assets had not been
+packaged; test:package now includes that prerequisite and passes. Eight existing
+native acceptance families passed62.275s. Complete integrated product-examples,
+including packed SDK, both agent examples and the actual browser/Node client,
+also passes. The broader legacy reference gates remain explicitly named until
+final removal; this checkpoint does not claim Phase7 completion or new Safari,
+signed-distribution, real-account or remote-SSH evidence.
+
+### Clean-machine evaluator and cancellation qualification — 2026-09-29
+
+Hosted run36555920516 atf26acf587 failed its new evaluator and package-consumer
+jobs. The direct offline observer test omitted the synthetic INFERENCE_API_KEY
+already supplied by the Doctor adapter. It now supplies only offline-fixture
+inside the test context. The isolated npm consumer previously depended on cached
+registry metadata, which npm ci need not retain. It now packs its exact installed
+React/type dependencies as local tarballs and installs all archives with an
+explicitly empty private cache. Public imports, browser bundling, consumer types
+and actual native input/history pass with that empty cache.
+
+The corrected evaluator passes87 canonical and77 retained/historical Python
+tests. The existing Linuxamd64 fixture image, with networking disabled and no
+external credential, passes six both-engine/accounting/export checks in16.608s.
+Python3.13 also exposed SQLite connection ResourceWarnings: a connection context
+manager ends a transaction but does not close the connection. Observer snapshots,
+content export, backup and report reads now close their own connections explicitly;
+the final Linux run has no ResourceWarning or ignored cleanup exception.
+
+The Linux build job failed an ACP test that treated cancellation of the upstream
+SDK's Prompt context as observation-only. That SDK explicitly sends session/cancel.
+The replacement tests separately prove that ending the bridge caller context
+preserves accepted host execution and that the SDK notification cancels the exact
+host input/provider. Ten shuffled repetitions under race detection pass22.794s;
+vet passes. No production cancellation policy or timeout changed.
+
+All other client/race/distribution/Settings/web/docs/analysis jobs in that run
+passed except macOS runtime-first, product-browser and product-desktop. The
+runtime standing-edit test sometimes consumed an automatic-title helper request
+instead of the ordinary turn it meant to inspect; its original exact-seed20-run
+stress reproduced the failure. It now keeps title execution enabled, excludes
+only that helper purpose from this instruction-evidence channel and checks each
+captured request's exact turn ID. Thirty repetitions pass25.733s with the same
+hosted seed; vet passes. Browser mobile-search synchronization and hidden desktop
+guest first-frame screenshot failures remain separately diagnosed repair work.
+The failed hosted run remains failed; none of these local checks establishes a
+passing final hosted revision or completion of Phases5–7.
+
+The browser transfer fixture also assumed the parent could have no messages
+after child admission. A fast child can legitimately publish its completion
+mail in that interval. The replacement assertion admits only that exact child's
+completion reference and revision, rejects the direct transfer turn and ordinary
+inputs, and retains lost-acknowledgement and cancellation assertions. Thirty
+shuffled race repetitions pass in 27.777s. The earlier macOS failure in run
+36556449033 remains recorded as a failure.
+
+Mobile sidebar search now holds the actual filtered catalog response in its
+fixture, proves an existing recent-result label is not filtered readiness, and
+requires that response and settled loading state before the original selection
+and dialog-close assertions. Chromium passes all 11 workflows, including 66
+themes; Firefox passes all 10. Bounded diagnostics preserve click/query evidence
+if the failure recurs. The original missed click remains an inference because
+its hosted trace did not record those events. No product timeout or assertion
+was relaxed. Failure injection also verifies fixture process/socket cleanup.
+
+The desktop first-frame screenshot failure is still unresolved. A separate
+disposable stock Electron reproduction also reaches the same five-second
+capture deadline with a new hidden WebContentsView; this establishes first-frame
+sensitivity outside Whip, but does not prove the cause of the hosted failure.
+Failed rendering experiments were discarded. Exact final-head hosted acceptance
+is still required.

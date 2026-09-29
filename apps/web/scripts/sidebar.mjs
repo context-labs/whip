@@ -10,23 +10,49 @@ await mkdir(directory, { recursive: true });
 const results = {};
 for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split(',')) {
   const fixture = await startFixture();
-  const browser = await ({ chromium, firefox }[name]).launch();
-  const context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
-  context.setDefaultTimeout(10_000);
-  const page = await context.newPage();
-  const client = await fixture.connect(`sidebar-${crypto.randomUUID()}`);
-  const origin = fixture.info.web;
-  const route = id => `/h/${fixture.info.runtime_id}/s/${id}`;
-  const frames = [], errors = [], checks = [];
-  page.on('pageerror', error => errors.push({ message: error.message, stack: error.stack }));
-  page.on('console', event => { if (event.type() === 'error' && /content.security.policy|violates.*directive|refused to (execute|apply|load)/i.test(event.text())) errors.push(event.text()); });
-  page.on('websocket', socket => socket.on('framesent', ({ payload }) => { try { frames.push(JSON.parse(String(payload))); } catch {} }));
-  const sidebar = () => page.locator('aside[aria-label="Session navigation"]');
-  const separator = () => page.getByRole('separator', { name: 'Resize session navigation' });
-  const saved = () => page.getByLabel('Saved sessions', { exact: true });
-  const group = cwd => sidebar().getByRole('button', { name: cwd, exact: true });
-  const ready = () => page.getByLabel('Message WHIP', { exact: true }).waitFor();
+  let browser, page;
+  const frames = [], errors = [], checks = [], catalogReads = [];
+  const proxyConnections = new Set(), proxyClosing = new Set();
+  let proxyClosed = false, armFiltered = false, releaseSearch, filteredReply;
+  const recordError = error => { if (errors.length < 64) errors.push(String(error.stack ?? error).slice(0, 4096)); };
+  const closeEndpoint = endpoint => { const pending = endpoint.close().catch(recordError).finally(() => proxyClosing.delete(pending)); proxyClosing.add(pending); };
   try {
+    browser = await ({ chromium, firefox }[name]).launch();
+    const context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
+    context.setDefaultTimeout(10_000);
+    page = await context.newPage();
+    const client = await fixture.connect(`sidebar-${crypto.randomUUID()}`);
+    const origin = fixture.info.web;
+    const route = id => `/h/${fixture.info.runtime_id}/s/${id}`;
+    page.on('pageerror', recordError);
+    page.on('console', event => { if (event.type() === 'error' && /content.security.policy|violates.*directive|refused to (execute|apply|load)/i.test(event.text())) recordError(event.text()); });
+    page.on('websocket', socket => {
+      const pending = new Map();
+      socket.on('framesent', ({ payload }) => {
+        try {
+          const request = JSON.parse(String(payload));
+          assert(frames.length < 25000, 'Sidebar traffic evidence bound exceeded');
+          const rootIDs = request.method === 'trees.summaries' ? request.params?.root_ids : undefined;
+          if (rootIDs !== undefined) assert(Array.isArray(rootIDs) && rootIDs.length <= 64 && rootIDs.every(id => typeof id === 'string' && id.length <= 128));
+          frames.push({ method: request.method, params: { root_ids: rootIDs } });
+          if (request.method === 'trees.list' && request.params?.search) {
+            assert(catalogReads.length < 128, 'Sidebar search evidence bound exceeded');
+            const record = { id: request.id, search: request.params.search, started: performance.now() }; catalogReads.push(record); pending.set(request.id, record);
+          }
+        } catch (error) { recordError(error); }
+      });
+      socket.on('framereceived', ({ payload }) => {
+        try {
+          const reply = JSON.parse(String(payload)), record = pending.get(reply.id);
+          if (record) { record.replied = true; record.received = performance.now(); record.error = reply.error?.kind; record.roots = reply.result?.items?.map(item => item.root_id); pending.delete(reply.id); }
+        } catch (error) { recordError(error); }
+      });
+    });
+    const sidebar = () => page.locator('aside[aria-label="Session navigation"]');
+    const separator = () => page.getByRole('separator', { name: 'Resize session navigation' });
+    const saved = () => page.getByLabel('Saved sessions', { exact: true });
+    const group = cwd => sidebar().getByRole('button', { name: cwd, exact: true });
+    const ready = () => page.getByLabel('Message WHIP', { exact: true }).waitFor();
     const paths = [join(fixture.directory, 'repo/main'), join(fixture.directory, 'worktrees/main'), join(fixture.directory, 'sdk')];
     for (const path of paths) await mkdir(path, { recursive: true });
     for (const [index, path] of paths.entries()) paths[index] = await realpath(path);
@@ -42,6 +68,27 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
       await client.trees.update(item.tree.id, item.tree.revision, { ...item.tree.metadata,
         title: `Session ${String(i).padStart(3, '0')}${i === 139 ? ' — a long session title to verify clipping without expanding the navigation' : ''}` }, deadline());
     }
+    await page.routeWebSocket('**/api/v4/ws', route => {
+      if (proxyClosed || proxyConnections.size >= 256) { if (!proxyClosed) recordError(new Error('Sidebar proxy connection bound exceeded')); closeEndpoint(route); return; }
+      const server = route.connectToServer(); let closed = false, target;
+      const retire = () => { if (closed) return; closed = true; proxyConnections.delete(retire); closeEndpoint(route); closeEndpoint(server); };
+      const guarded = work => { try { if (!closed && !proxyClosed) work(); } catch (error) { recordError(error); retire(); } };
+      proxyConnections.add(retire); route.onClose(retire); server.onClose(retire);
+      route.onMessage(data => guarded(() => {
+        const request = JSON.parse(String(data));
+        if (armFiltered && request.method === 'trees.list' && request.params?.search === 'Session 139') target = request.id;
+        server.send(data);
+      }));
+      server.onMessage(data => guarded(() => {
+        const reply = JSON.parse(String(data));
+        if (target !== undefined && reply.id === target && !filteredReply) {
+          assert.equal(reply.error, undefined); assert(reply.result.items.some(item => item.root_id === roots[139]));
+          filteredReply = { id: reply.id, roots: reply.result.items.map(item => item.root_id) };
+          releaseSearch = () => { releaseSearch = undefined; guarded(() => route.send(data)); }; return;
+        }
+        route.send(data);
+      }));
+    });
     await page.goto(origin + route(roots[139])); await ready();
     await group(paths[2]).waitFor();
     assert.equal((await sidebar().boundingBox()).width, 320);
@@ -279,12 +326,29 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await sheet.getByLabel('Saved sessions', { exact: true }).evaluate(node => { node.scrollTop = 0; });
     await sheet.getByRole('button', { name: 'Search sessions', exact: true }).click();
     const searchDialog = page.getByRole('dialog', { name: 'Search sessions', exact: true });
-    await input.fill('Session 139');
+    // The same root appears in the recent results before the 200ms debounce.
+    // A locator matching its label alone can click across the query replacement.
     await searchDialog.getByRole('link', { name: /Session 139/ }).waitFor();
+    armFiltered = true;
+    const searchStart = catalogReads.length;
+    await input.fill('Session 139');
+    await eventually(() => releaseSearch, { description: 'actual filtered catalog reply is held' });
+    assert.equal(await searchDialog.getByRole('link', { name: /Session 139/ }).count(), 0, 'A recent match is not the pending filtered result');
+    assert.equal(await searchDialog.getByLabel('Session search results').getAttribute('aria-busy'), 'true');
+    releaseSearch();
+    await eventually(() => catalogReads.slice(searchStart).some(read => read.search === 'Session 139' && read.replied && !read.error && read.roots?.includes(roots[139])), { description: 'exact filtered native search reply received' });
+    await eventually(async () => await searchDialog.getByLabel('Session search results').getAttribute('aria-busy') === 'false', { description: 'filtered search rows committed' });
+    await searchDialog.getByRole('link', { name: /Session 139/ }).waitFor();
+    await page.evaluate(() => {
+      window.sidebarSelectionClicks = [];
+      document.addEventListener('click', event => {
+        if (window.sidebarSelectionClicks.length < 16) window.sidebarSelectionClicks.push({ button: event.button, modifiers: [event.metaKey, event.ctrlKey, event.shiftKey, event.altKey], prevented: event.defaultPrevented, link: event.target.closest('a')?.getAttribute('href') });
+      }, true);
+    });
     assert.ok((await searchDialog.getByRole('link', { name: /Session 139/ }).boundingBox()).height >= 44);
     await page.screenshot({ path: join(directory, `${name}-mobile.png`) });
     await searchDialog.getByRole('link', { name: /Session 139/ }).click(); await ready();
-    await eventually(async () => await searchDialog.count() === 0 && await sheet.count() === 0);
+    await eventually(async () => await searchDialog.count() === 0 && await sheet.count() === 0, { description: 'selecting the filtered root closes search and navigation' });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     console.log(`${name}: completed workflow ${checks.length + 1}`);
     checks.push('mobile Sheet, 44px controls, search/selection, close and no document overflow');
@@ -292,9 +356,12 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     results[name] = { checks, screenshots: directory };
     console.log(`${name}: ${checks.length} sidebar workflows passed`);
   } catch (error) {
-    await page.screenshot({ path: join(directory, `${name}-failure.png`) }).catch(() => {});
-    await writeFile(join(directory, `${name}-failure.txt`), `${error.stack}\n\n${await page.locator('body').innerText().catch(() => '')}\n\n${JSON.stringify(errors)}`);
+    await page?.screenshot({ path: join(directory, `${name}-failure.png`) }).catch(() => {});
+    await writeFile(join(directory, `${name}-failure.txt`), `${error.stack}\n\n${page ? await page.locator('body').innerText().catch(() => '') : ''}\n\n${JSON.stringify({ errors, catalogReads, filteredReply, clicks: await page?.evaluate(() => window.sidebarSelectionClicks).catch(() => undefined) })}`);
     throw error;
-  } finally { await browser.close(); await fixture.close(); }
+  } finally {
+    proxyClosed = true; releaseSearch = undefined; for (const retire of [...proxyConnections]) retire();
+    try { await Promise.all(proxyClosing); await browser?.close(); } finally { await fixture.close(); }
+  }
 }
 await writeFile(join(directory, 'sidebar.json'), JSON.stringify(results, null, 2));

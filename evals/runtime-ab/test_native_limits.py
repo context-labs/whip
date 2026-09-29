@@ -15,8 +15,8 @@ class NativeLimitsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             for engine in ("starlark", "quickjs"):
                 config = write_config(Path(directory) / engine, engine, 0, native_defaults=True)
-                self.assertEqual(config["rlm"], {"defaultEngine": engine})
-                self.assertEqual(config["models"]["kimi-k3"]["maxOut"], 0)
+                self.assertEqual(config["version"], 20)
+                self.assertEqual(config["providers"]["inference-net"]["models"]["kimi-k3"]["max_output_tokens"], 0)
 
     def test_native_timeout_requires_explicit_valid_task_limit(self):
         with tempfile.TemporaryDirectory() as directory:
