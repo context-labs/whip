@@ -1,0 +1,233 @@
+{
+  "type": "object",
+  "properties": {
+    "revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "servers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "transport": {
+            "type": "string",
+            "enum": [
+              "stdio",
+              "http"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "startup_timeout_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 300
+          },
+          "tool_timeout_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 300
+          },
+          "brand_hint": {
+            "type": "string",
+            "maxLength": 16384
+          },
+          "brand_key": {
+            "type": "string",
+            "maxLength": 253
+          }
+        },
+        "required": [
+          "name",
+          "transport",
+          "enabled",
+          "startup_timeout_seconds",
+          "tool_timeout_seconds",
+          "brand_hint",
+          "brand_key"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 64
+    },
+    "imports": {
+      "type": "object",
+      "properties": {
+        "claude": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "enabled": {
+              "type": [
+                "null",
+                "boolean"
+              ]
+            },
+            "only": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "maxItems": 256
+            },
+            "exclude": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "maxItems": 256
+            }
+          },
+          "required": [
+            "enabled",
+            "only",
+            "exclude"
+          ],
+          "additionalProperties": false
+        },
+        "codex": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "enabled": {
+              "type": [
+                "null",
+                "boolean"
+              ]
+            },
+            "only": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "maxItems": 256
+            },
+            "exclude": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "maxItems": 256
+            }
+          },
+          "required": [
+            "enabled",
+            "only",
+            "exclude"
+          ],
+          "additionalProperties": false
+        },
+        "project": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "enabled": {
+              "type": [
+                "null",
+                "boolean"
+              ]
+            },
+            "only": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "maxItems": 256
+            },
+            "exclude": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "maxItems": 256
+            }
+          },
+          "required": [
+            "enabled",
+            "only",
+            "exclude"
+          ],
+          "additionalProperties": false
+        },
+        "opencode": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "enabled": {
+              "type": [
+                "null",
+                "boolean"
+              ]
+            },
+            "only": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "maxItems": 256
+            },
+            "exclude": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 256
+              },
+              "maxItems": 256
+            }
+          },
+          "required": [
+            "enabled",
+            "only",
+            "exclude"
+          ],
+          "additionalProperties": false
+        },
+        "offered": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "claude",
+        "codex",
+        "project",
+        "opencode",
+        "offered"
+      ],
+      "additionalProperties": false
+    },
+    "brand_icons": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/MCPConfiguration",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MCPConfiguration",
+  "required": [
+    "revision",
+    "servers",
+    "imports",
+    "brand_icons"
+  ],
+  "additionalProperties": false
+}

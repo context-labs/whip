@@ -81,6 +81,16 @@ func Fixtures() ([]Fixture, error) {
 		{"ShellInteractionResult", ShellInteractionResult{Interaction: &ShellInteraction{OperationID: "shell-operation", StartedAt: created.Format(time.RFC3339Nano), DataBase64: "cHJvbXB0", From: 9007199254740993, Through: 9007199254740999, NextInput: 9007199254740993, SecondsLeft: 12}}},
 		{"ShellInputParams", ShellInputParams{SessionID: "shell-owner", OperationID: "shell-operation", Sequence: 9007199254740993, DataBase64: "a2V5"}},
 		{"ShellInputResult", ShellInputResult{Sequence: 9007199254740993}},
+		{"RPCError", RPCError{Code: -32035, Kind: "MCP_UNAVAILABLE", Message: "MCP operation unavailable; inspect configuration and connection status"}},
+		{"MCPConfiguration", MCPConfiguration{Revision: ref.Revision, Servers: []MCPDeclaration{}, Imports: MCPImportPolicy{}, BrandIcons: true}},
+		{"MCPImportCandidatesResult", MCPImportCandidatesResult{Revision: ref.Revision, Candidates: []MCPImportCandidate{{Fingerprint: ref.Revision, Name: "candidate", Source: "codex", State: "importable", Gated: false, BrandHint: "example.com", BrandKey: "example.com"}}, SourceErrors: map[string]string{}}},
+		{"MCPImportParams", MCPImportParams{Revision: ref.Revision, Fingerprints: map[string]string{"candidate": ref.Revision}}},
+		{"ConfigureMCPParams", ConfigureMCPParams{Revision: ref.Revision, Name: "fixture", Server: &MCPServerInput{URL: "https://example.com/mcp", Command: []string{}, Env: map[string]string{}, Headers: map[string]string{}}}},
+		{"MCPStatusResult", MCPStatusResult{Items: []MCPServerStatus{{Name: "fixture", State: "not_started"}}}},
+		{"MCPRefreshResult", MCPRefreshResult{Added: []string{}, Existing: []string{}, Changed: []string{}, Servers: []MCPServerStatus{}, Blocked: []MCPServerStatus{}, SourceErrors: []MCPServerStatus{}}},
+		{"MCPToolsResult", MCPToolsResult{Items: []MCPTool{{Name: "visible", Server: "fixture", Generation: "generation", Capability: "mcp.call.trusted", Resource: "resource", InputSchema: json.RawMessage(`{"type":"object"}`)}}}},
+		{"MCPInstructionsResult", MCPInstructionsResult{Server: "fixture", Generation: "generation", Resource: "resource", Text: "Use visible", ContentParts: []ContentReference{}, Bytes: 11}},
+		{"MCPBrandIconsResult", MCPBrandIconsResult{Icons: map[string]string{}}},
 		{"ProviderParams", ProviderParams{Provider: "explicit"}},
 		{"ProviderPresetsResult", ProviderPresetsResult{Items: []ProviderPreset{{ID: "openai", Name: "OpenAI", Kind: "openai-responses", BaseURL: "https://api.openai.com/v1", Methods: []string{"api_key"}, Environments: []string{"OPENAI_API_KEY"}, SuggestedModels: []string{"gpt-6-astra"}}}}},
 		{"ProviderModelsResult", ProviderModelsResult{Items: []ProviderModel{{ID: "model", Prices: ModelPrices{Input: new(Counter(9007199254740993)), Output: new(Counter(0))}, ContextWindowTokens: new(Counter(1000000)), ReasoningEfforts: []string{}, MetadataSource: "advertised"}}}},
@@ -119,6 +129,8 @@ func Fixtures() ([]Fixture, error) {
 		{"CreateTreeParams", CreateTreeParams{CreationID: "MiXeD:Creation", Engine: "quickjs", Definition: DefinitionRef{ID: ID(ref.ID), Revision: ref.Revision}, WorkingDirectory: "/workspace", Overrides: ConfigPatch{}}},
 		{"CreateTreeResult", CreateTreeResult{Creation: TreeCreation{ID: "MiXeD:Creation", TreeID: "tree_fixture", RootID: "session_root", CreatedAt: created.Format(time.RFC3339Nano)}, Tree: &Tree{ID: "tree_fixture", Engine: "quickjs", Revision: 1, CreatedAt: created.Format(time.RFC3339Nano)}, Root: &root}},
 		{"CreateTreeResult", CreateTreeResult{Creation: TreeCreation{ID: "Deleted:Creation", TreeID: "tree_fixture", RootID: "session_root", CreatedAt: created.Format(time.RFC3339Nano)}, Deleted: true}},
+		{"TerminalList", TerminalList{ProcessEpoch: "boot_fixture", Items: []TerminalInfo{}}},
+		{"TerminalPage", TerminalPage{Terminal: TerminalInfo{ProcessEpoch: "boot_fixture", ID: "term_fixture", Cwd: "/workspace", Shell: "/bin/sh", Cols: 80, Rows: 24, Start: 9007199254740993, End: 9007199254740996, CreatedAt: created.Format(time.RFC3339Nano)}, From: 9007199254740993, Next: 9007199254740996, End: 9007199254740996, Truncated: true, DataBase64: "AAH/"}},
 		{"TreeCatalog", TreeCatalog{Revision: 9007199254740993}},
 		{"ListTreesParams", ListTreesParams{Limit: 100, Archived: new(false), Pinned: new(true)}},
 		{"ListTreesResult", ListTreesResult{Revision: 9007199254740993, Items: []TreeSummary{{Tree: Tree{ID: "tree_fixture", Metadata: TreeMetadata{Title: new("Catalog title")}, Engine: "starlark", Revision: 9007199254740993, CreatedAt: created.Format(time.RFC3339Nano)}, RootID: "session_root"}}, NextCursor: new(ID("tree_fixture"))}},
@@ -286,6 +298,9 @@ func Fixtures() ([]Fixture, error) {
 	}
 	for _, raw := range []string{`{"jsonrpc":"2.0","id":"call"}`, `{"jsonrpc":"2.0","id":"call","result":{},"error":{"code":-32009,"kind":"CONFLICT","message":"conflict"}}`} {
 		result = append(result, Fixture{Type: "Response", Value: json.RawMessage(raw), Valid: false})
+	}
+	for _, raw := range []string{`{"mcp_servers":{"all":true,"servers":["fixture"]}}`, `{"mcp_servers":{"all":false,"servers":null}}`, `{"mcp_servers":{"all":false,"servers":["duplicate","duplicate"]}}`} {
+		result = append(result, Fixture{Type: "UpdateConfigurationParams", Value: json.RawMessage(`{"session_id":"root","expected_revision":"1","patch":` + raw + `}`), Valid: false})
 	}
 	result = append(result, Fixture{Type: "InitializeParams", Value: json.RawMessage(`{"major":3}`), Valid: false})
 	for _, expiry := range []string{"2026-02-29T12:00:00Z", "2026-09-27T24:00:00Z", "2026-09-27T12:00:00.1234567891Z", "2026-09-27T12:00:00.10Z", "2026-09-27T12:00:00+00:00", "0000-01-01T00:00:00Z", "not-a-time"} {

@@ -13,7 +13,6 @@ import (
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/legacy/config"
 	"github.com/context-labs/whip/internal/legacy/session"
-	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/mcp"
 )
 
@@ -183,7 +182,7 @@ func mcpServe(version string) error {
 
 type daemonMCPTools struct{ client *daemon.RootClient }
 
-func (p daemonMCPTools) ToolDefinitions(ctx context.Context) ([]llm.Tool, error) {
+func (p daemonMCPTools) ToolDefinitions(ctx context.Context) ([]mcp.Definition, error) {
 	action, err := p.client.NewAction("tool.schema", struct{}{})
 	if err != nil {
 		return nil, err
@@ -195,7 +194,7 @@ func (p daemonMCPTools) ToolDefinitions(ctx context.Context) ([]llm.Tool, error)
 	if result.Status != "succeeded" {
 		return nil, errors.New(result.Error)
 	}
-	var definitions []llm.Tool
+	var definitions []mcp.Definition
 	if err := json.Unmarshal([]byte(result.Output), &definitions); err != nil {
 		return nil, fmt.Errorf("decode daemon tool schemas: %w", err)
 	}
@@ -303,7 +302,7 @@ func mcpImportCLI(args []string) error {
 			names = append(names, c.Name)
 		}
 	}
-	add, _, err := mcp.Apply(cfg, cands, names)
+	add, _, err := mcp.Apply(&cfg.MCPServers, cands, names)
 	if err != nil {
 		return err
 	}

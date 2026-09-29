@@ -43,6 +43,106 @@
       "result": "ShellInputResult"
     },
     {
+      "name": "mcp.configuration",
+      "params": "EmptyParams",
+      "result": "MCPConfiguration"
+    },
+    {
+      "name": "mcp.configure",
+      "params": "ConfigureMCPParams",
+      "result": "MCPConfiguration"
+    },
+    {
+      "name": "mcp.import.candidates",
+      "params": "MCPImportCandidatesParams",
+      "result": "MCPImportCandidatesResult"
+    },
+    {
+      "name": "mcp.import.apply",
+      "params": "MCPImportParams",
+      "result": "MCPImportResult"
+    },
+    {
+      "name": "mcp.status",
+      "params": "SessionParams",
+      "result": "MCPStatusResult"
+    },
+    {
+      "name": "mcp.refresh",
+      "params": "SessionParams",
+      "result": "MCPRefreshResult"
+    },
+    {
+      "name": "mcp.reload",
+      "params": "SessionParams",
+      "result": "MCPRefreshResult"
+    },
+    {
+      "name": "mcp.reconnect",
+      "params": "MCPServerParams",
+      "result": "MCPRefreshResult"
+    },
+    {
+      "name": "mcp.enable",
+      "params": "MCPServerParams",
+      "result": "MCPRefreshResult"
+    },
+    {
+      "name": "mcp.disable",
+      "params": "MCPServerParams",
+      "result": "MCPRefreshResult"
+    },
+    {
+      "name": "mcp.attach",
+      "params": "MCPAttachParams",
+      "result": "MCPRefreshResult"
+    },
+    {
+      "name": "mcp.tools",
+      "params": "MCPServerParams",
+      "result": "MCPToolsResult"
+    },
+    {
+      "name": "mcp.instructions",
+      "params": "MCPServerParams",
+      "result": "MCPInstructionsResult"
+    },
+    {
+      "name": "mcp.brand.icons",
+      "params": "MCPBrandIconsParams",
+      "result": "MCPBrandIconsResult"
+    },
+    {
+      "name": "terminal.open",
+      "params": "TerminalOpenParams",
+      "result": "TerminalInfo"
+    },
+    {
+      "name": "terminal.list",
+      "params": "TerminalListParams",
+      "result": "TerminalList"
+    },
+    {
+      "name": "terminal.read",
+      "params": "TerminalReadParams",
+      "result": "TerminalPage"
+    },
+    {
+      "name": "terminal.write",
+      "params": "TerminalWriteParams",
+      "result": "TerminalAccepted"
+    },
+    {
+      "name": "terminal.resize",
+      "params": "TerminalResizeParams",
+      "result": "TerminalInfo"
+    },
+    {
+      "name": "terminal.close",
+      "params": "TerminalRef",
+      "result": "TerminalAccepted"
+    },
+    {
       "name": "workspace.capture",
       "params": "WorkspaceActionParams",
       "result": "WorkspaceResult"

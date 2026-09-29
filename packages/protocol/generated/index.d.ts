@@ -334,6 +334,77 @@ export interface CompactionsResult {
         created_at: string;
       }[];
 }
+export interface ConfigureMCPParams {
+  revision: string;
+  name: string;
+  server: null | {
+    /**
+     * @maxItems 128
+     */
+    command: string[];
+    env: {
+      [k: string]: string;
+    };
+    cwd: string;
+    url: string;
+    headers: {
+      [k: string]: string;
+    };
+    enabled: null | boolean;
+    note: string;
+    startup_timeout_seconds: number;
+    tool_timeout_seconds: number;
+  };
+  remove: boolean;
+  imports: null | {
+    claude: null | {
+      enabled: null | boolean;
+      /**
+       * @maxItems 256
+       */
+      only: string[];
+      /**
+       * @maxItems 256
+       */
+      exclude: string[];
+    };
+    codex: null | {
+      enabled: null | boolean;
+      /**
+       * @maxItems 256
+       */
+      only: string[];
+      /**
+       * @maxItems 256
+       */
+      exclude: string[];
+    };
+    project: null | {
+      enabled: null | boolean;
+      /**
+       * @maxItems 256
+       */
+      only: string[];
+      /**
+       * @maxItems 256
+       */
+      exclude: string[];
+    };
+    opencode: null | {
+      enabled: null | boolean;
+      /**
+       * @maxItems 256
+       */
+      only: string[];
+      /**
+       * @maxItems 256
+       */
+      exclude: string[];
+    };
+    offered: boolean;
+  };
+  brand_icons: null | boolean;
+}
 export interface ContentReference {
   id: string;
   session_id: string;
@@ -468,6 +539,15 @@ export interface CreateTreeParams {
     revision: string;
   };
   overrides: {
+    mcp_servers?: {
+      [k: string]: unknown;
+    } & (null | {
+      all: boolean;
+      /**
+       * @maxItems 64
+       */
+      servers: string[];
+    });
     /**
      * @maxItems 17
      */
@@ -576,6 +656,9 @@ export interface CreateTreeResult {
     };
     config_revision: string;
     configuration: {
+      mcp_servers: {
+        [k: string]: unknown;
+      };
       /**
        * @maxItems 17
        */
@@ -694,6 +777,15 @@ export interface Definition {
     id: string;
     name: string;
     defaults: {
+      mcp_servers?: {
+        [k: string]: unknown;
+      } & (null | {
+        all: boolean;
+        /**
+         * @maxItems 64
+         */
+        servers: string[];
+      });
       /**
        * @maxItems 17
        */
@@ -778,6 +870,15 @@ export interface DefinitionDocument {
   id: string;
   name: string;
   defaults: {
+    mcp_servers?: {
+      [k: string]: unknown;
+    } & (null | {
+      all: boolean;
+      /**
+       * @maxItems 64
+       */
+      servers: string[];
+    });
     /**
      * @maxItems 17
      */
@@ -1374,6 +1475,9 @@ export interface ForkResult {
     };
     config_revision: string;
     configuration: {
+      mcp_servers: {
+        [k: string]: unknown;
+      };
       /**
        * @maxItems 17
        */
@@ -2399,6 +2503,9 @@ export interface ListSessionsResult {
         };
         config_revision: string;
         configuration: {
+          mcp_servers: {
+            [k: string]: unknown;
+          };
           /**
            * @maxItems 17
            */
@@ -2543,6 +2650,383 @@ export interface ListTreesResult {
     root_id: string;
   }[];
   next_cursor: null | string;
+}
+export interface MCPAttachParams {
+  session_id: string;
+  servers: {
+    [k: string]: {
+      /**
+       * @maxItems 128
+       */
+      command: string[];
+      env: {
+        [k: string]: string;
+      };
+      cwd: string;
+      url: string;
+      headers: {
+        [k: string]: string;
+      };
+      enabled: null | boolean;
+      note: string;
+      startup_timeout_seconds: number;
+      tool_timeout_seconds: number;
+    };
+  };
+}
+export interface MCPBrandIconsParams {
+  /**
+   * @maxItems 64
+   */
+  keys: string[];
+}
+export interface MCPBrandIconsResult {
+  icons: {
+    [k: string]: string;
+  };
+}
+export interface MCPConfiguration {
+  revision: string;
+  /**
+   * @maxItems 64
+   */
+  servers: {
+    name: string;
+    transport: "stdio" | "http";
+    enabled: boolean;
+    startup_timeout_seconds: number;
+    tool_timeout_seconds: number;
+    brand_hint: string;
+    brand_key: string;
+  }[];
+  imports: {
+    claude: null | {
+      enabled: null | boolean;
+      /**
+       * @maxItems 256
+       */
+      only: string[];
+      /**
+       * @maxItems 256
+       */
+      exclude: string[];
+    };
+    codex: null | {
+      enabled: null | boolean;
+      /**
+       * @maxItems 256
+       */
+      only: string[];
+      /**
+       * @maxItems 256
+       */
+      exclude: string[];
+    };
+    project: null | {
+      enabled: null | boolean;
+      /**
+       * @maxItems 256
+       */
+      only: string[];
+      /**
+       * @maxItems 256
+       */
+      exclude: string[];
+    };
+    opencode: null | {
+      enabled: null | boolean;
+      /**
+       * @maxItems 256
+       */
+      only: string[];
+      /**
+       * @maxItems 256
+       */
+      exclude: string[];
+    };
+    offered: boolean;
+  };
+  brand_icons: boolean;
+}
+export interface MCPImportCandidatesParams {
+  session_id: null | string;
+}
+export interface MCPImportCandidatesResult {
+  revision: string;
+  /**
+   * @maxItems 256
+   */
+  candidates: {
+    fingerprint: string;
+    name: string;
+    source: "codex" | "claude" | "project" | "opencode";
+    state: "importable" | "native" | "disabled" | "excluded" | "unsupported";
+    gated: boolean;
+    note: string;
+    brand_hint: string;
+    brand_key: string;
+  }[];
+  source_errors: {
+    [k: string]: string;
+  };
+}
+export interface MCPImportParams {
+  session_id: null | string;
+  revision: string;
+  fingerprints: {
+    [k: string]: string;
+  };
+}
+export interface MCPImportResult {
+  configuration: {
+    revision: string;
+    /**
+     * @maxItems 64
+     */
+    servers: {
+      name: string;
+      transport: "stdio" | "http";
+      enabled: boolean;
+      startup_timeout_seconds: number;
+      tool_timeout_seconds: number;
+      brand_hint: string;
+      brand_key: string;
+    }[];
+    imports: {
+      claude: null | {
+        enabled: null | boolean;
+        /**
+         * @maxItems 256
+         */
+        only: string[];
+        /**
+         * @maxItems 256
+         */
+        exclude: string[];
+      };
+      codex: null | {
+        enabled: null | boolean;
+        /**
+         * @maxItems 256
+         */
+        only: string[];
+        /**
+         * @maxItems 256
+         */
+        exclude: string[];
+      };
+      project: null | {
+        enabled: null | boolean;
+        /**
+         * @maxItems 256
+         */
+        only: string[];
+        /**
+         * @maxItems 256
+         */
+        exclude: string[];
+      };
+      opencode: null | {
+        enabled: null | boolean;
+        /**
+         * @maxItems 256
+         */
+        only: string[];
+        /**
+         * @maxItems 256
+         */
+        exclude: string[];
+      };
+      offered: boolean;
+    };
+    brand_icons: boolean;
+  };
+  /**
+   * @maxItems 64
+   */
+  added: string[];
+  skipped: {
+    [k: string]: string;
+  };
+}
+export interface MCPInstructionsResult {
+  server: string;
+  generation: string;
+  resource: string;
+  text: string;
+  /**
+   * @maxItems 4
+   */
+  content_parts:
+    | []
+    | [
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        }
+      ]
+    | [
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        },
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        }
+      ]
+    | [
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        },
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        },
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        }
+      ]
+    | [
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        },
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        },
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        },
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        }
+      ];
+  bytes: string;
+}
+export interface MCPRefreshResult {
+  /**
+   * @maxItems 64
+   */
+  added: string[];
+  /**
+   * @maxItems 64
+   */
+  existing: string[];
+  /**
+   * @maxItems 64
+   */
+  changed: string[];
+  /**
+   * @maxItems 64
+   */
+  servers: {
+    name: string;
+    state: "not_started" | "disabled" | "connecting" | "ready" | "failed" | "blocked" | "unreadable";
+    note: string;
+    failure: null | string;
+    tools: number;
+    source: string;
+  }[];
+  /**
+   * @maxItems 256
+   */
+  blocked: {
+    name: string;
+    state: "not_started" | "disabled" | "connecting" | "ready" | "failed" | "blocked" | "unreadable";
+    note: string;
+    failure: null | string;
+    tools: number;
+    source: string;
+  }[];
+  /**
+   * @maxItems 16
+   */
+  source_errors: {
+    name: string;
+    state: "not_started" | "disabled" | "connecting" | "ready" | "failed" | "blocked" | "unreadable";
+    note: string;
+    failure: null | string;
+    tools: number;
+    source: string;
+  }[];
+}
+export interface MCPServerParams {
+  session_id: string;
+  server: string;
+}
+export interface MCPStatusResult {
+  /**
+   * @maxItems 336
+   */
+  items: {
+    name: string;
+    state: "not_started" | "disabled" | "connecting" | "ready" | "failed" | "blocked" | "unreadable";
+    note: string;
+    failure: null | string;
+    tools: number;
+    source: string;
+  }[];
+}
+export interface MCPToolsResult {
+  /**
+   * @maxItems 2048
+   */
+  items: {
+    name: string;
+    title: string;
+    description: string;
+    input_schema: unknown;
+    server: string;
+    generation: string;
+    capability: "mcp.call" | "mcp.call.trusted";
+    resource: string;
+  }[];
 }
 export interface MailAdmission {
   mail_id: string;
@@ -5339,6 +5823,7 @@ export interface RPCError {
     | "IDENTITY"
     | "METHOD"
     | "NETWORK_RESTRICTED"
+    | "TERMINAL_WRITE_UNCERTAIN"
     | "ACCOUNT_CREDENTIALS"
     | "ACCOUNT_SETUP"
     | "ACCOUNT_CONFIGURATION"
@@ -5349,6 +5834,7 @@ export interface RPCError {
     | "PROVIDER_CONFIGURATION"
     | "PROVIDER_KEY_PENDING"
     | "PROVIDER_KEY_STORAGE"
+    | "MCP_UNAVAILABLE"
     | "INTERNAL";
 }
 export interface ReadCompletionParams {
@@ -5565,6 +6051,7 @@ export type Response = {
       | "IDENTITY"
       | "METHOD"
       | "NETWORK_RESTRICTED"
+      | "TERMINAL_WRITE_UNCERTAIN"
       | "ACCOUNT_CREDENTIALS"
       | "ACCOUNT_SETUP"
       | "ACCOUNT_CONFIGURATION"
@@ -5575,6 +6062,7 @@ export type Response = {
       | "PROVIDER_CONFIGURATION"
       | "PROVIDER_KEY_PENDING"
       | "PROVIDER_KEY_STORAGE"
+      | "MCP_UNAVAILABLE"
       | "INTERNAL";
   };
 } & {
@@ -5818,6 +6306,9 @@ export interface Session {
   };
   config_revision: string;
   configuration: {
+    mcp_servers: {
+      [k: string]: unknown;
+    };
     /**
      * @maxItems 17
      */
@@ -6214,6 +6705,15 @@ export interface SpawnSessionParams {
     revision: string;
   };
   overrides: {
+    mcp_servers?: {
+      [k: string]: unknown;
+    } & (null | {
+      all: boolean;
+      /**
+       * @maxItems 64
+       */
+      servers: string[];
+    });
     /**
      * @maxItems 17
      */
@@ -6357,6 +6857,9 @@ export interface SpawnSessionResult {
     };
     config_revision: string;
     configuration: {
+      mcp_servers: {
+        [k: string]: unknown;
+      };
       /**
        * @maxItems 17
        */
@@ -6639,6 +7142,97 @@ export interface SubscribeStateParams {
   after: string;
   delivery: "queued" | "steer" | "next_turn";
 }
+export interface TerminalAccepted {
+  accepted: boolean;
+}
+export interface TerminalInfo {
+  process_epoch: string;
+  id: string;
+  cwd: string;
+  shell: string;
+  cols: number;
+  rows: number;
+  closing: boolean;
+  exited: boolean;
+  exit_code: number;
+  signal: string;
+  start: string;
+  end: string;
+  created_at: string;
+}
+export interface TerminalList {
+  process_epoch: string;
+  /**
+   * @maxItems 16
+   */
+  items: {
+    process_epoch: string;
+    id: string;
+    cwd: string;
+    shell: string;
+    cols: number;
+    rows: number;
+    closing: boolean;
+    exited: boolean;
+    exit_code: number;
+    signal: string;
+    start: string;
+    end: string;
+    created_at: string;
+  }[];
+}
+export interface TerminalListParams {
+  process_epoch: string;
+}
+export interface TerminalOpenParams {
+  process_epoch: string;
+  cwd: string;
+  cols: number;
+  rows: number;
+}
+export interface TerminalPage {
+  terminal: {
+    process_epoch: string;
+    id: string;
+    cwd: string;
+    shell: string;
+    cols: number;
+    rows: number;
+    closing: boolean;
+    exited: boolean;
+    exit_code: number;
+    signal: string;
+    start: string;
+    end: string;
+    created_at: string;
+  };
+  from: string;
+  next: string;
+  end: string;
+  truncated: boolean;
+  data_base64: string;
+}
+export interface TerminalReadParams {
+  process_epoch: string;
+  id: string;
+  cursor: string;
+  limit: number;
+}
+export interface TerminalRef {
+  process_epoch: string;
+  id: string;
+}
+export interface TerminalResizeParams {
+  process_epoch: string;
+  id: string;
+  cols: number;
+  rows: number;
+}
+export interface TerminalWriteParams {
+  process_epoch: string;
+  id: string;
+  data_base64: string;
+}
 export interface ToolCall {
   arguments: {
     [k: string]: unknown;
@@ -6704,6 +7298,15 @@ export interface UpdateConfigurationParams {
   session_id: string;
   expected_revision: string;
   patch: {
+    mcp_servers?: {
+      [k: string]: unknown;
+    } & (null | {
+      all: boolean;
+      /**
+       * @maxItems 64
+       */
+      servers: string[];
+    });
     /**
      * @maxItems 17
      */
@@ -6889,6 +7492,7 @@ export interface ContractTypes {
   CompactionResult: CompactionResult;
   CompactionsParams: CompactionsParams;
   CompactionsResult: CompactionsResult;
+  ConfigureMCPParams: ConfigureMCPParams;
   ContentReference: ContentReference;
   ContextHead: ContextHead;
   ContextHistoryParams: ContextHistoryParams;
@@ -6967,6 +7571,19 @@ export interface ContractTypes {
   ListStateParams: ListStateParams;
   ListTreesParams: ListTreesParams;
   ListTreesResult: ListTreesResult;
+  MCPAttachParams: MCPAttachParams;
+  MCPBrandIconsParams: MCPBrandIconsParams;
+  MCPBrandIconsResult: MCPBrandIconsResult;
+  MCPConfiguration: MCPConfiguration;
+  MCPImportCandidatesParams: MCPImportCandidatesParams;
+  MCPImportCandidatesResult: MCPImportCandidatesResult;
+  MCPImportParams: MCPImportParams;
+  MCPImportResult: MCPImportResult;
+  MCPInstructionsResult: MCPInstructionsResult;
+  MCPRefreshResult: MCPRefreshResult;
+  MCPServerParams: MCPServerParams;
+  MCPStatusResult: MCPStatusResult;
+  MCPToolsResult: MCPToolsResult;
   MailAdmission: MailAdmission;
   Message: Message;
   ModelAttemptsParams: ModelAttemptsParams;
@@ -7045,6 +7662,16 @@ export interface ContractTypes {
   StateVersionsResult: StateVersionsResult;
   SubmitParams: SubmitParams;
   SubscribeStateParams: SubscribeStateParams;
+  TerminalAccepted: TerminalAccepted;
+  TerminalInfo: TerminalInfo;
+  TerminalList: TerminalList;
+  TerminalListParams: TerminalListParams;
+  TerminalOpenParams: TerminalOpenParams;
+  TerminalPage: TerminalPage;
+  TerminalReadParams: TerminalReadParams;
+  TerminalRef: TerminalRef;
+  TerminalResizeParams: TerminalResizeParams;
+  TerminalWriteParams: TerminalWriteParams;
   ToolCall: ToolCall;
   ToolResult: ToolResult;
   Tree: Tree;
@@ -7075,6 +7702,26 @@ export interface Operations {
   "tool.progress": { params: ExecutorProgressParams; result: ExecutorAccepted };
   "shell.interaction": { params: ShellInteractionParams; result: ShellInteractionResult };
   "shell.input": { params: ShellInputParams; result: ShellInputResult };
+  "mcp.configuration": { params: EmptyParams; result: MCPConfiguration };
+  "mcp.configure": { params: ConfigureMCPParams; result: MCPConfiguration };
+  "mcp.import.candidates": { params: MCPImportCandidatesParams; result: MCPImportCandidatesResult };
+  "mcp.import.apply": { params: MCPImportParams; result: MCPImportResult };
+  "mcp.status": { params: SessionParams; result: MCPStatusResult };
+  "mcp.refresh": { params: SessionParams; result: MCPRefreshResult };
+  "mcp.reload": { params: SessionParams; result: MCPRefreshResult };
+  "mcp.reconnect": { params: MCPServerParams; result: MCPRefreshResult };
+  "mcp.enable": { params: MCPServerParams; result: MCPRefreshResult };
+  "mcp.disable": { params: MCPServerParams; result: MCPRefreshResult };
+  "mcp.attach": { params: MCPAttachParams; result: MCPRefreshResult };
+  "mcp.tools": { params: MCPServerParams; result: MCPToolsResult };
+  "mcp.instructions": { params: MCPServerParams; result: MCPInstructionsResult };
+  "mcp.brand.icons": { params: MCPBrandIconsParams; result: MCPBrandIconsResult };
+  "terminal.open": { params: TerminalOpenParams; result: TerminalInfo };
+  "terminal.list": { params: TerminalListParams; result: TerminalList };
+  "terminal.read": { params: TerminalReadParams; result: TerminalPage };
+  "terminal.write": { params: TerminalWriteParams; result: TerminalAccepted };
+  "terminal.resize": { params: TerminalResizeParams; result: TerminalInfo };
+  "terminal.close": { params: TerminalRef; result: TerminalAccepted };
   "workspace.capture": { params: WorkspaceActionParams; result: WorkspaceResult };
   "workspace.restore": { params: WorkspaceActionParams; result: WorkspaceResult };
   "workspace.release": { params: WorkspaceActionParams; result: WorkspaceResult };

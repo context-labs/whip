@@ -1,7 +1,7 @@
 // Package terminal owns the login shells behind workspace terminal tabs: one
 // PTY per terminal, a bounded replay ring, and a single live attachment that
-// receives ordered output. It knows nothing about JSON-RPC; the daemon adapts
-// a connection to Sink. The shell runs where the daemon runs, so a terminal on
+// receives ordered output. It knows nothing about JSON-RPC; a transport adapts
+// a connection to Sink. The shell runs where the host command runs, so a terminal on
 // an SSH or URL host is a shell on that machine, beside the agent's files.
 //
 // Ownership: Manager owns every Terminal; a Terminal owns its reader and
@@ -15,19 +15,22 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
-	"github.com/creack/pty"
+	"github.com/context-labs/whip/internal/capability"
 )
 
 const (
-	// MaxTerminals bounds live plus retained exited terminals per daemon.
+	// MaxTerminals bounds live plus retained exited terminals per host command.
 	MaxTerminals = 16
 	// RingBytes is the replay ring each terminal retains for reattachment.
 	RingBytes = 1 << 20
@@ -58,26 +61,26 @@ var (
 // follows the last Output of an exited terminal. Detached tells a sink that a
 // later attachment replaced it.
 type Sink interface {
-	Output(id string, cursor int64, data []byte) bool
+	Output(ctx context.Context, id string, cursor int64, data []byte) bool
 	Exited(id string, code int, signal string)
 	Detached(id string)
 }
 
 // Options describes the shell to start. Shell and Env are resolved by the
-// daemon, never taken from client input.
+// host, never taken from client input.
 type Options struct {
 	Shell string
 	Args  []string
 	Cwd   string
-	Env   []string
+	Env   map[string]string
 	Cols  uint16
 	Rows  uint16
 }
 
 func (o Options) validate() error {
 	switch {
-	case o.Shell == "":
-		return errors.New("terminal requires a shell")
+	case !filepath.IsAbs(o.Shell):
+		return errors.New("terminal requires an absolute host-resolved shell")
 	case !filepath.IsAbs(o.Cwd):
 		return errors.New("terminal requires an absolute working directory")
 	case o.Cols == 0 || o.Rows == 0 || o.Cols > MaxDimension || o.Rows > MaxDimension:
@@ -95,17 +98,20 @@ func (o Options) validate() error {
 
 // Status is a point-in-time view of one terminal.
 type Status struct {
-	ID       string
-	Cwd      string
-	Shell    string
-	Cols     uint16
-	Rows     uint16
-	Exited   bool
-	ExitCode int
-	Signal   string
+	Closing    bool
+	Start, End int64
+	CreatedAt  time.Time
+	ID         string
+	Cwd        string
+	Shell      string
+	Cols       uint16
+	Rows       uint16
+	Exited     bool
+	ExitCode   int
+	Signal     string
 }
 
-// Manager owns the daemon's terminals within one limit.
+// Manager owns the host command's terminals within one limit.
 type Manager struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -114,6 +120,8 @@ type Manager struct {
 	limit     int
 	ringBytes int
 	closed    bool
+	processes *capability.ProcessManager
+	shutdown  sync.Once
 	wg        sync.WaitGroup
 }
 
@@ -122,28 +130,39 @@ func NewManager(ctx context.Context) *Manager { return newManager(ctx, MaxTermin
 
 func newManager(ctx context.Context, limit, ringBytes int) *Manager {
 	ctx, cancel := context.WithCancel(ctx)
-	return &Manager{ctx: ctx, cancel: cancel, terminals: make(map[string]*Terminal), limit: limit, ringBytes: ringBytes}
+	return &Manager{ctx: ctx, cancel: cancel, terminals: make(map[string]*Terminal), limit: limit, ringBytes: ringBytes, processes: capability.NewProcessManager()}
 }
 
 // Terminal is one shell on one PTY.
 type Terminal struct {
-	ID      string
-	manager *Manager
-	cancel  context.CancelFunc
-	cmd     *exec.Cmd
-	ptmx    *os.File
-	ring    *ring
-	options Options
+	ID          string
+	manager     *Manager
+	cancel      context.CancelFunc
+	process     *capability.Process
+	writeSlot   chan struct{}
+	writes      sync.WaitGroup
+	stopContext func() bool
+	contextDone chan struct{}
+	hangupOnce  sync.Once
+	foreground  int
+	closing     bool
+	ptmx        *os.File
+	ring        *ring
+	options     Options
 
 	readDone chan struct{} // closed by the reader when the master is unreadable
 	done     chan struct{} // closed by the waiter after exit status and reader are settled
 
-	mu       sync.Mutex
-	cols     uint16
-	rows     uint16
-	attached *attachment
-	exit     *exitStatus
-	exitedAt time.Time
+	mu        sync.Mutex
+	attachMu  sync.Mutex
+	retired   bool
+	cols      uint16
+	rows      uint16
+	attached  *attachment
+	retiring  *attachment
+	exit      *exitStatus
+	exitedAt  time.Time
+	createdAt time.Time
 }
 
 type exitStatus struct {
@@ -162,9 +181,11 @@ type attachment struct {
 	stop     chan struct{}
 	drained  chan struct{}
 	stopOnce sync.Once
+	ctx      context.Context
+	cancel   context.CancelFunc
 }
 
-func (a *attachment) halt() { a.stopOnce.Do(func() { close(a.stop) }) }
+func (a *attachment) halt() { a.stopOnce.Do(func() { a.cancel(); close(a.stop) }) }
 
 // push hands a chunk to the drain goroutine. A full queue blocks the caller,
 // which is the PTY reader, so a slow receiver stalls the shell the way a slow
@@ -183,30 +204,33 @@ func (m *Manager) Open(options Options) (*Terminal, error) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.closed {
+	if m.closed || m.ctx.Err() != nil {
 		return nil, ErrClosed
 	}
 	if len(m.terminals) >= m.limit && !m.evictExitedLocked() {
 		return nil, ErrLimit
 	}
-	ctx, cancel := context.WithCancel(m.ctx)
+	ctx, cancel := context.WithCancel(context.WithoutCancel(m.ctx))
 	t := &Terminal{
-		ID: "term-" + strings.ToLower(rand.Text()), manager: m, cancel: cancel, ring: newRing(m.ringBytes), options: options,
-		cols: options.Cols, rows: options.Rows, readDone: make(chan struct{}), done: make(chan struct{}),
+		ID: "term-" + strings.ToLower(rand.Text()), createdAt: time.Now().UTC(), manager: m, cancel: cancel, ring: newRing(m.ringBytes), options: options,
+		cols: options.Cols, rows: options.Rows, readDone: make(chan struct{}), done: make(chan struct{}), writeSlot: make(chan struct{}, 1), contextDone: make(chan struct{}),
 	}
-	cmd := exec.CommandContext(ctx, options.Shell, options.Args...)
-	cmd.Dir = options.Cwd
-	cmd.Env = options.Env
-	// Cancel hangs up the whole session like a closing terminal window; WaitDelay
-	// escalates to SIGKILL for a shell that ignores SIGHUP.
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGHUP) }
-	cmd.WaitDelay = killGrace
-	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: options.Rows, Cols: options.Cols})
+	options.Args, options.Env = slices.Clone(options.Args), maps.Clone(options.Env)
+	ptmx, tty, err := openPTY(options.Cols, options.Rows)
 	if err != nil {
 		cancel()
-		return nil, fmt.Errorf("start %s: %w", options.Shell, err)
+		return nil, err
 	}
-	t.cmd, t.ptmx = cmd, ptmx
+	process, err := m.processes.Start(ctx, t.ID, options.Shell, options.Args, capability.ProcessOptions{Cwd: options.Cwd, Env: options.Env, Stdin: tty, Stdout: tty, Stderr: tty, ControllingTTY: true})
+	_ = tty.Close()
+	if err != nil {
+		cancel()
+		_ = ptmx.Close()
+		_ = m.processes.StopRoot(t.ID)
+		return nil, fmt.Errorf("start terminal shell: %w", err)
+	}
+	t.process, t.ptmx = process, ptmx
+	t.stopContext = context.AfterFunc(m.ctx, func() { defer close(t.contextDone); t.hangup() })
 	m.terminals[t.ID] = t
 	m.wg.Add(2)
 	go t.read()
@@ -218,7 +242,7 @@ func (m *Manager) evictExitedLocked() bool {
 	var oldest *Terminal
 	for _, t := range m.terminals {
 		t.mu.Lock()
-		exited, at := t.exit != nil, t.exitedAt
+		exited, at := t.evictableLocked(), t.exitedAt
 		t.mu.Unlock()
 		if exited && (oldest == nil || at.Before(oldest.exitedAt)) {
 			oldest = t
@@ -227,8 +251,32 @@ func (m *Manager) evictExitedLocked() bool {
 	if oldest == nil {
 		return false
 	}
+	oldest.mu.Lock()
+	defer oldest.mu.Unlock()
+	// An attachment may have captured this handle before Open took m.mu.
+	// Recheck and retire under its lock so it cannot attach after eviction.
+	if !oldest.evictableLocked() {
+		return false
+	}
+	oldest.retired = true
 	delete(m.terminals, oldest.ID)
 	oldest.cancel()
+	return true
+}
+
+func (t *Terminal) evictableLocked() bool {
+	if t.exit == nil {
+		return false
+	}
+	for _, attached := range []*attachment{t.attached, t.retiring} {
+		if attached != nil {
+			select {
+			case <-attached.drained:
+			default:
+				return false
+			}
+		}
+	}
 	return true
 }
 
@@ -243,18 +291,40 @@ func (m *Manager) Get(id string) (*Terminal, bool) {
 // Attach makes sink the terminal's live receiver, replays retained output
 // from cursor first, and returns the cursor of the first replayed byte.
 func (m *Manager) Attach(id string, cursor int64, sink Sink) (Status, int64, error) {
-	t, ok := m.Get(id)
+	m.mu.Lock()
+	t, ok := m.terminals[id]
 	if !ok {
+		m.mu.Unlock()
 		return Status{}, 0, ErrNotFound
 	}
-	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
 		return Status{}, 0, ErrClosed
 	}
 	m.wg.Add(1)
 	m.mu.Unlock()
-	status, from, previous := t.attach(cursor, sink)
+	status, from, err := t.attach(cursor, sink)
+	if err != nil {
+		m.wg.Done()
+	}
+	return status, from, err
+}
+
+func (t *Terminal) attach(cursor int64, sink Sink) (Status, int64, error) {
+	t.attachMu.Lock()
+	defer t.attachMu.Unlock()
+	t.mu.Lock()
+	if t.retired {
+		t.mu.Unlock()
+		return Status{}, 0, ErrNotFound
+	}
+	previous := t.attached
+	retiring := t.retiring
+	t.mu.Unlock()
+	if retiring != nil && retiring != previous {
+		retiring.halt()
+		<-retiring.drained
+	}
 	if previous != nil {
 		previous.halt()
 		<-previous.drained
@@ -262,14 +332,16 @@ func (m *Manager) Attach(id string, cursor int64, sink Sink) (Status, int64, err
 			previous.sink.Detached(t.ID)
 		}
 	}
-	return status, from, nil
-}
-
-func (t *Terminal) attach(cursor int64, sink Sink) (Status, int64, *attachment) {
-	a := &attachment{sink: sink, queue: make(chan chunk, queueChunks), stop: make(chan struct{}), drained: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	a := &attachment{ctx: ctx, cancel: cancel, sink: sink, queue: make(chan chunk, queueChunks), stop: make(chan struct{}), drained: make(chan struct{})}
 	t.mu.Lock()
-	previous := t.attached
+	if t.retired {
+		t.mu.Unlock()
+		cancel()
+		return Status{}, 0, ErrNotFound
+	}
 	t.attached = a
+	t.retiring = nil
 	data, from := t.ring.read(cursor)
 	for offset := 0; offset < len(data); offset += ChunkBytes {
 		end := min(offset+ChunkBytes, len(data))
@@ -278,7 +350,7 @@ func (t *Terminal) attach(cursor int64, sink Sink) (Status, int64, *attachment) 
 	status := t.statusLocked()
 	t.mu.Unlock()
 	go t.drain(a)
-	return status, from, previous
+	return status, from, nil
 }
 
 // Detach drops every attachment held by sink, for a connection that went away.
@@ -289,6 +361,7 @@ func (m *Manager) Detach(sink Sink) {
 		a := t.attached
 		if a != nil && a.sink == sink {
 			t.attached = nil
+			t.retiring = a
 		} else {
 			a = nil
 		}
@@ -314,7 +387,9 @@ func (m *Manager) Close(id string) error {
 	m.mu.Lock()
 	t, ok := m.terminals[id]
 	if ok {
-		delete(m.terminals, id)
+		t.mu.Lock()
+		t.retired = true
+		t.mu.Unlock()
 	}
 	m.mu.Unlock()
 	if !ok {
@@ -322,43 +397,129 @@ func (m *Manager) Close(id string) error {
 	}
 	t.hangup()
 	<-t.done
+	t.detachAndJoin()
+	m.mu.Lock()
+	if m.terminals[id] == t {
+		delete(m.terminals, id)
+	}
+	m.mu.Unlock()
 	return nil
 }
 
 // Shutdown hangs up every shell and waits for their goroutines.
 func (m *Manager) Shutdown() {
-	m.mu.Lock()
-	m.closed = true
-	terminals := make([]*Terminal, 0, len(m.terminals))
-	for _, t := range m.terminals {
-		terminals = append(terminals, t)
-	}
-	m.terminals = map[string]*Terminal{}
-	m.mu.Unlock()
-	for _, t := range terminals {
-		t.hangup()
-	}
-	m.cancel()
-	m.wg.Wait()
+	m.shutdown.Do(func() {
+		m.mu.Lock()
+		m.closed = true
+		terminals := make([]*Terminal, 0, len(m.terminals))
+		for _, t := range m.terminals {
+			t.mu.Lock()
+			t.retired = true
+			t.mu.Unlock()
+			terminals = append(terminals, t)
+		}
+		m.mu.Unlock()
+		for _, t := range terminals {
+			t.hangup()
+		}
+		m.cancel()
+		_ = m.processes.Close()
+		for _, t := range terminals {
+			<-t.done
+			t.detachAndJoin()
+		}
+		m.wg.Wait()
+		m.mu.Lock()
+		clear(m.terminals)
+		m.mu.Unlock()
+	})
 }
 
-// hangup cancels the command, which signals the shell's group, and closes the
-// master so the foreground job sees a tty hangup exactly as when a terminal
-// window closes. The waiter still settles the exit status.
+// hangup freezes human input and captures the foreground group from the owned
+// controlling PTY before closing it. It never follows arbitrary process trees.
 func (t *Terminal) hangup() {
-	t.cancel()
-	_ = t.ptmx.Close()
+	t.hangupOnce.Do(func() {
+		t.mu.Lock()
+		t.closing = true
+		t.foreground = foregroundGroup(t.ptmx, t.process.PID())
+		attached := t.attached
+		foreground := t.foreground
+		t.mu.Unlock()
+		if attached != nil {
+			attached.halt()
+		}
+		killForeground(foreground)
+		t.cancel()
+		_ = t.ptmx.Close()
+	})
+}
+
+func (t *Terminal) detachAndJoin() {
+	t.attachMu.Lock()
+	defer t.attachMu.Unlock()
+	t.mu.Lock()
+	attached := t.attached
+	retiring := t.retiring
+	t.attached = nil
+	t.retiring = nil
+	t.mu.Unlock()
+	if retiring != nil && retiring != attached {
+		retiring.halt()
+		<-retiring.drained
+	}
+	if attached != nil {
+		attached.halt()
+		<-attached.drained
+	}
 }
 
 // Write sends keystrokes to the shell.
-func (t *Terminal) Write(data []byte) error {
+func (t *Terminal) Write(data []byte) error { return t.WriteContext(context.Background(), data) }
+
+// WriteContext serializes bounded keystroke batches and joins cancellation before
+// releasing the write slot. A timed-out or partial write must never be replayed.
+func (t *Terminal) WriteContext(parent context.Context, data []byte) error {
 	if len(data) == 0 || len(data) > MaxWriteBytes {
 		return fmt.Errorf("terminal write requires 1..%d bytes", MaxWriteBytes)
 	}
-	if t.Status().Exited {
+	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
+	defer cancel()
+	select {
+	case t.writeSlot <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.done:
 		return ErrExited
 	}
-	_, err := t.ptmx.Write(data)
+	defer func() { <-t.writeSlot }()
+	t.mu.Lock()
+	if t.closing || t.exit != nil {
+		t.mu.Unlock()
+		return ErrExited
+	}
+	t.writes.Add(1)
+	t.mu.Unlock()
+	defer t.writes.Done()
+	deadline, _ := ctx.Deadline()
+	if err := t.ptmx.SetWriteDeadline(deadline); err != nil {
+		return err
+	}
+	joined := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() { defer close(joined); _ = t.ptmx.SetWriteDeadline(time.Now()) })
+	n, err := t.ptmx.Write(data)
+	if !stop() {
+		<-joined
+	}
+	_ = t.ptmx.SetWriteDeadline(time.Time{})
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		return context.DeadlineExceeded
+	}
+	if err == nil && n != len(data) {
+		return io.ErrShortWrite
+	}
 	return err
 }
 
@@ -367,15 +528,15 @@ func (t *Terminal) Resize(cols, rows uint16) error {
 	if cols == 0 || rows == 0 || cols > MaxDimension || rows > MaxDimension {
 		return fmt.Errorf("terminal size must be within 1..%d columns and rows", MaxDimension)
 	}
-	if t.Status().Exited {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.closing || t.exit != nil {
 		return ErrExited
 	}
-	if err := pty.Setsize(t.ptmx, &pty.Winsize{Rows: rows, Cols: cols}); err != nil {
+	if err := setSize(t.ptmx, cols, rows); err != nil {
 		return err
 	}
-	t.mu.Lock()
 	t.cols, t.rows = cols, rows
-	t.mu.Unlock()
 	return nil
 }
 
@@ -387,7 +548,7 @@ func (t *Terminal) Status() Status {
 }
 
 func (t *Terminal) statusLocked() Status {
-	status := Status{ID: t.ID, Cwd: t.options.Cwd, Shell: t.options.Shell, Cols: t.cols, Rows: t.rows}
+	status := Status{Closing: t.closing && t.exit == nil, Start: t.ring.start, End: t.ring.end, CreatedAt: t.createdAt, ID: t.ID, Cwd: t.options.Cwd, Shell: t.options.Shell, Cols: t.cols, Rows: t.rows}
 	if t.exit != nil {
 		status.Exited, status.ExitCode, status.Signal = true, t.exit.code, t.exit.signal
 	}
@@ -425,35 +586,57 @@ func (t *Terminal) read() {
 // grace to flush, then closes the master so the reader ends.
 func (t *Terminal) wait() {
 	defer t.manager.wg.Done()
-	err := t.cmd.Wait()
-	status := exitStatusOf(t.cmd, err)
+	err := t.process.Wait()
+	status := exitStatusOf(err)
+	// The leader's exit does not release its remaining group. Capture the current
+	// foreground job while the PTY still establishes its session ownership.
 	t.mu.Lock()
-	t.exit, t.exitedAt = &status, time.Now()
+	t.closing = true
+	if t.foreground == 0 {
+		t.foreground = foregroundGroup(t.ptmx, t.process.PID())
+	}
+	foreground := t.foreground
 	t.mu.Unlock()
+	killForeground(foreground)
+	t.process.Stop()
+	joinForeground(foreground)
+	_ = t.manager.processes.StopRoot(t.ID)
 	timer := time.NewTimer(closeGrace)
 	select {
 	case <-t.readDone:
 		timer.Stop()
 	case <-timer.C:
+		t.mu.Lock()
+		attached := t.attached
+		t.mu.Unlock()
+		if attached != nil {
+			attached.halt()
+		}
 	}
 	_ = t.ptmx.Close()
 	<-t.readDone
+	t.writes.Wait()
+	t.cancel()
+	if !t.stopContext() {
+		<-t.contextDone
+	}
+	t.mu.Lock()
+	t.exit, t.exitedAt = &status, time.Now()
+	t.mu.Unlock()
 	close(t.done)
 }
 
-func exitStatusOf(cmd *exec.Cmd, err error) exitStatus {
-	state := cmd.ProcessState
-	if state == nil {
-		message := "exited before wait"
-		if err != nil {
-			message = err.Error()
+func exitStatusOf(err error) exitStatus {
+	if err == nil {
+		return exitStatus{}
+	}
+	if exited, ok := errors.AsType[*exec.ExitError](err); ok {
+		if status, ok := exited.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+			return exitStatus{code: -1, signal: status.Signal().String()}
 		}
-		return exitStatus{code: -1, signal: message}
+		return exitStatus{code: exited.ExitCode()}
 	}
-	if ws, ok := state.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-		return exitStatus{code: -1, signal: ws.Signal().String()}
-	}
-	return exitStatus{code: state.ExitCode()}
+	return exitStatus{code: -1, signal: "process wait failed"}
 }
 
 // drain delivers one attachment's chunks in order, then the exit status once
@@ -462,13 +645,15 @@ func exitStatusOf(cmd *exec.Cmd, err error) exitStatus {
 func (t *Terminal) drain(a *attachment) {
 	defer t.manager.wg.Done()
 	defer close(a.drained)
+	defer a.cancel()
 	deliver := func(c chunk) bool {
-		if a.sink.Output(t.ID, c.cursor, c.data) {
+		if a.sink.Output(a.ctx, t.ID, c.cursor, c.data) {
 			return true
 		}
 		t.mu.Lock()
 		if t.attached == a {
 			t.attached = nil
+			t.retiring = a
 		}
 		t.mu.Unlock()
 		a.halt()

@@ -37,14 +37,7 @@ type Match struct {
 // An empty server searches every ready server; a named server that is not
 // ready is an error, as it is for ListTools.
 func (m *Manager) Search(serverName, query string, limit int) ([]Match, error) {
-	tokens := searchTokens(query)
-	if len(tokens) == 0 {
-		return nil, errors.New("MCP search requires a query")
-	}
-	if limit <= 0 {
-		limit = SearchDefaultLimit
-	}
-	limit = min(limit, SearchMaxLimit)
+	catalog := map[string][]Tool{}
 	names := []string{serverName}
 	if serverName == "" {
 		names = names[:0]
@@ -55,15 +48,32 @@ func (m *Manager) Search(serverName, query string, limit int) ([]Match, error) {
 		}
 		sort.Strings(names)
 	}
-	var matches []Match
 	for _, name := range names {
 		listed, err := m.ListTools(name)
 		if err != nil {
 			if serverName == "" {
-				continue // the server left the ready set between the status read and the listing
+				continue
 			}
 			return nil, err
 		}
+		catalog[name] = listed
+	}
+	return SearchCatalog(catalog, query, limit)
+}
+
+// SearchCatalog ranks an already authorized snapshot. Filtering before ranking
+// prevents inaccessible tools from consuming a child's result limit.
+func SearchCatalog(catalog map[string][]Tool, query string, limit int) ([]Match, error) {
+	tokens := searchTokens(query)
+	if len(tokens) == 0 {
+		return nil, errors.New("MCP search requires a query")
+	}
+	if limit <= 0 {
+		limit = SearchDefaultLimit
+	}
+	limit = min(limit, SearchMaxLimit)
+	var matches []Match
+	for name, listed := range catalog {
 		matches = append(matches, rankTools(name, listed, tokens)...)
 	}
 	sort.SliceStable(matches, func(i, j int) bool {

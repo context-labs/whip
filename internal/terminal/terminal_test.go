@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -32,9 +33,13 @@ func newSink() *recordingSink {
 	return &recordingSink{exited: make(chan exitStatus, 1), detached: make(chan string, 4)}
 }
 
-func (s *recordingSink) Output(_ string, cursor int64, data []byte) bool {
+func (s *recordingSink) Output(ctx context.Context, _ string, cursor int64, data []byte) bool {
 	if s.block != nil {
-		<-s.block
+		select {
+		case <-s.block:
+		case <-ctx.Done():
+			return false
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -82,7 +87,7 @@ func testOptions(t *testing.T) Options {
 	dir := t.TempDir()
 	return Options{
 		Shell: shell, Cwd: dir, Cols: 80, Rows: 24,
-		Env: []string{"PATH=/usr/bin:/bin", "TERM=dumb", "HOME=" + dir, "PS1=$ ", "ENV=", "BASH_ENV="},
+		Env: map[string]string{"TERM": "dumb", "HOME": dir, "PS1": "$ "},
 	}
 }
 

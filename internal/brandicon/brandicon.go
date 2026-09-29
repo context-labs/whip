@@ -62,10 +62,20 @@ type Resolver struct {
 }
 
 func New(dir string) *Resolver {
+	// Own the transport rather than asserting or borrowing a process-wide
+	// RoundTripper, which may be a credential adapter or an application wrapper.
+	transport := &http.Transport{
+		Proxy:             http.ProxyFromEnvironment,
+		DialContext:       (&net.Dialer{Timeout: 4 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		ForceAttemptHTTP2: true, MaxIdleConns: inFlight, IdleConnTimeout: 90 * time.Second,
+		TLSHandshakeTimeout: 4 * time.Second, ExpectContinueTimeout: time.Second,
+		MaxResponseHeaderBytes: 64 << 10, MaxConnsPerHost: inFlight,
+	}
 	return &Resolver{
 		dir: dir,
 		client: &http.Client{
 			Timeout:       4 * time.Second,
+			Transport:     transport,
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 		sem:     make(chan struct{}, inFlight),
@@ -259,3 +269,6 @@ func (r *Resolver) prune() {
 		_ = os.Remove(filepath.Join(r.dir, files[i].name))
 	}
 }
+
+// Close releases idle owned connections after callers have joined.
+func (r *Resolver) Close() { r.client.CloseIdleConnections() }

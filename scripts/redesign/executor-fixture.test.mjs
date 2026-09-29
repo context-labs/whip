@@ -7,8 +7,9 @@ import net from 'node:net';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { test } from 'node:test';
-import { Client, ExecutorClient } from '../../packages/sdk/dist/index.js';
+import { Client, ExecutorClient, DeliveryError } from '../../packages/sdk/dist/index.js';
 import { unixSocket, executorSocket } from '../../packages/sdk/dist/node.js';
+import { browserDuplex } from '../../packages/sdk/dist/browser.js';
 
 const deadline = () => ({ signal: AbortSignal.timeout(15_000) });
 const base64 = value => Buffer.from(value).toString('base64');
@@ -38,7 +39,8 @@ async function rawOperation(socket, operationID) {
   } finally { connection.destroy(); }
 }
 
-test('production executor socket preserves captured hooks, exact payloads, progress and disconnect uncertainty', { timeout: 180_000 }, async t => {
+for (const transportKind of ['unix', 'browser']) {
+test(`production ${transportKind} executor preserves captured hooks, exact payloads, progress and disconnect uncertainty`, { timeout: 180_000 }, async t => {
   const directory = await mkdtemp('/tmp/whip-executor-');
   let child, executor;
   const stop = async () => {
@@ -63,7 +65,7 @@ test('production executor socket preserves captured hooks, exact payloads, progr
   await promisify(execFile)('go', ['build', '-race=false', '-o', binary, './cmd/whip-runtime'], { timeout: 120_000 });
   let diagnostics = '';
   const start = async () => {
-    child = spawn(binary, ['-directory', join(directory, 'state'), '-workers', '1'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    child = spawn(binary, ['-directory', join(directory, 'state'), '-workers', '1', ...(transportKind === 'browser' ? ['-web', '-web-listen', '127.0.0.1:0'] : [])], { stdio: ['ignore', 'pipe', 'pipe'] });
     child.stderr.on('data', chunk => { diagnostics = (diagnostics + chunk).slice(-(1 << 20)); });
     return await new Promise((resolve, reject) => {
       let text = '';
@@ -74,6 +76,9 @@ test('production executor socket preserves captured hooks, exact payloads, progr
   };
   let info = await start();
   let client = await Client.connect(unixSocket(info.socket), { clientID: 'executor-fixture', ...deadline() });
+  const connectExecutor = async () => ExecutorClient.connect(transportKind === 'browser'
+    ? await browserDuplex(info.web, { expectedRuntimeID: info.runtime_id, expectedProcessEpoch: info.process_epoch })
+    : await executorSocket(info.socket), { expectedRuntimeID: client.runtimeID, ...deadline() });
   const inventory = await client.listProviders(deadline());
   await client.createProvider({ revision: inventory.revision, provider: 'fixture', keep_credential: false, key: null,
     declaration: { kind: 'openai-chat', base_url: `http://127.0.0.1:${server.address().port}/v1`, credential: { source: 'none', environment: '', file: '', command: null }, models: {} } }, deadline());
@@ -81,7 +86,7 @@ test('production executor socket preserves captured hooks, exact payloads, progr
     tools: { lookup: { timeout_millis: 900000, description: 'Lookup', input_schema: { type: 'object', required: ['id'], properties: { id: { type: 'string' }, count: { type: 'integer' } }, additionalProperties: false }, output_schema: { type: 'object', required: ['value'], properties: { value: { type: 'integer' } }, additionalProperties: false } } },
     hooks: { turn_start: { operations: null, optional: false, timeout_millis: 10000 }, before_tool: { operations: ['tools.lookup'], optional: false, timeout_millis: 10000 } },
   } }, deadline());
-  executor = await ExecutorClient.connect(await executorSocket(info.socket), { expectedRuntimeID: client.runtimeID, ...deadline() });
+  executor = await connectExecutor();
   const lease = await executor.bind({ definition: definition.ref, tools: ['lookup'], hooks: ['before_tool', 'turn_start'] }, deadline());
   const events = executor.events();
   const hook = async (name, extra = {}) => {
@@ -119,10 +124,53 @@ test('production executor socket preserves captured hooks, exact payloads, progr
   assert.equal((await client.call('operations.get', { operation_id: interrupted.invocation.operation_id }, deadline())).state, 'uncertain');
   await stop(); info = await start();
   client = await Client.connect(unixSocket(info.socket), { clientID: 'executor-fixture', expectedRuntimeID: client.runtimeID, ...deadline() });
-  executor = await ExecutorClient.connect(await executorSocket(info.socket), { expectedRuntimeID: client.runtimeID, ...deadline() });
+  executor = await connectExecutor();
   const restarted = await executor.bind({ definition: definition.ref, tools: ['lookup'], hooks: ['before_tool', 'turn_start'] }, deadline());
   assert.notEqual(restarted.epoch, lease.epoch);
   assert.deepEqual((await executor.pending({ epoch: restarted.epoch, definition: restarted.definition, generation: restarted.generation, after: null }, deadline())).items, []);
   await assert.rejects(executor.result({ ...identity(interrupted), output_base64: base64('null'), failure: '' }, deadline()), error => error.kind === 'CONFLICT');
   assert.equal((await client.executorActivity(roots[0].id, deadline())).activity, null);
+  if (transportKind === 'browser') {
+    // Drop a real native response after the executor result commits. The caller
+    // observes uncertainty and inspects the operation; no result is resent.
+    await executor.close();
+    const NativeSocket = globalThis.WebSocket;
+    let resultWrites = 0, dropped = 0, connections = 0;
+    class DropResultAcknowledgement extends NativeSocket {
+      constructor(...args) { super(...args); connections++; }
+      send(raw) {
+        const value = JSON.parse(raw);
+        if (value.method === 'tool.result') { resultWrites++; this.resultID = value.id; }
+        super.send(raw);
+      }
+      set onmessage(handler) {
+        super.onmessage = handler === null ? null : event => {
+          const value = JSON.parse(event.data);
+          if (this.resultID !== undefined && value.id === this.resultID) { dropped++; this.close(); return; }
+          handler.call(this, event);
+        };
+      }
+      get onmessage() { return super.onmessage; }
+    }
+    try {
+      globalThis.WebSocket = DropResultAcknowledgement;
+      executor = await connectExecutor();
+      await executor.bind({ definition: definition.ref, tools: ['lookup'], hooks: ['before_tool', 'turn_start'] }, deadline());
+      const currentEvents = executor.events();
+      await client.submit(roots[0].id, [{ type: 'text', text: 'starlark-lost-result' }], 'lost-result', deadline());
+      for (const name of ['turn_start', 'before_tool']) {
+        const { value: event } = await currentEvents.next(); assert.equal(event.invocation.name, name);
+        await executor.hookResult({ ...identity(event), decision: '', reason: '', arguments_base64: null, spawn_base64: null, context: '', failure: '' }, deadline());
+      }
+      const { value: invocation } = await currentEvents.next();
+      await assert.rejects(executor.result({ ...identity(invocation), output_base64: base64('{"value":42}'), failure: '' }, deadline()), DeliveryError);
+      assert.equal((await client.wait('lost-result', deadline())).turn.state, 'succeeded');
+      assert.equal((await client.call('operations.get', { operation_id: invocation.invocation.operation_id }, deadline())).state, 'succeeded');
+      assert.equal(resultWrites, 1); assert.equal(dropped, 1); assert.equal(connections, 1);
+      await currentEvents.return();
+    } finally { globalThis.WebSocket = NativeSocket; }
+  }
+
 });
+
+}

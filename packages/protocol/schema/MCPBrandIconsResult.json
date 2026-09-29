@@ -1,0 +1,25 @@
+{
+  "type": "object",
+  "properties": {
+    "icons": {
+      "type": "object",
+      "maxProperties": 64,
+      "additionalProperties": {
+        "type": "string",
+        "maxLength": 67584
+      },
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      }
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/MCPBrandIconsResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MCPBrandIconsResult",
+  "required": [
+    "icons"
+  ],
+  "additionalProperties": false
+}

@@ -44,7 +44,7 @@ type InitializeResult struct {
 type RPCError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
-	Kind    string `json:"kind" enum:"INVALID,NOT_FOUND,CONFLICT,BUSY,LIMIT,STOPPED,CLOSED,IDENTITY,METHOD,NETWORK_RESTRICTED,ACCOUNT_CREDENTIALS,ACCOUNT_SETUP,ACCOUNT_CONFIGURATION,ACCOUNT_LOGOUT,ACCOUNT_MANAGEMENT,PROVIDER_CREDENTIALS,PROVIDER_DISCOVERY,PROVIDER_CONFIGURATION,PROVIDER_KEY_PENDING,PROVIDER_KEY_STORAGE,INTERNAL"`
+	Kind    string `json:"kind" enum:"INVALID,NOT_FOUND,CONFLICT,BUSY,LIMIT,STOPPED,CLOSED,IDENTITY,METHOD,NETWORK_RESTRICTED,TERMINAL_WRITE_UNCERTAIN,ACCOUNT_CREDENTIALS,ACCOUNT_SETUP,ACCOUNT_CONFIGURATION,ACCOUNT_LOGOUT,ACCOUNT_MANAGEMENT,PROVIDER_CREDENTIALS,PROVIDER_DISCOVERY,PROVIDER_CONFIGURATION,PROVIDER_KEY_PENDING,PROVIDER_KEY_STORAGE,MCP_UNAVAILABLE,INTERNAL"`
 }
 
 type (
@@ -111,6 +111,7 @@ type CompactionPolicy struct {
 	ThresholdPercent int             `json:"threshold_percent" min:"0" max:"100"`
 }
 type Configuration struct {
+	MCPServers      MCPSelection               `json:"mcp_servers"`
 	Modules         []ID                       `json:"modules"`
 	ToolsDefinition *DefinitionRef             `json:"tools_definition"`
 	HooksDefinition *DefinitionRef             `json:"hooks_definition"`
@@ -126,6 +127,7 @@ type Configuration struct {
 	OutputSchema    json.RawMessage            `json:"output_schema"`
 }
 type ConfigPatch struct {
+	MCPServers     *MCPSelection              `json:"mcp_servers,omitempty"`
 	Modules        []ID                       `json:"modules,omitempty"`
 	AutomaticTitle *bool                      `json:"automatic_title,omitempty"`
 	GoalsEnabled   *bool                      `json:"goals_enabled,omitempty"`

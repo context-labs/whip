@@ -1,0 +1,91 @@
+{
+  "type": "object",
+  "properties": {
+    "process_epoch": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "process_epoch": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "shell": {
+            "type": "string"
+          },
+          "cols": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "rows": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "closing": {
+            "type": "boolean"
+          },
+          "exited": {
+            "type": "boolean"
+          },
+          "exit_code": {
+            "type": "integer"
+          },
+          "signal": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,18})$",
+            "format": "counter"
+          },
+          "end": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,18})$",
+            "format": "counter"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "process_epoch",
+          "id",
+          "cwd",
+          "shell",
+          "cols",
+          "rows",
+          "closing",
+          "exited",
+          "exit_code",
+          "signal",
+          "start",
+          "end",
+          "created_at"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 16
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/TerminalList",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TerminalList",
+  "required": [
+    "process_epoch",
+    "items"
+  ],
+  "additionalProperties": false
+}

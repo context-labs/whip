@@ -25,6 +25,9 @@ func (r *Runtime) PrepareCoordination(ctx context.Context, current session.Sessi
 	if call.Module == "tools" {
 		return r.prepareCustomTool(ctx, current, call)
 	}
+	if call.Module == "mcp" {
+		return r.prepareMCP(ctx, current, call)
+	}
 	if call.Module == "models" {
 		return r.prepareModel(ctx, current, call)
 	}

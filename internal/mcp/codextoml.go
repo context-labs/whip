@@ -31,6 +31,9 @@ import (
 // (multi-line arrays, nested quoting beyond escapes) errors out loudly
 // rather than parsing wrong.
 func ParseCodex(data []byte) (map[string]ServerConfig, error) {
+	if len(data) > maxSourceBytes {
+		return nil, errors.New("MCP discovery source exceeds byte limit")
+	}
 	tables, err := parseTOMLTables(string(data))
 	if err != nil {
 		return nil, err
@@ -215,7 +218,7 @@ func LoadCodex(path string) (map[string]ServerConfig, error) {
 	if path == "" {
 		return nil, os.ErrNotExist
 	}
-	data, err := os.ReadFile(path) //nolint:gosec // G304: reading the caller-named config file is the function's contract
+	data, err := readSource(path)
 	if err != nil {
 		return nil, err
 	}

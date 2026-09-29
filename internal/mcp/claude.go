@@ -2,8 +2,8 @@ package mcp
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"os"
 )
 
 // claudeFile is the shape of a claude-style .mcp.json project file:
@@ -42,6 +42,9 @@ type claudeServer struct {
 // via config.ResolveSecret, so an import can never bake a missing-at-import
 // var into an empty literal or leak a resolved secret into ~/.whipcode/config.json.
 func ParseClaude(data []byte) (map[string]ServerConfig, error) {
+	if len(data) > maxSourceBytes {
+		return nil, errors.New("MCP discovery source exceeds byte limit")
+	}
 	var f claudeFile
 	if err := json.Unmarshal(data, &f); err != nil {
 		return nil, fmt.Errorf("parse .mcp.json: %w", err)
@@ -83,7 +86,7 @@ func ParseClaude(data []byte) (map[string]ServerConfig, error) {
 // is not an error (returns nil map + os.IsNotExist-satisfying error) so
 // callers can treat discovery as best-effort.
 func LoadClaude(path string) (map[string]ServerConfig, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // G304: reading the caller-named config file is the function's contract
+	data, err := readSource(path)
 	if err != nil {
 		return nil, err
 	}

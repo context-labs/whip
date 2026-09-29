@@ -19,7 +19,7 @@ export interface BrowserConnection {
 }
 
 /** One native connection, bounded frames and writes, with no reconnect or replay. */
-export function openBrowserConnection(endpoint: string, handlers: { message(value: unknown): void; close(error: unknown): void }, signal: AbortSignal): Promise<BrowserConnection> {
+export function openBrowserConnection(endpoint: string, handlers: { message(value: unknown, bytes: number): void; close(error: unknown): void }, signal: AbortSignal): Promise<BrowserConnection> {
   const url = endpointURL(endpoint);
   signal.throwIfAborted();
   return new Promise((resolve, reject) => {
@@ -52,8 +52,9 @@ export function openBrowserConnection(endpoint: string, handlers: { message(valu
       if (ended) return;
       try {
         if (typeof event.data !== 'string') throw new TypeError('Expected a WebSocket text message');
-        if (encoder.encode(event.data).byteLength + 1 > maxFrameBytes) throw new TypeError('Browser response exceeds frame limit');
-        handlers.message(JSON.parse(event.data));
+        const bytes = encoder.encode(event.data).byteLength;
+        if (bytes + 1 > maxFrameBytes) throw new TypeError('Browser response exceeds frame limit');
+        handlers.message(JSON.parse(event.data), bytes);
       } catch (error) { finish(error); }
     };
     socket.onerror = () => queueMicrotask(() => finish(new DeliveryError('WebSocket connection failed; delivery may be unknown')));

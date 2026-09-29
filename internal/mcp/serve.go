@@ -7,14 +7,12 @@ import (
 	"fmt"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-
-	"github.com/context-labs/whip/internal/llm"
 )
 
 // ToolProvider is the dispatcher-backed surface exposed over MCP. Production
 // uses a daemon adapter; tests may use bound in-process services.
 type ToolProvider interface {
-	ToolDefinitions(context.Context) ([]llm.Tool, error)
+	ToolDefinitions(context.Context) ([]Definition, error)
 	CallTool(context.Context, string, json.RawMessage) (string, error)
 }
 

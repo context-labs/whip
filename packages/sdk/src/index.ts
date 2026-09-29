@@ -23,6 +23,7 @@ export class Client {
   }
 
   get runtimeID(): string { return this.initial.runtime_id; }
+  get processEpoch(): string { return this.initial.process_epoch; }
   get builtins(): NonNullable<InitializeResult['builtins']> { return structuredClone(this.initial.builtins ?? []); }
 
   async call<M extends Exclude<Method, 'initialize'>>(method: M, params: Operations[M]['params'], options: CallOptions = {}): Promise<Operations[M]['result']> {
@@ -36,6 +37,39 @@ export class Client {
   /** Bounded ephemeral executor progress/decisions; null after its owning turn ends. */
   executorActivity(sessionID: string, options: CallOptions = {}): Promise<Operations['executor.activity']['result']> {
     return this.call('executor.activity', { session_id: sessionID }, options);
+  }
+
+  /** Human workspace shell, independent of sessions. A lost open acknowledgement
+   * requires listTerminals inspection; never replay open automatically. */
+  openTerminal(params: Omit<Operations['terminal.open']['params'], 'process_epoch'>, options: CallOptions = {}): Promise<Operations['terminal.open']['result']> {
+    return this.call('terminal.open', { ...params, process_epoch: this.processEpoch }, options);
+  }
+
+  /** Ephemeral handles from this exact process generation, including retained exits. */
+  listTerminals(options: CallOptions = {}): Promise<Operations['terminal.list']['result']> {
+    return this.call('terminal.list', { process_epoch: this.processEpoch }, options);
+  }
+
+  /** Read one bounded replay page. A truncated page requires discarding the missing
+   * byte range; disconnecting or stopping reads leaves the shell running. */
+  readTerminal(ref: Operations['terminal.close']['params'], cursor: string, limit = 32768, options: CallOptions = {}): Promise<Operations['terminal.read']['result']> {
+    return this.call('terminal.read', { id: ref.id, process_epoch: ref.process_epoch, cursor, limit }, options);
+  }
+
+  /** Never replay keystrokes after any uncertain write outcome. No input receipt
+   * or terminal transcript is persisted, and aborting observation is not close. */
+  writeTerminal(ref: Operations['terminal.close']['params'], bytes: Uint8Array, options: CallOptions = {}): Promise<Operations['terminal.write']['result']> {
+    if (bytes.byteLength < 1 || bytes.byteLength > 16384) throw new TypeError('Terminal input requires 1..16384 bytes');
+    return this.call('terminal.write', { id: ref.id, process_epoch: ref.process_epoch, data_base64: btoa(String.fromCharCode(...bytes)) }, options);
+  }
+
+  resizeTerminal(ref: Operations['terminal.close']['params'], cols: number, rows: number, options: CallOptions = {}): Promise<Operations['terminal.resize']['result']> {
+    return this.call('terminal.resize', { id: ref.id, process_epoch: ref.process_epoch, cols, rows }, options);
+  }
+
+  /** Explicitly stops and forgets the shell after process and output owners join. */
+  closeTerminal(ref: Operations['terminal.close']['params'], options: CallOptions = {}): Promise<Operations['terminal.close']['result']> {
+    return this.call('terminal.close', { id: ref.id, process_epoch: ref.process_epoch }, options);
   }
 
   /** Offline setup templates. Does not discover routes or read credentials. */
@@ -136,6 +170,27 @@ export class Client {
   answerQuestion(sessionID: string, operationID: string, answers: Operations['questions.answer']['params']['answers'], options: CallOptions = {}): Promise<Operations['questions.answer']['result']> {
     return this.call('questions.answer', { session_id: sessionID, operation_id: operationID, answers }, options);
   }
+
+  /** Saved declarations only; never connects or resolves credentials. */
+  mcpConfiguration(options: CallOptions = {}): Promise<Operations['mcp.configuration']['result']> { return this.call('mcp.configuration', {}, options); }
+  /** Explicit CAS publication. Reread configuration after lost delivery; never automatically replay. */
+  configureMCP(params: Operations['mcp.configure']['params'], options: CallOptions = {}): Promise<Operations['mcp.configure']['result']> { return this.call('mcp.configure', params, options); }
+  mcpImportCandidates(sessionID: string | null = null, options: CallOptions = {}): Promise<Operations['mcp.import.candidates']['result']> { return this.call('mcp.import.candidates', { session_id: sessionID }, options); }
+  /** Saves the exact fingerprinted candidates. Connecting is a separate explicit refresh. */
+  importMCP(params: Operations['mcp.import.apply']['params'], options: CallOptions = {}): Promise<Operations['mcp.import.apply']['result']> { return this.call('mcp.import.apply', params, options); }
+  mcpStatus(sessionID: string, options: CallOptions = {}): Promise<Operations['mcp.status']['result']> { return this.call('mcp.status', { session_id: sessionID }, options); }
+  /** Additive discovery; existing and disabled live entries are preserved. Inspect changed before choosing reload. */
+  refreshMCP(sessionID: string, options: CallOptions = {}): Promise<Operations['mcp.refresh']['result']> { return this.call('mcp.refresh', { session_id: sessionID }, options); }
+  /** Explicitly retires the root's shared connections and reloads current declarations. */
+  reloadMCP(sessionID: string, options: CallOptions = {}): Promise<Operations['mcp.reload']['result']> { return this.call('mcp.reload', { session_id: sessionID }, options); }
+  reconnectMCP(sessionID: string, server: string, options: CallOptions = {}): Promise<Operations['mcp.reconnect']['result']> { return this.call('mcp.reconnect', { session_id: sessionID, server }, options); }
+  enableMCP(sessionID: string, server: string, options: CallOptions = {}): Promise<Operations['mcp.enable']['result']> { return this.call('mcp.enable', { session_id: sessionID, server }, options); }
+  disableMCP(sessionID: string, server: string, options: CallOptions = {}): Promise<Operations['mcp.disable']['result']> { return this.call('mcp.disable', { session_id: sessionID, server }, options); }
+  /** Attachments never confer native trust or replace declared servers. */
+  attachMCP(params: Operations['mcp.attach']['params'], options: CallOptions = {}): Promise<Operations['mcp.attach']['result']> { return this.call('mcp.attach', params, options); }
+  mcpTools(sessionID: string, server: string, options: CallOptions = {}): Promise<Operations['mcp.tools']['result']> { return this.call('mcp.tools', { session_id: sessionID, server }, options); }
+  mcpInstructions(sessionID: string, server: string, options: CallOptions = {}): Promise<Operations['mcp.instructions']['result']> { return this.call('mcp.instructions', { session_id: sessionID, server }, options); }
+  mcpBrandIcons(keys: string[], options: CallOptions = {}): Promise<Operations['mcp.brand.icons']['result']> { return this.call('mcp.brand.icons', { keys }, options); }
 
   /** Read-only observation; never starts a server or grants workspace access. */
   languageServerStatus(sessionID: string, options: CallOptions = {}): Promise<Operations['lsp.status']['result']> {

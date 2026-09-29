@@ -3209,6 +3209,7 @@ with vet and pinned lint0. Logs are `/tmp/whip-shell-pty-repair-*.log`.
 Fresh hosted Linux evidence remains required; the failed head is not credited.
 
 
+
 The corrected PTY head a377b7683 completed every active Go race package on both
 platforms in run36513021610, but both jobs reached the20-minute job ceiling during
 later checks. Linux store521.554s/runtime519.320s/process192.730s and macOS
@@ -3224,3 +3225,62 @@ deadline, all package/scenario selections and the unchanged aggregate failure
 policy. Local `check:phase` still executes their complete union. Client acceptance
 also includes the selected retained regressions. No test deadline was extended
 and no scenario was removed; hosted evidence is required for the split workflow.
+
+
+## Native MCP, human terminals and browser executor peers
+
+Gateway draftPR253 at bbe0f39d19fa17613c4d5c1b479cd4bc31e48899 now passes
+Linux, macOS, analysis and aggregate in run36511095353. The earlier pending
+sentence is superseded. Execution-services draftPR254 was published at0e72402d2;
+its Linux PTY defect and correction a377b7683 are recorded above, with new
+hosted validation required for that corrected head.
+
+Reused the clean MCP extraction/transport/host/runtime/public checkpoints as
+78e38a442,d45759e1e,136d6c4c5,71a6a8ac0,5b05ed10d,783556749 and370deb9f7.
+They add native schema40/config16 and active package/import boundaries, preserving
+retained compatibility aliases for the final deletion phase. Reused independent
+human-terminal core/public checkpoints as79b2b5f2f/3b8535f49 and persistent
+browser duplex ascded5bd62. Browser executor acceptance now exercises the same
+real fixture over both Unix and native WebSocket transports.
+
+The first combined phase run failed an import-boundary guard and two account
+fixture panics: the icon resolver assumed http.DefaultTransport had a concrete
+transport type, but account tests deliberately install a credential wrapper.
+The repair b98c1d0f6 creates an owned transport and updates the pure mcpconfig
+boundary. Focused race checks pass RPC2.887s/command3.697s/icons1.912s/store1.941s.
+The failed gate remains `/tmp/whip-host-resources-phase.log`; it receives no
+passing credit.
+
+The repaired full phase gate passes store215.061s/runtime262.358s/RPC48.144s/
+process117.663s, terminal8.127s/MCP21.220s,11 strict-CSP v4 contract checks,
+57 SDK tests, generated drift/examples, expanded production fixture32.486s,
+native gateway/terminal fixture2.775s, Unix executor1.848s/browser executor1.889s,
+shell2.042s, retained crash fixture4.090s and selected daemon races2.820s.
+Analysis reports zero new lint issues and no reachable vulnerabilities. Logs:
+`/tmp/whip-host-resources-phase-final.log` and
+`/tmp/whip-host-resources-analysis-final.log`.
+
+After that gate, the upstream PTY fix was integrated as3020b1434 and human
+terminals now reuse the same primitive instead of maintaining a second copy.
+All affected race packages pass terminal7.877s/bashrun8.664s/shell2.854s in
+`/tmp/whip-host-resources-shared-pty.log`. Final canonical docs distinguish MCP
+metadata from model vision, human-terminal ownership from agent authority,
+and persistent browser transport from product renderer adoption.
+
+Phases5–7 remain open: native browser/computer, direct human actions, remaining
+bootstrap/trace controls, SDK services/views, every supported product client,
+manual/live evidence and retired-core removal are still active obligations.
+No merge, deployment, installed-runtime replacement, real account mutation or
+real browser/helper session was performed.
+
+The final release gate, including the shared PTY primitive and terminal reuse,
+also passes in full atca74b20e5: store210.086s/runtime258.015s/RPC47.582s/
+process117.794s, terminal9.177s/MCP21.227s, production fixture33.177s,
+gateway/terminal2.515s, Unix/browser executors1.713s/1.806s, shell1.966s,
+retained crash4.335s and selected daemon races2.697s. Contract/SDK/drift/examples
+remain green; release analysis reports zero new lint findings and no reachable
+vulnerabilities. Exact logs are `/tmp/whip-host-resources-release-phase.log` and
+`/tmp/whip-host-resources-release-analysis.log`. Hosted evidence for this
+checkpoint will be recorded against its published head, not inferred from local
+results or another PR.
+

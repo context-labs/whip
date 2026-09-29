@@ -22,7 +22,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/buildinfo"
+	config "github.com/context-labs/whip/internal/mcpconfig"
 )
 
 // ServerConfig is whip's normalized MCP server definition. Claude-style
@@ -107,16 +108,13 @@ func (c ServerConfig) ToolTimeoutDuration() time.Duration {
 }
 
 // Valid reports a config error, if any; "" means usable.
-func (c ServerConfig) Valid() string {
-	switch {
-	case c.Remote() && len(c.Command) > 0:
-		return "both command and url set"
-	case !c.Remote() && len(c.Command) == 0:
-		return "neither command nor url set"
-	case c.Remote() && c.URL != "" && !strings.HasPrefix(c.URL, "http://") && !strings.HasPrefix(c.URL, "https://"):
-		return "url must start with http:// or https://"
-	}
-	return ""
+func (c ServerConfig) Valid() string { return c.Declaration().Valid() }
+
+// Declaration returns an independent host configuration value. Trust is never
+// serialized; only native discovery can create trusted normalized entries.
+func (c ServerConfig) Declaration() config.Server {
+	c = cloneConfig(c)
+	return config.Server{Origin: c.Origin, Source: c.Source, Command: c.Command, Env: c.Env, Cwd: c.Cwd, URL: c.URL, Headers: c.Headers, Enabled: c.Enabled, Note: c.Note, StartupTimeout: c.StartupTimeout, ToolTimeout: c.ToolTimeout}
 }
 
 var notNameChar = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
@@ -208,8 +206,8 @@ type ImportSourcePolicy struct {
 // policy. imp may be nil: the user's claude and codex files import
 // everything (the pre-gating behavior) and the project file stays off until
 // enabled, because a repository author wrote it.
-func ImportPolicyFrom(imp *config.MCPImport) ImportPolicy {
-	convert := func(s *config.MCPImportSource, defaultOn bool) ImportSourcePolicy {
+func ImportPolicyFrom(imp *config.Import) ImportPolicy {
+	convert := func(s *config.ImportSource, defaultOn bool) ImportSourcePolicy {
 		p := ImportSourcePolicy{Enabled: defaultOn}
 		if s == nil {
 			return p
@@ -232,7 +230,7 @@ func ImportPolicyFrom(imp *config.MCPImport) ImportPolicy {
 		return p
 	}
 	if imp == nil {
-		imp = &config.MCPImport{}
+		imp = &config.Import{}
 	}
 	return ImportPolicy{
 		Claude:   convert(imp.Claude, true),
@@ -469,20 +467,28 @@ var ClaudeGlobalPath = defaultClaudeGlobalPath
 // the source of any server from the config's "mcp" block. Best-effort: ""
 // when the home dir isn't resolvable.
 func whipConfigPath() string {
-	path, _ := config.Path()
-	return path
+	if directory := os.Getenv(buildinfo.Env("HOME")); directory != "" {
+		return filepath.Join(directory, "config.json")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(buildinfo.Home(home), "config.json")
 }
 
 // FromConfigMap converts whip's config-file MCP block (identical field
-// shape, defined in internal/legacy/config to keep that package a leaf) into
+// shape, defined in the shared declaration leaf) into
 // normalized server configs.
-func FromConfigMap(in map[string]config.MCPServer) map[string]ServerConfig {
+func FromConfigMap(in map[string]config.Server) map[string]ServerConfig {
+	return NativeConfigs(in, whipConfigPath())
+}
+
+// NativeConfigs accepts the explicit owning host file; it does not discover a default path.
+func NativeConfigs(in map[string]config.Server, source string) map[string]ServerConfig {
 	if len(in) == 0 {
 		return nil
 	}
 	out := make(map[string]ServerConfig, len(in))
 	for name, c := range in {
-		out[name] = ServerConfig{
+		out[name] = cloneConfig(ServerConfig{
 			Origin: c.Origin, Source: c.Source,
 			Trusted:        c.Origin == "" || c.Origin == "whip",
 			Command:        c.Command,
@@ -494,9 +500,9 @@ func FromConfigMap(in map[string]config.MCPServer) map[string]ServerConfig {
 			Note:           c.Note,
 			StartupTimeout: c.StartupTimeout,
 			ToolTimeout:    c.ToolTimeout,
-		}
+		})
 		if value := out[name]; value.Trusted {
-			value.Origin, value.Source = "whip", whipConfigPath()
+			value.Origin, value.Source = "whip", source
 			out[name] = value
 		}
 	}

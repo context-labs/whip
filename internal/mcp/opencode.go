@@ -1,13 +1,14 @@
 package mcp
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
 
-	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/jsonc"
 )
 
 // SignInNote marks an imported server whose source says it authenticates
@@ -43,8 +44,11 @@ type opencodeServer struct {
 // ParseOpenCode normalizes an OpenCode config document into server configs.
 // Like ParseClaude and ParseCodex it keeps "$VAR" references verbatim.
 func ParseOpenCode(data []byte) (map[string]ServerConfig, error) {
+	if len(data) > maxSourceBytes {
+		return nil, errors.New("MCP discovery source exceeds byte limit")
+	}
 	var f opencodeFile
-	if err := config.ParseJSONC(data, &f); err != nil {
+	if err := jsonc.Parse(data, &f); err != nil {
 		return nil, fmt.Errorf("parse opencode config: %w", err)
 	}
 	out := make(map[string]ServerConfig, len(f.MCP))
@@ -92,7 +96,7 @@ func opencodeReferences(values map[string]string) map[string]string {
 // LoadOpenCode reads and parses one OpenCode config file. A missing file is
 // not an error (nil map + os.IsNotExist-satisfying error), like LoadClaude.
 func LoadOpenCode(path string) (map[string]ServerConfig, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // G304: reading the caller-named config file is the function's contract
+	data, err := readSource(path)
 	if err != nil {
 		return nil, err
 	}

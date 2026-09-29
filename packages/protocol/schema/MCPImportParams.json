@@ -1,0 +1,39 @@
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "fingerprints": {
+      "type": "object",
+      "maxProperties": 64,
+      "additionalProperties": {
+        "type": "string",
+        "maxLength": 16384,
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      }
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/MCPImportParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MCPImportParams",
+  "required": [
+    "session_id",
+    "revision",
+    "fingerprints"
+  ],
+  "additionalProperties": false
+}

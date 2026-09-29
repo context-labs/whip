@@ -37,6 +37,7 @@
             "IDENTITY",
             "METHOD",
             "NETWORK_RESTRICTED",
+            "TERMINAL_WRITE_UNCERTAIN",
             "ACCOUNT_CREDENTIALS",
             "ACCOUNT_SETUP",
             "ACCOUNT_CONFIGURATION",
@@ -47,6 +48,7 @@
             "PROVIDER_CONFIGURATION",
             "PROVIDER_KEY_PENDING",
             "PROVIDER_KEY_STORAGE",
+            "MCP_UNAVAILABLE",
             "INTERNAL"
           ]
         }

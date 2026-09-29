@@ -10,12 +10,13 @@ import (
 	"unicode/utf8"
 
 	"github.com/context-labs/whip/internal/lspconfig"
+	"github.com/context-labs/whip/internal/mcpconfig"
 	"github.com/context-labs/whip/internal/session"
 )
 
 const (
 	FileName = "host.json"
-	Version  = 15
+	Version  = 16
 )
 
 type Provider struct {
@@ -81,6 +82,7 @@ type Host struct {
 	DefaultPermissionMode session.PermissionMode `json:"default_permission_mode,omitempty"`
 	// LSP publishes bounded stdio server declarations without granting session authority.
 	LSP map[string]lspconfig.Config `json:"lsp"`
+	MCP mcpconfig.Host              `json:"mcp"`
 	// ProjectRoots publishes named project directories without granting authority.
 	ProjectRoots map[string]string `json:"project_roots"`
 	// StandingInstructionsFile explicitly publishes one file; empty disables it.
@@ -106,6 +108,9 @@ func (h Host) Validate() error {
 	}
 	if err := lspconfig.ValidateConfig(h.LSP); err != nil {
 		return fmt.Errorf("%w: %w", session.ErrInvalid, err)
+	}
+	if err := h.MCP.Validate(); err != nil {
+		return fmt.Errorf("%w: MCP configuration: %w", session.ErrInvalid, err)
 	}
 	if h.Version != Version {
 		return fmt.Errorf("%w: unsupported host version %d", session.ErrInvalid, h.Version)
