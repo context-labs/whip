@@ -95,7 +95,14 @@ export class Session {
   readonly operations = {
     get: async (operationID: string, options: CallOptions = {}) => {
       const result = await this.client.call('operations.get', { operation_id: operationID }, options);
-      if (result.session_id !== this.id) throw new TypeError('Operation belongs to another session');
+      if (result.session_id !== this.id || result.id !== operationID) throw new TypeError('Operation belongs to another session or identity');
+      return result;
+    },
+  };
+  readonly cells = {
+    get: async (cellID: string, options: CallOptions = {}) => {
+      const result = await this.client.call('cells.get', { cell_id: cellID }, options);
+      if (result.session_id !== this.id || result.id !== cellID) throw new TypeError('Cell belongs to another session or identity');
       return result;
     },
   };
@@ -113,14 +120,36 @@ export class Session {
     },
     get: async (turnID: string, options: CallOptions = {}) => {
       const result = await this.client.call('turns.get', { turn_id: turnID }, options);
-      if (result.session_id !== this.id) throw new TypeError('Turn belongs to another session');
+      if (result.session_id !== this.id || result.id !== turnID) throw new TypeError('Turn belongs to another session or identity');
       return result;
+    },
+    cells: async (turnID: string, params: Omit<Page<'turns.cells'>, 'turn_id'> = {}, options: CallOptions = {}) => {
+      const limit = params.limit ?? 100;
+      const result = await this.client.call('turns.cells', { ...params, turn_id: turnID, limit }, options);
+      const items = result.items ?? [];
+      this.validateExecutionPage(items, turnID, params.after ?? undefined, limit);
+      return { items };
+    },
+    operations: async (turnID: string, params: Omit<Page<'turns.operations'>, 'turn_id'> = {}, options: CallOptions = {}) => {
+      const limit = params.limit ?? 100;
+      const result = await this.client.call('turns.operations', { ...params, turn_id: turnID, limit }, options);
+      const items = result.items ?? [];
+      this.validateExecutionPage(items, turnID, params.after ?? undefined, limit);
+      return { items };
     },
     output: async (turnID: string, options: CallOptions = {}) => {
       await this.turns.get(turnID, options);
       return this.client.call('turns.output', { turn_id: turnID }, options);
     },
   };
+  private validateExecutionPage(items: readonly { id: string; session_id: string; turn_id: string }[], turnID: string, after: string | undefined, limit: number) {
+    if (items.length > limit) throw new TypeError('Execution page exceeds requested limit');
+    let previous = after ?? '';
+    for (const item of items) {
+      if (item.session_id !== this.id || item.turn_id !== turnID || item.id <= previous) throw new TypeError('Execution page scope or ordering mismatch');
+      previous = item.id;
+    }
+  }
   readonly mail = {
     list: (params: Page<'mail.list'> = {}, options: CallOptions = {}) => this.client.call('mail.list', { limit: 50, ...params, session_id: this.id }, options),
     read: (mailID: string, options: CallOptions = {}) => this.client.call('mail.read', { session_id: this.id, mail_id: mailID }, options),

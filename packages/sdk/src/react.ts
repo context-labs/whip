@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import type { SessionView, TreeCatalogView } from './state.js';
+import type { ExecutionView, SessionView, TreeCatalogView } from './state.js';
 
 /** Render the SDK's immutable snapshot. The application owns observation
  * start/suspend/dispose, including shared leases and StrictMode remounts. */
@@ -8,5 +8,9 @@ export function useSessionView(view: SessionView) {
 }
 
 export function useTreeCatalogView(view: TreeCatalogView) {
+  return useSyncExternalStore(view.subscribe, view.getSnapshot, view.getSnapshot);
+}
+
+export function useExecutionView(view: ExecutionView) {
   return useSyncExternalStore(view.subscribe, view.getSnapshot, view.getSnapshot);
 }

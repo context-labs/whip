@@ -1,5 +1,18 @@
 # WHIP SDK v4
 
+`createExecutionView(session, sessionView)` from `@whip/sdk/state` observes
+canonical turn, cell, and host-operation records beside an existing transcript
+view. Share one instance across renderers. Defaults retain at most 16 turns,
+128 cells, 512 operations and 4 MiB; overflow is explicit. `refresh` reads, while
+`loadOlder`, `latest`, and `focus(turnID)` navigate retained execution metadata.
+The latest window prioritizes the active turn and loaded local transcript links;
+older metadata windows include direct work without transcript messages. History
+revision and process-epoch changes clear pending evidence. Reconnect explicitly
+with the same runtime's new client; suspension/disposal never cancel execution.
+`cellExecutionRows(snapshot, messages)` joins exact native identities without
+copying the transcript or inventing execution for imported history. React's
+`useExecutionView` reads the immutable external-store snapshot.
+
 `client.session(id).turns.page({ before, limit })` reads bounded canonical turn
 metadata, newest first, including direct human work with no transcript. The
 optional cursor is the last returned turn ID, scoped to that session; use
