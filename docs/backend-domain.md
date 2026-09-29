@@ -322,13 +322,15 @@ Subscription credentials
 belong to the independent host account manager and its private file.
 
 Current fresh [host configuration](../internal/config/host.go) is version 21;
-the [SQLite schema](../internal/store/store.go) is version 55. Version numbers in
+the [SQLite schema](../internal/store/store.go) is version 56. Version numbers in
 the implementation histories below identify their introducing checkpoints, not
 additional formats accepted by the current binary.
-SQLite has an application identifier and schema version. Existing databases of
-another application/version are rejected, not imported. Reopening preserves the
-runtime identity and seeded revisions; separate databases receive distinct
-identities. Future versions of this fresh schema may have ordinary migrations.
+SQLite has an application identifier and schema version. Schema55 upgrades
+atomically to56 by adding child permission-policy delegation records, with no
+backfill for existing children. Other applications and versions are rejected.
+Reopening preserves runtime identity, session data and seeded revisions; separate
+databases receive distinct identities. Downgrading requires restoring the
+pre-upgrade database together with its matching binary.
 The store owns database transactions only, with no resource-manager construction.
 
 Generic API routes select one credential source. Configuration reads do not
@@ -771,16 +773,23 @@ query durable records; they do not introduce another authority cache.
 
 Fresh schema37/config14 stores one permission policy per tree: `prompt` (Ask) or
 `automatic` (Full Access), positive revision and update time. Only roots may edit
-it, including stopped roots. Children display the same tree policy but execution
-still requires their exact live delegated grant chain. The retained blanket
-child/outside-workspace Full Access bypass is deliberately retired; automatic
-mode never bypasses input validation, fixed workspace scopes or child delegation.
+it, including stopped roots. Children display the same tree policy; execution
+requires either an exact live delegated grant chain or captured policy delegation.
+Schema56 captures automatic authority for newly spawned children only when
+`grant_ids` is omitted/null, the parent is eligible, and the working directories
+match exactly. Explicit subsets (including `[]`) never inherit policy authority.
+Each child-to-parent hop must retain the captured tree policy revision and workspace.
+Historical children receive no backfilled authority. Policy changes permanently
+expire prior child delegation, even if Full Access is later enabled again.
+Automatic mode never bypasses input validation, fixed workspace scopes, root-only
+human questions, or explicit host consent for computer/MCP effects.
 
-A root without a matching grant may admit an operation under its current
-`automatic` policy. The operation captures that policy revision; dispatch checks
-it again before the effect. An actual mode change advances the revision, closes
-pending root approvals, and denies ready operations admitted through the old
-policy. Dispatched effects keep their ordinary settlement path. Explicit grants
+An eligible root or child without a matching grant may admit an operation under
+its current `automatic` policy. The operation captures that policy revision;
+dispatch checks the policy and every delegation hop again before the effect. An
+actual mode change advances the revision, closes pending approvals, and denies
+ready operations admitted through the old policy throughout the tree. Dispatched
+effects keep their ordinary settlement path. Explicit grants
 and intrinsic human questions retain their independent authority/lifetimes.
 
 Mode edits have caller-chosen stable IDs and exact payload digests. SQL resolves
@@ -853,9 +862,12 @@ the observer; execution cancellation remains an explicit operation.
 configuration overrides and `grant_ids`. The result contains the child session
 and its ordinary input admission. Child identity, resolved configuration,
 parent-scoped content references copied into new child references, delegated
-grants, initial input and receipt commit together. No duplicate body bytes or
+grants, captured permission-policy delegation, initial input and receipt commit
+together. No duplicate body bytes or
 child-specific transcript path exists. `grant_ids: null` inherits currently valid
-standing grants; `[]` delegates none. Retries preserve this original request and
+standing grants plus eligible same-workspace automatic authority; an explicit
+subset delegates only those grants and `[]` delegates none. Retries preserve this
+original request and
 return the same child/input even if parent defaults or grants have since changed.
 A deleted receipt returns `session: null`; it cannot resurrect the child.
 
@@ -1891,12 +1903,13 @@ prepared diagnostic operation through the shared config authority.
 Successful write/patch settlement precedes optional automatic diagnostics. The
 latter is a separate ordinary operation with a stable source-derived identity,
 workspace resource, source operation and captured content hash. It needs standing
-`lsp.diagnostics` authority or the root’s current automatic policy; without that
+`lsp.diagnostics` authority or eligible current automatic policy; without that
 authority it returns a skipped
 observation without opening a permission request or starting a process. Explicit
 `files.diagnostics` can obtain one-use approval, whose isolated server is joined
-before the call returns. Standing grants and captured root automatic policy permit session-owned reuse. Child calls
-revalidate their exact issuer chain; parent revocation cannot leave delegated
+before the call returns. Standing grants and captured automatic policy permit
+session-owned reuse. Child calls revalidate their exact grant or policy delegation
+chain; parent revocation cannot leave delegated
 language servers usable. Diagnostics never reverse a successful file write.
 
 Diagnostics describe bounded captured UTF-8 content, with a captured workspace
@@ -2276,8 +2289,9 @@ verified runtime and, when provided, process epoch before dependent requests.
 Display-only design provenance was introduced in fresh schema 48 after schema
 46's workspace and run controls; schema 47 was allocated to browser integration.
 That checkpoint used host config 18. The current versions are listed at the
-[host and schema boundary](#host-and-schema-boundary); protocol remains 4, with
-no old-schema reader or migration.
+[host and schema boundary](#host-and-schema-boundary); protocol remains 4. Only
+the additive schema55-to-56 upgrade is supported; retired-core databases remain
+unsupported.
 
 `sessions.submit.design_context` optionally identifies a unique text content
 reference and an optional unique image content reference in the submitted parts.

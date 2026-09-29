@@ -168,3 +168,19 @@ screenshots with secrets removed. Keep these deferred items open until there is
 specific evidence to close them. Human results and signed release readiness are
 subsequent work; this document closes the requested first-version engineering
 handoff without claiming those results.
+
+
+## Human-verification follow-up: default sub-agent permissions
+
+The September29 user session exposed missing Full Access inheritance: default
+spawns copied zero standing grants and their children were denied ordinary tools.
+The follow-up captures automatic permission for new default children in the same
+workspace, with exact ancestor/revision checks and existing explicit restrictions.
+Both engines now pass a regression that reads a disposable file and reports back
+to the parent. Store, runtime, CLI and focused permission UI checks pass.
+
+Schema55 upgrades atomically to56 without adding authority to historical children.
+Existing failed children must be replaced with new spawns; session history is not
+replayed or repaired by changing grants. The [development record](backend-redesign-development.md)
+contains the test and review evidence. Deferred environment/CI items above remain
+open; this fix does not claim full candidate acceptance.

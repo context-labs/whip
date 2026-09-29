@@ -72,15 +72,8 @@ func (s *Store) ApplyPermissionDenial(ctx context.Context, request session.Permi
 			if _, err := tx.ExecContext(ctx, "UPDATE permission_policies SET deny_interactive=?,revision=?,updated_at=? WHERE tree_id=?", policy.DenyInteractive, policy.Revision, policy.UpdatedAt.UnixMicro(), policy.TreeID); err != nil {
 				return err
 			}
-			// Each session retains ordinary operation settlement and resource accounting.
-			owners, err := treeOwners(ctx, tx, owner.TreeID)
-			if err != nil {
+			if err := retireTreePolicyOperations(ctx, tx, owner.TreeID); err != nil {
 				return err
-			}
-			for _, id := range owners {
-				if err := retirePolicyOperations(ctx, tx, id); err != nil {
-					return err
-				}
 			}
 			changed = true
 		}

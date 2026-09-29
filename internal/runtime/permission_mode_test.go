@@ -259,6 +259,15 @@ func TestBothEnginesAutomaticModeDefaultChildReadsAndReportsWithoutGrants(t *tes
 					if grants, err := r.Grants(t.Context(), child.ID, "", 100); err != nil || len(grants) != 0 {
 						t.Fatal("default spawn fabricated standing grants", grants, err)
 					}
+					if !test.explicit {
+						// Queued mail is consumed by a later parent turn, not by the
+						// already captured spawn turn's final model response.
+						submitTest(t, r, root.ID, "receive-report")
+						received := waitTestWithin(t, r, "receive-report", terminal, 30*time.Second)
+						if received.Turn.State != session.Succeeded {
+							t.Fatalf("parent report turn failed: %+v", received.Turn)
+						}
+					}
 					mails, err := r.ListMail(t.Context(), root.ID, "", "", 100)
 					if err != nil {
 						t.Fatal(err)

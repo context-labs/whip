@@ -30,7 +30,7 @@ const modes: Mode[] = [
   {
     value: 'automatic',
     label: 'Full Access',
-    description: 'Approve eligible root actions automatically; child grants and resource scopes still apply',
+    description: 'Approve eligible actions automatically, including default children in the same working directory. Explicit child restrictions still apply.',
     icon: ShieldAlert,
     danger: true,
   },

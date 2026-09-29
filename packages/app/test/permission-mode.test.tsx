@@ -6,7 +6,7 @@ import { providerFixture, sessionRecord } from './provider-fixture';
 
 beforeEach(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
 afterEach(() => vi.unstubAllGlobals());
-const automaticDescription = 'Approve eligible root actions automatically; child grants and resource scopes still apply';
+const automaticDescription = 'Approve eligible actions automatically, including default children in the same working directory. Explicit child restrictions still apply.';
 async function fixture(mode: 'prompt' | 'automatic' = 'prompt', id = 'root') {
   const f = await providerFixture();
   const record = sessionRecord(id);

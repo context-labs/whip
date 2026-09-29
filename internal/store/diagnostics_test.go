@@ -60,7 +60,7 @@ func TestOptionalDiagnosticsNeverRequestPermission(t *testing.T) {
 	}
 }
 
-func TestDiagnosticsRetainOnlyCurrentRootAutomaticAuthority(t *testing.T) {
+func TestDiagnosticsRetainOnlyCurrentAutomaticAuthority(t *testing.T) {
 	s := fresh(t)
 	root, cell := operationCell(t, s)
 	setModeTest(t, s, root.ID, "enable", 1, session.PermissionAutomatic)
@@ -84,15 +84,35 @@ func TestDiagnosticsRetainOnlyCurrentRootAutomaticAuthority(t *testing.T) {
 	childCell := childOperationCell(t, s, child.Session.ID)
 	childSpec := operationSpec(childCell, "child-auto")
 	childSpec.Capability, childSpec.Resource = spec.Capability, spec.Resource
-	if skipped, err := s.AdmitStandingOperation(t.Context(), childSpec); err != nil || skipped.ID != "" {
-		t.Fatal("child auto mode widened optional diagnostics", skipped, err)
+	childOperation, err := s.AdmitStandingOperation(t.Context(), childSpec)
+	if err != nil || childOperation.State != session.OperationReady || childOperation.PermissionRevision == nil || *childOperation.PermissionRevision != 2 {
+		t.Fatal("delegated child diagnostics missed captured policy", childOperation, err)
+	}
+	if allowed, err := s.DispatchOperation(t.Context(), childOperation.ID); err != nil || !allowed {
+		t.Fatal("delegated diagnostics not dispatched", allowed, err)
+	}
+	if retain, err := s.DiagnosticRetention(t.Context(), childOperation.ID); err != nil || !retain {
+		t.Fatal("delegated diagnostics could not retain server", retain, err)
+	}
+	restrictedRequest := childRequest(root.ID)
+	restrictedRequest.GrantIDs = []session.GrantID{}
+	restricted := spawnChildTest(t, s, "restricted", restrictedRequest)
+	restrictedCell := childOperationCell(t, s, restricted.Session.ID)
+	restrictedSpec := operationSpec(restrictedCell, "restricted-auto")
+	restrictedSpec.Capability, restrictedSpec.Resource = spec.Capability, spec.Resource
+	if skipped, err := s.AdmitStandingOperation(t.Context(), restrictedSpec); err != nil || skipped.ID != "" {
+		t.Fatal("restricted child gained optional diagnostics", skipped, err)
 	}
 	setModeTest(t, s, root.ID, "disable", 2, session.PermissionPrompt)
-	if retain, err := s.DiagnosticRetention(t.Context(), admitted.ID); !errors.Is(err, ErrConflict) || retain {
-		t.Fatal("old revision retained server after downgrade", retain, err)
+	for _, id := range []session.OperationID{admitted.ID, childOperation.ID} {
+		if retain, err := s.DiagnosticRetention(t.Context(), id); !errors.Is(err, ErrConflict) || retain {
+			t.Fatal("old revision retained server after downgrade", retain, err)
+		}
 	}
 	setModeTest(t, s, root.ID, "reenable", 3, session.PermissionAutomatic)
-	if retain, err := s.DiagnosticRetention(t.Context(), admitted.ID); !errors.Is(err, ErrConflict) || retain {
-		t.Fatal("ABA reused old diagnostic authority", retain, err)
+	for _, id := range []session.OperationID{admitted.ID, childOperation.ID} {
+		if retain, err := s.DiagnosticRetention(t.Context(), id); !errors.Is(err, ErrConflict) || retain {
+			t.Fatal("ABA reused old diagnostic authority", retain, err)
+		}
 	}
 }
