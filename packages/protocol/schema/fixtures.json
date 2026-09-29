@@ -21,6 +21,23 @@
     "valid": true
   },
   {
+    "type": "HostAttentionParams",
+    "value": {
+      "after": null,
+      "limit": 100,
+      "max_bytes": 524288
+    },
+    "valid": true
+  },
+  {
+    "type": "HostAttentionResult",
+    "value": {
+      "items": [],
+      "next_cursor": null
+    },
+    "valid": true
+  },
+  {
     "type": "HostDirectoriesParams",
     "value": {
       "path": "/workspace",

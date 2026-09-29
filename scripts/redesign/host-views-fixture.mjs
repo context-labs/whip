@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-export async function hostViewsAcceptance(runtime,client,evidence,deadline) {
+export async function hostViewsAcceptance(runtime,client,createParams,evidence,deadline) {
  const workspace=join(runtime.directory,'host-preview');await mkdir(join(workspace,'.agents','skills','preview'),{recursive:true});
  await writeFile(join(workspace,'.agents','skills','preview','SKILL.md'),'---\nname: preview\ndescription: Host preview metadata\ndisable-model-invocation: true\n---\nSECRET_BODY_NOT_METADATA');
  const before=await client.call('trees.catalog',{},deadline());
@@ -15,5 +15,18 @@ export async function hostViewsAcceptance(runtime,client,evidence,deadline) {
  const catalog=await client.hostThemes(deadline());assert.ok(catalog.themes.some(theme=>theme.id==='host-fixture'));
  const resolved=await client.resolveHostTheme({name:'host-fixture',json:''},deadline());assert.equal(resolved.colors.primary,'#abcdef');
  assert.deepEqual(await client.call('trees.catalog',{},deadline()),before);
+ const {root}=await client.call('trees.create',{...createParams,creation_id:'host-attention',working_directory:workspace},deadline());
+ await client.callTool(root.id,{module:'files',name:'read',arguments_base64:Buffer.from('{"path":".agents/skills/preview/SKILL.md"}').toString('base64')},'host-attention-read',deadline());
+ let observed;
+ for(let attempt=0;attempt<100;attempt++) {
+   const page=await client.hostAttention({after:null,limit:100,max_bytes:524288},deadline());
+   observed=page.items.find(item=>item.session_id===root.id);
+   if(observed?.activity.pending_permission_count==='1')break;
+   await new Promise(resolve=>setTimeout(resolve,10));
+ }
+ assert.equal(observed?.activity.pending_permission_count,'1');assert.equal(observed.root_id,root.id);
+ const permissions=await client.call('permissions.list',{session_id:root.id,limit:10},deadline());
+ await client.call('permissions.resolve',{operation_id:permissions.items.find(item=>item.state==='pending').operation_id,approved:false},deadline());
+ assert.equal((await client.wait('host-attention-read',deadline())).turn.state,'failed');
  evidence.push({host_views:{directories,skills,theme:resolved.id}});
 }

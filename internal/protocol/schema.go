@@ -22,6 +22,7 @@ type Operation struct {
 
 func Operations() []Operation {
 	return []Operation{
+		{"host.attention", reflect.TypeFor[HostAttentionParams](), reflect.TypeFor[HostAttentionResult]()},
 		{"host.directories.list", reflect.TypeFor[HostDirectoriesParams](), reflect.TypeFor[HostDirectoriesResult]()},
 		{"host.directory.pick", reflect.TypeFor[HostDirectoryPickParams](), reflect.TypeFor[HostDirectoryPickResult]()},
 		{"host.skills.complete", reflect.TypeFor[HostSkillsParams](), reflect.TypeFor[HostSkillsResult]()},
@@ -306,6 +307,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 			schema.Properties["params_base64"].MinLength = new(1)
 			schema.Properties["params_base64"].MaxLength = new(5592408)
 		}
+		attentionSchema(schema, t)
 		if t == reflect.TypeFor[InputSummary]() {
 			schema.Properties["text_preview"].MaxLength = new(512)
 		}

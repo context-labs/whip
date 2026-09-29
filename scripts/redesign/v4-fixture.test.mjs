@@ -250,7 +250,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
       return { client, createParams };
     });
     await stage('root creation receipts and catalog revisions', () => creationCatalogAcceptance(runtime, client, createParams, evidence, { dropAcknowledgement, unixSocket, deadline }));
-    await stage('host bootstrap views', () => hostViewsAcceptance(runtime, client, evidence, deadline));
+    await stage('host bootstrap views', () => hostViewsAcceptance(runtime, client, createParams, evidence, deadline));
     await stage('host account projections', () => accountAcceptance(runtime, client, evidence));
     await stage('Inference account projections', () => inferenceAccountAcceptance(runtime, client, evidence));
     await stage('workspace snapshots and restore', () => workspaceAcceptance(runtime, client, createParams, evidence, { dropAcknowledgement, unixSocket, deadline }));

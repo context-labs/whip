@@ -69,6 +69,8 @@ func Fixtures() ([]Fixture, error) {
 		value any
 	}{
 		{"Input", directInput},
+		{"HostAttentionParams", HostAttentionParams{Limit: 100, MaxBytes: 524288}},
+		{"HostAttentionResult", HostAttentionResult{Items: []HostAttentionItem{}}},
 		{"HostDirectoriesParams", HostDirectoriesParams{Path: "/workspace", Limit: 64}},
 		{"HostDirectoriesResult", HostDirectoriesResult{Path: "/workspace", Parent: "/", Entries: []HostDirectoryEntry{{Name: "project", Path: "/workspace/project"}}}},
 		{"HostDirectoryPickParams", HostDirectoryPickParams{}},

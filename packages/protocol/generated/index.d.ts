@@ -2433,6 +2433,54 @@ export interface HistorySnapshot {
   through_sequence: string;
   message_count: string;
 }
+export interface HostAttentionParams {
+  after: null | {
+    tree_id: string;
+    session_id: string;
+  };
+  limit: number;
+  max_bytes: number;
+}
+export interface HostAttentionResult {
+  /**
+   * @maxItems 100
+   */
+  items: {
+    tree_id: string;
+    root_id: string;
+    session_id: string;
+    title: null | string;
+    activity: {
+      session_id: string;
+      lifecycle: "active" | "stopped";
+      active_turn: null | {
+        history_revision: string;
+        goal: null | {
+          id: string;
+          revision: string;
+        };
+        id: string;
+        session_id: string;
+        kind: "prompt" | "compact" | "goal_formulation" | "automatic_title" | "host_operation";
+        config_revision: string;
+        state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
+        failure: null | string;
+        started_at: string;
+        finished_at: null | string;
+      };
+      active_input_id: null | string;
+      queued_input_count: string;
+      pending_permission_count: string;
+      pending_question_count: string;
+      execution_permit: boolean;
+      active_workspace_action_id: null | string;
+    };
+  }[];
+  next_cursor: null | {
+    tree_id: string;
+    session_id: string;
+  };
+}
 export interface HostDirectoriesParams {
   path: string;
   after: string;
@@ -8226,6 +8274,8 @@ export interface ContractTypes {
   HistoryParams: HistoryParams;
   HistoryResult: HistoryResult;
   HistorySnapshot: HistorySnapshot;
+  HostAttentionParams: HostAttentionParams;
+  HostAttentionResult: HostAttentionResult;
   HostDirectoriesParams: HostDirectoriesParams;
   HostDirectoriesResult: HostDirectoriesResult;
   HostDirectoryPickParams: HostDirectoryPickParams;
@@ -8399,6 +8449,7 @@ export interface ContractTypes {
   WriteStateParams: WriteStateParams;
 }
 export interface Operations {
+  "host.attention": { params: HostAttentionParams; result: HostAttentionResult };
   "host.directories.list": { params: HostDirectoriesParams; result: HostDirectoriesResult };
   "host.directory.pick": { params: HostDirectoryPickParams; result: HostDirectoryPickResult };
   "host.skills.complete": { params: HostSkillsParams; result: HostSkillsResult };

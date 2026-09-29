@@ -5,6 +5,11 @@ export const manifest = {
   "minor": 0,
   "operations": [
     {
+      "name": "host.attention",
+      "params": "HostAttentionParams",
+      "result": "HostAttentionResult"
+    },
+    {
       "name": "host.directories.list",
       "params": "HostDirectoriesParams",
       "result": "HostDirectoriesResult"

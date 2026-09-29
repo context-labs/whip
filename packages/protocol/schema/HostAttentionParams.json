@@ -1,0 +1,45 @@
+{
+  "type": "object",
+  "properties": {
+    "after": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "tree_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        }
+      },
+      "required": [
+        "tree_id",
+        "session_id"
+      ],
+      "additionalProperties": false
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+    },
+    "max_bytes": {
+      "type": "integer",
+      "minimum": 4096,
+      "maximum": 524288
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/HostAttentionParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HostAttentionParams",
+  "required": [
+    "after",
+    "limit",
+    "max_bytes"
+  ],
+  "additionalProperties": false
+}

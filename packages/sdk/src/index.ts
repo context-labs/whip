@@ -308,6 +308,11 @@ export class Client {
     return this.call('accounts.openai.logout', {}, options);
   }
 
+  /** Advisory exact-owner activity. Refresh from the beginning to find newly active earlier owners. */
+  hostAttention(params: Operations['host.attention']['params'], options: CallOptions = {}): Promise<Operations['host.attention']['result']> {
+    return this.call('host.attention', params, options);
+  }
+
   hostDirectories(params: Operations['host.directories.list']['params'], options: CallOptions = {}): Promise<Operations['host.directories.list']['result']> {
     return this.call('host.directories.list', params, options);
   }

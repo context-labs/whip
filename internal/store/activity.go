@@ -10,6 +10,10 @@ import (
 // Activity reads all facts in one statement without claiming work or hydrating
 // inputs. Pending direct human operations and cell operations share ownership.
 func (s *Store) Activity(ctx context.Context, owner session.SessionID) (session.Activity, error) {
+	return readActivity(ctx, s.db, owner)
+}
+
+func readActivity(ctx context.Context, q querier, owner session.SessionID) (session.Activity, error) {
 	value := session.Activity{}
 	if err := session.ValidateID(string(owner)); err != nil {
 		return value, err
@@ -18,7 +22,7 @@ func (s *Store) Activity(ctx context.Context, owner session.SessionID) (session.
 	var started sql.NullInt64
 	var goalID *session.GoalID
 	var goalRevision sql.NullInt64
-	err := s.db.QueryRowContext(ctx, `WITH owned_operations AS (
+	err := q.QueryRowContext(ctx, `WITH owned_operations AS (
  SELECT o.id,o.state FROM operations o LEFT JOIN cells c ON c.id=o.cell_id
  JOIN turns t ON t.id=COALESCE(c.turn_id,o.direct_turn_id) WHERE t.session_id=?
  ) SELECT s.id,s.lifecycle,

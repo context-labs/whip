@@ -13,6 +13,15 @@ import (
 
 func dispatchHostViews(ctx context.Context, r *runtime.Runtime, method string, raw json.RawMessage) (any, error) {
 	switch method {
+	case "host.attention":
+		return decode(raw, func(p protocol.HostAttentionParams) (any, error) {
+			var cursor *session.AttentionCursor
+			if p.After != nil {
+				cursor = &session.AttentionCursor{TreeID: session.TreeID(p.After.TreeID), SessionID: session.SessionID(p.After.SessionID)}
+			}
+			value, err := r.HostAttention(ctx, cursor, p.Limit, p.MaxBytes)
+			return protocol.AttentionFromDomain(value), err
+		})
 	case "host.directories.list":
 		return decode(raw, func(p protocol.HostDirectoriesParams) (any, error) {
 			value, err := r.HostDirectories(ctx, hostview.DirectoryParams{Path: p.Path, After: p.After, Prefix: p.Prefix, ShowHidden: p.ShowHidden, Limit: p.Limit})
