@@ -142,6 +142,17 @@ func ProviderPresetPolicy() []ProviderPreset {
 			EnvironmentVariables: []string{"GROQ_API_KEY"},
 		},
 		{
+			ID: "requesty",
+			Provider: Provider{
+				Name: "Requesty", BaseURL: RequestyBaseURL,
+				API: "openai-completions", APIKeyEnv: RequestyEnvVar,
+			},
+			Methods:              []string{"api_key"},
+			Category:             "providers",
+			KeyURL:               "https://app.requesty.ai/api-keys",
+			EnvironmentVariables: []string{RequestyEnvVar},
+		},
+		{
 			ID: "togetherai",
 			Provider: Provider{
 				Name:    "Together AI",

@@ -29,7 +29,7 @@ func pickerInventoryFixture(t *testing.T) *ProviderService {
 func TestProviderListPresetMetadataAndEndpointCollisions(t *testing.T) {
 	service := pickerInventoryFixture(t)
 	list, err := service.ListProviders()
-	if err != nil || len(list.Providers) != 11 {
+	if err != nil || len(list.Providers) != 12 {
 		t.Fatalf("inventory: %v", err)
 	}
 	for _, id := range []string{"openai", "openai-codex"} {

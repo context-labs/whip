@@ -446,7 +446,7 @@ Code: `internal/rlm/memory_linux.go`; regression:
 ### Known provider picker and local credentials
 
 The TUI uses compact provider, authentication-method and masked key dialogs.
-Popular contains Inference.net, OpenRouter and an OpenAI family row; seven more
+Popular contains Inference.net, OpenRouter and an OpenAI family row; eight more
 known compatible providers follow alphabetically. Connection checkmarks stay in
 stable positions, search has no prompt prefix, and refresh preserves selection.
 OpenAI API billing and ChatGPT subscription keep distinct stored route IDs.

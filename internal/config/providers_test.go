@@ -147,7 +147,7 @@ func TestProviderAccountFallbackOnlyUsesItsOwnEndpoint(t *testing.T) {
 
 func TestProviderPresetsHaveIndependentMetadata(t *testing.T) {
 	presets := ProviderPresets()
-	if len(presets) != 11 || presets[0].ID != InferenceNetProvider || !presets[0].Recommended {
+	if len(presets) != 12 || presets[0].ID != InferenceNetProvider || !presets[0].Recommended {
 		t.Fatal("unexpected preset inventory")
 	}
 	seen := map[string]bool{}
