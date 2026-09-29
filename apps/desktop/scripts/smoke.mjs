@@ -47,7 +47,12 @@ try {
   const page = await electron.firstWindow();
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.waitForFunction(() => JSON.parse(localStorage.getItem('whip.hosts.v2') || '[]').some(host => host.id === 'local' && host.runtimeId), undefined, { timeout: 30_000 })
-    .catch(async error => { console.error((await page.locator('body').innerText()).slice(0, 6000), diagnostics); throw error; });
+    .catch(async error => {
+      const body = await page.locator('body').innerText({ timeout: 2000 })
+        .then(text => text.slice(0, 6000)).catch(capture => `Body unavailable: ${capture.message}`);
+      console.error('Desktop attachment failed:', { error: error.message, url: page.url(), body, errors, diagnostics });
+      throw error;
+    });
   const { stdout } = await exec(executable, ['daemon', 'status', '--json'], { env, timeout: 5000 });
   const initial = JSON.parse(stdout);
   assert.equal(initial.state, 'running'); assert(!initial.process.web_endpoint, 'Local attachment must not enable TCP');

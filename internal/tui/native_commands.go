@@ -13,13 +13,19 @@ import (
 )
 
 type nativeControlResult struct {
+	generation     uint64
+	attach         *protocol.Session
+	picker         *nativeSessionPicker
 	label          string
 	mutation       bool
 	owner          *protocol.Session
+	policy         *protocol.PermissionPolicy
 	reset          bool
 	err            error
 	retry          tea.Cmd
 	inspectOnError bool
+	notice         string
+	decisionID     protocol.ID
 }
 
 // control owns only this UI request. Its retry closure captures the original
@@ -27,14 +33,16 @@ type nativeControlResult struct {
 func (m *nativeModel) control(label string, mutate bool, call func(context.Context) nativeControlResult) tea.Cmd {
 	m.controlling = true
 	m.input.Reset()
+	generation := m.generation
 	var command tea.Cmd
 	command = func() tea.Msg {
 		ctx, done, err := m.work.begin()
 		if err != nil {
-			return nativeControlResult{label: label, err: err}
+			return nativeControlResult{label: label, generation: generation, err: err}
 		}
 		defer done()
 		value := call(ctx)
+		value.generation = generation
 		if value.label == "" || value.err != nil {
 			value.label = label
 		}
@@ -57,6 +65,19 @@ func (m *nativeModel) command(text string) tea.Cmd {
 	switch name {
 	case "/quit", "/exit", "/q":
 		return tea.Quit
+	case "/rejected":
+		if args == "restore" && m.restoreRejectedDraft() {
+			m.status = "Rejected input restored as a draft; nothing was sent."
+			return nil
+		}
+		if args == "discard" {
+			m.rejected = nil
+			m.input.Reset()
+			m.status = "Rejected draft discarded."
+			return nil
+		}
+		m.status = "usage: /rejected restore|discard"
+		return nil
 	case "/check":
 		if m.uncertain != nil {
 			m.input.Reset()
@@ -76,6 +97,47 @@ func (m *nativeModel) command(text string) tea.Cmd {
 		}
 		m.status = "No uncertain action is retained in this terminal."
 		return nil
+	case "/older", "/newer", "/latest":
+		if args != "" {
+			m.status = "usage: " + name
+			return nil
+		}
+		m.input.Reset()
+		if name == "/latest" {
+			m.latest()
+			return nil
+		}
+		direction := "backward"
+		if name == "/newer" {
+			direction = "forward"
+		}
+		return m.browseHistory(direction)
+	case "/tools":
+		if args != "expand" && args != "collapse" {
+			m.status = "usage: /tools expand|collapse (display only)"
+			return nil
+		}
+		m.input.Reset()
+		m.expandTools = args == "expand"
+		m.status = "Tool output display: " + args
+		m.refresh()
+		return nil
+	case "/reasoning":
+		if args != "on" && args != "off" {
+			m.status = "usage: /reasoning on|off (live preview only; unavailable after reload)"
+			return nil
+		}
+		m.input.Reset()
+		m.showReasoning = args == "on"
+		m.status = "Live reasoning display: " + args + ". Reasoning is not retained in history."
+		m.refresh()
+		return nil
+	case "/me":
+		return m.standing(args)
+	case "/memory":
+		return m.memory(args)
+	case "/permissions":
+		return m.permissionsCommand(args)
 	case "/status":
 		return m.control("Session status", false, func(ctx context.Context) nativeControlResult {
 			owner, err := m.handle.Get(ctx)
@@ -92,6 +154,18 @@ func (m *nativeModel) command(text string) tea.Cmd {
 		return nil
 	}
 	switch name {
+	case "/model", "/model-for-session", "/theme", "/settings", "/setup":
+		if args != "" {
+			m.status = "usage: " + name
+			return nil
+		}
+		return m.openMenu(strings.TrimPrefix(name, "/"))
+	case "/rewind":
+		return m.rewindHistory(args)
+	case "/fork", "/fork-at":
+		return m.forkHistory(args, name == "/fork-at")
+	case "/resume", "/sessions":
+		return m.resumeSession(args)
 	case "/stop", "/start":
 		if args != "" {
 			m.status = "usage: " + name

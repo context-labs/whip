@@ -252,12 +252,12 @@ async function start() {
     if (typeof enabled !== 'boolean') throw new Error('Invalid notification preference');
     window.webContents.setBackgroundThrottling(!enabled);
   });
-  handle('openTransport', async (id: string, connectionId: string) => {
+  handle('openTransport', async (id: string, connectionId: string, purpose?: unknown) => {
     validHandle(connectionId);
     const connection = connections.get(connectionId);
     if (!connection?.socket) throw new Error('The selected connection is not ready');
     const socket = connection.ssh ? await connection.ssh.getSocket() : connection.socket;
-    await transports.open(id, connectionId, socket, connection.controller.signal);
+    await transports.open(id, connectionId, socket, connection.controller.signal, purpose);
   });
   listen('sendTransport', transports.send.bind(transports));
   listen('acknowledgeTransport', transports.acknowledge.bind(transports));

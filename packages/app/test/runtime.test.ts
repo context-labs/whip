@@ -125,6 +125,37 @@ describe('v4 application observation ownership', () => {
 });
 
 describe('draft persistence and bounded storage', () => {
+  it.each([-1, 0, 1])('enforces the exact encoded storage ceiling at offset %i without changing saved work', offset => {
+    const entries: [string, string][] = Array.from({ length: 8 }, (_, index) =>
+      [`runtime:root:escaped\"\\\né😀\ud800:${index}`, '\n'.repeat(120_000)]);
+    entries.push(['runtime:root:last', 'é😀\ud800']);
+    const ceiling = 2 * 1024 * 1024;
+    const padding = ceiling - new TextEncoder().encode(JSON.stringify(entries)).byteLength;
+    entries[8]![1] += 'a'.repeat(padding + offset);
+    expect(new TextEncoder().encode(JSON.stringify(entries)).byteLength).toBe(ceiling + offset);
+    for (const [, text] of entries) expect(new TextEncoder().encode(text).byteLength).toBeLessThanOrEqual(256 * 1024);
+    const values = new Map(entries.map(([key, text]) => ['whip.web.draft.v1:' + key, text]));
+    const setItem = vi.fn(), removeItem = vi.fn();
+    const app = runtime({ keys: () => [...values.keys()], getItem: key => values.get(key) ?? null, setItem, removeItem });
+    try {
+      if (offset > 0) expect(app.getSnapshot().error).toContain('device storage bound');
+      else {
+        expect(app.getSnapshot().error).toBeUndefined();
+        for (const [key, text] of entries) expect(app.draft(key)).toBe(text);
+      }
+      expect(setItem).not.toHaveBeenCalled(); expect(removeItem).not.toHaveBeenCalled();
+    } finally { app.dispose(); }
+  });
+  it('counts repeated storage keys once while retaining the latest observed value', () => {
+    const key = 'whip.web.draft.v1:runtime:root:agent';
+    let reads = 0;
+    const app = runtime({ keys: () => Array(32).fill(key), getItem: candidate => candidate === key ? (++reads === 1 ? 'first' : 'é'.repeat(128 * 1024)) : null,
+      setItem: vi.fn(), removeItem: vi.fn() });
+    try {
+      expect(app.getSnapshot().error).toBeUndefined();
+      expect(app.draft('runtime:root:agent')).toBe('é'.repeat(128 * 1024));
+    } finally { app.dispose(); }
+  });
   it('debounces drafts separately from metadata and restores them after reload', () => {
     vi.useFakeTimers();
     const app = runtime();

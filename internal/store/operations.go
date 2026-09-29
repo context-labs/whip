@@ -36,7 +36,7 @@ func scanOperation(row scanner) (value session.Operation, err error) {
 	if result.Valid {
 		err = json.Unmarshal([]byte(result.String), &value.Result)
 	}
-	return
+	return value, err
 }
 
 func scanGrant(row scanner) (value session.Grant, err error) {
@@ -275,7 +275,7 @@ func (s *Store) admitOperation(ctx context.Context, spec session.OperationSpec, 
 		result, err = readOperation(ctx, tx, spec.ID)
 		return err
 	})
-	return
+	return result, err
 }
 
 // DispatchOperation is the authorization linearization point. Only a successful
@@ -504,7 +504,7 @@ func (s *Store) SettleOperation(ctx context.Context, id session.OperationID, out
 		result, err = settleOperation(ctx, tx, operation, outcome)
 		return err
 	})
-	return
+	return result, err
 }
 
 func settleOperation(ctx context.Context, tx *sql.Tx, operation session.Operation, outcome session.OperationResult) (session.Operation, error) {
@@ -601,7 +601,7 @@ func (s *Store) CreateGrant(ctx context.Context, grant session.Grant) (result se
 		result, err = readGrant(ctx, tx, grant.ID)
 		return err
 	})
-	return
+	return result, err
 }
 
 func (s *Store) ResolvePermission(ctx context.Context, id session.OperationID, approved bool) (result session.Permission, err error) {
@@ -660,12 +660,32 @@ func (s *Store) ResolvePermission(ctx context.Context, id session.OperationID, a
 		result, err = readPermission(ctx, tx, id)
 		return err
 	})
-	return
+	return result, err
 }
 
 func (s *Store) RevokeGrant(ctx context.Context, id session.GrantID) (result session.Grant, err error) {
 	err = s.write(ctx, func(tx *sql.Tx) error { result, err = revokeGrant(ctx, tx, id); return err })
-	return
+	return result, err
+}
+
+// RevokeGrantForOwner binds a human client action to the selected immutable
+// session identity. A deleted owner's grant ID may later be reused elsewhere.
+func (s *Store) RevokeGrantForOwner(ctx context.Context, owner session.SessionID, id session.GrantID) (result session.Grant, err error) {
+	if err := session.ValidateID(string(owner)); err != nil {
+		return result, err
+	}
+	err = s.write(ctx, func(tx *sql.Tx) error {
+		grant, readErr := readGrant(ctx, tx, id)
+		if readErr != nil {
+			return readErr
+		}
+		if grant.SessionID != owner {
+			return ErrConflict
+		}
+		result, err = revokeGrant(ctx, tx, id)
+		return err
+	})
+	return result, err
 }
 
 func revokeGrant(ctx context.Context, tx *sql.Tx, id session.GrantID) (session.Grant, error) {

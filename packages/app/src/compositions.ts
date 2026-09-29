@@ -392,10 +392,10 @@ export class CompositionStore {
         attachments: Object.freeze(
           entry.state.attachments.map(item => {
             // A verified same-runtime reconnect preserves durable references,
-            // but unfinished uploads are never resumed or replayed.
+            // and local previews; unfinished uploads are never resumed or replayed.
             if (runtimeId && options.preserveUploaded && item.value && !item.error) return item;
             const { id, name, size, mediaType } = item;
-            return Object.freeze({ id, name, size, mediaType, error: options.preserveUploaded
+            return Object.freeze({ id, name, size, mediaType, ...(runtimeId && options.preserveUploaded && item.previewUrl ? { previewUrl: item.previewUrl } : {}), error: options.preserveUploaded
               ? 'Attachment upload was interrupted. Remove it and select the file again.'
               : 'Attachment unavailable after changing hosts. Remove it and select the file again.' });
           }),

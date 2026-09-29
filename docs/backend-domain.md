@@ -2027,6 +2027,16 @@ terminal families plus `shell.input` require explicit operator `-web-terminals`
 authorization. Allowed network account/setup operations keep the same public
 service boundary. The gateway cannot erase the marker with a later handshake.
 
+Managed gateway failure does not own the local execution lifetime. Host status
+publishes optional `web_state` (`starting`, `running`, `failed`) and bounded
+`web_error`; absence means socket-only, and only a running gateway publishes its
+endpoint. A new explicitly network-enabled launch waits for actual gateway
+readiness and reports failure while leaving the core available. Starting an
+already running host is idempotent and preserves its original network policy;
+changing it requires explicit restart. Gateway shutdown/failure clears its
+endpoint, and host shutdown still closes and joins the gateway. These are live
+command-owned observations, never a durable session or second configuration.
+
 Frames are bounded at8MiB, with48 WebSockets and16 concurrent content transfers,
 write deadlines and socket backpressure. JSON envelopes are checked for duplicate
 keys and compacted before newline framing. Shutdown closes and joins hijacked
@@ -2037,9 +2047,11 @@ content contract; there is no separate upload registry or digest-based authority
 
 `@whip/sdk/browser` offers ordinary calls and scoped content transfers. Each
 connection verifies the selected host, local cancellation stops only observation,
-and no transport automatically retries mutations. Assets are not yet adopted:
-the API discovery endpoint reports `available: false`, and `/` returns503 until a
-v4 application is packaged. Product web/desktop/mobile migration remains Phase6.
+and no transport automatically retries mutations. Packaged assets are the actual shared
+native application. A build without assets still reports `available: false` and
+returns503 at `/`; discovery never substitutes a placeholder or claims an
+unpackaged renderer is available. Exact product acceptance remains in the
+Phase6 development record.
 
 
 ## Session shell execution and human input
@@ -2338,3 +2350,31 @@ of resending an uncertain effect. Shutdown joins accepted work before deleting
 only the endpoint-created root. The command-owned stdio wrapper bounds MCP lines,
 arguments, batches, concurrency, output and blocked writes while preserving
 ACP's separate frame limit.
+
+
+## Long-home native socket placement
+
+`internal/runtimepath` is the shared pure socket-address function. Short homes
+keep `runtime.sock` in the selected runtime directory. If that path exceeds the
+100-byte Unix bound, the socket alone uses `/tmp/whip-<uid>-<full SHA-256 of the
+absolute runtime directory>/runtime.sock`. This fixed short location is
+independent of `TMPDIR`, so launch and later discovery agree. Host configuration,
+SQL, content and the sole execution/launch locks stay in the selected home.
+Read-only discovery creates nothing.
+
+The execution owner holds the durable runtime lock before creating or validating
+the fallback directory. It must be a real0700 directory owned by the current UID;
+symlinks, other owners, public modes and non-socket occupants are rejected without
+repairing permissions or replacing files. Only that owner removes a stale socket.
+RPC retains its100-byte bound and0600 socket. Closing the owner removes an empty
+fallback directory only; there is no recursive cleanup of unexpected contents.
+
+## Offline model catalog maintenance
+
+`internal/modelcatalog` owns the reviewed Models.dev snapshot, provenance, codec
+and immutable-copy helpers. The provider host and `cmd/modelgen` share that single
+source; ordinary builds and checks never download a catalog. Generator policy
+comes from native `providerhost.Presets` and explicit retained metadata overrides.
+The generated desktop environment inventory still combines declared names with
+reviewed upstream aliases. Offline candidates never establish live membership,
+credentials, model defaults or price evidence for an actual provider attempt.

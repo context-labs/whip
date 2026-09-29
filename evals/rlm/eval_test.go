@@ -13,16 +13,11 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/context-labs/whip/internal/engine/process"
 
-	"github.com/context-labs/whip/internal/agent"
-	"github.com/context-labs/whip/internal/agentdef"
-	"github.com/context-labs/whip/internal/legacy/config"
-	"github.com/context-labs/whip/internal/llm"
-	"github.com/context-labs/whip/internal/rlm"
-	"github.com/context-labs/whip/internal/tools"
+	"github.com/context-labs/whip/internal/model"
+	"github.com/context-labs/whip/internal/session"
 )
 
 type smokeSpec struct {
@@ -57,9 +52,11 @@ type evaluationMetrics struct {
 	CompletionTokens             int     `json:"cumulative_completion_tokens"`
 	CumulativeTokens             int     `json:"cumulative_tokens"`
 	PeakCallPromptTokens         int     `json:"peak_call_prompt_tokens"`
-	PeakCallPromptTokensEstimate int64   `json:"peak_call_prompt_tokens_estimate"`
+	PeakCallPromptTokensEstimate *int64  `json:"peak_call_prompt_tokens_estimate"`
+	PeakDeclaredInputTokenBound  *int64  `json:"peak_declared_input_token_bound"`
 	CostUSD                      float64 `json:"cost_usd"`
 	UnknownCostCalls             int     `json:"unknown_cost_calls"`
+	UnknownUsageCalls            int     `json:"unknown_usage_calls"`
 	EstimatedCostCalls           int     `json:"estimated_cost_calls"`
 }
 
@@ -71,85 +68,15 @@ type comparisonReport struct {
 	Fixture           string            `json:"fixture"`
 	Model             string            `json:"model"`
 	Provider          string            `json:"provider"`
-	RootContextTokens int               `json:"root_context_tokens"`
+	RootContextTokens int               `json:"fixture_context_target_tokens"`
 	MaxModelCalls     int               `json:"max_model_calls"`
 	Runtime           evaluationMetrics `json:"runtime"`
-}
-
-type evaluationBudget struct {
-	mu                           sync.Mutex
-	maxCalls                     int
-	maxCallEstimate              int64
-	peakCallPromptTokens         int
-	peakCallPromptTokensEstimate int64
-	calls                        int
-	usage                        llm.Usage
-	costMicros                   int64
-	unknownCostCalls             int
-	estimatedCostCalls           int
-}
-
-func (budget *evaluationBudget) BeginModelAttempt(_ context.Context, attempt llm.ModelAttempt) (llm.ModelPermit, error) {
-	budget.mu.Lock()
-	defer budget.mu.Unlock()
-	if budget.calls >= budget.maxCalls {
-		return llm.ModelPermit{}, errors.New("evaluation model-call budget exhausted")
-	}
-	if attempt.InputTokens > budget.maxCallEstimate-int64(attempt.MaxTokens) {
-		return llm.ModelPermit{}, fmt.Errorf("evaluation context estimate exceeds %d", budget.maxCallEstimate)
-	}
-	budget.calls++
-	budget.peakCallPromptTokensEstimate = max(budget.peakCallPromptTokensEstimate, attempt.InputTokens)
-	var once sync.Once
-	var settleErr error
-	return llm.ModelPermit{MaxTokens: attempt.MaxTokens, Timeout: attempt.Timeout, Settle: func(result llm.ModelAttemptResult) error {
-		once.Do(func() {
-			if !result.Dispatched {
-				return
-			}
-			cost, known, err := attempt.Pricing.ActualCost(result.Usage)
-			if err != nil {
-				settleErr = err
-				return
-			}
-			if !known && !result.Usage.HasUsage() && attempt.Pricing.Known() {
-				cost, err = attempt.Pricing.ReserveCost(attempt.InputTokens, int64(attempt.MaxTokens))
-				if err != nil {
-					settleErr = err
-					return
-				}
-				known = true
-			}
-			budget.mu.Lock()
-			defer budget.mu.Unlock()
-			budget.peakCallPromptTokens = max(budget.peakCallPromptTokens, result.Usage.PromptTokens)
-			budget.usage.PromptTokens += result.Usage.PromptTokens
-			budget.usage.CompletionTokens += result.Usage.CompletionTokens
-			budget.costMicros += cost
-			if !known {
-				budget.unknownCostCalls++
-			} else if result.Usage.Cost == nil {
-				budget.estimatedCostCalls++
-			}
-		})
-		return settleErr
-	}}, nil
-}
-
-func (budget *evaluationBudget) Calls() int {
-	budget.mu.Lock()
-	defer budget.mu.Unlock()
-	return budget.calls
 }
 
 type smokeHost struct {
 	corpus      string
 	handle      string
-	client      *llm.Client
-	model       string
-	pricing     llm.Pricing
-	maxTokens   int
-	budget      *evaluationBudget
+	evaluation  *nativeEvaluation
 	mu          sync.Mutex
 	calls       []string
 	maxRead     int
@@ -210,51 +137,9 @@ func (host *smokeHost) Call(ctx context.Context, module, operation string, argum
 		host.mu.Lock()
 		host.modelFanout = max(host.modelFanout, len(prompts))
 		host.mu.Unlock()
-		results := make([]map[string]any, len(prompts))
-		var calls sync.WaitGroup
-		for index, item := range prompts {
-			prompt, ok := item.(string)
-			if !ok {
-				results[index] = map[string]any{"error": "prompt is not a string"}
-				continue
-			}
-			calls.Go(func() { results[index] = host.callModel(ctx, prompt) })
-		}
-		calls.Wait()
-		return results, nil
+		return host.evaluation.batch(ctx, prompts)
 	}
 	return nil, fmt.Errorf("unsupported smoke operation %s.%s", module, operation)
-}
-
-func (host *smokeHost) callModel(ctx context.Context, prompt string) map[string]any {
-	usage := llm.Usage{PromptTokens: 100, CompletionTokens: 10}
-	output := "candidate found through a bounded corpus search"
-	var err error
-	if host.client != nil {
-		maxTokens := host.maxTokens
-		if maxTokens <= 0 {
-			maxTokens = 256
-		}
-		var accounting *llm.CallAccounting
-		if host.budget != nil {
-			accounting = &llm.CallAccounting{Budget: host.budget, Purpose: "models.call", Pricing: host.pricing}
-		}
-		output, usage, err = host.client.Complete(ctx, llm.Request{
-			Model: host.model, Messages: []llm.Message{{Role: "user", Content: prompt}}, MaxTokens: maxTokens, Accounting: accounting,
-		})
-	} else if host.budget != nil {
-		permit, reserveErr := host.budget.BeginModelAttempt(ctx, llm.ModelAttempt{InputTokens: int64(llm.EstimateTokens([]llm.Message{{Role: "user", Content: prompt}})), MaxTokens: 256, Pricing: host.pricing})
-		if reserveErr != nil {
-			return map[string]any{"error": reserveErr.Error()}
-		}
-		if settleErr := permit.Settle(llm.ModelAttemptResult{Usage: usage, Dispatched: true}); settleErr != nil {
-			return map[string]any{"error": settleErr.Error()}
-		}
-	}
-	if err != nil {
-		return map[string]any{"error": err.Error()}
-	}
-	return map[string]any{"output": output, "usage": usage}
 }
 
 func number(value any) int {
@@ -380,7 +265,7 @@ func validateComparisonToolResult(content, engineID string, want fixtureEvidence
 	if err := json.Unmarshal([]byte(content), &result); err != nil {
 		return fmt.Errorf("invalid tool result: %w", err)
 	}
-	descriptor, err := rlm.ResolveEngine(engineID)
+	descriptor, err := process.ResolveExecutionEngine(engineID)
 	if err != nil {
 		return err
 	}
@@ -396,12 +281,16 @@ func validateComparisonToolResult(content, engineID string, want fixtureEvidence
 func comparisonServer(t *testing.T, engineID string, spec comparisonSpec, evidence fixtureEvidence) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		var input llm.Request
+		var input chatRequest
 		if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
+		if len(input.Messages) == 1 && input.Messages[0].Role == "user" {
+			fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"candidate found through a bounded corpus search\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":10}}\n\ndata: [DONE]\n\n")
+			return
+		}
 		if len(input.Messages) > 0 && input.Messages[len(input.Messages)-1].Role == "tool" {
 			answer := comparisonAnswer(spec, evidence)
 			if err := validateComparisonToolResult(input.Messages[len(input.Messages)-1].Content, engineID, evidence); err != nil {
@@ -413,42 +302,9 @@ func comparisonServer(t *testing.T, engineID string, spec comparisonSpec, eviden
 			return
 		}
 		arguments, _ := json.Marshal(map[string]string{"code": comparisonCode(engineID, spec, evidence)})
-		fmt.Fprintf(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"rlm-1","type":"function","function":{"name":"rlm_exec","arguments":%q}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":800,"completion_tokens":75}}`+"\n\n", string(arguments))
+		fmt.Fprintf(w, `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"rlm-1","type":"function","function":{"name":"execute","arguments":%q}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":800,"completion_tokens":75}}`+"\n\n", string(arguments))
 		fmt.Fprint(w, "data: [DONE]\n\n")
 	}))
-}
-
-func evaluateAgent(ctx context.Context, spec comparisonSpec, task string, value *agent.Agent, budget *evaluationBudget, host *smokeHost) (evaluationMetrics, string, error) {
-	value.ContextLimit = spec.RootContextTokens
-	value.MaxTurns = spec.MaxModelCalls
-	value.SetModelCallBudget(budget)
-	started := time.Now()
-	output, err := value.Turn(ctx, task, agent.Events{})
-	duration := time.Since(started)
-	budget.mu.Lock()
-	usage := budget.usage
-	peakPrompt, peakPromptEstimate := budget.peakCallPromptTokens, budget.peakCallPromptTokensEstimate
-	costUSD, unknown, estimated := float64(budget.costMicros)/1e6, budget.unknownCostCalls, budget.estimatedCostCalls
-	budget.mu.Unlock()
-	hostCalls, modelFanout := 0, 0
-	if host != nil {
-		host.mu.Lock()
-		hostCalls = len(host.calls)
-		modelFanout = host.modelFanout
-		host.mu.Unlock()
-	}
-	expected := spec.ExpectedAnswer
-	if expected == "" {
-		expected = spec.Expected
-	}
-	metrics := evaluationMetrics{
-		Correct: output == expected, Error: errorString(err), DurationMillis: duration.Milliseconds(),
-		ModelCalls: budget.Calls(), ModelFanout: modelFanout, HostCalls: hostCalls, PromptTokens: usage.PromptTokens,
-		CompletionTokens: usage.CompletionTokens, CumulativeTokens: usage.PromptTokens + usage.CompletionTokens,
-		PeakCallPromptTokens: peakPrompt, PeakCallPromptTokensEstimate: peakPromptEstimate,
-		CostUSD: costUSD, UnknownCostCalls: unknown, EstimatedCostCalls: estimated,
-	}
-	return metrics, output, err
 }
 
 func logEvaluationReport(t *testing.T, report comparisonReport) []byte {
@@ -461,16 +317,12 @@ func logEvaluationReport(t *testing.T, report comparisonReport) []byte {
 	return append(data, '\n')
 }
 
-func resolveLiveEvalRoute(cfg *config.Config) (config.Provider, config.Model, string, error) {
-	return cfg.Resolve(os.Getenv("WHIP_RLM_EVAL_MODEL"), os.Getenv("WHIP_RLM_EVAL_PROVIDER"))
-}
-
 func TestEvalKernelWorker(t *testing.T) {
 	separator := slices.Index(os.Args, "--")
 	if separator < 0 {
 		return
 	}
-	if err := process.WorkerMain(os.Args[separator+1:], os.Stdin, os.Stdout, rlm.DescribeEngine); err != nil {
+	if err := process.WorkerMain(os.Args[separator+1:], os.Stdin, os.Stdout, nil); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
@@ -523,7 +375,7 @@ const excerpt = await context.read({handle:hits.matches[0].handle,offset:hits.ma
 			if !slices.Equal(host.calls, []string{"context.search", "context.read"}) {
 				t.Fatalf("host calls=%v", host.calls)
 			}
-			prompt := codingPrompt(t, engineID, "/workspace", &rlm.ContextHandle{ReferenceID: "smoke-corpus", Size: int64(len(corpus)), Source: "fixture"})
+			prompt := codingPrompt(t, engineID, "/workspace", &corpusHandle{ID: "smoke-corpus", Size: len(corpus)})
 			if strings.Contains(prompt, spec.Needle) || len(prompt) >= len(corpus) {
 				t.Fatal("corpus leaked into root prompt")
 			}
@@ -538,19 +390,13 @@ func TestDeterministicRLMEvaluationReport(t *testing.T) {
 			evidence := comparisonEvidence(spec, corpus)
 			server := comparisonServer(t, engineID, spec, evidence)
 			defer server.Close()
-			budget := &evaluationBudget{maxCalls: spec.MaxModelCalls, maxCallEstimate: int64(spec.RootContextTokens)}
-			pricing := llm.Pricing{Prompt: strconv.FormatFloat(spec.InputPrice, 'g', -1, 64), Completion: strconv.FormatFloat(spec.OutputPrice, 'g', -1, 64)}
-			host := &smokeHost{corpus: corpus, handle: "comparison-corpus", budget: budget, pricing: pricing}
-			kernel := smokeKernel(t, engineID, host)
-			prompt := codingPrompt(t, engineID, "/fixture", &rlm.ContextHandle{ReferenceID: "comparison-corpus", Size: int64(len(corpus)), Source: "fixture"})
-			value := agent.NewRuntime(llm.New(server.URL, "scripted"), "scripted", spec.MaxOutputTokens, prompt, tools.NewServices())
-			value.Pricing = pricing
-			value.SetExclusiveTool(rlm.Tool(kernel), "rlm")
-			metrics, output, err := evaluateAgent(t.Context(), spec, task, value, budget, host)
+			host := &smokeHost{corpus: corpus, handle: "comparison-corpus"}
+			value := newNativeEvaluation(t, engineID, fixtureProvider(server.URL, spec), session.ModelSelection{Provider: "fixture", Name: "scripted"}, spec, host)
+			metrics, output, err := value.evaluate(t.Context(), spec, task)
 			if err != nil {
 				t.Fatal(err)
 			}
-			descriptor, _ := rlm.ResolveEngine(engineID)
+			descriptor, _ := process.ResolveExecutionEngine(engineID)
 			report := comparisonReport{ExecutionEngine: engineID, Language: descriptor.Language, UsageSource: "synthetic_fixture", PricingSource: "synthetic_fixture", Fixture: "comparison", Model: "scripted", Provider: "httptest", RootContextTokens: spec.RootContextTokens, MaxModelCalls: spec.MaxModelCalls, Runtime: metrics}
 			logEvaluationReport(t, report)
 			if !report.Runtime.Correct || output != comparisonAnswer(spec, evidence) {
@@ -559,10 +405,10 @@ func TestDeterministicRLMEvaluationReport(t *testing.T) {
 			if metrics.ModelCalls != 4 || metrics.ModelFanout != 2 || !slices.Equal(host.calls, []string{"models.batch", "context.search", "context.read"}) {
 				t.Fatalf("budget/calls=%+v host=%v", metrics, host.calls)
 			}
-			if metrics.CumulativeTokens != 2100 || metrics.PeakCallPromptTokens != 950 || metrics.PeakCallPromptTokensEstimate <= 0 || metrics.PeakCallPromptTokensEstimate > int64(spec.RootContextTokens) {
+			if metrics.CumulativeTokens != 2100 || metrics.PeakCallPromptTokens != 950 || metrics.PeakCallPromptTokensEstimate != nil || metrics.PeakDeclaredInputTokenBound == nil || *metrics.PeakDeclaredInputTokenBound != int64(spec.RootContextTokens) || metrics.UnknownUsageCalls != 0 || metrics.EstimatedCostCalls != 4 {
 				t.Fatalf("usage metrics=%+v", metrics)
 			}
-			if host.maxRead != len(evidence.Text) || strings.Contains(prompt, spec.Expected) {
+			if host.maxRead != len(evidence.Text) || strings.Contains(value.prompt, spec.Expected) {
 				t.Fatalf("corpus boundary max_read=%d", host.maxRead)
 			}
 		})
@@ -574,7 +420,7 @@ func TestComparisonProviderRejectsInvalidEvidence(t *testing.T) {
 	want := fixtureEvidence{Text: "target value=answer", Handle: "comparison-corpus", Citation: byteSpan{Start: 41, End: 60}}
 	for _, engineID := range []string{process.EngineStarlark, process.EngineQuickJS} {
 		t.Run(engineID, func(t *testing.T) {
-			descriptor, _ := rlm.ResolveEngine(engineID)
+			descriptor, _ := process.ResolveExecutionEngine(engineID)
 			server := comparisonServer(t, engineID, spec, want)
 			defer server.Close()
 			for _, test := range []struct {
@@ -602,10 +448,7 @@ func TestComparisonProviderRejectsInvalidEvidence(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					call := llm.ToolCall{ID: "rlm-1", Type: "function"}
-					call.Function.Name, call.Function.Arguments = "rlm_exec", "{}"
-					response, _, err := llm.New(server.URL, "scripted").Stream(t.Context(), llm.Request{Model: "scripted", MaxTokens: 256, Messages: []llm.Message{{Role: "assistant", ToolCalls: []llm.ToolCall{call}}, {Role: "tool", ToolCallID: call.ID, Content: string(content)}}}, nil, nil, nil)
-					output := response.Content
+					output, err := probeToolResult(t.Context(), server.URL, string(content))
 					if err != nil || !strings.HasPrefix(output, "fixture validation failed:") {
 						t.Fatalf("faux provider accepted invalid evidence: output=%q error=%v", output, err)
 					}
@@ -621,23 +464,31 @@ func TestComparisonProviderRejectsInvalidEvidence(t *testing.T) {
 func TestEvaluationAccountsProviderChargesAndUnknownPrices(t *testing.T) {
 	for _, tc := range []struct {
 		name, usage string
-		pricing     llm.Pricing
+		pricing     session.ModelPrices
 		cost        float64
 		unknown     int
 	}{
-		{"provider charge", `{"prompt_tokens":2,"completion_tokens":1,"cost":0.015}`, llm.Pricing{Prompt: "1", Completion: "1"}, 0.015, 0},
-		{"provider free", `{"prompt_tokens":2,"completion_tokens":1,"cost":0}`, llm.Pricing{Prompt: "1", Completion: "1"}, 0, 0},
-		{"unknown price", `{"prompt_tokens":2,"completion_tokens":1}`, llm.Pricing{}, 0, 1},
+		{"provider charge", `{"prompt_tokens":2,"completion_tokens":1,"cost":0.015}`, fixturePrices(1, 1), 0.015, 0},
+		{"provider free", `{"prompt_tokens":2,"completion_tokens":1,"cost":0}`, fixturePrices(1, 1), 0, 0},
+		{"unknown price", `{"prompt_tokens":2,"completion_tokens":1}`, session.ModelPrices{}, 0, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
 				fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"answer\"},\"finish_reason\":\"stop\"}],\"usage\":%s}\n\n", tc.usage)
+				fmt.Fprint(w, "data: [DONE]\n\n")
 			}))
 			defer server.Close()
-			budget := &evaluationBudget{maxCalls: 1, maxCallEstimate: 100_000}
-			value := agent.NewRuntime(llm.New(server.URL, "test"), "test", 10, "answer briefly", tools.NewServices())
-			value.Pricing = tc.pricing
-			metrics, _, err := evaluateAgent(t.Context(), comparisonSpec{RootContextTokens: 100_000, MaxModelCalls: 1, Expected: "answer"}, "question", value, budget, nil)
+			spec := comparisonSpec{RootContextTokens: 100_000, MaxModelCalls: 1, MaxOutputTokens: 10, Expected: "answer"}
+			provider := fixtureProvider(server.URL, spec)
+			resolve := provider.Resolve
+			provider.Resolve = func(ctx context.Context, selected session.ModelSelection) (model.Route, error) {
+				route, err := resolve(ctx, selected)
+				route.Prices = tc.pricing
+				return route, err
+			}
+			value := newNativeEvaluation(t, process.EngineStarlark, provider, session.ModelSelection{Provider: "fixture", Name: "scripted"}, spec, nil)
+			metrics, _, err := value.evaluate(t.Context(), spec, "question")
 			if err != nil || metrics.CostUSD != tc.cost || metrics.UnknownCostCalls != tc.unknown || metrics.ModelCalls != 1 {
 				t.Fatalf("metrics=%+v err=%v", metrics, err)
 			}
@@ -649,47 +500,20 @@ func TestLiveOversizedContextSmoke(t *testing.T) {
 	if os.Getenv("WHIP_RLM_LIVE_SMOKE") != "1" {
 		t.Skip("set WHIP_RLM_LIVE_SMOKE=1 for the opt-in provider evaluation")
 	}
-	spec, corpus, task := loadSmoke(t)
+	smoke, corpus, task := loadSmoke(t)
 	engineID := liveEvalEngine(t)
-	cfg, err := config.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	provider, model, apiID, err := resolveLiveEvalRoute(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	key, err := provider.ResolveKey()
-	if err != nil || key == "" {
-		t.Fatalf("resolve provider key: %v", err)
-	}
+	provider, selected := liveProvider(t)
 	host := &smokeHost{corpus: corpus}
-	kernel := smokeKernel(t, engineID, host)
-	client := llm.New(provider.BaseURL, key)
-	client.MaxRetries = cfg.MaxRetries
-	maxOutput := model.MaxOut
-	if maxOutput == 0 {
-		maxOutput = 4_096
+	spec := comparisonSpec{RootContextTokens: 16384, MaxModelCalls: 8, MaxOutputTokens: 4096, ExpectedAnswer: evidenceAnswer(smoke.Needle, corpusEvidence(corpus, "smoke-corpus", smoke.Needle))}
+	value := newNativeEvaluation(t, engineID, provider, selected, spec, host)
+	metrics, output, err := value.evaluate(t.Context(), spec, task)
+	if err != nil || !metrics.Correct {
+		t.Fatalf("live answer=%q error=%v", output, err)
 	}
-	ag := agent.NewRuntime(client, apiID, maxOutput, codingPrompt(t, engineID, "/workspace", &rlm.ContextHandle{ReferenceID: "smoke-corpus", Size: int64(len(corpus)), Source: "fixture"}), tools.NewServices())
-	ag.MaxTurns = 8
-	ag.SetExclusiveTool(rlm.Tool(kernel), "rlm")
-	output, err := ag.Turn(context.Background(), task, agent.Events{})
-	if err != nil {
-		t.Fatal(err)
+	if !slices.Contains(host.calls, "context.search") || !slices.Contains(host.calls, "context.read") || host.maxRead > 8<<10 {
+		t.Fatalf("calls=%v max_read=%d", host.calls, host.maxRead)
 	}
-	expected := evidenceAnswer(spec.Needle, corpusEvidence(corpus, "smoke-corpus", spec.Needle))
-	if output != expected {
-		t.Fatalf("live answer=%q want=%q", output, expected)
-	}
-	host.mu.Lock()
-	calls, maxRead := append([]string(nil), host.calls...), host.maxRead
-	host.mu.Unlock()
-	if !slices.Contains(calls, "context.search") || !slices.Contains(calls, "context.read") || maxRead > 8<<10 {
-		t.Fatalf("live module evidence calls=%v max_read=%d", calls, maxRead)
-	}
-	usage := ag.Usage()
-	t.Logf("RLM live smoke: engine=%s usage_source=provider_reported corpus_bytes=%d prompt_bytes=%d calls=%v max_read=%d input_tokens=%d output_tokens=%d", engineID, len(corpus), len(task), calls, maxRead, usage.PromptTokens, usage.CompletionTokens)
+	t.Logf("native live fixture: engine=%s corpus_bytes=%d usage=%+v", engineID, len(corpus), metrics)
 }
 
 func TestLiveRLMEvaluation(t *testing.T) {
@@ -698,57 +522,20 @@ func TestLiveRLMEvaluation(t *testing.T) {
 	}
 	spec, corpus, task := loadComparison(t)
 	engineID := liveEvalEngine(t)
-	cfg, err := config.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	provider, model, apiID, err := resolveLiveEvalRoute(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	key, err := provider.ResolveKey()
-	if err != nil || key == "" {
-		t.Fatalf("resolve provider key: %v", err)
-	}
-	maxOutput := model.MaxOut
-	if maxOutput <= 0 || maxOutput > spec.MaxOutputTokens {
-		maxOutput = spec.MaxOutputTokens
-	}
-	var pricing llm.Pricing
-	if catalog, ok := config.LoadCatalogs()[provider.Name]; ok {
-		pricing = catalog.ModelPricing(apiID)
-	}
-	newClient := func() *llm.Client {
-		client := llm.New(provider.BaseURL, key)
-		client.MaxRetries = cfg.MaxRetries
-		return client
-	}
-
-	rlmBudget := &evaluationBudget{maxCalls: spec.MaxModelCalls, maxCallEstimate: int64(spec.RootContextTokens)}
-	host := &smokeHost{corpus: corpus, handle: "comparison-corpus", client: newClient(), model: apiID, maxTokens: min(maxOutput, 256), budget: rlmBudget, pricing: pricing}
-	kernel := smokeKernel(t, engineID, host)
-	rlmAgent := agent.NewRuntime(newClient(), apiID, maxOutput,
-		codingPrompt(t, engineID, "/fixture", &rlm.ContextHandle{ReferenceID: "comparison-corpus", Size: int64(len(corpus)), Source: "fixture"}), tools.NewServices())
-	rlmAgent.Pricing = pricing
-	rlmAgent.SetExclusiveTool(rlm.Tool(kernel), "rlm")
-	rlmMetrics, rlmOutput, err := evaluateAgent(t.Context(), spec, task, rlmAgent, rlmBudget, host)
-	rlmErr := err
-
-	descriptor, _ := rlm.ResolveEngine(engineID)
-	report := comparisonReport{
-		ExecutionEngine: engineID, Language: descriptor.Language, UsageSource: "provider_reported", PricingSource: "provider_charge_or_catalog_estimate",
-		Fixture: "comparison-live", Model: apiID, Provider: provider.Name,
-		RootContextTokens: spec.RootContextTokens, MaxModelCalls: spec.MaxModelCalls,
-		Runtime: rlmMetrics,
-	}
+	provider, selected := liveProvider(t)
+	host := &smokeHost{corpus: corpus, handle: "comparison-corpus"}
+	value := newNativeEvaluation(t, engineID, provider, selected, spec, host)
+	metrics, output, err := value.evaluate(t.Context(), spec, task)
+	descriptor, _ := process.ResolveExecutionEngine(engineID)
+	report := comparisonReport{ExecutionEngine: engineID, Language: descriptor.Language, UsageSource: "provider_reported", PricingSource: "provider_charge_or_declared_estimate", Fixture: "comparison-live", Model: selected.Name, Provider: selected.Provider, RootContextTokens: spec.RootContextTokens, MaxModelCalls: spec.MaxModelCalls, Runtime: metrics}
 	data := logEvaluationReport(t, report)
 	if path := os.Getenv("WHIP_RLM_EVAL_REPORT"); path != "" {
 		if err := os.WriteFile(path, data, 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if rlmErr != nil || !report.Runtime.Correct {
-		t.Fatalf("live evaluation output=%q error=%v", rlmOutput, rlmErr)
+	if err != nil || !metrics.Correct {
+		t.Fatalf("live output=%q error=%v", output, err)
 	}
 }
 
@@ -771,7 +558,7 @@ func TestSmokeFixtureNeedleIsUnique(t *testing.T) {
 
 func liveEvalEngine(t *testing.T) string {
 	t.Helper()
-	descriptor, err := rlm.ResolveEngine(os.Getenv("WHIP_RLM_EVAL_ENGINE"))
+	descriptor, err := process.ResolveExecutionEngine(os.Getenv("WHIP_RLM_EVAL_ENGINE"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -793,12 +580,18 @@ func TestLiveEvalEngineSelection(t *testing.T) {
 	}
 }
 
-// codingPrompt is the coding agent's standalone system prompt for one engine.
-func codingPrompt(tb testing.TB, engine, workingDirectory string, handle *rlm.ContextHandle) string {
+type corpusHandle struct {
+	ID   string
+	Size int
+}
+
+// The corpus module is deliberately a restricted evaluation fixture. Production
+// context operations inspect canonical history, not this synthetic corpus.
+func codingPrompt(tb testing.TB, engineID, workingDirectory string, handle *corpusHandle) string {
 	tb.Helper()
-	prompt, err := agentdef.Coding().SystemPrompt(engine, workingDirectory, handle)
+	descriptor, err := process.ResolveExecutionEngine(engineID)
 	if err != nil {
 		tb.Fatal(err)
 	}
-	return prompt
+	return fmt.Sprintf("Use execute to run %s in an isolated REPL. Workspace: %s. Synthetic corpus handle %s has %d bytes; its body is not in this prompt. Fixture context.inspect(handle), context.search(handle, query), context.read(handle, offset, length) return metadata, matches with exact byte spans, and bounded text with handle/span. Reads are at most8192bytes. models.batch(prompts, max_tokens=256) runs stateless reviewers. Starlark uses keyword arguments; JavaScript uses await and one object argument. Return the exact requested answer and citation.", descriptor.Language, workingDirectory, handle.ID, handle.Size)
 }

@@ -21,6 +21,7 @@ import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
 import {
   activityItems,
   activitySummary,
+  fileOperationPath,
   spawnedSession,
   type ActivityGroup,
   type ActivityItem,
@@ -48,7 +49,7 @@ export function ActivityHeader({
   const preview = activityItems(group).at(-1);
   const snippet = (
     preview?.host?.result?.failure ||
-    preview?.host?.resource ||
+    (preview?.host && (fileOperationPath(preview.host) ?? preview.host.resource)) ||
     preview?.row?.text ||
     (preview?.cell
       ? cellOutput(preview.cell, connected).output
@@ -139,7 +140,10 @@ function operation(item: ActivityItem) {
           : label === 'Browser'
             ? Globe
             : Terminal;
-  return { label, icon, detail: item.host?.resource || '' };
+  return {
+    label, icon,
+    detail: item.host ? fileOperationPath(item.host) ?? item.host.resource : '',
+  };
 }
 
 export function ActivityStep({
@@ -357,6 +361,7 @@ export function ActivityDetail({
       )}
       {item.host && (
         <>
+          <p {...stylex.props(styles.muted)}>Permission scope: {item.host.resource}</p>
           <CodeBlock
             code={JSON.stringify(item.host.arguments, null, 2)}
             label="Operation arguments"

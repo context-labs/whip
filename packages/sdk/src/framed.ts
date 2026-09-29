@@ -13,7 +13,9 @@ export interface FramedConnection {
   close(): void;
 }
 export interface FrameHandlers { message(message: string): void; close(error: Error): void }
-export type FramedConnector = (handlers: FrameHandlers, signal: AbortSignal) => Promise<FramedConnection>;
+/** Optional purpose selects a bounded local socket pool, never backend authority.
+ * Ordinary calls omit it; browser providers hold their peer until explicitly closed. */
+export type FramedConnector = (handlers: FrameHandlers, signal: AbortSignal, purpose?: 'browser-provider') => Promise<FramedConnection>;
 const maxFrameBytes = 8 << 20;
 const encoder = new TextEncoder();
 

@@ -4,8 +4,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/context-labs/whip/internal/legacy/config/modelsdev"
 	"github.com/context-labs/whip/internal/llm"
+	"github.com/context-labs/whip/internal/modelcatalog"
 )
 
 // CanonicalProviderPreset requires both the saved ID and its exact destination.
@@ -46,7 +46,7 @@ func RetainedPresetModels(id string) []llm.ModelInfo {
 }
 
 func presetMetadata(id string) map[string]llm.ModelInfo {
-	metadata, _ := modelsdev.Provider(ModelsDevProviderID(id))
+	metadata, _ := modelcatalog.Provider(ModelsDevProviderID(id))
 	models := make(map[string]llm.ModelInfo, len(metadata.Models))
 	for id, source := range metadata.Models {
 		model := llm.ModelInfo{ID: id, SupportsTools: source.SupportsTools, InputModalities: source.InputModalities, OutputModalities: source.OutputModalities, ReasoningEfforts: source.ReasoningEfforts}

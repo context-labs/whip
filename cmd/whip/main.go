@@ -7,10 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/context-labs/whip/internal/agentdef"
 	"github.com/context-labs/whip/internal/buildinfo"
+	"github.com/context-labs/whip/internal/session"
 
-	"github.com/context-labs/whip/internal/legacy/config"
 	"github.com/context-labs/whip/internal/tui"
 	"github.com/context-labs/whip/internal/update"
 )
@@ -75,15 +74,16 @@ func main() {
 		}
 		return
 	}
-	modelFlag := flag.String("m", "", "model name from ~/.whipcode/config.json (default: defaultModel)")
-	providerFlag := flag.String("p", "", "provider to route the model through (default: model's first provider)")
+	modelFlag := flag.String("m", "", "model name on the native provider route (default: host model)")
+	providerFlag := flag.String("p", "", "configured native provider route (default: host provider)")
 	versionFlag := flag.Bool("version", false, "print version")
 	engineFlag := flag.String("rlm-engine", "", "session execution language: starlark or quickjs (immutable on resume)")
-	agentFlag := flag.String("agent", "", "agent definition for a new session: a registered id, or built-in "+strings.Join(agentdef.IDs(), " or ")+" (default coding; immutable on resume)")
+	agentFlag := flag.String("agent", "", "agent definition for a new session: a registered id, or built-in "+strings.Join(nativeBuiltinNames(), " or ")+" (default coding; immutable on resume)")
 	resumeFlag := flag.String("resume", "", "resume a previous session by id (or unique prefix)")
-	benchFlag := flag.Bool("bench", false, "measure configuration and provider routing startup, then exit; for `task benchmark`")
+	benchFlag := flag.Bool("bench", false, "measure read-only native host declaration loading and selection validation; no runtime, credentials, or network")
+	benchInitFlag := flag.Bool("bench-init", false, "explicitly initialize runtime-v4/host.json, then validate declarations; no database or runtime")
 	cautiousFlag := flag.Bool("cautious", false, "require approval and save this mode for the initial session")
-	yoloFlag := flag.Bool("yolo", false, "allow files outside the project, approve automatically, and save this mode for the initial session")
+	yoloFlag := flag.Bool("yolo", false, "use native automatic permission mode for the initial session; explicitly protected capabilities still require consent")
 	flag.Parse()
 	if *cautiousFlag && *yoloFlag {
 		fmt.Fprintln(os.Stderr, "whipcode: --cautious and --yolo are mutually exclusive")
@@ -92,6 +92,17 @@ func main() {
 
 	if *versionFlag {
 		fmt.Println(buildinfo.Name, version)
+		return
+	}
+	if *benchFlag || *benchInitFlag {
+		if flag.NArg() != 0 {
+			fmt.Fprintln(os.Stderr, "whipcode: --bench and --bench-init do not accept commands or prompt arguments")
+			os.Exit(2)
+		}
+		if err := benchCLI(*benchInitFlag, *modelFlag, *providerFlag); err != nil {
+			fmt.Fprintln(os.Stderr, "whipcode:", err)
+			os.Exit(1)
+		}
 		return
 	}
 
@@ -193,28 +204,12 @@ func main() {
 		initialPrompt = strings.Join(flag.Args()[1:], " ")
 	}
 
-	cfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "whipcode:", err)
-		os.Exit(1)
-	}
-
-	if *benchFlag {
-		prov, _, _, err := cfg.Resolve(*modelFlag, *providerFlag)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "whipcode:", err)
-			os.Exit(1)
-		}
-		_ = prov.Key(cfg)
-		return
-	}
-
 	// Update check: concurrent with TUI and agent setup, so its
 	// ~1 RTT is usually free — and when startup wins the race, the recorded
 	// notice still shows on the next launch.
 	go update.Check(version)
 	tui.Version = version // /report names the build in the bug-report bundle
-	sessionID, err := tui.Run(cfg, *modelFlag, *providerFlag, *resumeFlag, *cautiousFlag, *yoloFlag, initialPrompt, *engineFlag, *agentFlag)
+	sessionID, err := nativeTUI(tui.NativeOptions{Model: *modelFlag, Provider: *providerFlag, Resume: *resumeFlag, Cautious: *cautiousFlag, Automatic: *yoloFlag, InitialPrompt: initialPrompt, Engine: *engineFlag, Agent: *agentFlag})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "whipcode:", err)
 		os.Exit(1)
@@ -222,4 +217,13 @@ func main() {
 	if sessionID != "" {
 		fmt.Printf("session %s — resume with: whipcode --resume %s\n", sessionID, sessionID)
 	}
+}
+
+func nativeBuiltinNames() []string {
+	documents := session.Builtins()
+	names := make([]string, 0, len(documents))
+	for _, document := range documents {
+		names = append(names, document.ID)
+	}
+	return names
 }

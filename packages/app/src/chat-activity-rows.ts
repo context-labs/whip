@@ -51,6 +51,24 @@ export const isActivityGroup = (row: TimelineRow): row is ActivityGroup =>
 export const executionActive = (cell: CellExecutionRow) =>
   cell.cell.state === 'running';
 
+/** A file subject comes from captured canonical arguments. The resource is the
+ * permission scope, not the requested filename; neither is inferred from code. */
+export function fileOperationPath(
+  host: DeepReadonly<HostOperation>,
+): string | undefined {
+  if (
+    !['files.read', 'files.write', 'files.patch', 'files.list', 'files.search'].includes(host.capability)
+  ) return;
+  const args = host.arguments;
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return;
+  const path = 'path' in args ? args.path : undefined;
+  if (
+    typeof path !== 'string' || !path || path.length > 4096 ||
+    path.includes('\0') || new TextEncoder().encode(path).byteLength > 4096
+  ) return;
+  return path;
+}
+
 /** One footer for a response to an authored input. Internal deliveries and tool
  * steps remain within that response; queued input does not finish active work.
  * This is a view of retained prose, not a second turn/event store.
@@ -384,7 +402,9 @@ export function activitySummary(group: ActivityGroup): string {
     else if (['browser.fetch', 'web.fetch'].includes(host.capability))
       counts.fetches++;
     else if (['files.write', 'files.patch'].includes(host.capability)) {
-      files.add(host.resource);
+      const path = fileOperationPath(host);
+      if (path) files.add(JSON.stringify([host.resource, path]));
+      else counts.edits++;
     } else counts.other++;
   }
   const plural = (n: number, one: string, many = `${one}s`) =>

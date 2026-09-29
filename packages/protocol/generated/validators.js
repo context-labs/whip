@@ -58916,7 +58916,7 @@ return errors === 0;
 }
 
 export const GrantParams = validate88;
-const schema89 = {"type":"object","properties":{"grant_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"}},"$id":"https://whip.dev/protocol/v4/GrantParams","$schema":"http://json-schema.org/draft-07/schema#","title":"GrantParams","required":["grant_id"],"additionalProperties":false};
+const schema89 = {"type":"object","properties":{"grant_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"session_id":{"type":["null","string"],"pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"}},"$id":"https://whip.dev/protocol/v4/GrantParams","$schema":"http://json-schema.org/draft-07/schema#","title":"GrantParams","required":["grant_id"],"additionalProperties":false};
 
 function validate88(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v4/GrantParams" */;
@@ -58934,7 +58934,7 @@ vErrors.push(err0);
 errors++;
 }
 for(const key0 in data){
-if(!(key0 === "grant_id")){
+if(!((key0 === "grant_id") || (key0 === "session_id"))){
 const err1 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
 if(vErrors === null){
 vErrors = [err1];
@@ -58970,14 +58970,39 @@ vErrors.push(err3);
 errors++;
 }
 }
-}
-else {
-const err4 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(data.session_id !== undefined){
+let data1 = data.session_id;
+if((data1 !== null) && (typeof data1 !== "string")){
+const err4 = {instancePath:instancePath+"/session_id",schemaPath:"#/properties/session_id/type",keyword:"type",params:{type: schema89.properties.session_id.type},message:"must be null,string"};
 if(vErrors === null){
 vErrors = [err4];
 }
 else {
 vErrors.push(err4);
+}
+errors++;
+}
+if(typeof data1 === "string"){
+if(!pattern0.test(data1)){
+const err5 = {instancePath:instancePath+"/session_id",schemaPath:"#/properties/session_id/pattern",keyword:"pattern",params:{pattern: "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},message:"must match pattern \""+"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"+"\""};
+if(vErrors === null){
+vErrors = [err5];
+}
+else {
+vErrors.push(err5);
+}
+errors++;
+}
+}
+}
+}
+else {
+const err6 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err6];
+}
+else {
+vErrors.push(err6);
 }
 errors++;
 }
@@ -75894,7 +75919,7 @@ return errors === 0;
 
 export const HostExecutionDefaults = validate105;
 const schema106 = {"type":"object","properties":{"engine":{"type":"string","enum":["starlark","quickjs"]},"effort":{"type":"string","pattern":"^[^\\x00]{0,64}$"},"compaction_percent":{"type":"integer","minimum":0,"maximum":100},"goal_max_continuations":{"type":"string","pattern":"^(0|[1-9][0-9]{0,18})$","format":"counter"},"max_attempts":{"type":"integer","minimum":1,"maximum":5},"revision":{"type":"string","pattern":"^[a-f0-9]{64}$"}},"$id":"https://whip.dev/protocol/v4/HostExecutionDefaults","$schema":"http://json-schema.org/draft-07/schema#","title":"HostExecutionDefaults","required":["engine","effort","compaction_percent","goal_max_continuations","max_attempts","revision"],"additionalProperties":false};
-const pattern855 = new RegExp("^[^\\x00]{0,64}$", "u");
+const pattern856 = new RegExp("^[^\\x00]{0,64}$", "u");
 
 function validate105(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v4/HostExecutionDefaults" */;
@@ -75999,7 +76024,7 @@ errors++;
 if(data.effort !== undefined){
 let data1 = data.effort;
 if(typeof data1 === "string"){
-if(!pattern855.test(data1)){
+if(!pattern856.test(data1)){
 const err9 = {instancePath:instancePath+"/effort",schemaPath:"#/properties/effort/pattern",keyword:"pattern",params:{pattern: "^[^\\x00]{0,64}$"},message:"must match pattern \""+"^[^\\x00]{0,64}$"+"\""};
 if(vErrors === null){
 vErrors = [err9];
@@ -76168,7 +76193,7 @@ return errors === 0;
 
 export const HostOperation = validate106;
 const schema107 = {"type":"object","properties":{"permission_revision":{"type":["null","string"],"pattern":"^[1-9][0-9]{0,18}$","format":"counter"},"id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"session_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"turn_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"cell_id":{"type":["null","string"],"pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"origin":{"type":"string","enum":["cell","host_operation"]},"request_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"capability":{"type":"string"},"resource":{"type":"string"},"arguments":true,"state":{"type":"string","enum":["waiting","ready","dispatched","succeeded","failed","denied","cancelled","uncertain"]},"grant_id":{"type":["null","string"],"pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"result":{"type":["null","object"],"properties":{"content_references":{"type":"array","items":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"maxItems":8,"uniqueItems":true},"state":{"type":"string","enum":["succeeded","failed","denied","cancelled","uncertain"]},"value":true,"failure":{"type":["null","string"]}},"required":["content_references","state"],"additionalProperties":false},"created_at":{"type":"string"},"dispatched_at":{"type":["null","string"]},"finished_at":{"type":["null","string"]}},"$id":"https://whip.dev/protocol/v4/HostOperation","$schema":"http://json-schema.org/draft-07/schema#","title":"HostOperation","required":["permission_revision","id","session_id","turn_id","cell_id","origin","request_id","capability","resource","arguments","state","grant_id","result","created_at","dispatched_at","finished_at"],"additionalProperties":false,"oneOf":[{"properties":{"cell_id":{"not":{"type":"null"}},"origin":{"enum":["cell"]}}},{"properties":{"cell_id":{"type":"null"},"origin":{"enum":["host_operation"]}}}]};
-const pattern858 = new RegExp("^[1-9][0-9]{0,18}$", "u");
+const pattern859 = new RegExp("^[1-9][0-9]{0,18}$", "u");
 
 function validate106(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v4/HostOperation" */;
@@ -76478,7 +76503,7 @@ vErrors.push(err23);
 errors++;
 }
 if(typeof data4 === "string"){
-if(!pattern858.test(data4)){
+if(!pattern859.test(data4)){
 const err24 = {instancePath:instancePath+"/permission_revision",schemaPath:"#/properties/permission_revision/pattern",keyword:"pattern",params:{pattern: "^[1-9][0-9]{0,18}$"},message:"must match pattern \""+"^[1-9][0-9]{0,18}$"+"\""};
 if(vErrors === null){
 vErrors = [err24];
@@ -77491,7 +77516,7 @@ vErrors.push(err26);
 errors++;
 }
 if(typeof data6 === "string"){
-if(!pattern858.test(data6)){
+if(!pattern859.test(data6)){
 const err27 = {instancePath:instancePath+"/items/" + i0+"/permission_revision",schemaPath:"#/properties/items/items/properties/permission_revision/pattern",keyword:"pattern",params:{pattern: "^[1-9][0-9]{0,18}$"},message:"must match pattern \""+"^[1-9][0-9]{0,18}$"+"\""};
 if(vErrors === null){
 vErrors = [err27];
@@ -77960,8 +77985,8 @@ return errors === 0;
 
 export const HostProfiles = validate110;
 const schema111 = {"type":"object","properties":{"revision":{"type":"string","pattern":"^[a-f0-9]{64}$"},"profiles":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"name":{"type":"string","pattern":"^[^\\x00-\\x1f\\x7f]{1,256}$"},"url":{"type":"string","maxLength":2048,"pattern":"^https?://[A-Za-z0-9._:\\[\\]-]+/?$"},"runtime_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"connect_on_launch":{"type":"boolean"}},"required":["id","name","url","runtime_id","connect_on_launch"],"additionalProperties":false},"maxItems":16}},"$id":"https://whip.dev/protocol/v4/HostProfiles","$schema":"http://json-schema.org/draft-07/schema#","title":"HostProfiles","required":["revision","profiles"],"additionalProperties":false};
-const pattern879 = new RegExp("^[^\\x00-\\x1f\\x7f]{1,256}$", "u");
-const pattern880 = new RegExp("^https?://[A-Za-z0-9._:\\[\\]-]+/?$", "u");
+const pattern880 = new RegExp("^[^\\x00-\\x1f\\x7f]{1,256}$", "u");
+const pattern881 = new RegExp("^https?://[A-Za-z0-9._:\\[\\]-]+/?$", "u");
 
 function validate110(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v4/HostProfiles" */;
@@ -78132,7 +78157,7 @@ errors++;
 if(data2.name !== undefined){
 let data4 = data2.name;
 if(typeof data4 === "string"){
-if(!pattern879.test(data4)){
+if(!pattern880.test(data4)){
 const err14 = {instancePath:instancePath+"/profiles/" + i0+"/name",schemaPath:"#/properties/profiles/items/properties/name/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,256}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err14];
@@ -78167,7 +78192,7 @@ vErrors.push(err16);
 }
 errors++;
 }
-if(!pattern880.test(data5)){
+if(!pattern881.test(data5)){
 const err17 = {instancePath:instancePath+"/profiles/" + i0+"/url",schemaPath:"#/properties/profiles/items/properties/url/pattern",keyword:"pattern",params:{pattern: "^https?://[A-Za-z0-9._:\\[\\]-]+/?$"},message:"must match pattern \""+"^https?://[A-Za-z0-9._:\\[\\]-]+/?$"+"\""};
 if(vErrors === null){
 vErrors = [err17];
@@ -78721,7 +78746,7 @@ return errors === 0;
 
 export const HostStandingInstructions = validate113;
 const schema114 = {"type":"object","properties":{"published":{"type":"boolean"},"revision":{"type":["null","string"],"pattern":"^[a-f0-9]{64}$"},"text":{"type":["null","string"],"maxLength":65536,"pattern":"^[^\\x00]*$"}},"$id":"https://whip.dev/protocol/v4/HostStandingInstructions","$schema":"http://json-schema.org/draft-07/schema#","title":"HostStandingInstructions","required":["published","revision","text"],"additionalProperties":false,"oneOf":[{"properties":{"published":{"const":false},"revision":{"type":"null"},"text":{"type":"null"}}},{"properties":{"published":{"const":true},"revision":{"type":"string"},"text":{"type":"string"}}}]};
-const pattern885 = new RegExp("^[^\\x00]*$", "u");
+const pattern886 = new RegExp("^[^\\x00]*$", "u");
 
 function validate113(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v4/HostStandingInstructions" */;
@@ -78948,7 +78973,7 @@ vErrors.push(err15);
 }
 errors++;
 }
-if(!pattern885.test(data8)){
+if(!pattern886.test(data8)){
 const err16 = {instancePath:instancePath+"/text",schemaPath:"#/properties/text/pattern",keyword:"pattern",params:{pattern: "^[^\\x00]*$"},message:"must match pattern \""+"^[^\\x00]*$"+"\""};
 if(vErrors === null){
 vErrors = [err16];
@@ -78976,9 +79001,9 @@ return errors === 0;
 }
 
 export const HostStatus = validate114;
-const schema115 = {"type":"object","properties":{"runtime_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"process_epoch":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"pid":{"type":"integer","minimum":1,"maximum":2147483647},"build":{"type":"string","pattern":"^[\\s\\S]{0,256}$"},"started_at":{"type":"string","pattern":"^[\\s\\S]{1,64}$"},"web_endpoint":{"type":"string","maxLength":4096}},"$id":"https://whip.dev/protocol/v4/HostStatus","$schema":"http://json-schema.org/draft-07/schema#","title":"HostStatus","required":["runtime_id","process_epoch","pid","build","started_at","web_endpoint"],"additionalProperties":false};
-const pattern888 = new RegExp("^[\\s\\S]{0,256}$", "u");
-const pattern889 = new RegExp("^[\\s\\S]{1,64}$", "u");
+const schema115 = {"type":"object","properties":{"runtime_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"process_epoch":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"pid":{"type":"integer","minimum":1,"maximum":2147483647},"build":{"type":"string","pattern":"^[\\s\\S]{0,256}$"},"started_at":{"type":"string","pattern":"^[\\s\\S]{1,64}$"},"web_endpoint":{"type":"string","maxLength":4096},"web_state":{"type":"string","enum":["starting","running","failed"]},"web_error":{"type":"string","maxLength":4096}},"$id":"https://whip.dev/protocol/v4/HostStatus","$schema":"http://json-schema.org/draft-07/schema#","title":"HostStatus","required":["runtime_id","process_epoch","pid","build","started_at","web_endpoint"],"additionalProperties":false};
+const pattern889 = new RegExp("^[\\s\\S]{0,256}$", "u");
+const pattern890 = new RegExp("^[\\s\\S]{1,64}$", "u");
 
 function validate114(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v4/HostStatus" */;
@@ -79046,7 +79071,7 @@ vErrors.push(err5);
 errors++;
 }
 for(const key0 in data){
-if(!((((((key0 === "runtime_id") || (key0 === "process_epoch")) || (key0 === "pid")) || (key0 === "build")) || (key0 === "started_at")) || (key0 === "web_endpoint"))){
+if(!((((((((key0 === "runtime_id") || (key0 === "process_epoch")) || (key0 === "pid")) || (key0 === "build")) || (key0 === "started_at")) || (key0 === "web_endpoint")) || (key0 === "web_state")) || (key0 === "web_error"))){
 const err6 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
 if(vErrors === null){
 vErrors = [err6];
@@ -79145,7 +79170,7 @@ errors++;
 if(data.build !== undefined){
 let data3 = data.build;
 if(typeof data3 === "string"){
-if(!pattern888.test(data3)){
+if(!pattern889.test(data3)){
 const err14 = {instancePath:instancePath+"/build",schemaPath:"#/properties/build/pattern",keyword:"pattern",params:{pattern: "^[\\s\\S]{0,256}$"},message:"must match pattern \""+"^[\\s\\S]{0,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err14];
@@ -79170,7 +79195,7 @@ errors++;
 if(data.started_at !== undefined){
 let data4 = data.started_at;
 if(typeof data4 === "string"){
-if(!pattern889.test(data4)){
+if(!pattern890.test(data4)){
 const err16 = {instancePath:instancePath+"/started_at",schemaPath:"#/properties/started_at/pattern",keyword:"pattern",params:{pattern: "^[\\s\\S]{1,64}$"},message:"must match pattern \""+"^[\\s\\S]{1,64}$"+"\""};
 if(vErrors === null){
 vErrors = [err16];
@@ -79217,14 +79242,62 @@ vErrors.push(err19);
 errors++;
 }
 }
-}
-else {
-const err20 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(data.web_state !== undefined){
+let data6 = data.web_state;
+if(typeof data6 !== "string"){
+const err20 = {instancePath:instancePath+"/web_state",schemaPath:"#/properties/web_state/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err20];
 }
 else {
 vErrors.push(err20);
+}
+errors++;
+}
+if(!(((data6 === "starting") || (data6 === "running")) || (data6 === "failed"))){
+const err21 = {instancePath:instancePath+"/web_state",schemaPath:"#/properties/web_state/enum",keyword:"enum",params:{allowedValues: schema115.properties.web_state.enum},message:"must be equal to one of the allowed values"};
+if(vErrors === null){
+vErrors = [err21];
+}
+else {
+vErrors.push(err21);
+}
+errors++;
+}
+}
+if(data.web_error !== undefined){
+let data7 = data.web_error;
+if(typeof data7 === "string"){
+if(func5(data7) > 4096){
+const err22 = {instancePath:instancePath+"/web_error",schemaPath:"#/properties/web_error/maxLength",keyword:"maxLength",params:{limit: 4096},message:"must NOT have more than 4096 characters"};
+if(vErrors === null){
+vErrors = [err22];
+}
+else {
+vErrors.push(err22);
+}
+errors++;
+}
+}
+else {
+const err23 = {instancePath:instancePath+"/web_error",schemaPath:"#/properties/web_error/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err23];
+}
+else {
+vErrors.push(err23);
+}
+errors++;
+}
+}
+}
+else {
+const err24 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err24];
+}
+else {
+vErrors.push(err24);
 }
 errors++;
 }
@@ -81212,8 +81285,8 @@ return errors === 0;
 
 export const InferenceAccountStatus = validate120;
 const schema121 = {"type":"object","properties":{"management_state":{"type":"string","enum":["absent","stored","expired","unavailable"]},"inference_state":{"type":"string","enum":["absent","stored","unavailable"]},"route_state":{"type":"string","enum":["missing","configured","conflict","unavailable"]},"user_id":{"type":["null","string"],"pattern":"^[^\\x00-\\x1f\\x7f]{1,256}$"},"email":{"type":["null","string"],"pattern":"^[^\\x00-\\x1f\\x7f]{1,1000}[^\\x00-\\x1f\\x7f]{0,24}$"},"expires_at":{"type":["null","string"],"format":"account-time"},"team_id":{"type":["null","string"],"pattern":"^[^\\x00-\\x1f\\x7f]{1,256}$"},"team_name":{"type":["null","string"],"pattern":"^[^\\x00-\\x1f\\x7f]{1,512}$"},"project_id":{"type":["null","string"],"pattern":"^[^\\x00-\\x1f\\x7f]{1,256}$"},"project_name":{"type":["null","string"],"pattern":"^[^\\x00-\\x1f\\x7f]{1,512}$"},"failure":{"type":["null","string"],"pattern":"^[^\\x00-\\x1f\\x7f]{1,512}$"},"cleanup_pending":{"type":"boolean"}},"$id":"https://whip.dev/protocol/v4/InferenceAccountStatus","$schema":"http://json-schema.org/draft-07/schema#","title":"InferenceAccountStatus","required":["management_state","inference_state","route_state","user_id","email","expires_at","team_id","team_name","project_id","project_name","failure","cleanup_pending"],"additionalProperties":false};
-const pattern894 = new RegExp("^[^\\x00-\\x1f\\x7f]{1,1000}[^\\x00-\\x1f\\x7f]{0,24}$", "u");
-const pattern896 = new RegExp("^[^\\x00-\\x1f\\x7f]{1,512}$", "u");
+const pattern895 = new RegExp("^[^\\x00-\\x1f\\x7f]{1,1000}[^\\x00-\\x1f\\x7f]{0,24}$", "u");
+const pattern897 = new RegExp("^[^\\x00-\\x1f\\x7f]{1,512}$", "u");
 const formats360 = {counter: {type: 'string', validate: value =>
   /^(0|[1-9][0-9]{0,18})$/.test(value) && BigInt(value) <= 9223372036854775807n}, 'account-time': {type: 'string', validate: function accountTime(value) {
   if (!/^(?!0000)[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:[.][0-9]{0,8}[1-9])?Z$/.test(value)) return false;
@@ -81440,7 +81513,7 @@ vErrors.push(err19);
 errors++;
 }
 if(typeof data3 === "string"){
-if(!pattern879.test(data3)){
+if(!pattern880.test(data3)){
 const err20 = {instancePath:instancePath+"/user_id",schemaPath:"#/properties/user_id/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,256}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err20];
@@ -81465,7 +81538,7 @@ vErrors.push(err21);
 errors++;
 }
 if(typeof data4 === "string"){
-if(!pattern894.test(data4)){
+if(!pattern895.test(data4)){
 const err22 = {instancePath:instancePath+"/email",schemaPath:"#/properties/email/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,1000}[^\\x00-\\x1f\\x7f]{0,24}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,1000}[^\\x00-\\x1f\\x7f]{0,24}$"+"\""};
 if(vErrors === null){
 vErrors = [err22];
@@ -81515,7 +81588,7 @@ vErrors.push(err25);
 errors++;
 }
 if(typeof data6 === "string"){
-if(!pattern879.test(data6)){
+if(!pattern880.test(data6)){
 const err26 = {instancePath:instancePath+"/team_id",schemaPath:"#/properties/team_id/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,256}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err26];
@@ -81540,7 +81613,7 @@ vErrors.push(err27);
 errors++;
 }
 if(typeof data7 === "string"){
-if(!pattern896.test(data7)){
+if(!pattern897.test(data7)){
 const err28 = {instancePath:instancePath+"/team_name",schemaPath:"#/properties/team_name/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,512}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,512}$"+"\""};
 if(vErrors === null){
 vErrors = [err28];
@@ -81565,7 +81638,7 @@ vErrors.push(err29);
 errors++;
 }
 if(typeof data8 === "string"){
-if(!pattern879.test(data8)){
+if(!pattern880.test(data8)){
 const err30 = {instancePath:instancePath+"/project_id",schemaPath:"#/properties/project_id/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,256}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err30];
@@ -81590,7 +81663,7 @@ vErrors.push(err31);
 errors++;
 }
 if(typeof data9 === "string"){
-if(!pattern896.test(data9)){
+if(!pattern897.test(data9)){
 const err32 = {instancePath:instancePath+"/project_name",schemaPath:"#/properties/project_name/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,512}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,512}$"+"\""};
 if(vErrors === null){
 vErrors = [err32];
@@ -81615,7 +81688,7 @@ vErrors.push(err33);
 errors++;
 }
 if(typeof data10 === "string"){
-if(!pattern896.test(data10)){
+if(!pattern897.test(data10)){
 const err34 = {instancePath:instancePath+"/failure",schemaPath:"#/properties/failure/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,512}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,512}$"+"\""};
 if(vErrors === null){
 vErrors = [err34];
@@ -81656,7 +81729,7 @@ return errors === 0;
 
 export const InferenceCleanupResult = validate121;
 const schema122 = {"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","pattern":"^[A-Z2-7]{26}:[A-Z2-7]{26}$"},"expires_at":{"type":"string","format":"account-time"},"team_id":{"type":["null","string"],"pattern":"^[^\\x00-\\x1f\\x7f]{1,256}$"},"key_id":{"type":["null","string"],"pattern":"^[^\\x00-\\x1f\\x7f]{1,256}$"},"key_state":{"type":"string","enum":["absent","pending","archived"]},"session_state":{"type":"string","enum":["absent","pending","retained","signed_out"]},"failure":{"type":["null","string"],"pattern":"^[^\\x00-\\x1f\\x7f]{1,512}$"}},"required":["id","expires_at","team_id","key_id","key_state","session_state","failure"],"additionalProperties":false},"maxItems":64},"failure":{"type":["null","string"],"pattern":"^[^\\x00-\\x1f\\x7f]{1,512}$"}},"$id":"https://whip.dev/protocol/v4/InferenceCleanupResult","$schema":"http://json-schema.org/draft-07/schema#","title":"InferenceCleanupResult","required":["items","failure"],"additionalProperties":false};
-const pattern900 = new RegExp("^[A-Z2-7]{26}:[A-Z2-7]{26}$", "u");
+const pattern901 = new RegExp("^[A-Z2-7]{26}:[A-Z2-7]{26}$", "u");
 
 function validate121(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v4/InferenceCleanupResult" */;
@@ -81797,7 +81870,7 @@ errors++;
 if(data1.id !== undefined){
 let data2 = data1.id;
 if(typeof data2 === "string"){
-if(!pattern900.test(data2)){
+if(!pattern901.test(data2)){
 const err12 = {instancePath:instancePath+"/items/" + i0+"/id",schemaPath:"#/properties/items/items/properties/id/pattern",keyword:"pattern",params:{pattern: "^[A-Z2-7]{26}:[A-Z2-7]{26}$"},message:"must match pattern \""+"^[A-Z2-7]{26}:[A-Z2-7]{26}$"+"\""};
 if(vErrors === null){
 vErrors = [err12];
@@ -81857,7 +81930,7 @@ vErrors.push(err16);
 errors++;
 }
 if(typeof data4 === "string"){
-if(!pattern879.test(data4)){
+if(!pattern880.test(data4)){
 const err17 = {instancePath:instancePath+"/items/" + i0+"/team_id",schemaPath:"#/properties/items/items/properties/team_id/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,256}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err17];
@@ -81882,7 +81955,7 @@ vErrors.push(err18);
 errors++;
 }
 if(typeof data5 === "string"){
-if(!pattern879.test(data5)){
+if(!pattern880.test(data5)){
 const err19 = {instancePath:instancePath+"/items/" + i0+"/key_id",schemaPath:"#/properties/items/items/properties/key_id/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,256}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err19];
@@ -81953,7 +82026,7 @@ vErrors.push(err24);
 errors++;
 }
 if(typeof data8 === "string"){
-if(!pattern896.test(data8)){
+if(!pattern897.test(data8)){
 const err25 = {instancePath:instancePath+"/items/" + i0+"/failure",schemaPath:"#/properties/items/items/properties/failure/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,512}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,512}$"+"\""};
 if(vErrors === null){
 vErrors = [err25];
@@ -82002,7 +82075,7 @@ vErrors.push(err28);
 errors++;
 }
 if(typeof data9 === "string"){
-if(!pattern896.test(data9)){
+if(!pattern897.test(data9)){
 const err29 = {instancePath:instancePath+"/failure",schemaPath:"#/properties/failure/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,512}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,512}$"+"\""};
 if(vErrors === null){
 vErrors = [err29];
@@ -82072,7 +82145,7 @@ errors++;
 if(data.flow_id !== undefined){
 let data0 = data.flow_id;
 if(typeof data0 === "string"){
-if(!pattern900.test(data0)){
+if(!pattern901.test(data0)){
 const err3 = {instancePath:instancePath+"/flow_id",schemaPath:"#/properties/flow_id/pattern",keyword:"pattern",params:{pattern: "^[A-Z2-7]{26}:[A-Z2-7]{26}$"},message:"must match pattern \""+"^[A-Z2-7]{26}:[A-Z2-7]{26}$"+"\""};
 if(vErrors === null){
 vErrors = [err3];
@@ -82097,7 +82170,7 @@ errors++;
 if(data.name !== undefined){
 let data1 = data.name;
 if(typeof data1 === "string"){
-if(!pattern896.test(data1)){
+if(!pattern897.test(data1)){
 const err5 = {instancePath:instancePath+"/name",schemaPath:"#/properties/name/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,512}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,512}$"+"\""};
 if(vErrors === null){
 vErrors = [err5];
@@ -82136,11 +82209,11 @@ return errors === 0;
 
 export const InferenceFlow = validate123;
 const schema124 = {"type":"object","properties":{"id":{"type":"string","pattern":"^[A-Z2-7]{26}:[A-Z2-7]{26}$"},"kind":{"type":["null","string"],"pattern":"^(login|rotation)$"},"state":{"type":"string","enum":["authorizing","choose_team","loading_projects","choose_project","creating_project","provisioning","persistence_required","setup_required","cleanup_required","succeeded","failed","uncertain","cancelled","expired","interrupted"]},"verification_url":{"type":["null","string"],"pattern":"^https://inference[.]net/device/approve[?]user_code=[A-Za-z0-9%+._~-]+$"},"user_code":{"type":["null","string"],"pattern":"^[^\\x00-\\x1f\\x7f]{1,64}$"},"expires_at":{"type":["null","string"],"format":"account-time"},"teams":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","pattern":"^[^\\x00-\\x1f\\x7f]{1,256}$"},"name":{"type":"string","pattern":"^[^\\x00-\\x1f\\x7f]{0,512}$"},"slug":{"type":"string","pattern":"^[^\\x00-\\x1f\\x7f]{0,256}$"}},"required":["id","name","slug"],"additionalProperties":false},"maxItems":256},"projects":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","pattern":"^[^\\x00-\\x1f\\x7f]{1,256}$"},"name":{"type":"string","pattern":"^[^\\x00-\\x1f\\x7f]{0,512}$"}},"required":["id","name"],"additionalProperties":false},"maxItems":256},"team_id":{"type":["null","string"],"pattern":"^[^\\x00-\\x1f\\x7f]{1,256}$"},"project_id":{"type":["null","string"],"pattern":"^[^\\x00-\\x1f\\x7f]{1,256}$"},"failure":{"type":["null","string"],"pattern":"^[^\\x00-\\x1f\\x7f]{1,512}$"}},"$id":"https://whip.dev/protocol/v4/InferenceFlow","$schema":"http://json-schema.org/draft-07/schema#","title":"InferenceFlow","required":["id","kind","state","verification_url","user_code","expires_at","teams","projects","team_id","project_id","failure"],"additionalProperties":false,"if":{"properties":{"state":{"not":{"enum":["authorizing"]}}}},"then":{"properties":{"user_code":{"type":"null"},"verification_url":{"type":"null"}}}};
-const pattern908 = new RegExp("^(login|rotation)$", "u");
-const pattern909 = new RegExp("^https://inference[.]net/device/approve[?]user_code=[A-Za-z0-9%+._~-]+$", "u");
-const pattern910 = new RegExp("^[^\\x00-\\x1f\\x7f]{1,64}$", "u");
-const pattern912 = new RegExp("^[^\\x00-\\x1f\\x7f]{0,512}$", "u");
-const pattern913 = new RegExp("^[^\\x00-\\x1f\\x7f]{0,256}$", "u");
+const pattern909 = new RegExp("^(login|rotation)$", "u");
+const pattern910 = new RegExp("^https://inference[.]net/device/approve[?]user_code=[A-Za-z0-9%+._~-]+$", "u");
+const pattern911 = new RegExp("^[^\\x00-\\x1f\\x7f]{1,64}$", "u");
+const pattern913 = new RegExp("^[^\\x00-\\x1f\\x7f]{0,512}$", "u");
+const pattern914 = new RegExp("^[^\\x00-\\x1f\\x7f]{0,256}$", "u");
 
 function validate123(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v4/InferenceFlow" */;
@@ -82364,7 +82437,7 @@ errors++;
 if(data.id !== undefined){
 let data3 = data.id;
 if(typeof data3 === "string"){
-if(!pattern900.test(data3)){
+if(!pattern901.test(data3)){
 const err17 = {instancePath:instancePath+"/id",schemaPath:"#/properties/id/pattern",keyword:"pattern",params:{pattern: "^[A-Z2-7]{26}:[A-Z2-7]{26}$"},message:"must match pattern \""+"^[A-Z2-7]{26}:[A-Z2-7]{26}$"+"\""};
 if(vErrors === null){
 vErrors = [err17];
@@ -82399,7 +82472,7 @@ vErrors.push(err19);
 errors++;
 }
 if(typeof data4 === "string"){
-if(!pattern908.test(data4)){
+if(!pattern909.test(data4)){
 const err20 = {instancePath:instancePath+"/kind",schemaPath:"#/properties/kind/pattern",keyword:"pattern",params:{pattern: "^(login|rotation)$"},message:"must match pattern \""+"^(login|rotation)$"+"\""};
 if(vErrors === null){
 vErrors = [err20];
@@ -82447,7 +82520,7 @@ vErrors.push(err23);
 errors++;
 }
 if(typeof data6 === "string"){
-if(!pattern909.test(data6)){
+if(!pattern910.test(data6)){
 const err24 = {instancePath:instancePath+"/verification_url",schemaPath:"#/properties/verification_url/pattern",keyword:"pattern",params:{pattern: "^https://inference[.]net/device/approve[?]user_code=[A-Za-z0-9%+._~-]+$"},message:"must match pattern \""+"^https://inference[.]net/device/approve[?]user_code=[A-Za-z0-9%+._~-]+$"+"\""};
 if(vErrors === null){
 vErrors = [err24];
@@ -82472,7 +82545,7 @@ vErrors.push(err25);
 errors++;
 }
 if(typeof data7 === "string"){
-if(!pattern910.test(data7)){
+if(!pattern911.test(data7)){
 const err26 = {instancePath:instancePath+"/user_code",schemaPath:"#/properties/user_code/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,64}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,64}$"+"\""};
 if(vErrors === null){
 vErrors = [err26];
@@ -82571,7 +82644,7 @@ errors++;
 if(data10.id !== undefined){
 let data11 = data10.id;
 if(typeof data11 === "string"){
-if(!pattern879.test(data11)){
+if(!pattern880.test(data11)){
 const err34 = {instancePath:instancePath+"/teams/" + i0+"/id",schemaPath:"#/properties/teams/items/properties/id/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,256}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err34];
@@ -82596,7 +82669,7 @@ errors++;
 if(data10.name !== undefined){
 let data12 = data10.name;
 if(typeof data12 === "string"){
-if(!pattern912.test(data12)){
+if(!pattern913.test(data12)){
 const err36 = {instancePath:instancePath+"/teams/" + i0+"/name",schemaPath:"#/properties/teams/items/properties/name/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{0,512}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{0,512}$"+"\""};
 if(vErrors === null){
 vErrors = [err36];
@@ -82621,7 +82694,7 @@ errors++;
 if(data10.slug !== undefined){
 let data13 = data10.slug;
 if(typeof data13 === "string"){
-if(!pattern913.test(data13)){
+if(!pattern914.test(data13)){
 const err38 = {instancePath:instancePath+"/teams/" + i0+"/slug",schemaPath:"#/properties/teams/items/properties/slug/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{0,256}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{0,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err38];
@@ -82719,7 +82792,7 @@ errors++;
 if(data15.id !== undefined){
 let data16 = data15.id;
 if(typeof data16 === "string"){
-if(!pattern879.test(data16)){
+if(!pattern880.test(data16)){
 const err46 = {instancePath:instancePath+"/projects/" + i1+"/id",schemaPath:"#/properties/projects/items/properties/id/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,256}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err46];
@@ -82744,7 +82817,7 @@ errors++;
 if(data15.name !== undefined){
 let data17 = data15.name;
 if(typeof data17 === "string"){
-if(!pattern912.test(data17)){
+if(!pattern913.test(data17)){
 const err48 = {instancePath:instancePath+"/projects/" + i1+"/name",schemaPath:"#/properties/projects/items/properties/name/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{0,512}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{0,512}$"+"\""};
 if(vErrors === null){
 vErrors = [err48];
@@ -82803,7 +82876,7 @@ vErrors.push(err52);
 errors++;
 }
 if(typeof data18 === "string"){
-if(!pattern879.test(data18)){
+if(!pattern880.test(data18)){
 const err53 = {instancePath:instancePath+"/team_id",schemaPath:"#/properties/team_id/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,256}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err53];
@@ -82828,7 +82901,7 @@ vErrors.push(err54);
 errors++;
 }
 if(typeof data19 === "string"){
-if(!pattern879.test(data19)){
+if(!pattern880.test(data19)){
 const err55 = {instancePath:instancePath+"/project_id",schemaPath:"#/properties/project_id/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,256}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err55];
@@ -82853,7 +82926,7 @@ vErrors.push(err56);
 errors++;
 }
 if(typeof data20 === "string"){
-if(!pattern896.test(data20)){
+if(!pattern897.test(data20)){
 const err57 = {instancePath:instancePath+"/failure",schemaPath:"#/properties/failure/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,512}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,512}$"+"\""};
 if(vErrors === null){
 vErrors = [err57];
@@ -82913,7 +82986,7 @@ errors++;
 if(data.flow_id !== undefined){
 let data0 = data.flow_id;
 if(typeof data0 === "string"){
-if(!pattern900.test(data0)){
+if(!pattern901.test(data0)){
 const err2 = {instancePath:instancePath+"/flow_id",schemaPath:"#/properties/flow_id/pattern",keyword:"pattern",params:{pattern: "^[A-Z2-7]{26}:[A-Z2-7]{26}$"},message:"must match pattern \""+"^[A-Z2-7]{26}:[A-Z2-7]{26}$"+"\""};
 if(vErrors === null){
 vErrors = [err2];
@@ -83214,7 +83287,7 @@ errors++;
 if(data1.id !== undefined){
 let data5 = data1.id;
 if(typeof data5 === "string"){
-if(!pattern900.test(data5)){
+if(!pattern901.test(data5)){
 const err20 = {instancePath:instancePath+"/items/" + i0+"/id",schemaPath:"#/properties/items/items/properties/id/pattern",keyword:"pattern",params:{pattern: "^[A-Z2-7]{26}:[A-Z2-7]{26}$"},message:"must match pattern \""+"^[A-Z2-7]{26}:[A-Z2-7]{26}$"+"\""};
 if(vErrors === null){
 vErrors = [err20];
@@ -83249,7 +83322,7 @@ vErrors.push(err22);
 errors++;
 }
 if(typeof data6 === "string"){
-if(!pattern908.test(data6)){
+if(!pattern909.test(data6)){
 const err23 = {instancePath:instancePath+"/items/" + i0+"/kind",schemaPath:"#/properties/items/items/properties/kind/pattern",keyword:"pattern",params:{pattern: "^(login|rotation)$"},message:"must match pattern \""+"^(login|rotation)$"+"\""};
 if(vErrors === null){
 vErrors = [err23];
@@ -83297,7 +83370,7 @@ vErrors.push(err26);
 errors++;
 }
 if(typeof data8 === "string"){
-if(!pattern909.test(data8)){
+if(!pattern910.test(data8)){
 const err27 = {instancePath:instancePath+"/items/" + i0+"/verification_url",schemaPath:"#/properties/items/items/properties/verification_url/pattern",keyword:"pattern",params:{pattern: "^https://inference[.]net/device/approve[?]user_code=[A-Za-z0-9%+._~-]+$"},message:"must match pattern \""+"^https://inference[.]net/device/approve[?]user_code=[A-Za-z0-9%+._~-]+$"+"\""};
 if(vErrors === null){
 vErrors = [err27];
@@ -83322,7 +83395,7 @@ vErrors.push(err28);
 errors++;
 }
 if(typeof data9 === "string"){
-if(!pattern910.test(data9)){
+if(!pattern911.test(data9)){
 const err29 = {instancePath:instancePath+"/items/" + i0+"/user_code",schemaPath:"#/properties/items/items/properties/user_code/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,64}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,64}$"+"\""};
 if(vErrors === null){
 vErrors = [err29];
@@ -83421,7 +83494,7 @@ errors++;
 if(data12.id !== undefined){
 let data13 = data12.id;
 if(typeof data13 === "string"){
-if(!pattern879.test(data13)){
+if(!pattern880.test(data13)){
 const err37 = {instancePath:instancePath+"/items/" + i0+"/teams/" + i1+"/id",schemaPath:"#/properties/items/items/properties/teams/items/properties/id/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,256}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err37];
@@ -83446,7 +83519,7 @@ errors++;
 if(data12.name !== undefined){
 let data14 = data12.name;
 if(typeof data14 === "string"){
-if(!pattern912.test(data14)){
+if(!pattern913.test(data14)){
 const err39 = {instancePath:instancePath+"/items/" + i0+"/teams/" + i1+"/name",schemaPath:"#/properties/items/items/properties/teams/items/properties/name/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{0,512}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{0,512}$"+"\""};
 if(vErrors === null){
 vErrors = [err39];
@@ -83471,7 +83544,7 @@ errors++;
 if(data12.slug !== undefined){
 let data15 = data12.slug;
 if(typeof data15 === "string"){
-if(!pattern913.test(data15)){
+if(!pattern914.test(data15)){
 const err41 = {instancePath:instancePath+"/items/" + i0+"/teams/" + i1+"/slug",schemaPath:"#/properties/items/items/properties/teams/items/properties/slug/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{0,256}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{0,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err41];
@@ -83569,7 +83642,7 @@ errors++;
 if(data17.id !== undefined){
 let data18 = data17.id;
 if(typeof data18 === "string"){
-if(!pattern879.test(data18)){
+if(!pattern880.test(data18)){
 const err49 = {instancePath:instancePath+"/items/" + i0+"/projects/" + i2+"/id",schemaPath:"#/properties/items/items/properties/projects/items/properties/id/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,256}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err49];
@@ -83594,7 +83667,7 @@ errors++;
 if(data17.name !== undefined){
 let data19 = data17.name;
 if(typeof data19 === "string"){
-if(!pattern912.test(data19)){
+if(!pattern913.test(data19)){
 const err51 = {instancePath:instancePath+"/items/" + i0+"/projects/" + i2+"/name",schemaPath:"#/properties/items/items/properties/projects/items/properties/name/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{0,512}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{0,512}$"+"\""};
 if(vErrors === null){
 vErrors = [err51];
@@ -83653,7 +83726,7 @@ vErrors.push(err55);
 errors++;
 }
 if(typeof data20 === "string"){
-if(!pattern879.test(data20)){
+if(!pattern880.test(data20)){
 const err56 = {instancePath:instancePath+"/items/" + i0+"/team_id",schemaPath:"#/properties/items/items/properties/team_id/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,256}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err56];
@@ -83678,7 +83751,7 @@ vErrors.push(err57);
 errors++;
 }
 if(typeof data21 === "string"){
-if(!pattern879.test(data21)){
+if(!pattern880.test(data21)){
 const err58 = {instancePath:instancePath+"/items/" + i0+"/project_id",schemaPath:"#/properties/items/items/properties/project_id/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,256}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err58];
@@ -83703,7 +83776,7 @@ vErrors.push(err59);
 errors++;
 }
 if(typeof data22 === "string"){
-if(!pattern896.test(data22)){
+if(!pattern897.test(data22)){
 const err60 = {instancePath:instancePath+"/items/" + i0+"/failure",schemaPath:"#/properties/items/items/properties/failure/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,512}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,512}$"+"\""};
 if(vErrors === null){
 vErrors = [err60];
@@ -84031,7 +84104,7 @@ vErrors.push(err24);
 errors++;
 }
 if(typeof data4 === "string"){
-if(!pattern879.test(data4)){
+if(!pattern880.test(data4)){
 const err25 = {instancePath:instancePath+"/status/user_id",schemaPath:"#/properties/status/properties/user_id/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,256}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err25];
@@ -84056,7 +84129,7 @@ vErrors.push(err26);
 errors++;
 }
 if(typeof data5 === "string"){
-if(!pattern894.test(data5)){
+if(!pattern895.test(data5)){
 const err27 = {instancePath:instancePath+"/status/email",schemaPath:"#/properties/status/properties/email/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,1000}[^\\x00-\\x1f\\x7f]{0,24}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,1000}[^\\x00-\\x1f\\x7f]{0,24}$"+"\""};
 if(vErrors === null){
 vErrors = [err27];
@@ -84106,7 +84179,7 @@ vErrors.push(err30);
 errors++;
 }
 if(typeof data7 === "string"){
-if(!pattern879.test(data7)){
+if(!pattern880.test(data7)){
 const err31 = {instancePath:instancePath+"/status/team_id",schemaPath:"#/properties/status/properties/team_id/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,256}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err31];
@@ -84131,7 +84204,7 @@ vErrors.push(err32);
 errors++;
 }
 if(typeof data8 === "string"){
-if(!pattern896.test(data8)){
+if(!pattern897.test(data8)){
 const err33 = {instancePath:instancePath+"/status/team_name",schemaPath:"#/properties/status/properties/team_name/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,512}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,512}$"+"\""};
 if(vErrors === null){
 vErrors = [err33];
@@ -84156,7 +84229,7 @@ vErrors.push(err34);
 errors++;
 }
 if(typeof data9 === "string"){
-if(!pattern879.test(data9)){
+if(!pattern880.test(data9)){
 const err35 = {instancePath:instancePath+"/status/project_id",schemaPath:"#/properties/status/properties/project_id/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,256}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err35];
@@ -84181,7 +84254,7 @@ vErrors.push(err36);
 errors++;
 }
 if(typeof data10 === "string"){
-if(!pattern896.test(data10)){
+if(!pattern897.test(data10)){
 const err37 = {instancePath:instancePath+"/status/project_name",schemaPath:"#/properties/status/properties/project_name/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,512}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,512}$"+"\""};
 if(vErrors === null){
 vErrors = [err37];
@@ -84206,7 +84279,7 @@ vErrors.push(err38);
 errors++;
 }
 if(typeof data11 === "string"){
-if(!pattern896.test(data11)){
+if(!pattern897.test(data11)){
 const err39 = {instancePath:instancePath+"/status/failure",schemaPath:"#/properties/status/properties/failure/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,512}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,512}$"+"\""};
 if(vErrors === null){
 vErrors = [err39];
@@ -84255,7 +84328,7 @@ vErrors.push(err42);
 errors++;
 }
 if(typeof data13 === "string"){
-if(!pattern896.test(data13)){
+if(!pattern897.test(data13)){
 const err43 = {instancePath:instancePath+"/local_failure",schemaPath:"#/properties/local_failure/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,512}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,512}$"+"\""};
 if(vErrors === null){
 vErrors = [err43];
@@ -84280,7 +84353,7 @@ vErrors.push(err44);
 errors++;
 }
 if(typeof data14 === "string"){
-if(!pattern896.test(data14)){
+if(!pattern897.test(data14)){
 const err45 = {instancePath:instancePath+"/cleanup_failure",schemaPath:"#/properties/cleanup_failure/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,512}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,512}$"+"\""};
 if(vErrors === null){
 vErrors = [err45];
@@ -84394,7 +84467,7 @@ errors++;
 if(data16.id !== undefined){
 let data17 = data16.id;
 if(typeof data17 === "string"){
-if(!pattern900.test(data17)){
+if(!pattern901.test(data17)){
 const err55 = {instancePath:instancePath+"/cleanup/" + i0+"/id",schemaPath:"#/properties/cleanup/items/properties/id/pattern",keyword:"pattern",params:{pattern: "^[A-Z2-7]{26}:[A-Z2-7]{26}$"},message:"must match pattern \""+"^[A-Z2-7]{26}:[A-Z2-7]{26}$"+"\""};
 if(vErrors === null){
 vErrors = [err55];
@@ -84454,7 +84527,7 @@ vErrors.push(err59);
 errors++;
 }
 if(typeof data19 === "string"){
-if(!pattern879.test(data19)){
+if(!pattern880.test(data19)){
 const err60 = {instancePath:instancePath+"/cleanup/" + i0+"/team_id",schemaPath:"#/properties/cleanup/items/properties/team_id/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,256}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err60];
@@ -84479,7 +84552,7 @@ vErrors.push(err61);
 errors++;
 }
 if(typeof data20 === "string"){
-if(!pattern879.test(data20)){
+if(!pattern880.test(data20)){
 const err62 = {instancePath:instancePath+"/cleanup/" + i0+"/key_id",schemaPath:"#/properties/cleanup/items/properties/key_id/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,256}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err62];
@@ -84550,7 +84623,7 @@ vErrors.push(err67);
 errors++;
 }
 if(typeof data23 === "string"){
-if(!pattern896.test(data23)){
+if(!pattern897.test(data23)){
 const err68 = {instancePath:instancePath+"/cleanup/" + i0+"/failure",schemaPath:"#/properties/cleanup/items/properties/failure/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,512}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,512}$"+"\""};
 if(vErrors === null){
 vErrors = [err68];
@@ -84644,7 +84717,7 @@ errors++;
 if(data.flow_id !== undefined){
 let data0 = data.flow_id;
 if(typeof data0 === "string"){
-if(!pattern900.test(data0)){
+if(!pattern901.test(data0)){
 const err3 = {instancePath:instancePath+"/flow_id",schemaPath:"#/properties/flow_id/pattern",keyword:"pattern",params:{pattern: "^[A-Z2-7]{26}:[A-Z2-7]{26}$"},message:"must match pattern \""+"^[A-Z2-7]{26}:[A-Z2-7]{26}$"+"\""};
 if(vErrors === null){
 vErrors = [err3];
@@ -84669,7 +84742,7 @@ errors++;
 if(data.project_id !== undefined){
 let data1 = data.project_id;
 if(typeof data1 === "string"){
-if(!pattern879.test(data1)){
+if(!pattern880.test(data1)){
 const err5 = {instancePath:instancePath+"/project_id",schemaPath:"#/properties/project_id/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,256}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err5];
@@ -84749,7 +84822,7 @@ errors++;
 if(data.flow_id !== undefined){
 let data0 = data.flow_id;
 if(typeof data0 === "string"){
-if(!pattern900.test(data0)){
+if(!pattern901.test(data0)){
 const err3 = {instancePath:instancePath+"/flow_id",schemaPath:"#/properties/flow_id/pattern",keyword:"pattern",params:{pattern: "^[A-Z2-7]{26}:[A-Z2-7]{26}$"},message:"must match pattern \""+"^[A-Z2-7]{26}:[A-Z2-7]{26}$"+"\""};
 if(vErrors === null){
 vErrors = [err3];
@@ -84774,7 +84847,7 @@ errors++;
 if(data.team_id !== undefined){
 let data1 = data.team_id;
 if(typeof data1 === "string"){
-if(!pattern879.test(data1)){
+if(!pattern880.test(data1)){
 const err5 = {instancePath:instancePath+"/team_id",schemaPath:"#/properties/team_id/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,256}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err5];
@@ -95819,7 +95892,7 @@ errors++;
 if(data1.name !== undefined){
 let data5 = data1.name;
 if(typeof data5 === "string"){
-if(!pattern888.test(data5)){
+if(!pattern889.test(data5)){
 const err16 = {instancePath:instancePath+"/items/" + i0+"/name",schemaPath:"#/properties/items/items/properties/name/pattern",keyword:"pattern",params:{pattern: "^[\\s\\S]{0,256}$"},message:"must match pattern \""+"^[\\s\\S]{0,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err16];
@@ -96696,7 +96769,7 @@ return errors === 0;
 
 export const ListSchedulesParams = validate146;
 const schema147 = {"type":"object","properties":{"session_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"after":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"upcoming":{"type":"boolean"},"cursor":{"type":["null","object"],"properties":{"due":{"type":"string","pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{9}Z$"},"id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"}},"required":["due","id"],"additionalProperties":false},"limit":{"type":"integer","minimum":1,"maximum":100}},"$id":"https://whip.dev/protocol/v4/ListSchedulesParams","$schema":"http://json-schema.org/draft-07/schema#","title":"ListSchedulesParams","required":["session_id","limit"],"additionalProperties":false};
-const pattern1079 = new RegExp("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{9}Z$", "u");
+const pattern1080 = new RegExp("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{9}Z$", "u");
 
 function validate146(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v4/ListSchedulesParams" */;
@@ -96845,7 +96918,7 @@ errors++;
 if(data3.due !== undefined){
 let data4 = data3.due;
 if(typeof data4 === "string"){
-if(!pattern1079.test(data4)){
+if(!pattern1080.test(data4)){
 const err12 = {instancePath:instancePath+"/cursor/due",schemaPath:"#/properties/cursor/properties/due/pattern",keyword:"pattern",params:{pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{9}Z$"},message:"must match pattern \""+"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{9}Z$"+"\""};
 if(vErrors === null){
 vErrors = [err12];
@@ -100583,7 +100656,7 @@ vErrors.push(err4);
 errors++;
 }
 if(typeof data1 === "string"){
-if(!pattern858.test(data1)){
+if(!pattern859.test(data1)){
 const err5 = {instancePath:instancePath+"/expected_revision",schemaPath:"#/properties/expected_revision/pattern",keyword:"pattern",params:{pattern: "^[1-9][0-9]{0,18}$"},message:"must match pattern \""+"^[1-9][0-9]{0,18}$"+"\""};
 if(vErrors === null){
 vErrors = [err5];
@@ -100759,7 +100832,7 @@ errors++;
 if(data.revision !== undefined){
 let data0 = data.revision;
 if(typeof data0 === "string"){
-if(!pattern858.test(data0)){
+if(!pattern859.test(data0)){
 const err4 = {instancePath:instancePath+"/revision",schemaPath:"#/properties/revision/pattern",keyword:"pattern",params:{pattern: "^[1-9][0-9]{0,18}$"},message:"must match pattern \""+"^[1-9][0-9]{0,18}$"+"\""};
 if(vErrors === null){
 vErrors = [err4];
@@ -118757,8 +118830,8 @@ return errors === 0;
 
 export const OpenAIAccountStatus = validate174;
 const schema175 = {"type":"object","properties":{"auth_state":{"type":"string","enum":["signed_out","stored","sign_in_required","unavailable"]},"route_state":{"type":"string","enum":["configured","missing","conflict","unavailable"]},"account_id":{"type":["null","string"],"pattern":"^[^\\x00-\\x1f\\x7f]{1,512}$"},"email":{"type":["null","string"],"pattern":"^[^\\x00-\\x1f\\x7f]{1,320}$"},"plan":{"type":["null","string"],"pattern":"^[^\\x00-\\x1f\\x7f]{1,128}$"},"expires_at":{"type":["null","string"],"format":"account-time"},"failure":{"type":["null","string"],"pattern":"^[^\\x00-\\x1f\\x7f]{1,512}$"}},"$id":"https://whip.dev/protocol/v4/OpenAIAccountStatus","$schema":"http://json-schema.org/draft-07/schema#","title":"OpenAIAccountStatus","required":["auth_state","route_state","account_id","email","plan","expires_at","failure"],"additionalProperties":false};
-const pattern1281 = new RegExp("^[^\\x00-\\x1f\\x7f]{1,320}$", "u");
-const pattern1282 = new RegExp("^[^\\x00-\\x1f\\x7f]{1,128}$", "u");
+const pattern1282 = new RegExp("^[^\\x00-\\x1f\\x7f]{1,320}$", "u");
+const pattern1283 = new RegExp("^[^\\x00-\\x1f\\x7f]{1,128}$", "u");
 
 function validate174(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v4/OpenAIAccountStatus" */;
@@ -118906,7 +118979,7 @@ vErrors.push(err12);
 errors++;
 }
 if(typeof data2 === "string"){
-if(!pattern896.test(data2)){
+if(!pattern897.test(data2)){
 const err13 = {instancePath:instancePath+"/account_id",schemaPath:"#/properties/account_id/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,512}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,512}$"+"\""};
 if(vErrors === null){
 vErrors = [err13];
@@ -118931,7 +119004,7 @@ vErrors.push(err14);
 errors++;
 }
 if(typeof data3 === "string"){
-if(!pattern1281.test(data3)){
+if(!pattern1282.test(data3)){
 const err15 = {instancePath:instancePath+"/email",schemaPath:"#/properties/email/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,320}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,320}$"+"\""};
 if(vErrors === null){
 vErrors = [err15];
@@ -118956,7 +119029,7 @@ vErrors.push(err16);
 errors++;
 }
 if(typeof data4 === "string"){
-if(!pattern1282.test(data4)){
+if(!pattern1283.test(data4)){
 const err17 = {instancePath:instancePath+"/plan",schemaPath:"#/properties/plan/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,128}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,128}$"+"\""};
 if(vErrors === null){
 vErrors = [err17];
@@ -119006,7 +119079,7 @@ vErrors.push(err20);
 errors++;
 }
 if(typeof data6 === "string"){
-if(!pattern896.test(data6)){
+if(!pattern897.test(data6)){
 const err21 = {instancePath:instancePath+"/failure",schemaPath:"#/properties/failure/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,512}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,512}$"+"\""};
 if(vErrors === null){
 vErrors = [err21];
@@ -119066,7 +119139,7 @@ errors++;
 if(data.flow_id !== undefined){
 let data0 = data.flow_id;
 if(typeof data0 === "string"){
-if(!pattern900.test(data0)){
+if(!pattern901.test(data0)){
 const err2 = {instancePath:instancePath+"/flow_id",schemaPath:"#/properties/flow_id/pattern",keyword:"pattern",params:{pattern: "^[A-Z2-7]{26}:[A-Z2-7]{26}$"},message:"must match pattern \""+"^[A-Z2-7]{26}:[A-Z2-7]{26}$"+"\""};
 if(vErrors === null){
 vErrors = [err2];
@@ -119105,7 +119178,7 @@ return errors === 0;
 
 export const OpenAIFlowsResult = validate176;
 const schema177 = {"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","pattern":"^[A-Z2-7]{26}:[A-Z2-7]{26}$"},"state":{"type":"string","enum":["authorizing","succeeded","setup_required","failed","cancelled","expired","interrupted"]},"verification_url":{"type":["null","string"],"pattern":"^https://auth[.]openai[.]com/codex/device$"},"user_code":{"type":["null","string"],"pattern":"^[^\\x00-\\x1f\\x7f]{1,64}$"},"expires_at":{"type":["null","string"],"format":"account-time"},"failure":{"type":["null","string"],"pattern":"^[^\\x00-\\x1f\\x7f]{1,512}$"}},"required":["id","state","verification_url","user_code","expires_at","failure"],"additionalProperties":false,"if":{"properties":{"state":{"not":{"enum":["authorizing"]}}}},"then":{"properties":{"user_code":{"type":"null"},"verification_url":{"type":"null"}}}},"maxItems":64}},"$id":"https://whip.dev/protocol/v4/OpenAIFlowsResult","$schema":"http://json-schema.org/draft-07/schema#","title":"OpenAIFlowsResult","required":["items"],"additionalProperties":false};
-const pattern1286 = new RegExp("^https://auth[.]openai[.]com/codex/device$", "u");
+const pattern1287 = new RegExp("^https://auth[.]openai[.]com/codex/device$", "u");
 
 function validate176(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v4/OpenAIFlowsResult" */;
@@ -119318,7 +119391,7 @@ errors++;
 if(data1.id !== undefined){
 let data5 = data1.id;
 if(typeof data5 === "string"){
-if(!pattern900.test(data5)){
+if(!pattern901.test(data5)){
 const err15 = {instancePath:instancePath+"/items/" + i0+"/id",schemaPath:"#/properties/items/items/properties/id/pattern",keyword:"pattern",params:{pattern: "^[A-Z2-7]{26}:[A-Z2-7]{26}$"},message:"must match pattern \""+"^[A-Z2-7]{26}:[A-Z2-7]{26}$"+"\""};
 if(vErrors === null){
 vErrors = [err15];
@@ -119376,7 +119449,7 @@ vErrors.push(err19);
 errors++;
 }
 if(typeof data7 === "string"){
-if(!pattern1286.test(data7)){
+if(!pattern1287.test(data7)){
 const err20 = {instancePath:instancePath+"/items/" + i0+"/verification_url",schemaPath:"#/properties/items/items/properties/verification_url/pattern",keyword:"pattern",params:{pattern: "^https://auth[.]openai[.]com/codex/device$"},message:"must match pattern \""+"^https://auth[.]openai[.]com/codex/device$"+"\""};
 if(vErrors === null){
 vErrors = [err20];
@@ -119401,7 +119474,7 @@ vErrors.push(err21);
 errors++;
 }
 if(typeof data8 === "string"){
-if(!pattern910.test(data8)){
+if(!pattern911.test(data8)){
 const err22 = {instancePath:instancePath+"/items/" + i0+"/user_code",schemaPath:"#/properties/items/items/properties/user_code/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,64}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,64}$"+"\""};
 if(vErrors === null){
 vErrors = [err22];
@@ -119451,7 +119524,7 @@ vErrors.push(err25);
 errors++;
 }
 if(typeof data10 === "string"){
-if(!pattern896.test(data10)){
+if(!pattern897.test(data10)){
 const err26 = {instancePath:instancePath+"/items/" + i0+"/failure",schemaPath:"#/properties/items/items/properties/failure/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,512}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,512}$"+"\""};
 if(vErrors === null){
 vErrors = [err26];
@@ -119677,7 +119750,7 @@ errors++;
 if(data.id !== undefined){
 let data3 = data.id;
 if(typeof data3 === "string"){
-if(!pattern900.test(data3)){
+if(!pattern901.test(data3)){
 const err12 = {instancePath:instancePath+"/id",schemaPath:"#/properties/id/pattern",keyword:"pattern",params:{pattern: "^[A-Z2-7]{26}:[A-Z2-7]{26}$"},message:"must match pattern \""+"^[A-Z2-7]{26}:[A-Z2-7]{26}$"+"\""};
 if(vErrors === null){
 vErrors = [err12];
@@ -119735,7 +119808,7 @@ vErrors.push(err16);
 errors++;
 }
 if(typeof data5 === "string"){
-if(!pattern1286.test(data5)){
+if(!pattern1287.test(data5)){
 const err17 = {instancePath:instancePath+"/verification_url",schemaPath:"#/properties/verification_url/pattern",keyword:"pattern",params:{pattern: "^https://auth[.]openai[.]com/codex/device$"},message:"must match pattern \""+"^https://auth[.]openai[.]com/codex/device$"+"\""};
 if(vErrors === null){
 vErrors = [err17];
@@ -119760,7 +119833,7 @@ vErrors.push(err18);
 errors++;
 }
 if(typeof data6 === "string"){
-if(!pattern910.test(data6)){
+if(!pattern911.test(data6)){
 const err19 = {instancePath:instancePath+"/user_code",schemaPath:"#/properties/user_code/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,64}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,64}$"+"\""};
 if(vErrors === null){
 vErrors = [err19];
@@ -119810,7 +119883,7 @@ vErrors.push(err22);
 errors++;
 }
 if(typeof data8 === "string"){
-if(!pattern896.test(data8)){
+if(!pattern897.test(data8)){
 const err23 = {instancePath:instancePath+"/failure",schemaPath:"#/properties/failure/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,512}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,512}$"+"\""};
 if(vErrors === null){
 vErrors = [err23];
@@ -120751,7 +120824,7 @@ errors++;
 if(data.expected_revision !== undefined){
 let data2 = data.expected_revision;
 if(typeof data2 === "string"){
-if(!pattern858.test(data2)){
+if(!pattern859.test(data2)){
 const err12 = {instancePath:instancePath+"/expected_revision",schemaPath:"#/properties/expected_revision/pattern",keyword:"pattern",params:{pattern: "^[1-9][0-9]{0,18}$"},message:"must match pattern \""+"^[1-9][0-9]{0,18}$"+"\""};
 if(vErrors === null){
 vErrors = [err12];
@@ -120935,7 +121008,7 @@ errors++;
 if(data5.revision !== undefined){
 let data9 = data5.revision;
 if(typeof data9 === "string"){
-if(!pattern858.test(data9)){
+if(!pattern859.test(data9)){
 const err28 = {instancePath:instancePath+"/policy/revision",schemaPath:"#/properties/policy/properties/revision/pattern",keyword:"pattern",params:{pattern: "^[1-9][0-9]{0,18}$"},message:"must match pattern \""+"^[1-9][0-9]{0,18}$"+"\""};
 if(vErrors === null){
 vErrors = [err28];
@@ -121161,7 +121234,7 @@ errors++;
 if(data.expected_revision !== undefined){
 let data2 = data.expected_revision;
 if(typeof data2 === "string"){
-if(!pattern858.test(data2)){
+if(!pattern859.test(data2)){
 const err12 = {instancePath:instancePath+"/expected_revision",schemaPath:"#/properties/expected_revision/pattern",keyword:"pattern",params:{pattern: "^[1-9][0-9]{0,18}$"},message:"must match pattern \""+"^[1-9][0-9]{0,18}$"+"\""};
 if(vErrors === null){
 vErrors = [err12];
@@ -121367,7 +121440,7 @@ errors++;
 if(data5.revision !== undefined){
 let data9 = data5.revision;
 if(typeof data9 === "string"){
-if(!pattern858.test(data9)){
+if(!pattern859.test(data9)){
 const err30 = {instancePath:instancePath+"/policy/revision",schemaPath:"#/properties/policy/properties/revision/pattern",keyword:"pattern",params:{pattern: "^[1-9][0-9]{0,18}$"},message:"must match pattern \""+"^[1-9][0-9]{0,18}$"+"\""};
 if(vErrors === null){
 vErrors = [err30];
@@ -121688,7 +121761,7 @@ errors++;
 if(data.revision !== undefined){
 let data3 = data.revision;
 if(typeof data3 === "string"){
-if(!pattern858.test(data3)){
+if(!pattern859.test(data3)){
 const err11 = {instancePath:instancePath+"/revision",schemaPath:"#/properties/revision/pattern",keyword:"pattern",params:{pattern: "^[1-9][0-9]{0,18}$"},message:"must match pattern \""+"^[1-9][0-9]{0,18}$"+"\""};
 if(vErrors === null){
 vErrors = [err11];
@@ -127581,8 +127654,8 @@ return errors === 0;
 
 export const Question = validate196;
 const schema197 = {"$id":"https://whip.dev/protocol/v4/Question","$schema":"http://json-schema.org/draft-07/schema#","title":"Question","oneOf":[{"type":"object","properties":{"operation_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"session_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"turn_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"cell_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"request":{"type":"object","properties":{"questions":{"type":"array","items":{"type":"object","properties":{"question":{"type":"string","pattern":"^(?:[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,96})$","not":{"pattern":"^[\\s\\p{Z}]*$"}},"options":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string","pattern":"^[^\\x00]{1,256}$"},"description":{"type":"string","pattern":"^(?:[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,96})$"},"recommended":{"type":"boolean"}},"required":["label","description","recommended"],"additionalProperties":false},"minItems":2,"maxItems":6},"multiple":{"type":"boolean"}},"required":["question","options","multiple"],"additionalProperties":false},"minItems":1,"maxItems":8},"batch":{"type":"boolean"}},"required":["questions","batch"],"additionalProperties":false},"state":{"type":"string","enum":["pending"]},"answers":{"type":"array","items":{"type":"object","properties":{"answer":{"type":"array","items":{"type":"string","pattern":"^(?:[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,96})$"},"minItems":0,"maxItems":7},"dismissed":{"type":"boolean"}},"required":["answer","dismissed"],"additionalProperties":false},"minItems":0,"maxItems":0},"close_reason":{"type":"null"},"created_at":{"type":"string"},"deadline":{"type":"string"},"closed_at":{"type":"null"}},"required":["operation_id","session_id","turn_id","cell_id","request","state","answers","close_reason","created_at","deadline","closed_at"],"additionalProperties":false},{"type":"object","properties":{"operation_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"session_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"turn_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"cell_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"request":{"type":"object","properties":{"questions":{"type":"array","items":{"type":"object","properties":{"question":{"type":"string","pattern":"^(?:[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,96})$","not":{"pattern":"^[\\s\\p{Z}]*$"}},"options":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string","pattern":"^[^\\x00]{1,256}$"},"description":{"type":"string","pattern":"^(?:[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,96})$"},"recommended":{"type":"boolean"}},"required":["label","description","recommended"],"additionalProperties":false},"minItems":2,"maxItems":6},"multiple":{"type":"boolean"}},"required":["question","options","multiple"],"additionalProperties":false},"minItems":1,"maxItems":8},"batch":{"type":"boolean"}},"required":["questions","batch"],"additionalProperties":false},"state":{"type":"string","enum":["answered"]},"answers":{"type":"array","items":{"type":"object","properties":{"answer":{"type":"array","items":{"type":"string","pattern":"^(?:[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,96})$"},"minItems":0,"maxItems":7},"dismissed":{"type":"boolean"}},"required":["answer","dismissed"],"additionalProperties":false},"minItems":1,"maxItems":8},"close_reason":{"type":"null"},"created_at":{"type":"string"},"deadline":{"type":"string"},"closed_at":{"type":"string"}},"required":["operation_id","session_id","turn_id","cell_id","request","state","answers","close_reason","created_at","deadline","closed_at"],"additionalProperties":false},{"type":"object","properties":{"operation_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"session_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"turn_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"cell_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"request":{"type":"object","properties":{"questions":{"type":"array","items":{"type":"object","properties":{"question":{"type":"string","pattern":"^(?:[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,96})$","not":{"pattern":"^[\\s\\p{Z}]*$"}},"options":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string","pattern":"^[^\\x00]{1,256}$"},"description":{"type":"string","pattern":"^(?:[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,96})$"},"recommended":{"type":"boolean"}},"required":["label","description","recommended"],"additionalProperties":false},"minItems":2,"maxItems":6},"multiple":{"type":"boolean"}},"required":["question","options","multiple"],"additionalProperties":false},"minItems":1,"maxItems":8},"batch":{"type":"boolean"}},"required":["questions","batch"],"additionalProperties":false},"state":{"type":"string","enum":["dismissed"]},"answers":{"type":"array","items":{"type":"object","properties":{"answer":{"type":"array","items":{"type":"string","pattern":"^(?:[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,96})$"},"minItems":0,"maxItems":7},"dismissed":{"type":"boolean"}},"required":["answer","dismissed"],"additionalProperties":false},"minItems":1,"maxItems":8},"close_reason":{"type":"null"},"created_at":{"type":"string"},"deadline":{"type":"string"},"closed_at":{"type":"string"}},"required":["operation_id","session_id","turn_id","cell_id","request","state","answers","close_reason","created_at","deadline","closed_at"],"additionalProperties":false},{"type":"object","properties":{"operation_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"session_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"turn_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"cell_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"request":{"type":"object","properties":{"questions":{"type":"array","items":{"type":"object","properties":{"question":{"type":"string","pattern":"^(?:[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,96})$","not":{"pattern":"^[\\s\\p{Z}]*$"}},"options":{"type":"array","items":{"type":"object","properties":{"label":{"type":"string","pattern":"^[^\\x00]{1,256}$"},"description":{"type":"string","pattern":"^(?:[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,96})$"},"recommended":{"type":"boolean"}},"required":["label","description","recommended"],"additionalProperties":false},"minItems":2,"maxItems":6},"multiple":{"type":"boolean"}},"required":["question","options","multiple"],"additionalProperties":false},"minItems":1,"maxItems":8},"batch":{"type":"boolean"}},"required":["questions","batch"],"additionalProperties":false},"state":{"type":"string","enum":["closed"]},"answers":{"type":"array","items":{"type":"object","properties":{"answer":{"type":"array","items":{"type":"string","pattern":"^(?:[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,1000}|[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{1000}[^\\x00]{0,96})$"},"minItems":0,"maxItems":7},"dismissed":{"type":"boolean"}},"required":["answer","dismissed"],"additionalProperties":false},"minItems":0,"maxItems":0},"close_reason":{"type":"string","enum":["cancelled","expired","interrupted"]},"created_at":{"type":"string"},"deadline":{"type":"string"},"closed_at":{"type":"string"}},"required":["operation_id","session_id","turn_id","cell_id","request","state","answers","close_reason","created_at","deadline","closed_at"],"additionalProperties":false}]};
-const pattern1369 = new RegExp("^[\\s\\p{Z}]*$", "u");
-const pattern1371 = new RegExp("^[^\\x00]{1,256}$", "u");
+const pattern1370 = new RegExp("^[\\s\\p{Z}]*$", "u");
+const pattern1372 = new RegExp("^[^\\x00]{1,256}$", "u");
 
 function validate196(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v4/Question" */;
@@ -127924,7 +127997,7 @@ let data7 = data6.question;
 const _errs22 = errors;
 const _errs23 = errors;
 if(typeof data7 === "string"){
-if(!pattern1369.test(data7)){
+if(!pattern1370.test(data7)){
 const err29 = {};
 if(vErrors === null){
 vErrors = [err29];
@@ -128052,7 +128125,7 @@ errors++;
 if(data9.label !== undefined){
 let data10 = data9.label;
 if(typeof data10 === "string"){
-if(!pattern1371.test(data10)){
+if(!pattern1372.test(data10)){
 const err39 = {instancePath:instancePath+"/request/questions/" + i0+"/options/" + i1+"/label",schemaPath:"#/oneOf/0/properties/request/properties/questions/items/properties/options/items/properties/label/pattern",keyword:"pattern",params:{pattern: "^[^\\x00]{1,256}$"},message:"must match pattern \""+"^[^\\x00]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err39];
@@ -128771,7 +128844,7 @@ let data32 = data31.question;
 const _errs81 = errors;
 const _errs82 = errors;
 if(typeof data32 === "string"){
-if(!pattern1369.test(data32)){
+if(!pattern1370.test(data32)){
 const err100 = {};
 if(vErrors === null){
 vErrors = [err100];
@@ -128899,7 +128972,7 @@ errors++;
 if(data34.label !== undefined){
 let data35 = data34.label;
 if(typeof data35 === "string"){
-if(!pattern1371.test(data35)){
+if(!pattern1372.test(data35)){
 const err110 = {instancePath:instancePath+"/request/questions/" + i4+"/options/" + i5+"/label",schemaPath:"#/oneOf/1/properties/request/properties/questions/items/properties/options/items/properties/label/pattern",keyword:"pattern",params:{pattern: "^[^\\x00]{1,256}$"},message:"must match pattern \""+"^[^\\x00]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err110];
@@ -129623,7 +129696,7 @@ let data57 = data56.question;
 const _errs140 = errors;
 const _errs141 = errors;
 if(typeof data57 === "string"){
-if(!pattern1369.test(data57)){
+if(!pattern1370.test(data57)){
 const err171 = {};
 if(vErrors === null){
 vErrors = [err171];
@@ -129751,7 +129824,7 @@ errors++;
 if(data59.label !== undefined){
 let data60 = data59.label;
 if(typeof data60 === "string"){
-if(!pattern1371.test(data60)){
+if(!pattern1372.test(data60)){
 const err181 = {instancePath:instancePath+"/request/questions/" + i8+"/options/" + i9+"/label",schemaPath:"#/oneOf/2/properties/request/properties/questions/items/properties/options/items/properties/label/pattern",keyword:"pattern",params:{pattern: "^[^\\x00]{1,256}$"},message:"must match pattern \""+"^[^\\x00]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err181];
@@ -130475,7 +130548,7 @@ let data82 = data81.question;
 const _errs199 = errors;
 const _errs200 = errors;
 if(typeof data82 === "string"){
-if(!pattern1369.test(data82)){
+if(!pattern1370.test(data82)){
 const err242 = {};
 if(vErrors === null){
 vErrors = [err242];
@@ -130603,7 +130676,7 @@ errors++;
 if(data84.label !== undefined){
 let data85 = data84.label;
 if(typeof data85 === "string"){
-if(!pattern1371.test(data85)){
+if(!pattern1372.test(data85)){
 const err252 = {instancePath:instancePath+"/request/questions/" + i12+"/options/" + i13+"/label",schemaPath:"#/oneOf/3/properties/request/properties/questions/items/properties/options/items/properties/label/pattern",keyword:"pattern",params:{pattern: "^[^\\x00]{1,256}$"},message:"must match pattern \""+"^[^\\x00]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err252];
@@ -131682,7 +131755,7 @@ let data9 = data8.question;
 const _errs27 = errors;
 const _errs28 = errors;
 if(typeof data9 === "string"){
-if(!pattern1369.test(data9)){
+if(!pattern1370.test(data9)){
 const err33 = {};
 if(vErrors === null){
 vErrors = [err33];
@@ -131810,7 +131883,7 @@ errors++;
 if(data11.label !== undefined){
 let data12 = data11.label;
 if(typeof data12 === "string"){
-if(!pattern1371.test(data12)){
+if(!pattern1372.test(data12)){
 const err43 = {instancePath:instancePath+"/items/" + i0+"/request/questions/" + i1+"/options/" + i2+"/label",schemaPath:"#/properties/items/items/oneOf/0/properties/request/properties/questions/items/properties/options/items/properties/label/pattern",keyword:"pattern",params:{pattern: "^[^\\x00]{1,256}$"},message:"must match pattern \""+"^[^\\x00]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err43];
@@ -132529,7 +132602,7 @@ let data34 = data33.question;
 const _errs86 = errors;
 const _errs87 = errors;
 if(typeof data34 === "string"){
-if(!pattern1369.test(data34)){
+if(!pattern1370.test(data34)){
 const err104 = {};
 if(vErrors === null){
 vErrors = [err104];
@@ -132657,7 +132730,7 @@ errors++;
 if(data36.label !== undefined){
 let data37 = data36.label;
 if(typeof data37 === "string"){
-if(!pattern1371.test(data37)){
+if(!pattern1372.test(data37)){
 const err114 = {instancePath:instancePath+"/items/" + i0+"/request/questions/" + i5+"/options/" + i6+"/label",schemaPath:"#/properties/items/items/oneOf/1/properties/request/properties/questions/items/properties/options/items/properties/label/pattern",keyword:"pattern",params:{pattern: "^[^\\x00]{1,256}$"},message:"must match pattern \""+"^[^\\x00]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err114];
@@ -133381,7 +133454,7 @@ let data59 = data58.question;
 const _errs145 = errors;
 const _errs146 = errors;
 if(typeof data59 === "string"){
-if(!pattern1369.test(data59)){
+if(!pattern1370.test(data59)){
 const err175 = {};
 if(vErrors === null){
 vErrors = [err175];
@@ -133509,7 +133582,7 @@ errors++;
 if(data61.label !== undefined){
 let data62 = data61.label;
 if(typeof data62 === "string"){
-if(!pattern1371.test(data62)){
+if(!pattern1372.test(data62)){
 const err185 = {instancePath:instancePath+"/items/" + i0+"/request/questions/" + i9+"/options/" + i10+"/label",schemaPath:"#/properties/items/items/oneOf/2/properties/request/properties/questions/items/properties/options/items/properties/label/pattern",keyword:"pattern",params:{pattern: "^[^\\x00]{1,256}$"},message:"must match pattern \""+"^[^\\x00]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err185];
@@ -134233,7 +134306,7 @@ let data84 = data83.question;
 const _errs204 = errors;
 const _errs205 = errors;
 if(typeof data84 === "string"){
-if(!pattern1369.test(data84)){
+if(!pattern1370.test(data84)){
 const err246 = {};
 if(vErrors === null){
 vErrors = [err246];
@@ -134361,7 +134434,7 @@ errors++;
 if(data86.label !== undefined){
 let data87 = data86.label;
 if(typeof data87 === "string"){
-if(!pattern1371.test(data87)){
+if(!pattern1372.test(data87)){
 const err256 = {instancePath:instancePath+"/items/" + i0+"/request/questions/" + i13+"/options/" + i14+"/label",schemaPath:"#/properties/items/items/oneOf/3/properties/request/properties/questions/items/properties/options/items/properties/label/pattern",keyword:"pattern",params:{pattern: "^[^\\x00]{1,256}$"},message:"must match pattern \""+"^[^\\x00]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err256];
@@ -138878,7 +138951,7 @@ errors++;
 if(data.catalog_revision !== undefined){
 let data0 = data.catalog_revision;
 if(typeof data0 === "string"){
-if(!pattern858.test(data0)){
+if(!pattern859.test(data0)){
 const err4 = {instancePath:instancePath+"/catalog_revision",schemaPath:"#/properties/catalog_revision/pattern",keyword:"pattern",params:{pattern: "^[1-9][0-9]{0,18}$"},message:"must match pattern \""+"^[1-9][0-9]{0,18}$"+"\""};
 if(vErrors === null){
 vErrors = [err4];
@@ -139924,7 +139997,7 @@ errors++;
 if(data.expected_revision !== undefined){
 let data9 = data.expected_revision;
 if(typeof data9 === "string"){
-if(!pattern858.test(data9)){
+if(!pattern859.test(data9)){
 const err25 = {instancePath:instancePath+"/expected_revision",schemaPath:"#/properties/expected_revision/pattern",keyword:"pattern",params:{pattern: "^[1-9][0-9]{0,18}$"},message:"must match pattern \""+"^[1-9][0-9]{0,18}$"+"\""};
 if(vErrors === null){
 vErrors = [err25];
@@ -142526,7 +142599,7 @@ errors++;
 if(data.expected_revision !== undefined){
 let data2 = data.expected_revision;
 if(typeof data2 === "string"){
-if(!pattern858.test(data2)){
+if(!pattern859.test(data2)){
 const err8 = {instancePath:instancePath+"/expected_revision",schemaPath:"#/properties/expected_revision/pattern",keyword:"pattern",params:{pattern: "^[1-9][0-9]{0,18}$"},message:"must match pattern \""+"^[1-9][0-9]{0,18}$"+"\""};
 if(vErrors === null){
 vErrors = [err8];
@@ -148463,7 +148536,7 @@ errors++;
 if(data21.due !== undefined){
 let data22 = data21.due;
 if(typeof data22 === "string"){
-if(!pattern1079.test(data22)){
+if(!pattern1080.test(data22)){
 const err59 = {instancePath:instancePath+"/next_cursor/due",schemaPath:"#/properties/next_cursor/properties/due/pattern",keyword:"pattern",params:{pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{9}Z$"},message:"must match pattern \""+"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{9}Z$"+"\""};
 if(vErrors === null){
 vErrors = [err59];
@@ -161310,7 +161383,7 @@ errors++;
 if(data1.effort !== undefined){
 let data3 = data1.effort;
 if(typeof data3 === "string"){
-if(!pattern855.test(data3)){
+if(!pattern856.test(data3)){
 const err13 = {instancePath:instancePath+"/defaults/effort",schemaPath:"#/properties/defaults/properties/effort/pattern",keyword:"pattern",params:{pattern: "^[^\\x00]{0,64}$"},message:"must match pattern \""+"^[^\\x00]{0,64}$"+"\""};
 if(vErrors === null){
 vErrors = [err13];
@@ -161636,7 +161709,7 @@ errors++;
 if(data2.name !== undefined){
 let data4 = data2.name;
 if(typeof data4 === "string"){
-if(!pattern879.test(data4)){
+if(!pattern880.test(data4)){
 const err14 = {instancePath:instancePath+"/profiles/" + i0+"/name",schemaPath:"#/properties/profiles/items/properties/name/pattern",keyword:"pattern",params:{pattern: "^[^\\x00-\\x1f\\x7f]{1,256}$"},message:"must match pattern \""+"^[^\\x00-\\x1f\\x7f]{1,256}$"+"\""};
 if(vErrors === null){
 vErrors = [err14];
@@ -161671,7 +161744,7 @@ vErrors.push(err16);
 }
 errors++;
 }
-if(!pattern880.test(data5)){
+if(!pattern881.test(data5)){
 const err17 = {instancePath:instancePath+"/profiles/" + i0+"/url",schemaPath:"#/properties/profiles/items/properties/url/pattern",keyword:"pattern",params:{pattern: "^https?://[A-Za-z0-9._:\\[\\]-]+/?$"},message:"must match pattern \""+"^https?://[A-Za-z0-9._:\\[\\]-]+/?$"+"\""};
 if(vErrors === null){
 vErrors = [err17];
@@ -161882,7 +161955,7 @@ errors++;
 if(data.expected_revision !== undefined){
 let data2 = data.expected_revision;
 if(typeof data2 === "string"){
-if(!pattern858.test(data2)){
+if(!pattern859.test(data2)){
 const err9 = {instancePath:instancePath+"/expected_revision",schemaPath:"#/properties/expected_revision/pattern",keyword:"pattern",params:{pattern: "^[1-9][0-9]{0,18}$"},message:"must match pattern \""+"^[1-9][0-9]{0,18}$"+"\""};
 if(vErrors === null){
 vErrors = [err9];
@@ -162054,7 +162127,7 @@ errors++;
 if(data.expected_revision !== undefined){
 let data2 = data.expected_revision;
 if(typeof data2 === "string"){
-if(!pattern858.test(data2)){
+if(!pattern859.test(data2)){
 const err9 = {instancePath:instancePath+"/expected_revision",schemaPath:"#/properties/expected_revision/pattern",keyword:"pattern",params:{pattern: "^[1-9][0-9]{0,18}$"},message:"must match pattern \""+"^[1-9][0-9]{0,18}$"+"\""};
 if(vErrors === null){
 vErrors = [err9];
@@ -178988,7 +179061,7 @@ return errors === 0;
 
 export const TraceExportParams = validate277;
 const schema278 = {"type":"object","properties":{"root_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"trace_id":{"type":"string","pattern":"^([a-f0-9]{32})?$"},"expected_revision":{"type":["null","string"],"pattern":"^(0|[1-9][0-9]{0,18})$","format":"counter"}},"$id":"https://whip.dev/protocol/v4/TraceExportParams","$schema":"http://json-schema.org/draft-07/schema#","title":"TraceExportParams","required":["root_id","trace_id","expected_revision"],"additionalProperties":false};
-const pattern1940 = new RegExp("^([a-f0-9]{32})?$", "u");
+const pattern1941 = new RegExp("^([a-f0-9]{32})?$", "u");
 
 function validate277(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v4/TraceExportParams" */;
@@ -179065,7 +179138,7 @@ errors++;
 if(data.trace_id !== undefined){
 let data1 = data.trace_id;
 if(typeof data1 === "string"){
-if(!pattern1940.test(data1)){
+if(!pattern1941.test(data1)){
 const err6 = {instancePath:instancePath+"/trace_id",schemaPath:"#/properties/trace_id/pattern",keyword:"pattern",params:{pattern: "^([a-f0-9]{32})?$"},message:"must match pattern \""+"^([a-f0-9]{32})?$"+"\""};
 if(vErrors === null){
 vErrors = [err6];
@@ -179822,7 +179895,7 @@ errors++;
 if(data.trace_id !== undefined){
 let data6 = data.trace_id;
 if(typeof data6 === "string"){
-if(!pattern1940.test(data6)){
+if(!pattern1941.test(data6)){
 const err24 = {instancePath:instancePath+"/trace_id",schemaPath:"#/oneOf/0/properties/trace_id/pattern",keyword:"pattern",params:{pattern: "^([a-f0-9]{32})?$"},message:"must match pattern \""+"^([a-f0-9]{32})?$"+"\""};
 if(vErrors === null){
 vErrors = [err24];
@@ -180124,7 +180197,7 @@ errors++;
 if(data.trace_id !== undefined){
 let data13 = data.trace_id;
 if(typeof data13 === "string"){
-if(!pattern1940.test(data13)){
+if(!pattern1941.test(data13)){
 const err50 = {instancePath:instancePath+"/trace_id",schemaPath:"#/oneOf/1/properties/trace_id/pattern",keyword:"pattern",params:{pattern: "^([a-f0-9]{32})?$"},message:"must match pattern \""+"^([a-f0-9]{32})?$"+"\""};
 if(vErrors === null){
 vErrors = [err50];
@@ -180195,8 +180268,8 @@ return errors === 0;
 
 export const TracePageResult = validate280;
 const schema281 = {"type":"object","properties":{"observed_at_ns":{"type":"string","pattern":"^(0|[1-9][0-9]{0,18})$","format":"counter"},"items":{"type":"array","items":{"type":"object","properties":{"sequence":{"type":"string","pattern":"^(0|[1-9][0-9]{0,18})$","format":"counter"},"root_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"session_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"turn_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"source_kind":{"type":"string","enum":["turn","attempt","cell","operation","permission","question"]},"source_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"span_id":{"type":"string","pattern":"^[a-f0-9]{16}$"},"span":{"type":["null","object"],"properties":{"trace_id":{"type":"string","pattern":"^[a-f0-9]{32}$"},"parent_span_id":{"type":["null","string"],"pattern":"^[a-f0-9]{16}$"},"kind":{"type":"string","enum":["agent","llm","tool","host","wait"]},"name":{"type":"string","maxLength":1024},"state":{"type":"string","enum":["running","cancelling","reserved","dispatched","succeeded","failed","cancelled","interrupted","uncertain","waiting","ready","denied","pending","approved","answered","expired"]},"start_ns":{"type":"string","pattern":"^(0|[1-9][0-9]{0,18})$","format":"counter"},"end_ns":{"type":["null","string"],"pattern":"^(0|[1-9][0-9]{0,18})$","format":"counter"},"attributes":{"type":"array","items":{"type":"object","properties":{"key":{"type":"string","maxLength":128},"text":{"type":["null","string"],"maxLength":2048},"count":{"type":["null","string"],"pattern":"^(0|[1-9][0-9]{0,18})$","format":"counter"},"flag":{"type":["null","boolean"]}},"required":["key","text","count","flag"],"additionalProperties":false,"oneOf":[{"properties":{"count":{"type":"null","pattern":"^(0|[1-9][0-9]{0,18})$","format":"counter"},"flag":{"type":"null"},"text":{"type":"string","maxLength":2048}}},{"properties":{"count":{"type":"string","pattern":"^(0|[1-9][0-9]{0,18})$","format":"counter"},"flag":{"type":"null"},"text":{"type":"null","maxLength":2048}}},{"properties":{"count":{"type":"null","pattern":"^(0|[1-9][0-9]{0,18})$","format":"counter"},"flag":{"type":"boolean"},"text":{"type":"null","maxLength":2048}}}]},"maxItems":64}},"required":["trace_id","parent_span_id","kind","name","state","start_ns","end_ns","attributes"],"additionalProperties":false}},"required":["sequence","root_id","session_id","turn_id","source_kind","source_id","span_id","span"],"additionalProperties":false},"maxItems":2048},"revision":{"type":"string","pattern":"^(0|[1-9][0-9]{0,18})$","format":"counter"},"next":{"type":"string","pattern":"^(0|[1-9][0-9]{0,18})$","format":"counter"},"has_more":{"type":"boolean"}},"$id":"https://whip.dev/protocol/v4/TracePageResult","$schema":"http://json-schema.org/draft-07/schema#","title":"TracePageResult","required":["observed_at_ns","items","revision","next","has_more"],"additionalProperties":false};
-const pattern1961 = new RegExp("^[a-f0-9]{16}$", "u");
-const pattern1962 = new RegExp("^[a-f0-9]{32}$", "u");
+const pattern1962 = new RegExp("^[a-f0-9]{16}$", "u");
+const pattern1963 = new RegExp("^[a-f0-9]{32}$", "u");
 
 function validate280(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v4/TracePageResult" */;
@@ -180570,7 +180643,7 @@ errors++;
 if(data2.span_id !== undefined){
 let data9 = data2.span_id;
 if(typeof data9 === "string"){
-if(!pattern1961.test(data9)){
+if(!pattern1962.test(data9)){
 const err32 = {instancePath:instancePath+"/items/" + i0+"/span_id",schemaPath:"#/properties/items/items/properties/span_id/pattern",keyword:"pattern",params:{pattern: "^[a-f0-9]{16}$"},message:"must match pattern \""+"^[a-f0-9]{16}$"+"\""};
 if(vErrors === null){
 vErrors = [err32];
@@ -180700,7 +180773,7 @@ errors++;
 if(data10.trace_id !== undefined){
 let data11 = data10.trace_id;
 if(typeof data11 === "string"){
-if(!pattern1962.test(data11)){
+if(!pattern1963.test(data11)){
 const err44 = {instancePath:instancePath+"/items/" + i0+"/span/trace_id",schemaPath:"#/properties/items/items/properties/span/properties/trace_id/pattern",keyword:"pattern",params:{pattern: "^[a-f0-9]{32}$"},message:"must match pattern \""+"^[a-f0-9]{32}$"+"\""};
 if(vErrors === null){
 vErrors = [err44];
@@ -180735,7 +180808,7 @@ vErrors.push(err46);
 errors++;
 }
 if(typeof data12 === "string"){
-if(!pattern1961.test(data12)){
+if(!pattern1962.test(data12)){
 const err47 = {instancePath:instancePath+"/items/" + i0+"/span/parent_span_id",schemaPath:"#/properties/items/items/properties/span/properties/parent_span_id/pattern",keyword:"pattern",params:{pattern: "^[a-f0-9]{16}$"},message:"must match pattern \""+"^[a-f0-9]{16}$"+"\""};
 if(vErrors === null){
 vErrors = [err47];
@@ -181785,7 +181858,7 @@ errors++;
 if(data.revision !== undefined){
 let data0 = data.revision;
 if(typeof data0 === "string"){
-if(!pattern858.test(data0)){
+if(!pattern859.test(data0)){
 const err2 = {instancePath:instancePath+"/revision",schemaPath:"#/properties/revision/pattern",keyword:"pattern",params:{pattern: "^[1-9][0-9]{0,18}$"},message:"must match pattern \""+"^[1-9][0-9]{0,18}$"+"\""};
 if(vErrors === null){
 vErrors = [err2];
@@ -193368,7 +193441,7 @@ vErrors.push(err5);
 }
 errors++;
 }
-if(!pattern885.test(data1)){
+if(!pattern886.test(data1)){
 const err6 = {instancePath:instancePath+"/text",schemaPath:"#/properties/text/pattern",keyword:"pattern",params:{pattern: "^[^\\x00]*$"},message:"must match pattern \""+"^[^\\x00]*$"+"\""};
 if(vErrors === null){
 vErrors = [err6];

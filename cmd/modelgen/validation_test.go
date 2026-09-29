@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/context-labs/whip/internal/legacy/config/modelsdev"
+	"github.com/context-labs/whip/internal/modelcatalog"
 )
 
 func TestUpdateRejectsUnsafeMetadataWithoutReplacingArtifacts(t *testing.T) {
@@ -89,21 +89,21 @@ func writeModelgenFile(t *testing.T, path string, data []byte) {
 func TestOfflineCheckRejectsTamperedProvenanceAndPricing(t *testing.T) {
 	for _, test := range []struct {
 		name, want string
-		change     func(*modelsdev.Snapshot)
+		change     func(*modelcatalog.Snapshot)
 	}{
-		{"source", "provenance", func(s *modelsdev.Snapshot) { s.SourceURL = "https://example.com/api.json" }},
-		{"digest", "SHA-256", func(s *modelsdev.Snapshot) { s.InputSHA256 = "not-a-digest" }},
-		{"retrieval date", "retrieval date", func(s *modelsdev.Snapshot) { s.RetrievedAt = "yesterday" }},
-		{"unexpected provider", "outside Whip policy", func(s *modelsdev.Snapshot) { s.Providers["unexpected"] = modelsdev.ProviderInfo{} }},
-		{"pricing", "invalid pricing", func(s *modelsdev.Snapshot) {
+		{"source", "provenance", func(s *modelcatalog.Snapshot) { s.SourceURL = "https://example.com/api.json" }},
+		{"digest", "SHA-256", func(s *modelcatalog.Snapshot) { s.InputSHA256 = "not-a-digest" }},
+		{"retrieval date", "retrieval date", func(s *modelcatalog.Snapshot) { s.RetrievedAt = "yesterday" }},
+		{"unexpected provider", "outside Whip policy", func(s *modelcatalog.Snapshot) { s.Providers["unexpected"] = modelcatalog.ProviderInfo{} }},
+		{"pricing", "invalid pricing", func(s *modelcatalog.Snapshot) {
 			p := s.Providers["cerebras"]
 			m := p.Models["test-model"]
-			m.Pricing = &modelsdev.Pricing{Prompt: "-0.1"}
+			m.Pricing = &modelcatalog.Pricing{Prompt: "-0.1"}
 			p.Models["test-model"] = m
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			snapshot, err := normalize(fixture(t), modelsdev.Snapshot{}, time.Now())
+			snapshot, err := normalize(fixture(t), modelcatalog.Snapshot{}, time.Now())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -138,7 +138,7 @@ func TestModelgenMainOfflineRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := modelsdev.Decode(data); err != nil {
+	if _, err := modelcatalog.Decode(data); err != nil {
 		t.Fatalf("generated catalog is not consumable: %v", err)
 	}
 }
@@ -215,7 +215,7 @@ func TestUpdateReportsMetadataChangesAndRetainsExplicitModelOverrides(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := modelsdev.Decode(data)
+	snapshot, err := modelcatalog.Decode(data)
 	if err != nil {
 		t.Fatal(err)
 	}

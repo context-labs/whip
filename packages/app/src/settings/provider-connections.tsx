@@ -123,6 +123,7 @@ export function ProviderConnectionDialog({ client, entry, enabled, revision, hos
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [remove, setRemove] = useState(false);
+  const [removeError, setRemoveError] = useState('');
   const [restartLogin, setRestartLogin] = useState(false);
   const request = useRef<AbortController | null>(null);
   useEffect(() => { setBusy(false); request.current = null; return () => request.current?.abort(); }, [client]);
@@ -139,11 +140,12 @@ export function ProviderConnectionDialog({ client, entry, enabled, revision, hos
     runtime.queries.setQueryData<AccountFlow[]>(['provider-login-flows', client.runtimeID], previous => [value, ...(previous ?? []).filter(item => item.value.id !== value.value.id)]);
     setFlowID(value.value.id); setHiddenFlow(undefined);
   }
-  async function action(run: (signal: AbortSignal) => Promise<void>) {
+  async function action(run: (signal: AbortSignal) => Promise<void>, owner: 'provider' | 'remove' = 'provider') {
     if (!enabled || request.current) return;
-    const controller = new AbortController(); request.current = controller; setBusy(true); setError(''); setNotice('');
+    const failure = owner === 'remove' ? setRemoveError : setError;
+    const controller = new AbortController(); request.current = controller; setBusy(true); failure(''); setNotice('');
     try { await run(controller.signal); }
-    catch (error) { if (!controller.signal.aborted) { setError(errorMessage(error)); await Promise.allSettled([refresh(), refreshFlows()]); } }
+    catch (error) { if (!controller.signal.aborted) { failure(errorMessage(error)); await Promise.allSettled([refresh(), refreshFlows()]); } }
     finally { if (request.current === controller) request.current = null; if (!controller.signal.aborted) setBusy(false); }
   }
   const changed = async (message: string, signal: AbortSignal) => { await refresh(); if (!signal.aborted) { setNotice(message); onConnected?.(message); } };
@@ -205,13 +207,13 @@ export function ProviderConnectionDialog({ client, entry, enabled, revision, hos
         <Button type="submit" variant="primary" disabled={!enabled || busy || base.revision !== revision || source === 'account' || !id || !url}>{validatedSetup ? 'Connect' : 'Save provider'}</Button>
       </form>}
       {entry.route && <Button disabled={!enabled || busy} onClick={() => void action(async signal => { const result = await client.refreshProviderCatalog(entry.id, { signal }); await refresh(); if (result.failure) throw new Error(result.failure); if (!signal.aborted) setNotice(`Catalog: ${result.discovery}. Inference has not been tested.`); })}>Refresh model catalog</Button>}
-      {entry.route && <Button disabled={!enabled || busy} onClick={() => setRemove(true)}>Remove configured route</Button>}
+      {entry.route && <Button disabled={!enabled || busy} onClick={() => { setRemoveError(''); setRemove(true); }}>Remove configured route</Button>}
       <Button onClick={leave}>Done</Button>
     </div>}
     <ErrorNotice type="action" owner={`provider:${entry.id}`} title="Could not update provider connection" error={error} />{notice && <Alert tone="success">{notice}</Alert>}
     {restartLogin && <Dialog open title="Start another sign-in?" description="The previous account change has an uncertain outcome. Inspect the account and its existing keys or projects before continuing; starting again may create another credential." onOpenChange={setRestartLogin} footer={<><Button onClick={() => setRestartLogin(false)}>Back</Button><Button disabled={!enabled || busy} onClick={() => void action(async signal => { const next: AccountFlow = entry.id === 'inference-net' ? { provider: 'inference-net', value: await client.beginInferenceLogin({ signal }) } : { provider: 'openai-codex', value: await client.beginOpenAILogin({ signal }) }; if (!signal.aborted) { setRestartLogin(false); setAutoOpen(true); await updateFlow(next); } })}>Start new sign-in</Button></>} />}
     {discard && <Dialog open title="Discard this credential?" description="This unsaved credential is held only in this form." onOpenChange={setDiscard} footer={<><Button onClick={() => setDiscard(false)}>Keep editing</Button><Button onClick={() => { setKey(''); publication.current = null; close(); }}>Discard credential</Button></>} />}
-    {remove && <Dialog open title="Remove this provider route?" description="Saved key files and remote accounts are preserved. Choose a different default first if this route is in use." onOpenChange={setRemove} footer={<><Button onClick={() => setRemove(false)}>Cancel</Button><Button disabled={!enabled || busy} onClick={() => void action(async signal => { await client.removeProvider({ revision, provider: entry.id, replacement: null }, { signal }); await refresh(); if (!signal.aborted) close('Provider route removed. Credential files are unchanged.'); })}>Remove route</Button></>} />}
+    {remove && <Dialog open title="Remove this provider route?" description="Saved key files and remote accounts are preserved. Choose a different default first if this route is in use." onOpenChange={setRemove} footer={<><Button onClick={() => setRemove(false)}>Cancel</Button><Button disabled={!enabled || busy} onClick={() => void action(async signal => { await client.removeProvider({ revision, provider: entry.id, replacement: null }, { signal }); if (signal.aborted) return; close('Provider route removed. Credential files are unchanged.'); await refresh(); }, 'remove')}>Remove route</Button></>}><ErrorNotice type="action" owner={`provider:${entry.id}:remove`} title="Could not remove provider route" error={removeError} /></Dialog>}
   </Dialog>;
 }
 const styles = stylex.create({

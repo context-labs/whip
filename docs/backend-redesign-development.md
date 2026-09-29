@@ -4246,3 +4246,349 @@ Run `36545994800` has now completed: every backend/Linux/macOS/client, analysis,
 web/browser/mobile/examples/docs job passed. Only the desktop job and dependent
 aggregate failed at the fixed-sleep assertion described above. The next head
 retains every gate and carries the exact-effect observation repair.
+
+### Managed native gateway failure isolation and packaged browser acceptance
+
+The retained real packaged gateway smoke is ported to native protocol/SDK4,
+exact runtime/process identity, native network restrictions and owned disposable
+homes. Its first run passed Chromium startup but exposed an actual parity defect:
+a managed bind failure returned from hostcmd and shut down the otherwise healthy
+local host. Managed gateway state now belongs to the command lifecycle;
+`host.status` publishes optional bounded `web_state`/`web_error`, and a failed
+listener leaves the core usable. Newly launched explicit network requests wait
+for gateway readiness. Repeated start of an existing socket-only host remains
+idempotent and does not change its policy; explicit restart is required.
+
+Real detached fixtures cover ready, occupied and existing-local cases, verifying
+same-epoch attachment after the gateway result and joined explicit stop. The
+first schema check rejected a regex repetition beyond Go's supported bound;
+using the existing JSON-schema MaxLength mechanism fixed that without changing
+the4096-character public ceiling (published errors are capped at1024 runes).
+Full localruntime/hostcmd/protocol race suites passed4.563/6.043/9.091s; RPC passed
+78.709s; CLI launch-policy race passed1.909s. The final three-mode fixture passed
+three shuffled repeats6.565s and its context-aware listener check3.370s. Protocol
+types/interchange/drift, Go vet and pinned baseline lint passed (zero new issues).
+
+The actual packaged Chromium smoke passes restricted handshake, concurrent
+foreground gateways, Host/Origin refusal, Ctrl+C ownership, unchanged existing
+runtime, managed bind-failure isolation, managed readiness, parent shutdown and
+foreground backend-loss cleanup. Initial failed logs remain failures. This uses
+only a disposable binary/home and does not install or modify the real runtime.
+Long-home socket fallback and the remaining distribution update scenarios are
+still pending; this does not close Phase7.
+
+
+### Native long-home socket parity
+
+The retained distribution probe requires a long explicit product home. Native
+launch previously rejected it outright, even though durable storage itself fits.
+The shared pure `runtimepath.Socket` leaf now keeps short addresses unchanged and
+moves only an oversized socket address into a deterministic private `/tmp`
+directory; the full directory digest and UID distinguish owners, while durable
+state and both execution/launch locks remain in the selected home. Discovery is
+read-only and independent of the caller's `TMPDIR`. Existing private-directory,
+non-symlink, stale-socket and100-byte listener checks remain enforced.
+
+Tests verify read-only deterministic selection, distinct homes, rejected public
+and symlink directories, preserved regular-file occupants, exclusive durable lock
+before stale-socket removal, empty-directory cleanup and real detached
+start/stop/restart retaining runtime ID with a new process epoch. Three shuffled
+race repeats passed runtimepath1.173s/runtime2.480s/localruntime5.932s. Existing
+execution ownership/restart/shutdown and architecture regressions passed3.899s;
+full localruntime/hostcmd races passed5.073/5.422s. Vet and pinned baseline lint
+passed with zero new issues. The leaf is included in required package and import
+boundary gates. The full installer/update probe is next; this result alone does
+not claim distribution or Phase7 completion.
+
+### Native model catalog generator and single snapshot owner
+
+`cmd/modelgen` no longer depends on retired configuration/provider types. The
+existing tested snapshot codec, all provenance/catalog bytes and license moved
+unchanged into `internal/modelcatalog`; native providerhost now consumes that
+leaf, removing its12,653-line duplicate catalog and second partial decoder.
+Native preset declarations and the same explicit Inference.net model overrides
+supply generator policy. Temporary retained config readers import the pure leaf
+until their final deletion; no new native package imports retired core.
+
+Generator, codec and providerhost race/shuffle suites pass1.772/1.617/3.207s;
+the retained consumer suite passes1.597s, native import boundaries1.863s, Go vet
+and pinned baseline lint pass with zero new issues. The existing offline
+`modelgen -check` confirms normalized snapshot bytes and generated desktop
+environment names are unchanged. No upstream download, credential resolution,
+default selection or live membership inference occurred. Required package/import
+gates include the new leaf and generator. Remaining retired consumers/evals and
+complete CLI/TUI cutover still prevent Phase7 completion.
+
+### Native installer and update acceptance
+
+The retained distribution probe now speaks generated native protocol4 and verifies
+session persistence through fresh public reads after each process change. It
+retains every pinned-installer, fixed-product-identity, renderer manifest/digest,
+private configuration, long explicit home, start/restart, update destination and
+release-selection assertion. Managed readiness requires the exact build plus a
+running gateway; restart/update preserves durable runtime ID and changes process
+epoch. A failed update preserves both the installed fixture binary and its live
+process epoch. No paid turn or direct dependency on retired SQL columns is needed.
+
+The benchmark contract is explicit: fresh `--bench` creates no product directory;
+`--bench-init` initializes only native `runtime-v4/host.json`; the next read-only
+benchmark preserves its bytes, with no database or legacy configuration created.
+The complete `python3 scripts/test-distributions.py --browser` passed using two
+locally compiled native candidates, fixture releases and disposable homes. Real
+Chromium also passed packaged UI/bootstrap, restricted handshake, socket-only and
+managed network lifecycles, bind-failure isolation, parent/backend-loss cleanup,
+and matching renderer digests. Both pinned installation and new-to-new update
+passed, including persisted exact session configuration across restart and update.
+This is local macOS arm64 evidence, not signed distribution, Linux packaging,
+live-provider, remote-SSH or installed-runtime evidence. No installed app changed.
+
+### Client parity: native Settings, TUI, desktop admission and staged workload
+
+The next client branch integrates these reviewed leaves after the renderer CI
+setup repair. Settings and provider removal now preserve active-dialog errors;
+explicit attachment download verifies scoped bytes and digest before platform
+saving, with cancellation on owner/reference/client/connection/dialog changes.
+The production Settings probes use native hosts and protocols throughout. The
+new required `check:product-settings` gate passed on the integrated source:
+12 Settings, five provider, nine REPL-conversation and two stored-body workflows
+in each of Chromium and Firefox (56 checks total). It builds its own renderer
+inputs and records the exact manifest. Fixture cleanup also covers setup failure.
+The required product matrix now separately runs Settings and full native package
+installation/update on Linux and macOS; failed product jobs upload every owned
+`whip-*-results` artifact directory, including session-tab recovery diagnostics.
+
+Native TUI now has `/memory` and `/me`, owner-bound permission/question dialogs,
+and bounded rich transcript/history controls. Historical paging uses exact
+owner/revision/cursor identity, 64-message pages and explicit live/latest return;
+late replies and rewind-invalidated pages cannot replace current history. Rich
+Markdown renders bounded content without filesystem probing or terminal controls;
+tool disclosure and live-only reasoning remain distinct. Rendering caps each
+message and the aggregate view. Dialogs retain exact retry identity and drafts,
+close after canonical external resolution, and do not invent child human approval.
+ACP likewise preserves direct-parent delegation: child approval cannot mint root
+authority. Full integrated ACP/TUI race runs passed 22.938/26.495s; permission TUI
+passed 31.680s; final rich-history TUI passed 40.743s.
+
+Desktop separates 32 ordinary connections from 32 persistent browser-provider
+peers, with 64 pending opens and a 15-second admission bound. Exact abort/release
+removes waiters before admission; purpose conveys resource accounting only.
+Server admission waits before accepting the next connection and shutdown wakes
+admission and active calls, avoiding early EOF and stalled close under saturation.
+Focused server/shutdown races passed three repeats (11.628s); SDK transport,
+adapter and desktop types passed. The integrated desktop suite passed 166 tests
+(156 executed, ten platform skips). Long-home localruntime/runtimepath races
+passed 5.428/1.844s after integration. The offline model generator check passed
+with the single unchanged native model catalog and no retired-config dependency.
+
+The staged real Electron performance fixture passes the complete retained
+functional workload: a 10,000-message root and 100 children, bounded history and
+reading anchors, 1/8/32 tabs, 16 simultaneous streams and 40 queued/cancelled
+inputs, preserved drafts, rejected oversized upload, three verified uploads and
+verified native saving. At most four native observations were live. Tab and
+visible-sidebar summary polls are separate bounded owners. The recorded root
+switch median/p95 was 188/207ms, tab switch 196/216ms. Performance remains OPEN:
+one upload-time key-to-two-animation-frame probe reached 1044ms p95 and sampled
+peak RSS was 1,761,200 KiB. Same-current-source web measurement reproduced a
+roughly five-second anchor publication delay. Functional pass does not close
+responsiveness, memory, signed release, live-provider or remote-SSH obligations.
+
+Native `--bench`/`--bench-init` and installer/update acceptance are integrated as
+documented above. Main/default TUI routing, remaining specialized browser probes,
+active eval consumers, final package/entrypoint gates and retired-core deletion
+remain explicit next work. Phases5–7 are not complete at this checkpoint.
+
+### Focused-context evals use native execution and accounting
+
+`evals/rlm` now uses the shipping native runner, provider adapter, shared attempt
+budget and SQLite ledger with the existing restricted synthetic corpus host and
+both actual isolated engines. It no longer imports retired agent, agentdef, LLM,
+legacy configuration, RLM orchestration or tools. The exact text/handle/byte-span
+checks and negative-evidence cases remain. Two stateless reviewers now make real
+scripted HTTP calls through native helper accounting; all four calls appear in
+the same durable ledger. A two-call budget test proves the root and reviewers
+cannot bypass shared admission. Provider charges, known-free charges and unknown
+prices retain distinct results. Initial fixture failures revealed incomplete SSE
+headers/terminators accepted by the retired adapter; the scripted server now
+produces valid complete streams. No native completion assertion was weakened.
+
+Final shuffled race checks passed all deterministic fixtures in10.697s, including
+both engines and shared-budget refusal; vet passed. Pinned Go1.27 lint against
+`e3fed9c91918d9c36766dd47d878c1b5466238d1` passed with zero new issues before the
+final cost-source label correction (native `prices`, not retired `estimated`).
+The final narrow check is recorded on integration. A first lint invocation found
+one avoidable output concatenation; it was replaced with strings.Builder. A
+concurrent-lint lock refusal was infrastructure, not a passing check.
+
+The report keeps unknown usage/cost counts and marks the retired local token
+estimate null; native declared input bounds and fixture context targets are named
+separately from actual single-call reported input or peak context occupancy. Live
+evals remain opt-in and require an explicit native declaration directory; they
+read it without discovering or starting installed runtimes. Restricted API-route
+live evaluation does not claim account-managed product acceptance or actual live
+provider evidence. This package now belongs to the required active gates. Python
+benchmark observation and the frozen historical study adapters are a separate
+remaining disposition; historical results have not been rewritten.
+
+
+### Client parity checkpoint: connection admission and native TUI setup
+
+Native TUI adds captured model/theme/settings and provider/account menus, serialized
+private preference edits, owner/session navigation, and exact fork/rewind receipts.
+Provider setup covers explicit route declarations, masked private keys, fixed account
+approval URLs, status/discovery, and known recovery actions. First-run recommendations
+require exact current canonical catalog membership and explicit host-default
+confirmation; existing sessions are unchanged. Visible login polling belongs to the
+joined UI lifetime. The real loopback Inference fixture proves one key mint and
+read-only recovery after a lost begin acknowledgement. No real account was touched.
+Menu foundation leaves passed focused race checks (final 8.004s), vet and pinned lint.
+The default launch route and additional mounted command/layout behavior remain a
+separate in-progress leaf; menu objects alone are not complete TUI adoption.
+
+Browser connection establishment now admits four handshakes with 128 queued opens
+per SDK realm. Cancelled/expired waiters leave before WebSocket construction, slots
+release once, and established subscriptions do not monopolize the handshake pool.
+The measured cause was Chromium connection throttling during concurrent metadata
+reads, not a virtualizer timer. SDK 187 tests, build and the actual test TypeScript
+configuration passed. A mistaken invocation of a nonexistent test-types npm script
+failed after the tests; the explicit test project typecheck then passed.
+Both browsers also passed all 13 session-tab workflows, including runtime restart
+and lost acknowledgements. With the full staged web workload, measured root-switch
+median/p95 fell from 5108/5381ms to 653/686ms; 181 preview samples were 7.6/11.1ms.
+Forty queued inputs still took 1496/1874ms; polling and memory remain open work.
+Performance traffic uses bounded per-method counters instead of retaining bodies.
+Desktop summary polls use exact root-set classification; indistinguishable tab and
+sidebar sets retain a combined 4–8 bound instead of fabricated owner attribution.
+
+The desktop file-path remeasurement exposed automation overhead in the earlier
+upload probe: constructing browser files from injected buffers caused a 404ms task.
+With identical owned files (three uploads, 9,437,346 bytes), automation typing p95
+was 177ms instead of 964ms. Native keyboard EventTiming still reached 144ms (browser
+rounding ±4ms), and peak sampled RSS remained 1,689,424KiB. These are separate
+measurements; neither the earlier automation delay nor this improvement closes
+native responsiveness or memory acceptance. All full-byte/digest/size refusal,
+scoped download, bounded observations and retained history assertions remain.
+
+Hosted run 36547856726 at renderer head d9f5b854e failed three required jobs:
+Firefox session-tab recovery after restart; desktop first hidden-page screenshot;
+and macOS runtime import-boundary inspection (`go list` exited 1). All other jobs
+passed. That head remains failed, not green. The architecture check now captures
+stderr while retaining the same boundaries; the local check passed 0.583s, but the
+hosted subprocess cause is unproven. The desktop fixture now waits for its actual
+initial document navigation and includes safe failure diagnostics. The complete
+native Electron production-browser probe passed locally, including screenshot,
+control cancellation/uncertainty, IPC security, guest lifetime and native daemon
+discovery. Its first local attempt had stale packaged renderer provenance; rebuilding
+the exact renderer restored the prerequisite. No production deadline was extended,
+mutation retried, or assertion removed. A hosted rerun remains required.
+
+Final native eval narrow lint at the final cost-source label passed with zero new
+issues using Go 1.27 and the frozen baseline. All work is in disposable checkouts;
+the original development checkout, installed runtime and real data are untouched.
+
+
+### Default native terminal route and integrated web gate
+
+The default interactive command now calls `RunNative` through the public native
+client. It creates a genuine root or resumes a canonical owner, preserves immutable
+engine/definition identity and applies explicit model/mode edits through revision
+checks. Setup/model/theme/settings menus are mounted; continued observations remain
+live while a menu is open. First-run input stays a draft until configuration is
+ready and never becomes a fabricated bootstrap session. Closing a menu joins its
+work before navigation. Mouse/thinking preferences apply from the fresh client-v4
+namespace. The CLI main path no longer imports retired config or agent definitions.
+
+The actual PTY command test passed (3.760s), including resume, engine, definition,
+initial prompt dispatch and clean observation detach. A two-turn Bubble Tea/native
+socket test passed three repeats (6.244s), proving current host instructions and
+environment reach the provider without client-composed prompts. Full leaf TUI races
+passed (62.526s); runclient/client races passed (21.342/9.716s); focused CLI, vet and
+pinned lint passed. Before this final route leaf, integrated TUI/eval races passed
+54.807/10.763s and vet passed. Sidebar/REPL/paste presentation, child controls,
+remaining retained commands, durable uncertain-input restart records, and richer
+fork/rewind selection and attachment redrafting are still open.
+
+The complete integrated product-web gate passed: 1,343 tests in 111 files, 38 UI
+tests, all support/proxy checks, theme drift and app types. Renderer artifact was
+`a00030b4ee8df51e1f213a133bda8353be18765c68bcb95db4651a98a136a34c`.
+Native file-path performance harness syntax and all three scope-classifier tests
+also passed. This draft is a tested increment, not completion of Phases 5–7.
+
+### Native content, terminal input recovery and CI repairs — 2026-09-29
+
+Hosted run 36551394891 at 4b1da3b9f completed with failures in both build jobs,
+both client jobs and desktop. Every other required job passed, including both
+platforms' distribution acceptance, all store/runtime race groups, native web
+browser workflows, Settings, examples, mobile, docs and analysis. The earlier
+Firefox restart, hidden desktop screenshot and macOS architecture check passed
+on this run; the overall run remains failed.
+
+The build gate tried `go build` on the deliberately test-only `evals/rlm` package.
+It now compiles every active package with `go test -run '^$'` after the unchanged
+fast checks, followed by vet. Complete local `task check:build` passed. The client
+failure came from the malformed-configuration fixture writing retired config.json
+and then launching the native connector with os.Executable, which was whip.test.
+That recursively launched test descendants and starved later real-host deadlines.
+The fixture now writes native host.json and invokes actual hostcmd.Run through its
+existing injection point. It proves the native decode error and unchanged bytes
+across the retained command surfaces. Both original CI shuffle seeds passed
+20.935/18.668s with TERM=dumb and the unchanged three-minute deadline; vet and
+pinned lint passed. No production timeout or automatic retry was added.
+
+Desktop video recording requires Playwright FFmpeg. With an empty private browser
+cache the staged workspace smoke reproduced the blank URL and missing body seen
+in CI. Installing only FFmpeg in that same cache made the identical smoke pass:
+relaunch, exact daemon continuity, independent hosts, settings reload, tab/sidebar
+dragging, four splits and preserved window bounds. Renderer was
+55f25f7a3550f673e25fb38bb993cdf2fb804aae50686ab4662c410f6f3cc6a7;
+this is a dependency isolation check, not a claim that those assets contain every
+later renderer leaf. The redesign workflow now installs the same FFmpeg dependency
+as the existing desktop workflow. Failure capture is bounded and preserves the
+original attachment error. Logs: /tmp/whip-desktop-missing-ffmpeg.log and
+/tmp/whip-desktop-with-ffmpeg.log. No installed user runtime was changed.
+
+Native terminal inputs publish their exact immutable request before dispatch into
+a private, bounded client-v4 journal. Reattachment checks receipts without sending;
+/retry retains the original identity. Publication failure retains the draft. Only
+the matching confirmed receipt clears a record; a rejected input restores the draft
+or remains separately recoverable if the user has already typed new text. File and
+directory durability, nonblocking cross-terminal locking, private/no-follow paths,
+aggregate bounds and joined lifetime are tested. Integrated TUI/client/runclient
+race suites passed 61.750/8.300/21.568s. Non-input uncertain controls and inspection
+of journals whose owner was deleted remain explicit follow-ups.
+
+Native content acceptance now runs real v4 RPC and actual MCP image results in both
+Chromium and Firefox. Composer/drop and stored-content suites pass with exact-ref
+retry, held-upload cleanup, owner isolation, 16-file bounds, verified large images,
+zero page/CSP errors and zero anchor drift. Collapsed tool results do not read full
+bodies. Verified PNG/JPEG/WebP/GIF images display only after an explicit bounded
+read; stale or unmounted owners revoke their local preview URLs. Canonical file
+activity displays the captured path while preserving permission scope in details.
+The scenario-by-scenario map is apps/web/scripts/native-content-audit.md. Complete
+integrated product-web passed 1,352 tests/111 files, 38 UI tests, types and support
+checks; renderer7d04f55eb29b71ec69b67f355105deebfe8deeddeafaa00b4e983084388b7756.
+
+Saved-draft serialization now counts exact encoded entries once instead of
+repeatedly encoding growing prefixes. The full staged workload passed with the
+same 2MiB bound and three real uploads totaling9,437,346 bytes. Profiled draft
+serialization fell203→17.8ms and setDraft185→47.4ms over12 upload keys. Native
+keyboard EventTiming p95 fell144±4→112±4ms during uploads and104±4→88±4ms during
+40 streams. Peak sampled RSS increased1,689,424→1,715,440KiB; post-work RSS fell
+1,436,720→1,391,280KiB. The50ms target and memory acceptance remain open. Evidence:
+/tmp/whip-desktop-transfer-linear-drafts/run-dVPZIA/performance.json. This is a
+measured improvement, not completion of Phases5–7 or performance acceptance.
+
+### Settings preview read attribution — 2026-09-29
+
+At ccf8310e7, both hosted build jobs pass the corrected test-only package compile.
+The Settings job failed its fetch-free density assertion (five reads versus four).
+The app deliberately retains a released conversation lease for30seconds; the
+probe changed density while that old lease could still poll. The probe now reloads
+the saved Appearance route before measuring, joining the old page while retaining
+the workspace/draft. It still requires zero transcript/content reads caused by
+appearance controls. Both Chromium and Firefox pass all12 Settings workflows,
+including workspace/draft restore, density, persisted appearance, accessibility,
+provider-save guards and responsive theme controls. Logs/artifacts:
+/tmp/whip-settings-lease-repair.log and /tmp/whip-settings-lease-repair-results.
+No product polling policy, deadline or read assertion changed. The earlier hosted
+run remains failed; client/desktop results and the next exact-head run remain
+separate evidence.

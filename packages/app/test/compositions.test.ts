@@ -456,10 +456,13 @@ it('retains ready recipient references on same-runtime recovery but cancels unfi
   f.store.invalidateRuntime('host', { preserveUploaded: true }); await pending;
   expect(signal.aborted).toBe(true); expect(f.store.get(f.key).attachments[0]).toBe(ready);
   expect(f.store.get(f.key).attachments[1]).toMatchObject({ error: expect.stringMatching(/interrupted/) });
-  expect(f.store.get(f.key).attachments[1]?.previewUrl).toBeUndefined();
-  expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith('blob:preview-2');
+  expect(f.store.get(f.key).attachments[1]?.previewUrl).toBe('blob:preview-2');
+  expect(URL.revokeObjectURL).not.toHaveBeenCalled();
   transfer.resolve(f.uploaded()); await Promise.resolve(); expect(f.upload).toHaveBeenCalledTimes(2);
   expect(f.store.get(f.key).attachments[1]?.value).toBeUndefined();
   f.store.invalidateRuntime('host'); expect(f.store.get(f.key).attachments[0]?.value).toBeUndefined();
-  expect(URL.revokeObjectURL).toHaveBeenCalledWith(ready.previewUrl); f.store.dispose();
+  expect(URL.revokeObjectURL).toHaveBeenCalledWith(ready.previewUrl);
+  expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview-2');
+  expect(f.store.get(f.key).attachments.every(item => !item.previewUrl)).toBe(true);
+  f.store.dispose();
 });

@@ -289,15 +289,15 @@ func TestNativeRuntimeLaunchRetainsExplicitNetworkPolicy(t *testing.T) {
 		t.Setenv(name, value)
 	}
 	launch, err := nativeRuntimeLaunch()
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || !launch.WaitForWeb {
+		t.Fatal(launch, err)
 	}
 	if args := strings.Join(launch.Arguments, " "); args != "_native-runtime -web -web-listen 127.0.0.1:0 -web-hosts localhost,127.0.0.1 -web-origins http://localhost -web-terminals" {
 		t.Fatal(args)
 	}
 	t.Setenv("WHIPCODE_NETWORK", "false")
 	launch, err = nativeRuntimeLaunch()
-	if err != nil || len(launch.Arguments) != 1 {
+	if err != nil || len(launch.Arguments) != 1 || launch.WaitForWeb {
 		t.Fatal(launch, err)
 	}
 	t.Setenv("WHIPCODE_NETWORK_TERMINALS", "invalid")

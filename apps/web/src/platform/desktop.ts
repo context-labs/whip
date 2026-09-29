@@ -26,7 +26,7 @@ function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
 
 /** A single SDK connection over the host's existing Unix transport. */
 export function desktopTransport(bridge: DesktopBridge, connectionId: string): FramedConnector {
-  return async (handlers, signal) => {
+  return async (handlers, signal, purpose) => {
     signal.throwIfAborted();
     const id = crypto.randomUUID();
     let closed = false;
@@ -73,7 +73,7 @@ export function desktopTransport(bridge: DesktopBridge, connectionId: string): F
     });
     signal.addEventListener('abort', abort, { once: true });
     try {
-      await abortable(bridge.openTransport(id, connectionId), signal);
+      await abortable(bridge.openTransport(id, connectionId, purpose), signal);
       if (closed || signal.aborted) throw failure ?? new Error('Connection cancelled');
       opening = false;
       return {

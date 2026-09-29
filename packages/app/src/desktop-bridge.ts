@@ -47,7 +47,7 @@ export interface DesktopBridge {
   onEvent(listener: (event: DesktopEvent) => void): () => void;
   prepareConnection(id: string, profile: ConnectionProfile): Promise<void>;
   releaseConnection(id: string): void;
-  openTransport(id: string, connectionId: string): Promise<void>;
+  openTransport(id: string, connectionId: string, purpose?: 'browser-provider'): Promise<void>;
   sendTransport(id: string, sequence: number, frame: string): void;
   acknowledgeTransport(id: string, sequence: number): void;
   closeTransport(id: string): void;

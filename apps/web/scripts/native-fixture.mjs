@@ -12,6 +12,7 @@ import { Client } from '../../../packages/sdk/dist/index.js';
 import { defineAgent, tool } from '../../../packages/sdk/dist/agents.js';
 import { browserSocket, discoverGateway } from '../../../packages/sdk/dist/browser.js';
 import { executorSocket, unixSocket } from '../../../packages/sdk/dist/node.js';
+import { activityResponse } from './native-activity-response.mjs';
 
 export const repository = fileURLToPath(new URL('../../../', import.meta.url));
 export const deadline = () => ({ signal: AbortSignal.timeout(15_000) });
@@ -36,7 +37,7 @@ export function fixtureExternalOrigin(value) {
 
 /** Owns the real production runtime, engines and gateway, a local fake HTTP
  * provider and one explicit fixture executor lease. No legacy runtime or DTOs. */
-export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 240_000, externalOrigin, managedDirectory = false, executeCode = false, agentResponses = false, performanceStreams = false, workers = 4, rejectInput } = {}) {
+export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 240_000, externalOrigin, managedDirectory = false, executeCode = false, agentResponses = false, performanceStreams = false, activityStreams = false, workers = 4, rejectInput } = {}) {
   if (!Number.isInteger(workers) || workers < 1 || workers > 16) throw new RangeError('Fixture workers must be within 1..16');
   if (rejectInput !== undefined && (typeof rejectInput !== 'string' || rejectInput.length < 1 || rejectInput.length > 256)) throw new RangeError('Rejected fixture input must contain 1..256 characters');
   if (!Number.isInteger(lifetimeMs) || lifetimeMs < 1 || lifetimeMs > 1_800_000) throw new RangeError('Fixture lifetime must be within 1..1800000ms');
@@ -98,8 +99,16 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
       const final = agentResponses ? text.match(/```final\n([\s\S]*?)\n```/)?.[1] : undefined;
       if (final !== undefined && Buffer.byteLength(final) > 65536) throw new RangeError('Fixture final response exceeds 64KiB');
       if (agentResponses && last.role === 'tool' && text.startsWith('hold:agent-')) await wait(text.slice(5).split('\n')[0], signal);
+      const toolImages = last.role === 'user' && Array.isArray(last.content)
+        && last.content.length > 0 && last.content.every(part => part.type === 'image_url')
+        && messages.at(-2)?.role === 'tool';
       let message;
-      if (agentResponses && last.role === 'tool') message = { role: 'assistant', content: final ?? `done: ${typeof last.content === 'string' ? last.content : JSON.stringify(last.content)}` };
+      if (toolImages) message = { role: 'assistant', content: 'Received tool images.' };
+      else if (activityStreams && text.startsWith('activity:')) {
+        if (!stream) throw new Error('Activity fixture requires actual provider streaming');
+        message = await activityResponse({ text, last, delta, wait, signal });
+      }
+      else if (agentResponses && last.role === 'tool') message = { role: 'assistant', content: final ?? `done: ${typeof last.content === 'string' ? last.content : JSON.stringify(last.content)}` };
       else if (last.role === 'tool') message = { role: 'assistant', content: text.startsWith('hold:tool-stream') ? 'Completed held tools.' : text };
       else if (executeCode && /```(?:starlark|python|javascript|js)\n([\s\S]*?)\n```/.test(text)) {
         const code = text.match(/```(?:starlark|python|javascript|js)\n([\s\S]*?)\n```/)[1];

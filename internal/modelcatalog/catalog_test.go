@@ -1,4 +1,4 @@
-package modelsdev
+package modelcatalog
 
 import "testing"
 

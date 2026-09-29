@@ -31,7 +31,7 @@ const errors = [];
 const metrics = { recordedAt: new Date().toISOString(), platform: process.platform, checks: [] };
 try {
 if (desktop) isolation = await isolateDesktopPerformance();
-fixture = await startHistoryFixture({ retainOnFailure: desktop, workers: 16, performanceStreams: true });
+fixture = await startHistoryFixture({ retainOnFailure: desktop, managedDirectory: desktop, workers: 16, performanceStreams: true });
 console.log(`Fixture ready: ${fixture.directory}`);
 client = await fixture.connect(`web-performance-${randomUUID()}`);
 if (desktop) {
@@ -127,14 +127,18 @@ await page.addInitScript(({ desktop, rootId }) => {
   }).observe(document, { subtree: true, childList: true, characterData: true });
 }, { desktop, rootId: fixture.history.root_id });
 const rootRoute = `/h/${fixture.info.runtime_id}/s/${fixture.history.root_id}`;
-const requests = [];
+const requestCounts = Object.create(null);
+let requestTotal = 0, requestOverflow = false;
 page.on('pageerror', (error) => errors.push({ message: error.message, stack: error.stack }));
 page.on('websocket', (socket) =>
   socket.on('framesent', ({ payload }) => {
     try {
-      if (requests.length >= 8192) throw new Error('Performance request record limit exceeded');
-      requests.push(JSON.parse(String(payload)));
-    } catch (error) { if (requests.length >= 8192) errors.push({ message: error.message }); }
+      const { method } = JSON.parse(String(payload));
+      if (typeof method !== 'string' || method.length > 128 || requestTotal >= 1_000_000 ||
+          !Object.hasOwn(requestCounts, method) && Object.keys(requestCounts).length >= 256) throw new Error('Performance request counter limit exceeded');
+      requestCounts[method] = (requestCounts[method] ?? 0) + 1;
+      requestTotal++;
+    } catch { requestOverflow = true; }
   }),
 );
 const viewport = page.getByRole('region', {
@@ -671,7 +675,7 @@ const frame = () =>
     commitBounds: 'SQL acceptance occurs after request start and before the verified admission receipt returns. DOM observation minus those endpoints bounds commit-to-DOM; no exact SQL timestamp, clock calibration, or physical paint claim.',
   };
   metrics.checks.push('40 real native admissions reached exact identity-correlated queue DOM under 16 concurrent actual provider streams; accepted queued inputs cancelled explicitly without inference');
-  if (desktop) { console.log('Measuring chunked desktop upload and native download'); await exerciseDesktopTransfer({ host, fixture, metrics, directory, summarize }); }
+  if (desktop) { console.log('Measuring bounded desktop uploads and native download'); await exerciseDesktopTransfer({ host, fixture, client, metrics, directory, summarize }); }
   for (const id of [...concurrent.map(item => item.root), fixture.history.root_id]) {
     const session = client.session(id), activity = await session.activity(deadline());
     assert.ok(activity.active_turn, 'Performance stream ended before the measurement completed');
@@ -688,18 +692,17 @@ const frame = () =>
   };
   if (desktop) {
     const traffic = await host.traffic();
-    assert.equal(traffic.overflow, false); assert(traffic.maximumSubscriptions <= 4);
-    requests.push(...traffic.requests);
+    assert.equal(traffic.overflow, false); assert(traffic.maximumObservations <= 16);
+    metrics.requestCounts = traffic.requestCounts;
+    metrics.desktopTrafficProbe = { retainedRecords: traffic.requests.length, prunedRecords: traffic.prunedRequests, totalFrames: traffic.requestTotal, boundary: 'Full bounded per-method counters; at most 8192 recent metadata records. Timed probes require complete retained intervals.' };
     metrics.desktopAfterWork = await host.processMemory('after-streams-and-transfer');
   }
-  metrics.requestCounts = Object.fromEntries(
-    [...new Set(requests.map((request) => request.method))].map((method) => [
-      method,
-      requests.filter((request) => request.method === method).length,
-    ]),
-  );
+  assert.equal(requestOverflow, false, 'Performance request counters exceeded bounds');
+  metrics.requestCounts ??= requestCounts;
+  if (!desktop) metrics.browserTrafficProbe = { totalFrames: requestTotal,
+    boundary: 'Exact per-method counts for at most 256 method names and one million frames; no request bodies retained.' };
   metrics.checks.push(
-    '32 near-limit drafts remain editable with 16 concurrent fake root agents and visible stream updates',
+    '32 near-limit drafts remain editable with 16 concurrent native roots using a local fake provider and visible stream updates',
   );
   assert.deepEqual(errors, []);
   console.log(JSON.stringify(metrics, null, 2));
@@ -721,6 +724,7 @@ const frame = () =>
         error: String(error), stack: error.stack, fixtureDirectory: fixture?.directory, isolatedDirectory: isolation?.directory,
         metrics,
         errors,
+        nativeTraffic: host ? await host.traffic().catch(() => null) : undefined,
         acceptedDOM: await page?.evaluate(() => window.__performanceAcceptedDOM).catch(() => null),
         html: await page?.locator('body')
           .innerText()

@@ -191,18 +191,26 @@ func (b *Bridge) startDecision(s *acpSession, id protocol.ID, handle func(contex
 	})
 }
 
+// Human one-use grants can be minted only for roots. A child requires the
+// existing delegated chain; an editor choice cannot replace that authority.
+func permissionOptions(owner protocol.Session) []acp.PermissionOption {
+	options := []acp.PermissionOption{{OptionId: optReject, Name: "Reject", Kind: acp.PermissionOptionKindRejectOnce}}
+	if owner.ParentID == nil {
+		options = append([]acp.PermissionOption{{OptionId: optAllowOnce, Name: "Allow once", Kind: acp.PermissionOptionKindAllowOnce}}, options...)
+		options = append(options, acp.PermissionOption{OptionId: optAllowAlways, Name: "Always allow this exact capability and resource for this root", Kind: acp.PermissionOptionKindAllowAlways})
+	}
+	return options
+}
+
 func (b *Bridge) handlePermission(ctx context.Context, s *acpSession, owner protocol.Session, id protocol.ID) {
 	var operation protocol.HostOperation
 	if b.client.Call(ctx, "operations.get", protocol.HostOperationParams{OperationID: id}, &operation) != nil || operation.SessionID != owner.ID || operation.State != "waiting" {
 		return
 	}
-	options := []acp.PermissionOption{{OptionId: optAllowOnce, Name: "Allow once", Kind: acp.PermissionOptionKindAllowOnce}, {OptionId: optReject, Name: "Reject", Kind: acp.PermissionOptionKindRejectOnce}}
-	if owner.ParentID == nil {
-		options = append(options, acp.PermissionOption{OptionId: optAllowAlways, Name: "Always allow this exact capability and resource for this root", Kind: acp.PermissionOptionKindAllowAlways})
-	}
+	options := permissionOptions(owner)
 	title := operation.Capability + " · " + operation.Resource
 	if owner.ID != s.handle.ID() {
-		title = "Child " + string(owner.ID) + ": " + title
+		title = "Child " + string(owner.ID) + " (approval requires delegated authority): " + title
 	}
 	request := acp.RequestPermissionRequest{SessionId: s.id, ToolCall: acp.ToolCallUpdate{ToolCallId: acp.ToolCallId("perm-" + id), Title: new(title), Kind: new(toolKind(operation.Capability)), Content: []acp.ToolCallContent{acp.ToolContent(acp.TextBlock(string(operation.Arguments)))}}, Options: options}
 	response, err := b.awaitDecision(ctx, request, func(ctx context.Context) bool {
@@ -212,6 +220,10 @@ func (b *Bridge) handlePermission(ctx context.Context, s *acpSession, owner prot
 	if ctx.Err() != nil || err != nil {
 		return
 	} // Closing an editor is not a deny action.
+	if owner.ParentID != nil && response.Outcome.Selected != nil && response.Outcome.Selected.OptionId != optReject {
+		b.decisionError(s, "child authority requires an existing delegated grant", errors.New("editor selected an unavailable approval"))
+		return
+	}
 	approved := err == nil && response.Outcome.Selected != nil && response.Outcome.Selected.OptionId == optAllowOnce
 	if err == nil && response.Outcome.Selected != nil && response.Outcome.Selected.OptionId == optAllowAlways && owner.ParentID == nil {
 		var grant protocol.Grant

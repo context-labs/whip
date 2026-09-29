@@ -1,50 +1,46 @@
 // Diagnostic driver only. Loads the staged production main/preload unchanged;
-// the daemon is the existing isolated Go fixture with a synthetic runner.
+// the backend is the owned native runtime with actual engines and a local fake provider.
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { _electron } from 'playwright';
-import { eventually, repository } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
+import { deadline, eventually, repository } from './native-fixture.mjs';
 
 const exec = promisify(execFile);
 
 export async function isolateDesktopPerformance() {
-  // Resolve caches before isolating HOME; compiling a fixture should not fetch
-  // dependencies afresh or accidentally inherit provider/account credentials.
-  const { stdout } = await exec('go', ['env', 'GOCACHE', 'GOMODCACHE']);
-  const [cache, modules] = stdout.trim().split('\n');
   const directory = await mkdtemp('/tmp/whip-desktop-performance-');
-  const env = { PATH: process.env.PATH, GOCACHE: cache, GOMODCACHE: modules,
-    HOME: join(directory, 'home'), TMPDIR: join(directory, 'tmp'),
-    WHIP_HOME: join(directory, 'unused-home'), WHIP_DESKTOP_USER_DATA: join(directory, 'user-data'),
-    WHIP_WEB_PERF_FIXTURE: '1', WHIP_SDK_KEEP_FIXTURE: '1', WHIP_DESKTOP_FIXTURE: '1' };
-  for (const key of ['USER', 'LOGNAME', 'LANG', 'LC_ALL', 'DEVELOPER_DIR', 'SDKROOT'])
-    if (process.env[key]) env[key] = process.env[key];
-  await Promise.all(['HOME', 'TMPDIR', 'WHIP_HOME', 'WHIP_DESKTOP_USER_DATA'].map(key => mkdir(env[key], { mode: 0o700 })));
-  for (const key of Object.keys(process.env)) delete process.env[key];
-  Object.assign(process.env, env);
-  return { directory, env };
+  await mkdir(join(directory, 'user-data'), { mode: 0o700 });
+  return { directory };
 }
 
 export async function launchDesktopPerformance(fixture, isolation) {
   const stage = join(repository, 'apps/desktop/.stage');
   const manifest = JSON.parse(await readFile(join(stage, 'app/renderer-manifest.json'), 'utf8'));
-  const env = { ...isolation.env, WHIP_HOME: join(fixture.directory, 'home') };
-  const status = JSON.parse((await exec(join(stage, 'native/whip'), ['daemon', 'status', '--json'], { env, timeout: 5000 })).stdout);
-  assert.equal(status.state, 'running'); assert.equal(status.pid, fixture.pid);
-  await writeFile(join(isolation.directory, 'processes.json'), JSON.stringify({ daemonPID: fixture.pid,
-    daemonExecutable: join(fixture.directory, 'daemon.test'), stage, rendererDigest: manifest.digest, env }, null, 2));
+  const executable = join(isolation.directory, 'whipcode');
+  await copyFile(join(stage, 'native/whipcode'), executable);
+  const env = { PATH: join(fixture.directory, 'bin') + ':/usr/bin:/bin:/usr/sbin:/sbin', SHELL: '/bin/sh',
+    HOME: join(fixture.directory, 'home'), ZDOTDIR: join(fixture.directory, 'home'), TMPDIR: join(fixture.directory, 'tmp'),
+    WHIPCODE_HOME: join(fixture.directory, 'home/.whipcode'), WHIPCODE_NETWORK: '0', WHIP_DESKTOP_FIXTURE: '1',
+    WHIP_DESKTOP_EXECUTABLE: executable, WHIP_DESKTOP_USER_DATA: join(isolation.directory, 'user-data') };
+  const status = JSON.parse((await exec(executable, ['daemon', 'status', '--json'], { env, timeout: 5000 })).stdout);
+  assert.equal(status.state, 'running');
+  assert.equal(status.process.runtime_id, fixture.info.runtime_id); assert.equal(status.process.process_epoch, fixture.info.process_epoch);
+  assert.equal(status.socket, fixture.info.socket);
+  const fixturePID = status.process.pid;
+  assert.ok(Number.isSafeInteger(fixturePID) && fixturePID > 0);
+  isolation.env = env;
   const electron = await _electron.launch({ args: [join(stage, 'app')], env, timeout: 30_000 });
   isolation.electron = electron;
   const electronProcess = electron.process();
   let stderr = '';
   electronProcess.stderr?.on('data', bytes => { stderr = (stderr + bytes.toString()).slice(-64 * 1024); });
   const pid = electronProcess.pid;
-  await writeFile(join(isolation.directory, 'processes.json'), JSON.stringify({ electronPID: pid, daemonPID: fixture.pid,
-    daemonExecutable: join(fixture.directory, 'daemon.test'), stage, rendererDigest: manifest.digest, env }, null, 2));
+  await writeFile(join(isolation.directory, 'processes.json'), JSON.stringify({ electronPID: pid, daemonPID: fixturePID,
+    daemonExecutable: join(fixture.directory, 'runtime'), stage, rendererDigest: manifest.digest, env }, null, 2));
   const page = await electron.firstWindow();
   const context = page.context();
   context.setDefaultTimeout(15_000);
@@ -52,27 +48,26 @@ export async function launchDesktopPerformance(fixture, isolation) {
   // Passive IPC observations; the production listeners still send/ack every
   // frame. Store bounded metadata, never base64 content or full frame bodies.
   await electron.evaluate(({ ipcMain }) => {
-    const state = { requests: [], maximumSubscriptions: 0, overflow: false };
-    const active = new Map();
+    const state = { requests: [], requestCounts: Object.create(null), requestTotal: 0, prunedRequests: 0, maximumObservations: 0, overflow: false };
+    const active = new Set();
     const sent = (_event, id, _sequence, frame) => {
       try {
         const message = JSON.parse(frame);
-        if (state.requests.length >= 8192) { state.overflow = true; return; }
-        state.requests.push({ id: message.id, method: message.method, operation: message.params?.operation,
-          subscription: message.params?.subscription_id, root: message.params?.root_id, agent: message.params?.agent_id,
-          frameBytes: Buffer.byteLength(frame), at: performance.now() });
-        let subscriptions = active.get(id);
-        if (!subscriptions) { subscriptions = new Set(); active.set(id, subscriptions); }
-        if (message.method === 'events.subscribe') subscriptions.add(message.params.subscription_id);
-        if (message.method === 'events.unsubscribe') subscriptions.delete(message.params.subscription_id);
-        const count = [...active.values()].reduce((sum, set) => sum + set.size, 0);
-        state.maximumSubscriptions = Math.max(state.maximumSubscriptions, count);
+        if (typeof message.method !== 'string' || message.method.length > 128 || state.requestTotal >= 1_000_000 ||
+            !Object.hasOwn(state.requestCounts, message.method) && Object.keys(state.requestCounts).length >= 256) throw new Error('Traffic probe bounds exceeded');
+        if (message.method === 'trees.summaries' && (!Array.isArray(message.params?.root_ids) ||
+            message.params.root_ids.length > 64 || message.params.root_ids.some(id => typeof id !== 'string' || id.length > 128))) throw new Error('Summary scope probe bounds exceeded');
+        state.requestCounts[message.method] = (state.requestCounts[message.method] ?? 0) + 1;
+        if (state.requests.length === 8192) { state.requests.splice(0, 4096); state.prunedRequests += 4096; }
+        state.requests.push({ sequence: ++state.requestTotal, id: message.id, method: message.method, session: message.params?.session_id,
+          roots: message.params?.root_ids?.length,
+          rootIDs: message.method === 'trees.summaries' ? message.params.root_ids : undefined, frameBytes: Buffer.byteLength(frame), at: performance.now() });
+        if (message.method === 'sessions.observe') active.add(id);
+        state.maximumObservations = Math.max(state.maximumObservations, active.size);
       } catch { state.overflow = true; }
     };
-    const closed = (_event, id) => active.delete(id);
-    ipcMain.on('whip:sendTransport', sent); ipcMain.on('whip:closeTransport', closed);
-    globalThis.__whipPerformanceTraffic = () => ({ ...state,
-      activeSubscriptions: [...active.values()].reduce((sum, set) => sum + set.size, 0) });
+    ipcMain.on('whip:sendTransport', sent); ipcMain.on('whip:closeTransport', (_event, id) => active.delete(id));
+    globalThis.__whipPerformanceTraffic = () => ({ ...state, activeObservations: active.size });
   });
   return {
     electron, page, context, origin: 'whip-app://bundle', pid,
@@ -90,8 +85,8 @@ export async function launchDesktopPerformance(fixture, isolation) {
         while (changed) { changed = false; for (const row of rows) if (retained.has(row.ppid) && !retained.has(row.pid)) { retained.add(row.pid); changed = true; } }
         return rows.filter(row => retained.has(row.pid));
       };
-      const application = tree(pid), daemon = tree(fixture.pid);
-      assert(application.some(row => row.pid === pid) && daemon.some(row => row.pid === fixture.pid), 'Measured process disappeared');
+      const application = tree(pid), daemon = tree(fixturePID);
+      assert(application.some(row => row.pid === pid) && daemon.some(row => row.pid === fixturePID), 'Measured process disappeared');
       return { phase, at: performance.now(), application, daemon,
         applicationRSSKiB: application.reduce((sum, row) => sum + row.rssKiB, 0),
         daemonRSSKiB: daemon.reduce((sum, row) => sum + row.rssKiB, 0) };
@@ -107,12 +102,19 @@ export async function launchDesktopPerformance(fixture, isolation) {
   };
 }
 
+// Keep only 8192 recent frame metadata records; all method counts remain exact.
+// Every timed probe must still have its complete interval, or fail explicitly.
+function requestsSince(traffic, after) {
+  assert.equal(traffic.overflow, false);
+  assert((traffic.requests[0]?.sequence ?? after + 1) <= after + 1, 'Traffic probe interval was evicted');
+  return traffic.requests.filter(request => request.sequence > after);
+}
+
 export async function exerciseDesktopTabs({ host, fixture, client, ready, frame, summarize, metrics }) {
   const { page, context } = host;
-  const roots = [fixture.info.root_id];
+  const roots = [fixture.history.root_id];
   for (let index = 1; index < 32; index++) {
-    const created = await client.sessions.create({ cwd: fixture.directory, model: 'model', provider: 'provider' }).result();
-    assert.equal(created.status, 'succeeded'); roots.push(created.result.root_id);
+    roots.push((await fixture.createRoot(client)).root.id);
   }
   const snapshots = [];
   const inspector = await context.newCDPSession(page);
@@ -126,9 +128,10 @@ export async function exerciseDesktopTabs({ host, fixture, client, ready, frame,
   for (const count of [1, 8, 32]) {
     await page.evaluate(({ runtimeId, roots }) => {
       const prefix = 'whip.desktop.window.main.';
-      localStorage.removeItem(prefix + 'whip.web.workspace.v2');
-      localStorage.setItem(prefix + 'whip.web.tabs.v1', JSON.stringify({ version: 1, workspaces: [{ runtimeId,
-        tabs: roots.map(rootId => ({ rootId, titleHint: rootId, location: {} })), closed: [], lastActiveRootId: roots[0] }] }));
+      localStorage.setItem(prefix + 'whip.web.workspace.v3', JSON.stringify({ version: 3, migrated: [], workspace: {
+        layout: { type: 'pane', id: 'main', selected: roots[0], tabs: roots.map(rootId => ({ id: rootId,
+          kind: 'chat', runtimeId, rootId, titleHint: rootId, location: {} })) },
+        focusedPaneId: 'main', closed: [], restoreSelection: true } }));
     }, { runtimeId: fixture.info.runtime_id, roots: roots.slice(0, count) });
     await page.goto(`${host.origin}/h/${fixture.info.runtime_id}/s/${roots[0]}`); await ready();
     assert.equal(await page.getByRole('tab').count(), count);
@@ -136,10 +139,10 @@ export async function exerciseDesktopTabs({ host, fixture, client, ready, frame,
     await select(roots[0]); await frame();
     await inspector.send('HeapProfiler.collectGarbage');
     const traffic = await host.traffic();
-    assert.equal(traffic.overflow, false); assert(traffic.maximumSubscriptions <= 4);
+    assert.equal(traffic.overflow, false); assert(traffic.maximumObservations <= 16);
     snapshots.push({ tabs: count, heap: await inspector.send('Runtime.getHeapUsage'),
-      activeSubscriptions: traffic.activeSubscriptions, memory: await host.processMemory(`tabs-${count}`),
-      metadataBytes: await page.evaluate(() => new TextEncoder().encode(localStorage.getItem('whip.desktop.window.main.whip.web.workspace.v2')).length) });
+      activeObservations: traffic.activeObservations, memory: await host.processMemory(`tabs-${count}`),
+      metadataBytes: await page.evaluate(() => new TextEncoder().encode(localStorage.getItem('whip.desktop.window.main.whip.web.workspace.v3')).length) });
   }
   const switches = [];
   for (let index = 0; index < 20; index++) {
@@ -147,44 +150,89 @@ export async function exerciseDesktopTabs({ host, fixture, client, ready, frame,
     await select(roots[index % 4]); await frame(); switches.push(performance.now() - started);
   }
   await select(roots[0]);
-  const before = (await host.traffic()).requests.length;
+  const sidebarIDs = await page.locator('[data-sidebar-session]').evaluateAll(rows => rows.map(row => row.dataset.sidebarSession).sort());
+  const before = (await host.traffic()).requestTotal;
   await page.waitForTimeout(6100);
   const traffic = await host.traffic();
-  const polls = traffic.requests.slice(before).filter(request => request.method === 'sessions.summaries').length;
-  assert(polls >= 2 && polls <= 4, `Expected one shared summary poll, received ${polls}`);
-  assert(traffic.maximumSubscriptions <= 4); assert.equal(traffic.overflow, false);
+  const summaries = requestsSince(traffic, before).filter(request => request.method === 'trees.summaries');
+  const summaryPolling = summaryPollEvidence(summaries, roots, sidebarIDs);
+  assert(traffic.maximumObservations <= 16); assert.equal(traffic.overflow, false);
   assert((await page.getByRole('region', { name: 'Conversation', exact: true }).count()) <= 1);
-  metrics.desktopTabs = { snapshots, cachedSwitchMilliseconds: summarize(switches), maximumSubscriptions: traffic.maximumSubscriptions,
-    summaryPollsIn6100ms: polls, boundary: 'Playwright click through ready and two animation frames; includes automation overhead.' };
-  metrics.checks.push('Staged IPC: 1/8/32 restored metadata tabs, <=4 root subscriptions, one shared summary poll, 20 cached switches');
+  metrics.desktopTabs = { snapshots, cachedSwitchMilliseconds: summarize(switches), maximumObservations: traffic.maximumObservations,
+    summaryPollingIn6100ms: summaryPolling, boundary: 'Playwright click through ready and two animation frames; includes automation overhead.' };
+  metrics.checks.push('Staged IPC: 1/8/32 restored metadata tabs, <=16 native session observation waits, bounded aggregate polling for tabs and visible sidebar (identical root sets remain unattributed), 20 cached switches');
   await inspector.detach();
   return roots;
 }
 
-export async function exerciseDesktopTransfer({ host, fixture, metrics, directory, summarize }) {
+// The two independent metadata owners can request exactly the same roots.
+// Wire evidence cannot distinguish them then; preserve that ambiguity instead
+// of assigning both to the tab owner merely because their counts match.
+export function summaryPollEvidence(requests, tabIDs, sidebarIDs) {
+  const key = ids => JSON.stringify([...ids].sort());
+  assert(sidebarIDs.length > 0 && sidebarIDs.length <= 32);
+  const tabs = key(tabIDs), sidebar = key(sidebarIDs);
+  assert(requests.every(request => key(request.rootIDs) === tabs || key(request.rootIDs) === sidebar), 'Unexpected summary root scope');
+  if (tabs === sidebar) {
+    assert(requests.length >= 4 && requests.length <= 8, `Expected two bounded aggregate poll owners, received ${requests.length}`);
+    return { sameRootSet: true, combinedPolls: requests.length, tabPolls: null, sidebarPolls: null };
+  }
+  const tabPolls = requests.filter(request => key(request.rootIDs) === tabs).length;
+  const sidebarPolls = requests.filter(request => key(request.rootIDs) === sidebar).length;
+  assert(tabPolls >= 2 && tabPolls <= 4, `Expected one shared tab summary poll, received ${tabPolls}`);
+  assert(sidebarPolls >= 2 && sidebarPolls <= 4, `Expected one visible-sidebar aggregate poll, received ${sidebarPolls}`);
+  return { sameRootSet: false, combinedPolls: requests.length, tabPolls, sidebarPolls };
+}
+
+export async function exerciseDesktopTransfer({ host, fixture, client, metrics, directory, summarize }) {
   const { page } = host;
-  // A valid uncompressed 32-bit BMP: 8 MiB of deterministic pixel data, below
-  // the existing 20 MiB aggregate attachment limit. No provider call is made.
-  const pixels = 2048 * 1024 * 4;
-  const bmp = Buffer.alloc(54 + pixels, 0x7f);
-  bmp.fill(0, 0, 54); bmp.write('BM'); bmp.writeUInt32LE(bmp.length, 2); bmp.writeUInt32LE(54, 10);
-  bmp.writeUInt32LE(40, 14); bmp.writeInt32LE(2048, 18); bmp.writeInt32LE(1024, 22);
-  bmp.writeUInt16LE(1, 26); bmp.writeUInt16LE(32, 28); bmp.writeUInt32LE(pixels, 34);
+  const bitmap = (width, height, fill) => {
+    const pixels = width * height * 4, data = Buffer.alloc(54 + pixels, fill);
+    data.fill(0, 0, 54); data.write('BM'); data.writeUInt32LE(data.length, 2); data.writeUInt32LE(54, 10);
+    data.writeUInt32LE(40, 14); data.writeInt32LE(width, 18); data.writeInt32LE(height, 22);
+    data.writeUInt16LE(1, 26); data.writeUInt16LE(32, 28); data.writeUInt32LE(pixels, 34);
+    return data;
+  };
+  // Real owned files exercise the native file chooser. Buffer payloads make
+  // Playwright manufacture Files via a large renderer-side base64 conversion,
+  // which would measure test-driver CPU and memory as application upload cost.
+  const inputDirectory = join(directory, 'transfer-inputs');
+  await mkdir(inputDirectory, { mode: 0o700 });
+  const oversized = bitmap(2048, 1024, 0x7f);
+  const oversizedPath = join(inputDirectory, 'oversized.bmp');
+  await writeFile(oversizedPath, oversized);
+  const beforeRejected = (await host.traffic()).requestCounts['content.put'] ?? 0;
+  await page.locator('input[type=file]').setInputFiles(oversizedPath);
+  const rejected = page.locator('[data-error-type=resource]').filter({ hasText: 'oversized.bmp could not upload' });
+  await rejected.locator('summary').click();
+  await rejected.getByText('Attachments are limited to 4 MiB per file.', { exact: true }).waitFor();
+  assert.equal((await host.traffic()).requestCounts['content.put'] ?? 0, beforeRejected);
+  await page.getByRole('button', { name: 'Remove oversized.bmp', exact: true }).click();
+  const files = Array.from({ length: 3 }, (_, index) => ({ name: `desktop-performance-${index}.bmp`,
+    mimeType: 'image/bmp', buffer: bitmap(1024, 768, 0x70 + index) }));
+  const inputPaths = await Promise.all(files.map(async file => { const path = join(inputDirectory, file.name); await writeFile(path, file.buffer); return path; }));
+  const uploads = files.map(file => ({ name: file.name, bytes: file.buffer.length,
+    digest: createHash('sha256').update(file.buffer).digest('hex') }));
   const samples = [];
-  const uploadSHA256 = createHash('sha256').update(bmp).digest('hex');
-  metrics.desktopTransfer = { uploadedBytes: bmp.length, uploadSHA256, memorySamples: samples };
-  const capture = phase => host.processMemory(phase).then(sample => { if (samples.length >= 256) throw new Error('Transfer memory probe overflow'); samples.push(sample); });
-  let sampling = true;
-  let samplingError;
+  metrics.desktopTransfer = { inputBoundary: 'Native file input over actual files in the disposable fixture; no Playwright buffer-to-File injection.', rejectedSingleFileBytes: oversized.length,
+    uploadedBytes: uploads.reduce((sum, item) => sum + item.bytes, 0), uploads, memorySamples: samples };
+  assert(metrics.desktopTransfer.uploadedBytes > 8 << 20);
+  const capture = phase => host.processMemory(phase).then(sample => {
+    if (samples.length >= 256) throw new Error('Transfer memory probe overflow'); samples.push(sample);
+  });
+  let sampling = true, samplingError;
   const sampler = (async () => { while (sampling) { await capture('transfer'); await new Promise(resolve => setTimeout(resolve, 100)); } })()
     .catch(error => { samplingError = error; });
-  const before = (await host.traffic()).requests.length;
+  const before = (await host.traffic()).requestTotal;
   const started = performance.now();
-  let uploadMs, downloadMs;
-  const typing = [];
+  let uploadMs, downloadMs, scheduleID;
+  const typing = [], session = client.session(fixture.history.root_id);
   try {
-    const upload = page.locator('input[type=file]').setInputFiles({ name: 'desktop-performance.bmp', mimeType: 'image/bmp', buffer: bmp })
-      .then(() => page.getByText('desktop-performance.bmp · Ready', { exact: true }).waitFor())
+    const upload = page.locator('input[type=file]').setInputFiles(inputPaths)
+      .then(() => eventually(async () => {
+        const handles = await page.evaluate(() => window.__performanceContentHandles);
+        return uploads.every(item => handles.some(handle => handle.digest === item.digest && handle.size === String(item.bytes)));
+      }, { description: 'three exact scoped native content upload receipts' }))
       .then(() => { uploadMs = performance.now() - started; return {}; }, error => ({ error }));
     await page.getByLabel('Message WHIP', { exact: true }).focus();
     for (let index = 0; index < 12; index++) {
@@ -194,56 +242,59 @@ export async function exerciseDesktopTransfer({ host, fixture, metrics, director
     }
     const uploaded = await upload;
     if (uploaded.error) throw uploaded.error;
-    const uploadedHandles = await page.evaluate(() => window.__performanceContentHandles ?? []);
-    assert(uploadedHandles.some(handle => handle.digest === uploadSHA256 && handle.size === String(bmp.length)), 'Upload result does not match fixture bytes');
-    await page.getByRole('button', { name: 'Remove desktop-performance.bmp', exact: true }).click();
-    // The existing seeded tool body is larger than the inline/read-preview
-    // limit. Its download still uses scoped content.read through the real SDK.
-    const conversation = page.getByRole('region', { name: 'Conversation', exact: true });
-    const stored = page.getByRole('button', { name: /^Read stored message · /, includeHidden: true });
-    await conversation.evaluate(element => { element.scrollTop = element.scrollHeight; });
-    for (let index = 0; index < 24 && !await stored.count(); index++) {
-      await conversation.evaluate(element => { element.scrollTop -= 500; });
-      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+    const handles = await page.evaluate(() => window.__performanceContentHandles);
+    for (const [index, item] of uploads.entries()) {
+      const handle = handles.find(handle => handle.digest === item.digest && handle.size === String(item.bytes));
+      const reference = await session.content.get(handle.id, deadline());
+      assert.equal(reference.session_id, session.id);
+      assert.deepEqual(Buffer.from(await session.content.readBytes(reference, deadline())), files[index].buffer);
+      await page.getByRole('button', { name: `Remove ${item.name}`, exact: true }).click();
     }
-    await stored.first().evaluate(button => {
-      const details = button.closest('details');
-      if (details && !details.open) details.querySelector('summary').click();
-    });
-    await stored.first().click();
-    const dialog = page.getByRole('dialog', { name: 'Stored message', exact: true });
-    const output = join(directory, 'desktop-stored-message.json');
+    // This is explicit existing owner-scoped content, not an externalized tool
+    // result. The current scheduled-attachment inspector uses production
+    // ContentRead and the same bounded native save path. It never fires.
+    scheduleID = crypto.randomUUID();
+    await session.schedules.create({ expression: '@at 2099-01-01T00:00:00Z', parts: [
+      { type: 'text', text: 'Desktop performance download evidence' },
+      { type: 'content', reference_id: fixture.history.large_content },
+    ] }, scheduleID, deadline());
+    await page.goto(`${host.origin}/h/${fixture.info.runtime_id}/s/${session.id}?panel=goals`);
+    const details = page.getByRole('dialog', { name: 'Session details', exact: true });
+    await details.getByRole('button', { name: 'Read scheduled prompt', exact: true }).click();
+    const output = join(directory, 'desktop-scoped-content.txt');
     await host.electron.evaluate(({ dialog }, output) => {
-      // Only user selection is substituted in this diagnostic. Production IPC,
-      // chunk validation, file writes, fsync and rename remain unmodified.
+      // Only save-dialog selection is substituted. Production IPC, bounded
+      // writes, fsync and atomic rename remain unchanged.
       dialog.showSaveDialog = async () => ({ canceled: false, filePath: output });
     }, output);
     const downloadStarted = performance.now();
-    await dialog.getByRole('button', { name: 'Download stored message', exact: true }).click();
+    await details.getByRole('button', { name: 'Download', exact: true }).click();
     const bytes = await eventually(async () => readFile(output), { description: 'native saved content file' });
     downloadMs = performance.now() - downloadStarted;
-    assert(bytes.length > 1 << 20 && bytes.length < 2 << 20);
-    const hashes = await page.evaluate(() => window.__performanceContentHandles ?? []);
-    assert(hashes.some(handle => handle.digest === createHash('sha256').update(bytes).digest('hex') && handle.size === String(bytes.length)), 'Saved content does not match the scoped response digest');
-    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-    const traffic = await host.traffic();
-    const operations = traffic.requests.slice(before);
-    assert(operations.some(request => request.method === 'upload.begin' && request.root === fixture.info.root_id && request.agent === fixture.info.root_id), 'Upload used the wrong root/agent scope');
-    assert(operations.filter(request => request.method === 'upload.chunk').length > 1);
-    assert(operations.filter(request => request.method === 'content.read').length > 1);
-    assert(operations.every(request => request.frameBytes <= 1 << 20));
+    const reference = await session.content.get(fixture.history.large_content, deadline());
+    assert.equal(bytes.length, 1_400_000);
+    assert.equal(createHash('sha256').update(bytes).digest('hex'), reference.digest);
+    await details.getByRole('button', { name: 'Close', exact: true }).click();
+    const operations = requestsSince(await host.traffic(), before);
+    const puts = operations.filter(request => request.method === 'content.put');
+    assert.equal(puts.length, 3); assert(puts.every(request => request.session === session.id));
+    assert(operations.some(request => request.method === 'content.read' && request.session === session.id));
+    assert(operations.every(request => request.frameBytes < 8 << 20));
     Object.assign(metrics.desktopTransfer, { downloadedBytes: bytes.length, uploadMs, downloadMs,
       typing: summarize(typing.map(sample => sample.milliseconds)), keySamples: typing,
       concurrentTypingSamples: typing.filter(sample => sample.uploadStillPending).length,
-      uploadChunks: operations.filter(request => request.method === 'upload.chunk').length,
-      downloadChunks: operations.filter(request => request.method === 'content.read').length,
-      savedSHA256: createHash('sha256').update(bytes).digest('hex'),
-      boundary: 'Loopback staged IPC upload and scoped download; save-dialog selection is substituted, actual native writes are exercised. Typing samples include automation and two animation frames. No SSH/WAN delay or transfer-ceiling claim.' });
-    metrics.checks.push('Staged IPC: multi-MiB file upload and scoped content download use multiple bounded chunks, saved bytes match the content digest');
-  } finally { sampling = false; await sampler; if (samplingError) throw samplingError; }
+      uploadRequests: puts.length, maximumFrameBytes: Math.max(...operations.map(request => request.frameBytes)),
+      savedSHA256: reference.digest,
+      boundary: 'Staged native IPC: three bounded content.put requests totaling over 8 MiB, exact owner/digest/byte rereads, and scoped 1.4 MiB content.read followed by production 256 KiB native save chunks/fsync/rename. Save-dialog destination alone is substituted. The original 8 MiB single file is explicitly rejected before transfer; no old upload.chunk or WAN/transfer-ceiling claim.' });
+    metrics.checks.push('Staged IPC: over-limit single attachment rejected; >8MiB aggregate valid attachments preserve scoped exact bytes while typing; scheduled attachment downloads through real native save and is cancelled without firing');
+  } finally {
+    sampling = false; await sampler;
+    if (scheduleID) await session.schedules.cancel(scheduleID, deadline());
+    if (samplingError) throw samplingError;
+  }
   await capture('after-transfer');
   metrics.desktopTransfer.maximumApplicationRSSKiB = Math.max(...samples.map(sample => sample.applicationRSSKiB));
-  metrics.desktopTransfer.memoryCaveat = '100ms process RSS samples may miss brief peaks; sums can double-count shared pages. Synthetic daemon RSS is separate.';
+  metrics.desktopTransfer.memoryCaveat = '100ms process RSS samples may miss brief peaks; sums can double-count shared pages. Native backend RSS is separate.';
 }
 
 export async function finishDesktopPerformance(isolation, host, fixture, succeeded, priorFailures = []) {

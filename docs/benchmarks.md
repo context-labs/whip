@@ -1,5 +1,24 @@
 # Benchmark results and methodology
 
+## Local startup measurements
+
+`task benchmark` measures binary boot (`whipcode --version`) and native host
+declaration loading and model/provider selection validation (`whipcode --bench`).
+The latter reads `runtime-v4/host.json` beneath the product home. When the file is
+absent, it validates the intentionally unconfigured default in memory and creates
+no files. An explicit unknown provider or incomplete model/provider selection
+fails. Model-specific declarations are optional limits and prices, not a catalog;
+this check cannot establish whether a remote model exists.
+
+`whipcode --bench-init` explicitly publishes a missing native `host.json`, then
+performs the same validation. It preserves an existing file, including rejecting
+malformed declarations without replacing them. Neither command starts a runtime,
+opens a database, contacts a provider, reads credentials, runs credential commands,
+or imports retired configuration. These measurements exclude authentication and
+inference latency. To measure loading an initialized configuration, run
+`--bench-init` before `task benchmark`; initialization itself is not part of that
+repeated benchmark.
+
 ## Verified WhipCode result
 
 The retained [modal-full-20260917-starlark-b report](../evals/reports/modal-full-20260917-starlark-b/fetches/20260917T163952Z-2ed26b2998/report.md) records **20 successes out of 30 planned tasks (66.7%)**, one attempt per task: 17/21 Terminal-Bench tasks and 3/9 code-repository tasks. All 30 were graded. This is a historical evaluation, not a fresh measurement of the current Desktop release.

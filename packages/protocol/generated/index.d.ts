@@ -2741,6 +2741,7 @@ export interface Grant {
 }
 export interface GrantParams {
   grant_id: string;
+  session_id?: null | string;
 }
 export interface GrantsParams {
   session_id: string;
@@ -3651,6 +3652,8 @@ export interface HostStatus {
   build: string;
   started_at: string;
   web_endpoint: string;
+  web_state?: "starting" | "running" | "failed";
+  web_error?: string;
 }
 export interface HostStopAccepted {
   runtime_id: string;

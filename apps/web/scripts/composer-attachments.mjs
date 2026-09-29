@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { expect } from '@playwright/test';
+import { deadline, eventually } from './native-fixture.mjs';
 import { checkComposerReading } from './composer-reading.mjs';
 import { checkChatFileDrop, checkDropOverlay } from './chat-file-drop.mjs';
 
 // Real local files -> shared composer -> scoped upload -> admitted transcript.
-export async function checkComposerAttachments({ page, directory, name }) {
+export async function checkComposerAttachments({ page, directory, name, transfers, session }) {
   const input = page.getByLabel('Message WHIP', { exact: true });
   const form = input.locator('xpath=ancestor::form');
   const strip = form.getByRole('group', { name: 'Message attachments', exact: true });
@@ -23,11 +24,11 @@ export async function checkComposerAttachments({ page, directory, name }) {
     return canvas.toDataURL('image/png');
   }));
   const files = urls.map((url, i) => ({ name: `image-${i + 1}.png`, mimeType: 'image/png', buffer: Buffer.from(url.split(',')[1], 'base64') }));
-  const dropChecks = await checkChatFileDrop({ page, files, directory, name });
+  const dropChecks = await checkChatFileDrop({ page, files, directory, name, transfers });
   await page.evaluate(() => {
     window.composerPreviewURLs = new Set();
     const create = URL.createObjectURL, revoke = URL.revokeObjectURL;
-    URL.createObjectURL = file => { const url = create(file); window.composerPreviewURLs.add(url); return url; };
+    URL.createObjectURL = file => { const url = create(file); if (file instanceof File) window.composerPreviewURLs.add(url); return url; };
     URL.revokeObjectURL = url => { window.composerPreviewURLs.delete(url); revoke(url); };
     window.holdComposerImages = true;
     const complete = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'complete');
@@ -41,10 +42,7 @@ export async function checkComposerAttachments({ page, directory, name }) {
       } : listener, options);
     };
   });
-  let release;
-  const delayed = new Promise(resolve => { release = resolve; });
-  const pattern = '**/api/v3/content/upload?*';
-  await page.route(pattern, async route => { await delayed; await route.continue(); });
+  const release = transfers.hold('content.put');
   await upload.setInputFiles(files);
   await expect(strip.getByRole('button', { name: /^Preview image-/ })).toHaveCount(3);
   await expect(strip.getByRole('img', { name: /^Loading preview/ })).toHaveCount(3);
@@ -65,7 +63,6 @@ export async function checkComposerAttachments({ page, directory, name }) {
   await expect(send).toBeEnabled();
   await expect(strip.getByRole('img', { name: /^Uploading/ })).toHaveCount(0);
   assert.equal(await form.evaluate(element => element.getBoundingClientRect().height), height, 'Decoding and upload settlement must not resize the composer');
-  await page.unroute(pattern);
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await input.fill('Please compare these three images.');
   await screenshot('ready');
@@ -77,9 +74,12 @@ export async function checkComposerAttachments({ page, directory, name }) {
   await page.keyboard.press('Escape'); await expect(preview).toBeFocused();
   assert.equal(await page.evaluate(() => window.composerPreviewURLs.size), 3);
   const sources = await strip.locator('img').evaluateAll(images => images.map(img => img.src));
-  await page.getByRole('button', { name: 'REPL', exact: true }).click();
+  const originalURL = page.url();
+  await page.locator('[data-workspace-tab]').first().getByRole('button', { name: /^Tab actions for / }).click();
+  await page.getByRole('menuitem', { name: 'Open REPL', exact: true }).click();
   await expect(page.getByRole('region', { name: 'REPL executions', exact: true })).toBeVisible();
-  await page.goBack();
+  await page.locator('[data-workspace-tab]').first().getByRole('tab').click();
+  await expect(page).toHaveURL(originalURL);
   await expect(strip.getByRole('button', { name: /^Preview image-/ })).toHaveCount(3);
   assert.deepEqual(await strip.locator('img').evaluateAll(images => images.map(img => img.src)), sources, 'Remounts must keep the same draft-owned previews');
   assert.equal(await page.evaluate(() => window.composerPreviewURLs.size), 3);
@@ -103,18 +103,33 @@ export async function checkComposerAttachments({ page, directory, name }) {
   const sent = reading.locator('[data-message-role="user"]').filter({ hasText: 'Composer attachment acceptance check.' });
   const latest = page.getByRole('button', { name: 'Latest', exact: true });
   if (await latest.isVisible()) await latest.click();
-  await expect(sent.getByRole('button', { name: /^Open image/ })).toHaveCount(2);
+  await expect(sent.getByRole('button', { name: /^Preview Attachment / })).toHaveCount(2);
+  const admitted = await eventually(async () => {
+    const page = await session.history.page({ direction: 'backward', limit: 20 }, deadline());
+    return page.messages.find(message => message.role === 'user' && message.parts.some(part => part.type === 'text' && part.text === 'Composer attachment acceptance check.'));
+  });
+  const refs = admitted.parts.filter(part => part.type === 'content').map(part => part.reference_id);
+  assert.equal(refs.length, 2);
+  for (let index = 0; index < refs.length; index++) {
+    const bytes = await session.content.readBytes(refs[index], { maxBytes: 4 << 20, ...deadline() });
+    assert.deepEqual(Buffer.from(bytes), files[index === 0 ? 0 : 2].buffer, 'Committed attachments must retain exact uploaded bytes and order');
+  }
   await expect(send).toBeVisible();
 
   // Failed transport and undecodable local files remain removable and distinct.
-  await page.route(pattern, route => route.fulfill({ status: 503, body: 'Fixture upload failure' }));
+  const failedUpload = transfers.failNext('content.put');
+  const beforeFailure = transfers.count('content.put');
   await upload.setInputFiles(files[0]);
   await expect(strip.getByText('Upload failed', { exact: true })).toBeVisible();
   await expect(strip.locator('img')).toBeVisible();
   await expect(send).toBeDisabled();
   await screenshot('upload-failure');
+  assert.ok(failedUpload.hit);
+  assert.equal(transfers.count('content.put'), beforeFailure + 1, 'Upload failure must not silently replay');
+  await assert.rejects(session.content.get(failedUpload.hit.reference, deadline()), error => error.kind === 'NOT_FOUND');
   await strip.getByRole('button', { name: 'Remove image-1.png', exact: true }).click();
-  await page.unroute(pattern);
+  await expect(form.getByRole('button', { name: 'Attach text or images', exact: true })).toBeEnabled({ timeout: 15_000 });
+  assert.equal(transfers.count('content.put'), beforeFailure + 1, 'Reconnection must not replay the interrupted upload');
   await upload.setInputFiles({ name: 'broken.png', mimeType: 'image/png', buffer: Buffer.from('not an image') });
   await expect(strip.getByText('Preview unavailable', { exact: true })).toBeVisible();
   await expect(send).toBeEnabled();
@@ -130,6 +145,7 @@ export async function checkComposerAttachments({ page, directory, name }) {
     } }));
   });
   await page.reload(); await expect(input).toBeVisible();
+  await expect(form.getByRole('button', { name: 'Attach text or images', exact: true })).toBeEnabled();
   await upload.setInputFiles(files);
   await expect(send).toBeEnabled();
   await input.fill('Previewing multiple images.');

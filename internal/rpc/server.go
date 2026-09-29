@@ -37,10 +37,12 @@ type HostServices struct {
 }
 
 type Server struct {
-	runtime  *runtime.Runtime
-	host     HostServices
-	listener *net.UnixListener
-	serving  atomic.Bool
+	runtime   *runtime.Runtime
+	host      HostServices
+	listener  *net.UnixListener
+	serving   atomic.Bool
+	closed    chan struct{}
+	closeOnce sync.Once
 }
 
 // Listen uses the private directory whose execution lock the runtime holds.
@@ -58,9 +60,18 @@ func Listen(r *runtime.Runtime, host HostServices) (*Server, error) {
 		_ = listener.Close()
 		return nil, err
 	}
-	return &Server{runtime: r, host: host, listener: listener}, nil
+	return &Server{runtime: r, host: host, listener: listener, closed: make(chan struct{})}, nil
 }
-func (s *Server) Close() error { return s.listener.Close() }
+
+// Close interrupts listener and admission waits. Serve joins all accepted peers.
+func (s *Server) Close() error {
+	var err error
+	s.closeOnce.Do(func() {
+		close(s.closed)
+		err = s.listener.Close()
+	})
+	return err
+}
 
 // Serve bounds connections and frame sizes. Its context owns only transport;
 // the runtime's separate lifetime owns every accepted input.
@@ -68,11 +79,14 @@ func (s *Server) Serve(ctx context.Context) error {
 	if !s.serving.CompareAndSwap(false, true) {
 		return errors.New("RPC server already served")
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	var mu sync.Mutex
 	connections := map[net.Conn]bool{}
 	var workers sync.WaitGroup
 	shutdown := func() {
-		_ = s.listener.Close()
+		cancel()
+		_ = s.Close()
 		mu.Lock()
 		defer mu.Unlock()
 		for conn := range connections {
@@ -83,18 +97,23 @@ func (s *Server) Serve(ctx context.Context) error {
 	defer func() { stop(); shutdown(); workers.Wait() }()
 	slots := make(chan struct{}, 64)
 	for {
+		// Backpressure belongs before Accept: retain at most 64 active peers,
+		// leaving excess connections in the bounded OS backlog. Never drop an
+		// initialized caller merely because another client briefly filled slots.
+		select {
+		case slots <- struct{}{}:
+		case <-ctx.Done():
+			return nil
+		case <-s.closed:
+			return nil
+		}
 		conn, err := s.listener.Accept()
 		if err != nil {
+			<-slots
 			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
 				return nil
 			}
 			return err
-		}
-		select {
-		case slots <- struct{}{}:
-		default:
-			_ = conn.Close()
-			continue
 		}
 		mu.Lock()
 		connections[conn] = true

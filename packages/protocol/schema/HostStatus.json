@@ -25,6 +25,18 @@
     "web_endpoint": {
       "type": "string",
       "maxLength": 4096
+    },
+    "web_state": {
+      "type": "string",
+      "enum": [
+        "starting",
+        "running",
+        "failed"
+      ]
+    },
+    "web_error": {
+      "type": "string",
+      "maxLength": 4096
     }
   },
   "$id": "https://whip.dev/protocol/v4/HostStatus",

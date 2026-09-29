@@ -4,6 +4,13 @@
     "grant_id": {
       "type": "string",
       "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "session_id": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
     }
   },
   "$id": "https://whip.dev/protocol/v4/GrantParams",

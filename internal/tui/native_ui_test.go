@@ -2,8 +2,10 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -12,6 +14,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/context-labs/whip/internal/client"
+	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/engine/process"
 	hostmodel "github.com/context-labs/whip/internal/model"
 	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/rpc"
@@ -23,6 +27,7 @@ type nativeUIProvider struct {
 	entered chan struct{}
 	release chan struct{}
 	once    sync.Once
+	codes   map[string]string
 }
 
 func (p *nativeUIProvider) Prepare(ctx context.Context, request hostmodel.Request) (hostmodel.Prepared, error) {
@@ -33,6 +38,13 @@ func (p *nativeUIProvider) Prepare(ctx context.Context, request hostmodel.Reques
 	prepared.Execute = func(ctx context.Context, emit func(hostmodel.Chunk)) (hostmodel.Response, error) {
 		last := request.Messages[len(request.Messages)-1]
 		text := last.Parts[0].Text
+		if code, ok := p.codes[text]; ok && last.Role == session.User {
+			arguments, err := json.Marshal(map[string]string{"code": code})
+			if err != nil {
+				return hostmodel.Response{}, err
+			}
+			return hostmodel.Response{Parts: []session.Part{{Type: "tool_call", Call: &session.ToolCall{ID: "execute-native-tui", Name: "execute", Arguments: arguments}}}}, nil
+		}
 		emit(hostmodel.Chunk{Text: "answer: "})
 		if text == "hold" {
 			p.once.Do(func() { close(p.entered) })
@@ -49,6 +61,11 @@ func (p *nativeUIProvider) Prepare(ctx context.Context, request hostmodel.Reques
 
 func nativeUIFixture(t *testing.T) (*nativeModel, *nativeUIProvider) {
 	t.Helper()
+	return nativeUIFixtureStanding(t, "")
+}
+
+func nativeUIFixtureStanding(t *testing.T, standing string) (*nativeModel, *nativeUIProvider) {
+	t.Helper()
 	dir, err := os.MkdirTemp("/tmp", "whip-tui-v4-") //nolint:usetesting // Bounded macOS Unix socket path.
 	if err != nil {
 		t.Fatal(err)
@@ -58,8 +75,22 @@ func nativeUIFixture(t *testing.T) (*nativeModel, *nativeUIProvider) {
 			t.Error(err)
 		}
 	})
+	if standing != "" {
+		settings, err := config.Initialize(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		settings.StandingInstructionsFile = standing
+		if err := config.Save(dir, settings); err != nil {
+			t.Fatal(err)
+		}
+	}
 	p := &nativeUIProvider{entered: make(chan struct{}), release: make(chan struct{})}
-	host, err := runtime.Open(t.Context(), dir, p, runtime.Options{PollInterval: time.Millisecond})
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	host, err := runtime.Open(t.Context(), dir, p, runtime.Options{PollInterval: time.Millisecond, EngineCommand: []string{executable, "-test.run=^TestNativeTUIWorker$", "--"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +176,7 @@ func TestNativeUIRealHostPromptSteeringAndExactCancellation(t *testing.T) {
 		t.Fatal(err)
 	}
 	nativeUIRead(t, m)
-	if !strings.Contains(m.View().Content, "answer: hello") || len(m.history.messages) != 2 || m.history.messages[0].InputID == nil || *m.history.messages[0].InputID != first.admission.Input.ID {
+	if !strings.Contains(nativeDisplayText(m.View().Content), "answer: hello") || len(m.history.messages) != 2 || m.history.messages[0].InputID == nil || *m.history.messages[0].InputID != first.admission.Input.ID {
 		t.Fatal("canonical transcript absent", m.View().Content)
 	}
 	held := nativeUISubmit(t, m, "hold")
@@ -183,7 +214,7 @@ func TestNativeUIRealHostPromptSteeringAndExactCancellation(t *testing.T) {
 		t.Fatal(value, err)
 	}
 	nativeUIRead(t, m)
-	if !strings.Contains(m.View().Content, "answer: original steering text") {
+	if !strings.Contains(nativeDisplayText(m.View().Content), "answer: original steering text") {
 		t.Fatal(m.View().Content)
 	}
 }
@@ -278,7 +309,7 @@ func TestNativeUIRenderedRowsAndControlCharactersAreBounded(t *testing.T) {
 	body := strings.Repeat("line\n", 70000) + "\x1b[2J\aend"
 	m := &nativeModel{input: newInput(), width: 80, height: 24, history: nativeTranscript{messages: []protocol.Message{nativeMessage(1, "assistant", body)}}}
 	m.refresh()
-	if len(m.rows) != 65537 || !strings.Contains(m.rows[len(m.rows)-1], "Display row limit") || m.history.messages[0].Parts[0].Text != body {
+	if len(m.rows) > 4098 || !strings.Contains(strings.Join(m.rows, "\n"), "Display limit") || m.history.messages[0].Parts[0].Text != body {
 		t.Fatal("render limit silently changed canonical body", len(m.rows))
 	}
 	if got := nativeDisplayText("before\x1b[2J\x1b]0;title\aafter\a\r"); got != "beforeafter��" {
@@ -297,5 +328,15 @@ func TestNativeUIContextLabelKeepsEvidenceUnknownAndStale(t *testing.T) {
 	value.Prefill.InputSource, value.Prefill.Stale, value.Prefill.ContextWindowTokens = "estimated", false, new(protocol.Counter(1000))
 	if got := nativeContextLabel(value); got != "Latest prefill: 0 tokens (estimated) · capacity 1000" {
 		t.Fatal(got)
+	}
+}
+
+func TestNativeTUIWorker(t *testing.T) {
+	split := slices.Index(os.Args, "--")
+	if split < 0 {
+		return
+	}
+	if err := process.WorkerMain(os.Args[split+1:], os.Stdin, os.Stdout, nil); err != nil {
+		t.Fatal(err)
 	}
 }

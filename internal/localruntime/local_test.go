@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -133,9 +134,6 @@ func TestLocalPathsAndLaunchFailClosed(t *testing.T) {
 	if _, err := localruntime.Resolve(""); err == nil {
 		t.Fatal("accepted empty home")
 	}
-	if _, err := localruntime.Resolve("/tmp/" + strings.Repeat("x", 100)); err == nil {
-		t.Fatal("accepted oversized socket")
-	}
 	bad := paths
 	bad.Log = filepath.Join(filepath.Dir(paths.Directory), "outside")
 	if _, err := localruntime.Start(t.Context(), bad, fixtureLaunch(t)); err == nil {
@@ -231,5 +229,110 @@ func TestMaintenanceExcludesLaunchAndStopsOnlySelectedEpoch(t *testing.T) {
 	}
 	if err := reopened.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestManagedGatewayReadinessAndFailureIsolation(t *testing.T) {
+	for _, mode := range []string{"ready", "occupied", "existing-local"} {
+		t.Run(mode, func(t *testing.T) {
+			paths := fixturePaths(t)
+			launch := fixtureLaunch(t)
+			launch.WaitForWeb = true
+			address := "127.0.0.1:0"
+			if mode == "occupied" {
+				listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", address)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer func() { _ = listener.Close() }()
+				address = listener.Addr().String()
+			}
+			if mode == "existing-local" {
+				local := fixtureLaunch(t)
+				if _, err := localruntime.Start(t.Context(), paths, local); err != nil {
+					t.Fatal(err)
+				}
+			}
+			launch.Arguments = append(launch.Arguments, "-web", "-web-listen", address)
+			status, err := localruntime.Start(t.Context(), paths, launch)
+			if status.State != "running" || status.Process == nil {
+				t.Fatalf("host unavailable: %+v; %v", status, err)
+			}
+			t.Cleanup(func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if _, err := localruntime.Stop(ctx, paths); err != nil {
+					t.Error(err)
+				}
+			})
+			switch mode {
+			case "ready":
+				if err != nil || status.Process.WebState != "running" || status.Process.WebEndpoint == "" {
+					t.Fatalf("premature readiness: %+v; %v", status.Process, err)
+				}
+			case "occupied":
+				if err == nil || !strings.Contains(err.Error(), "browser gateway failed") || status.Process.WebState != "failed" || status.Process.WebError == "" || status.Process.WebEndpoint != "" {
+					t.Fatalf("failure hidden: %+v; %v", status.Process, err)
+				}
+			case "existing-local":
+				if err != nil || status.Process.WebState != "" {
+					t.Fatalf("existing host changed: %+v; %v", status.Process, err)
+				}
+			}
+			attached, err := localruntime.Start(t.Context(), paths, fixtureLaunch(t))
+			if err != nil || attached.Process == nil || attached.Process.ProcessEpoch != status.Process.ProcessEpoch {
+				t.Fatalf("local attachment replaced or rejected: %+v; %v", attached, err)
+			}
+			observed := localruntime.Inspect(t.Context(), paths)
+			if observed.Process == nil || observed.Process.ProcessEpoch != status.Process.ProcessEpoch {
+				t.Fatal("host lost after gateway result", observed)
+			}
+		})
+	}
+}
+
+func TestLongHomeLaunchAndDiscoveryPreserveRuntimeIdentity(t *testing.T) {
+	paths := fixturePaths(t)
+	home := filepath.Join(filepath.Dir(paths.Directory), strings.Repeat("long", 40))
+	if err := os.Mkdir(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := localruntime.Resolve(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, _ = localruntime.Stop(ctx, paths)
+		_ = os.Remove(filepath.Dir(paths.Socket))
+	})
+	if filepath.Dir(paths.Socket) == paths.Directory || len(paths.Socket) > 100 {
+		t.Fatal(paths)
+	}
+	if status := localruntime.Inspect(t.Context(), paths); status.State != "stopped" {
+		t.Fatal(status)
+	}
+	if _, err := os.Stat(filepath.Dir(paths.Socket)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("inspection created fallback", err)
+	}
+	first, err := localruntime.Start(t.Context(), paths, fixtureLaunch(t))
+	if err != nil || first.Process == nil {
+		t.Fatal(first, err)
+	}
+	for _, file := range []string{"state.db", "host.json", "runtime.lock"} {
+		if _, err := os.Stat(filepath.Join(paths.Directory, file)); err != nil {
+			t.Fatal("durable storage moved", file, err)
+		}
+	}
+	if stopped, err := localruntime.Stop(t.Context(), paths); err != nil || !stopped {
+		t.Fatal(stopped, err)
+	}
+	second, err := localruntime.Start(t.Context(), paths, fixtureLaunch(t))
+	if err != nil || second.Process == nil {
+		t.Fatal(second, err)
+	}
+	if second.Process.RuntimeID != first.Process.RuntimeID || second.Process.ProcessEpoch == first.Process.ProcessEpoch {
+		t.Fatal("restart changed durable identity", first, second)
 	}
 }

@@ -104,7 +104,7 @@ it('cached catalogs never change defaults until an explicit setup choice', async
   expect(f.calls.find(call => call.method === 'providers.defaults')?.params).toMatchObject({ revision, defaults: { selection: { name: 'fixture', provider: 'openrouter', effort: '' }, settings: { prices: { input: null, output: null } } } });
 });
 it('route removal is explicit, preserves credential ownership, and does not disconnect an account', async () => {
-  const f = await providerFixture(); f.data.handlers['providers.remove'] = () => ({ ...f.data.inventory, revision: nextRevision, routes: [] });
+  const f = await providerFixture(); f.data.handlers['providers.remove'] = () => { f.data.inventory = { ...f.data.inventory, revision: nextRevision, routes: [] }; return f.data.inventory; };
   f.mount(<ProvidersSettings client={f.client} />); fireEvent.click(await screen.findByRole('button', { name: 'Manage OpenRouter' }));
   expect(await screen.findByText('OPENROUTER_API_KEY')).toBeTruthy(); fireEvent.click(screen.getByRole('button', { name: 'Remove configured route' }));
   const dialog = await screen.findByRole('dialog', { name: 'Remove this provider route?' }); expect(within(dialog).getByText(/Saved key files and remote accounts are preserved/)).toBeTruthy();
@@ -144,4 +144,23 @@ it('offers Connect for configured missing credentials and limits the recommendat
   fireEvent.click(await screen.findByRole('button', { name: 'Connect OpenRouter' }));
   expect(await screen.findByRole('dialog', { name: 'OpenRouter' })).toBeTruthy();
   expect(f.count('providers.defaults')).toBe(0);
+});
+
+it('keeps failed removal feedback in its active dialog and preserves the provider draft without replay', async () => {
+  const f = await providerFixture();
+  f.data.handlers['providers.remove'] = () => { throw new DeliveryError('This provider is the model default'); };
+  f.mount(<ProvidersSettings client={f.client} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Manage OpenRouter' }));
+  fireEvent.change(await screen.findByLabelText('Endpoint'), { target: { value: 'https://draft.test/v1' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Remove configured route' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Remove this provider route?' });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Remove route' }));
+  expect(await within(dialog).findByText('Could not remove provider route')).toBeTruthy();
+  expect(within(dialog).getByText('This provider is the model default')).toBeTruthy();
+  expect(f.count('providers.remove')).toBe(1);
+  expect(f.data.inventory.routes).toHaveLength(1);
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Remove this provider route?' })).toBeNull());
+  expect((screen.getByLabelText('Endpoint') as HTMLInputElement).value).toBe('https://draft.test/v1');
+  expect(f.count('providers.remove')).toBe(1);
 });

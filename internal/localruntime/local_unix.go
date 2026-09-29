@@ -17,6 +17,7 @@ import (
 
 	"github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/runtimepath"
 	"golang.org/x/sys/unix"
 )
 
@@ -33,10 +34,7 @@ func Resolve(home string) (Paths, error) {
 	if err != nil {
 		return Paths{}, err
 	}
-	paths := Paths{Directory: directory, Socket: filepath.Join(directory, "runtime.sock"), Lock: filepath.Join(directory, "runtime.lock"), Log: filepath.Join(directory, "runtime.log")}
-	if len(paths.Socket) > 100 {
-		return Paths{}, errors.New("native runtime socket path exceeds 100 bytes")
-	}
+	paths := Paths{Directory: directory, Socket: runtimepath.Socket(directory), Lock: filepath.Join(directory, "runtime.lock"), Log: filepath.Join(directory, "runtime.log")}
 	return paths, nil
 }
 
@@ -63,6 +61,12 @@ func Inspect(ctx context.Context, paths Paths) Status {
 		}
 		return result
 	}
+	if socketDirectory := filepath.Dir(paths.Socket); socketDirectory != paths.Directory {
+		if err := validateDirectory(socketDirectory); err != nil && !errors.Is(err, os.ErrNotExist) {
+			result.State, result.Error = "unhealthy", err.Error()
+			return result
+		}
+	}
 	c, err := client.Connect(ctx, paths.Socket, nil)
 	if err == nil {
 		defer func() { _ = c.Close() }()
@@ -88,6 +92,7 @@ type Launch struct {
 	Executable string
 	Arguments  []string
 	Build      string
+	WaitForWeb bool
 }
 
 // Start explicitly launches detached host work. Cancelling this readiness wait
@@ -218,6 +223,8 @@ func (m *Maintenance) Start(ctx context.Context, launch Launch) (Status, error) 
 	ticker := time.NewTicker(25 * time.Millisecond)
 	defer ticker.Stop()
 	status := Inspect(ctx, paths)
+	// An existing host retains its original launch policy. Start is idempotent;
+	// changing network settings requires an explicit restart.
 	if status.State == "running" {
 		return status, nil
 	}
@@ -252,8 +259,8 @@ func (m *Maintenance) Start(ctx context.Context, launch Launch) (Status, error) 
 	}
 	for {
 		status = Inspect(ctx, paths)
-		if status.State == "running" {
-			return status, nil
+		if ready, err := launchReady(status, launch); ready {
+			return status, err
 		}
 		select {
 		case <-ctx.Done():
@@ -261,6 +268,27 @@ func (m *Maintenance) Start(ctx context.Context, launch Launch) (Status, error) 
 		case <-ticker.C:
 		}
 	}
+}
+
+// Readiness never silently replaces a running socket-only or failed gateway.
+func launchReady(status Status, launch Launch) (bool, error) {
+	if status.State != "running" || status.Process == nil {
+		return false, nil
+	}
+	if !launch.WaitForWeb {
+		return true, nil
+	}
+	switch status.Process.WebState {
+	case "starting":
+		return false, nil
+	case "running":
+		if status.Process.WebEndpoint != "" {
+			return true, nil
+		}
+	case "failed":
+		return true, fmt.Errorf("native runtime is running; browser gateway failed: %s", status.Process.WebError)
+	}
+	return true, errors.New("native runtime is running without a browser gateway; explicitly restart to change network settings")
 }
 
 // Stop targets only the live epoch just observed. An unhealthy process has no

@@ -1,13 +1,13 @@
 package providerhost
 
 import (
-	_ "embed"
 	"encoding/json"
 	"slices"
 	"strings"
 	"sync"
 
 	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/modelcatalog"
 	"github.com/context-labs/whip/internal/openaiauth"
 )
 
@@ -50,38 +50,11 @@ func canonical(id string, p config.Provider) bool {
 	return false
 }
 
-// This reviewed 2026-09-10 Models.dev artifact is retained verbatim. Its origin,
-// retrieval time, and input digest live in the artifact; it is never fetched
-// implicitly or used as authority for live account membership.
-//
-//go:embed catalog.json
-var bundledJSON []byte
-
-type bundledModel struct {
-	ID               string   `json:"id"`
-	Name             string   `json:"name"`
-	Context          *int64   `json:"contextLength"`
-	Output           *int64   `json:"maxCompletionTokens"`
-	Tools            *bool    `json:"supportsTools"`
-	Reasoning        *bool    `json:"reasoning"`
-	Efforts          []string `json:"reasoningEfforts"`
-	Input            []string `json:"inputModalities"`
-	OutputModalities []string `json:"outputModalities"`
-	Pricing          struct {
-		Prompt     string `json:"prompt"`
-		Completion string `json:"completion"`
-		Cache      string `json:"inputCacheRead"`
-	} `json:"pricing"`
-}
-
+// Offline metadata has one reviewed source shared with the build-time generator.
 var bundled = sync.OnceValues(func() (map[string]map[string]Model, error) {
-	var snapshot struct {
-		Providers map[string]struct {
-			Models map[string]bundledModel `json:"models"`
-		} `json:"providers"`
-	}
-	if json.Unmarshal(bundledJSON, &snapshot) != nil {
-		return nil, ErrDiscovery
+	snapshot, err := modelcatalog.Bundled()
+	if err != nil {
+		return nil, err
 	}
 	result := map[string]map[string]Model{}
 	for id, provider := range snapshot.Providers {
@@ -90,11 +63,22 @@ var bundled = sync.OnceValues(func() (map[string]map[string]Model, error) {
 		}
 		models := map[string]Model{}
 		for modelID, raw := range provider.Models {
-			prices, err := parsePrices(map[string]json.RawMessage{"prompt": quoted(raw.Pricing.Prompt), "completion": quoted(raw.Pricing.Completion), "input_cache_read": quoted(raw.Pricing.Cache)}, false)
+			var pricing modelcatalog.Pricing
+			if raw.Pricing != nil {
+				pricing = *raw.Pricing
+			}
+			var contextLimit, outputLimit *int64
+			if raw.ContextLength != nil {
+				contextLimit = new(int64(*raw.ContextLength))
+			}
+			if raw.MaxCompletionTokens != nil {
+				outputLimit = new(int64(*raw.MaxCompletionTokens))
+			}
+			prices, err := parsePrices(map[string]json.RawMessage{"prompt": quoted(pricing.Prompt), "completion": quoted(pricing.Completion), "input_cache_read": quoted(pricing.InputCacheRead)}, false)
 			if err != nil {
 				return nil, err
 			}
-			value := Model{ID: modelID, Name: raw.Name, Prices: prices, ContextWindowTokens: raw.Context, MaxOutputTokens: raw.Output, ReasoningEfforts: raw.Efforts, InputModalities: raw.Input, OutputModalities: raw.OutputModalities, SupportsTools: raw.Tools, MetadataSource: "bundled"}
+			value := Model{ID: modelID, Name: raw.Name, Prices: prices, ContextWindowTokens: contextLimit, MaxOutputTokens: outputLimit, ReasoningEfforts: raw.ReasoningEfforts, InputModalities: raw.InputModalities, OutputModalities: raw.OutputModalities, SupportsTools: raw.SupportsTools, MetadataSource: "bundled"}
 			if raw.Reasoning != nil && !*raw.Reasoning {
 				value.ReasoningEfforts = []string{}
 			}
@@ -105,10 +89,7 @@ var bundled = sync.OnceValues(func() (map[string]map[string]Model, error) {
 	if result["inference-net"] == nil {
 		result["inference-net"] = map[string]Model{}
 	}
-	for _, value := range []Model{
-		{ID: "kimi-k3-fast", ContextWindowTokens: new(int64(1048576)), MaxOutputTokens: new(int64(1048576)), ReasoningEfforts: []string{"low", "medium", "high"}, InputModalities: []string{"text", "image"}, OutputModalities: []string{"text"}, SupportsTools: new(true), MetadataSource: "bundled"},
-		{ID: "kimi-k3", ContextWindowTokens: new(int64(1048576)), MaxOutputTokens: new(int64(131072)), InputModalities: []string{"text", "image"}, OutputModalities: []string{"text"}, SupportsTools: new(true), MetadataSource: "bundled"},
-	} {
+	for _, value := range RetainedModels("inference-net") {
 		if _, exists := result["inference-net"][value.ID]; !exists {
 			result["inference-net"][value.ID] = value
 		}
@@ -150,4 +131,16 @@ func BundledModels(id string) ([]Model, error) {
 	}
 	slices.SortFunc(result, func(a, b Model) int { return strings.Compare(a.ID, b.ID) })
 	return result, nil
+}
+
+// RetainedModels are reviewed policy exceptions absent from the upstream snapshot.
+// They supply offline metadata, never live account membership or price estimates.
+func RetainedModels(id string) []Model {
+	if id != "inference-net" {
+		return nil
+	}
+	return []Model{
+		{ID: "kimi-k3-fast", ContextWindowTokens: new(int64(1048576)), MaxOutputTokens: new(int64(1048576)), ReasoningEfforts: []string{"low", "medium", "high"}, InputModalities: []string{"text", "image"}, OutputModalities: []string{"text"}, SupportsTools: new(true), MetadataSource: "bundled"},
+		{ID: "kimi-k3", ContextWindowTokens: new(int64(1048576)), MaxOutputTokens: new(int64(131072)), InputModalities: []string{"text", "image"}, OutputModalities: []string{"text"}, SupportsTools: new(true), MetadataSource: "bundled"},
+	}
 }

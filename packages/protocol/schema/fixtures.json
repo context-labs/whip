@@ -3668,6 +3668,21 @@
     "valid": true
   },
   {
+    "type": "GrantParams",
+    "value": {
+      "grant_id": "grant_fixture"
+    },
+    "valid": true
+  },
+  {
+    "type": "GrantParams",
+    "value": {
+      "grant_id": "grant_fixture",
+      "session_id": "session_child"
+    },
+    "valid": true
+  },
+  {
     "type": "Grant",
     "value": {
       "id": "grant_fixture",

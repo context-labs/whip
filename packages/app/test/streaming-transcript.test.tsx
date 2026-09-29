@@ -44,8 +44,8 @@ it('projects replacement reasoning, Unicode canonical prose and exact tool ident
 });
 
 it('groups reasoning and operations, counts exact edit targets once, and separates spawned agents', () => {
-  const cell = execution([operation('read', 'files.read'), operation('edit1', 'files.patch', 'succeeded', 'a.ts'),
-    operation('edit2', 'files.write', 'failed', 'a.ts'), operation('spawn', 'agents.spawn', 'succeeded', 'tree', { session_id: 'child' }),
+  const cell = execution([operation('read', 'files.read'), { ...operation('edit1', 'files.patch'), arguments: { path: 'a.ts' } },
+    { ...operation('edit2', 'files.write', 'failed'), arguments: { path: 'a.ts' } }, operation('spawn', 'agents.spawn', 'succeeded', 'tree', { session_id: 'child' }),
     operation('run', 'shell.run', 'dispatched')]);
   const rows = conversationActivityRows([{ id: 'reason', role: 'reasoning', text: 'Think', turnId: 'turn', live: true }, { ...toolRow, live: true }], [cell]);
   expect(rows.map(row => row.role)).toEqual(['activity', 'agent-activity', 'activity']);

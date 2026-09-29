@@ -25,7 +25,8 @@ type CreateGrantParams struct {
 	IssuerID   *ID    `json:"issuer_id,omitempty"`
 }
 type GrantParams struct {
-	GrantID ID `json:"grant_id"`
+	GrantID   ID  `json:"grant_id"`
+	SessionID *ID `json:"session_id,omitempty"`
 }
 type GrantsParams struct {
 	SessionID ID  `json:"session_id"`

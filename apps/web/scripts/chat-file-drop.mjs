@@ -15,8 +15,17 @@ export async function fileTransfer(page, files) {
 export async function checkDropOverlay({ page, target, files, directory, name }) {
   const dataTransfer = await fileTransfer(page, files);
   try {
-    await page.locator('body').dispatchEvent('dragenter', { dataTransfer });
     const surface = target.locator('xpath=ancestor-or-self::*[@data-chat-drop-surface]');
+    const viewport = page.viewportSize();
+    await expect.poll(() => page.evaluate(() => ({ width: innerWidth, height: innerHeight }))).toEqual(viewport);
+    let previousBox, stableSince = Date.now();
+    await expect.poll(async () => {
+      const box = JSON.stringify(await surface.boundingBox());
+      if (box !== previousBox) stableSince = Date.now();
+      previousBox = box;
+      return Date.now() - stableSince;
+    }).toBeGreaterThan(200);
+    await page.locator('body').dispatchEvent('dragenter', { dataTransfer });
     const before = await surface.boundingBox();
     await target.dispatchEvent('dragenter', { dataTransfer });
     const overlay = surface.locator('[data-chat-file-drop]');
@@ -31,14 +40,13 @@ export async function checkDropOverlay({ page, target, files, directory, name })
   } finally { await dataTransfer.dispose(); }
 }
 
-export async function checkChatFileDrop({ page, files, directory, name }) {
+export async function checkChatFileDrop({ page, files, directory, name, transfers }) {
   const input = page.getByLabel('Message WHIP', { exact: true });
   const surface = input.locator('xpath=ancestor::*[@data-chat-drop-surface]');
   const reading = page.getByRole('region', { name: 'Conversation', exact: true });
   const strip = surface.getByRole('group', { name: 'Message attachments', exact: true });
-  const uploads = [];
-  const onRequest = request => { if (request.url().includes('/api/v3/content/upload?')) uploads.push(request.url()); };
-  page.on('request', onRequest);
+  const startingUploads = transfers.count('content.put');
+  const uploads = () => transfers.count('content.put') - startingUploads;
   const batch = [files[0], files[1], { name: 'drop-notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Notes for the attached screenshots.') }];
   const dataTransfer = await fileTransfer(page, batch);
   try {
@@ -47,6 +55,13 @@ export async function checkChatFileDrop({ page, files, directory, name }) {
     await reading.hover();
     await page.mouse.wheel(0, -700);
     await expect(page.getByRole('button', { name: 'Latest', exact: true })).toBeVisible();
+    let previousTop, stableSince = Date.now();
+    await expect.poll(async () => {
+      const top = await reading.evaluate(element => element.scrollTop);
+      if (top !== previousTop) stableSince = Date.now();
+      previousTop = top;
+      return Date.now() - stableSince;
+    }).toBeGreaterThan(250);
     const before = await reading.evaluate(el => ({ top: el.scrollTop, height: el.clientHeight }));
     await reading.dispatchEvent('dragenter', { dataTransfer });
     await expect(surface.locator('[data-chat-file-drop]')).toBeVisible();
@@ -64,8 +79,9 @@ export async function checkChatFileDrop({ page, files, directory, name }) {
     await expect(strip.getByRole('button', { name: /^Preview image-/ })).toHaveCount(2);
     await expect(strip.getByText('drop-notes.txt · Ready', { exact: true })).toBeVisible();
     await expect(surface.getByRole('button', { name: 'Send message', exact: true })).toBeEnabled();
-    assert.equal(uploads.length, 3, 'One upload per file, despite nested composer handlers');
-    assert.ok(Math.abs(await reading.evaluate(el => el.scrollTop) - before.top) <= 1, 'Drop must preserve reading position');
+    assert.equal(uploads(), 3, 'One upload per file, despite nested composer handlers');
+    const afterDrop = await reading.evaluate(el => el.scrollTop);
+    assert.ok(Math.abs(afterDrop - before.top) <= 1, `Drop must preserve reading position: ${before.top} -> ${afterDrop}`);
     assert.equal(page.url(), url);
     await expect(input).toHaveValue('Keep this draft and my reading position.');
     await expect(input).toBeFocused();
@@ -76,7 +92,7 @@ export async function checkChatFileDrop({ page, files, directory, name }) {
     await dialog.dispatchEvent('dragover', { dataTransfer });
     await dialog.dispatchEvent('drop', { dataTransfer });
     await expect(surface.locator('[data-chat-file-drop]')).toHaveCount(0);
-    assert.equal(uploads.length, 3);
+    assert.equal(uploads(), 3);
     await page.keyboard.press('Escape');
     while (await strip.getByRole('button', { name: /^Remove/ }).count()) await strip.getByRole('button', { name: /^Remove/ }).first().click();
 
@@ -88,12 +104,10 @@ export async function checkChatFileDrop({ page, files, directory, name }) {
     await expect(surface.locator('[data-chat-file-drop]')).toHaveCount(0, { timeout: 3000 });
     await page.locator('body').dispatchEvent('drop', { dataTransfer });
     assert.equal(page.url(), url);
-    assert.equal(uploads.length, 3);
+    assert.equal(uploads(), 3);
 
     // Direct composer drops still append once, and uploads block a second drop.
-    let release;
-    const held = new Promise(resolve => { release = resolve; });
-    await page.route('**/api/v3/content/upload?*', async route => { await held; await route.continue(); });
+    const release = transfers.hold('content.put');
     try {
       await input.dispatchEvent('drop', { dataTransfer });
       await expect(strip.getByRole('button', { name: /^Remove/ })).toHaveCount(3);
@@ -104,11 +118,10 @@ export async function checkChatFileDrop({ page, files, directory, name }) {
       await expect(strip.getByRole('button', { name: /^Remove/ })).toHaveCount(3);
     } finally { release(); }
     await expect(surface.getByRole('button', { name: 'Send message', exact: true })).toBeEnabled();
-    assert.equal(uploads.length, 6);
-    await page.unroute('**/api/v3/content/upload?*');
+    assert.equal(uploads(), 6);
     while (await strip.getByRole('button', { name: /^Remove/ }).count()) await strip.getByRole('button', { name: /^Remove/ }).first().click();
     await input.fill('');
     await page.getByRole('button', { name: 'Latest', exact: true }).click();
-    return { uploads: uploads.length, duplicateUploads: 0, hoverScrollDrift: 0, mixedFiles: batch.length };
-  } finally { page.off('request', onRequest); await dataTransfer.dispose(); }
+    return { uploads: uploads(), duplicateUploads: 0, hoverScrollDrift: 0, mixedFiles: batch.length };
+  } finally { await dataTransfer.dispose(); }
 }

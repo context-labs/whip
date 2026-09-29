@@ -22,7 +22,13 @@ func dispatchOperation(ctx context.Context, r *runtime.Runtime, method string, r
 		})
 	case "grants.revoke":
 		return decode(raw, func(p protocol.GrantParams) (any, error) {
-			value, err := r.RevokeGrant(ctx, session.GrantID(p.GrantID))
+			var value session.Grant
+			var err error
+			if p.SessionID != nil {
+				value, err = r.RevokeGrantForOwner(ctx, session.SessionID(*p.SessionID), session.GrantID(p.GrantID))
+			} else {
+				value, err = r.RevokeGrant(ctx, session.GrantID(p.GrantID))
+			}
 			return protocol.GrantFromDomain(value), err
 		})
 	case "grants.list":
