@@ -73,6 +73,12 @@ func TestBothEnginesContextUsageCapturesExactPrefillAndReadsAcrossRestart(t *tes
 			}
 			t.Cleanup(func() { _ = runtime.Close() })
 			root := createEngineSession(t, runtime, engine)
+			// This test exercises prefill capture, not compaction. Its tiny model
+			// window only needs the local print example, not every host module guide.
+			root, err = runtime.UpdateConfiguration(t.Context(), root.ID, root.ConfigRevision, session.ConfigPatch{Modules: []string{}})
+			if err != nil {
+				t.Fatal(err)
+			}
 			before, err := runtime.ContextUsage(t.Context(), root.ID)
 			if err != nil || before.Prefill != nil || provider.prepares.Load() != 0 {
 				t.Fatal(before, err)
