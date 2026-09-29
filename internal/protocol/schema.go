@@ -165,6 +165,8 @@ func Operations() []Operation {
 		{"permissions.set_mode", reflect.TypeFor[SetPermissionModeParams](), reflect.TypeFor[PermissionModeEdit]()},
 		{"permissions.mode_edit", reflect.TypeFor[PermissionModeEditParams](), reflect.TypeFor[PermissionModeEdit]()},
 		{"host.profiles", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostProfiles]()},
+		{"host.execution_defaults", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostExecutionDefaults]()},
+		{"host.set_execution_defaults", reflect.TypeFor[SetExecutionDefaultsParams](), reflect.TypeFor[HostExecutionDefaults]()},
 		{"host.set_profiles", reflect.TypeFor[SetHostProfilesParams](), reflect.TypeFor[HostProfiles]()},
 		{"host.permission_default", reflect.TypeFor[EmptyParams](), reflect.TypeFor[DefaultPermissionMode]()},
 		{"host.set_permission_default", reflect.TypeFor[SetDefaultPermissionModeParams](), reflect.TypeFor[DefaultPermissionMode]()},
@@ -259,6 +261,9 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 	}
 	switch t.Kind() {
 	case reflect.Struct:
+		if t == reflect.TypeFor[HostExecutionDefaults]() {
+			applyTags(schema, reflect.TypeFor[ExecutionDefaults]())
+		}
 		for field := range t.Fields() {
 			name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
 			child := schema.Properties[name]

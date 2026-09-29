@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/context-labs/whip/internal/session"
@@ -14,7 +15,14 @@ func (r *Runtime) CreateGoal(ctx context.Context, owner session.SessionID, id se
 	if err := r.Err(); err != nil {
 		return store.GoalAdmission{}, err
 	}
-	result, err := r.store.CreateGoal(ctx, owner, id, expected, spec, start)
+	if result, err := r.store.MatchGoalCreation(ctx, owner, id, expected, spec, start); !errors.Is(err, store.ErrNotFound) {
+		return result, err
+	}
+	current, err := r.configuration.Snapshot(ctx)
+	if err != nil {
+		return store.GoalAdmission{}, err
+	}
+	result, err := r.store.CreateGoalWithDefault(ctx, owner, id, expected, spec, start, current.Host.ExecutionDefaults().GoalMaxContinuations)
 	if err == nil {
 		r.Wake()
 	}

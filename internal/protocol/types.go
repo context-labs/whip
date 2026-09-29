@@ -260,7 +260,7 @@ type CreateTreeParams struct {
 	CreationID       ID              `json:"creation_id"`
 	PermissionMode   *string         `json:"permission_mode,omitempty" enum:"prompt,automatic"`
 	Metadata         TreeMetadata    `json:"metadata"`
-	Engine           string          `json:"engine" enum:"starlark,quickjs"`
+	Engine           string          `json:"engine,omitempty" enum:"starlark,quickjs"`
 	Resources        []ResourceLimit `json:"resources,omitempty"`
 	Definition       DefinitionRef   `json:"definition"`
 	Overrides        ConfigPatch     `json:"overrides"`

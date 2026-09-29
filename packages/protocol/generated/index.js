@@ -705,6 +705,16 @@ export const manifest = {
       "result": "HostProfiles"
     },
     {
+      "name": "host.execution_defaults",
+      "params": "EmptyParams",
+      "result": "HostExecutionDefaults"
+    },
+    {
+      "name": "host.set_execution_defaults",
+      "params": "SetExecutionDefaultsParams",
+      "result": "HostExecutionDefaults"
+    },
+    {
       "name": "host.set_profiles",
       "params": "SetHostProfilesParams",
       "result": "HostProfiles"

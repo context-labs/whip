@@ -145,18 +145,19 @@ func cancelQueuedGoalInputs(ctx context.Context, tx *sql.Tx, id session.GoalID) 
 
 // CreateGoal resolves a stable ID before inspecting the owner's current state.
 // Replaying this request never selects an old goal or admits another input.
-func (s *Store) CreateGoal(ctx context.Context, owner session.SessionID, id session.GoalID, expected *session.GoalRef, request session.GoalRequest, start bool) (result GoalAdmission, err error) {
+func (s *Store) CreateGoal(ctx context.Context, owner session.SessionID, id session.GoalID, expected *session.GoalRef, request session.GoalRequest, start bool) (GoalAdmission, error) {
+	return s.CreateGoalWithDefault(ctx, owner, id, expected, request, start, 100)
+}
+
+// CreateGoalWithDefault captures an injected host allowance only for a new goal
+// with an omitted allowance. The unresolved request remains the retry identity.
+func (s *Store) CreateGoalWithDefault(ctx context.Context, owner session.SessionID, id session.GoalID, expected *session.GoalRef, request session.GoalRequest, start bool, defaultContinuations int64) (result GoalAdmission, err error) {
 	for _, value := range []string{string(owner), string(id)} {
 		if err := session.ValidateID(value); err != nil {
 			return result, err
 		}
 	}
-	digest, err := requestDigest("goal_create", struct {
-		Owner    session.SessionID
-		Expected *session.GoalRef
-		Spec     session.GoalRequest
-		Start    bool
-	}{owner, expected, request, start})
+	digest, err := goalCreationDigest(owner, expected, request, start)
 	if err != nil {
 		return result, err
 	}
@@ -178,7 +179,11 @@ func (s *Store) CreateGoal(ctx context.Context, owner session.SessionID, id sess
 				return err
 			}
 		}
-		spec, err := request.Resolve()
+		resolved := request
+		if resolved.MaxContinuations == nil {
+			resolved.MaxContinuations = new(defaultContinuations)
+		}
+		spec, err := resolved.Resolve()
 		if err != nil {
 			return err
 		}

@@ -17,7 +17,7 @@ import (
 
 const (
 	FileName = "host.json"
-	Version  = 18
+	Version  = 19
 )
 
 type Provider struct {
@@ -80,6 +80,10 @@ func (m Model) resolve(defaultOutput int64) (Model, error) {
 }
 
 type Host struct {
+	// Nil uses 100 additional goal continuations; an explicit zero disables them.
+	GoalMaxContinuations *int64 `json:"goal_max_continuations,string"`
+	// Zero uses three total attempts. Explicit per-model limits take precedence.
+	MaxAttempts           int                    `json:"max_attempts"`
 	RemoteHosts           []RemoteHost           `json:"remote_hosts"`
 	Computer              computerconfig.Config  `json:"computer"`
 	DefaultPermissionMode session.PermissionMode `json:"default_permission_mode,omitempty"`
@@ -110,6 +114,9 @@ func Default() Host {
 }
 
 func (h Host) Validate() error {
+	if err := h.ExecutionDefaults().Validate(); err != nil {
+		return err
+	}
 	if _, err := NormalizeRemoteHosts(h.RemoteHosts); err != nil {
 		return err
 	}

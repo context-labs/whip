@@ -1,5 +1,31 @@
 [
   {
+    "type": "HostExecutionDefaults",
+    "value": {
+      "engine": "quickjs",
+      "effort": "high",
+      "compaction_percent": 0,
+      "goal_max_continuations": "9007199254740993",
+      "max_attempts": 3,
+      "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+    },
+    "valid": true
+  },
+  {
+    "type": "SetExecutionDefaultsParams",
+    "value": {
+      "expected_revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "defaults": {
+        "engine": "starlark",
+        "effort": "",
+        "compaction_percent": 0,
+        "goal_max_continuations": "0",
+        "max_attempts": 1
+      }
+    },
+    "valid": true
+  },
+  {
     "type": "HostProfiles",
     "value": {
       "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
@@ -1287,6 +1313,24 @@
         "pinned": false
       },
       "engine": "quickjs",
+      "definition": {
+        "id": "assistant",
+        "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+      },
+      "overrides": {},
+      "working_directory": "/workspace"
+    },
+    "valid": true
+  },
+  {
+    "type": "CreateTreeParams",
+    "value": {
+      "creation_id": "default_engine",
+      "metadata": {
+        "title": null,
+        "archived": false,
+        "pinned": false
+      },
       "definition": {
         "id": "assistant",
         "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"

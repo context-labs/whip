@@ -23,6 +23,11 @@ export class Sessions {
 /** Saved attachment declarations. Reads/edits never initiate connections. */
 export class Hosts {
   constructor(private readonly client: Client) {}
+  executionDefaults(options: CallOptions = {}) { return this.client.call('host.execution_defaults', {}, options); }
+  /** Attempts include the initial request; goal continuations exclude its initial input. Reread after uncertain CAS delivery. */
+  setExecutionDefaults(expectedRevision: string, defaults: Params<'host.set_execution_defaults'>['defaults'], options: CallOptions = {}) {
+    return this.client.call('host.set_execution_defaults', { expected_revision: expectedRevision, defaults }, options);
+  }
   profiles(options: CallOptions = {}) { return this.client.call('host.profiles', {}, options); }
   /** After uncertain delivery, reread and reconcile the shared host revision. */
   setProfiles(expectedRevision: string, profiles: Params<'host.set_profiles'>['profiles'], options: CallOptions = {}) {

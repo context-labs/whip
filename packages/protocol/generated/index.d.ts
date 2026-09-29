@@ -757,7 +757,7 @@ export interface CreateTreeParams {
     archived: boolean;
     pinned: boolean;
   };
-  engine: "starlark" | "quickjs";
+  engine?: "starlark" | "quickjs";
   resources?:
     | null
     | {
@@ -2846,6 +2846,14 @@ export interface HostDirectoryPickParams {
 export interface HostDirectoryPickResult {
   path: null | string;
   cancelled: boolean;
+}
+export interface HostExecutionDefaults {
+  engine: "starlark" | "quickjs";
+  effort: string;
+  compaction_percent: number;
+  goal_max_continuations: string;
+  max_attempts: number;
+  revision: string;
 }
 export type HostOperation = {
   permission_revision: null | string;
@@ -7877,6 +7885,16 @@ export interface SetDefaultPermissionModeParams {
   expected_revision: string;
   mode: "prompt" | "automatic";
 }
+export interface SetExecutionDefaultsParams {
+  expected_revision: string;
+  defaults: {
+    engine: "starlark" | "quickjs";
+    effort: string;
+    compaction_percent: number;
+    goal_max_continuations: string;
+    max_attempts: number;
+  };
+}
 export interface SetHostProfilesParams {
   expected_revision: string;
   /**
@@ -8989,6 +9007,7 @@ export interface ContractTypes {
   HostDirectoriesResult: HostDirectoriesResult;
   HostDirectoryPickParams: HostDirectoryPickParams;
   HostDirectoryPickResult: HostDirectoryPickResult;
+  HostExecutionDefaults: HostExecutionDefaults;
   HostOperation: HostOperation;
   HostOperationParams: HostOperationParams;
   HostOperationsParams: HostOperationsParams;
@@ -9112,6 +9131,7 @@ export interface ContractTypes {
   SessionParams: SessionParams;
   SetBudgetParams: SetBudgetParams;
   SetDefaultPermissionModeParams: SetDefaultPermissionModeParams;
+  SetExecutionDefaultsParams: SetExecutionDefaultsParams;
   SetHostProfilesParams: SetHostProfilesParams;
   SetPermissionModeParams: SetPermissionModeParams;
   SetResourceParams: SetResourceParams;
@@ -9307,6 +9327,8 @@ export interface Operations {
   "permissions.set_mode": { params: SetPermissionModeParams; result: PermissionModeEdit };
   "permissions.mode_edit": { params: PermissionModeEditParams; result: PermissionModeEdit };
   "host.profiles": { params: EmptyParams; result: HostProfiles };
+  "host.execution_defaults": { params: EmptyParams; result: HostExecutionDefaults };
+  "host.set_execution_defaults": { params: SetExecutionDefaultsParams; result: HostExecutionDefaults };
   "host.set_profiles": { params: SetHostProfilesParams; result: HostProfiles };
   "host.permission_default": { params: EmptyParams; result: DefaultPermissionMode };
   "host.set_permission_default": { params: SetDefaultPermissionModeParams; result: DefaultPermissionMode };

@@ -69,6 +69,8 @@ func Fixtures() ([]Fixture, error) {
 		name  string
 		value any
 	}{
+		{"HostExecutionDefaults", HostExecutionDefaults{Revision: ref.Revision, Engine: "quickjs", Effort: "high", CompactionPercent: 0, GoalMaxContinuations: 9007199254740993, MaxAttempts: 3}},
+		{"SetExecutionDefaultsParams", SetExecutionDefaultsParams{ExpectedRevision: ref.Revision, Defaults: ExecutionDefaults{Engine: "starlark", GoalMaxContinuations: 0, MaxAttempts: 1}}},
 		{"HostProfiles", HostProfiles{Revision: ref.Revision, Profiles: []HostProfile{{ID: "remote", Name: "Remote", URL: "https://example.test:8443/", RuntimeID: "runtime_remote", ConnectOnLaunch: true}}}},
 		{"SetHostProfilesParams", SetHostProfilesParams{ExpectedRevision: ref.Revision, Profiles: []HostProfile{}}},
 		{"Input", directInput},
@@ -156,6 +158,7 @@ func Fixtures() ([]Fixture, error) {
 		{"CompactParams", CompactParams{Identity: RequestIdentity{ClientID: "client", RequestID: "compact"}, SessionID: child.ID}},
 		{"TreeCreationParams", TreeCreationParams{CreationID: "MiXeD:Creation"}},
 		{"CreateTreeParams", CreateTreeParams{CreationID: "MiXeD:Creation", Engine: "quickjs", Definition: DefinitionRef{ID: ID(ref.ID), Revision: ref.Revision}, WorkingDirectory: "/workspace", Overrides: ConfigPatch{}}},
+		{"CreateTreeParams", CreateTreeParams{CreationID: "default_engine", Definition: DefinitionRef{ID: ID(ref.ID), Revision: ref.Revision}, WorkingDirectory: "/workspace", Overrides: ConfigPatch{}}},
 		{"CreateTreeResult", CreateTreeResult{Creation: TreeCreation{ID: "MiXeD:Creation", TreeID: "tree_fixture", RootID: "session_root", CreatedAt: created.Format(time.RFC3339Nano)}, Tree: &Tree{ID: "tree_fixture", Engine: "quickjs", Revision: 1, CreatedAt: created.Format(time.RFC3339Nano)}, Root: &root}},
 		{"CreateTreeResult", CreateTreeResult{Creation: TreeCreation{ID: "Deleted:Creation", TreeID: "tree_fixture", RootID: "session_root", CreatedAt: created.Format(time.RFC3339Nano)}, Deleted: true}},
 		{"TerminalList", TerminalList{ProcessEpoch: "boot_fixture", Items: []TerminalInfo{}}},
