@@ -21,7 +21,7 @@ import (
 
 const (
 	applicationID = 0x57504834
-	schemaVersion = 58
+	schemaVersion = 59
 )
 
 // SchemaVersion reports the single database format supported by this build.
@@ -118,6 +118,9 @@ func Open(ctx context.Context, path string) (_ *Store, err error) {
 			}
 			if _, err := tx.ExecContext(ctx, childMCPToolsSchema); err != nil {
 				return fmt.Errorf("initialize child MCP tool scopes: %w", err)
+			}
+			if _, err := tx.ExecContext(ctx, childNamesSchema); err != nil {
+				return fmt.Errorf("initialize child names: %w", err)
 			}
 			if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA application_id=%d; PRAGMA user_version=%d", applicationID, schemaVersion)); err != nil {
 				return err

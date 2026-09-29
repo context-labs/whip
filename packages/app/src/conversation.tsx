@@ -692,7 +692,7 @@ export function SessionContent({
         cwd={selected?.working_directory ?? summaryCwd}
         pending={opening}
         agentName={
-          session.id === rootId ? 'Root' : selected?.definition.id || session.id
+          session.id === rootId ? 'Root' : selected?.name || selected?.definition.id || session.id
         }
         onAgents={() => setPanel('agents')}
         onRoot={

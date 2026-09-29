@@ -37,7 +37,7 @@ export function AgentTurnNotice({ session, selected, turn, activeTurn, connected
   });
   if (!visible || !turn || !selected) return null;
   const label = turn.state === 'failed' ? 'Last turn failed' : turn.state === 'cancelled' ? 'Last turn cancelled' : 'Last turn interrupted';
-  const name = selected.parent_id === null ? 'Root agent' : definition.data?.document.name.trim() || selected.definition.id;
+  const name = selected.parent_id === null ? 'Root agent' : selected.name || definition.data?.document.name.trim() || selected.definition.id;
   const model = selected.config_revision === turn.config_revision ? selected.configuration.model : null;
   return <div {...stylex.props(styles.container)} data-agent-turn-outcome={turn.state} data-error-type="turn" data-error-owner={`${session.client.runtimeID}:${session.id}:${turn.id}`}>
     <Alert tone={turn.state === 'failed' ? 'error' : 'neutral'} title={`${name} · ${label}`}

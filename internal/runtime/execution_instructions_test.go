@@ -51,6 +51,51 @@ func TestExecutionInstructionsMatchSelectedEngineAndModules(t *testing.T) {
 	}
 }
 
+func TestExecutionInstructionsChildNamesAndCapturedTemplateAliases(t *testing.T) {
+	for _, engine := range []session.Engine{session.Starlark, session.QuickJS} {
+		t.Run(string(engine), func(t *testing.T) {
+			current := session.Session{ID: "root", Config: session.Configuration{
+				Modules: []string{"agents"},
+				Children: map[string]session.DefinitionRef{
+					"z-review": {ID: "reviewer"}, "a:research": {ID: "researcher"},
+				},
+			}}
+			captured := current
+			captured.Config = current.Config.Clone()
+			current.Config.Children["later"] = session.DefinitionRef{ID: "later"}
+			tree := session.Tree{Engine: engine}
+			guide := executionInstructions(captured, tree)
+			if !strings.Contains(guide, `Available child template aliases: ["a:research","z-review"].`) || strings.Contains(guide, `"later"`) {
+				t.Fatal("guide did not preserve the sorted captured alias list")
+			}
+			for _, contract := range []string{
+				"immutable display label", "Duplicate names are allowed", "always use session_id",
+				"mutually exclusive with definition", "cannot widen the parent's modules",
+			} {
+				if !strings.Contains(guide, contract) {
+					t.Errorf("child guidance omitted %q", contract)
+				}
+			}
+			example := `agents.spawn(prompt="work", name="Reviewer")`
+			if engine == session.QuickJS {
+				example = `await agents.spawn({prompt:"work", name:"Reviewer"})`
+			}
+			if !strings.Contains(guide, example) {
+				t.Fatal("guide omitted the engine's named spawn example")
+			}
+			captured.Config.Modules = []string{}
+			withoutAgents := executionInstructions(captured, tree)
+			if strings.Contains(withoutAgents, "child template aliases") || strings.Contains(withoutAgents, "a:research") || strings.Contains(withoutAgents, "agents.spawn") {
+				t.Fatal("disabled agents module exposed child instructions or aliases")
+			}
+			captured.Config.Modules, captured.Config.Children = []string{"agents"}, nil
+			if !strings.Contains(executionInstructions(captured, tree), "Available child template aliases: [].") {
+				t.Fatal("empty alias list was not represented explicitly")
+			}
+		})
+	}
+}
+
 // Execute the exact fenced examples shipped in the prompt. Host examples are
 // validated at their real argument/parser boundaries without acquiring a
 // browser, asking a human, connecting a server or performing an external effect.

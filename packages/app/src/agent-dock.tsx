@@ -319,7 +319,7 @@ export function AgentDockRoster({
                 const durationLabel = duration
                   ? `${duration} ${timing?.end === undefined ? 'elapsed in current turn' : 'in latest completed turn'}`
                   : '';
-                const label = `${agent.definition.id || agent.id} · ${text}${activity ? ` · ${activity}` : ''}${durationLabel ? ` · ${durationLabel}` : ''}${!connected ? ' · Updates paused' : ''}${open ? ' · Open' : ''} · Open chat in right split`;
+                const label = `${agent.name || agent.definition.id || agent.id} · ${text}${activity ? ` · ${activity}` : ''}${durationLabel ? ` · ${durationLabel}` : ''}${!connected ? ' · Updates paused' : ''}${open ? ' · Open' : ''} · Open chat in right split`;
                 return (
                   <Button
                     key={agent.id}
@@ -351,7 +351,7 @@ export function AgentDockRoster({
                       )}
                     </span>
                     <span {...stylex.props(styles.name)}>
-                      {agent.definition.id || agent.id}
+                      {agent.name || agent.definition.id || agent.id}
                     </span>
                     <span
                       data-agent-dock-status

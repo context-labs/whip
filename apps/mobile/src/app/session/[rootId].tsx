@@ -62,7 +62,7 @@ function SessionContent({ lease, root, recipient, tree, runtimeId, showRequests 
   const [inspection, setInspection] = useState<TimelineRow>(); const [after, setAfter] = useState<string>();
   const agents = useQuery({ queryKey: [runtimeId, 'tree-agents', tree.id, after], enabled: sheet === 'agents' && state.active && state.ready,
     queryFn: async ({ signal }) => { const result = await state.client!.sessions.list(tree.id, { after, limit: 32 }, { signal }); if (new TextEncoder().encode(JSON.stringify(result)).byteLength > 2 << 20) throw new Error('Recipient page exceeds the mobile limit.'); return result; } });
-  const name = recipient.id === root.id ? 'Root agent' : recipient.definition.id;
+  const name = recipient.id === root.id ? 'Root agent' : recipient.name || recipient.definition.id;
   const pending = BigInt(snapshot.activity?.pending_question_count ?? '0') + BigInt(snapshot.activity?.pending_permission_count ?? '0');
   const enabled = state.ready && snapshot.status === 'live' && !tree.metadata.archived && recipient.lifecycle === 'active';
   return <Screen scroll={false}>
@@ -77,7 +77,7 @@ function SessionContent({ lease, root, recipient, tree, runtimeId, showRequests 
     <Sheet title={sheet === 'menu' ? 'Session' : sheet === 'agents' ? 'Choose recipient' : sheet === 'requests' ? 'Needs you' : sheet === 'body' ? 'Retained content' : 'Session details'} visible={!!sheet} onClose={() => setSheet(undefined)} full={sheet !== 'menu'}>
       <View style={{ flex: 1, backgroundColor: theme.colors.panel }}>{sheet === 'menu' ? <SessionMenu rootId={root.id} tree={tree} onDetails={() => setSheet('details')} onClose={() => setSheet(undefined)} /> : sheet === 'body' && inspection ? <BodyInspector row={inspection} rootId={root.id} agentId={recipient.id} /> : sheet === 'requests' ? <Requests rootId={root.id} sessionId={recipient.id} view={view} disabled={!enabled} /> : <ScrollView contentContainerStyle={{ padding: 20, gap: 16 }}>
         {sheet === 'agents' ? <>{agents.isFetching && <Loading />}{agents.error && <Notice danger>{agents.error.message}</Notice>}
-          {(agents.data?.items ?? []).map(item => <RowButton key={item.id} title={item.id === root.id ? 'Root agent' : item.definition.id} detail={`${item.lifecycle} · ${item.id}`} selected={item.id === recipient.id} onPress={() => { setSheet(undefined); router.setParams({ agentId: item.id }); }} />)}
+          {(agents.data?.items ?? []).map(item => <RowButton key={item.id} title={item.id === root.id ? 'Root agent' : item.name || item.definition.id} detail={`${item.lifecycle} · ${item.id}`} selected={item.id === recipient.id} onPress={() => { setSheet(undefined); router.setParams({ agentId: item.id }); }} />)}
           {agents.data?.items?.length === 32 && <Actions items={[{ label: 'Next recipients', onPress: () => setAfter(agents.data!.items!.at(-1)!.id) }]} />}{after && <Actions items={[{ label: 'First recipients', onPress: () => setAfter(undefined) }]} />}
         </> : <><Label muted>Directory</Label><Label selectable>{recipient.working_directory}</Label><Label muted>Model</Label><Label>{recipient.configuration.model.name} · {recipient.configuration.model.provider}</Label><Label muted>Reasoning effort</Label><Label>{recipient.configuration.model.effort || 'Default'}</Label>
           {recipient.id === root.id && <RootSettings view={view} session={recipient} />}

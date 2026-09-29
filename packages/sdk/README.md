@@ -433,13 +433,29 @@ and payload returns the same child; changed parameters conflict. After deletion,
 the receipt remains and `session` is null. Content parts must reference content
 owned by the parent; admission creates new scoped child references to those bytes.
 
-`grant_ids: null` inherits live standing parent grants; an explicit list selects
+Optional `name: 'Reviewer'` sets an immutable child display label (trimmed text,
+at most 128 UTF-8 bytes, no control characters). Omission derives an `agent-…`
+label from its ID. Labels may repeat; always route by session/input IDs. Optional
+`template: 'review'` selects that alias from the parent's captured `children`
+configuration; it cannot accompany `definition`. Its pinned definition still
+cannot widen the parent's module, tool, hook or MCP bindings. Changing name or
+template on retry conflicts with the original admission.
+
+`grant_ids: null` delegates current valid standing parent grants and establishes
+ongoing same-workspace permission-mode inheritance; an explicit list selects
 a subset and `[]` grants none. `grants.create` for a child additionally requires
 `issuer_id` identifying a standing direct-parent grant with the exact same scope.
 Ancestor revocation invalidates descendant dispatch. Child permission decisions
 cannot widen delegated authority.
 
-In a REPL, `agents.spawn` accepts a prompt and returns `session_id`/`input_id`.
+Existing default children follow Ask/Full Access changes, including off and back
+on. New operations use the current mode; old denied or interrupted operations
+are never replayed. Explicit grant restrictions and workspace boundaries remain
+in effect. Full Access MCP calls are also limited to the trusted tools captured
+from ready root-owned connections at spawn; new or changed tools need a new child.
+
+In a REPL, `agents.spawn` accepts a prompt, optional name/template and returns
+`session_id`, `input_id` and `name`.
 `agents.wait_after_cell` accepts descendant input IDs and immediately returns a
 registration. Finish the cell to begin the wait; the runtime then releases worker
 and kernel capacity until those inputs finish. Same-cell blocking `agents.wait`

@@ -15,7 +15,7 @@ import (
 
 func nativeAgentChild(t *testing.T, m *nativeModel, parent protocol.ID, key string) protocol.Session {
 	t.Helper()
-	value := nativeMenuRPC[protocol.SpawnSessionResult](t, m.connection, "sessions.spawn", protocol.SpawnSessionParams{ParentID: parent, Identity: protocol.RequestIdentity{ClientID: "agent-tree", RequestID: protocol.ID(key)}, GrantIDs: []protocol.ID{}, Parts: []protocol.Part{{Type: "text", Text: "child prompt"}}})
+	value := nativeMenuRPC[protocol.SpawnSessionResult](t, m.connection, "sessions.spawn", protocol.SpawnSessionParams{ParentID: parent, Name: "Reviewer " + key, Identity: protocol.RequestIdentity{ClientID: "agent-tree", RequestID: protocol.ID(key)}, GrantIDs: []protocol.ID{}, Parts: []protocol.Part{{Type: "text", Text: "child prompt"}}})
 	if value.Session == nil {
 		t.Fatal("spawned child missing")
 	}
@@ -42,6 +42,9 @@ func TestNativeAgentTreeNavigationKeepsOwnerDraftsAndPendingWork(t *testing.T) {
 	depths := map[protocol.ID]int{}
 	for _, row := range m.agents.rows {
 		depths[row.id] = row.depth
+		if row.id == child.ID && row.name != "Reviewer child" || row.id == grandchild.ID && row.name != "Reviewer grandchild" {
+			t.Fatal("child display name lost", row)
+		}
 	}
 	if depths[root.ID] != 0 || depths[child.ID] != 1 || depths[grandchild.ID] != 2 {
 		t.Fatal(depths)

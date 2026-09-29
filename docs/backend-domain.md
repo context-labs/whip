@@ -322,7 +322,7 @@ Subscription credentials
 belong to the independent host account manager and its private file.
 
 Current fresh [host configuration](../internal/config/host.go) is version 21;
-the [SQLite schema](../internal/store/store.go) is version 58. Version numbers in
+the [SQLite schema](../internal/store/store.go) is version 59. Version numbers in
 the implementation histories below identify their introducing checkpoints, not
 additional formats accepted by the current binary.
 SQLite has an application identifier and schema version. This development format accepts only fresh stores or its exact schema version.
@@ -871,6 +871,20 @@ subset delegates only those grants and `[]` delegates none. Retries preserve thi
 original request and
 return the same child/input even if parent defaults or grants have since changed.
 A deleted receipt returns `session: null`; it cannot resurrect the child.
+
+An optional `name` gives the child an immutable display label. It must be trimmed,
+nonempty text of at most 128 UTF-8 bytes without control characters; omission
+derives `agent-` plus eight lowercase characters from its session ID. Duplicate
+labels are allowed; all routing and controls still use session/input IDs. Fresh
+schema59 stores the label atomically with child admission. Roots omit it.
+
+An optional `template` selects an alias from the parent's captured `children`
+configuration and resolves its pinned definition revision. It cannot be combined
+with an explicit `definition`. Child modules, tools, hooks and MCP bindings still
+cannot widen the captured parent's scope. Name and template selection participate
+in the request digest, so changing either on retry conflicts. REPL spawn results,
+list and inspect include the name; supported clients prefer it over definition
+labels without using it as an identifier.
 
 A child standing grant names an `issuer_id` belonging to its direct parent with
 exactly the same capability/resource. One-use approvals cannot be delegated.
@@ -2300,9 +2314,8 @@ verified runtime and, when provided, process epoch before dependent requests.
 Display-only design provenance was introduced in fresh schema 48 after schema
 46's workspace and run controls; schema 47 was allocated to browser integration.
 That checkpoint used host config 18. The current versions are listed at the
-[host and schema boundary](#host-and-schema-boundary); protocol remains 4. Only
-the additive schema55-to-56 upgrade is supported; retired-core databases remain
-unsupported.
+[host and schema boundary](#host-and-schema-boundary); protocol remains 4. Earlier
+development and retired-core databases are unsupported.
 
 `sessions.submit.design_context` optionally identifies a unique text content
 reference and an optional unique image content reference in the submitted parts.

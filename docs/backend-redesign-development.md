@@ -6076,3 +6076,30 @@ builtin module sets and QuickJS fingerprints as explicitly approved for dev.
 One tiny-context usage fixture unintentionally compacted after the richer guide;
 its print-only agent now declares no host modules, keeping its original window
 and exact-prefill assertions. Focused race checks pass after that correction.
+
+The final increment restores optional immutable child names and configured
+template aliases. The template resolves from the parent's captured configuration
+to a pinned definition; existing binding narrowing remains in force. Exact
+request retries preserve name/template selection, and duplicate names never
+replace IDs for routing. The protocol, SDK, both REPL engines, shared web/Desktop
+renderer, mobile recipient views and terminal agent tree carry the persisted
+name. Launch rows can use the recorded name before session metadata arrives.
+Both engines' model guidance lists sorted captured aliases only when the agents
+module is enabled. Fresh schema 59 includes both child tool ceilings and names;
+schemas 55–58 are rejected without mutation. No upgrade/backfill is retained.
+
+Independent reviews found no blocking issue in live policy/instruction authority,
+MCP scope enforcement or names/template admission. The integrated checks pass
+protocol generation/drift and 18 interoperability tests, 206 SDK tests, app/mobile
+type checks, the mobile native gateway's six both-engine/restart tests, 47 focused
+renderer tests, terminal child navigation/routing tests, fresh-schema rejection,
+both-engine executable guidance and whole-module Go vet. The first renderer
+invocation used a nonexistent config path; its corrected repository command
+passes all four selected suites.
+
+The foundation-wide store/runtime race+shuffle attempt hit the cumulative
+ten-minute package timeout in each suite (the tests active at timeout had each
+been running about one second). It reported no race; this attempt is not counted
+as a pass. Its log is `/private/tmp/whip-parity-foundation-race.log`. Final
+integrated full non-race suites, focused race coverage and frozen-baseline lint
+are recorded in the completion entry below; this is not full release acceptance.

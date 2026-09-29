@@ -129,7 +129,7 @@ func TestFreshIdentityAndForeignSchema(t *testing.T) {
 	if !reflect.DeepEqual(before, after) {
 		t.Fatal("foreign database was modified")
 	}
-	for _, version := range []int{55, 56, 99} {
+	for _, version := range []int{55, 56, 57, 58, 99} {
 		execTest(t, s, fmt.Sprintf("PRAGMA user_version=%d", version))
 		if _, err := Open(t.Context(), path); !errors.Is(err, ErrSchema) {
 			t.Fatalf("unsupported schema %d: %v", version, err)

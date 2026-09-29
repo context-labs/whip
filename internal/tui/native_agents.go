@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -41,7 +42,7 @@ func readNativeAgents(ctx context.Context, c nativeAgentReader, owner protocol.S
 		if v.ID == "" || v.TreeID != owner.TreeID || v.ParentID != nil && *v.ParentID == v.ID {
 			return errors.New("agent tree owner or lineage mismatch")
 		}
-		row := nativeAgentRow{id: v.ID, name: string(v.Definition.ID), lifecycle: v.Lifecycle}
+		row := nativeAgentRow{id: v.ID, name: cmp.Or(v.Name, string(v.Definition.ID), string(v.ID)), lifecycle: v.Lifecycle}
 		if v.ParentID != nil {
 			row.parent = *v.ParentID
 		}
