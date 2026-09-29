@@ -55,6 +55,9 @@ func (m *nativeMenu) setupReply(reply nativeMenuReply) tea.Cmd {
 	case "setup-saved":
 		m.showSetup()
 		m.message = reply.message
+		return m.readSetupSuggestions()
+	case "setup-suggestions":
+		m.showSetupSuggestions(*reply.catalog)
 	case "setup-catalog":
 		m.catalog = *reply.catalog
 		m.showRoute()
@@ -149,7 +152,7 @@ func (m *nativeMenu) setupForm(mode, title, value string, secret bool) {
 	m.input.EchoMode = textinput.EchoNormal
 	if secret {
 		m.input.EchoMode = textinput.EchoPassword
-		m.input.CharLimit = 4096
+		m.input.CharLimit = 64 << 10
 	}
 	m.input.SetValue(value)
 }
@@ -218,6 +221,8 @@ func (m *nativeMenu) setupCatalog() tea.Cmd {
 
 func (m *nativeMenu) chooseSetup(choice nativeMenuChoice) tea.Cmd {
 	switch m.mode {
+	case "setup-suggestions":
+		return m.chooseSuggestion(choice)
 	case "setup":
 		m.setup.preset = nil
 		m.setup.account = ""

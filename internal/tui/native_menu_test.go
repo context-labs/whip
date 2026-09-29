@@ -29,11 +29,13 @@ type nativeMenuFixture struct {
 	requests      atomic.Int32
 	status        atomic.Int32
 	authorization atomic.Value
+	catalog       atomic.Value
 }
 
 func newNativeMenuFixture(t *testing.T, services ...func(*runtime.Runtime) rpc.HostServices) *nativeMenuFixture {
 	t.Helper()
 	f := &nativeMenuFixture{}
+	f.catalog.Store(`{"data":[{"id":"discovered","name":"Discovered model","context_length":64000,"reasoning_efforts":["low","high"]}]}`)
 	directory, err := os.MkdirTemp("/tmp", "whip-menu-") //nolint:usetesting // Bounded macOS Unix socket path.
 	if err != nil {
 		t.Fatal(err)
@@ -53,7 +55,7 @@ func newNativeMenuFixture(t *testing.T, services ...func(*runtime.Runtime) rpc.H
 		if f.status.Load() != 0 {
 			w.WriteHeader(int(f.status.Load()))
 		}
-		_, _ = io.WriteString(w, `{"data":[{"id":"discovered","name":"Discovered model","context_length":64000,"reasoning_efforts":["low","high"]}]}`)
+		_, _ = io.WriteString(w, f.catalog.Load().(string))
 	}))
 	t.Cleanup(upstream.Close)
 	host, err := runtime.Open(t.Context(), directory, hostmodel.Scripted{}, runtime.Options{})

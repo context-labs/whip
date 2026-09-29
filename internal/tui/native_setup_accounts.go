@@ -62,8 +62,7 @@ func (m *nativeMenu) accountReply(reply nativeMenuReply) tea.Cmd {
 		}
 		m.showAccountFlow()
 		if m.accountPending() {
-			generation := m.generation
-			return tea.Tick(time.Second, func(time.Time) tea.Msg { return nativeMenuPoll{menu: m, generation: generation} })
+			return m.accountPoll()
 		}
 	case "account-cleanup":
 		m.mode, m.title = "account-cleanup", "Inference account cleanup"
@@ -287,4 +286,27 @@ func (m *nativeMenu) submitAccount(value string) tea.Cmd {
 		return m.accountFlowCall("create_project", protocol.InferenceCreateProjectParams{FlowID: m.setup.inference.ID, Name: value}, true)
 	}
 	return nil
+}
+
+// The visible flow read timer shares the terminal work owner and is cancelled
+// with the menu. Closing the terminal joins it alongside native RPC reads.
+func (m *nativeMenu) accountPoll() tea.Cmd {
+	generation, lifecycle, work := m.generation, m.lifecycle, m.work
+	return func() tea.Msg {
+		ctx, done, err := work.beginFor(2 * time.Second)
+		if err != nil {
+			return nil
+		}
+		defer done()
+		timer := time.NewTimer(time.Second)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-lifecycle.Done():
+			return nil
+		case <-timer.C:
+			return nativeMenuPoll{menu: m, generation: generation}
+		}
+	}
 }
