@@ -48,7 +48,7 @@ func (s *Server) handleTerminal(connection *serverConn, request rpcMessage) (any
 		shell := bashrun.UserShell()
 		term, err := manager.Open(terminal.Options{
 			Shell: shell, Args: []string{"-l"}, Cwd: cwd,
-			Env:  bashrun.ChildEnvironment(map[string]string{"TERM": "xterm-256color", "COLORTERM": "truecolor"}),
+			Env:  map[string]string{"TERM": "xterm-256color", "COLORTERM": "truecolor"},
 			Cols: uint16(params.Cols), Rows: uint16(params.Rows), //nolint:gosec // G115: both values were bounded to 1..1000 above.
 		})
 		if err != nil {
@@ -148,7 +148,7 @@ var _ terminal.Sink = (*serverConn)(nil)
 // the connection's outbound queue, because send closes the whole connection
 // when it overflows; instead Output waits for the writer to drain, which
 // stalls the shell through the terminal's bounded queue.
-func (c *serverConn) Output(id string, cursor int64, data []byte) bool {
+func (c *serverConn) Output(ctx context.Context, id string, cursor int64, data []byte) bool {
 	for {
 		c.mu.Lock()
 		pending, closed := c.outBytes, c.closed
@@ -161,6 +161,8 @@ func (c *serverConn) Output(id string, cursor int64, data []byte) bool {
 		}
 		select {
 		case <-c.done:
+			return false
+		case <-ctx.Done():
 			return false
 		case <-time.After(5 * time.Millisecond):
 		}
