@@ -126,7 +126,8 @@ tasks:
     desc: Redesign formatting, fast regressions, active build and vet
     cmds:
       - task: check:fast
-      - go build {{.REDESIGN_ALL_PACKAGES}}
+      # Compile test-only eval packages too; they intentionally export no library.
+      - go test -run '^$' {{.REDESIGN_ALL_PACKAGES}}
       - go vet {{.REDESIGN_ALL_PACKAGES}}
 
   check:race:
@@ -210,6 +211,7 @@ tasks:
       - node apps/web/scripts/user-messages.mjs
       - node apps/web/scripts/sidebar.mjs
       - node apps/web/scripts/workspace-layout.mjs
+      - node apps/web/scripts/native-content-probes.mjs
       - node --test --test-concurrency=1 apps/web/scripts/native-history-fixture.test.mjs apps/web/scripts/native-tool-output.test.mjs
 
   check:product-settings:

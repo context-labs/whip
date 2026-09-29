@@ -94,7 +94,9 @@ jobs:
       - run: go install github.com/go-task/task/v3/cmd/task@v3.48.0
       - run: npm ci --no-audit --no-fund
       - if: matrix.gate == 'product-desktop'
-        run: node node_modules/electron/install.js
+        run: |
+          node node_modules/electron/install.js
+          npx playwright install ffmpeg
       - if: matrix.gate == 'product-browser' || matrix.gate == 'product-settings' || matrix.gate == 'product-examples' || matrix.gate == 'product-distributions'
         run: npx playwright install --with-deps chromium firefox
       - name: Required ${{ matrix.gate }} gate

@@ -4512,3 +4512,67 @@ tests, all support/proxy checks, theme drift and app types. Renderer artifact wa
 `a00030b4ee8df51e1f213a133bda8353be18765c68bcb95db4651a98a136a34c`.
 Native file-path performance harness syntax and all three scope-classifier tests
 also passed. This draft is a tested increment, not completion of Phases 5–7.
+
+### Native content, terminal input recovery and CI repairs — 2026-09-29
+
+Hosted run 36551394891 at 4b1da3b9f completed with failures in both build jobs,
+both client jobs and desktop. Every other required job passed, including both
+platforms' distribution acceptance, all store/runtime race groups, native web
+browser workflows, Settings, examples, mobile, docs and analysis. The earlier
+Firefox restart, hidden desktop screenshot and macOS architecture check passed
+on this run; the overall run remains failed.
+
+The build gate tried `go build` on the deliberately test-only `evals/rlm` package.
+It now compiles every active package with `go test -run '^$'` after the unchanged
+fast checks, followed by vet. Complete local `task check:build` passed. The client
+failure came from the malformed-configuration fixture writing retired config.json
+and then launching the native connector with os.Executable, which was whip.test.
+That recursively launched test descendants and starved later real-host deadlines.
+The fixture now writes native host.json and invokes actual hostcmd.Run through its
+existing injection point. It proves the native decode error and unchanged bytes
+across the retained command surfaces. Both original CI shuffle seeds passed
+20.935/18.668s with TERM=dumb and the unchanged three-minute deadline; vet and
+pinned lint passed. No production timeout or automatic retry was added.
+
+Desktop video recording requires Playwright FFmpeg. With an empty private browser
+cache the staged workspace smoke reproduced the blank URL and missing body seen
+in CI. Installing only FFmpeg in that same cache made the identical smoke pass:
+relaunch, exact daemon continuity, independent hosts, settings reload, tab/sidebar
+dragging, four splits and preserved window bounds. Renderer was
+55f25f7a3550f673e25fb38bb993cdf2fb804aae50686ab4662c410f6f3cc6a7;
+this is a dependency isolation check, not a claim that those assets contain every
+later renderer leaf. The redesign workflow now installs the same FFmpeg dependency
+as the existing desktop workflow. Failure capture is bounded and preserves the
+original attachment error. Logs: /tmp/whip-desktop-missing-ffmpeg.log and
+/tmp/whip-desktop-with-ffmpeg.log. No installed user runtime was changed.
+
+Native terminal inputs publish their exact immutable request before dispatch into
+a private, bounded client-v4 journal. Reattachment checks receipts without sending;
+/retry retains the original identity. Publication failure retains the draft. Only
+the matching confirmed receipt clears a record; a rejected input restores the draft
+or remains separately recoverable if the user has already typed new text. File and
+directory durability, nonblocking cross-terminal locking, private/no-follow paths,
+aggregate bounds and joined lifetime are tested. Integrated TUI/client/runclient
+race suites passed 61.750/8.300/21.568s. Non-input uncertain controls and inspection
+of journals whose owner was deleted remain explicit follow-ups.
+
+Native content acceptance now runs real v4 RPC and actual MCP image results in both
+Chromium and Firefox. Composer/drop and stored-content suites pass with exact-ref
+retry, held-upload cleanup, owner isolation, 16-file bounds, verified large images,
+zero page/CSP errors and zero anchor drift. Collapsed tool results do not read full
+bodies. Verified PNG/JPEG/WebP/GIF images display only after an explicit bounded
+read; stale or unmounted owners revoke their local preview URLs. Canonical file
+activity displays the captured path while preserving permission scope in details.
+The scenario-by-scenario map is apps/web/scripts/native-content-audit.md. Complete
+integrated product-web passed 1,352 tests/111 files, 38 UI tests, types and support
+checks; renderer7d04f55eb29b71ec69b67f355105deebfe8deeddeafaa00b4e983084388b7756.
+
+Saved-draft serialization now counts exact encoded entries once instead of
+repeatedly encoding growing prefixes. The full staged workload passed with the
+same 2MiB bound and three real uploads totaling9,437,346 bytes. Profiled draft
+serialization fell203→17.8ms and setDraft185→47.4ms over12 upload keys. Native
+keyboard EventTiming p95 fell144±4→112±4ms during uploads and104±4→88±4ms during
+40 streams. Peak sampled RSS increased1,689,424→1,715,440KiB; post-work RSS fell
+1,436,720→1,391,280KiB. The50ms target and memory acceptance remain open. Evidence:
+/tmp/whip-desktop-transfer-linear-drafts/run-dVPZIA/performance.json. This is a
+measured improvement, not completion of Phases5–7 or performance acceptance.
