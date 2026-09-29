@@ -3022,3 +3022,19 @@ Historical [web](../.ai-docs/plans/web-app/README.md),
 history. Do not implement an old proposal merely because its checkbox is open.
 If source and this guide disagree, trace the behavior and resolve the discrepancy
 explicitly; do not quietly create another implementation to satisfy both.
+
+
+### V4 executor and interactive-shell observations
+
+`executor.activity` is a disposable active-turn projection keyed by its epoch,
+turn and revision: at most eight hook decisions plus one2KiB progress preview.
+Discard it when the turn changes or the projection is null; ordinary operation
+and cell evidence supplies committed outcomes. Do not save leases or replay
+pending executor invocations after reconnect.
+
+Interactive agent shell input uses shell.interaction/shell.input. Preserve the
+exact operation and decimal input sequence while delivery is uncertain. A queue
+acknowledgement does not prove child consumption; only the current prompt accepts
+input, and closing it clears queued bytes. Preview cursors are exact decimal byte
+offsets with explicit truncation. Keep these controls distinct from independently
+owned human terminal tabs and from explicit execution cancellation.

@@ -1942,10 +1942,28 @@ Their timeout contract preserves a five-minute default and fifteen-minute cap;
 hooks preserve thirty seconds by default and at most one minute. Hook operation
 filters distinguish null (all) from empty (none).
 
-This checkpoint pins syntax, policy and provenance. Live custom execution and
-hook invocation are a separate following increment; declarations alone grant no
-execution, and custom calls currently report executor unavailable before an
-operation or effect is admitted.
+Live executors now bind exact immutable definition revisions on a persistent
+initialized connection. The runtime owns a bounded registry (64 peers,128 leases,
+16 leases/peer,128 calls,16 calls/peer and64 bind waiters). Replacement waits up
+to five seconds for earlier calls; disconnect revokes that connection's leases.
+No restart, reconnect, pending-list read or checkpoint recreates execution
+availability or resends an invocation. Queues retain at most32 events/8MiB in
+aggregate; event frames are at most1MiB, results512KiB and progress2KiB.
+
+Custom input validates before consent. The dispatcher acquires the current exact
+executor only after permission and before SQL dispatch, then sends the recorded
+operation. Known handler failures and invalid returned schemas settle failure;
+disconnection after dispatch remains uncertain. Hook rewrites validate against
+the ordinary tool/spawn contracts. A required unavailable or denying hook blocks
+the effect; optional failure produces bounded skipped evidence. Cancellation
+never becomes optional success. before_spawn previews the ordinary child policy
+and actual admission rechecks it transactionally. turn_start notices are bounded
+and only the owning live turn may receive them.
+
+Executor activity is disposable: the active turn retains at most eight hook
+decisions and one progress preview with epoch/revision identity. It disappears
+on turn completion/restart. Canonical arguments, operation outcomes and cell
+failure remain SQL evidence; progress is never a second durable audit log.
 
 
 ## Root creation receipts and catalog revisions
@@ -2022,3 +2040,37 @@ connection verifies the selected host, local cancellation stops only observation
 and no transport automatically retries mutations. Assets are not yet adopted:
 the API discovery endpoint reports `available: false`, and `/` returns503 until a
 v4 application is packaged. Product web/desktop/mobile migration remains Phase6.
+
+
+## Session shell execution and human input
+
+The runtime owns one bounded shell manager. It captures an owner generation and
+canonical cwd identity before consent; acquisition reserves capacity after
+consent and rechecks that identity before launch. Shell authority is not an OS
+filesystem sandbox. Processes receive the capability manager's allowlisted base
+environment, with no implicit provider credentials. Foreground commands cap at
+120 seconds; background jobs may run until explicit stop or an optional timeout
+up to24 hours. Jobs belong to sessions and survive turn cancellation/completion.
+Session stop/deletion and runtime shutdown kill and join owned process groups;
+loaded worker eviction does not stop a background job. Handles never restore.
+
+There are at most128 owners,64 running commands (eight/owner), and128 retained
+job records (32/owner). Pressure evicts completed records, never a running job.
+Output retains a1MiB tail per command/job with exact decimal original/retained
+byte counts. Results include an8KiB inline preview and explicit truncation;
+large retained tails use an owner-scoped content reference. Failed content
+publication preserves the known command result and reports missing retention,
+never causes redispatch. Ordinary nonzero exit is structured command output;
+known pre-launch errors are failed, while interrupted launched effects remain
+uncertain with any retained partial evidence.
+
+Interactive shell.run has a15-second inactivity deadline within its120-second
+hard limit. Human shell.interaction reads a64KiB cursor-addressed preview;
+shell.input addresses that exact owner and operation with at most16KiB and a
+strict decimal sequence. Four queued inputs are permitted. Retrying the most
+recent identical sequence acknowledges admission without enqueueing twice;
+changed, older, future or retired identities conflict. Closing the operation
+joins callbacks and clears pending input, so bytes never spill into a later
+shell. The child controls PTY echo. These controls are separate from human
+terminal tabs, and the gateway rejects shell.input unless network terminals
+are explicitly enabled. Observation/disconnection does not cancel accepted work.

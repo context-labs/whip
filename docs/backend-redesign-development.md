@@ -3138,3 +3138,55 @@ failed Linux/aggregate in run36504448730: store exceeded600s during context-pin
 validation and runtime passed570.284s. Neither failed hosted revision receives
 passing credit. The next gateway draft carries the tested concurrency adjustment
 and requires fresh Linux/macOS/analysis/aggregate evidence.
+
+## Connection executors and session-owned shell execution
+
+The gateway is published as draft [PR253](https://github.com/context-labs/whip/pull/253)
+at `bbe0f39d19fa17613c4d5c1b479cd4bc31e48899`, stacked on PR250.
+Analysis passes in run36511095353; Linux/macOS are still in progress at this check.
+
+Reused the released pure executor registry30649358 and public executor384864290,
+integrated as2744d1851/f0ef59c5c after shared timeout/lifetime leaves6a1d16280,
+9839ec0ae and550b7330f. The parent first integrated them in executor-controls,
+preserving the gateway/root contracts and regenerating their combined wire types.
+Reused shell extraction/bounds/lifetime/owner leaves as0b656fdb9,6b30e105f,
+8d56376f6 and29542b840; completed public shell/input asb9994343b and production
+acceptance as2daf73965. Root creation fixture IDs and new initialization fields
+were retained. All three leaf packages and both production fixtures join the
+active gate. Fresh schema39/config15/protocol4 remain unchanged.
+
+Custom executors bind immutable definitions on connection-owned generations.
+Consent precedes lease acquisition, SQL dispatch precedes invocation, and handler
+loss never triggers another dispatch. Required hooks gate effects; optional
+failure produces bounded evidence, without suppressing cancellation. Rewritten
+spawn policy is checked again by ordinary SQL admission. Executor notices and
+progress belong only to the exact active turn. New runtime/store/RPC/SDK tests
+cover replacement, separate provenance, full schema validation and disconnect.
+
+Session shells now provide foreground execution, persistent background jobs,
+bounded output/content and transient human PTY input. Foreground cancellation
+preserves partial uncertain evidence; background jobs survive turn cancellation
+until explicit job/session stop, deletion or shutdown. Every stop joins owned
+groups and callbacks. Human input is scoped to the exact operation and last
+accepted sequence, allowing an exact lost-ack retry without duplicate bytes.
+The real fixture exercises echo-disabled secrets, lost input replies, both
+engines,1MiB output tails/content and group teardown. This is separate from human
+terminal tabs, which remain a following checkpoint. Shell cwd identity checks
+and process groups are not an OS sandbox or filesystem freeze.
+
+Focused integrated races passed runtime27.909s/RPC3.321s/executor2.576s and the
+shell/bashrun regressions. Final full `task check:phase` passes with store217.561s,
+runtime250.054s, process116.262s, executor2.141s, bashrun8.780s and shell2.553s;
+all11 v4 contract checks,46 v4 SDK tests, drift/examples, existing43-stage
+fixture31.418s, gateway1.911s, executor1.714s, shell2.016s, retained fixture4.149s
+and selected daemon races2.705s. `task check:analysis` reports zero new lint
+issues and no reachable vulnerabilities. Logs:
+`/tmp/whip-execution-services-{focused,phase,analysis}.log`. The original source
+checkpoints' evidence is preserved in their commit tests; no installed runtime,
+real credentials or real browser/helper session was used.
+
+Phases5–7 remain open. A renewed retained-feature audit identified direct human
+model-free shell/tool admission, guest artifacts.put/inspect and permission
+inspection as unfinished backend parity. Browser/computer, human terminals,
+MCP integration, live-provider evidence and complete client migration/removal
+also remain; passing this checkpoint does not discharge those obligations.

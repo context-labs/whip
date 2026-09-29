@@ -842,7 +842,7 @@ across model changes while the host checks each call against its captured turn.
 `tools_definition` and `hooks_definition` are nullable, read-only provenance
 references derived from registered immutable definitions. They are excluded from
 configuration patches. Declaring tools/hooks alone does not connect an executor;
-at this checkpoint custom calls reject unavailable execution before admission.
+custom calls require a live exact-definition executor before admission.
 
 
 ### Recoverable root creation and metadata discovery
@@ -874,3 +874,20 @@ verify the digest and exact byte length, and share the runtime's4MiB bound.
 Retain the original upload identity and bytes after uncertain delivery.
 The gateway currently serves API discovery and transport only; product UI
 packaging and persistent executor browser support are separate increments.
+
+
+`ExecutorClient` owns one explicit persistent connection, supplied by `executorSocket`
+from `@whip/sdk/node`. Connect with the expected runtime identity, bind the exact
+registered definition and complete tool/hook coverage, then consume events once.
+Return results/progress using the event's exact epoch, generation and invocation
+identity. Payloads remain base64 JSON bytes to preserve exact numbers. A pending
+page is inspection only. Disconnection revokes availability; the SDK never
+rebinds or replays calls. Closing its event iterator closes the peer. Browser
+persistent transport remains the following increment.
+
+`shellInteraction(sessionID, cursor)` reads the current human-input prompt;
+`shellInput` sends a caller-preserved operation identity, sequence and base64
+bytes. Inspect the returned next-input sequence after uncertain delivery. Only
+an exact retry of the most recent sequence is duplicate-safe. Input acceptance
+means queued, not consumed. Keep input in transient local state; do not replay it
+on reconnect or persist secrets. A null interaction means no active prompt.
