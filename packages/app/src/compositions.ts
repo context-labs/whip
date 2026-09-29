@@ -380,7 +380,7 @@ export class CompositionStore {
   selection(key: string) {
     return this.selections.get(key);
   }
-  invalidateRuntime(runtimeId?: string) {
+  invalidateRuntime(runtimeId?: string, options: { preserveUploaded?: boolean } = {}) {
     for (const [key, entry] of this.entries) {
       if (runtimeId && !key.startsWith(runtimeId + ':')) continue;
       for (const item of entry.state.attachments) {
@@ -390,16 +390,15 @@ export class CompositionStore {
       this.update(key, {
         sending: false,
         attachments: Object.freeze(
-          entry.state.attachments.map(({ id, name, size, mediaType }) =>
-            Object.freeze({
-              id,
-              name,
-              size,
-              mediaType,
-              error:
-                'Attachment unavailable after changing hosts. Remove it and select the file again.',
-            }),
-          ),
+          entry.state.attachments.map(item => {
+            // A verified same-runtime reconnect preserves durable references,
+            // but unfinished uploads are never resumed or replayed.
+            if (runtimeId && options.preserveUploaded && item.value && !item.error) return item;
+            const { id, name, size, mediaType } = item;
+            return Object.freeze({ id, name, size, mediaType, error: options.preserveUploaded
+              ? 'Attachment upload was interrupted. Remove it and select the file again.'
+              : 'Attachment unavailable after changing hosts. Remove it and select the file again.' });
+          }),
         ),
       });
     }

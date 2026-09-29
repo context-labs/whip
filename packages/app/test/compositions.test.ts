@@ -444,3 +444,22 @@ describe('transient compositions', () => {
     f.store.dispose();
   });
 });
+
+it('retains ready recipient references on same-runtime recovery but cancels unfinished uploads without replay', async () => {
+  previewURLs(); const f = fixture();
+  await f.store.add(f.key, f.session, 'host', 'child', [file('ready.png')]);
+  const ready = f.store.get(f.key).attachments[0]!;
+  const transfer = deferred<ReturnType<typeof f.uploaded>>(); f.upload.mockImplementationOnce(() => transfer.promise);
+  const pending = f.store.add(f.key, f.session, 'host', 'child', [file('pending.png')]);
+  await vi.waitFor(() => expect(f.upload).toHaveBeenCalledTimes(2));
+  const signal = f.upload.mock.calls[1]![1].signal!;
+  f.store.invalidateRuntime('host', { preserveUploaded: true }); await pending;
+  expect(signal.aborted).toBe(true); expect(f.store.get(f.key).attachments[0]).toBe(ready);
+  expect(f.store.get(f.key).attachments[1]).toMatchObject({ error: expect.stringMatching(/interrupted/) });
+  expect(f.store.get(f.key).attachments[1]?.previewUrl).toBeUndefined();
+  expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith('blob:preview-2');
+  transfer.resolve(f.uploaded()); await Promise.resolve(); expect(f.upload).toHaveBeenCalledTimes(2);
+  expect(f.store.get(f.key).attachments[1]?.value).toBeUndefined();
+  f.store.invalidateRuntime('host'); expect(f.store.get(f.key).attachments[0]?.value).toBeUndefined();
+  expect(URL.revokeObjectURL).toHaveBeenCalledWith(ready.previewUrl); f.store.dispose();
+});
