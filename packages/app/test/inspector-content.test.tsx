@@ -12,12 +12,14 @@ beforeEach(() => {
   vi.stubGlobal('crypto', webcrypto);
 });
 afterEach(() => vi.unstubAllGlobals());
-async function fixture() {
-  const data = new TextEncoder().encode('Exact owned text 🌍');
+async function fixture(mediaType = 'text/plain') {
+  const data = mediaType === 'image/png'
+    ? new Uint8Array(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=', 'base64'))
+    : new TextEncoder().encode('Exact owned text 🌍');
   const digest = Buffer.from(await webcrypto.subtle.digest('SHA-256', data)).toString('hex');
   const calls: string[] = [];
-  const state = { foreign: false, hold: undefined as (() => Promise<void>) | undefined, size: String(data.length) };
-  const reference = (owner: string): ContentReference => ({ id: 'same_handle', session_id: owner, size: state.size, digest, media_type: 'text/plain', created_at: '2026-09-27T12:00:00Z' });
+  const state = { foreign: false, hold: undefined as (() => Promise<void>) | undefined, size: String(data.length), digest };
+  const reference = (owner: string): ContentReference => ({ id: 'same_handle', session_id: owner, size: state.size, digest: state.digest, media_type: mediaType, created_at: '2026-09-27T12:00:00Z' });
   const client = await Client.connect(async request => {
     if (request.method === 'initialize') return { jsonrpc: '2.0', id: request.id, result: { major: 4, minor: 0, runtime_id: 'runtime', process_epoch: 'boot', network_client: false, builtins: [] } };
     calls.push(request.method);
@@ -59,4 +61,35 @@ it('a same-named child reference cannot publish a late body after selection chan
   await act(async () => { release(); await new Promise(resolve => setTimeout(resolve, 0)); });
   expect(screen.queryByRole('region', { name: 'Evidence' })).toBeNull(); expect(screen.getByRole('button', { name: 'Read evidence' }).hasAttribute('disabled')).toBe(false);
   mounted.rerender(f.app('root', false)); expect(screen.getByRole('button', { name: 'Download' }).hasAttribute('disabled')).toBe(true);
+});
+
+it('verified host images render only after explicit read and release their URL on owner changes', async () => {
+  const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:owned-image');
+  const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+  const f = await fixture('image/png'); const mounted = render(f.app());
+  expect(f.calls).toEqual([]); expect(screen.queryByRole('img')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Read evidence' }));
+  const image = await screen.findByRole('img', { name: 'Evidence' });
+  expect(image.getAttribute('src')).toBe('blob:owned-image');
+  expect(f.calls).toEqual(['content.get', 'content.read']); expect(create).toHaveBeenCalledOnce();
+  mounted.rerender(f.app('root'));
+  await waitFor(() => expect(revoke).toHaveBeenCalledWith('blob:owned-image'));
+  expect(screen.queryByRole('img')).toBeNull();
+});
+it('image reads retain the 4MiB cap, reject digest mismatch and never publish after disconnect', async () => {
+  const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:owned-image');
+  const f = await fixture('image/png'); const mounted = render(f.app());
+  f.state.size = String((4 << 20) + 1);
+  fireEvent.click(screen.getByRole('button', { name: 'Read evidence' }));
+  await screen.findByText('Content exceeds read limit'); expect(f.calls).toEqual(['content.get']);
+  f.state.size = String(f.data.length); f.state.digest = '0'.repeat(64);
+  fireEvent.click(screen.getByRole('button', { name: 'Read evidence' }));
+  await screen.findByText('Content digest mismatch'); expect(create).not.toHaveBeenCalled();
+  f.state.digest = Buffer.from(await webcrypto.subtle.digest('SHA-256', f.data)).toString('hex');
+  let release!: () => void; f.state.hold = () => new Promise(resolve => { release = resolve; });
+  fireEvent.click(screen.getByRole('button', { name: 'Read evidence' }));
+  await waitFor(() => expect(f.calls.filter(method => method === 'content.read')).toHaveLength(2));
+  mounted.rerender(f.app('child', false));
+  await act(async () => { release(); await new Promise(resolve => setTimeout(resolve, 0)); });
+  expect(create).not.toHaveBeenCalled(); expect(screen.queryByRole('img')).toBeNull();
 });
