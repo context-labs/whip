@@ -99,7 +99,7 @@ export function ExecutionCellCard({ row, ...props }: CardProps & { row: CellExec
 function PresentationCell({ row, number, session, engine, connected, expanded, onToggle }: CardProps & { row: ExecutionPresentationRow }) {
   const cell = row.cell?.cell;
   const result = row.cell ? cellOutput(row.cell, connected) : { ...executionOutput(row.result?.value.output ?? ''), provisional: false, truncated: false };
-  const actualEngine = result.engine ?? cell?.checkpoint?.engine ?? (row.state === 'writing' || row.state === 'pending' ? engine : undefined);
+  const actualEngine = result.engine ?? cell?.checkpoint?.engine ?? (row.state === 'writing' || row.state === 'pending' || row.state === 'running' ? engine : undefined);
   const label = executionLabel(actualEngine);
   const state = row.state === 'recorded' && row.result ? row.result.value.is_error || result.error ? 'failed' : 'succeeded' : row.state;
   const running = state === 'running' || state === 'writing' || state === 'pending', uncertain = state === 'uncertain';
