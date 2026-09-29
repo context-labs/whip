@@ -3665,3 +3665,13 @@ Local complementary store validation passed in 193.133 seconds and 89.438
 seconds respectively (`task check:race-store`), with every test covered exactly
 once by the mutually exclusive run/skip patterns. Hosted validation is pending
 for this repair; the previous hosted failure is not claimed as passed.
+
+### Native run-client integration — 2026-09-28
+
+The tested native one-turn CLI orchestration leaf `a2a569872` is integrated as
+`ab08f01c6`, followed by the verified PR 259 CI repairs in `ea0da1ef5`. The native
+run client, Go transport/client, local host launcher and shared host entrypoint
+pass combined race/shuffle tests at the integrated head: 20.311, 8.511, 3.495
+and 5.096 seconds respectively. Public CLI flag routing and remaining supported
+client cutovers are still in progress; the new package is a tested foundation.
+PR 259 repair `39c76adb6` hosted run 36523975388 is pending at this record.
