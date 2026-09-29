@@ -1,8 +1,9 @@
 import { fireEvent, render } from '@testing-library/react';
 import { expect, it } from 'vitest';
 import { MCPBrandIcon, tintIndex } from '../src/mcp-brand';
-import { tinyPNG } from './mcp-import-fake';
 import marks from '../src/assets/mcp-brands.json';
+
+const tinyPNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 
 it('shows the mark when there is one and a monogram when there is not, or when the mark fails to decode', () => {
   const { container, rerender } = render(<MCPBrandIcon name="exa" src={tinyPNG} />);
