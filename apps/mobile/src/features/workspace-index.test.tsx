@@ -1,19 +1,19 @@
 import { act, cleanup, render } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { HostAttentionResult } from '@whip/legacy-protocol';
+import type { HostAttentionResult } from '@whip/protocol';
 import { ReadLane } from '../runtime/read-lane';
 import { WorkspaceAttentionProvider, useWorkspaceAttention } from './workspace-index';
 let mockWorkspace: any; let mockState: any;
 jest.mock('../runtime/workspace-context', () => ({ useWorkspace: () => mockWorkspace, useWorkspaceState: () => mockState }));
 let attention: ReturnType<typeof useWorkspaceAttention>;
 function Probe() { attention = useWorkspaceAttention(); return null; }
-const page = (id = 'same-root', more = false): HostAttentionResult => ({ items: [{ root_id: id, title: id, active_agents: '1', pending_permissions: '9007199254740993', questions: [], truncated: false }], has_more: more, next_after_id: more ? id : undefined, truncated: false });
+const page = (id = 'same-root', more = false): HostAttentionResult => ({ items: [{ tree_id: 'tree', root_id: id, session_id: 'child', title: id, activity: { pending_permission_count: '9007199254740993', pending_question_count: '0' } }], next_cursor: more ? { tree_id: 'tree', session_id: 'child' } : null } as HostAttentionResult);
 const queries: QueryClient[] = [];
 function fixture() {
   const query = new QueryClient({ defaultOptions: { queries: { retry: false, networkMode: 'always' } } }); queries.push(query);
   const readA = jest.fn(async (_params: unknown, _options: { signal: AbortSignal }) => page());
   const readB = jest.fn(async (_params: unknown, _options: { signal: AbortSignal }) => page());
-  const connection = (id: string, read: typeof readA) => { const host = { id, name: id, runtimeId: `runtime-${id}` }; const client = { supports: () => true, host: { attention: read }, onCommand: jest.fn(() => () => {}) }; return { getSnapshot: () => ({ host, client, ready: true, active: mockState.active }) }; };
+  const connection = (id: string, read: typeof readA) => { const host = { id, name: id, runtimeId: `runtime-${id}` }; const client = { processEpoch: 'boot', call: (_method: string, params: unknown, options: { signal: AbortSignal }) => read(params, options) }; return { getSnapshot: () => ({ host, client, ready: true, active: mockState.active }) }; };
   mockState = { active: true, connections: [connection('a', readA), connection('b', readB)], hosts: [{ id: 'a' }, { id: 'b' }] };
   mockWorkspace = { reads: new ReadLane(), connectionKey: () => 1 };
   const tree = () => <QueryClientProvider client={query}><WorkspaceAttentionProvider><Probe /><Probe /></WorkspaceAttentionProvider></QueryClientProvider>;
@@ -37,11 +37,11 @@ test('one failed host preserves the healthy host and qualifies the count', async
   expect(attention.items).toHaveLength(1); expect(attention.badge).toBe('1+'); expect(attention.pages[1].error).toBe('Disconnected');
 });
 test('next replaces a host page and old query windows are collected', async () => {
-  const f = fixture(); f.readA.mockImplementation(async params => page((params as any).after_id ? 'second' : 'first', true));
+  const f = fixture(); f.readA.mockImplementation(async params => page((params as any).after ? 'second' : 'first', true));
   await render(f.tree()); await flush();
-  await act(async () => { attention.next('a', 'first'); }); await flush();
+  await act(async () => { attention.next('a', { kind: 'attention', after: { tree_id: 'tree', session_id: 'child' } }); }); await flush();
   expect(attention.items.map(i => i.root_id)).toEqual(['second', 'same-root']); expect(attention.count).toBe(2); expect(attention.badge).toBe('2+');
-  expect(f.readA.mock.calls.at(-1)?.[0]).toEqual({ after_id: 'first', limit: 64, max_bytes: 128 << 10 });
+  expect(f.readA.mock.calls.at(-1)?.[0]).toEqual({ after: { tree_id: 'tree', session_id: 'child' }, limit: 64, max_bytes: 128 << 10 });
   expect(f.query.getQueryCache().getAll()).toHaveLength(1);
 });
 test('replacement aborts the old read and its late response cannot enter the new host index', async () => {

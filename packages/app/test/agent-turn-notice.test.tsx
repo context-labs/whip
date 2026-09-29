@@ -1,59 +1,70 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
-import type { RootSnapshot } from '@whip/legacy-protocol';
-import type { SessionView, SessionViewSnapshot } from '@whip/legacy-sdk/state';
-import { ThemeProvider, UIProvider } from '@whip/ui';
+import type { Turn } from '@whip/sdk';
 import { AgentTurnNotice, useSelectedAgent } from '../src/agent-turn-notice';
-import { RuntimeContext } from '../src/context';
-import type { AppRuntime } from '../src/runtime';
+import { providerFixture, sessionRecord } from './provider-fixture';
 
 beforeEach(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
 afterEach(() => vi.unstubAllGlobals());
-const agent: NonNullable<RootSnapshot['agents']>[number] = {
-  id: 'child', root_id: 'root', parent_id: 'root', name: 'Architecture researcher', model: 'model', provider: 'provider', cwd: '/', effort: '', report: 'notice', status: 'idle',
-  pending_mail: 0, lifecycle_phase: 'idle', blocking_reason: '', terminal_cause: '', allowed_controls: [],
-  last_turn: { status: 'failed', turn_id: 'turn', event_seq: '14', error: '400 Bad Request: Invalid prompt_cache_key' },
-};
+const agent = { ...sessionRecord('child'), definition: { ...sessionRecord('child').definition, id: 'architecture-researcher' } };
+const turn: Turn = { id: 'turn', session_id: 'child', history_revision: '1', goal: null, kind: 'prompt', config_revision: agent.config_revision, state: 'failed', failure: '400 Bad Request: Invalid prompt_cache_key', started_at: '2026-09-28T00:00:00Z', finished_at: '2026-09-28T00:01:00Z' };
 
-it('shows the named agent and recorded error, copies it, and clears for a new turn', async () => {
-  const copy = vi.fn(async () => {});
-  const runtime = { platform: { copy }, report: vi.fn() } as unknown as AppRuntime;
-  const view = { session: { rootId: 'root' } } as SessionView;
-  const app = (activeTurn?: string, selected = agent) => <RuntimeContext.Provider value={runtime}><UIProvider><ThemeProvider initialTheme="claude-code">
-    <AgentTurnNotice view={view} agent={selected} activeTurn={activeTurn} />
-  </ThemeProvider></UIProvider></RuntimeContext.Provider>;
-  const rendered = render(app());
-  expect(screen.getByRole('alert').textContent).toContain('Architecture researcher · Last turn failed');
+it('shows and copies the recorded native failure, then clears for another turn', async () => {
+  const f = await providerFixture();
+  const app = (activeTurn?: string, outcome = turn) => f.wrap(<AgentTurnNotice session={f.client.session('child')} selected={agent} turn={outcome} activeTurn={activeTurn} />);
+  const mounted = f.mount(<AgentTurnNotice session={f.client.session('child')} selected={agent} turn={turn} />);
+  expect(screen.getByRole('alert').textContent).toContain('architecture-researcher · Last turn failed');
   fireEvent.click(screen.getByRole('button', { name: 'Error details' }));
   expect(screen.getByRole('alert').textContent).toContain('Invalid prompt_cache_key');
   fireEvent.click(screen.getByRole('button', { name: 'Copy error' }));
-  await waitFor(() => expect(copy).toHaveBeenCalledWith(agent.last_turn!.error));
-  rendered.rerender(app('next-turn'));
-  expect(screen.queryByRole('alert')).toBeNull();
-  rendered.rerender(app(undefined, { ...agent, last_turn: { status: 'succeeded', event_seq: '16' } }));
-  expect(screen.queryByRole('alert')).toBeNull();
-  rendered.rerender(app(undefined, { ...agent, last_turn: { status: 'interrupted', event_seq: '17', error: 'Daemon restarted' } }));
-  expect(screen.getByRole('status').textContent).toContain('Last turn interrupted');
-  expect(screen.queryByRole('alert')).toBeNull();
+  await waitFor(() => expect(f.runtime.platform.copy).toHaveBeenCalledWith(turn.failure));
+  mounted.rerender(app('next-turn')); expect(screen.queryByRole('alert')).toBeNull();
+  mounted.rerender(app(undefined, { ...turn, id: 'next', state: 'succeeded', failure: null })); expect(screen.queryByRole('alert')).toBeNull();
+  mounted.rerender(app(undefined, { ...turn, id: 'interrupted', state: 'interrupted', failure: 'Host restarted' }));
+  expect(screen.getByRole('status').textContent).toContain('Last turn interrupted'); expect(screen.queryByRole('alert')).toBeNull();
 });
 
-it('loads a selected agent outside the snapshot page and refreshes only with lifecycle snapshots', async () => {
-  const inspect = vi.fn(async () => ({ result: { agent } }));
-  const view = { session: { rootId: 'root', client: { getSnapshot: () => ({ info: { runtime_id: 'host' } }) }, agents: { inspect } } } as unknown as SessionView;
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const state = { root: { agents: [], cursor: '10' }, collections: {} } as unknown as SessionViewSnapshot;
-  function Selected({ state }: { state: SessionViewSnapshot }) {
-    const selected = useSelectedAgent(view, state, 'child', true);
-    return <span>{selected?.name}</span>;
+it('does not attribute a foreign turn or changed current model to the last turn', async () => {
+  const f = await providerFixture();
+  const mounted = f.mount(<AgentTurnNotice session={f.client.session('child')} selected={agent} turn={{ ...turn, session_id: 'other' }} />);
+  expect(mounted.container.firstChild).toBeNull();
+  mounted.rerender(f.wrap(<AgentTurnNotice session={f.client.session('child')} selected={{ ...agent, config_revision: '9007199254740994' }} turn={turn} />));
+  expect(screen.getByRole('alert').textContent).not.toContain('openrouter');
+});
+
+it('reads only the selected session, refreshes explicitly, and never admits work', async () => {
+  const f = await providerFixture();
+  f.data.handlers['sessions.get'] = request => request.method === 'sessions.get' ? { ...agent, id: request.params.session_id } : null;
+  function Selected({ id = 'child', connected = true }: { id?: string; connected?: boolean }) {
+    const query = useSelectedAgent(f.client.session(id), connected);
+    return <span>{query.data?.id} {query.data?.definition.id}</span>;
   }
-  const app = (state: SessionViewSnapshot) => <QueryClientProvider client={queryClient}><Selected state={state} /></QueryClientProvider>;
-  const rendered = render(app(state));
-  await screen.findByText('Architecture researcher');
-  expect(inspect).toHaveBeenCalledTimes(1);
-  rendered.rerender(app({ ...state, root: { ...state.root!, cursor: '11' } }));
-  expect(inspect).toHaveBeenCalledTimes(1);
-  rendered.rerender(app({ ...state, root: { ...state.root!, agents: [], cursor: '12' } }));
-  await waitFor(() => expect(inspect).toHaveBeenCalledTimes(2));
-  queryClient.clear();
+  const mounted = f.mount(<Selected />);
+  await screen.findByText('child architecture-researcher'); expect(f.count('sessions.get')).toBe(1);
+  mounted.rerender(f.wrap(<Selected />)); expect(f.count('sessions.get')).toBe(1);
+  await act(async () => { await f.queries.invalidateQueries({ queryKey: ['selected-agent'] }); });
+  await waitFor(() => expect(f.count('sessions.get')).toBe(2));
+  mounted.rerender(f.wrap(<Selected id="other" />)); await screen.findByText('other architecture-researcher');
+  expect(f.count('sessions.get')).toBe(3);
+  mounted.rerender(f.wrap(<Selected id="offline" connected={false} />)); expect(f.count('sessions.get')).toBe(3);
+  expect(f.calls.every(call => ['initialize', 'sessions.get'].includes(call.method))).toBe(true);
+});
+
+it('uses the exact immutable definition display name and falls back when unnamed or offline', async () => {
+  const f = await providerFixture();
+  f.data.handlers['definitions.get'] = request => {
+    expect(request.params).toEqual(agent.definition);
+    return { ref: agent.definition, document: { id: agent.definition.id, name: 'Architecture researcher', defaults: {} }, created_at: agent.created_at };
+  };
+  const mounted = f.mount(<AgentTurnNotice session={f.client.session('child')} selected={agent} turn={turn} />);
+  await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Architecture researcher · Last turn failed'));
+  expect(f.count('definitions.get')).toBe(1);
+  const next = { ...agent, definition: { ...agent.definition, revision: 'b'.repeat(64) } };
+  mounted.rerender(f.wrap(<AgentTurnNotice session={f.client.session('child')} selected={next} turn={turn} connected={false} />));
+  expect(screen.getByRole('alert').textContent).toContain('architecture-researcher · Last turn failed');
+  expect(f.count('definitions.get')).toBe(1);
+  f.data.handlers['definitions.get'] = () => ({ ref: next.definition, document: { id: next.definition.id, name: '', defaults: {} }, created_at: next.created_at });
+  mounted.rerender(f.wrap(<AgentTurnNotice session={f.client.session('child')} selected={next} turn={turn} />));
+  await waitFor(() => expect(f.count('definitions.get')).toBe(2));
+  expect(screen.getByRole('alert').textContent).toContain('architecture-researcher · Last turn failed');
 });

@@ -1,19 +1,13 @@
 import { QueryClient } from '@tanstack/react-query';
 import { rememberProviderReady } from './provider-readiness';
+import { readModelCatalog } from './model-options';
 import {
-  DeliveryUncertainError,
-  RpcError,
-  type WhipClient,
-  type RecoveryRecord,
-  type RecoveryStorage,
-  type CommandHandle,
-  type CommandOutcome,
-} from '@whip/legacy-sdk';
-import {
-  createSessionView,
-  type SessionView,
-} from '@whip/legacy-sdk/state';
-import type { CommandOperation } from '@whip/legacy-protocol';
+  DeliveryError, DurableCommand, RecoveryError, RecoveryJournal, RecoveryPersistenceError,
+  type Client, type DurableMethod, type Operations,
+  type Admission,
+} from '@whip/sdk';
+import { createExecutionView, createSessionView, createTraceView, type ExecutionView, type SessionView, type TraceView } from '@whip/sdk/state';
+import { recoveryStorage } from './recovery-storage';
 import { errorMessage, readPreference, type AppPlatform } from './platform';
 import { parseSettingsReturn, settingsReturnKey, type SettingsReturn } from './settings/navigation';
 import { isSessionTab, SessionTabs, welcomeDraftKey } from './session-tabs';
@@ -25,9 +19,19 @@ import { SubmittedInputs } from './input-presentation';
 import { HostConnections, type HostConnection } from './hosts';
 
 interface ViewLease {
-  client: WhipClient;
+  client: Client;
   runtimeId: string;
+  rootId: string;
   view: SessionView;
+  execution: ExecutionView;
+  users: number;
+  timer?: ReturnType<typeof setTimeout>;
+}
+interface TraceLease {
+  client: Client;
+  runtimeId: string;
+  rootId: string;
+  view: TraceView;
   users: number;
   timer?: ReturnType<typeof setTimeout>;
 }
@@ -39,10 +43,11 @@ export interface CommandNotice {
   status: string;
   error?: string;
   draftKey?: string;
+  turnId?: string;
   delivery?: 'uncertain' | 'absent';
 }
 interface PendingCommand {
-  client: WhipClient;
+  client: Client;
   check(): Promise<unknown>;
   retry(): Promise<unknown>;
 }
@@ -93,7 +98,7 @@ export class AppRuntime {
   readonly browserAssociations: BrowserAssociations;
   readonly connections: HostConnections;
   readonly tabs: SessionTabs;
-  readonly compositions = new CompositionStore();
+  readonly compositions = new CompositionStore(client => this.connections.isAttached(client));
   readonly readingPositions = new ReadingPositions();
   readonly submittedInputs = new SubmittedInputs();
   readonly queries = new QueryClient({
@@ -112,11 +117,12 @@ export class AppRuntime {
   private state: RuntimeSnapshot;
   private readonly listeners = new Set<() => void>();
   private readonly views = new Map<string, ViewLease>();
-  private readonly titleListeners = new Map<WhipClient, () => void>();
+  private readonly traces = new Map<string, TraceLease>();
+  private readonly titleListeners = new Map<Client, () => void>();
   private readonly drafts = new Map<string, string>();
   private readonly draftRevisions = new Map<string, string>();
   private readonly draftListeners = new Map<string, Set<() => void>>();
-  private readonly agentReaders = new WeakMap<SessionView, Map<string, { users: number }>>();
+  readonly recovery: RecoveryJournal;
   private readonly draftIdentities = new Set<string>();
   private readonly durableDrafts = new Set<string>();
   private readonly pending = new Map<string, PendingCommand>();
@@ -127,7 +133,7 @@ export class AppRuntime {
 
   constructor(readonly platform: AppPlatform) {
     // New Chat can unmount completely between drafts. Keep only its host metadata warm.
-    for (const key of ['provider-list', 'runtime-configuration', 'provider-catalogs', 'definitions'])
+    for (const key of ['provider-list', 'provider-presets', 'provider-readiness', 'provider-catalogs', 'host-permission-default', 'host-execution-defaults', 'mcp-configuration', 'definitions'])
       this.queries.setQueryDefaults([key], { gcTime: 5 * 60_000 });
     try {
       const saved = platform.windowStorage?.getItem(settingsReturnKey);
@@ -173,6 +179,7 @@ export class AppRuntime {
         desktopNotifications: preferences?.desktopNotifications === true,
       },
     };
+    this.recovery = new RecoveryJournal(recoveryStorage(platform.storage));
     this.tabs = new SessionTabs(platform.windowStorage, message => this.report(message), this.lastSession()?.runtimeId);
     this.browser = new BrowserWorkspace(platform.browser, this.tabs, error => this.reportWorkspace(error));
     let previousTabs = this.tabs.getSnapshot();
@@ -203,28 +210,32 @@ export class AppRuntime {
       for (const key of platform.storage.keys())
         if (key.startsWith(draftRevisionPrefix) && !saved.has(key.slice(draftRevisionPrefix.length))) platform.storage.removeItem(key);
     } catch (error) { this.report(error); }
-    this.connections = new HostConnections(platform, this.recoveryStorage(), {
+    this.connections = new HostConnections(platform, recoveryStorage(platform.storage), {
       connected: (runtimeId, client) => {
         this.observeSessionTitles(runtimeId, client);
         void this.queries.invalidateQueries({ predicate: query => query.queryKey[1] === runtimeId });
         void this.primeProviders(runtimeId, client);
-        void this.queries.prefetchQuery({ queryKey: ['runtime-configuration', runtimeId],
-          queryFn: ({ signal }) => client.configuration.get({ signal }) });
-        void this.queries.prefetchQuery({ queryKey: ['provider-catalogs', runtimeId],
-          queryFn: ({ signal }) => client.providers.catalogs({ signal }) });
-        // Match the dialog's landing-page key, including its absent cursor.
-        void this.queries.prefetchQuery({
-          queryKey: ['session-search', runtimeId, '', 'all', undefined],
-          queryFn: ({ signal }) => client.sessions.list({ search: '', status: 'all', limit: 64, max_bytes: 256 << 10 }, { signal }),
-          gcTime: 5 * 60_000,
-        });
+        for (const lease of this.views.values()) if (lease.runtimeId === runtimeId && lease.client !== client) {
+          lease.client = client;
+          void Promise.all([lease.view.reconnect(client), lease.execution.reconnect(client)]).catch(error => this.report(error));
+        }
+        for (const lease of this.traces.values()) if (lease.runtimeId === runtimeId && lease.client !== client) {
+          lease.client = client;
+          void lease.view.reconnect(client).catch(error => this.report(error));
+        }
       },
-      detached: (client, runtimeId) => {
+      detached: (client, runtimeId, options?: { recovering: boolean }) => {
         this.titleListeners.get(client)?.();
         this.titleListeners.delete(client);
-        if (runtimeId) this.compositions.invalidateRuntime(runtimeId);
-        for (const [id, pending] of this.pending) if (pending.client === client) this.pending.delete(id);
-        for (const [id, lease] of this.views) if (lease.client === client) this.dropView(id, lease);
+        if (runtimeId) this.compositions.invalidateRuntime(runtimeId, { preserveUploaded: options?.recovering });
+        // Durable unresolved commands survive transport replacement; only an explicit
+        // recovery action may bind their exact record to a matching new client.
+        for (const [id, lease] of this.views) if (lease.client === client) {
+          if (options?.recovering) void Promise.all([lease.view.suspend(), lease.execution.suspend()]); else this.dropView(id, lease);
+        }
+        for (const [id, lease] of this.traces) if (lease.client === client) {
+          if (options?.recovering) void lease.view.suspend(); else this.dropTrace(id, lease);
+        }
         if (runtimeId) this.queries.removeQueries({ predicate: query => query.queryKey[1] === runtimeId });
       },
     });
@@ -292,37 +303,46 @@ export class AppRuntime {
     )
       return { runtimeId: saved.runtimeId, rootId: saved.rootId };
   }
-  private observeSessionTitles(runtimeId: string, client: WhipClient) {
+  private observeSessionTitles(runtimeId: string, client: Client) {
     this.titleListeners.get(client)?.();
-    this.titleListeners.delete(client);
-    if (!client.getSnapshot().info?.negotiated_capabilities?.includes('session_title_notifications')) return;
-    let retired = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const attached = () => !retired && !this.closed && this.connections.isAttached(client)
-      && client.getSnapshot().state === 'connected';
-    const filters = { predicate: (query: { queryKey: readonly unknown[] }) => query.queryKey[1] === runtimeId
-      && ['session-tab-summaries', 'session-sidebar-summaries', 'session-search', 'host-attention'].includes(query.queryKey[0] as string) };
-    const off = client.onNotification('sessions.title.changed', () => {
-      if (!attached() || timer) return;
-      timer = setTimeout(() => {
-        timer = undefined;
-        if (!attached()) return;
-        // Explicit cancellation also covers first loads (invalidate alone can reuse their stale result).
-        void this.queries.cancelQueries(filters).then(() => {
-          if (attached()) return this.queries.invalidateQueries(filters);
-        });
-      }, 250);
+    const catalog = this.connections.host(runtimeId)?.list;
+    if (!catalog) return;
+    let revision = catalog.getSnapshot().revision;
+    const off = catalog.subscribe(() => {
+      const next = catalog.getSnapshot();
+      if (next.revision === null || next.revision === revision) return;
+      revision = next.revision;
+      // The SDK catalog head includes changes outside the visible page.
+      const filters = { predicate: (query: { queryKey: readonly unknown[] }) => query.queryKey[1] === runtimeId
+        && ['session-tab-summaries', 'session-sidebar-summaries', 'session-search', 'host-attention'].includes(query.queryKey[0] as string) };
+      void this.queries.cancelQueries(filters).then(() => {
+        if (this.connections.isAttached(client)) return this.queries.invalidateQueries(filters);
+      });
     });
-    this.titleListeners.set(client, () => { retired = true; clearTimeout(timer); off(); });
+    this.titleListeners.set(client, off);
   }
-  /** Warm provider readiness using the verified client, even before its host snapshot is published. */
+  /** Warm host metadata; readiness remains a separate local-evidence query. */
   primeProviders(runtimeId?: string, client = runtimeId ? this.connections.host(runtimeId)?.client : undefined): Promise<void> {
     if (!runtimeId || !client) return Promise.resolve();
-    // Query owns deduplication and freshness; a failed or expired prefetch can be tried again.
-    return this.queries.prefetchQuery({ queryKey: ['provider-list', runtimeId], queryFn: ({ signal }) => client.providers.list({ signal }) })
-      .then(() => {
-        const inventory = this.queries.getQueryData<{ selection?: { ready?: boolean } | null }>(['provider-list', runtimeId]);
-        if (inventory) rememberProviderReady(this.platform.storage, runtimeId, inventory.selection?.ready === true);
+    return this.queries.prefetchQuery({ queryKey: ['provider-list', runtimeId], queryFn: ({ signal }) => client.listProviders({ signal }) })
+      .then(async () => {
+        if (!this.connections.isAttached(client)) return;
+        await Promise.all([
+          this.queries.prefetchQuery({ queryKey: ['provider-presets', runtimeId], queryFn: ({ signal }) => client.providerPresets({ signal }) }),
+          this.queries.prefetchQuery({ queryKey: ['provider-catalogs', runtimeId, ''], queryFn: ({ signal }) => readModelCatalog(client, signal) }),
+          this.queries.prefetchQuery({ queryKey: ['host-permission-default', runtimeId, client.processEpoch], queryFn: ({ signal }) => client.getDefaultPermissionMode({ signal }) }),
+          this.queries.prefetchQuery({ queryKey: ['host-execution-defaults', runtimeId, client.processEpoch], queryFn: ({ signal }) => client.hosts.executionDefaults({ signal }) }),
+          this.queries.prefetchQuery({ queryKey: ['mcp-configuration', runtimeId], queryFn: ({ signal }) => client.mcpConfiguration({ signal }) }),
+        ]);
+        const inventory = this.queries.getQueryData<Operations['providers.list']['result']>(['provider-list', runtimeId]);
+        if (!inventory) return;
+        if (!inventory.defaults) { rememberProviderReady(this.platform.storage, runtimeId, false); return; }
+        const queryKey = ['provider-readiness', runtimeId, inventory.defaults];
+        await this.queries.prefetchQuery({ queryKey,
+          queryFn: ({ signal }) => client.providerReadiness(inventory.defaults!, { signal }) });
+        const ready = this.queries.getQueryState<Operations['providers.readiness']['result']>(queryKey);
+        if (ready?.status === 'success' && ready.data && this.connections.isAttached(client))
+          rememberProviderReady(this.platform.storage, runtimeId, ready.data.configured && ['available', 'not_required'].includes(ready.data.credential_state));
       });
   }
   /** Remove local state only after deletion has succeeded on this runtime. */
@@ -333,9 +353,8 @@ export class AppRuntime {
     const viewIds = [...workspace.tabs, ...workspace.closed.map(item => item.tab)].filter(tab => tab.kind !== 'browser' && matches(tab)).map(tab => tab.id);
     this.compositions.clearSession(runtimeId, rootId, viewIds);
     this.tabs.purge(runtimeId, rootId);
-    const viewKey = JSON.stringify([runtimeId, rootId]);
-    const lease = this.views.get(viewKey);
-    if (lease) this.dropView(viewKey, lease);
+    for (const [key, lease] of this.views) if (lease.runtimeId === runtimeId && lease.rootId === rootId) this.dropView(key, lease);
+    for (const [key, lease] of this.traces) if (lease.runtimeId === runtimeId && lease.rootId === rootId) this.dropTrace(key, lease);
     this.queries.removeQueries({ predicate: query => query.queryKey[1] === runtimeId && query.queryKey[2] === rootId });
     for (const input of this.submittedInputs.getSnapshot())
       if (matches(input)) this.submittedInputs.remove(input.id, runtimeId);
@@ -537,49 +556,6 @@ export class AppRuntime {
       }
     }
   }
-  private recoveryStorage(): RecoveryStorage {
-    const key = 'whip.web.recovery.v1';
-    const read = (): RecoveryRecord[] => {
-      const records = readPreference<unknown>(this.platform.storage, key, []);
-      if (!Array.isArray(records)) return [];
-      return records.filter(
-        (record): record is RecoveryRecord =>
-          !!record &&
-          record.version === 1 &&
-          typeof record.runtimeId === 'string' &&
-          typeof record.clientId === 'string' &&
-          typeof record.commandId === 'string' &&
-          typeof record.operation === 'string',
-      );
-    };
-    const same = (a: RecoveryRecord, b: RecoveryRecord) =>
-      a.runtimeId === b.runtimeId &&
-      a.clientId === b.clientId &&
-      a.commandId === b.commandId;
-    const update = (write: () => void) =>
-      this.platform.storage.transaction
-        ? this.platform.storage.transaction(key, write)
-        : Promise.resolve().then(write);
-    return {
-      list: async () => read(),
-      put: (record) =>
-        update(() => {
-          const records = read().filter((item) => !same(item, record));
-          // Bounded silently: the earliest identities go first; nobody manages these by hand.
-          this.platform.storage.setItem(
-            key,
-            JSON.stringify([...records.slice(-1023), record]),
-          );
-        }),
-      delete: (record) =>
-        update(() =>
-          this.platform.storage.setItem(
-            key,
-            JSON.stringify(read().filter((item) => !same(item, record))),
-          ),
-        ),
-    };
-  }
   async connect(): Promise<void> {
     try { await this.connections.connect(); }
     catch (error) {
@@ -587,24 +563,26 @@ export class AppRuntime {
       throw error;
     }
   }
-  acquireView(runtimeId: string, rootId: string): { view: SessionView; release(): void } {
+  acquireView(runtimeId: string, rootId: string, sessionId = rootId): { view: SessionView; execution: ExecutionView; release(): void } {
     const client = this.connections.host(runtimeId)?.client;
     if (!client) throw new Error('Connect to a host first');
-    const key = JSON.stringify([runtimeId, rootId]);
+    const key = JSON.stringify([runtimeId, sessionId]);
     let lease = this.views.get(key);
     if (!lease) {
       for (const [id, candidate] of this.views) {
-        if (this.views.size < 4) break;
+        if (this.views.size < 16) break;
         if (!candidate.users) this.dropView(id, candidate);
       }
-      if (this.views.size >= 4)
+      if (this.views.size >= 16)
         throw new Error(
-          'Four session views are already open. Close a view before opening another.',
+          'Sixteen session views are already open. Close a view before opening another.',
         );
-      lease = { client, runtimeId, view: createSessionView(client.session(rootId), { initialHistoryWarmup: true }), users: 0 };
+      const session = client.session(sessionId);
+      const view = createSessionView(session, { maxBytes: 4 << 20, maxMessages: 256 });
+      lease = { client, runtimeId, rootId, view, execution: createExecutionView(session, view), users: 0 };
       this.views.set(key, lease);
       // Snapshot and history failures belong to the view's scoped error state.
-      void lease.view.start().catch(() => {});
+      void Promise.all([lease.view.start(), lease.execution.start()]).catch(() => {});
     }
     // Reusing a root moves it behind older inactive views in eviction order.
     this.views.delete(key);
@@ -615,6 +593,7 @@ export class AppRuntime {
     let released = false;
     return {
       view: lease.view,
+      execution: lease.execution,
       release: () => {
         if (released) return;
         released = true;
@@ -627,36 +606,44 @@ export class AppRuntime {
       },
     };
   }
-  /** A child's history remains open until its last visible consumer leaves. */
-  acquireAgent(view: SessionView, agentId: string): () => void {
-    if (agentId === view.session.rootId) return () => {};
-    let readers = this.agentReaders.get(view);
-    if (!readers) { readers = new Map(); this.agentReaders.set(view, readers); }
-    let reader = readers.get(agentId);
-    if (!reader) {
-      reader = { users: 0 };
-      readers.set(agentId, reader);
-      void view.openAgent(agentId).catch(() => {});
-    }
-    reader.users++;
-    const retained = reader;
-    let released = false;
-    return () => {
-      if (released) return;
-      released = true;
-      retained.users--;
-      // StrictMode and pane transfers can release/reacquire in the same commit.
-      queueMicrotask(() => {
-        if (!retained.users && readers.get(agentId) === retained) {
-          readers.delete(agentId);
-          view.closeAgent(agentId);
-        }
-      });
-    };
-  }
   private dropView(id: string, lease: ViewLease) {
     clearTimeout(lease.timer);
     if (this.views.get(id) === lease) this.views.delete(id);
+    void Promise.all([lease.view.dispose(), lease.execution.dispose()]);
+  }
+  /** A trace reads the whole root but each pane owns its filter and reading window. */
+  acquireTrace(runtimeId: string, rootId: string, viewId: string): { view: TraceView; release(): void } {
+    const client = this.connections.host(runtimeId)?.client;
+    if (this.closed || !client) throw new Error('Connect to a host first');
+    const key = JSON.stringify([runtimeId, rootId, viewId]);
+    let lease = this.traces.get(key);
+    if (!lease) {
+      for (const [id, candidate] of this.traces) {
+        if (this.traces.size < 8) break;
+        if (!candidate.users) this.dropTrace(id, candidate);
+      }
+      if (this.traces.size >= 8) throw new Error('Eight trace views are already open. Close a view before opening another.');
+      lease = { client, runtimeId, rootId, view: createTraceView(client, rootId), users: 0 };
+      this.traces.set(key, lease);
+      void lease.view.start().catch(() => {});
+    }
+    this.traces.delete(key);
+    this.traces.set(key, lease);
+    clearTimeout(lease.timer);
+    lease.users++;
+    const retained = lease;
+    let released = false;
+    return { view: retained.view, release: () => {
+      if (released) return;
+      released = true;
+      retained.users--;
+      if (!retained.users && this.traces.get(key) === retained)
+        retained.timer = setTimeout(() => this.dropTrace(key, retained), 30_000);
+    } };
+  }
+  private dropTrace(id: string, lease: TraceLease) {
+    clearTimeout(lease.timer);
+    if (this.traces.get(id) === lease) this.traces.delete(id);
     void lease.view.dispose();
   }
   private commandNotice(notice: CommandNotice) {
@@ -698,129 +685,135 @@ export class AppRuntime {
       );
     return pending.retry();
   }
-  run<O extends CommandOperation>(
-    handle: CommandHandle<O>,
-    label: string,
-    onAccepted?: () => void,
-    draftKey?: string,
-  ): Promise<CommandOutcome<O>> {
-    const { runtimeId, clientId } = handle.record;
-    const signal = this.connections.signal(handle.client);
-    const id = JSON.stringify([runtimeId, clientId, handle.commandId]);
-    const attached = () => this.connections.isAttached(handle.client);
-    let accepted = false;
-    let uncertain = false;
-    let work: Promise<CommandOutcome<O>> | undefined;
-    const notice = (
-      status: string,
-      extra: Pick<CommandNotice, 'error' | 'delivery'> = {},
-    ) =>
-      this.commandNotice({
-        id,
-        commandId: handle.commandId,
-        runtimeId,
-        label,
-        draftKey,
-        status,
-        ...extra,
-      });
-    const lookup = async () => {
-      for (;;) {
-        await handle.client.whenConnected(signal);
-        try {
-          return await handle.status({ signal });
-        } catch (error) {
-          if (
-            signal.aborted ||
-            handle.client.getSnapshot().state !== 'reconnecting'
-          )
-            throw error;
-        }
-      }
+  /** App mutations share the durable journal; constructing a handle sends nothing. */
+  command<M extends DurableMethod>(client: Client, method: M, params: Operations[M]['params']) {
+    return client.command(method, params, { journal: this.recovery });
+  }
+  run<M extends DurableMethod>(
+    handle: DurableCommand<M>, label: string, onAccepted?: (value: Operations[M]['result']) => void, draftKey?: string,
+  ): Promise<Operations[M]['result']> {
+    const { runtimeID: runtimeId, clientID } = handle.record;
+    let client = this.connections.host(runtimeId)?.client;
+    if (!client || client.clientID !== clientID) return Promise.reject(new Error('Reconnect the original host before sending this command'));
+    let signal = this.connections.signal(client);
+    const id = JSON.stringify([runtimeId, clientID, handle.id]);
+    const attached = () => !!client && this.connections.isAttached(client);
+    let accepted = false, uncertain = false;
+    let work: Promise<Operations[M]['result']> | undefined;
+    const notice = (status: string, extra: Pick<CommandNotice, 'error' | 'delivery' | 'turnId'> = {}) =>
+      this.commandNotice({ id, commandId: handle.id, runtimeId, label, draftKey, status, ...extra });
+    const accept = (value: unknown) => {
+      if (value && typeof value === 'object' && 'receipt' in value) this.submittedInputs.acknowledge(value as Admission, runtimeId);
+      if (!accepted) { accepted = true; onAccepted?.(value as Operations[M]['result']); }
     };
-    const observe = async (
-      mode: 'initial' | 'check' | 'retry',
-    ): Promise<CommandOutcome<O>> => {
+    const check = async (): Promise<Operations[M]['result']> => {
+      const result = await handle.check({ signal });
+      if (result.state === 'missing') {
+        notice('Not accepted · explicit retry available', { delivery: 'absent' });
+        throw new RecoveryError('The host has no receipt for this command');
+      }
+      if (result.state !== 'found') {
+        notice('Acceptance unresolved', { delivery: 'uncertain' });
+        throw new RecoveryError('The available receipt does not establish the exact original request; inspect the saved recovery record');
+      }
+      // Input admissions and edit receipts have different native result shapes.
+      if (handle.method === 'workspace.capture' || handle.method === 'workspace.restore' || handle.method === 'workspace.release') {
+        const action = result.evidence;
+        if (!client || !('snapshot_id' in action)) throw new RecoveryError('Workspace receipt is unavailable');
+        const snapshot = await client.getWorkspaceSnapshot(action.session_id, action.snapshot_id, { signal });
+        if (snapshot.id !== action.snapshot_id || snapshot.session_id !== action.session_id)
+          throw new RecoveryError('Workspace snapshot does not belong to the accepted action');
+        return { action, snapshot } as Operations[M]['result'];
+      }
+      return result.evidence as Operations[M]['result'];
+    };
+    const observe = async (mode: 'initial' | 'check' | 'retry'): Promise<Operations[M]['result']> => {
       let terminal = false;
       try {
-        let receipt: CommandOutcome<O>;
+        let result: Operations[M]['result'];
         try {
-          receipt = await (mode === 'initial'
-            ? handle.accepted({ signal })
-            : mode === 'retry'
-              ? handle.retry({ signal })
-              : lookup());
+          result = await (mode === 'initial' ? handle.send({ signal }) : mode === 'retry' ? handle.retry({ signal }) : check());
         } catch (error) {
-          if (!(error instanceof DeliveryUncertainError)) throw error;
+          if (error instanceof RecoveryPersistenceError && error.accepted) {
+            // The host acknowledged; a local disk failure must not restore a sent draft or resend.
+            accept(error.acknowledgement);
+            notice('Accepted · recovery storage needs attention', { error: errorMessage(error) });
+            throw error;
+          }
+          if (!(error instanceof DeliveryError) && !(signal.aborted && !(error instanceof RecoveryPersistenceError))) throw error;
+          uncertain = true; this.pending.set(id, pending);
+          if (signal.aborted || !attached()) throw new RecoveryError('Delivery may have reached the host. Reconnect and check the original command before sending again.');
+          notice('Checking acceptance', { delivery: 'uncertain' });
+          result = await check();
+        }
+        signal.throwIfAborted();
+        if (!attached()) throw new Error('Host changed while submitting');
+        accept(result); this.pending.delete(id);
+        notice('Accepted');
+        if ('identity' in handle.params) {
+          const outcome = await handle.wait({ signal });
           signal.throwIfAborted();
-          if (!attached())
-            throw new Error('Host changed while submitting');
-          uncertain = true;
-          this.pending.set(id, pending);
-          if (!signal.aborted && attached())
-            notice('Checking acceptance', { delivery: 'uncertain' });
-          receipt = await lookup();
+          if (!attached()) throw new Error('Host changed while observing the command');
+          this.submittedInputs.acknowledge(outcome, runtimeId);
+          terminal = true;
+          const status = outcome.receipt.deleted_at ? 'deleted' : outcome.input?.state === 'cancelled' ? 'cancelled' : outcome.turn?.state ?? 'unavailable';
+          notice(status, { ...(outcome.turn ? { turnId: outcome.turn.id } : {}), ...(outcome.turn?.failure ? { error: outcome.turn.failure } : {}) });
+          await handle.forget();
+          if (status !== 'succeeded') throw new Error(outcome.turn?.failure ?? `${label}: ${status}`);
+          result = outcome as Operations[M]['result'];
+        } else {
+          if (handle.method === 'workspace.capture' || handle.method === 'workspace.restore' || handle.method === 'workspace.release') {
+            const action = (result as Operations['workspace.capture']['result']).action;
+            if (action.state !== 'succeeded') {
+              terminal = true;
+              notice(`Accepted · workspace ${action.state}`, action.failure ? { error: action.failure } : {});
+              throw new RecoveryError(action.failure ?? `Workspace action is ${action.state}; inspect its saved receipt before continuing`);
+            }
+          }
+          terminal = true;
+          if (handle.method === 'sessions.reload') {
+            const reload = result as Operations['sessions.reload']['result'];
+            notice(`Reload ${reload.state}`);
+            if (reload.state === 'applied') await handle.forget();
+          } else {
+            notice('Succeeded'); await handle.forget();
+          }
         }
-        signal.throwIfAborted();
-        if (!attached())
-          throw new Error('Host changed while submitting');
-        this.pending.delete(id);
-        this.submittedInputs.acknowledge(receipt, runtimeId);
-        notice(receipt.status);
-        if (!accepted) {
-          accepted = true;
-          onAccepted?.();
-        }
-        const outcome = await handle.result({ signal });
-        signal.throwIfAborted();
-        if (!attached()) throw new Error('Host changed while awaiting the command');
-        this.submittedInputs.acknowledge(outcome, runtimeId);
-        terminal = true;
-        const removed = outcome.status === 'cancelled' && outcome.failure?.data?.kind === 'queue_removed';
-        notice(outcome.status, outcome.failure && !removed ? { error: outcome.failure.message } : {});
-        if (removed) { this.submittedInputs.remove(handle.commandId, runtimeId); return outcome; }
-        if (outcome.status !== 'succeeded')
-          throw new Error(
-            outcome.failure?.message ?? `${label}: ${outcome.status}`,
-          );
         await this.queries.invalidateQueries({ predicate: query => query.queryKey[1] === runtimeId });
         signal.throwIfAborted();
-        if (!attached()) throw new Error('Host changed while refreshing the command result');
-        return outcome;
+        if (!attached()) throw new Error('Host changed while refreshing command results');
+        return result;
       } catch (error) {
-        if (!signal.aborted && attached()) {
-          if (!uncertain || accepted) this.submittedInputs.remove(handle.commandId, runtimeId);
+        if (!this.closed) {
+          // A local wait abort says nothing about an already started send.
+          if (!accepted && signal.aborted && !(error instanceof RecoveryPersistenceError)) uncertain = true;
           if (uncertain && !accepted) {
             this.pending.set(id, pending);
-            const absent =
-              error instanceof RpcError && error.kind === 'command_not_found';
-            notice(
-              absent
-                ? 'Not accepted · explicit retry available'
-                : 'Acceptance unresolved',
-              {
-                delivery: absent ? 'absent' : 'uncertain',
-                error: errorMessage(error),
-              },
-            );
-          } else if (!terminal)
-            notice('Needs attention', { error: errorMessage(error) });
+            if (this.state.commands.find(item => item.id === id)?.delivery !== 'absent')
+              notice('Acceptance unresolved', { delivery: 'uncertain', error: errorMessage(error) });
+          } else if (!terminal) notice(accepted ? 'Accepted · needs attention' : 'Needs attention', { error: errorMessage(error) });
+          if (!uncertain || accepted) this.submittedInputs.remove(handle.id, runtimeId);
         }
         throw error;
       }
     };
     const start = (mode: 'initial' | 'check' | 'retry') => {
-      if (!work)
-        work = observe(mode).finally(() => {
-          work = undefined;
-        });
+      if (work) return work;
+      try {
+        const current = this.connections.host(runtimeId)?.client;
+        if (!current || current.clientID !== clientID || !this.connections.isAttached(current))
+          throw new RecoveryError('Reconnect the original host and client before checking this command');
+        if (current !== client) {
+          handle = DurableCommand.recover(current, handle.record, { journal: this.recovery }) as DurableCommand<M>;
+          client = current;
+          pending.client = current;
+        }
+        signal = this.connections.signal(current);
+      } catch (error) { return Promise.reject(error); }
+      work = observe(mode).finally(() => { work = undefined; });
       return work;
     };
-    const pending: PendingCommand = {
-      client: handle.client,
-      check: () => start('check'),
-      retry: () => start('retry'),
-    };
+    const pending: PendingCommand = { client, check: () => start('check'), retry: () => start('retry') };
     notice('Submitting');
     return start('initial');
   }
@@ -830,6 +823,9 @@ export class AppRuntime {
     this.closed = true;
     this.browserAssociations.dispose();
     this.connections.dispose();
+    // Recovery detach can leave suspended leases after the transport is gone.
+    for (const [id, lease] of this.views) this.dropView(id, lease);
+    for (const [id, lease] of this.traces) this.dropTrace(id, lease);
     this.submittedInputs.clear();
     this.pending.clear();
     this.queries.clear();

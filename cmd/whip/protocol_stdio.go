@@ -55,18 +55,18 @@ func protocolPollableCopy(file *os.File) (*os.File, error) {
 func (s *protocolStdio) Write(data []byte) (int, error) {
 	// Match the SDK's inbound line bound; never emit an unreadable frame.
 	if len(data) > s.maxFrame {
-		s.Close()
+		_ = s.Close()
 		return 0, errors.New("protocol output exceeds its frame limit")
 	}
 	if !s.regularOutput {
 		if err := s.output.SetWriteDeadline(time.Now().Add(s.timeout)); err != nil {
-			s.Close()
+			_ = s.Close()
 			return 0, err
 		}
 	}
 	n, err := s.output.Write(data)
 	if err != nil {
-		s.Close()
+		_ = s.Close()
 	}
 	return n, err
 }

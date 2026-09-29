@@ -1,3 +1,4 @@
+import { sendTerminalOpen, terminalLocator } from './terminal-open';
 import type { AnyRouter } from '@tanstack/react-router';
 import type { AppRuntime } from './runtime';
 import { isSessionTab, selectedSessionTab, sessionSearch, validateSessionSearch, type SessionTab, type NewChatTab, type SessionViewKind, type ChatViewTarget, type ChildChatOptions, type ChildChatResult, type TabWorkspace, type SplitEdge, sessionPanes, MAX_SESSION_PANES } from './session-tabs';
@@ -40,7 +41,7 @@ export async function openBrowserTab(runtime: AppRuntime, navigate: AnyRouter['n
 export function tabDestination(tab: SessionTab) {
   if (tab.kind === 'browser') return { to: '/browser/$viewId' as const, params: { viewId: tab.id }, search: {}, state: { whipViewId: tab.id } };
   if (tab.kind === 'new') return { to: '/new/$draftId' as const, params: { draftId: tab.id }, search: {}, state: { whipViewId: tab.id } };
-  if (tab.kind === 'terminal') return { to: '/h/$runtimeId/t/$terminalId' as const, params: { runtimeId: tab.runtimeId, terminalId: tab.terminalId }, search: {}, state: { whipViewId: tab.id } };
+  if (tab.kind === 'terminal') return { to: '/h/$runtimeId/t/$terminalId' as const, params: { runtimeId: tab.runtimeId, terminalId: terminalLocator(tab) }, search: {}, state: { whipViewId: tab.id } };
   return { to: '/h/$runtimeId/s/$rootId' as const, params: { runtimeId: tab.runtimeId, rootId: tab.rootId }, search: sessionSearch(tab), state: { whipViewId: tab.id } };
 }
 
@@ -102,14 +103,31 @@ export function openChildChat(runtime: AppRuntime, navigate: AnyRouter['navigate
 export async function openTerminalTab(runtime: AppRuntime, navigate: AnyRouter['navigate'], options: { runtimeId: string; cwd?: string; rootId?: string; paneId?: string }) {
   try {
     const client = runtime.connections.host(options.runtimeId)?.client;
-    const connection = client?.getSnapshot();
-    if (!client || connection?.state !== 'connected') throw new Error('Connect this host before opening a terminal.');
-    if (!connection.info?.capabilities?.includes('terminals')) throw new Error('This host\'s Whip does not offer terminals. Update it to a build with protocol 6.5 or newer.');
+    if (!client || !runtime.connections.isAttached(client)) throw new Error('Connect this host before opening a terminal.');
+    const pending = runtime.tabs.pendingTerminal(options.runtimeId);
+    if (pending) {
+      if (!runtime.tabs.workspace().tabs.some(tab => tab.id === pending.id)) runtime.tabs.reopenView(pending.id);
+      await navigate(tabDestination(pending));
+      return pending.id;
+    }
+    // Resolve the selected host's home before recording or sending an open.
+    // Native terminal admission always receives an explicit absolute directory.
+    const cwd = options.cwd || (await client.hostDirectories({ path: '~', after: '', prefix: '', show_hidden: false, limit: 1 })).path;
+    if (!runtime.connections.isAttached(client)) throw new Error('Reconnect this host before opening a terminal.');
+    const openedWhileReading = runtime.tabs.pendingTerminal(options.runtimeId);
+    if (openedWhileReading) {
+      if (!runtime.tabs.workspace().tabs.some(tab => tab.id === openedWhileReading.id)) runtime.tabs.reopenView(openedWhileReading.id);
+      await navigate(tabDestination(openedWhileReading));
+      return openedWhileReading.id;
+    }
     if (!runtime.tabs.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before opening a terminal.');
-    const opened = await client.terminals.open({ ...(options.cwd ? { cwd: options.cwd } : {}), ...(options.rootId ? { rootId: options.rootId } : {}), cols: 80, rows: 24 });
-    const id = runtime.tabs.openTerminal(options.runtimeId, opened.id, opened.cwd, options.paneId);
-    const tab = runtime.tabs.workspace().tabs.find(item => item.id === id)!;
-    await navigate(tabDestination(tab));
+    const id = runtime.tabs.openTerminal(options.runtimeId, null, cwd, options.paneId, client.processEpoch);
+    const captured = runtime.tabs.workspace().tabs.find(tab => tab.id === id)!;
+    if (captured.kind !== 'terminal') throw new Error('The terminal recovery view could not be saved.');
+    await navigate(tabDestination(captured));
+    await sendTerminalOpen(runtime, client, captured);
+    const tab = runtime.tabs.workspace().tabs.find(item => item.id === id);
+    if (tab && selectedSessionTab(runtime.tabs.workspace())?.id === id) await navigate({ ...tabDestination(tab), replace: true });
     return id;
   } catch (error) { runtime.reportWorkspace(error); }
 }
@@ -170,14 +188,13 @@ export function createSessionNavigator(runtime: AppRuntime, navigate: (path: str
         const state = runtime.getSnapshot();
         const profile = state.hosts.find(host => host.runtimeId === destination.runtimeId);
         if (!profile) throw new Error('This session belongs to an unknown execution host. Connect to that host first, then open this link again.');
-        const connection = profile.client?.getSnapshot();
-        if (connection?.state !== 'connected' || connection.info?.runtime_id !== destination.runtimeId) {
+        if (profile.state !== 'connected' || profile.client?.runtimeID !== destination.runtimeId) {
           // connect owns its error state and suppresses failures from a retired
           // host attempt. Reporting that rejection here would undo its guard.
           try { await runtime.connections.connect(profile.id); } catch { return; }
         }
-        const latest = runtime.connections.host(destination.runtimeId); const attached = latest?.client?.getSnapshot();
-        if (current !== epoch || currentLocation?.() !== location || latest?.id !== profile.id || attached?.state !== 'connected' || attached.info?.runtime_id !== destination.runtimeId) return;
+        const latest = runtime.connections.host(destination.runtimeId);
+        if (current !== epoch || currentLocation?.() !== location || latest?.id !== profile.id || latest?.state !== 'connected' || latest.client?.runtimeID !== destination.runtimeId) return;
         navigate(url.pathname + url.search);
       } catch (error) { if (current === epoch) runtime.reportWorkspace(error); }
     },
@@ -214,7 +231,7 @@ export function bindSessionTabs(runtime: AppRuntime, router: AnyRouter) {
       if (terminal) {
         // A terminal URL selects an open tab; it never starts a shell, so a
         // stale link shows the missing state instead of creating one.
-        const tab = runtime.tabs.workspace().tabs.find(tab => tab.kind === 'terminal' && tab.runtimeId === terminal.runtimeId && tab.terminalId === terminal.terminalId);
+        const tab = runtime.tabs.workspace().tabs.find(tab => tab.kind === 'terminal' && tab.runtimeId === terminal.runtimeId && terminalLocator(tab) === terminal.terminalId);
         if (tab) runtime.tabs.activate(tab.id);
         return;
       }

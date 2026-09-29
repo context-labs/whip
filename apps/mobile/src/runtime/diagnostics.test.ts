@@ -11,7 +11,7 @@ test('diagnostics exports only metadata, even when errors and commands contain p
     client: { getSnapshot: () => ({ state: 'reconnecting', error: new Error('PRIVATE PROMPT'), info: { protocol_major: 3, protocol_minor: 0, build_id: 'PRIVATE PROMPT' } }) },
   } as unknown as ReturnType<MobileRuntime['getSnapshot']>;
   const result = diagnostics(state, 'ios', '26.2');
-  expect(result).toMatchObject({ runtime: 'runtime-1', protocol: '3.0', connection: 'reconnecting', lastErrorCode: 'delivery_uncertain', commandRecords: 1 });
+  expect(result).toMatchObject({ runtime: 'runtime-1', protocol: '4', connection: 'unavailable', lastErrorCode: 'delivery_uncertain', commandRecords: 1 });
   const text = JSON.stringify(result);
   for (const secret of ['PRIVATE PROMPT', 'secret-client', 'private-host.example']) expect(text).not.toContain(secret);
 });

@@ -2,9 +2,10 @@ import { ErrorNotice } from './error-feedback';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useQueries, useQuery } from '@tanstack/react-query';
-import { WhipError, type WhipClient } from '@whip/legacy-sdk';
-import { useWhipConnection } from '@whip/legacy-sdk/react';
-import { AttentionNotifications, scanAttention } from './attention-notifications';
+import type { HostAttentionParams } from '@whip/protocol';
+import type { HostConnection } from './hosts';
+import { clientQueryKey } from './client-query-key';
+import { AttentionNotifications, scanAttention, attentionQuery } from './attention-notifications';
 import { Badge, Button, Select, Sheet } from '@whip/ui';
 import { Bell } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
@@ -19,24 +20,22 @@ export function Attention() {
   const [open, setOpen] = useState(false);
   const [actionError, setActionError] = useState<{ owner: string; error: unknown }>();
   const [filter, setFilter] = useState('');
-  const [after, setAfter] = useState<Record<string, string | undefined>>({});
+  const [after, setAfter] = useState<Record<string, HostAttentionParams['after']>>({});
   const close = (value: boolean) => {
     setOpen(value);
     if (!value) { setAfter({}); setFilter(''); setActionError(undefined); }
   };
   // One advisory page per host supplies the badge without leasing any root views.
   const indexes = useQueries({ queries: hosts.map(host => ({
-    queryKey: ['host-attention', host.runtimeId, after[host.runtimeId ?? '']],
-    queryFn: ({ signal }: { signal: AbortSignal }) => host.client!.host.attention({ after_id: after[host.runtimeId!], limit: 64, max_bytes: 256 << 10 }, { signal }),
+    ...attentionQuery(host.client, host.runtimeId, after[host.client ? clientQueryKey(host.client) : host.id] ?? null),
     enabled: !!host.client && host.state === 'connected',
-    refetchInterval: (query: { state: { error: unknown } }) => host.client && host.state === 'connected'
-      && !(query.state.error instanceof WhipError && query.state.error.kind === 'unsupported_operation') ? 3000 : false,
+    refetchInterval: host.client && host.state === 'connected' ? 3000 : false,
     gcTime: 0,
   })) });
   const groups = hosts.map((host, index) => ({ host, index: indexes[index]! }));
   const requests = groups.reduce((count, { host, index }) => count + (host.client && host.state === 'connected'
-    ? index.data?.items?.filter(item => BigInt(item.pending_permissions) > 0n || !!item.questions?.length).length ?? 0 : 0), 0);
-  const incomplete = groups.some(({ host, index }) => !host.client || host.state !== 'connected' || index.isPending || index.isError || index.data?.has_more || index.data?.truncated);
+    ? index.data?.items?.filter(item => BigInt(item.activity.pending_permission_count) > 0n || BigInt(item.activity.pending_question_count) > 0n).length ?? 0 : 0), 0);
+  const incomplete = groups.some(({ host, index }) => !host.client || host.state !== 'connected' || index.isPending || index.isError || index.data?.next_cursor);
   const description = `${requests} ${requests === 1 ? 'session' : 'sessions'} on loaded pages ${requests === 1 ? 'needs' : 'need'} you${incomplete ? ' · some sessions are not included' : ''}`;
   return <>
     <Button variant="ghost" aria-label={`Attention · ${description}`} onClick={() => setOpen(true)}>
@@ -53,6 +52,7 @@ export function Attention() {
         {hosts.length > 1 && <Select label="Attention host" value={filter} options={[{ value: '', label: 'All hosts' }, ...hosts.map(host => ({ value: host.id, label: host.name }))]} onValueChange={setFilter} />}
         {groups.filter(({ host }) => !filter || host.id === filter).map(({ host, index }) => {
           const runtimeId = host.runtimeId ?? '';
+          const key = host.client ? clientQueryKey(host.client) : host.id;
           const connected = !!host.client && host.state === 'connected';
           const page = connected ? index.data : undefined;
           const error = connected ? index.error : undefined;
@@ -64,31 +64,31 @@ export function Attention() {
             {connected && !error && !index.isPending && !page?.items?.length && <p>No active sessions on this page.</p>}
             {page?.items?.map(item => {
               const saved = runtime.tabs.preferred(runtimeId, item.root_id);
-              return <Link key={item.root_id} to="/h/$runtimeId/s/$rootId" params={{ runtimeId, rootId: item.root_id }}
-                search={sessionSearch(saved)} state={{ whipViewId: saved?.id }} preload={false}
+              const search = { ...sessionSearch(saved), agent: item.session_id === item.root_id ? undefined : item.session_id };
+              return <Link key={item.session_id} to="/h/$runtimeId/s/$rootId" params={{ runtimeId, rootId: item.root_id }}
+                search={search} state={{ whipViewId: saved?.id }} preload={false}
                 aria-label={`${item.title || 'Untitled session'} · ${host.name}`}
                 onClick={event => {
                   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-                  try { runtime.tabs.open(runtimeId, item.root_id, item.title); close(false); }
+                  try { const id = runtime.tabs.open(runtimeId, item.root_id, item.title ?? ''); runtime.tabs.updateLocation(id, search); close(false); }
                   catch (error) { event.preventDefault(); setActionError({ owner: `${runtimeId}:${item.root_id}`, error }); }
                 }} {...stylex.props(layout.sessionLink)}>
                 <div {...stylex.props(layout.column)}>
                   <strong>{item.title || 'Untitled session'}</strong>
                   <span {...stylex.props(layout.muted)}>
-                    {item.active_agents} active agents · {item.pending_permissions} permissions · {item.questions?.length ?? 0} questions
-                    {item.truncated ? ' · details truncated' : ''}
+                    {item.activity.active_turn ? 'Running · ' : ''}{item.activity.pending_permission_count} permissions · {item.activity.pending_question_count} questions{item.session_id !== item.root_id ? ' · child agent' : ''}
                   </span>
                 </div>
               </Link>;
             })}
             {connected && <div {...stylex.props(layout.row)}>
-              {page?.has_more && <Button variant="secondary" disabled={index.isFetching} onClick={() => setAfter(current => ({ ...current, [runtimeId]: page.next_after_id }))}>Next sessions on {host.name}</Button>}
+              {page?.next_cursor && <Button variant="secondary" disabled={index.isFetching} onClick={() => setAfter(current => Object.fromEntries([...Object.entries(current).filter(([id]) => id !== key), [key, page.next_cursor]].slice(-4)))}>Next sessions on {host.name}</Button>}
               <Button variant="ghost" onClick={() => {
-                if (after[runtimeId]) setAfter(current => ({ ...current, [runtimeId]: undefined }));
+                if (after[key]) setAfter(current => ({ ...current, [key]: null }));
                 else void index.refetch();
               }}>Refresh first page on {host.name}</Button>
             </div>}
-            {(after[runtimeId] || page?.has_more || page?.truncated) && <p {...stylex.props(layout.muted)}>
+            {(after[key] || page?.next_cursor) && <p {...stylex.props(layout.muted)}>
               This page is an advisory index and may omit other sessions needing attention. Refresh the first page to discover newly active sessions.
             </p>}
           </section>;
@@ -98,29 +98,27 @@ export function Attention() {
   </>;
 }
 
-export function DesktopAttention({ client }: { client: WhipClient }) {
+export function DesktopAttention({ host }: { host: HostConnection }) {
   const runtime = useRuntime();
-  const connection = useWhipConnection(client);
-  const runtimeId = connection.info?.runtime_id ?? '';
-  const identity = `${runtimeId}:${connection.info?.connection_id ?? ''}`;
-  const enabled = connection.state === 'connected' && !!runtimeId;
+  const client = host.client;
+  const runtimeId = host.runtimeId ?? '';
+  const identity = client ? clientQueryKey(client) : host.id;
+  const enabled = !!client && host.state === 'connected' && runtimeId === client.runtimeID;
   const notifications = useRef(new AttentionNotifications());
   const observed = useRef({ identity: '', updatedAt: 0 });
   const index = useQuery({
-    queryKey: ['desktop-attention', runtimeId, connection.info?.connection_id],
-    queryFn: ({ signal }) => scanAttention(client, runtime.queries, runtimeId, signal),
+    queryKey: ['desktop-attention', runtimeId, identity],
+    queryFn: ({ signal }) => scanAttention(client!, runtime.queries, runtimeId, signal),
     enabled,
     refetchInterval: enabled ? 3000 : false,
     refetchIntervalInBackground: true,
-    staleTime: 0,
+    staleTime: 0, gcTime: 0,
   });
   useEffect(() => {
     if (observed.current.identity !== identity) {
       notifications.current.reset(); observed.current = { identity, updatedAt: 0 };
     }
-    const current = client.getSnapshot();
-    if (!enabled || index.isError || !runtime.connections.isAttached(client) || current.state !== 'connected'
-      || current.info?.connection_id !== connection.info?.connection_id) {
+    if (!enabled || index.isError || !client || !runtime.connections.isAttached(client)) {
       notifications.current.reset(); observed.current.updatedAt = index.dataUpdatedAt; return;
     }
     if (!index.data || index.isFetching || observed.current.updatedAt === index.dataUpdatedAt) return;
@@ -131,6 +129,6 @@ export function DesktopAttention({ client }: { client: WhipClient }) {
       if (!cancelled && runtime.connections.isAttached(client)) runtime.report(error);
     });
     return () => { cancelled = true; };
-  }, [client, runtime, runtimeId, identity, connection.info?.connection_id, enabled, index.data, index.dataUpdatedAt, index.isFetching, index.isError]);
+  }, [client, runtime, runtimeId, identity, enabled, index.data, index.dataUpdatedAt, index.isFetching, index.isError]);
   return null;
 }

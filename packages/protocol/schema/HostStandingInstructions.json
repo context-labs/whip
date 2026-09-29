@@ -1,0 +1,60 @@
+{
+  "type": "object",
+  "properties": {
+    "published": {
+      "type": "boolean"
+    },
+    "revision": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "text": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "maxLength": 65536,
+      "pattern": "^[^\\x00]*$"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/HostStandingInstructions",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HostStandingInstructions",
+  "required": [
+    "published",
+    "revision",
+    "text"
+  ],
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "properties": {
+        "published": {
+          "const": false
+        },
+        "revision": {
+          "type": "null"
+        },
+        "text": {
+          "type": "null"
+        }
+      }
+    },
+    {
+      "properties": {
+        "published": {
+          "const": true
+        },
+        "revision": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      }
+    }
+  ]
+}

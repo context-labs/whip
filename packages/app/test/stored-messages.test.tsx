@@ -1,8 +1,10 @@
 import { StrictMode } from 'react';
+import { createHash, webcrypto } from 'node:crypto';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { QueryClient } from '@tanstack/react-query';
-import { afterEach, expect, it, vi } from 'vitest';
-import type { WhipClient } from '@whip/legacy-sdk';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { Client } from '@whip/sdk';
+import type { ContentReference } from '@whip/protocol';
 import { UIProvider } from '@whip/ui';
 import { RuntimeContext } from '../src/context';
 import type { AppRuntime } from '../src/runtime';
@@ -13,81 +15,125 @@ vi.mock('../src/reading-list', () => ({
     <div>{rows.map(row => <div key={row.id}>{renderRow(row)}</div>)}</div>,
 }));
 const image = { url: 'data:image/png;base64,AAAA', width: 1754, height: 1902 };
-const stored = { role: 'user', content: [{ type: 'text', text: 'Please inspect **this screenshot**.' }, { type: 'image_url', image_url: { url: image.url }, w: image.width, h: image.height }] };
-const row: TimelineRow = { id: 'h:1:3', seq: 3, role: 'user', text: '', body: { reference_id: 'stored-image', size: '434627', digest: 'a'.repeat(64), media_type: 'application/json' } };
+const row: TimelineRow = { id: 'message:authored', seq: '9007199254740993', role: 'user', text: 'Please inspect **this screenshot**.', references: ['image'] };
 const clients: QueryClient[] = [];
-afterEach(() => { cleanup(); clients.splice(0).forEach(client => client.clear()); });
-function fixture(toolDensity = 'compact') {
+const bytes = Uint8Array.of(0, 0, 0);
+const digest = createHash('sha256').update(bytes).digest('hex');
+let createURL: ReturnType<typeof vi.fn<(object: Blob | MediaSource) => string>>;
+let revokeURL: ReturnType<typeof vi.fn<(url: string) => void>>;
+beforeEach(() => {
+  let next = 0;
+  createURL = vi.fn((_object: Blob | MediaSource) => `blob:verified-${++next}`); revokeURL = vi.fn();
+  vi.stubGlobal('URL', class extends URL { static createObjectURL = createURL; static revokeObjectURL = revokeURL; });
+  vi.stubGlobal('crypto', webcrypto);
+});
+afterEach(() => { cleanup(); clients.splice(0).forEach(client => client.clear()); vi.unstubAllGlobals(); });
+async function fixture(toolDensity = 'compact') {
   const queries = new QueryClient({ defaultOptions: { queries: { retry: false, networkMode: 'always' } } });
   clients.push(queries);
-  const readJSON = vi.fn(async (_options: { signal?: AbortSignal; maxBytes: number }): Promise<unknown> => stored);
-  const content = vi.fn(() => ({ readJSON }));
-  const client = { getSnapshot: () => ({ info: { runtime_id: 'host' } }), content } as unknown as WhipClient;
-  const copy = vi.fn(async () => {}), readBody = vi.fn();
+  const reference = (session: string, id: string): ContentReference => ({ id, session_id: session, size: '3', digest, media_type: 'image/png', created_at: '2026-09-28T00:00:00Z' });
+  const metadata = vi.fn(async (owner: string, id: string) => reference(owner, id));
+  const read = vi.fn(async (owner: string, id: string, _signal?: AbortSignal) => ({ reference: reference(owner, id), data_base64: 'AAAA' }));
+  const client = await Client.connect(async (request, _runtimeID, options) => {
+    const params = request.params as { session_id: string; reference_id: string };
+    const result = request.method === 'initialize' ? { major: 4, minor: 0, runtime_id: 'host', process_epoch: 'boot', network_client: false, builtins: [] }
+      : request.method === 'content.get' ? await metadata(params.session_id, params.reference_id)
+      : request.method === 'content.read' ? await read(params.session_id, params.reference_id, options?.signal) : undefined;
+    if (!result) throw new Error(`Unexpected method: ${request.method}`);
+    return { jsonrpc: '2.0', id: request.id, result };
+  }, { clientID: 'window' });
+  const copy = vi.fn(async () => {}), readBody = vi.fn(), loadGap = vi.fn(async (_id: string) => {});
   const runtime = { queries, platform: { copy }, report: vi.fn(), subscribe: () => () => {}, getSnapshot: () => ({ preferences: { toolDensity } }) } as unknown as AppRuntime;
-  const app = (rows = [row], connected = true, agentId = 'root', revision = '1') => <StrictMode><RuntimeContext.Provider value={runtime}><UIProvider>
-    <Timeline rows={rows} hasMore={false} loadOlder={async () => {}} readBody={readBody} connected={connected} historyRevision={revision}
+  const app = (rows = [row], connected = true, agentId = 'root', revision = '1') => <StrictMode><QueryClientProvider client={queries}><RuntimeContext.Provider value={runtime}><UIProvider>
+    <Timeline rows={rows} hasMore={false} loadOlder={async () => {}} loadGap={loadGap} readBody={readBody} connected={connected} historyRevision={revision}
       messageScope={{ client, rootId: 'root', agentId }} />
-  </UIProvider></RuntimeContext.Provider></StrictMode>;
-  return { app, content, readJSON, copy, readBody, queries };
+  </UIProvider></RuntimeContext.Provider></QueryClientProvider></StrictMode>;
+  return { app, metadata, read, copy, readBody, loadGap, queries, reference };
 }
-it('automatically restores a large historical message, its image and the original copy text', async () => {
-  const f = fixture(); render(f.app());
+it('restores canonical historical text, a verified image reference and the original copy text', async () => {
+  const f = await fixture(); render(f.app());
   expect(await screen.findByText('this screenshot')).toBeTruthy();
-  const img = screen.getByAltText('Attached image');
-  expect(img.getAttribute('src')).toBe(image.url);
-  expect(img.getAttribute('width')).toBe('1754');
-  expect(img.getAttribute('height')).toBe('1902');
+  const img = await screen.findByAltText('Attachment 1');
+  expect(img.getAttribute('src')).toMatch(/^blob:verified-/);
+  expect((createURL.mock.calls.at(-1)?.[0] as Blob).size).toBe(3);
   expect(screen.queryByText(/Read stored message|View image attachment/)).toBeNull();
-  expect(f.content).toHaveBeenLastCalledWith(row.body, { client: expect.anything(), rootId: 'root', agentId: 'root' });
-  fireEvent.click(screen.getByRole('button', { name: 'Copy message', exact: true }));
+  expect(f.metadata).toHaveBeenLastCalledWith('root', 'image');
+  expect(f.read).toHaveBeenLastCalledWith('root', 'image', expect.any(AbortSignal));
+  fireEvent.click(screen.getByRole('button', { name: 'Copy message' }));
   await waitFor(() => expect(f.copy).toHaveBeenCalledWith('Please inspect **this screenshot**.'));
   expect(f.readBody).not.toHaveBeenCalled();
 });
-it('shows a retryable failure in place and retries without opening a stored-message dialog', async () => {
-  const f = fixture(); f.readJSON.mockRejectedValue(new Error('Host temporarily unavailable'));
+it('shows a retryable content failure in place without opening a stored-message dialog', async () => {
+  const f = await fixture(); f.read.mockRejectedValue(new Error('Host temporarily unavailable'));
   render(f.app());
-  expect(await screen.findByText('Could not load message')).toBeTruthy();
-  f.readJSON.mockResolvedValue(stored);
+  expect(await screen.findByText('This content could not load')).toBeTruthy();
+  f.read.mockImplementation(async (owner, id) => ({ reference: f.reference(owner, id), data_base64: 'AAAA' }));
   fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-  expect(await screen.findByText('this screenshot')).toBeTruthy();
+  expect(await screen.findByAltText('Attachment 1')).toBeTruthy();
   expect(f.readBody).not.toHaveBeenCalled();
 });
-it('waits for reconnection and uses the selected child scope', async () => {
-  const f = fixture(); const mounted = render(f.app([row], false, 'child'));
-  expect(screen.getByText('Reconnect to load this message.')).toBeTruthy();
-  expect(f.readJSON).not.toHaveBeenCalled();
+it('waits for reconnection and uses the selected child scope for metadata and bytes', async () => {
+  const f = await fixture(); const mounted = render(f.app([row], false, 'child'));
+  expect(screen.getByText('Reconnect to load attachments.')).toBeTruthy();
+  expect(f.read).not.toHaveBeenCalled();
   mounted.rerender(f.app([row], true, 'child'));
-  expect(await screen.findByText('this screenshot')).toBeTruthy();
-  expect(f.content).toHaveBeenLastCalledWith(row.body, expect.objectContaining({ rootId: 'root', agentId: 'child' }));
+  expect(await screen.findByAltText('Attachment 1')).toBeTruthy();
+  expect(f.metadata).toHaveBeenLastCalledWith('child', 'image');
+  expect(f.read).toHaveBeenLastCalledWith('child', 'image', expect.any(AbortSignal));
 });
-it('aborts offscreen reads and never displays a stale revision in the next message', async () => {
-  const f = fixture(); let resolve!: (value: unknown) => void;
-  f.readJSON.mockImplementation(() => new Promise(done => { resolve = done; }));
+it('aborts offscreen reads and never displays stale attachment bytes in the next revision', async () => {
+  const f = await fixture(); let resolve!: (value: Awaited<ReturnType<typeof f.read>>) => void;
+  f.read.mockImplementation(() => new Promise(done => { resolve = done; }));
   const mounted = render(f.app());
-  const signal = f.readJSON.mock.calls.at(-1)![0].signal!;
-  f.readJSON.mockResolvedValue({ role: 'user', content: 'New revision' });
-  mounted.rerender(f.app([{ ...row, id: 'h:2:3' }], true, 'root', '2'));
+  await waitFor(() => expect(f.read).toHaveBeenCalled());
+  const signal = f.read.mock.calls.at(-1)![2]!;
+  f.read.mockImplementation(async (owner, id) => ({ reference: f.reference(owner, id), data_base64: 'AAAA' }));
+  mounted.rerender(f.app([{ ...row, id: 'message:new', text: 'New revision', references: ['new-image'] }], true, 'root', '2'));
   expect(signal.aborted).toBe(true);
-  await act(async () => resolve(stored));
-  expect(await screen.findByText('New revision')).toBeTruthy();
+  await act(async () => resolve({ reference: f.reference('root', 'image'), data_base64: 'AAAA' }));
+  expect(await screen.findByAltText('Attachment 1')).toBeTruthy();
+  expect(screen.getByText('New revision')).toBeTruthy();
   expect(screen.queryByText('this screenshot')).toBeNull();
   mounted.unmount();
   await waitFor(() => expect(f.queries.getQueryCache().getAll()).toHaveLength(0));
+  expect(revokeURL).toHaveBeenCalled();
 });
-it('keeps large tool output behind its existing explicit disclosure', () => {
-  const f = fixture(); render(f.app([{ ...row, id: 'tool', role: 'tool', label: 'Tool output' }]));
-  expect(f.readJSON).not.toHaveBeenCalled();
+it('keeps large tool output and typed attachments behind their explicit disclosure', async () => {
+  const f = await fixture(); render(f.app([{ ...row, id: 'tool', role: 'tool', label: 'Tool output' }]));
+  expect(f.metadata).not.toHaveBeenCalled(); expect(f.read).not.toHaveBeenCalled();
 });
-it('also renders referenced assistant prose using the normal safe Markdown renderer', async () => {
-  const f = fixture(); f.readJSON.mockResolvedValue({ role: 'assistant', content: '**Saved response**\n\n<script>bad()</script>' });
-  const mounted = render(f.app([{ ...row, role: 'assistant' }]));
+it('renders canonical assistant prose through safe Markdown without interpreting a JSON body', async () => {
+  const f = await fixture();
+  const text = '**Saved response**\n\n<script>bad()</script>';
+  const mounted = render(f.app([{ ...row, role: 'assistant', text, references: [] }]));
   expect(await screen.findByText('Saved response')).toBeTruthy();
   expect(mounted.container.querySelector('script')).toBeNull();
-  expect(screen.queryByText(/Read stored message/)).toBeNull();
-  const copy = await screen.findByRole('button', { name: 'Copy response', exact: true });
-  fireEvent.click(copy);
-  await waitFor(() => expect(f.copy).toHaveBeenCalledWith('**Saved response**\n\n<script>bad()</script>'));
+  expect(f.read).not.toHaveBeenCalled();
+  fireEvent.click(await screen.findByRole('button', { name: 'Copy response' }));
+  await waitFor(() => expect(f.copy).toHaveBeenCalledWith(text));
+});
+it('keeps omitted large messages bounded and opens only the explicit owner-scoped reader', async () => {
+  const f = await fixture();
+  const gap: TimelineRow = { id: 'message:large', seq: '9007199254740993', role: 'history-gap', text: '', historyGap: { messageID: 'large', sequence: '9007199254740993', bytes: 434627, reason: 'message_too_large' } };
+  const mounted = render(f.app([gap], false));
+  expect(screen.getByRole('button', { name: 'Read large message' }).hasAttribute('disabled')).toBe(true);
+  expect(f.loadGap).not.toHaveBeenCalled();
+  mounted.rerender(f.app([gap]));
+  fireEvent.click(screen.getByRole('button', { name: 'Read large message' }));
+  await waitFor(() => expect(f.loadGap).toHaveBeenCalledExactlyOnceWith('large'));
+  expect(f.read).not.toHaveBeenCalled();
+  expect(screen.getByLabelText('Large message')).toBeTruthy();
+});
+it('rejects foreign metadata and corrupted bytes before creating an image URL', async () => {
+  const f = await fixture(); f.metadata.mockImplementation(async (_owner, id) => f.reference('foreign', id));
+  render(f.app());
+  expect(await screen.findByText('This content could not load')).toBeTruthy();
+  expect(f.read).not.toHaveBeenCalled(); expect(createURL).not.toHaveBeenCalled();
+  f.metadata.mockImplementation(async (owner, id) => f.reference(owner, id));
+  f.read.mockImplementation(async (owner, id) => ({ reference: f.reference(owner, id), data_base64: 'AQEB' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Retry attachments' }));
+  expect(await screen.findByText('Content digest mismatch')).toBeTruthy();
+  expect(createURL).not.toHaveBeenCalled();
 });
 it('shows embedded images immediately, including large dimensions, but does not load external URLs', () => {
   const mounted = render(<ImageAttachment image={{ ...image, width: 5000, height: 4000 }} />);
@@ -99,9 +145,9 @@ it('shows embedded images immediately, including large dimensions, but does not 
   expect(screen.getByRole('link', { name: 'Open external image attachment' })).toBeTruthy();
 });
 
-it('places multiple thumbnails above the text, each with an independent loading state', () => {
-  const f = fixture();
-  const mounted = render(f.app([{ ...row, body: undefined, text: 'Compare these images', images: [image, { ...image, url: 'data:image/png;base64,BBBB' }] }]));
+it('places multiple thumbnails above the text, each with an independent loading state', async () => {
+  const f = await fixture();
+  const mounted = render(f.app([{ ...row, body: undefined, references: [], text: 'Compare these images', images: [image, { ...image, url: 'data:image/png;base64,BBBB' }] }]));
   const attachments = screen.getByLabelText('Message attachments');
   expect(attachments.nextElementSibling).toBe(mounted.container.querySelector('[data-user-bubble]'));
   const images = screen.getAllByAltText('Attached image');
@@ -118,8 +164,8 @@ it('places multiple thumbnails above the text, each with an independent loading 
 });
 
 it('opens the selected original image in a dismissible preview and supports image-only messages', async () => {
-  const f = fixture();
-  const mounted = render(f.app([{ ...row, body: undefined, text: '', images: [image, { ...image, url: 'data:image/png;base64,BBBB' }] }]));
+  const f = await fixture();
+  const mounted = render(f.app([{ ...row, body: undefined, references: [], text: '', images: [image, { ...image, url: 'data:image/png;base64,BBBB' }] }]));
   expect(mounted.container.querySelector('[data-user-bubble]')).toBeNull();
   const trigger = screen.getByRole('button', { name: 'Open image 2 of 2' });
   trigger.focus(); fireEvent.click(trigger);
@@ -153,9 +199,9 @@ it('recognizes already decoded thumbnails without waiting for another load event
   } finally { complete.mockRestore(); width.mockRestore(); }
 });
 
-it('keeps internal screenshots collapsed even in Detailed mode and never styles them as user input', () => {
-  const f = fixture('detailed');
-  const mounted = render(f.app([{ ...row, role: 'internal', body: undefined, text: 'Internal screenshot caption', images: [image, image] }]));
+it('keeps internal screenshots collapsed even in Detailed mode and never styles them as user input', async () => {
+  const f = await fixture('detailed');
+  const mounted = render(f.app([{ ...row, role: 'internal', body: undefined, references: [], text: 'Internal screenshot caption', images: [image, image] }]));
   expect(screen.getByText('Activity details')).toBeTruthy();
   expect(screen.queryByText('Internal screenshot caption')).toBeNull();
   expect(screen.queryByAltText('Attached image')).toBeNull();
@@ -167,27 +213,26 @@ it('keeps internal screenshots collapsed even in Detailed mode and never styles 
   expect(screen.queryByRole('button', { name: /^Open image/ })).toBeNull();
 });
 
-it('reads large internal screenshot bodies only while their activity details are explicitly open', async () => {
-  const f = fixture();
+it('reads internal screenshot references only while their activity details are explicitly open', async () => {
+  const f = await fixture();
   const mounted = render(f.app([{ ...row, role: 'internal' }]));
-  expect(f.readJSON).not.toHaveBeenCalled();
-  expect(screen.queryByText('Loading message…')).toBeNull();
+  expect(f.read).not.toHaveBeenCalled();
   fireEvent.click(screen.getByText('Activity details'));
-  expect(await screen.findByAltText('Attached image')).toBeTruthy();
+  expect(await screen.findByAltText('Attachment 1')).toBeTruthy();
   expect(mounted.container.querySelector('[data-user-bubble]')).toBeNull();
-  expect(f.readJSON).toHaveBeenLastCalledWith(expect.objectContaining({ maxBytes: 64 << 20 }));
+  expect(f.read).toHaveBeenLastCalledWith('root', 'image', expect.any(AbortSignal));
   expect(f.readBody).not.toHaveBeenCalled();
   fireEvent.click(screen.getByText('Activity details'));
-  expect(screen.queryByAltText('Attached image')).toBeNull();
+  expect(screen.queryByAltText('Attachment 1')).toBeNull();
   await waitFor(() => expect(f.queries.getQueryCache().getAll()).toHaveLength(0));
 });
-
 it('cancels an internal image transfer when its details close', async () => {
-  const f = fixture(); f.readJSON.mockImplementation(() => new Promise(() => {}));
+  const f = await fixture(); f.read.mockImplementation(() => new Promise(() => {}));
   render(f.app([{ ...row, role: 'internal' }]));
   fireEvent.click(screen.getByText('Activity details'));
-  const signal = f.readJSON.mock.calls.at(-1)![0].signal!;
+  await waitFor(() => expect(f.read).toHaveBeenCalled());
+  const signal = f.read.mock.calls.at(-1)![2]!;
   fireEvent.click(screen.getByText('Activity details'));
   expect(signal.aborted).toBe(true);
-  expect(screen.queryByText('Loading message…')).toBeNull();
+  expect(screen.queryByAltText('Attachment 1')).toBeNull();
 });

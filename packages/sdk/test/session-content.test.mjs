@@ -70,3 +70,28 @@ test('content metadata inspection reads no body and rejects another owner respon
   corrupt = true;
   await assert.rejects(client.session('child').content.get('file'), /identity mismatch/);
 });
+
+test('workspace and run control recovery preserves exact edit IDs and never guesses acceptance', async () => {
+  const requests = [];
+  const client = await Client.connect(async request => {
+    if (request.method === 'initialize') return { jsonrpc: '2.0', id: request.id, result: initial };
+    requests.push(structuredClone(request));
+    throw new DeliveryError('lost edit acknowledgement');
+  }, { clientID: 'controls' });
+  for (const [method, params] of [
+    ['workspace.set', { id: 'directory', session_id: 'child', expected_revision: '9007199254740993', path: '/workspace' }],
+    ['run.configure', { id: 'run', session_id: 'child', expected_revision: '9007199254740993', configuration: { system: '', cache_key: '', max_turns: 0, headless: true } }],
+  ]) {
+    const handle = client.command(method, params);
+    assert.equal(handle.id, params.id);
+    const saved = structuredClone(params);
+    params.expected_revision = '1';
+    await assert.rejects(handle.send(), DeliveryError);
+    assert.deepEqual((await handle.check()), { state: 'unavailable' });
+    assert.deepEqual(requests.at(-1).params, saved);
+    const count = requests.length;
+    await assert.rejects(handle.retry(), DeliveryError);
+    assert.equal(requests.length, count + 1);
+    assert.deepEqual(requests.at(-1).params, saved);
+  }
+});

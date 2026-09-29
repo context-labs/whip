@@ -53,6 +53,7 @@ type execution struct {
 	executorActivity ExecutorActivity
 }
 type Runtime struct {
+	standingMu       sync.Mutex
 	browserDriverPin string
 	controlMu        sync.Mutex
 	controlGates     map[session.TreeID]*controlGate

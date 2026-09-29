@@ -8,7 +8,7 @@
     "acceptance": "npm run build && node --test --test-concurrency=1 support-triage.acceptance.mjs incident-commander.acceptance.mjs"
   },
   "dependencies": {
-    "@whip/legacy-sdk": "0.1.0",
-    "zod": "^4.5.4"
+    "zod": "^4.5.4",
+    "@whip/sdk": "4.0.0"
   }
 }

@@ -44,8 +44,8 @@ export async function checkComposerReading(page) {
     });
     assert(probe.samples.length > 3 && probe.samples.length < 512);
     const drift = Math.max(...probe.samples.map(sample => Math.abs(sample.top - probe.before.top)));
-    assert(probe.samples.every(sample => sample.viewport === probe.before.viewport && sample.input === probe.before.input), `${label}: typing without wrapping resized the layout`);
-    assert(drift <= 1, `${label}: typing moved the transcript ${drift}px`);
+    assert(probe.samples.every(sample => sample.viewport === probe.before.viewport && sample.input === probe.before.input), `${label}: typing without wrapping resized the layout: ${JSON.stringify({ before: probe.before, changed: probe.samples.filter(sample => sample.viewport !== probe.before.viewport || sample.input !== probe.before.input) })}`);
+    assert(drift <= 1, `${label}: typing moved the transcript ${drift}px: ${JSON.stringify({ before: probe.before, minimumTop: Math.min(...probe.samples.map(sample => sample.top)), maximumTop: Math.max(...probe.samples.map(sample => sample.top)) })}`);
     samples.push({ label, ...probe.before, frames: probe.samples.length, maximumScrollDrift: drift });
   };
   await page.locator('input[type=file]').setInputFiles({ name: 'composer-scroll.txt', mimeType: 'text/plain', buffer: Buffer.from('Isolated attachment for the composer scroll regression.') });

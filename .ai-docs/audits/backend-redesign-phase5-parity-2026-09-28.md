@@ -81,3 +81,49 @@ This checkpoint integrates native daemon/status/log/updater routing, desktop loc
 Earlier combined runs remain recorded as failures: the first SDK trace-state fixture used a1ns clock delta that rounded at epoch-sized floating point; `c2594080f` uses a deterministic small clock. The later runtime restart fixture assumed its scripted input was always the final message, ignoring canonical interrupted-child completion mail; `3ffd94dcc` forces and verifies that ordering while retaining ownership/restart checks. The CLI gate exposed a real socket/context deadline publication race; `397cb9785` recognizes the caller's already elapsed deadline before `Context.Err` publication and cancels only the exact accepted input. An earlier unrelated transport timeout remains uncertain and gains no cancellation authority. The final full gate includes all repairs.
 
 Previously pending hosted checkpoints are now verified successful: draft259 head`9cfa29e63a48c16587a6498ff02f85e0b29e1468`, run36527605325; draft260 head`a51afc4f8770bebb1ffa07b5677d96b316188cdf`, run36527639551; draft261 head`50bcd028631a96d421a4baf38f87fa77dc7c718c`, run36526837824. The new desktop checkpoint's hosted validation is pending. Phases5–7 remain incomplete; the active source-scope exclusions and retired core have not been removed.
+
+### Native welcome and creation handover checkpoint
+
+Shared welcome/setup now uses the actual native Client and exact immutable definitions, host defaults, provider readiness/catalogs, bounded host skills, directories and global MCP declaration import. Session creation uses the existing tab UUID as creation identity and the common durable journal; the accepted root is verified before staged content and the authored draft move. Lost-ACK recovery can finish handover without sending a first message. A persisted unresolved creation blocks another payload after reload. Full Settings restoration of that saved creation into its draft remains an explicit follow-up; current receipt inspection does not silently send or manufacture a replacement root.
+
+The five focused welcome/defaults/skills/new-chat/runtime suites pass 93 tests (4.78s), including actual codec validation, multiple scoped uploads, post-creation failures, changed-draft recovery, provider confirmation, exact revision selection and unknown host defaults. Owned production TypeScript files are clean; unrelated remaining legacy app callers still prevent the aggregate app typecheck. Conversation, tabs, terminal, mobile and remaining parity work continue; Phase 7 deletion is not claimed.
+
+### Native terminal ownership checkpoint
+
+Terminal rendering now uses native bounded reads and exact process epochs, preserves large decimal cursors, verifies owner/page byte ranges, and cancels obsolete observations. Input bounds and discard rules prevent a paste or lost connection from accumulating or replaying keystrokes. Epochless retained tabs remain visible as ended until an explicit restart. Native session-link navigation uses attached host evidence. The five focused terminal output/renderer/tab/routing/navigation suites pass160 tests (5.70s). Terminal-close integration in the tab strip is staged with the wider conversation-pane adoption; this checkpoint alone does not finish the aggregate UI port. A lost ephemeral terminal-open acknowledgement still requires a user-visible inspection path using the existing native list API before a replacement shell is suggested.
+
+### Native selected-pane checkpoint
+
+Visible panes now lease and render their exact selected root or child session through the native Client, SessionView and ExecutionView. Trace observers remain separate per-pane leases and reject obsolete client ownership. Native terminal close preserves uncertain same-epoch outcomes for inspection; confirmed missing or previous-process terminals close locally. The three focused pane/title/desktop-close suites pass 39 tests (4.00s), including child selection and exact owner requests. Conversation rendering is being integrated from its independently tested leaf; aggregate app typechecking remains pending that cutover.
+
+### Native navigation and shell checkpoint
+
+Shared sidebar, search, attention, desktop notifications, first-run catalog detection and bootstrap readiness now use native catalog/session metadata and canonical host attachment state. Exact child attention links, revision-bound keyset pages, bounded cursor storage, replacement-client isolation, visible overflow and large decimal counts are covered with the actual SDK codec and catalog view. Ten focused suites pass 48 tests (4.30s); owned source TypeScript is clean. Legacy conversation callers still prevent the aggregate typecheck until the released conversation leaf is integrated. No installed runtime or user session was touched.
+
+### Full shared-renderer integration audit
+
+After integrating native prompt inspection and conversation leaf9185083, the entire shared app typecheck passes and app/web source has no legacy SDK/protocol imports. The first full renderer run passed1188/1271 tests in97/108 suites. The83 failures remain recorded; most fixtures still used retired snapshot/event shapes. Porting the retained opening test exposed a real integration regression: pending native metadata showed paused activity, and a failed metadata read showed new-session body copy. The app now preserves neutral loading and explicit unavailable states. Six affected startup/status/error/conversation suites pass38 tests(4.20s). Input/body/streaming, creation and catalog invalidation fixtures remain in progress; the full renderer gate is not yet green.
+
+### Native navigation fixture completion — 2026-09-28
+
+The retained title invalidation and eleven sidebar-creation scenarios now use actual native SDK validation, catalog revisions, immutable agent revisions and durable creation/input commands. They preserve stale read cancellation, per-client listener retirement, host isolation, independent drafts, explicit model confirmation, secret exclusion, background focus and late creation navigation. Unsupported old hosts fail initialization before catalog reads. Missing provider metadata now displays a retryable error while retaining the first-message draft. A candidate provider-confirmation production change was discarded after correcting the fixture to the actual nested readiness selection shape.
+
+All five affected suites (welcome, sidebar creation, title invalidation, provider connections/defaults) pass63 tests4.84s; shared app type checking passes. The earlier full renderer gate remains failed until the independently assigned input/content fixture migrations are integrated and the whole suite reruns.
+
+### Saved creation handover after app reload — 2026-09-28
+
+General Settings can explicitly restore an accepted native tree creation into its original draft tab after a new app instance loads. Fresh receipt evidence and the SDK's saved acceptance are required; identity-only evidence cannot restore. The original immutable request is retained for an explicit retry when acknowledgement was lost. Restoration does not submit the first message, navigate, or reopen a closed tab, and conflicts/storage failures retain the draft and recovery record. Initial creation and restoration share the same validated handover.
+
+Four affected suites pass69 tests4.86s, including new-instance/closed-tab restore, exact retry, deleted or mismatched host evidence, destination conflicts, storage failure and the actual Settings control. Shared app type checking passes.
+
+### Native desktop bootstrap and first-chat warming — 2026-09-28
+
+The second full renderer run at012096e47 passed1,258 tests and failed25 in two suites. Twenty-four were the retained desktop startup fixture still using the old protocol; the remaining image-upload test released its deferred gate before the asynchronous upload entered. These failures are preserved as failures. The fixture now runs the production native framed transport, identity checks, bootstrap, routing and first-launch probe. It retains all startup visibility/notice/font/timeout, closed-tab, opt-in and global-skill checks. Upload synchronization now waits for the real content.put request.
+
+The native startup fixture exposed missing first-chat metadata warming. AppRuntime now preloads bounded provider presets/catalogs, host permission/execution defaults and MCP import status with the existing provider read; it retains only host metadata for five minutes and stops warming a retired client. The four cold/zero-tab reopen scenarios still hold subsequent host reads and require the ready layout. All three affected suites pass62 tests22.44s; shared app types pass. The full renderer gate is being rerun.
+
+### Complete native renderer checkpoint — 2026-09-28
+
+At c013bbc45 plus the native host-query retention assertion update, the complete renderer gate passes:108 suites /1,283 tests in25.14s, followed by passing shared-app source type checking. The third run had passed1,282 tests and failed only the retention fixture's retired runtime-configuration key; its replacement names the actual native metadata queries and retains zero-GC session/detail assertions and the five-minute expiry. Final logs: `/tmp/whip-native-app-full-final.log` and `/tmp/whip-native-app-types-final.log`.
+
+This checkpoint includes the derived exact client/input identity (e3edd361c/7bfa22756), canonical authored-row handover and four retained input/content presentation suites (baa7da28d/012096e47). Identity joins use only the local owner/input receipt; imported and internal messages keep null identity. No schema, client ledger or prose matching was added. Main backend integration, mobile adoption, new reload/denial controls, live REPL projection and supported-target packaging remain required.

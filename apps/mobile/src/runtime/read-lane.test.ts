@@ -9,3 +9,8 @@ test('caps concurrent index reads and drops an aborted queued read', async () =>
   const last = lane.run(new AbortController().signal, read); control.abort(); await rejection; release();
   expect(await Promise.all([one, two, last])).toEqual([1, 1, 1]); expect(peak).toBe(2); expect(never).not.toHaveBeenCalled();
 });
+test('queue capacity is finite and rejects before invoking another read', async () => {
+  const lane = new ReadLane(); let release!: () => void; const held = new Promise<void>(resolve => { release = resolve; }); const read = jest.fn(() => held);
+  const pending = Array.from({ length: 18 }, () => lane.run(new AbortController().signal, read));
+  await expect(lane.run(new AbortController().signal, read)).rejects.toThrow('Too many pending'); expect(read).toHaveBeenCalledTimes(2); release(); await Promise.all(pending); expect(read).toHaveBeenCalledTimes(18);
+});

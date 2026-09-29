@@ -2,6 +2,15 @@
   "name": "@whip/client-example",
   "private": true,
   "type": "module",
-  "scripts": { "start": "node serve.mjs", "build": "tsc --noEmit && node serve.mjs --build" },
-  "dependencies": { "@whip/legacy-sdk": "0.1.0", "react": "19.2.8", "react-dom": "19.2.8" }
+  "scripts": {
+    "start": "node serve.mjs",
+    "build": "tsc --noEmit && node serve.mjs --build",
+    "smoke": "node smoke.mjs",
+    "check": "npm run build && node --test recovery.test.mjs"
+  },
+  "dependencies": {
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "@whip/sdk": "4.0.0"
+  }
 }

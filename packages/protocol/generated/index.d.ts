@@ -3626,6 +3626,24 @@ export interface HostSkillsResult {
   }[];
   truncated: boolean;
 }
+export type HostStandingInstructions = {
+  published: boolean;
+  revision: null | string;
+  text: null | string;
+} & (
+  | {
+      published?: false;
+      revision?: null;
+      text?: null;
+      [k: string]: unknown;
+    }
+  | {
+      published?: true;
+      revision?: string;
+      text?: string;
+      [k: string]: unknown;
+    }
+);
 export interface HostStatus {
   runtime_id: string;
   process_epoch: string;
@@ -10571,6 +10589,10 @@ export interface WorkspaceSnapshotsResult {
     released_at: null | string;
   }[];
 }
+export interface WriteHostStandingInstructionsParams {
+  expected_revision: string;
+  text: string;
+}
 export interface WriteStateParams {
   session_id: string;
   scope: "session" | "tree";
@@ -10684,6 +10706,7 @@ export interface ContractTypes {
   HostProfiles: HostProfiles;
   HostSkillsParams: HostSkillsParams;
   HostSkillsResult: HostSkillsResult;
+  HostStandingInstructions: HostStandingInstructions;
   HostStatus: HostStatus;
   HostStopAccepted: HostStopAccepted;
   HostThemeResolveParams: HostThemeResolveParams;
@@ -10880,6 +10903,7 @@ export interface ContractTypes {
   WorkspaceSnapshotParams: WorkspaceSnapshotParams;
   WorkspaceSnapshotsParams: WorkspaceSnapshotsParams;
   WorkspaceSnapshotsResult: WorkspaceSnapshotsResult;
+  WriteHostStandingInstructionsParams: WriteHostStandingInstructionsParams;
   WriteStateParams: WriteStateParams;
 }
 export interface Operations {
@@ -10907,6 +10931,8 @@ export interface Operations {
   "host.directories.list": { params: HostDirectoriesParams; result: HostDirectoriesResult };
   "host.directory.pick": { params: HostDirectoryPickParams; result: HostDirectoryPickResult };
   "host.skills.complete": { params: HostSkillsParams; result: HostSkillsResult };
+  "host.standing.read": { params: EmptyParams; result: HostStandingInstructions };
+  "host.standing.write": { params: WriteHostStandingInstructionsParams; result: HostStandingInstructions };
   "host.themes.list": { params: EmptyParams; result: HostThemesResult };
   "host.themes.resolve": { params: HostThemeResolveParams; result: HostThemeResolved };
   "tool.schemas": { params: SessionParams; result: HostToolSchemasResult };

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Alert, ScrollView, View } from 'react-native';
 import { Stack as RouterStack } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
+import * as Crypto from 'expo-crypto';
 import { File } from 'expo-file-system';
 import { themeFromHost } from '@whip/app/presentation';
 import { type ThemeDefinition } from '@whip/ui/theme-data';
@@ -32,26 +33,26 @@ export default function AppearanceScreen() {
   const close = () => { preview(); setChoosing(undefined); setCandidate(undefined); };
   async function loadHostThemes() {
     request.current?.abort(); const controller = new AbortController(); request.current = controller; setError('');
-    try { const result = await sourceRuntime!.requireReady().host.themes.list({ signal: controller.signal }); if (!controller.signal.aborted) { setHostThemes((result.themes ?? []).filter(t => t.source !== 'builtin').map(t => ({ id: t.id, title: t.name }))); if (result.errors?.length || result.truncated) setError('Some host themes could not be listed. You can still import a JSON file.'); } }
+    try { const result = await sourceRuntime!.requireReady().hostThemes({ signal: controller.signal }); if (!controller.signal.aborted) { setHostThemes((result.themes ?? []).filter(t => t.source !== 'builtin').map(t => ({ id: t.id, title: t.name }))); if (result.errors?.length || result.truncated) setError('Some host themes could not be listed. You can still import a JSON file.'); } }
     catch (e) { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : String(e)); }
   }
   async function importTheme(id?: string) {
     if (importLock.current) return; importLock.current = true; request.current?.abort(); const controller = new AbortController(); request.current = controller; setImporting(true); setError('');
     try {
-      const client = sourceRuntime!.requireReady(); const runtimeId = client.requireConnected().runtime_id;
+      let client = sourceRuntime!.requireReady(); const runtimeId = client.runtimeID;
       let resolved;
-      if (id) resolved = await client.host.themes.resolve(id, { signal: controller.signal });
+      if (id) resolved = await client.resolveHostTheme({ name: id, json: '' }, { signal: controller.signal });
       else {
         pickingFile.current = true;
         const result = await DocumentPicker.getDocumentAsync({ type: ['application/json', 'text/plain'], copyToCacheDirectory: true, multiple: false });
         pickingFile.current = false;
         controller.signal.throwIfAborted(); if (result.canceled) return;
         const picked = result.assets[0]; const file = new File(picked.uri);
-        try { if (file.size > 64 * 1024) throw new Error('Choose a theme JSON file smaller than 64 KiB.'); const json = await file.text(); if (new TextEncoder().encode(json).length > 64 * 1024) throw new Error('This theme file is too large.'); controller.signal.throwIfAborted(); await waitForReady(sourceRuntime!, client, controller.signal); resolved = await client.host.themes.resolveJSON(json, { signal: controller.signal }); }
+        try { if (file.size > 64 * 1024) throw new Error('Choose a theme JSON file smaller than 64 KiB.'); const json = await file.text(); if (new TextEncoder().encode(json).length > 64 * 1024) throw new Error('This theme file is too large.'); controller.signal.throwIfAborted(); client = await waitForReady(sourceRuntime!, client, controller.signal); resolved = await client.resolveHostTheme({ name: '', json }, { signal: controller.signal }); }
         finally { try { file.delete(); } catch { /* OS cache cleanup can retry later. */ } }
       }
       controller.signal.throwIfAborted(); if (sourceRuntime!.requireReady() !== client) throw new Error('Host changed before theme import completed.');
-      const value = themeFromHost(resolved, id ? `host:${runtimeId}` : `import:${client.createId()}`);
+      const value = themeFromHost({ ...resolved, code: { ...resolved.code, tokens: resolved.code.tokens ?? {} } }, id ? `host:${runtimeId}` : `import:${Crypto.randomUUID()}`);
       await runtime.addTheme(value); setHostThemes(undefined);
     } catch (e) { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : String(e)); }
     finally { pickingFile.current = false; importLock.current = false; if (request.current === controller) { setImporting(false); request.current = null; } }

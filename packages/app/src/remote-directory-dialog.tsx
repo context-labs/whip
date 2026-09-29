@@ -1,8 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useWhipConnection } from '@whip/legacy-sdk/react';
-import type { WhipClient } from '@whip/legacy-sdk';
-import type { SessionListView } from '@whip/legacy-sdk/state';
+import type { Client, RecentTreesResult } from '@whip/sdk';
 import { Button, Checkbox, Dialog, IconButton, Input, Menu, Spinner } from '@whip/ui';
 import { ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, Folder, HardDrive, Home, Pencil, Search, Server } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
@@ -14,11 +12,8 @@ import { directoryCache, directoryOptions } from './directory-queries';
 export interface RemoteDirectoryHost {
   name: string;
   detail?: string;
-  list?: SessionListView;
   reconnect?(): Promise<void>;
 }
-const subscribeNone = () => () => {};
-const emptySnapshot = () => undefined;
 const folderName = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) || path;
 const absolutePath = (path: string) => /^(\/|[a-z]:[\\/]|\\\\|~(?:\/|$))/i.test(path);
 
@@ -35,21 +30,20 @@ export function directoryCrumbs(path: string) {
   }
   return result;
 }
-export function recentDirectories(items: readonly { cwd: string; updated_at: string }[] = []) {
-  return [...new Set([...items].sort((a, b) => b.updated_at.localeCompare(a.updated_at)).map(item => item.cwd).filter(path => path && path.length <= 4096 && absolutePath(path)))].slice(0, 5);
+export function recentDirectories(items: readonly RecentTreesResult['items'][number][] = []) {
+  return [...new Set(items.map(item => item.working_directory).filter(path => path && path.length <= 4096 && absolutePath(path)))].slice(0, 5);
 }
 
-export function RemoteDirectoryDialog({ client, value, disabled, host, onClose, onSelect }: {
-  client: WhipClient; value: string; disabled: boolean; host?: RemoteDirectoryHost;
+export function RemoteDirectoryDialog({ client, value, disabled, connected, host, onClose, onSelect }: {
+  client: Client; value: string; disabled: boolean; connected: boolean; host?: RemoteDirectoryHost;
   onClose(): void; onSelect(path: string): void;
 }) {
-  const connection = useWhipConnection(client);
-  const online = connection.state === 'connected';
+  const online = connected;
   const queries = useQueryClient();
   const cache = directoryCache(queries);
   const hostName = host?.name ?? 'Execution host';
-  const catalog = useSyncExternalStore(host?.list?.subscribe ?? subscribeNone, host?.list?.getSnapshot ?? emptySnapshot);
-  const recent = recentDirectories(catalog?.page?.items ?? []);
+  const catalog = useQuery({ queryKey: ['recent-directories', client.runtimeID, client.processEpoch], queryFn: ({ signal }) => client.trees.recent(50, { signal }), enabled: connected, staleTime: 10_000, gcTime: 60_000, retry: false });
+  const recent = recentDirectories(catalog.data?.items ?? []);
   const [path, setPath] = useState(value);
   const [history, setHistory] = useState<string[]>([]);
   const [selected, setSelected] = useState('');
@@ -107,19 +101,19 @@ export function RemoteDirectoryDialog({ client, value, disabled, host, onClose, 
     cache.warm(client, { path: '~' });
     if (query.data?.parent) cache.warm(client, { path: query.data.parent });
     for (const folder of JSON.parse(recentKey) as string[]) cache.warm(client, { path: folder });
-    if (query.data?.has_more) cache.warm(client, { path, prefix, hidden, after: query.data.next_after });
+    if (query.data?.has_more) cache.warm(client, { path, prefix, hidden, after: query.data.next_after ?? undefined });
   }, [cache, client, ready, query.data, path, prefix, hidden, recentKey]);
   useEffect(() => {
     if (!online) {
       choiceVersion.current++;
       cache.cancel(client);
-      void queries.invalidateQueries({ queryKey: ['directories', connection.info?.runtime_id], refetchType: 'none' });
+      void queries.invalidateQueries({ queryKey: ['directories', client.runtimeID], refetchType: 'none' });
     }
     return () => {
       cache.cancel(client);
-      void queries.cancelQueries({ queryKey: ['directories', connection.info?.runtime_id], predicate: query => !query.getObserversCount() });
+      void queries.cancelQueries({ queryKey: ['directories', client.runtimeID], predicate: query => !query.getObserversCount() });
     };
-  }, [cache, client, online, queries, connection.info?.runtime_id]);
+  }, [cache, client, online, queries, client.runtimeID]);
   const scrollKey = JSON.stringify(options.queryKey);
   // Dialog portals mount after this component's first layout effect. Restore
   // cached positions when the viewport actually attaches, including on reopen.
@@ -162,7 +156,7 @@ export function RemoteDirectoryDialog({ client, value, disabled, host, onClose, 
     cache.cancel(client);
     try {
       const result = await queries.fetchQuery(verification);
-      if (alive.current && version === choiceVersion.current && choice.current === target && client.getSnapshot().state === 'connected') onSelect(result.path);
+      if (alive.current && version === choiceVersion.current && choice.current === target) onSelect(result.path);
     } catch (error) { if (alive.current && version === choiceVersion.current && choice.current === target) setActionError(errorMessage(error)); }
     finally { if (alive.current) setConfirming(false); }
   }
@@ -242,7 +236,7 @@ export function RemoteDirectoryDialog({ client, value, disabled, host, onClose, 
               </li>)}</ul>}
           </div>
           <div {...stylex.props(styles.listFooter)}>{query.data?.truncated ? <span>Listing limit reached. Narrow the folder name or enter a path.</span> : <span>{editing ? 'Press Go to open this path.' : 'Double-click a folder to open it'}</span>}
-            <div {...stylex.props(styles.actions)}>{after && <Button size="sm" variant="ghost" disabled={!ready} onClick={() => { setAfter(undefined); resetSelection(); }}>First folders</Button>}{query.data?.has_more && <Button size="sm" variant="ghost" disabled={!ready} onClick={() => { setAfter(query.data!.next_after); resetSelection(); }}>Next folders</Button>}</div>
+            <div {...stylex.props(styles.actions)}>{after && <Button size="sm" variant="ghost" disabled={!ready} onClick={() => { setAfter(undefined); resetSelection(); }}>First folders</Button>}{query.data?.has_more && <Button size="sm" variant="ghost" disabled={!ready} onClick={() => { setAfter(query.data!.next_after ?? undefined); resetSelection(); }}>Next folders</Button>}</div>
           </div>
         </section>
       </div>

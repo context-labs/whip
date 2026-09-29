@@ -1,253 +1,369 @@
-import { ErrorNotice } from '../error-feedback';
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { SessionReload } from './session-reload';
+import { useExecutionView, useSessionView } from '@whip/sdk/react';
+import type { Operations } from '@whip/sdk';
+type GoalRef = NonNullable<Operations['goals.create']['params']['expected_current']>;
+type RunConfiguration = Operations['run.configure']['params']['configuration'];
+type CompactionPolicy = NonNullable<
+  Operations['sessions.configure']['params']['patch']['compaction']
+>;
 import { Badge, Button, CodeBlock, Field, Input, Select, Textarea } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { useRuntime } from '../context';
 import { layout } from '../styles';
 import { ModelSelection } from '../model-selection';
-import { describeRule, splitGlobalRule } from '../permission-scope';
+import { ContextUsage, WholeTreeUsage } from './usage';
 import {
   Action,
-  CollectionMore,
+  ContentRead,
   Empty,
+  PageControls,
   QueryFeedback,
   Section,
-  mergeBy,
-  useCollection,
   useDetailQuery,
   type InspectorProps,
 } from './shared';
 
-export function Goals({ view, root, connected }: InspectorProps) {
-  const runtime = useRuntime();
-  const [goal, setGoal] = useState(root.meta.goal);
-  const [schedule, setSchedule] = useState('');
-  const [prompt, setPrompt] = useState('');
-  const collection = useCollection(view, 'schedules');
-  const schedules = mergeBy(
-    root.schedules ?? [],
-    collection.page?.items?.flatMap((item) => (item.schedule ? [item.schedule] : [])) ?? [],
-    (item) => String(item.id),
-  );
+const counter = (value: string) =>
+  /^(0|[1-9][0-9]{0,18})$/.test(value) && BigInt(value) <= 9223372036854775807n;
+const identity = (props: InspectorProps) => ({
+  client_id: props.client.clientID,
+  request_id: crypto.randomUUID(),
+});
+function useIdle(props: InspectorProps) {
+  const value = useSessionView(props.view).activity;
+  return !!value && !value.active_turn && !value.active_workspace_action_id;
+}
+
+export function Goals(props: InspectorProps) {
+  const runtime = useRuntime(),
+    query = useDetailQuery(props, 'goals.current', { session_id: props.session.id }, true);
+  const [draft, setDraft] = useState<{
+    text: string;
+    continuations: string;
+    expected: GoalRef | null;
+  }>();
+  const goal = query.data?.goal,
+    text = draft?.text ?? goal?.spec.text ?? '',
+    continuations = draft?.continuations ?? goal?.spec.max_continuations ?? '100';
+  const expected = goal ? { id: goal.id, revision: goal.revision } : null;
+  const edit = (change: { text?: string; continuations?: string }) =>
+    setDraft({ text, continuations, expected, ...draft, ...change });
+  const changed =
+    !!draft &&
+    (draft.expected?.id !== expected?.id || draft.expected?.revision !== expected?.revision);
+  const create = async (start: boolean) => {
+    await runtime.run(
+      runtime.command(props.client, 'goals.create', {
+        session_id: props.session.id,
+        goal_id: crypto.randomUUID(),
+        expected_current: draft ? draft.expected : expected,
+        spec: { text, max_continuations: continuations },
+        start,
+      }),
+      start ? 'Start goal' : 'Save goal',
+    );
+    setDraft(undefined);
+    await query.refetch();
+  };
   return (
     <>
       <Section
         title="Session goal"
-        description="The daemon owns goal continuation. Completing one command does not mean every descendant or schedule has finished."
+        description="The execution host owns goal continuation, including after you disconnect. Saving or starting a goal does not mean its work has completed."
       >
+        <QueryFeedback query={query} connected={props.connected} />
+        {goal && (
+          <p>
+            <Badge>{goal.state}</Badge> · {goal.continuations_used} additional continuations used
+            {goal.stop_reason && ` · ${goal.stop_reason}`}
+          </p>
+        )}
         <Field label="Goal">
-          <Textarea value={goal} onChange={(event) => setGoal(event.target.value)} />
+          <Textarea value={text} onChange={(event) => edit({ text: event.target.value })} />
         </Field>
+        <Field
+          label="Additional goal continuations"
+          description="Exact whole number; zero allows only the initial input."
+        >
+          <Input
+            value={continuations}
+            inputMode="numeric"
+            onChange={(event) => edit({ continuations: event.target.value })}
+          />
+        </Field>
+        {changed && (
+          <p role="status">
+            The current goal changed while you were editing. Refresh before applying this draft.
+          </p>
+        )}
         <div {...stylex.props(layout.row, layout.wrap)}>
           <Action
-            disabled={!connected}
-            run={() => runtime.run(view.session.command('goal.set', { text: goal }), 'Save goal')}
+            recoverable
+            disabled={!props.connected || !query.data || !text.trim() || !counter(continuations)}
+            run={() => create(false)}
           >
             Save goal
           </Action>
           <Action
-            disabled={!connected || !goal.trim()}
-            run={() => runtime.run(view.session.command('goal.run', { text: goal }), 'Run goal')}
+            recoverable
+            disabled={!props.connected || !query.data || !text.trim() || !counter(continuations)}
+            run={() => create(true)}
           >
             Run goal
           </Action>
           <Action
-            disabled={!connected}
+            recoverable
+            disabled={!props.connected || !query.data}
             run={async () => {
-              const outcome = await runtime.run(
-                view.session.command('goal.from-context', {}),
+              await runtime.run(
+                runtime.command(props.client, 'goals.formulate', {
+                  session_id: props.session.id,
+                  identity: identity(props),
+                  request: {
+                    goal_id: crypto.randomUUID(),
+                    expected_current: expected,
+                    start: false,
+                  },
+                }),
                 'Draft goal from context',
               );
-              setGoal(outcome.result?.goal || '');
+              setDraft(undefined);
+              await query.refetch();
             }}
           >
             Draft from context
           </Action>
+          {goal?.state === 'paused' && (
+            <Action
+              recoverable
+              disabled={!props.connected}
+              run={async () => {
+                await runtime.run(
+                  runtime.command(props.client, 'goals.resume', {
+                    session_id: props.session.id,
+                    identity: identity(props),
+                    goal: { id: goal.id, revision: goal.revision },
+                  }),
+                  'Resume goal',
+                );
+                await query.refetch();
+              }}
+            >
+              Resume goal
+            </Action>
+          )}
           <Action
-            disabled={!connected || !root.meta.goal}
+            disabled={
+              !props.connected || !goal || goal.state === 'cancelled' || goal.state === 'completed'
+            }
             run={async () => {
-              await runtime.run(view.session.command('goal.set', { text: '' }), 'Clear goal');
-              setGoal('');
+              if (goal) await props.session.goals.cancel(goal.id);
+              setDraft(undefined);
+              await query.refetch();
             }}
           >
-            Clear goal
+            Cancel goal
           </Action>
+          <Button
+            variant="ghost"
+            disabled={!props.connected}
+            onClick={() => {
+              setDraft(undefined);
+              void query.refetch();
+            }}
+          >
+            Refresh goal
+          </Button>
         </div>
       </Section>
-      <Section
-        title="Schedules"
-        description="Schedules run on the execution host, including after you disconnect."
-      >
-        {!schedules.length && <Empty>No schedules.</Empty>}
-        {schedules.map((item) => (
-          <article key={item.id} {...stylex.props(layout.column, layout.notice)}>
-            <strong>{item.schedule}</strong>
-            <p>{item.prompt}</p>
-            <span {...stylex.props(layout.muted)}>Last fire: {item.last_fire || 'Never'}</span>
+      <Schedules {...props} />
+    </>
+  );
+}
+function Schedules(props: InspectorProps) {
+  const runtime = useRuntime(),
+    [after, setAfter] = useState<string>(),
+    [expression, setExpression] = useState(''),
+    [prompt, setPrompt] = useState(''),
+    [selected, setSelected] = useState('');
+  const query = useDetailQuery(
+      props,
+      'schedules.list',
+      { session_id: props.session.id, limit: 16, ...(after === undefined ? {} : { after }) },
+      true,
+    ),
+    items = query.data?.items ?? [];
+  return (
+    <Section
+      title="Schedules"
+      description="Schedules run on the execution host after you disconnect. Cancellation retains their recorded history."
+    >
+      <QueryFeedback query={query} connected={props.connected} />
+      {!items.length && query.data && <Empty>No schedules in this page.</Empty>}
+      {items.map((item) => (
+        <article key={item.id} {...stylex.props(layout.column, layout.notice)}>
+          <strong>{item.expression}</strong>
+          <p>
+            {item.preview}
+            {item.preview_truncated && '…'}
+          </p>
+          <span>
+            Next: {item.next_due ?? 'None'} · Last fire: {item.latest?.scheduled_for ?? 'Never'}
+          </span>
+          {item.failure && <p>{item.failure}</p>}
+          <Button
+            variant="ghost"
+            disabled={!props.connected}
+            onClick={() => setSelected(selected === item.id ? '' : item.id)}
+          >
+            Read scheduled prompt
+          </Button>
+          {selected === item.id && <ScheduleBody {...props} id={item.id} />}
+          {item.cancelled_at ? (
+            <Badge>Cancelled</Badge>
+          ) : (
             <Action
-              disabled={!connected}
-              run={() =>
-                runtime.run(
-                  view.session.command('schedule.delete', { schedule_id: item.id }),
-                  'Delete schedule',
-                )
-              }
+              disabled={!props.connected}
+              run={async () => {
+                await props.session.schedules.cancel(item.id);
+                await query.refetch();
+              }}
             >
-              Delete schedule
+              Cancel schedule
             </Action>
-          </article>
-        ))}
-        <CollectionMore
-          collection={collection}
-          omitted={root.omitted?.schedules}
-          connected={connected}
-        />
-        <Field label="When" description="A WHIP schedule expression, such as every 30m.">
-          <Input value={schedule} onChange={(event) => setSchedule(event.target.value)} />
-        </Field>
-        <Field label="Scheduled prompt">
-          <Textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} />
-        </Field>
-        <Action
-          disabled={!connected || !schedule.trim() || !prompt.trim()}
-          run={async () => {
-            await runtime.run(
-              view.session.command('schedule.create', { schedule, prompt }),
-              'Create schedule',
-            );
-            setSchedule('');
-            setPrompt('');
-          }}
-        >
-          Create schedule
-        </Action>
-      </Section>
+          )}
+        </article>
+      ))}
+      <PageControls
+        after={after}
+        next={query.data?.next_after ?? undefined}
+        connected={props.connected}
+        busy={query.isFetching}
+        onChange={setAfter}
+      />
+      <Field label="When" description="A WHIP schedule expression, such as every 30m.">
+        <Input value={expression} onChange={(event) => setExpression(event.target.value)} />
+      </Field>
+      <Field label="Scheduled prompt">
+        <Textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+      </Field>
+      <Action
+        recoverable
+        disabled={!props.connected || !expression.trim() || !prompt.trim()}
+        run={async () => {
+          await runtime.run(
+            runtime.command(props.client, 'schedules.create', {
+              session_id: props.session.id,
+              schedule_id: crypto.randomUUID(),
+              expression,
+              parts: [{ type: 'text', text: prompt }],
+            }),
+            'Create schedule',
+          );
+          setExpression('');
+          setPrompt('');
+          await query.refetch();
+        }}
+      >
+        Create schedule
+      </Action>
+    </Section>
+  );
+}
+function ScheduleBody(props: InspectorProps & { id: string }) {
+  const query = useDetailQuery(props, 'schedules.get', {
+    session_id: props.session.id,
+    schedule_id: props.id,
+  });
+  return (
+    <>
+      <QueryFeedback query={query} connected={props.connected} />
+      {query.data?.parts.map((part, index) =>
+        part.type === 'text' ? (
+          <CodeBlock key={index} code={part.text} label="Scheduled prompt" maxBytes={128 << 10} />
+        ) : part.type === 'content' ? (
+          <ContentRead
+            key={index}
+            session={props.session}
+            connected={props.connected}
+            reference={part.reference_id}
+            label="Scheduled attachment"
+          />
+        ) : (
+          <CodeBlock
+            key={index}
+            code={JSON.stringify(part, null, 2)}
+            label="Scheduled part"
+            maxBytes={32 << 10}
+          />
+        ),
+      )}
     </>
   );
 }
 export function formatBudgetAmount(kind: string, value: string) {
   const amount = BigInt(value);
-  if (kind === 'cost') return `$${amount / 1_000_000n}.${(amount % 1_000_000n).toString().padStart(6, '0')}`;
-  if (kind === 'elapsed') return `${amount / 1000n}.${(amount % 1000n).toString().padStart(3, '0')} s`;
-  return `${amount.toLocaleString()}${kind === 'tokens' ? ' tokens' : ''}`;
+  if (kind === 'model_cost_nano_usd')
+    return `$${amount / 1_000_000_000n}.${(amount % 1_000_000_000n).toString().padStart(9, '0')}`;
+  if (kind === 'model_elapsed_millis')
+    return `${amount / 1000n}.${(amount % 1000n).toString().padStart(3, '0')} s`;
+  return amount.toLocaleString();
 }
-
-export function Limits({ view, root, connected }: InspectorProps) {
-  const runtime = useRuntime();
-  const budgets = useCollection(view, 'budgets');
-  const capabilities = useCollection(view, 'capabilities');
-  const values = mergeBy(
-    root.budgets ?? [],
-    budgets.page?.items?.flatMap((item) => (item.budget ? [item.budget] : [])) ?? [],
-    (item) => `${item.agent_id}:${item.state.kind}`,
-  );
-  const grants = mergeBy(
-    root.capabilities ?? [],
-    capabilities.page?.items?.flatMap((item) => (item.capability ? [item.capability] : [])) ?? [],
-    (item) => item.id,
-  );
-  const agents = root.agents ?? [];
-  const accounting = root.accounting?.root_id === root.root_id && root.accounting.agent_id === root.root_id
-    && root.accounting.scope === 'subtree' ? root.accounting : undefined;
-  const calls = (value: string) => `${BigInt(value).toLocaleString()} ${value === '1' ? 'call' : 'calls'}`;
+export function Limits(props: InspectorProps) {
+  const query = useDetailQuery(props, 'budgets.list', { session_id: props.session.id }, true),
+    resources = useDetailQuery(props, 'resources.list', { session_id: props.session.id }, true);
   return (
     <>
+      <WholeTreeUsage {...props} />
       <Section
-        title="Usage"
-        description="Usage includes descendants. Ancestor and child totals overlap. Model usage is unlimited unless an agent explicitly caps a child."
+        title="Selected agent budgets"
+        description="These budget aggregates include this agent and its descendants. Ancestor and descendant usage can overlap; never add them together. Reserved and uncertain exposure is separate from reported whole-tree usage."
       >
-        {accounting ? <div {...stylex.props(layout.column)} aria-label="Entire session tree accounting">
-          <strong>Entire session tree</strong>
-          <span>Provider-reported cost: {formatBudgetAmount('cost', accounting.reported_cost_micros)} · {calls(accounting.reported_cost_calls)}</span>
-          <span>Catalog-estimated cost: {formatBudgetAmount('cost', accounting.estimated_cost_micros)} · {calls(accounting.estimated_cost_calls)}</span>
-          <span>Unknown cost: {calls(accounting.unknown_cost_calls)}</span>
-          <span>Missing token usage: {calls(accounting.estimated_calls)}</span>
-          <span>In-flight requests: {calls(accounting.pending_calls)}</span>
-          <p {...stylex.props(layout.muted)}>Missing token usage and unknown cost are independent; a provider can report a charge without reporting tokens.</p>
-        </div> : <p {...stylex.props(layout.muted)}>Model accounting details are unavailable on this snapshot.</p>}
-        {!accounting && <p>
-          {root.meta.usage_in.toLocaleString()} input · {root.meta.usage_out.toLocaleString()}{' '}
-          output · {root.meta.usage_cached.toLocaleString()} cached tokens
-        </p>}
-        {values.map((item) => (
+        <QueryFeedback query={query} connected={props.connected} />
+        {query.data?.items?.map((item) => (
           <div
-            key={`${item.agent_id}:${item.state.kind}`}
+            key={`${item.session_id}:${item.kind}`}
             {...stylex.props(layout.column, layout.notice)}
           >
-            <strong>{item.state.kind}</strong>
-            <span {...stylex.props(layout.muted)}>
-              {agents.find((agent) => agent.id === item.agent_id)?.name || item.agent_id || 'Root tree'}
+            <strong>{item.kind.replaceAll('_', ' ')}</strong>
+            <code>{item.session_id}</code>
+            <span>
+              {formatBudgetAmount(item.kind, item.used)} used ·{' '}
+              {formatBudgetAmount(item.kind, item.reserved)} in flight
             </span>
             <span>
-              {formatBudgetAmount(item.state.kind, item.state.used)} used · {formatBudgetAmount(item.state.kind, item.state.reserved)} in flight
+              {item.limit === null
+                ? 'No local cap'
+                : `Limit ${formatBudgetAmount(item.kind, item.limit)}`}
             </span>
-            <span>
-              {item.state.limit === null
-                ? 'Unlimited'
-                : `${formatBudgetAmount(item.state.kind, item.state.remaining!)} remaining of ${formatBudgetAmount(item.state.kind, item.state.limit)}`}
-            </span>
-            {item.state.incomplete && <span {...stylex.props(layout.muted)}>
-              Usage is incomplete{item.state.uncertain !== '0' ? ` · estimated ${formatBudgetAmount(item.state.kind, item.state.uncertain)} unconfirmed` : ''}.
-            </span>}
+            {item.incomplete && (
+              <p>
+                Usage is incomplete · {formatBudgetAmount(item.kind, item.uncertain)} unconfirmed.
+              </p>
+            )}
           </div>
         ))}
-        <CollectionMore
-          collection={budgets}
-          omitted={root.omitted?.budgets}
-          connected={connected}
-        />
       </Section>
       <Section
-        title="Delegated capabilities"
-        description="Revoking a grant changes the authority available to agents. The daemon revalidates it on execution."
+        title="Resource limits"
+        description="Host hard limits and ancestor limits still apply when this agent has no local cap."
       >
-        {!grants.length && <Empty>No delegated grants in this page.</Empty>}
-        {grants.map((grant) => (
-          <article key={grant.id} {...stylex.props(layout.column, layout.notice)}>
-            <div {...stylex.props(layout.row)}>
-              <strong>{grant.agent_id}</strong>
-              <Badge>{grant.status}</Badge>
-            </div>
-            <span>{grant.operations?.join(', ')}</span>
-            <span {...stylex.props(layout.muted)}>
-              {grant.file_scope === 'inherit' ? 'Inherits the issuer’s filesystem scope'
-                : grant.file_scope === 'session' && root.permission_mode === 'automatic' ? 'All host paths (Full Access)'
-                  : grant.scopes?.join(', ')}
+        <QueryFeedback query={resources} connected={props.connected} />
+        {resources.data?.items?.map((item) => (
+          <div
+            key={`${item.session_id}:${item.kind}`}
+            {...stylex.props(layout.column, layout.notice)}
+          >
+            <strong>{item.kind.replaceAll('_', ' ')}</strong>
+            <span>
+              {item.used} used · {item.limit === null ? 'No local cap' : `Limit ${item.limit}`}
             </span>
-            {grant.mcp?.map((scope, index) => (
-              <CodeBlock
-                key={index}
-                code={JSON.stringify(scope, null, 2)}
-                label="MCP authority"
-                maxBytes={8192}
-              />
-            ))}
-            <Action
-              disabled={
-                !connected ||
-                grant.status !== 'active' ||
-                !agents
-                  .find((agent) => agent.id === grant.agent_id)
-                  ?.allowed_controls?.includes('capability.revoke')
-              }
-              run={() =>
-                runtime.run(
-                  view.session.command('capability.revoke', { id: grant.id }),
-                  'Revoke capability',
-                )
-              }
-            >
-              Revoke grant
-            </Action>
-          </article>
+            <code>{item.session_id}</code>
+          </div>
         ))}
-        <CollectionMore
-          collection={capabilities}
-          omitted={root.omitted?.capabilities}
-          connected={connected}
-        />
       </Section>
+      <Grants {...props} />
     </>
   );
 }
@@ -265,52 +381,89 @@ export function ContextSettings(props: InspectorProps) {
           { value: 'compaction', label: 'Compaction' },
         ]}
       />
-      {section === 'context' && <Context {...props} />}
+      {section === 'context' && <><ContextUsage {...props} /><Context {...props} /></>}
       {section === 'model' && <ModelSettings {...props} />}
       {section === 'compaction' && <Compaction {...props} />}
     </>
   );
 }
 function Context(props: InspectorProps) {
-  const query = useDetailQuery(props, 'context.audit', {});
-  const workspace = useDetailQuery(props, 'workspace.inspect', {});
-  const runtime = useRuntime();
-  const [path, setPath] = useState(props.root.meta.cwd);
+  const workspace = useDetailQuery(props, 'workspace.inspect', { session_id: props.session.id }),
+    evidence = useExecutionView(props.execution);
+  const [turn, setTurn] = useState(''),
+    [draft, setDraft] = useState<{ path: string; revision: string }>();
+  const selectedTurn = turn || evidence.turns[0]?.id;
+  const runtime = useRuntime(),
+    idle = useIdle(props),
+    path = draft?.path ?? workspace.data?.working_directory ?? props.selected.working_directory;
   return (
     <>
       <Section
         title="Applied context"
-        description="Environment context is assembled on the execution host. This is the daemon’s summary, not an invented list of files admitted to the model."
+        description="Inspect the captured instruction manifest of an exact turn. Current configuration governs future turns; it does not rewrite an earlier capture."
       >
-        <QueryFeedback view={props.view} query={query} />
-        {query.data?.result?.rows?.map((row, index) => (
-          <div key={index} {...stylex.props(layout.column, layout.notice)}>
-            <strong>{row.label}</strong>
-            <span>{row.bytes ?? 0} bytes</span>
-            {row.note && <p>{row.note}</p>}
-          </div>
-        ))}
+        <Select
+          label="Captured turn"
+          value={selectedTurn ?? ''}
+          options={evidence.turns.map((value) => ({
+            value: value.id,
+            label: `${value.kind} · ${value.id}`,
+          }))}
+          onValueChange={setTurn}
+        />
+        {selectedTurn ? (
+          <Instructions key={selectedTurn} {...props} turnID={selectedTurn} />
+        ) : (
+          <Empty>No captured turn in this execution window.</Empty>
+        )}
+        <p>Current standing instruction text:</p>
+        <CodeBlock
+          code={props.selected.configuration.instructions.text}
+          label="Configured instructions"
+          maxBytes={32 << 10}
+        />
       </Section>
+      <SessionReload key={`${props.client.runtimeID}:${props.session.id}`} {...props} />
       <Section
         title="Workspace"
-        description="This path is on the execution host. Changing it changes the agent’s working directory."
+        description="This path is on the execution host. Changes use the exact configuration revision and apply while this agent is idle."
       >
-        <QueryFeedback view={props.view} query={workspace} />
-        <p>
-          {workspace.data?.result?.path ||
-            query.data?.result?.working_directory ||
-            props.root.meta.cwd}
-        </p>
+        <QueryFeedback query={workspace} connected={props.connected} />
+        <p>{workspace.data?.working_directory ?? props.selected.working_directory}</p>
         <Field label="Host working directory">
-          <Input value={path} onChange={(event) => setPath(event.target.value)} />
+          <Input
+            value={path}
+            onChange={(event) =>
+              setDraft({
+                path: event.target.value,
+                revision:
+                  draft?.revision ??
+                  workspace.data?.configuration_revision ??
+                  props.selected.config_revision,
+              })
+            }
+          />
         </Field>
         <Action
-          disabled={
-            !props.connected || !path.trim() || !!Object.keys(props.root.active_turns ?? {}).length
-          }
-          run={() =>
-            runtime.run(props.view.session.command('workspace.set', { path }), 'Change workspace')
-          }
+          recoverable
+          disabled={!props.connected || !idle || !path.trim()}
+          run={async () => {
+            await runtime.run(
+              runtime.command(props.client, 'workspace.set', {
+                id: crypto.randomUUID(),
+                session_id: props.session.id,
+                expected_revision:
+                  draft?.revision ??
+                  workspace.data?.configuration_revision ??
+                  props.selected.config_revision,
+                path,
+              }),
+              'Change workspace',
+            );
+            setDraft(undefined);
+            await workspace.refetch();
+            await props.view.refresh();
+          }}
         >
           Change workspace
         </Action>
@@ -318,293 +471,444 @@ function Context(props: InspectorProps) {
     </>
   );
 }
-function ModelSettings({ view, root, connected }: InspectorProps) {
-  const runtime = useRuntime();
-  const [system, setSystem] = useState('');
-  const [turns, setTurns] = useState('');
-  const idle = !Object.keys(root.active_turns ?? {}).length;
+function Instructions(props: InspectorProps & { turnID: string }) {
+  const query = useDetailQuery(props, 'turns.instructions', { turn_id: props.turnID });
+  return (
+    <>
+      <QueryFeedback query={query} connected={props.connected} />
+      {query.data?.manifest ? (
+        <>
+          <span>{query.data.manifest.bytes} captured bytes</span>
+          {query.data.manifest.sources.map((source, index) => (
+            <div key={index} {...stylex.props(layout.column, layout.notice)}>
+              <strong>{source.kind.replaceAll('_', ' ')}</strong>
+              <code>{source.path}</code>
+              <span>
+                {source.scope} · {source.bytes} bytes
+              </span>
+              <details>
+                <summary>Captured digest</summary>
+                <code>{source.sha256}</code>
+              </details>
+            </div>
+          ))}
+        </>
+      ) : (
+        query.data && <Empty>No instruction manifest was captured for this turn.</Empty>
+      )}
+    </>
+  );
+}
+function ModelSettings(props: InspectorProps) {
+  const runtime = useRuntime(),
+    idle = useIdle(props),
+    [draft, setDraft] = useState<{ revision: string; value: RunConfiguration }>();
+  const configuration = draft?.value ??
+    props.selected.configuration.run ?? {
+      system: '',
+      max_turns: 0,
+      headless: false,
+      cache_key: '',
+    };
+  const edit = (patch: Partial<RunConfiguration>) =>
+    setDraft({
+      revision: draft?.revision ?? props.selected.config_revision,
+      value: { ...configuration, ...patch },
+    });
   return (
     <>
       <Section
         title="Model & reasoning"
-        description="Changes apply to this root session while it is idle. Provider credentials stay on the execution host."
+        description="Changes apply to the selected root or child while it is idle. Provider credentials remain on the execution host."
       >
-        <ModelSelection view={view} root={root} connected={connected} />
-        <Action
-          disabled={!connected || !idle}
-          run={() =>
-            runtime.run(view.session.command('session.reload', {}), 'Reload session runtime')
-          }
-        >
-          Reload runtime from host settings
-        </Action>
+        <ModelSelection {...props} />
       </Section>
       <Section
         title="Run configuration"
-        description="Advanced values are applied explicitly. Current overrides are not exposed by the protocol."
+        description="Explicit overrides preserve the remaining captured settings. Zero maximum turns is uncapped."
       >
         <Field label="System instruction override">
-          <Textarea value={system} onChange={(event) => setSystem(event.target.value)} />
+          <Textarea
+            value={configuration.system}
+            onChange={(event) => edit({ system: event.target.value })}
+          />
         </Field>
         <Field label="Maximum turns">
           <Input
             type="number"
-            min={1}
-            step={1}
-            value={turns}
-            onChange={(event) => setTurns(event.target.value)}
+            min={0}
+            max={1000000}
+            value={configuration.max_turns}
+            onChange={(event) =>
+              edit({ max_turns: event.target.value === '' ? 0 : Number(event.target.value) })
+            }
           />
         </Field>
+        {draft && draft.revision !== props.selected.config_revision && (
+          <p role="status">
+            Configuration changed while you were editing. Refresh before applying this draft.
+          </p>
+        )}
         <Action
+          recoverable
           disabled={
-            !connected ||
+            !props.connected ||
             !idle ||
-            (!system && !turns) ||
-            (!!turns && (!Number.isSafeInteger(Number(turns)) || Number(turns) < 1))
+            !Number.isSafeInteger(configuration.max_turns) ||
+            configuration.max_turns < 0 ||
+            configuration.max_turns > 1000000
           }
-          run={() =>
-            runtime.run(
-              view.session.configure({
-                ...(system ? { system } : {}),
-                ...(turns ? { max_turns: Number(turns) } : {}),
+          run={async () => {
+            await runtime.run(
+              runtime.command(props.client, 'run.configure', {
+                id: crypto.randomUUID(),
+                session_id: props.session.id,
+                expected_revision: draft?.revision ?? props.selected.config_revision,
+                configuration,
               }),
               'Apply run configuration',
-            )
-          }
+            );
+            setDraft(undefined);
+            await props.view.refresh();
+          }}
         >
           Apply overrides
         </Action>
+        <Button
+          variant="ghost"
+          disabled={!props.connected}
+          onClick={() => {
+            setDraft(undefined);
+            void props.view.refresh();
+          }}
+        >
+          Refresh configuration
+        </Button>
+        <p>Reloading all captured host defaults is not yet available in this inspector.</p>
       </Section>
     </>
   );
 }
 export function Compaction(props: InspectorProps) {
-  const runtime = useRuntime();
-  const query = useDetailQuery(props, 'history.compact.log', {});
-  const configuration = useQuery({
-    queryKey: [
-      'inspector-compaction-config',
-      props.view.session.client.getSnapshot().info?.runtime_id,
-    ],
-    queryFn: ({ signal }) => props.view.session.client.configuration.get({ signal }),
-    enabled: props.connected,
-    gcTime: 0,
-  });
-  const [draft, setDraft] = useState<{ revision: string; model: string; provider: string }>();
-  const model = draft?.model ?? configuration.data?.compact_model ?? '';
-  const provider = draft?.provider ?? configuration.data?.compact_provider ?? '';
-  const edit = (field: 'model' | 'provider', value: string) => {
-    if (!configuration.data) return;
+  const runtime = useRuntime(),
+    idle = useIdle(props),
+    [after, setAfter] = useState<string>(),
+    [selected, setSelected] = useState<string>();
+  const [draft, setDraft] = useState<{ revision: string; policy: CompactionPolicy }>();
+  const policy = draft?.policy ?? props.selected.configuration.compaction;
+  const query = useDetailQuery(props, 'context.compactions', {
+      session_id: props.session.id,
+      limit: 16,
+      ...(after === undefined ? {} : { after }),
+    }),
+    head = useDetailQuery(props, 'context.head', { session_id: props.session.id }, true);
+  const edit = (patch: Partial<CompactionPolicy>) =>
     setDraft({
-      ...(draft ?? { revision: configuration.data.revision, model, provider }),
-      [field]: value,
+      revision: draft?.revision ?? props.selected.config_revision,
+      policy: { ...structuredClone(policy), ...patch },
     });
-  };
-  const [offset, setOffset] = useState(0);
-  const idle = !Object.keys(props.root.active_turns ?? {}).length;
-  const records = query.data?.result ?? [];
+  const editModel = (field: 'name' | 'provider', value: string) =>
+    edit({
+      model: {
+        provider: policy.model?.provider ?? props.selected.configuration.model.provider,
+        name: policy.model?.name ?? props.selected.configuration.model.name,
+        effort: policy.model?.effort ?? '',
+        temperature: policy.model?.temperature ?? null,
+        top_p: policy.model?.top_p ?? null,
+        [field]: value,
+      },
+    });
   return (
     <>
       <Section
         title="Compaction"
-        description="Compaction reduces model context while retaining raw transcript history. It does not undo files."
+        description="Compaction changes model context while retaining raw transcript history. It does not undo files. These settings belong to the selected agent; host defaults remain in Settings."
       >
         <Action
+          recoverable
           disabled={!props.connected || !idle}
-          run={() => runtime.run(props.view.session.history.compact(), 'Compact context')}
+          run={async () => {
+            await runtime.run(
+              runtime.command(props.client, 'sessions.compact', {
+                session_id: props.session.id,
+                identity: identity(props),
+              }),
+              'Compact context',
+            );
+            await query.refetch();
+            await head.refetch();
+          }}
         >
           Compact now
         </Action>
-        <Field
-          label="Compaction model"
-          description="Blank restores WHIP’s built-in compaction model. This updates shared host defaults and reloads this idle session."
-        >
+        <Field label="Compaction threshold percent" description="Zero uses the host default.">
           <Input
-            value={model}
-            disabled={!configuration.data}
-            onChange={(event) => edit('model', event.target.value)}
+            type="number"
+            min={0}
+            max={100}
+            value={policy.threshold_percent}
+            onChange={(event) => edit({ threshold_percent: Number(event.target.value) })}
+          />
+        </Field>
+        <Field label="Compaction model" description="An empty model uses the conversation model.">
+          <Input
+            value={policy.model?.name ?? ''}
+            onChange={(event) => editModel('name', event.target.value)}
           />
         </Field>
         <Field label="Compaction provider">
           <Input
-            value={provider}
-            disabled={!configuration.data}
-            onChange={(event) => edit('provider', event.target.value)}
+            value={policy.model?.provider ?? ''}
+            onChange={(event) => editModel('provider', event.target.value)}
           />
         </Field>
         <Action
-          disabled={!props.connected || !idle || !configuration.data}
+          disabled={
+            !props.connected ||
+            !idle ||
+            !Number.isInteger(policy.threshold_percent) ||
+            policy.threshold_percent < 0 ||
+            policy.threshold_percent > 100
+          }
           run={async () => {
-            await props.view.session.client.configuration.update({
-              revision: draft?.revision ?? configuration.data!.revision,
-              compact_model: model,
-              compact_provider: model ? provider : '',
-            });
-            await runtime.run(
-              props.view.session.command('session.reload', {}),
-              'Reload compaction settings',
-            );
-            setDraft(undefined);
-            await configuration.refetch();
+            try {
+              await props.session.configure(draft?.revision ?? props.selected.config_revision, {
+                compaction: { ...policy, model: policy.model?.name ? { ...policy.model } : null },
+              });
+              setDraft(undefined);
+            } finally {
+              await props.view.refresh();
+            }
           }}
         >
-          Apply compaction defaults
+          Apply compaction settings
         </Action>
-        {configuration.error && props.connected && <ErrorNotice type="resource" owner={`${props.view.session.rootId}:configuration`} title="Could not load compaction defaults" error={configuration.error} />}
-        {draft && configuration.data && draft.revision !== configuration.data.revision && (
-          <p role="status">
-            Host configuration changed while you were editing. Refresh these fields before applying
-            them.
-          </p>
+        {draft && draft.revision !== props.selected.config_revision && (
+          <p role="status">Configuration changed. This draft retains its original revision.</p>
         )}
         <Button
           variant="ghost"
           disabled={!props.connected}
           onClick={() => {
             setDraft(undefined);
-            void configuration.refetch();
+            void props.view.refresh();
           }}
         >
-          Refresh compaction defaults
+          Refresh compaction settings
         </Button>
       </Section>
       <Section title="Compaction history">
-        <QueryFeedback query={query} view={props.view} />
-        {records.slice(offset, offset + 16).map((record) => (
-          <article key={record.seq} {...stylex.props(layout.column, layout.notice)}>
-            <strong>
-              Compaction {record.seq} · cutoff {record.cutoff}
-            </strong>
-            <CodeBlock code={record.summary} label="Summary" maxBytes={32 << 10} />
+        <QueryFeedback query={query} connected={props.connected} />
+        <QueryFeedback query={head} connected={props.connected} />
+        {query.data?.items?.map((item) => (
+          <article key={item.id} {...stylex.props(layout.column, layout.notice)}>
+            <strong>Through message {item.through_sequence}</strong>
+            <span>
+              History revision {item.history_revision} · {item.text_bytes} bytes
+            </span>
+            {item.id === head.data?.compaction_id && <Badge>Selected</Badge>}
+            <Button
+              variant="ghost"
+              disabled={!props.connected}
+              onClick={() => setSelected(selected === item.id ? undefined : item.id)}
+            >
+              Read summary
+            </Button>
+            {selected === item.id && <CompactionText {...props} id={item.id} />}
           </article>
         ))}
-        {records.length > offset + 16 && (
-          <Button variant="ghost" onClick={() => setOffset((value) => value + 16)}>
-            Next records
-          </Button>
-        )}
-        {offset > 0 && (
-          <Button variant="ghost" onClick={() => setOffset((value) => Math.max(0, value - 16))}>
-            Previous records
-          </Button>
-        )}
-        {!records.length && !query.isLoading && <Empty>No compactions in this session.</Empty>}
+        {query.data?.items?.length === 0 && <Empty>No compactions in this page.</Empty>}
+        <PageControls
+          after={after}
+          next={query.data?.items?.at(-1)?.id}
+          busy={query.isFetching}
+          connected={props.connected}
+          onChange={setAfter}
+        />
         <Action
-          disabled={!props.connected || !idle || !records.length}
-          run={() =>
-            runtime.run(
-              props.view.session.command('history.compact.retry', {}),
-              'Undo most recent compaction',
-            )
-          }
+          disabled={!props.connected || !idle || !head.data?.compaction_id}
+          run={async () => {
+            const current = head.data;
+            if (!current?.compaction_id) return;
+            const record = await props.client.call('context.compaction', {
+              session_id: props.session.id,
+              compaction_id: current.compaction_id,
+            });
+            await props.client.call('context.select', {
+              session_id: props.session.id,
+              expected_revision: current.revision,
+              compaction_id: record.metadata.base_id,
+            });
+            await head.refetch();
+          }}
         >
-          Undo latest compaction
+          Undo selected compaction
         </Action>
       </Section>
     </>
   );
 }
-// A saved rule's scope in words. MCP rules bind one exact server, tool and
-// definition digest; the digest stays under a disclosure so the scope reads
-// as a sentence rather than a JSON selector.
-function RuleScope({ operation, rule }: { operation: string; rule: string }) {
-  const scope = describeRule(operation, rule);
-  if (!scope.detail) return <code>{scope.summary}</code>;
+function CompactionText(props: InspectorProps & { id: string }) {
+  const query = useDetailQuery(props, 'context.compaction', {
+    session_id: props.session.id,
+    compaction_id: props.id,
+  });
   return (
     <>
-      <span>{scope.summary}</span>
-      <details>
-        <summary>Technical identity</summary>
-        <code>{scope.detail}</code>
-      </details>
+      <QueryFeedback query={query} connected={props.connected} />
+      {query.data && (
+        <CodeBlock code={query.data.text} label="Compaction summary" maxBytes={128 << 10} />
+      )}
     </>
   );
 }
+function Grants(props: InspectorProps) {
+  const [after, setAfter] = useState<string>(),
+    query = useDetailQuery(
+      props,
+      'grants.list',
+      { session_id: props.session.id, limit: 32, ...(after === undefined ? {} : { after }) },
+      true,
+    );
+  return (
+    <Section
+      title="Delegated capabilities"
+      description="Grants name exact capabilities and resource scopes. Revoking one also removes dependent authority; Full Access does not widen a child’s delegation."
+    >
+      <QueryFeedback query={query} connected={props.connected} />
+      {query.data?.items?.map((grant) => (
+        <article key={grant.id} {...stylex.props(layout.column, layout.notice)}>
+          <strong>{grant.capability}</strong>
+          <Badge>
+            {grant.revoked_at ? 'Revoked' : grant.operation_id ? 'One operation' : 'Standing'}
+          </Badge>
+          <code>{grant.resource}</code>
+          <span>
+            Owner {grant.session_id}
+            {grant.issuer_id && ` · issued by ${grant.issuer_id}`}
+          </span>
+          <Action
+            disabled={!props.connected || grant.revoked_at !== null}
+            run={async () => {
+              await props.client.call('grants.revoke', { grant_id: grant.id });
+              await query.refetch();
+            }}
+          >
+            Revoke grant
+          </Action>
+        </article>
+      ))}
+      {query.data?.items?.length === 0 && <Empty>No grants in this page.</Empty>}
+      <PageControls
+        after={after}
+        next={query.data?.items?.at(-1)?.id}
+        busy={query.isFetching}
+        connected={props.connected}
+        onChange={setAfter}
+      />
+    </Section>
+  );
+}
 export function Permissions(props: InspectorProps) {
-  const runtime = useRuntime();
-  const query = useDetailQuery(props, 'permission.rules', {});
-  const idle = !Object.keys(props.root.active_turns ?? {}).length;
-  const [policy, setPolicy] = useState('client');
-  const current = props.root.permission_mode === 'automatic' ? 'host' : props.root.permission_mode === 'prompt' ? 'client' : '';
+  const runtime = useRuntime(),
+    query = useDetailQuery(props, 'permissions.policy', { session_id: props.session.id }, true);
+  const [denial, setDenial] = useState<{ value: boolean; revision: string }>();
+  const [draft, setDraft] = useState<{ mode: 'prompt' | 'automatic'; revision: string }>(),
+    current = query.data;
   return (
     <>
       <Section
         title="Permission policy"
-        description="Full Access allows files outside the project and approves actions automatically. Explicit agent limits still apply."
+        description="Full Access approves eligible root actions automatically. Child grants, resource scopes, untrusted MCP approval, and intrinsic validation still apply."
       >
-        {current && <p {...stylex.props(layout.muted)}>Current policy: {current === 'host' ? 'Full Access' : 'Ask for approval'}</p>}
-        <Field label="Use this policy">
-          <Select
-            label="Permission policy"
-            value={policy}
-            onValueChange={setPolicy}
-            options={[
-              { value: 'client', label: 'Ask for approval' },
-              { value: 'host', label: 'Full Access' },
-            ]}
-          />
-        </Field>
-        <Action
-          disabled={!props.connected || !idle}
-          run={() =>
-            runtime.run(
-              props.view.session.command('permission.mode', {
-                external_permissions: policy === 'client',
-              }),
-              'Change permission policy',
-            )
-          }
-        >
-          Apply policy
-        </Action>
-        <Action
-          disabled={!props.connected || !idle}
-          run={() =>
-            runtime.run(
-              props.view.session.command('tool.configure', { deny_permissions: true }),
-              'Deny interactive tool permissions',
-            )
-          }
-        >
-          Deny interactive tool permissions
-        </Action>
-      </Section>
-      <Section title="Saved session rules">
-        <QueryFeedback view={props.view} query={query} />
-        {query.data?.result?.rules?.map((rule) => (
-          <div key={rule.id} {...stylex.props(layout.column, layout.notice)}>
-            <strong>{rule.operation}</strong>
-            <RuleScope operation={rule.operation} rule={rule.rule} />
-            <span {...stylex.props(layout.muted)}>
-              {rule.principal_id} · {rule.created_at}
-            </span>
+        <QueryFeedback query={query} connected={props.connected} />
+        {current && (
+          <>
+            <p>
+              Current: {current.mode === 'automatic' ? 'Full Access' : 'Ask for approval'} ·
+              revision {current.revision}
+            </p>
+            <Select
+              label="Permission policy"
+              value={draft?.mode ?? current.mode}
+              onValueChange={(mode) => {
+                if (mode === 'prompt' || mode === 'automatic')
+                  setDraft({ mode, revision: draft?.revision ?? current.revision });
+              }}
+              options={[
+                { value: 'prompt', label: 'Ask for approval' },
+                { value: 'automatic', label: 'Full Access' },
+              ]}
+            />
             <Action
-              disabled={!props.connected}
-              run={() =>
-                runtime.run(
-                  props.view.session.command('permission.forget', { id: rule.id }),
-                  'Forget permission rule',
-                )
-              }
+              recoverable
+              disabled={!props.connected || props.session.id !== props.rootId}
+              run={async () => {
+                try {
+                  await runtime.run(
+                    runtime.command(props.client, 'permissions.set_mode', {
+                      session_id: props.session.id,
+                      edit_id: crypto.randomUUID(),
+                      expected_revision: draft?.revision ?? current.revision,
+                      mode: draft?.mode ?? current.mode,
+                    }),
+                    'Change permission policy',
+                  );
+                  setDraft(undefined);
+                } finally {
+                  await query.refetch();
+                }
+              }}
             >
-              Forget rule
+              Apply policy
             </Action>
-          </div>
-        ))}
-        {query.data?.result?.rules?.length === 0 && <Empty>No saved session rules.</Empty>}
+            <Select
+              label="Interactive permission requests"
+              value={(denial?.value ?? current.deny_interactive) ? 'deny' : 'allow'}
+              onValueChange={value => setDenial({ value: value === 'deny', revision: denial?.revision ?? current.revision })}
+              options={[{ value: 'allow', label: 'Allow permission requests' }, { value: 'deny', label: 'Deny interactive permission requests' }]}
+            />
+            <p>This separate tree-wide setting closes pending approval requests and denies actions that require interactive permission. It preserves the approval mode and standing grants. Intrinsic questions still work.</p>
+            <Action recoverable disabled={!props.connected || props.session.id !== props.rootId} run={async () => {
+              try {
+                await runtime.run(runtime.command(props.client, 'permissions.set_denial', {
+                  session_id: props.session.id, edit_id: crypto.randomUUID(),
+                  expected_revision: denial?.revision ?? current.revision,
+                  deny_interactive: denial?.value ?? current.deny_interactive,
+                }), 'Change interactive permission denial');
+                setDenial(undefined);
+              } finally { await query.refetch(); }
+            }}>Apply request policy</Action>
+            {denial && denial.revision !== current.revision && <p role="status">Permission requests changed while you were editing. This choice retains its original revision.</p>}
+            {props.session.id !== props.rootId && (
+              <p>
+                Change the shared policy from the root agent. A displayed mode does not grant
+                authority to this child.
+              </p>
+            )}
+            {draft && draft.revision !== current.revision && (
+              <p role="status">
+                Policy changed while you were editing. This draft retains its original revision.
+              </p>
+            )}
+            <Button
+              variant="ghost"
+              disabled={!props.connected}
+              onClick={() => {
+                setDraft(undefined);
+                setDenial(undefined);
+                void query.refetch();
+              }}
+            >
+              Refresh policy
+            </Button>
+          </>
+        )}
+        <p>
+          Saved host defaults are managed in Settings.
+        </p>
       </Section>
-      <Section title="Global host rules">
-        {query.data?.result?.global?.map((entry, index) => {
-          const { operation, rule } = splitGlobalRule(entry);
-          return (
-            <div key={index} {...stylex.props(layout.column, layout.notice)}>
-              <strong>{operation}</strong>
-              <RuleScope operation={operation} rule={rule} />
-            </div>
-          );
-        })}
-        {query.data?.result?.global?.length === 0 && <Empty>No global rules.</Empty>}
-      </Section>
+      <Grants {...props} />
     </>
   );
 }

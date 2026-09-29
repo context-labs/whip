@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { useWhipConnection } from '@whip/legacy-sdk/react';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Dialog, Field, IconButton, Select, Textarea } from '@whip/ui';
 import { ArrowUp, AtSign, Monitor, Paperclip } from 'lucide-react';
@@ -8,7 +7,7 @@ import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
 import { useAppState, useRuntime } from './context';
 import { layout } from './styles';
-import type { WhipClient } from '@whip/legacy-sdk';
+import type { Client } from '@whip/sdk';
 import { WelcomeHostPicker } from './welcome-host-picker';
 import { HostDialog, LocalRuntimeSetup } from './host-dialog';
 import type { HostConnection } from './hosts';
@@ -22,11 +21,10 @@ import { PermissionModeControl } from './permission-mode';
 import { errorMessage } from './platform';
 import { ErrorNotice } from './error-feedback';
 import { SessionTopBar } from './session-top-bar';
-import { definitionOptions, useDefinitions } from './definitions';
+import { definitionOptionValue, definitionOptions, parseDefinitionOption, useDefinitions } from './definitions';
 import { MCPImportScreen, shouldOffer, useMCPImportCandidates } from './mcp-import';
 import { ComposerAttachments } from './composer-attachments';
-import { compositionKey } from './compositions';
-import { submitChatInput } from './chat-submission';
+import { startNewChat } from './new-chat';
 import { ChatDropSurface, ChatFileDrop } from './chat-file-drop';
 
 export function Welcome({ tab, focused = true }: { tab: NewChatTab; focused?: boolean }) {
@@ -50,7 +48,7 @@ export function Welcome({ tab, focused = true }: { tab: NewChatTab; focused?: bo
     if (sending || id === host?.id) return;
     const next = hosts.find(host => host.id === id);
     try {
-      runtime.tabs.updateNew(tab.id, { hostProfileId: id, runtimeId: next?.runtimeId, cwd: '', model: undefined, provider: undefined, effort: undefined });
+      runtime.tabs.updateNew(tab.id, { hostProfileId: id, runtimeId: next?.runtimeId, cwd: '', model: undefined, provider: undefined, effort: undefined, definition: undefined, unresolvedDefinition: undefined });
       setHostSelectionError(undefined);
       if (next && next.state !== 'connected') void runtime.connections.connect(id).catch(() => {});
     } catch (error) { setHostSelectionError(error); }
@@ -75,13 +73,12 @@ export function Welcome({ tab, focused = true }: { tab: NewChatTab; focused?: bo
 
 /** Editable state belongs to the stable workspace draft, not the selected host. */
 export function WelcomeComposer({ client, host, tab, focused = true, hostControl, onConnectRemote, dropTarget, onProviderExpandedChange }: {
-  client: WhipClient; host: HostConnection; tab: NewChatTab; focused?: boolean; hostControl?: ReactNode; onConnectRemote?(): void;
+  client: Client; host: HostConnection; tab: NewChatTab; focused?: boolean; hostControl?: ReactNode; onConnectRemote?(): void;
   dropTarget?: RefObject<HTMLElement | null>; onProviderExpandedChange?(expanded: boolean): void;
 }) {
   const runtime = useRuntime();
   const app = useAppState();
-  const connection = useWhipConnection(client);
-  const runtimeId = connection.info?.runtime_id ?? host.runtimeId!;
+  const runtimeId = client.runtimeID;
   const key = welcomeDraftKey(tab.id);
   const navigate = useNavigate();
   const draft = useSyncExternalStore(listener => runtime.subscribeDraft(key, listener), () => runtime.draft(key));
@@ -101,36 +98,37 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
   isFocused.current = focused;
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  const connected = connection.state === 'connected';
-  const engines = connection.info?.execution_engines;
-  const configuration = useQuery({ queryKey: ['runtime-configuration', runtimeId], queryFn: ({ signal }) => client.configuration.get({ signal }), enabled: connected });
-  const permission = tab.permissionMode ?? (configuration.data ? configuration.data.default_permission_mode ?? 'prompt' : '');
+  const connected = host.state === 'connected' && host.client === client && host.runtimeId === runtimeId;
+  const engines = [{ id: 'starlark', label: 'Starlark' }, { id: 'quickjs', label: 'JavaScript' }] as const;
+  const configuration = useQuery({ queryKey: ['host-permission-default', runtimeId, client.processEpoch], queryFn: ({ signal }) => client.getDefaultPermissionMode({ signal }), enabled: connected, retry: false });
+  const execution = useQuery({ queryKey: ['host-execution-defaults', runtimeId, client.processEpoch], queryFn: ({ signal }) => client.hosts.executionDefaults({ signal }), enabled: connected, retry: false });
+  const permission = tab.permissionMode ?? configuration.data?.mode ?? '';
   const permissionAvailable = permission === 'prompt' || permission === 'automatic';
   const providers = useProviderConnections(client, connected);
-  const selection = providers.inventory.data?.selection;
+  const selection = providers.inventory.data?.defaults;
   const catalog = useProviderCatalog(client, connected);
-  const model = tab.model ?? selection?.model ?? '';
+  const model = tab.model ?? selection?.name ?? '';
   const provider = tab.provider ?? selection?.provider ?? '';
-  const route = providers.inventory.data?.providers?.find(item => item.id === provider);
-  const ready = tab.model ? !!route?.status.available && !route.status.disabled : selection?.ready === true;
-  const levels = modelEfforts(catalogModels(catalog.data?.result, provider), model);
-  const requestedEffort = tab.effort ?? configuration.data?.default_effort ?? 'off';
+  const levels = modelEfforts(catalogModels(catalog.data, provider), model);
+  const requestedEffort = tab.effort ?? execution.data?.effort ?? selection?.effort ?? 'off';
   const effort = tab.effort ?? (levels.includes(requestedEffort) ? requestedEffort : 'off');
   const effortAvailable = tab.effort === undefined || levels.includes(effort);
-  const requiresUpdate = !!providers.inventory.data && !selection;
-  const executionEngine = tab.executionEngine ?? configuration.data?.default_execution_engine ?? connection.info?.default_execution_engine ?? 'starlark';
-  const engineOptions = (engines ?? []).filter(engine => engine.id === 'starlark' || engine.id === 'quickjs')
-    .map(engine => ({ value: engine.id, label: engine.label }));
+  const readiness = useQuery({ queryKey: ['provider-readiness', runtimeId, { provider, name: model, effort: effort === 'off' ? '' : effort }],
+    queryFn: ({ signal }) => client.providerReadiness({ provider, name: model, effort: effort === 'off' ? '' : effort }, { signal }), enabled: connected && !!provider && !!model, retry: false });
+  const ready = readiness.data ? readiness.data.configured && ['available', 'not_required'].includes(readiness.data.credential_state) : providers.ready === false ? false : undefined;
+  const executionEngine = tab.executionEngine ?? execution.data?.engine ?? '';
+  const engineOptions = engines.map(engine => ({ value: engine.id, label: engine.label }));
   const engineAvailable = engineOptions.some(engine => engine.value === executionEngine);
-  // The agent definition the session runs. Older hosts do not advertise the
-  // registry; they run the coding agent and the picker stays hidden.
   const definitions = useDefinitions(client, connected);
-  const definition = tab.definition ?? 'coding';
+  const definition = tab.unresolvedDefinition ? undefined : tab.definition ?? client.builtins.find(ref => ref.id === 'coding');
+  const definitionValue = definition ? definitionOptionValue(definition) : '';
   const definitionChoices = definitionOptions(definitions.query.data?.items);
-  const definitionAvailable = !definitions.supported || !definitions.query.data || definitionChoices.some(choice => choice.value === definition);
+  if (definition && !definitionChoices.some(choice => choice.value === definitionValue))
+    definitionChoices.unshift({ value: definitionValue, label: `${definition.id} @ ${definition.revision.slice(0, 12)}` });
+  const definitionAvailable = !!definition;
   const unresolved = app.commands.find(command => command.draftKey === key && command.delivery);
   const changeDraft = (text: string) => { try { runtime.setDraft(key, text); } catch (error) { setError(errorMessage(error)); } };
-  const skills = useSkillCompletion({ client, owner: key, scope: { cwd, definition, permissionMode: permission },
+  const skills = useSkillCompletion({ client, owner: key, scope: { cwd, definition: definition ?? null },
     input, draft, change: changeDraft, connected, blocked: busy || !permissionAvailable || showOptions || showProviders || !focused });
   function openProviders() { setShowProviders(true); requestAnimationFrame(() => { if (!isFocused.current) return; const setup = panel.current?.querySelector<HTMLElement>('[aria-label="Provider setup"]'); setup?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }); (setup?.querySelector<HTMLButtonElement>('[data-provider-confirm]:not(:disabled)') ?? setup?.querySelector<HTMLButtonElement>('[data-provider-choice]'))?.focus(); }); }
   function focusComposer() { setShowProviders(false); requestAnimationFrame(() => { if (isFocused.current) input.current?.focus(); }); }
@@ -141,75 +139,31 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
   }
   async function submit() {
     skills.dismiss();
-    if (!connected || busy || !permissionAvailable || (!draft.trim() && !attachments.length) || requiresUpdate || unresolved) return;
-    if (!engineAvailable) { setError('This host does not advertise the selected execution language. Reconnect to an updated host or select an available language.'); return; }
-    if (definitions.query.data && !definitionAvailable) { setError(`This host has no agent definition named ${definition}. Choose an available agent.`); return; }
+    if (!connected || busy || !permissionAvailable || (!draft.trim() && !attachments.length) || unresolved) return;
+    if (!engineAvailable) { setError('Choose an execution language after the host defaults finish loading.'); return; }
+    if (!definition) { setError('Choose an exact agent revision before sending.'); setShowOptions(true); return; }
     if (!ready) { openProviders(); return; }
     if (!effortAvailable) { setError('Choose an available reasoning effort for this model before sending.'); return; }
     if (!cwd.trim()) { setError('Choose a project folder on this host before sending.'); return; }
-    let token: symbol | undefined;
-    try { token = runtime.compositions.beginSubmission(key); }
-    catch (error) { setError(errorMessage(error)); return; }
-    if (!token) return;
     setError('');
-    const text = draft;
     try {
-      // Create with the chosen effort, then send. Each step runs through the
-      // command runner, whose delivery tracking keeps a dropped connection from
-      // sending twice and surfaces an unresolved send under the composer.
-      const created = await runtime.run(client.sessions.create({ cwd: cwd.trim(), model, provider, ...(tab.effort !== undefined ? { effort } : {}), permission_mode: permission, execution_engine: executionEngine, ...(definitions.supported && tab.definition ? { definition: tab.definition } : {}) }), 'Create session', undefined, key);
-      const rootId = created.result?.root_id;
-      if (!rootId) throw new Error('Session creation returned no session.');
-      if (attachments.length) {
-        // Once created, this session owns the draft. Upload/send failures
-        // stay in its normal composer instead of creating another root on retry.
-        const session = client.session(rootId);
-        const destination = compositionKey(runtimeId, rootId, rootId);
-        // Move before writing so the same text does not consume two draft slots.
-        if (runtime.draft(key) === text) runtime.setDraft(key, '');
-        try { runtime.setDraft(destination, text); }
-        catch (error) { if (!runtime.draft(key)) runtime.setDraft(key, text); throw error; }
-        const uploading = runtime.compositions.adopt(key, session, runtimeId);
-        const uploadToken = runtime.compositions.beginSubmission(destination)!;
-        runtime.tabs.promoteNew(tab.id, runtimeId, rootId);
-        try {
-          await uploading;
-        } catch (error) {
-          runtime.report(error);
-          return;
-        } finally {
-          runtime.compositions.finishSubmission(destination, uploadToken);
-        }
-        const readyAttachments = runtime.compositions.get(destination).attachments;
-        if (readyAttachments.length !== attachments.length || readyAttachments.some((item, index) => item.id !== attachments[index]?.id || !item.value)) return;
-        const result = await submitChatInput({ runtime, session, runtimeId, agentId: rootId,
-          compositionKey: destination, connected: client.getSnapshot().state === 'connected',
-          text, attachments: readyAttachments, delivery: 'queued',
-          onAccepted: () => { if (runtime.draft(destination) === text) runtime.setDraft(destination, ''); },
-        });
-        if (result.status === 'failed' && !result.delivery) runtime.report(result.error);
-        return;
-      }
-      // Acceptance is the handover: this tab becomes the session's and the turn runs there.
-      await new Promise<void>((resolve, reject) => {
-        let accepted = false;
-        void runtime.run(client.session(rootId).submit({ text }), 'Send first message', () => { accepted = true; resolve(); }, key).catch(error => { if (!accepted) reject(error); });
-      });
-      runtime.tabs.promoteNew(tab.id, runtimeId, rootId);
-      if (runtime.draft(key) === text) runtime.setDraft(key, '');
-    } catch (error) { if (mounted.current) setError(errorMessage(error)); }
-    finally { runtime.compositions.finishSubmission(key, token); }
+      await startNewChat(runtime, client, tab.id, { definition, engine: executionEngine as 'starlark' | 'quickjs',
+        working_directory: cwd.trim(), metadata: { title: null, archived: false, pinned: false }, permission_mode: permission,
+        overrides: { model: { provider, name: model, effort: effort === 'off' ? '' : effort } } });
+    } catch (error) { if (mounted.current) setError(errorMessage(error)); else runtime.report(error); }
   }
+
   const disabled = !connected || busy;
   // While the inventory is pending, the device's last answer for this host picks the layout; unknown keeps the composer's footprint.
   const knownReady = providers.inventory.isPending ? providers.lastKnownReady : ready;
   const setupVisible = knownReady === false || showProviders;
   // Once a provider works, a host that has MCP servers configured for other
-  // agents gets one offer to bring them in. config.get says whether this host
+  // agents gets one offer to bring them in. Native MCP configuration records whether this host
   // has answered, so an answered host never reads the other agents' files again.
-  const offerable = connected && ready && !setupVisible && configuration.data?.mcp_import_offered === false;
-  const offer = useMCPImportCandidates(client, { enabled: offerable, cwd });
-  const offerVisible = offerable && shouldOffer(offer.query.data);
+  const mcp = useQuery({ queryKey: ['mcp-configuration', runtimeId], queryFn: ({ signal }) => client.mcpConfiguration({ signal }), enabled: connected && ready === true && !setupVisible, retry: false });
+  const offerable = connected && ready === true && !setupVisible && mcp.data?.imports.offered === false;
+  const offer = useMCPImportCandidates(client, { enabled: offerable });
+  const offerVisible = offerable && shouldOffer(offer.query.data, mcp.data);
   useEffect(() => {
     if (!focused || setupVisible || offerVisible || !window.matchMedia('(min-width: 768px)').matches) return;
     // A new workspace panel is hidden until layout measures it; mount-time autoFocus runs too early.
@@ -224,7 +178,7 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
   }, [focused, setupVisible, offerVisible, key]);
   return <><h1 {...stylex.props(styles.heading)}>{setupVisible ? 'Connect a provider to get started' : offerVisible ? 'Bring your MCP servers into Whip' : 'What do you want to work on?'}</h1>
   <div ref={panel} {...stylex.props(styles.content)}>
-    {offerVisible && <><MCPImportScreen client={client} hostName={host.name} cwd={cwd} onDone={focusComposer} />
+    {offerVisible && <><MCPImportScreen client={client} hostName={host.name} onDone={focusComposer} />
       <div {...stylex.props(styles.toolbar)}>{hostControl}</div></>}
     {!setupVisible && !offerVisible && <><form ref={form} onSubmit={event => { event.preventDefault(); void submit(); }} {...stylex.props(styles.composer)}>
       <ChatFileDrop target={dropTarget ?? form} scope={key}
@@ -248,21 +202,21 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
         <IconButton variant="ghost" label="Add context" title="Context suggestions are available after the session starts" disabled><AtSign size={16} /></IconButton>
         <span {...stylex.props(layout.grow)} />
         <PermissionModeControl value={permission} inherited={tab.permissionMode === undefined} disabled={disabled} onChange={permissionMode => updateSetup({ permissionMode: permissionMode as NewChatTab['permissionMode'] })} />
-        {ready ? <CatalogModelPicker model={model} provider={provider} catalog={catalog.data?.result} loading={catalog.isFetching}
+        {ready ? <CatalogModelPicker model={model} provider={provider} catalog={catalog.data} loading={catalog.isFetching}
           error={connected ? catalog.error?.message : undefined} onRetry={() => void catalog.refetch()} disabled={disabled}
-          onChange={(model, provider) => updateSetup({ model, provider, effort: modelEfforts(catalogModels(catalog.data?.result, provider), model).includes(effort) ? effort : 'off' })}
+          onChange={(model, provider) => updateSetup({ model, provider, effort: modelEfforts(catalogModels(catalog.data, provider), model).includes(effort) ? effort : 'off' })}
           onSessionOptions={() => setShowOptions(true)} />
           : providers.inventory.isPending ? <PickerSkeletons count={2} />
           : <Button variant="ghost" disabled={disabled} onClick={openProviders}>Connect a provider</Button>}
         {(ready || !providers.inventory.isPending) && <DraftEffortPicker value={effort} levels={levels} disabled={disabled || !ready || catalog.isPending} onChange={effort => updateSetup({ effort })} />}
         <Button type="submit" variant="primary" aria-label="Send first message" xstyle={styles.send} loading={busy}
-          disabled={disabled || !permissionAvailable || !!unresolved || requiresUpdate || !engineAvailable || !effortAvailable || !ready || (!draft.trim() && !attachments.length) || !cwd.trim()}>{!busy && <ArrowUp size={16} />}</Button>
+          disabled={disabled || !permissionAvailable || !!unresolved || !definitionAvailable || !engineAvailable || !effortAvailable || !ready || (!draft.trim() && !attachments.length) || !cwd.trim()}>{!busy && <ArrowUp size={16} />}</Button>
       </div>
     </form>
     <div {...stylex.props(styles.toolbar)}>
       {hostControl}
-      <DirectoryPicker sessionTrigger client={client} native={host.local} pickDirectory={host.profile?.target.kind === 'local' ? runtime.platform.pickDirectory : undefined}
-        host={{ name: host.name, list: host.list, detail: host.profile.target.kind === 'ssh' ? [host.profile.target.user, host.profile.target.host].filter(Boolean).join('@') : host.endpoint,
+      <DirectoryPicker sessionTrigger connected={connected} client={client} native={host.local} pickDirectory={host.profile?.target.kind === 'local' ? runtime.platform.pickDirectory : undefined}
+        host={{ name: host.name, detail: host.profile.target.kind === 'ssh' ? [host.profile.target.user, host.profile.target.host].filter(Boolean).join('@') : host.endpoint,
           reconnect: () => runtime.connections.connect(host.id) }}
         value={cwd} onSelect={path => { updateSetup({ cwd: path }); setError(''); }} disabled={disabled} />
     </div>
@@ -271,12 +225,19 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
       <Field label="Execution language" description="Fixed once the session starts."><Select label="Execution language" value={executionEngine}
         disabled={disabled || !engines?.length} options={engineAvailable ? engineOptions : [...engineOptions, { value: executionEngine, label: `${executionEngine} (unavailable)`, disabled: true }]}
         onValueChange={executionEngine => updateSetup({ executionEngine: executionEngine as NewChatTab['executionEngine'] })} /></Field>
-      {definitions.supported && <Field label="Agent"><Select label="Agent" value={definition} disabled={disabled || !definitionChoices.length}
-        options={definitionAvailable ? definitionChoices : [...definitionChoices, { value: definition, label: `${definition} (unavailable)`, disabled: true }]}
-        onValueChange={definition => updateSetup({ definition })} /></Field>}
+      {definitions.supported && <Field label="Agent"><Select label="Agent" value={definitionValue} disabled={disabled || !definitionChoices.length}
+        options={definitionAvailable ? definitionChoices : [...definitionChoices, { value: '', label: `${tab.unresolvedDefinition ?? 'Agent'} (choose a revision)`, disabled: true }]}
+        onValueChange={value => updateSetup({ definition: parseDefinitionOption(value), unresolvedDefinition: undefined })} /></Field>}
+    {definitions.query.hasNextPage && <Button variant="ghost" disabled={disabled || definitions.query.isFetchingNextPage} onClick={() => void definitions.query.fetchNextPage()}>Load more agents</Button>}
+      {definitions.truncated && <p role="status">Only the first 1,000 agent revisions are shown.</p>}
+      {definitions.query.error && <ErrorNotice type="resource" owner={`${runtimeId}:definitions`} title="Could not load agent revisions" error={definitions.query.error} />}
     </Dialog>
     {!setupVisible && connected && (!engineAvailable || !definitionAvailable) && <Button variant="ghost" onClick={() => setShowOptions(true)}>Review unavailable session options</Button>}
     {!setupVisible && !effortAvailable && !catalog.isPending && <p role="status" {...stylex.props(styles.note)}>Choose an available reasoning effort for this model before sending.</p>}
+    {!setupVisible && <ErrorNotice type="resource" owner={`${runtimeId}:provider-status`} title="Could not load provider status"
+      error={providers.inventory.error || providers.presets.error || readiness.error}
+      action={<Button disabled={!connected || providers.inventory.isFetching || readiness.isFetching} onClick={() => { void providers.refresh(); if (provider && model) void readiness.refetch(); }}>Retry provider status</Button>} />}
+    {execution.error && !tab.executionEngine && <ErrorNotice type="resource" owner={`${runtimeId}:execution-defaults`} title="Could not load execution defaults" error={execution.error} action={<Button onClick={() => void execution.refetch()}>Retry execution defaults</Button>} />}
     {tab.permissionMode === undefined && !configuration.data && (configuration.error
       ? <ErrorNotice type="resource" owner={`${runtimeId}:configuration`} title="Could not load host defaults" error={configuration.error}
         action={<Button variant="ghost" disabled={!connected || configuration.isFetching} onClick={() => void configuration.refetch()}>Retry host defaults</Button>} />
@@ -288,8 +249,8 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
         <Button type="button" variant="ghost" disabled={!connected} onClick={() => void runtime.checkCommand(unresolved.id).catch(error => setError(errorMessage(error)))}>Check status</Button>
         {unresolved.delivery === 'absent' && <Button type="button" variant="ghost" disabled={!connected} onClick={() => void runtime.retryCommand(unresolved.id).catch(error => setError(errorMessage(error)))}>Send again</Button>}
       </>} />}
-    {error && !unresolved && <ErrorNotice type="submission" owner={key} error={error} />}
-    {!connected && <p role="status" {...stylex.props(styles.note)}>{connection.info ? 'Reconnecting to' : 'Connecting to'} {host.name}. Your draft stays here and will not be sent automatically.</p>}
+    {error && !unresolved && <ErrorNotice type="submission" owner={key} error={error} action={error.includes('saved session creation') ? <Button onClick={() => void navigate({ to: '/settings', search: { section: 'general', setting: 'commandRecovery' } })}>Review saved commands</Button> : undefined} />}
+    {!connected && <p role="status" {...stylex.props(styles.note)}>Reconnecting to {host.name}. Your draft stays here and will not be sent automatically.</p>}
     {setupVisible && <ProviderSetup client={client} enabled={connected && !busy} hostName={host.name} connections={providers} onExpandedChange={onProviderExpandedChange}
       actions={host.local ? <Button variant="ghost" disabled={busy} onClick={() => onConnectRemote ? onConnectRemote() : void navigate({ to: '/settings', search: { section: 'connections' } })}><Monitor size={14} />Connect Remote</Button> : showProviders ? hostControl : undefined}
       onReady={() => { updateSetup({ model: undefined, provider: undefined, effort: undefined }); focusComposer(); }} />}

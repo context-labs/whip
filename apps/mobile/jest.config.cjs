@@ -1,10 +1,10 @@
 module.exports = {
   preset: 'jest-expo',
   moduleNameMapper: {
+    '^@whip/sdk$': '<rootDir>/../../packages/sdk/dist/index.js',
+    '^@whip/sdk/(.*)$': '<rootDir>/../../packages/sdk/dist/$1.js',
+    '^@whip/protocol$': '<rootDir>/../../packages/protocol/generated/index.js',
     '^lucide-react-native$': '<rootDir>/../../node_modules/lucide-react-native/dist/cjs/lucide-react-native.js',
-    '^@whip/legacy-sdk$': '<rootDir>/../../packages/legacy-sdk/dist/index.js',
-    '^@whip/legacy-sdk/(.*)$': '<rootDir>/../../packages/legacy-sdk/dist/$1.js',
-    '^@whip/legacy-protocol$': '<rootDir>/../../packages/legacy-protocol/generated/index.js',
     '^@whip/app/presentation$': '<rootDir>/../../packages/app/src/presentation.ts',
   },
   testMatch: ['<rootDir>/src/**/*.test.ts', '<rootDir>/src/**/*.test.tsx', '<rootDir>/test/**/*.test.ts', '<rootDir>/test/**/*.test.tsx'],

@@ -306,14 +306,26 @@ describe('window session tabs', () => {
     const drafts = new SessionTabs(), draft = drafts.openNew({});
     expect(() => drafts.openRelated(draft.id, 'repl')).toThrow('no longer open');
   });
-  it('keeps a valid agent definition on new-chat tabs and rejects malformed ids', () => {
+  it('persists an exact immutable agent revision and rejects malformed refs', () => {
     const state = new SessionTabs();
-    const tab = state.openNew({ definition: 'junior-developer' });
-    expect(tab.definition).toBe('junior-developer');
-    expect(state.updateNew(tab.id, { definition: 'support-triage' })).toBe(true);
-    expect((state.workspace().tabs.find(item => item.id === tab.id) as { definition?: string }).definition).toBe('support-triage');
-    expect(() => state.updateNew(tab.id, { definition: 'Not Valid' })).toThrow('Invalid New Chat options');
+    const definition = { id: 'junior-developer', revision: 'a'.repeat(64) };
+    const tab = state.openNew({ definition });
+    definition.id = 'changed';
+    expect(tab.definition).toEqual({ id: 'junior-developer', revision: 'a'.repeat(64) });
+    expect(Object.isFrozen(tab.definition)).toBe(true);
+    expect(state.updateNew(tab.id, { definition: { id: 'support-triage', revision: 'b'.repeat(64) } })).toBe(true);
+    expect(state.workspace().tabs.find(item => item.id === tab.id)).toMatchObject({ definition: { id: 'support-triage', revision: 'b'.repeat(64) } });
+    expect(() => state.updateNew(tab.id, { definition: { id: 'agent', revision: 'latest' } })).toThrow('Invalid New Chat options');
     expect(state.openNew({}).definition).toBeUndefined();
+  });
+  it('preserves a saved mutable agent name as unresolved without silently choosing a new revision', () => {
+    const state = new SessionTabs();
+    const tab = state.openNew({ definition: 'junior-developer' as never, cwd: '/my/project' });
+    expect(tab).toMatchObject({ unresolvedDefinition: 'junior-developer', cwd: '/my/project' });
+    expect(tab.definition).toBeUndefined();
+    state.updateNew(tab.id, { definition: { id: 'junior-developer', revision: 'c'.repeat(64) }, unresolvedDefinition: undefined });
+    expect(state.workspace().tabs.find(item => item.id === tab.id)).toMatchObject({ definition: { id: 'junior-developer', revision: 'c'.repeat(64) } });
+    expect(state.workspace().tabs.find(item => item.id === tab.id)).not.toHaveProperty('unresolvedDefinition');
   });
   it('deduplicates roots while preserving separate hosts and selected child context', () => {
     const state = new SessionTabs();

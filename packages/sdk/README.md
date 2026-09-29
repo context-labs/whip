@@ -20,8 +20,9 @@ optional cursor is the last returned turn ID, scoped to that session; use
 payloads. Each page reads current turn states, rather than promising one frozen
 execution snapshot across pages.
 
-This SDK talks directly to the new Go runtime. The retained product applications
-currently use `@whip/legacy-sdk`; their later cutover is tracked in
+This SDK talks directly to the native Go runtime. The shared app/web renderer,
+desktop bridge, mobile renderer and public agent/client examples consume it.
+Remaining TUI, acceptance and retired-core cutover work is tracked in
 [the redesign plan](../../docs/backend-redesign-plan.md).
 
 ```sh

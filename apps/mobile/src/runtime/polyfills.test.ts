@@ -2,7 +2,7 @@
 import { installAbortCheckpoint, installAbortReason } from './polyfills';
 import { AbortController as NativeAbortController, AbortSignal as NativeAbortSignal } from 'abort-controller';
 import { installAbortSignalPatch } from 'expo/src/winter/AbortSignal';
-import { createWhipClient } from '@whip/legacy-sdk';
+import { Client } from '@whip/sdk';
 
 const NativeController = NativeAbortController as unknown as typeof AbortController;
 const NativeSignal = NativeAbortSignal as unknown as typeof AbortSignal;
@@ -57,17 +57,16 @@ test('Expo composition and timeout listeners see reasons during native abort dis
   expect(timed.reason).toBe(timedReason);
 });
 
-test('SDK initialization preserves the paused reason through a legacy native controller', async () => {
+test('native SDK initialization preserves the foreground cancellation reason', async () => {
   globalThis.AbortController = NativeController;
   installAbortReason(NativeController); installAbortCheckpoint(NativeSignal.prototype);
-  const client = createWhipClient({ clientId: 'native-fixture', endpoint: (_handlers, signal) => new Promise((_resolve, reject) => {
-    signal.addEventListener('abort', () => reject(signal.reason), { once: true });
-  }) });
-  try {
-    const connecting = client.connect(); client.pause();
-    await expect(connecting).rejects.toMatchObject({ kind: 'paused' });
-    expect(client.getSnapshot().state).toBe('paused');
-  } finally { client.close(); }
+  const controller = new NativeController();
+  const connecting = Client.connect((_request, _expected, options) => new Promise((_resolve, reject) => {
+    options.signal!.addEventListener('abort', () => reject(options.signal!.reason), { once: true });
+  }), { clientID: 'native-fixture', signal: controller.signal });
+  const paused = new Error('Mobile observation is suspended');
+  controller.abort(paused);
+  await expect(connecting).rejects.toBe(paused);
 });
 
 test('React Native base signals without a reason throw an AbortError', () => {

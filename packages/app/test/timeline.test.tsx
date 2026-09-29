@@ -2,97 +2,105 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { RuntimeContext } from '../src/context';
 import type { AppRuntime } from '../src/runtime';
-import type { HistoryView } from '@whip/legacy-sdk/state';
+import type { Message } from '@whip/sdk';
 import { executionCode, Prose, Timeline, timelineRows } from '../src/timeline';
 import { responseCopies } from '../src/chat-activity-rows';
+import { history, messageBase } from './native-conversation-fixture';
 
-const history = (messages: HistoryView['messages']): HistoryView => ({
-  revision: '9007199254740993',
-  throughSeq: 10,
-  nextSeq: -1,
-  hasMore: false,
-  loading: false,
-  messages,
-  truncated: false,
+const authored = (
+  id: string,
+  sequence: string,
+  parts: Extract<Message, { role: 'user' }>['parts'],
+): Extract<Message, { role: 'user' }> => ({
+  ...messageBase,
+  id,
+  sequence,
+  role: 'user',
+  opening_input: true,
+  input_id: 'input-' + id,
+  parts,
 });
 describe('conversation presentation', () => {
-  it('keeps identical authored messages separate and groups only adjacent runtime digests', () => {
-    const entries = [
-      { seq: 0, message: { role: 'user', content: 'Again', authored: true } },
-      { seq: 1, message: { role: 'user', content: 'Again', authored: true } },
-      { seq: 2, message: { role: 'user', content: 'Mailbox digest: waiting' } },
-      { seq: 3, message: { role: 'user', content: 'Mailbox digest: waiting' } },
-      {
-        seq: 4,
-        message: { role: 'user', content: 'Mailbox digest: different' },
-      },
-    ];
-    const rows = timelineRows(history(entries), null);
-    expect(rows).toHaveLength(4);
-    expect(rows[0]!.id).not.toEqual(rows[1]!.id);
-    expect(rows[2]!.deliveries).toBe(2);
-    expect(rows[0]!.id).toContain('9007199254740993');
-  });
-  it('replaces cumulative call arguments and output without repeating messages', () => {
-    const rows = timelineRows(undefined, [
-      {
-        seq: '1',
-        kind: 'stream.tool.call',
-        payload: { id: 'a', name: 'rlm_exec', args: '{"code":"print(' },
-      },
-      {
-        seq: '2',
-        kind: 'stream.tool.call',
-        payload: { id: 'b', name: 'rlm_exec', args: '{"code":"print(2)"}' },
-      },
-      {
-        seq: '3',
-        kind: 'stream.tool.call',
-        payload: { id: 'a', args: '{"code":"print(1)"}' },
-      },
-      {
-        seq: '4',
-        kind: 'stream.tool.completed',
-        payload: { id: 'a', result: '1' },
-      },
+  it('keeps identical authored messages and distinct mail identities separate', () => {
+    const first = authored('first', '9007199254740993', [
+      { type: 'text', text: 'Again' },
     ]);
-    expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatchObject({
-      text: '1',
-      args: '{"code":"print(1)"}',
-      live: false,
-    });
-    expect(executionCode(rows[0]!.args!)).toBe('print(1)');
+    const second = authored('second', '9007199254740994', first.parts);
+    const mail: Message = {
+      ...first,
+      id: 'mail',
+      sequence: '9007199254740995',
+      input_id: null,
+      mail: { id: 'delivery', revision: '1', presentation: 'digest' },
+    };
+    const rows = timelineRows(history([first, second, mail]));
+    expect(rows).toHaveLength(3);
+    expect(rows.map((row) => row.id)).toEqual([
+      'message:first',
+      'message:second',
+      'message:mail',
+    ]);
+    expect(rows.map((row) => row.role)).toEqual(['user', 'user', 'mailbox']);
+    expect(rows[0]?.seq).toBe('9007199254740993');
   });
-  it('attaches persisted tool output to its call identity', () => {
-    const rows = timelineRows(
-      history([
+  it('replaces a provisional call wholesale and attaches committed output by exact call identity', () => {
+    const preview = {
+      attempt_id: 'attempt',
+      message_id: 'answer',
+      turn_id: 'turn',
+      revision: '1',
+      reasoning: '',
+      text: '',
+      truncated: false,
+      calls: [
+        { index: 0, id: 'call', name: 'execute', arguments: '{"code":"print(' },
+      ],
+    };
+    const initial = timelineRows(undefined, preview);
+    const replacement = timelineRows(undefined, {
+      ...preview,
+      revision: '2',
+      calls: [{ ...preview.calls[0]!, arguments: '{"code":"print(1)"}' }],
+    });
+    expect(initial[0]?.id).toBe(replacement[0]?.id);
+    expect(replacement).toHaveLength(1);
+    expect(executionCode(replacement[0]!.args!)).toBe('print(1)');
+    const call: Message = {
+      ...messageBase,
+      id: 'answer',
+      sequence: '1',
+      role: 'assistant',
+      parts: [
         {
-          seq: 0,
-          message: {
-            role: 'assistant',
-            content: '',
-            tool_calls: [
-              {
-                id: 'call',
-                type: 'function',
-                function: {
-                  name: 'rlm_exec',
-                  arguments: '{"code":"print(1)"}',
-                },
-              },
-            ],
+          type: 'tool_call',
+          call: {
+            id: 'call',
+            name: 'execute',
+            arguments: { code: 'print(1)' },
           },
         },
+      ],
+    };
+    const result: Message = {
+      ...messageBase,
+      id: 'result',
+      sequence: '2',
+      role: 'tool',
+      parts: [
         {
-          seq: 1,
-          message: { role: 'tool', content: '1', tool_call_id: 'call' },
+          type: 'tool_result',
+          result: { call_id: 'call', output: '1', is_error: false },
         },
-      ]),
-      null,
-    );
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ role: 'tool', text: '1' });
+      ],
+    };
+    const committed = timelineRows(history([call, result]), preview);
+    expect(committed).toHaveLength(1);
+    expect(committed[0]).toMatchObject({
+      role: 'tool',
+      text: '1',
+      args: '{"code":"print(1)"}',
+    });
+    expect(committed[0]?.live).not.toBe(true);
   });
   it('renders untrusted Markdown without executable HTML or remote image loads', () => {
     const { container } = render(
@@ -140,55 +148,93 @@ it('the conversation scroll viewport is a named, keyboard-focusable region', () 
   }
 });
 
-it('renders multipart text and image evidence without flattening it into duplicate messages', () => {
-  const content = [
-    { type: 'text', text: 'Please inspect' },
-    {
-      type: 'image_url',
-      image_url: { url: 'data:image/png;base64,AAAA' },
-      w: 1,
-      h: 1,
-    },
-    { type: 'text', text: 'an attached note' },
-  ];
+it('retains scoped content references beside multipart text without manufacturing image URLs', () => {
   const rows = timelineRows(
-    history([{ seq: 7, message: { role: 'user', content, authored: true } }]),
-    null,
+    history([
+      authored('input', '7', [
+        { type: 'text', text: 'Please inspect' },
+        { type: 'content', reference_id: 'image' },
+        { type: 'text', text: 'an attached note' },
+      ]),
+    ]),
   );
   expect(rows).toHaveLength(1);
   expect(rows[0]?.text).toBe('Please inspect\n\nan attached note');
-  expect(rows[0]?.images).toEqual([
-    { url: 'data:image/png;base64,AAAA', width: 1, height: 1 },
-  ]);
+  expect(rows[0]?.references).toEqual(['image']);
+  expect(rows[0]?.images).toBeUndefined();
 });
-
-it('keeps image evidence when a multimodal tool reply merges into its call', () => {
-  const rows = timelineRows(history([
-    { seq: 1, message: { role: 'assistant', content: '', tool_calls: [{ id: 'image', type: 'function', function: { name: 'computer', arguments: '{}' } }] } },
-    { seq: 2, message: { role: 'tool', tool_call_id: 'image', content: [{ type: 'text', text: 'Screenshot captured' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }] } },
-  ]), null);
+it('keeps scoped image evidence when a multimodal tool reply joins its exact call', () => {
+  const call: Message = {
+    ...messageBase,
+    id: 'call',
+    sequence: '1',
+    role: 'assistant',
+    parts: [
+      {
+        type: 'tool_call',
+        call: { id: 'image', name: 'execute', arguments: {} },
+      },
+    ],
+  };
+  const result: Message = {
+    ...messageBase,
+    id: 'result',
+    sequence: '2',
+    role: 'tool',
+    parts: [
+      {
+        type: 'tool_result',
+        result: {
+          call_id: 'image',
+          output: 'Screenshot captured',
+          is_error: false,
+        },
+      },
+      { type: 'content', reference_id: 'image' },
+    ],
+  };
+  const rows = timelineRows(history([call, result]));
   expect(rows).toHaveLength(1);
   expect(rows[0]?.text).toBe('Screenshot captured');
-  expect(rows[0]?.images).toHaveLength(1);
+  expect(rows[0]?.references).toEqual(['image']);
 });
-
-it('distinguishes authored attachments from internal image deliveries, including stored bodies', () => {
-  const content = [{ type: 'text', text: 'images attached (browser/computer screenshots or MCP results):' },
-    { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } }];
-  const body = { reference_id: 'large-image', size: '2000000', digest: 'a'.repeat(64), media_type: 'application/json' };
-  const input = history([
-    { seq: 0, message: { role: 'user', authored: true, content } },
-    { seq: 1, message: { role: 'assistant', content: 'Taking a screenshot.' } },
-    { seq: 2, message: { role: 'user', content } },
-    { seq: 3, role: 'user', body },
-    { seq: 4, message: { role: 'assistant', content: 'Here is what I found.' } },
-    { seq: 5, role: 'user', authored: true, body },
+it('uses canonical admission provenance to distinguish authored attachments from internal deliveries', () => {
+  const input = authored('input', '1', [
+    { type: 'text', text: 'images attached:' },
+    { type: 'content', reference_id: 'image' },
   ]);
-  const rows = timelineRows(input, null, true);
-  expect(rows.map(row => row.role)).toEqual(['user', 'assistant', 'internal', 'internal', 'assistant', 'user']);
-  expect(rows[2]?.images).toHaveLength(1);
-  expect(rows[3]?.body).toEqual(body);
-  expect([...responseCopies(rows, false).values()]).toEqual([{ text: 'Taking a screenshot.\n\nHere is what I found.', label: 'Copy response' }]);
-  // The mobile projection remains unchanged.
-  expect(timelineRows(input, null).map(row => row.role)).toEqual(['user', 'assistant', 'user', 'user', 'assistant', 'user']);
+  const first: Message = {
+    ...messageBase,
+    id: 'first',
+    sequence: '2',
+    role: 'assistant',
+    parts: [{ type: 'text', text: 'Taking a screenshot.' }],
+  };
+  const internal: Message = {
+    ...input,
+    id: 'internal',
+    sequence: '3',
+    input_id: null,
+    opening_input: false,
+  };
+  const last: Message = {
+    ...first,
+    id: 'last',
+    sequence: '4',
+    parts: [{ type: 'text', text: 'Here is what I found.' }],
+  };
+  const rows = timelineRows(history([input, first, internal, last]));
+  expect(rows.map((row) => row.role)).toEqual([
+    'user',
+    'assistant',
+    'internal',
+    'assistant',
+  ]);
+  expect(rows[2]?.references).toEqual(['image']);
+  expect([...responseCopies(rows, false).values()]).toEqual([
+    {
+      text: 'Taking a screenshot.\n\nHere is what I found.',
+      label: 'Copy response',
+    },
+  ]);
 });

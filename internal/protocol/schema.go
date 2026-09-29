@@ -46,6 +46,8 @@ func Operations() []Operation {
 		{"host.directories.list", reflect.TypeFor[HostDirectoriesParams](), reflect.TypeFor[HostDirectoriesResult]()},
 		{"host.directory.pick", reflect.TypeFor[HostDirectoryPickParams](), reflect.TypeFor[HostDirectoryPickResult]()},
 		{"host.skills.complete", reflect.TypeFor[HostSkillsParams](), reflect.TypeFor[HostSkillsResult]()},
+		{"host.standing.read", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostStandingInstructions]()},
+		{"host.standing.write", reflect.TypeFor[WriteHostStandingInstructionsParams](), reflect.TypeFor[HostStandingInstructions]()},
 		{"host.themes.list", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostThemesResult]()},
 		{"host.themes.resolve", reflect.TypeFor[HostThemeResolveParams](), reflect.TypeFor[HostThemeResolved]()},
 		{"tool.schemas", reflect.TypeFor[SessionParams](), reflect.TypeFor[HostToolSchemasResult]()},
@@ -386,6 +388,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 			schema.Properties["text_preview"].MaxLength = new(512)
 		}
 		hostViewsSchema(schema, t)
+		standingSchema(schema, t)
 		discoverySchema(schema, t)
 		recentSchema(schema, t)
 		navigationSchema(schema, t)

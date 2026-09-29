@@ -3935,3 +3935,314 @@ the required aggregate failed; every other Linux/macOS build/race/client and
 analysis job passed. Those are historical outcomes, not repaired-head evidence.
 This publication includes the complete family/readiness changes and ACP repair;
 all required hosted checks must rerun at the new head. Phases5–7 remain incomplete.
+
+Shared app adoption checkpoint (not yet a complete product build): runtime owns
+uniform root/child SDK view leases,16 views with256messages/4MiB each, revision
+invalidation from the SDK catalog, a locked v4 recovery journal and explicit
+command acceptance/status presentation. Immutable content upload preserves exact
+owner/reference/digest; retained composition tests now use v4 content references.
+App draft and reading ownership remains unchanged. Focused runtime/recovery/input/
+composition tests pass52; SDK binary upload/identity additions pass107. Logs:
+`/tmp/whip-app-core-v4.log`, `/tmp/whip-content-sdk-tests.log`.
+
+Runtime test disposition: draft/storage/StrictMode/deletion behavior is retained;
+legacy root-vs-child reader methods are replaced by uniform session leases;
+legacy connection internals move to real v4 HostConnections tests; old silent
+journal eviction is deliberately replaced by cross-window capacity rejection.
+Lost ACK, absence, identity-only evidence, concurrent checks, explicit retry,
+accepted-but-unsaved recovery, authoritative interruption, disposal and late
+navigation have v4 replacement coverage. Full renderer types/component suites
+remain pending while surrounding legacy consumers are ported.
+
+### Native app controls and trace ownership — 2026-09-28
+
+App adoption integrates native navigation actions (`9d832c842`), inspector and
+diagnostics checkpoints, and native permission/turn notices (`2348f823a`). The
+combined inspector/content/REPL/navigation/permission/turn suites pass 59 React
+tests after rebuilding the merged SDK (the first diagnostic run used stale
+compiled SDK output and failed two tests). The full app remains mid-cutover;
+conversation/composer, sidebar and terminal wiring are not claimed complete.
+Trace lifetime integration adds per-pane bounded root observers and explicitly
+disposes suspended session/execution/trace owners when closing during recovery.
+
+Trace/session runtime lifetime and workspace reconciliation tests pass 40 cases
+(2.90 seconds); affected source files also pass strict type checking within the
+still-partially-migrated application. Remaining legacy-screen errors continue
+to prevent a full app type/build gate and are not waived.
+
+Native skill suggestions pass 26 tests across retained composer interaction
+behavior and actual validating SDK metadata reads: exact immutable host scope,
+selected child identity, eleven-request/1,024-record limits, disabled metadata,
+prefix fallback, malformed continuation and cancellation. Owned source types
+are clean; composer/welcome callers are still being migrated to these props.
+
+The native context picker now reads exact selected-session workspace and skill
+metadata through the validating SDK, bounds results to 32 candidates, preserves
+truncation, and disables stale/offline selection. All three focused tests pass
+(3.26 seconds), including child ownership, disabled skills, and delayed responses
+after recipient changes. Its composer caller is the next cutover step.
+
+Native composer cutover preserves shared recipient drafts, per-pane caret/focus,
+IME and slash completion, queue/steer delivery, and admission recovery. It uses
+the exact native selected session and explicit tree root for attachments. Pause
+verifies canonical turn ownership before cancelling and prevents duplicate clicks.
+Terminal notices now retain their authoritative turn ID; composer feedback yields
+only to that exact recipient/turn, replacing the old error-text/sequence heuristic.
+The combined composer, submission, runtime and picker suites pass 96 tests
+(3.75 seconds), with affected source types clean. Conversation callers and the
+remaining application still need migration before the complete frontend gate.
+
+New-chat workspace descriptors now persist validated immutable agent references
+with copied/frozen revisions. Existing mutable-name drafts are preserved as an
+unresolved choice that requires explicit selection; they are never rebound to a
+current definition. All 78 session-tab tests pass (2.22 seconds).
+
+Native directory browsing retains keyboard selection, direct local picking,
+remote confirmation, bounded speculative reads/cache, scroll positions, paging
+and explicit truncation. Query ownership includes runtime, epoch and client;
+offline/client changes cancel queued work and discard stale picker responses.
+Recents use the native bounded activity-ordered roots API. All 20 directory
+interaction/cache tests pass (3.40 seconds), including actual validating SDK
+wire fixtures; affected source types are clean.
+
+## Shared client reload, permission denial and terminal recovery
+
+The app branch integrates the released mobile five-leaf native migration and terminal
+recovery `823dc4d51`, followed by native root reload and independent interactive-denial
+controls. Pending reload acknowledgement remains pending, survives in the existing
+journal, and can be checked/cancelled by exact receipt after reopening Settings.
+Terminal uncertainty retains a local pending descriptor before sending and requires
+explicit current-process shell inspection/selection. No real shell or installed runtime
+was touched. Native policy fixtures now include the required denial field.
+
+At this client checkpoint, shared-app source TypeScript passed and all **109 renderer
+suites / 1,314 tests passed** in25.31s (`/tmp/whip-app-parity-full.log`); the focused
+reload/denial/recovery/runtime subset passed80 tests in3.77s. Mobile controls for these
+new APIs and browser-driver UI are still being completed. This is not Phase6 closure.
+
+### Shared host browser and computer controls
+
+The browser inspector now exposes native Rod/ChromeDP selection with exact host CAS,
+explicit stale-draft discard and process-environment pin display. Computer settings
+expose bundled helper publication and separate enable/disable/connection controls;
+selection preserves the app allow/deny rules and never starts a helper. Focused
+inspector suites passed26 tests in3.94s, and shared-app TypeScript passed
+(`/tmp/whip-app-hostcontrols-{tests,types}.log`). Actual browser/signed desktop
+artifact coverage remains a separate pending obligation.
+
+### Native shared-app build dependency
+
+`build:web` now builds the native SDK before compiling the production renderer.
+The shared app drops its retired SDK/protocol dependencies, and the root lockfile
+also records the already-adopted native mobile dependencies. `npm run check:web`
+passed, producing the38-file renderer artifact `9c5a6c6ed398da48475bb28b3058d97643038d5a10316d0795f9f88b2f84ac39`
+(`/tmp/whip-native-client-web-build.log`). Existing production browser harnesses
+still need their explicit native migration; this build alone is not browser acceptance.
+
+### Standalone updater native lifecycle — 2026-09-29
+
+`whipcode update` retains its download-before-execute/checksummed installer path
+and desktop-owned update refusal, but now controls only the fresh native host.
+Capture the canonical executable before installation; read bounded compiled
+metadata from its replacement so the old updater cannot advertise the old build
+on the new process. Inspect and select a verified runtime/epoch, hold the native
+maintenance lease, recheck ownership, stop/join that exact host and start the
+replacement. Verify stable runtime identity, changed epoch and replacement build.
+Absent hosts remain absent; unsafe/unverified or changed owners are never signalled.
+A failed restart returns an explicit installed-but-unconfirmed error instead of
+promising reconnection. Client-owned update notices retain their existing path
+without importing retired runtime configuration.
+
+Disposable real native child processes prove restart identity/build, bad metadata
+leaving the old owner alive, absent/unverified owner handling and old-directory
+preservation. Stub installers prove download failure does not execute partial
+content/acknowledge notices and restart failure does not print readiness. No real
+installer, provider, installed application or user runtime was executed/modified.
+Focused updater race5.453s and complete update-notice race1.616s pass; final combined
+updater/ACP/MCP race22.503s, vet and Go1.27 pinned lint0 pass. Logs:
+`/tmp/whip-native-update-{tests,notices,vet,cli-final,lint-final}.log`.
+
+Required analysis now also includes the supported CLI, previously validated only
+with build/vet/selected race suites. Its first expanded lint run found unchecked
+intentional stdio cleanup and two unreferenced retired fixture/cleanup functions.
+Those cleanup errors are now explicitly discarded, and only unused functions
+were removed; retained title-fixture assertions remain. Frozen lint baseline is
+unchanged. The notice package is added to active build/race/analysis gates.
+
+### Native mobile manual acceptance fixture — 2026-09-29
+
+The manual mobile runner now builds the production native host and uses the same
+bounded v4 provider/executor fixture as web. It explicitly creates its sample
+root and prints its real runtime/session identity; it never loads the retired
+SDK fixture. Optional HTTPS proxy setup accepts one exact origin and its Host
+authority alongside the owned loopback listener, with no wildcard or proxy
+configuration. The fixture exposes its actual process exit and joins/removes
+its own resources on SIGINT/SIGTERM. Its independent lifetime remains1–30minutes.
+Single/batch questions execute actual `user.ask`, including multiple/custom text
+and optional dismissal from another client. The old synthetic optional question
+had bypassed the production2–6-choice validation; the real fixture supplies two
+choices while preserving custom text and skip behavior.
+
+Both manual-fixture regressions pass4.323s (origin/Host rejection, exact native
+question settlement and cross-client convergence, CLI identity and SIGTERM
+cleanup). Existing native fixture regression passes4.782s, including real engines,
+consent, restart and structured final output. The full five-case mobile backend
+acceptance passes15.556s after moving its child HOME/XDG/shell/temp environment
+into disposable directories. Mobile types pass with explicit test NODE_ENV.
+Logs: `/tmp/whip-mobile-{manual-native-repaired,backend-isolated,fixture-types-repaired,native-fixture-regression}.log`.
+The initial local manual run failed because its isolated checkout lacked the
+documented packed web asset prerequisite; no backend claim was credited to that
+run. Packing the actual renderer restored the expected discoverable web surface.
+No physical device, private-network proxy or real-provider evidence is claimed.
+
+### Native product integration and required client gates — 2026-09-29
+
+The client integration retains the released app/web, desktop, mobile, SDK,
+examples, client-notes, standing-instruction and updater checkpoints. No installed
+runtime or original development checkout is involved. Product gates are now
+required by the redesign aggregate: web, Chromium/Firefox browser, mobile,
+Apple Silicon desktop, native examples and public docs. The browser gate includes
+sidebar, layout, canonical large history, bounded provider streaming and tool
+output; mobile includes the native manual fixture and both Expo exports. Examples
+run the actual18-case agent acceptance command, not its exported helper module.
+
+Integrated evidence, with exact local logs:
+
+- Complete product web:1,330 app tests/110 suites, UI38 and support/type/build
+  checks pass (`/tmp/whip-product-web-final.log`). Native broad/snapshot/search/
+  tabs/user-message browser runs pass in Chromium and Firefox after repairing a
+  fixture's per-browser one-shot hold identities
+  (`/tmp/whip-product-browser-repaired.log`). Sidebar11 Chromium cases including
+  all66 themes and10 Firefox cases pass (`/tmp/whip-renderer-sidebar.log`).
+- Layout first failed Firefox because it advanced pagination before the first
+  page arrived. The one-line first-page wait preserves all assertions; integrated
+  Chromium14 and Firefox14 workflows pass
+  (`/tmp/whip-renderer-layout-repaired.log`).
+- Desktop types,157 product tests,116 distribution/startup checks, native fixture,
+  ad-hoc package, actual Electron Browser/onboarding/workspace/failure/terminal/
+  editor IPC checks pass (`/tmp/whip-product-desktop.log`). These are disposable
+  staged Apple Silicon artifacts, not signed installed-release evidence.
+- Mobile219 tests/34 suites, five native backend cases and iOS+Android Expo exports
+  pass (`/tmp/whip-product-mobile.log`). The integrated native/manual fixture
+  checks pass4 cases (`/tmp/whip-renderer-fixtures-integrated.log`). No physical
+  device or application-store acceptance is claimed.
+- SDK182 tests and contract/actual interchange/generation drift pass
+  (`/tmp/whip-renderer-standing-sdk.log`,
+  `/tmp/whip-renderer-standing-contract.log`). Standing instruction/protocol
+  races pass4.604s/7.836s; focused runtime/RPC8.950s/2.884s. Client/ACP races pass
+  8.974s/29.147s. TUI remains an unrouted native controller/control foundation;
+  the actual CLI TUI route and retained dialogs/rendering are still required.
+- Agent examples5 unit/type tests and18 actual host acceptance cases pass
+  (`/tmp/whip-renderer-agent-acceptance.log`). Browser/Node examples pass types,
+  recovery-storage tests and actual native transcript/content/root-child/live-cell,
+  SIGKILL/reconnect/draft, permission/question, dropped-ACK exact recovery and
+  Unix/HTTP workflows (`/tmp/whip-renderer-client-example.log`).
+- Public SDK guide retains10 standalone checked TypeScript examples; integrated
+  docs types,79 tests and static build pass, producing4 prerendered pages/65 public
+  files (`/tmp/whip-renderer-docs-final.log`). The SDK page remains draft; its
+  deliberately skipped public-route browser test is not credited as a pass.
+- Client notes exposed a real first-use concurrent lock-file ENOENT. The repaired
+  native open/create path passes25 repetitions of16 race cases (400 total),8.487s
+  (`/tmp/whip-renderer-notes-repaired.log`). Expanded analysis including native
+  update, notes and CLI passes with zero new lint findings against the unchanged
+  frozen baseline and no reachable vulnerabilities
+  (`/tmp/whip-renderer-analysis.log`). Two dependency advisories reported as
+  unreachable are not represented as an advisory-free dependency graph.
+- Canonical history fixture verifies10,000 root messages,100 children×100 messages,
+  128 operations and1.4MiB owner-scoped content. One explicitly synthetic canonical
+  selected compaction covers9,996 messages, retaining all raw UI history and a
+  bounded active model context; an actual subsequent provider stream verifies it.
+  Integrated check passes19.869s (`/tmp/whip-renderer-native-history-context.log`).
+  Sixteen actual concurrent provider streams plus exact queued/cancelled probes
+  pass (`/tmp/whip-renderer-performance-fixture.log`).
+
+The native web performance harness is integrated with truthful measurements:
+root/child switches, anchors, near-limit32 drafts,16 actual providers and40 real
+queued admissions, without event injection or a fabricated SQL commit clock.
+The measured root anchor restoration median is about5.1 seconds despite content
+appearing in about100ms; this remains an unresolved performance target, not a
+successful old latency claim. Desktop performance and remaining specialized
+production browser harnesses are in progress. Final TUI adoption, full retired-core
+removal, all-target gates, exact hosted success, signed/fresh-install/remote-platform
+and live-provider acceptance remain open. Phases5–7 are not marked complete.
+
+The canonical frontend guide now describes current native state/recovery owners
+and actual app retention limits, removing repeated appendices and stale legacy
+APIs. Relative links and unique headings were checked against source; feature
+obligations remain in the plan/audit and are not retired by this consolidation.
+
+### Client checkpoint rebased onto repaired backend — 2026-09-29
+
+Client commits were replayed onto backend`239f76152` with a backup at
+`codex/backend-redesign-renderer-before-cli-repair`. The entire source-tree diff
+against that backup contains only the intended native CLI family split, ACP
+provider-context fixture binding and desktop readiness fixture, plus progress-log
+ordering. Duplicate backend patches were omitted; no client implementation was
+reconstructed or discarded.
+
+The first combined CLI run then failed in the retained main update-dispatch test:
+its long macOS testing directory exceeded the native Unix socket bound. That
+fixture now uses an explicitly owned short temporary home (the real installer is
+still replaced by its existing inert shell), matching other native CLI fixtures.
+The production path bound is unchanged. Separately, updater-only scenarios are
+now required instead of relying on test-name prefixes to happen to select them.
+Final full native CLI gate passes: auth12.623s, lifecycle6.399s,
+run/catalog36.953s, ACP/MCP20.229s, updater2.822s, actual compiled CLI20.522s,
+full retained/native TUI race21.184s, and vet. Earlier failed run is retained at
+`/tmp/whip-renderer-cli-integration-final.log`; repaired evidence is
+`/tmp/whip-renderer-cli-integration-repaired.log`.
+
+Hosted backend run36543645270 at exact`239f76152261484e4bc2c61dc1e8e7141fcb5f94`
+is in progress. The new client checkpoint still requires all hosted native and
+product jobs. Specialized Settings/provider/conversation and desktop performance
+harnesses continue independently. Distribution acceptance still exposes the
+retained long-home socket-fallback contract and managed-gateway failure semantics
+for explicit reconciliation; they are not waived by short-path fixture success.
+
+### Clean product-gate repair after draft 265
+
+Hosted backend run `36543645270` at `239f76152` failed only the Linux clients
+job and aggregate: the combined run/catalog CLI invocation exhausted its3-minute
+aggregate timer while a retained daemon test had run3 seconds. Renderer run
+`36544662706` at `7afc0d691` independently hit the same group deadline, this time
+in `TestRunNoSession` after11 seconds. These are failed runs, not green evidence.
+The group is now split by actual lifecycle ownership into retained daemon/model,
+ordinary native run, and remaining native/catalog/browser tests. Each still uses
+race detection, one count, shuffle, and the original3-minute bound. An exact-set
+comparison against `go test -list` proves all58 tests at the renderer head occur
+once in disjoint7/23/28 groups (four additional tests since the54-test backend
+checkpoint). Under the recorded failing seed `1790671198575510378`, all three
+local groups passed in3.152/20.563/16.450 seconds.
+
+The first clean product jobs also exposed missing setup concealed by existing
+local build outputs: web type checking ran before SDK emission, docs requested a
+nonexistent protocol `build` script, and desktop packaging lacked Electron's
+explicit binary install. Web checking now builds its declared inputs before
+checking shared-app types; docs runs the real protocol check; the desktop CI job
+uses the explicit Electron installer already required by the retained desktop
+workflow. No product assertion was removed. In a fresh exact-PR worktree with
+`npm ci`, web production build/types, protocol checks, all79 docs tests, docs
+build (four pages/65 files), and all18 web-pack tests passed; the exact Electron
+license and executable inputs are present. Hosted validation of this repair is
+pending. No installed application or runtime was touched.
+
+### Hosted product gates after clean setup repair
+
+At `9176615a2`, run `36545994800` passes the repaired web and documentation jobs,
+mobile, examples, browser acceptance, both clients jobs, and every completed
+native build/store/runtime/analysis job. The macOS other-race job remains pending
+at this record. Desktop packaging now succeeds and its native browser probe
+reaches the production zoom/focus assertions; it then fails an immediate check
+that a guest100ms timer fired within a fixed130ms sleep after observer cancellation.
+
+The compiled bundle maps that failure exactly to the retained cancellation-effect
+assertion. The probe now observes that original effect within its existing bounded
+fixture lifetime; it retains `outcome_unknown`, checks `delivered=true`, and never
+reissues the command. The real isolated Electron suite passes `NATIVE_MANAGER_OK`
+with production BrowserManager, IPC, preload, debugger, transfer and close paths.
+No production timeout or behavior changed. New hosted validation remains required.
+
+Run `36545994800` has now completed: every backend/Linux/macOS/client, analysis,
+web/browser/mobile/examples/docs job passed. Only the desktop job and dependent
+aggregate failed at the fixed-sleep assertion described above. The next head
+retains every gate and carries the exact-effect observation repair.

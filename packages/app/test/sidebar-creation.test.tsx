@@ -1,227 +1,174 @@
-import { useSyncExternalStore } from 'react';
-import { SessionTabs, welcomeDraftKey, type NewChatTab } from '../src/session-tabs';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { beforeEach, afterEach, expect, it, vi } from 'vitest';
-import { ThemeProvider, UIProvider } from '@whip/ui';
-import type { ProviderList } from '@whip/legacy-protocol';
-import { RuntimeContext } from '../src/context';
-import type { AppRuntime } from '../src/runtime';
-import { Welcome } from '../src/welcome';
-import { CompositionStore } from '../src/compositions';
-import { SubmittedInputs } from '../src/input-presentation';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { expect, it } from 'vitest';
+import { welcomeDraftKey, type NewChatTab } from '../src/session-tabs';
+import { fixture } from './welcome-fixture';
+import { preset, revision, route, sessionRecord } from './provider-fixture';
 
-const route = vi.hoisted(() => ({ search: {} as { cwd?: string; runtimeId?: string }, location: { state: { __TSR_key: 'initial' } }, navigate: vi.fn() }));
-vi.mock('@tanstack/react-router', () => ({
-  Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
-  useSearch: () => route.search,
-  useLocation: ({ select }: { select(value: typeof route.location): unknown }) => select(route.location),
-  useNavigate: () => route.navigate,
-  useRouter: () => ({ state: { location: route.location } }),
-}));
-vi.mock('../src/directory-picker', () => ({ DirectoryPicker: ({ onSelect, disabled, value }: { onSelect(value: string): void; disabled: boolean; value: string }) => <button type="button" title={value} disabled={disabled} onClick={() => onSelect('/edited')}>Choose folder</button> }));
-beforeEach(() => { vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })); route.search = { cwd: '/repo', runtimeId: 'host' }; route.location = { state: { __TSR_key: 'initial' } }; route.navigate.mockClear(); });
-afterEach(() => vi.unstubAllGlobals());
-const provider = (id: string, available: boolean) => ({ id, name: id === 'inference-net' ? 'Inference.net' : 'OpenRouter', custom: false, recommended: id === 'inference-net', suggested_model: available ? 'coding-model' : '', methods: ['api_key'], status: { provider: id, available, configured: available, key_source: available ? 'environment' : 'none', auth_state: available ? 'connected' : 'key_required', warnings: [] } });
-function fixture(ready = true, entries = [provider('inference-net', ready), provider('openrouter', false)], selectionMissing = false) {
-  const execution_engines = [{ id: 'starlark', language: 'starlark', label: 'Starlark' }, { id: 'quickjs', language: 'javascript', label: 'JavaScript (QuickJS)' }];
-  const snapshot = { state: 'connected', info: { runtime_id: 'host', default_execution_engine: 'starlark', execution_engines } };
-  const inventory: ProviderList = { revision: '1', default_provider: 'inference-net', selection: selectionMissing ? undefined : { ready, model: 'coding-model', provider: 'inference-net', reason: ready ? 'ready' : 'provider_required' }, providers: entries };
-  const client = { subscribe: () => () => {}, getSnapshot: () => snapshot, supports: () => true,
-    agents: { list: vi.fn(async () => ({ items: [{ id: 'coding', revision: '', built_in: true, registered_by: '', created_at: '' }, { id: 'junior-developer', revision: '', built_in: true, registered_by: '', created_at: '' }, { id: 'support-triage', revision: 'b'.repeat(64), built_in: false, registered_by: 'app', created_at: '' }] })) },
-    sessions: { create: vi.fn((params: unknown) => ({ params })) }, session: vi.fn((rootId: string) => ({ rootId, client: { clientId: 'sidebar-test' }, submit: vi.fn(() => ({ rootId })), command: vi.fn(() => ({ rootId })) })),
-    configuration: { get: vi.fn(async () => ({ default_execution_engine: 'starlark' })), update: vi.fn(async (patch: { default_model: string; default_provider: string }) => { inventory.selection = { ready: true, model: patch.default_model, provider: patch.default_provider, reason: 'ready' }; return {}; }) },
-    providers: {
-      list: vi.fn(async () => ({ ...inventory })), catalogs: vi.fn(async () => ({ result: { models: {}, providers: {}, catalogs: {} } })),
-      login: { list: vi.fn(async () => ({ flows: [] })) },
-      setKey: vi.fn(async (params: { provider: string }) => { const entry = inventory.providers!.find(entry => entry.id === params.provider)!; entry.status.available = true; entry.status.key_source = 'literal'; entry.suggested_model = 'coding-model'; }),
-    } };
-  const otherConnection = { state: 'connected', info: { runtime_id: 'another', default_execution_engine: 'starlark', execution_engines } };
-  const other = { ...client, getSnapshot: () => otherConnection };
-  const state = { commands: [], hosts: [
-    { id: 'local', name: 'Local', local: true, runtimeId: 'host', state: 'connected', client, profile: { target: { kind: 'url' } } },
-    { id: 'remote', name: 'Kuzco', local: false, runtimeId: 'another', state: 'connected', client: other, profile: { target: { kind: 'url' } } },
-  ] };
-  const drafts = new Map<string, string>(); const subscribers = new Set<() => void>();
-  const run = vi.fn(async (_handle: unknown, label: string, onAccepted?: () => void) => { onAccepted?.(); return label === 'Create session' ? { status: 'succeeded', result: { root_id: 'created' } } : { status: 'succeeded' }; });
-  const query = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  const tabs = new SessionTabs();
-  const first = tabs.openNew({ runtimeId: 'host', hostProfileId: 'local', cwd: '/repo' });
-  let active = first.id;
-  let focused = true;
-  function Panel() {
-    useSyncExternalStore(tabs.subscribe, tabs.getSnapshot);
-    const tab = tabs.workspace().tabs.find(tab => tab.id === active);
-    return tab?.kind === 'new' ? <Welcome key={active} focused={focused} tab={tab} /> : <p>Promoted to {tab?.kind === 'chat' ? tab.rootId : 'nothing'}</p>;
-  }
-  const runtime = {
-    tabs, run,
-    compositions: new CompositionStore(), submittedInputs: new SubmittedInputs(),
-    queries: query, platform: { copy: vi.fn(async () => {}), openExternal: vi.fn(async () => {}) },
-    connections: { isAttached: () => true, select: vi.fn() }, subscribe: () => () => {}, getSnapshot: () => state,
-    lastSession: () => undefined,
-    draft: (key: string) => drafts.get(key) ?? '', setDraft: (key: string, value: string) => { drafts.set(key, value); subscribers.forEach(listener => listener()); },
-    subscribeDraft: (_key: string, listener: () => void) => { subscribers.add(listener); return () => subscribers.delete(listener); }, report: vi.fn(),
-  } as unknown as AppRuntime;
-  const tree = () => <RuntimeContext.Provider value={runtime}><ThemeProvider initialTheme="light"><UIProvider><QueryClientProvider client={query}><Panel /></QueryClientProvider></UIProvider></ThemeProvider></RuntimeContext.Provider>;
-  const view = render(tree());
-  return { runtime, client, inventory, run, drafts, query, tabs, first, focus: (value: boolean) => { focused = value; view.rerender(tree()); }, select: (id: string) => { active = id; view.rerender(tree()); }, ...view, rerender: () => view.rerender(tree()) };
-}
 async function openSessionOptions() {
   fireEvent.click(await screen.findByRole('button', { name: 'Model', exact: true }));
   fireEvent.click(await screen.findByRole('button', { name: 'Session options', exact: true }));
 }
+async function chooseFolder(f: Awaited<ReturnType<typeof fixture>>) {
+  f.pickDirectory.mockResolvedValue('/edited');
+  fireEvent.click(screen.getByRole('button', { name: 'Project folder' }));
+  await waitFor(() => expect(f.runtime.tabs.workspace().tabs.find(tab => tab.id === f.tab.id)).toMatchObject({ cwd: '/edited' }));
+}
+function detectedOpenRouter(f: Awaited<ReturnType<typeof fixture>>) {
+  f.data.inventory = { ...f.data.inventory, routes: [route('openrouter')], defaults: null };
+  f.data.presets.items.push({ ...preset('openrouter'), suggested_models: ['gpt-6-astra'] });
+  f.runtime.queries.setQueryData(['provider-list', 'host'], f.data.inventory);
+  f.runtime.queries.setQueryData(['provider-presets', 'host'], f.data.presets);
+}
 it('keeps independent drafts and setup through tab and host switches without sending', async () => {
-  const f = fixture();
-  await screen.findByLabelText('Your first message');
-  expect(screen.getByTitle('/repo')).toBeTruthy(); expect(f.client.sessions.create).not.toHaveBeenCalled();
-  fireEvent.change(screen.getByLabelText('Your first message'), { target: { value: 'Local draft' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Choose folder' }));
-  expect(screen.getByTitle('/edited')).toBeTruthy();
+  const f = await fixture(); f.render();
+  fireEvent.change(await screen.findByLabelText('Your first message'), { target: { value: 'Local draft' } });
+  await chooseFolder(f);
   let second!: NewChatTab;
-  act(() => { second = f.tabs.openNew({ runtimeId: 'host', hostProfileId: 'local', cwd: '/second' }); });
-  f.select(second.id);
-  expect((await screen.findByLabelText('Your first message') as HTMLTextAreaElement).value).toBe('');
+  act(() => { second = f.runtime.tabs.openNew({ runtimeId: 'host', hostProfileId: 'local', cwd: '/second' }); f.select(second.id); });
+  expect(await screen.findByLabelText('Your first message')).toHaveProperty('value', '');
   fireEvent.change(screen.getByLabelText('Your first message'), { target: { value: 'Second draft' } });
-  act(() => { f.tabs.updateNew(second.id, { hostProfileId: 'remote', runtimeId: 'another' }); });
-  expect((await screen.findByLabelText('Your first message') as HTMLTextAreaElement).value).toBe('Second draft');
-  expect(screen.getByTitle('/second')).toBeTruthy();
-  f.select(f.first.id);
-  expect((await screen.findByLabelText('Your first message') as HTMLTextAreaElement).value).toBe('Local draft');
-  expect(screen.getByTitle('/edited')).toBeTruthy(); expect(f.client.sessions.create).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Execution host' }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: /Mac mini/ }));
+  await waitFor(() => expect(f.connect).toHaveBeenCalledWith('remote'));
+  expect(f.runtime.draft(welcomeDraftKey(second.id))).toBe('Second draft');
+  expect(f.runtime.tabs.workspace().tabs.find(tab => tab.id === second.id)).toMatchObject({ hostProfileId: 'remote', cwd: '' });
+  act(() => f.select(f.tab.id));
+  expect(await screen.findByLabelText('Your first message')).toHaveProperty('value', 'Local draft');
+  expect(f.runtime.tabs.workspace().tabs.find(tab => tab.id === f.tab.id)).toMatchObject({ cwd: '/edited' });
+  expect(f.rpc['trees.create']).not.toHaveBeenCalled();
 });
-it('sends the edited folder, explicit ready pair, prompt and default Ask only after Send', async () => {
-  const f = fixture();
-  await screen.findByRole('button', { name: 'Send first message' });
-  expect(screen.queryByRole('region', { name: 'Provider setup' })).toBeNull();
-  fireEvent.change(screen.getByLabelText('Your first message'), { target: { value: 'Explain auth' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Choose folder' }));
+it('sends the edited folder, explicit ready model, prompt and default Ask only after Send', async () => {
+  const f = await fixture(); f.render();
+  fireEvent.change(await screen.findByLabelText('Your first message'), { target: { value: 'Explain auth' } });
+  await chooseFolder(f);
+  expect(f.rpc['trees.create']).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
-  await waitFor(() => expect(f.client.sessions.create).toHaveBeenCalledExactlyOnceWith({ cwd: '/edited', model: 'coding-model', provider: 'inference-net', permission_mode: 'prompt', execution_engine: 'starlark' }));
+  await waitFor(() => expect(f.rpc['trees.create']).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ working_directory: '/edited', overrides: { model: { provider: 'openai', name: 'gpt-6-astra', effort: 'high' } }, permission_mode: 'prompt', engine: 'starlark' }), undefined));
   await screen.findByText('Promoted to created');
-  expect(f.client.session).toHaveBeenCalledTimes(1); // No effort chosen: create, then send.
-  expect(f.client.session.mock.results[0]!.value.submit).toHaveBeenCalledWith({ text: 'Explain auth' });
-  expect(f.drafts.get(welcomeDraftKey(f.first.id))).toBe('');
-  expect(route.navigate).not.toHaveBeenCalled(); // Promotion is a tab change; the router follows it, a panel never navigates.
+  expect(f.rpc['sessions.submit']).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ session_id: 'created', parts: [{ type: 'text', text: 'Explain auth' }] }), undefined);
+  expect(f.runtime.draft(welcomeDraftKey(f.tab.id))).toBe('');
+  expect(f.router.state.location.pathname).toBe('/');
 });
-
 it('retains the selected execution language in its draft and sends it explicitly', async () => {
-  const f = fixture();
-  await screen.findByRole('button', { name: 'Send first message' });
+  const f = await fixture(); f.render();
   await openSessionOptions();
   fireEvent.click(screen.getByRole('combobox', { name: 'Execution language' }));
-  const option = await screen.findByRole('option', { name: 'JavaScript (QuickJS)' });
+  const option = await screen.findByRole('option', { name: 'JavaScript' });
   fireEvent.pointerDown(option); fireEvent.click(option);
-  expect((f.tabs.workspace().tabs[0] as NewChatTab).executionEngine).toBe('quickjs');
+  expect(f.runtime.tabs.workspace().tabs[0]).toMatchObject({ executionEngine: 'quickjs' });
   fireEvent.click(screen.getByRole('button', { name: 'Close', exact: true }));
   fireEvent.change(screen.getByLabelText('Your first message'), { target: { value: 'Use this language' } });
   fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
-  await waitFor(() => expect(f.client.sessions.create).toHaveBeenCalledWith(expect.objectContaining({ execution_engine: 'quickjs' })));
+  await waitFor(() => expect(f.rpc['trees.create']).toHaveBeenCalledWith(expect.objectContaining({ engine: 'quickjs' }), undefined));
 });
-
-it('does not offer unadvertised execution engines or send with missing discovery', async () => {
-  const f = fixture();
-  f.client.getSnapshot().info.execution_engines = [];
-  f.rerender();
+it('does not send while execution defaults are unavailable and preserves the draft', async () => {
+  const f = await fixture();
+  f.runtime.queries.removeQueries({ queryKey: ['host-execution-defaults'] });
+  f.on('host.execution_defaults', () => { throw new Error('Execution defaults unavailable'); });
+  f.render();
   fireEvent.change(await screen.findByLabelText('Your first message'), { target: { value: 'Keep this task' } });
-  expect((await screen.findByRole('button', { name: 'Send first message' }) as HTMLButtonElement).disabled).toBe(true);
+  await screen.findByText('Could not load execution defaults');
+  expect(screen.getByRole('button', { name: 'Send first message' })).toHaveProperty('disabled', true);
   fireEvent.keyDown(screen.getByLabelText('Your first message'), { key: 'Enter' });
-  expect(f.client.sessions.create).not.toHaveBeenCalled();
-  expect(screen.getByRole('alert').textContent).toContain('does not advertise');
+  expect(f.rpc['trees.create']).not.toHaveBeenCalled();
+  expect(f.runtime.draft(welcomeDraftKey(f.tab.id))).toBe('Keep this task');
 });
-it('offers only one default confirmation for the detected OpenRouter route with no promotion detour', async () => {
-  const f = fixture(false, [provider('inference-net', false), provider('openrouter', true)]);
+it('offers one explicit default confirmation for a detected OpenRouter route', async () => {
+  const f = await fixture(false, false); detectedOpenRouter(f);
+  f.runtime.setDraft(welcomeDraftKey(f.tab.id), 'Retain this task'); f.render();
   const panel = await screen.findByRole('region', { name: 'Provider setup' });
-  const available = await within(panel).findByRole('button', { name: 'Use OpenRouter' });
-  const connect = within(panel).getByRole('button', { name: 'Connect Inference.net' });
-  expect(available.compareDocumentPosition(connect) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(screen.getAllByText('Recommended')).toHaveLength(1);
-  act(() => { f.runtime.setDraft(welcomeDraftKey(f.first.id), 'Retain this task'); });
-  fireEvent.click(await screen.findByRole('button', { name: 'Use coding-model' }));
-  await waitFor(() => expect(f.client.configuration.update).toHaveBeenCalledExactlyOnceWith({ revision: '1', default_model: 'coding-model', default_provider: 'openrouter', default_effort: '' }, { signal: expect.any(AbortSignal) }));
-  await waitFor(() => expect(screen.queryByRole('region', { name: 'Provider setup' })).toBeNull());
-  expect((screen.getByLabelText('Your first message') as HTMLTextAreaElement).value).toBe('Retain this task');
-  expect(f.client.sessions.create).not.toHaveBeenCalled();
+  expect(await within(panel).findByRole('button', { name: 'Use OpenRouter' })).toBeTruthy();
+  expect(screen.getAllByRole('button', { name: 'Use gpt-6-astra' })).toHaveLength(1);
+  expect(f.rpc['providers.defaults']).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Use gpt-6-astra' }));
+  await waitFor(() => expect(f.rpc['providers.defaults']).toHaveBeenCalledExactlyOnceWith({ revision, defaults: expect.objectContaining({ selection: { name: 'gpt-6-astra', provider: 'openrouter', effort: '' } }) }, expect.any(AbortSignal)));
+  expect(await screen.findByLabelText('Your first message')).toHaveProperty('value', 'Retain this task');
+  expect(f.rpc['trees.create']).not.toHaveBeenCalled();
 });
-it('connects a key during setup, masks it, and preserves the draft until model confirmation', async () => {
-  const f = fixture(false);
-  act(() => { f.runtime.setDraft(welcomeDraftKey(f.first.id), 'Keep me while signing in'); });
+it('masks a setup key and preserves the draft until explicit model confirmation', async () => {
+  const f = await fixture(false, false);
+  f.runtime.setDraft(welcomeDraftKey(f.tab.id), 'Keep me while signing in'); f.render();
   fireEvent.click(await screen.findByRole('button', { name: 'Show all providers' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Connect OpenRouter' }));
-  const key = await screen.findByLabelText('API key') as HTMLInputElement;
-  expect(key.type).toBe('password'); fireEvent.change(key, { target: { value: 'secret-key' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Connect', exact: true }));
-  await screen.findByRole('button', { name: 'Use coding-model' });
-  expect(f.client.configuration.update).not.toHaveBeenCalled();
+  fireEvent.click(await screen.findByRole('button', { name: 'Connect OpenAI' }));
+  const key = await screen.findByLabelText('API key');
+  expect(key).toHaveProperty('type', 'password');
+  fireEvent.change(key, { target: { value: 'secret-key' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save provider', exact: true }));
+  const confirm = await screen.findByRole('button', { name: 'Use gpt-6-astra' });
+  expect(f.rpc['providers.defaults']).not.toHaveBeenCalled();
   expect(screen.queryByRole('textbox', { name: 'Your first message' })).toBeNull();
-  expect(screen.queryByRole('button', { name: 'Send first message' })).toBeNull();
-  expect(f.runtime.draft(welcomeDraftKey(f.first.id))).toBe('Keep me while signing in');
-  expect(JSON.stringify([...f.drafts])).not.toContain('secret-key');
-  expect(JSON.stringify(f.query.getQueryCache().getAll().map(query => query.state.data))).not.toContain('secret-key');
-  expect(f.client.sessions.create).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Use coding-model' }));
-  const input = await screen.findByRole('textbox', { name: 'Your first message' }) as HTMLTextAreaElement;
-  expect(input.value).toBe('Keep me while signing in');
-  expect(input.disabled).toBe(false);
-  expect(f.client.sessions.create).not.toHaveBeenCalled();
+  expect(f.runtime.draft(welcomeDraftKey(f.tab.id))).toBe('Keep me while signing in');
+  expect(JSON.stringify(f.runtime.platform.storage.keys().map(key => f.runtime.platform.storage.getItem(key)))).not.toContain('secret-key');
+  expect(JSON.stringify(f.runtime.queries.getQueryCache().getAll().map(query => query.state.data))).not.toContain('secret-key');
+  expect(f.rpc['trees.create']).not.toHaveBeenCalled();
+  fireEvent.click(confirm);
+  expect(await screen.findByLabelText('Your first message')).toHaveProperty('value', 'Keep me while signing in');
+  expect(screen.getByLabelText('Your first message')).toHaveProperty('disabled', false);
+  expect(f.rpc['trees.create']).not.toHaveBeenCalled();
 });
-it('replaces an unavailable draft route after explicit provider setup confirmation', async () => {
-  const f = fixture();
+it('replaces an unavailable draft route only after explicit provider setup confirmation', async () => {
+  const f = await fixture();
+  f.on('providers.readiness', ({ selection: { provider } }) => ({ configured: provider === 'openai', credential_state: provider === 'openai' ? 'available' : 'missing', catalog_state: 'missing', model_state: 'configured', inference_state: 'not_tested' }));
+  f.render();
   fireEvent.change(await screen.findByLabelText('Your first message'), { target: { value: 'Keep this draft' } });
-  act(() => { f.tabs.updateNew(f.first.id, { model: 'unavailable-model', provider: 'openrouter', effort: 'high' }); });
-  fireEvent.click(await screen.findByRole('button', { name: 'Use Inference.net' }));
-  fireEvent.click(await screen.findByRole('button', { name: 'Use coding-model' }));
+  act(() => f.runtime.tabs.updateNew(f.tab.id, { model: 'unavailable-model', provider: 'openrouter', effort: 'high' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Use OpenAI' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Use gpt-6-astra' }));
   await waitFor(() => expect(screen.queryByRole('region', { name: 'Provider setup' })).toBeNull());
-  const tab = f.tabs.workspace().tabs.find(tab => tab.id === f.first.id) as NewChatTab;
+  const tab = f.runtime.tabs.workspace().tabs.find(tab => tab.id === f.tab.id) as NewChatTab;
   expect(tab.model).toBeUndefined(); expect(tab.provider).toBeUndefined(); expect(tab.effort).toBeUndefined();
-  expect((screen.getByLabelText('Your first message') as HTMLTextAreaElement).value).toBe('Keep this draft');
-  expect(f.client.sessions.create).not.toHaveBeenCalled();
+  expect(await screen.findByLabelText('Your first message')).toHaveProperty('value', 'Keep this draft');
+  expect(f.rpc['trees.create']).not.toHaveBeenCalled();
 });
-it('does not navigate away from a later route when the first submission resolves', async () => {
-  const f = fixture(); let finish!: () => void;
-  f.run.mockImplementationOnce(() => new Promise(resolve => { finish = () => resolve({ status: 'succeeded', result: { root_id: 'created' } }); }));
+it('does not navigate away from a later route when session creation resolves', async () => {
+  const f = await fixture(); let finish!: () => void;
+  f.on('trees.create', params => new Promise(resolve => { finish = () => resolve({ creation: { id: params.creation_id, root_id: 'created', tree_id: 'tree', created_at: '2026-09-28T00:00:00Z' }, root: { ...sessionRecord('created'), parent_id: null, definition: params.definition }, tree: { id: 'tree', engine: params.engine, revision: '1', metadata: params.metadata, created_at: '2026-09-28T00:00:00Z' }, deleted: false }); }));
+  f.render();
   fireEvent.change(await screen.findByLabelText('Your first message'), { target: { value: 'Task' } });
-  fireEvent.click(await screen.findByRole('button', { name: 'Send first message' }));
-  await waitFor(() => expect(f.run).toHaveBeenCalledOnce());
-  route.location = { state: { __TSR_key: 'another-visit' } }; f.rerender();
+  fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
+  await waitFor(() => expect(f.rpc['trees.create']).toHaveBeenCalledOnce());
+  await act(async () => { await f.router.navigate({ to: '/', hash: 'another-visit' }); });
   await act(async () => { finish(); });
   await screen.findByText('Promoted to created');
-  expect(route.navigate).not.toHaveBeenCalled();
+  expect(f.router.state.location.hash).toBe('another-visit');
 });
-
-it('retains the draft and explains a compatible old host needs updating instead of looping through setup', async () => {
-  const f = fixture(false, [provider('inference-net', true)], true);
-  act(() => { f.runtime.setDraft(welcomeDraftKey(f.first.id), 'Keep this task'); });
-  await screen.findByText('Update Whip on Local to use provider setup. Your draft is preserved.');
-  expect(screen.queryByRole('button', { name: 'Use Inference.net' })).toBeNull();
-  expect(screen.queryByRole('textbox', { name: 'Your first message' })).toBeNull();
-  expect(screen.queryByRole('button', { name: 'Send first message' })).toBeNull();
-  expect(f.client.sessions.create).not.toHaveBeenCalled(); expect(f.client.configuration.update).not.toHaveBeenCalled();
-  expect(f.runtime.draft(welcomeDraftKey(f.first.id))).toBe('Keep this task');
+it('retains the draft when native provider metadata fails without looping through setup', async () => {
+  const f = await fixture(false, false);
+  f.runtime.queries.removeQueries({ queryKey: ['provider-list'] });
+  f.on('providers.list', () => { throw new Error('Provider metadata unavailable'); });
+  f.runtime.setDraft(welcomeDraftKey(f.tab.id), 'Keep this task'); f.render();
+  await screen.findByText('Could not load provider status');
+  expect(screen.queryByRole('button', { name: 'Use OpenAI' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Send first message' })).toHaveProperty('disabled', true);
+  expect(f.rpc['trees.create']).not.toHaveBeenCalled(); expect(f.rpc['providers.defaults']).not.toHaveBeenCalled();
+  expect(f.runtime.draft(welcomeDraftKey(f.tab.id))).toBe('Keep this task');
+  f.on('providers.list', () => f.data.inventory);
+  fireEvent.click(screen.getByRole('button', { name: 'Retry provider status' }));
+  await screen.findByRole('region', { name: 'Provider setup' });
+  expect(screen.queryByText('Could not load provider status')).toBeNull();
+  expect(f.runtime.draft(welcomeDraftKey(f.tab.id))).toBe('Keep this task');
+  expect(f.rpc['trees.create']).not.toHaveBeenCalled();
 });
-
 it('does not focus a background pane composer when provider setup completes', async () => {
-  const f = fixture(false, [provider('openrouter', true)]);
-  const confirm = await screen.findByRole('button', { name: 'Use coding-model' });
-  f.focus(false);
-  confirm.focus();
-  fireEvent.click(confirm);
-  await waitFor(() => expect(screen.queryByRole('region', { name: 'Provider setup' })).toBeNull());
-  await new Promise(resolve => setTimeout(resolve, 30));
-  expect(document.activeElement).not.toBe(screen.getByLabelText('Your first message'));
-  expect(f.client.sessions.create).not.toHaveBeenCalled();
+  const f = await fixture(false, false, false); detectedOpenRouter(f); f.render();
+  const confirm = await screen.findByRole('button', { name: 'Use gpt-6-astra' });
+  confirm.focus(); fireEvent.click(confirm);
+  const input = await screen.findByLabelText('Your first message');
+  await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); });
+  expect(document.activeElement).not.toBe(input);
+  expect(f.rpc['trees.create']).not.toHaveBeenCalled();
 });
-it('offers the host’s agent definitions and sends the chosen one with the first message', async () => {
-  const f = fixture();
+it('sends the exact immutable agent revision chosen for the first message', async () => {
+  const f = await fixture(), selected = { id: 'support-triage', revision: 'b'.repeat(64) };
+  f.on('definitions.list', () => ({ items: [{ ref: { id: 'coding', revision }, name: 'Coding', created_at: '2026-09-28T00:00:00Z' }, { ref: selected, name: 'Support triage', created_at: '2026-09-28T00:00:00Z' }], next_cursor: null }));
+  f.render();
   fireEvent.change(await screen.findByLabelText('Your first message'), { target: { value: 'Triage the queue' } });
   await openSessionOptions();
-  const picker = await screen.findByRole('combobox', { name: 'Agent' });
-  fireEvent.click(picker);
-  const option = await screen.findByRole('option', { name: 'support-triage' });
+  fireEvent.click(await screen.findByRole('combobox', { name: 'Agent' }));
+  const option = await screen.findByRole('option', { name: /Support triage · support-triage @ bbbbbbbbbbbb/ });
   fireEvent.pointerDown(option); fireEvent.click(option);
-  await waitFor(() => expect((f.tabs.workspace().tabs.find(tab => tab.id === f.first.id) as { definition?: string }).definition).toBe('support-triage'));
+  expect(f.runtime.tabs.workspace().tabs.find(tab => tab.id === f.tab.id)).toMatchObject({ definition: selected });
   fireEvent.click(screen.getByRole('button', { name: 'Close', exact: true }));
   fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
-  await waitFor(() => expect(f.client.sessions.create).toHaveBeenCalledOnce());
-  expect(f.client.sessions.create.mock.calls[0]![0]).toMatchObject({ cwd: '/repo', definition: 'support-triage', execution_engine: 'starlark' });
+  await waitFor(() => expect(f.rpc['trees.create']).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ working_directory: '/project/whip', definition: selected, engine: 'starlark' }), undefined));
 });

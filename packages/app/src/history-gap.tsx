@@ -1,29 +1,33 @@
-import { useLayoutEffect, useRef } from 'react';
-import type { DeepReadonly, HistoryGap } from '@whip/legacy-sdk/state';
+import { useLayoutEffect, useRef, useState } from 'react';
+import type { DeepReadonly, HistoryGap } from '@whip/sdk/state';
 import { Button } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { layout } from './styles';
+import { ErrorNotice } from './error-feedback';
 
-/** History errors belong to the missing range, not the connection or composer. */
+/** The SDK explicitly omitted this message to keep its transcript window bounded.
+ * Read the message separately; repeated observation cannot enlarge that window. */
 export function HistoryGapControl({ gap, connected, load }: { gap: DeepReadonly<HistoryGap>; connected: boolean; load(): Promise<void> }) {
   const element = useRef<HTMLDivElement>(null);
-  const fromSeq = useRef(gap.fromSeq); fromSeq.current = gap.fromSeq;
+  const sequence = useRef(gap.sequence); sequence.current = gap.sequence;
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<unknown>();
   useLayoutEffect(() => () => {
     const node = element.current;
     if (!node?.contains(document.activeElement)) return;
     const region = node.closest('[role="region"]') as HTMLElement | null;
-    // Keep keyboard navigation at the recovered content when its control goes away.
     requestAnimationFrame(() => {
       if (!region?.isConnected || (document.activeElement !== document.body && document.activeElement?.isConnected)) return;
-      const next = [...region.querySelectorAll<HTMLElement>('[data-reading-seq]')].find(row => Number(row.dataset.readingSeq) >= fromSeq.current);
+      const next = [...region.querySelectorAll<HTMLElement>('[data-reading-seq]')].find(row => row.dataset.readingSeq && BigInt(row.dataset.readingSeq) >= BigInt(sequence.current));
       (next ?? region).focus({ preventScroll: true });
     });
   }, []);
-  const loading = gap.status === 'loading' || gap.status === 'pending';
-  return <div ref={element} tabIndex={-1} aria-label="Missing messages" data-history-gap={gap.toSeq} {...stylex.props(layout.notice)}>
-    <span role="status">{loading ? 'Loading missing messages…' : gap.status === 'error' ? "Couldn't load messages." : 'Some messages are not loaded.'}</span>{' '}
-    <Button variant="ghost" size="sm" loading={loading} disabled={!connected || loading} onClick={() => { element.current?.focus({ preventScroll: true }); void load().catch(() => {}); }}>
-      {gap.status === 'error' ? 'Retry' : 'Load missing messages'}
-    </Button>
+  return <div ref={element} tabIndex={-1} aria-label="Large message" data-history-gap={gap.messageID} {...stylex.props(layout.notice)}>
+    <span role="status">This message exceeds the conversation window's size limit ({gap.bytes.toLocaleString()} bytes).</span>{' '}
+    <Button variant="ghost" size="sm" loading={loading} disabled={!connected || loading} onClick={async () => {
+      element.current?.focus({ preventScroll: true }); setLoading(true); setError(undefined);
+      try { await load(); } catch (failure) { setError(failure); } finally { setLoading(false); }
+    }}>Read large message</Button>
+    {error !== undefined && <ErrorNotice type="resource" owner={gap.messageID} error={error} />}
   </div>;
 }

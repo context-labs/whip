@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import type { SessionCatalogPage } from '@whip/legacy-protocol';
 import { Button, Dialog, Field, IconButton, Input, Select } from '@whip/ui';
 import { PanelsTopLeft } from 'lucide-react';
 import { scale, typography } from '@whip/ui/tokens.stylex';
@@ -70,14 +69,15 @@ function PreviewForm({ onSubmit }: { onSubmit(input: Omit<PreviewRequest, 'paneI
 function PreviewProject({ host, onSubmit }: { host: HostConnection; onSubmit(input: Omit<PreviewRequest, 'paneId'>): void }) {
   const runtime = useRuntime();
   const catalog = useSyncExternalStore(host.list?.subscribe ?? subscribeNone, host.list?.getSnapshot ?? emptyCatalog, host.list?.getSnapshot ?? emptyCatalog);
-  const [cursor, setCursor] = useState<SessionCatalogPage['next_cursor']>();
+  const [cursor, setCursor] = useState<{ after: string; revision: string }>();
   const [cwd, setCwd] = useState(''), [url, setURL] = useState('http://127.0.0.1:3000'), [error, setError] = useState('');
-  const query = useQuery({ queryKey: ['browser-conversations', host.runtimeId, '', cursor],
-    queryFn: ({ signal }) => host.client!.sessions.list({ status: 'all', cursor, limit: 64, max_bytes: 256 << 10 }, { signal: AbortSignal.any([signal, runtime.connections.signal(host.client!)]) }),
-    enabled: !!host.client && host.state === 'connected' && (!!cursor || !host.list), gcTime: 0 });
-  const page = cursor || !host.list ? query.data : catalog?.page;
-  const projects = [...new Set((page?.items ?? []).slice(0, 64).map(row => row.cwd).filter(path => !!browserProjectId(path)))];
-  const selected = projects.includes(cwd) ? cwd : '', failure = query.error ?? catalog?.error;
+  useEffect(() => { setCursor(undefined); setCwd(''); }, [catalog?.revision]);
+  const query = useQuery({ queryKey: ['browser-conversations', host.runtimeId, host.client?.processEpoch, catalog?.revision, '', cursor],
+    queryFn: ({ signal }) => host.client!.listTrees({ ...(cursor ? { after: cursor.after, expected_revision: cursor.revision } : {}), limit: 64 }, { signal: AbortSignal.any([signal, runtime.connections.signal(host.client!)]) }),
+    enabled: !!host.client && host.state === 'connected', gcTime: 0 });
+  const page = query.data;
+  const projects = [...new Set((page?.items ?? []).map(row => row.working_directory).filter(path => !!browserProjectId(path)))];
+  const selected = projects.includes(cwd) ? cwd : '', failure = query.error;
   return <form {...stylex.props(layout.column)} onSubmit={event => {
     event.preventDefault(); setError('');
     const projectId = browserProjectId(selected);
@@ -85,13 +85,13 @@ function PreviewProject({ host, onSubmit }: { host: HostConnection; onSubmit(inp
     try { onSubmit({ connectionId: host.profile.id, runtimeId: host.runtimeId, projectId, url: browserPreviewAddress(url) }); }
     catch (error) { setError(errorMessage(error)); }
   }}>
-    <Field label="Project"><Select label="Project" value={selected} placeholder="Choose a project" options={projects.map(path => ({ value: path, label: path }))} onValueChange={setCwd}/></Field>
+    <Field label="Project"><Select label="Project" disabled={!projects.length || query.isFetching} value={selected} placeholder="Choose a project" options={projects.map(path => ({ value: path, label: path }))} onValueChange={setCwd}/></Field>
     <p {...stylex.props(layout.muted)}>Projects come from this host’s conversation catalog, at most 64 conversations per page. Choosing a project does not give any conversation Browser access.</p>
     {!projects.length && !failure && <p role="status">{query.isFetching || catalog?.status === 'loading' ? 'Loading projects…' : 'No project paths found. Start a conversation in the project on this host, then try again.'}</p>}
     {failure && <p role="alert">Could not load projects: {errorMessage(failure)}</p>}
     <div {...stylex.props(layout.row)}>
       {cursor && <Button type="button" variant="ghost" size="sm" onClick={() => { setCursor(undefined); setCwd(''); }}>First project page</Button>}
-      {page?.next_cursor && <Button type="button" variant="ghost" size="sm" disabled={query.isFetching} onClick={() => { setCursor(page.next_cursor); setCwd(''); }}>More projects</Button>}
+      {page?.next_cursor && <Button type="button" variant="ghost" size="sm" disabled={query.isFetching} onClick={() => { setCursor({ after: page.next_cursor!, revision: page.revision }); setCwd(''); }}>More projects</Button>}
     </div>
     <Field label="Preview URL"><Input aria-label="Preview URL" value={url} onChange={event => { setURL(event.target.value); setError(''); }} placeholder="http://127.0.0.1:3000"/></Field>
     <p {...stylex.props(layout.muted)}>Use literal 127.0.0.1 or [::1]. Confirming a new port can expand network access for all Browser tabs in this project; native confirmation names the exact host and effect.</p>

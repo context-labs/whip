@@ -37,7 +37,7 @@ exit 23
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	previous := restartDaemonAfterUpdate
 	restarts := 0
-	restartDaemonAfterUpdate = func() error { restarts++; return nil }
+	restartDaemonAfterUpdate = func(string) error { restarts++; return nil }
 	t.Cleanup(func() { restartDaemonAfterUpdate = previous })
 	var updateErr error
 	output := captureStdout(t, func() { updateErr = updateCLI() })

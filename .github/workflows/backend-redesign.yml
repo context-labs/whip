@@ -61,6 +61,51 @@ jobs:
           path: test-results/redesign/
           if-no-files-found: ignore
 
+  products:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, gate: product-web}
+          - {os: ubuntu-latest, gate: product-browser}
+          - {os: ubuntu-latest, gate: product-mobile}
+          - {os: ubuntu-latest, gate: product-examples}
+          - {os: ubuntu-latest, gate: product-docs}
+          # macos-15 is Apple Silicon, matching the supported desktop artifact.
+          - {os: macos-15, gate: product-desktop}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            Taskfile.yaml
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: go install github.com/go-task/task/v3/cmd/task@v3.48.0
+      - run: npm ci --no-audit --no-fund
+      - if: matrix.gate == 'product-desktop'
+        run: node node_modules/electron/install.js
+      - if: matrix.gate == 'product-browser' || matrix.gate == 'product-examples'
+        run: npx playwright install --with-deps chromium firefox
+      - name: Required ${{ matrix.gate }} gate
+        run: task check:${{ matrix.gate }}
+      - name: Product failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: redesign-failure-${{ matrix.gate }}
+          path: |
+            test-results/redesign/
+            /tmp/whip-web-*-results/
+          if-no-files-found: ignore
+
   analysis:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -82,11 +127,12 @@ jobs:
   # Keep one stable required context; a failed or cancelled dependency fails it.
   redesign:
     if: always()
-    needs: [checks, analysis]
+    needs: [checks, products, analysis]
     runs-on: ubuntu-latest
     steps:
       - name: Require every active check
         env:
           CHECKS_RESULT: ${{ needs.checks.result }}
+          PRODUCTS_RESULT: ${{ needs.products.result }}
           ANALYSIS_RESULT: ${{ needs.analysis.result }}
-        run: test "$CHECKS_RESULT" = success && test "$ANALYSIS_RESULT" = success
+        run: test "$CHECKS_RESULT" = success && test "$PRODUCTS_RESULT" = success && test "$ANALYSIS_RESULT" = success

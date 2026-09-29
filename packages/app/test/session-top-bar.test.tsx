@@ -3,7 +3,7 @@ import { expect, it, vi } from 'vitest';
 import { useState } from 'react';
 import userEvent from '@testing-library/user-event';
 import { ThemeProvider, UIProvider } from '@whip/ui';
-import type { SessionViewSnapshot } from '@whip/legacy-sdk/state';
+import { observation } from './native-conversation-fixture';
 import { SessionTopBar } from '../src/session-top-bar';
 import { activityStatus, CurrentActivity } from '../src/chat-activity';
 
@@ -98,17 +98,17 @@ it('keeps the shared identity bar while a session is opening', () => {
 });
 
 it('shows one current status in the bar without a duplicate agent dock', () => {
-  const state = { status: 'live', root: { root_id: 'root', active_turns: {}, agents: [], permissions: [], questions: [{ question_id: 'q' }] } } as unknown as SessionViewSnapshot;
+  const state = observation({ pending_question_count: '1', active_turn: null });
   const app = (connected: boolean) => <ThemeProvider><UIProvider>
     <SessionTopBar host="Local" cwd="/whip" agentName="Root" kind="chat"
-      activity={<CurrentActivity status={activityStatus(state, 'root', [], connected)} connected={connected} onDetails={vi.fn()} />} />
+      activity={<CurrentActivity status={activityStatus(state, [], connected)} connected={connected} onDetails={vi.fn()} />} />
   </UIProvider></ThemeProvider>;
   const view = render(app(true));
   expect(screen.getAllByRole('status')).toHaveLength(1);
   expect(screen.getByRole('status').textContent).toBe('Waiting for your answer');
   view.rerender(app(false));
   expect(screen.getAllByRole('status')).toHaveLength(1);
-  expect(screen.getByRole('status').textContent).toBe('Reconnecting · activity updates paused');
+  expect(screen.getByRole('status').textContent).toBe('Updates paused');
 });
 
 it('preserves the activity motion control and hides session-only controls for New Chat', () => {

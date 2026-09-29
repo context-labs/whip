@@ -1,12 +1,13 @@
-import { memo, useMemo, useRef } from 'react';
+import { memo, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useQuery } from '@tanstack/react-query';
 import { useRecyclingState } from '@shopify/flash-list';
-import { messagePresentation, type TimelineRow } from '@whip/app/presentation';
+import { type TimelineRow } from '@whip/app/presentation';
 import { useRuntime, useRuntimeState } from '../runtime/context';
 import { Actions, Label, Loading, Notice, Stack } from './primitives';
 import { PagedText, textPreview } from './paged-text';
+import { readMobileContent } from '../features/content';
 import { useDisplay, useTheme } from '../theme/theme';
 
 /** Recycling must reset disclosure state; scrolling can never trigger a body read. */
@@ -30,7 +31,7 @@ export const ConversationRow = memo(function ConversationRow({ row, onInspect, o
     {!!row.images?.length && <Notice>{row.images.length} image attachment{row.images.length === 1 ? '' : 's'} available in the web app.</Notice>}
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16 }}>
       {detail && <Pressable accessibilityRole="button" onPress={() => setExpanded(!expanded)} style={{ minHeight: 44, justifyContent: 'center' }}><Label muted style={{ fontSize: 12 }}>{expanded ? 'Collapse details' : 'Show details'}</Label></Pressable>}
-      {row.body && <Pressable accessibilityRole="button" onPress={() => onInspect(row)} style={{ minHeight: 44, justifyContent: 'center' }}><Label muted style={{ fontSize: 12 }}>Open full message</Label></Pressable>}
+      {(row.body || row.references?.length) && <Pressable accessibilityRole="button" onPress={() => onInspect(row)} style={{ minHeight: 44, justifyContent: 'center' }}><Label muted style={{ fontSize: 12 }}>Inspect retained content</Label></Pressable>}
       <Pressable accessibilityRole="button" accessibilityLabel="Copy message" accessibilityState={{ disabled: !text }} disabled={!text}
         onPress={() => { void Clipboard.setStringAsync(text).then(() => { if (currentRow.current === row.id) setCopied(true); }).catch(runtime.report); }} style={{ minHeight: 44, justifyContent: 'center' }}><Label muted style={{ fontSize: 12 }}>{copied ? 'Copied' : 'Copy'}</Label></Pressable>
     </View>
@@ -41,12 +42,15 @@ export const ConversationRow = memo(function ConversationRow({ row, onInspect, o
 export function BodyInspector({ row, rootId, agentId }: { row: TimelineRow; rootId: string; agentId: string }) {
   const runtime = useRuntime(); const { client, host, ready, active } = useRuntimeState();
   const scroll = useRef<ScrollView>(null);
-  const result = useQuery({ queryKey: [host?.runtimeId, rootId, agentId, 'body', row.body?.reference_id], enabled: !!row.body && ready && active && !!client,
-    queryFn: ({ signal }) => client!.content(row.body!, { rootId, agentId }).readJSON({ maxBytes: 256 << 10, signal }),
+  const refs = row.body ? [row.body.id] : row.references ?? [];
+  const [selection, select] = useState(refs[0]);
+  const selected = refs.includes(selection) ? selection : refs[0];
+  const result = useQuery({ queryKey: [host?.runtimeId, client?.processEpoch, rootId, agentId, 'body', selected], enabled: !!selected && ready && active && !!client && !!host,
+    queryFn: ({ signal }) => readMobileContent(client!, host!.url, agentId, row.body ?? selected!, signal),
   });
-  const text = result.data && typeof result.data === 'object' && 'content' in result.data ? messagePresentation(result.data.content).text : undefined;
   return <ScrollView ref={scroll} contentContainerStyle={{ padding: 20, gap: 16 }}>
-    {result.isFetching ? <Loading /> : result.error ? <Notice danger>{textPreview(result.error.message)}</Notice> : text !== undefined ? <><PagedText text={text} identity={JSON.stringify([host?.runtimeId, rootId, agentId, row.id, row.body?.reference_id])} onPageChange={() => scroll.current?.scrollTo({ y: 0, animated: false })} /><Actions items={[{ label: 'Copy message', secondary: true, onPress: () => { void Clipboard.setStringAsync(text).catch(runtime.report); } }]} /></> : <Notice>{!ready ? 'Reconnect to read this message.' : 'The retained message body is unavailable.'}</Notice>}
+    {refs.length > 1 && <Actions items={refs.map(id => ({ label: id, secondary: true, onPress: () => select(id) }))} />}
+    {result.isFetching ? <Loading /> : result.error ? <Notice danger>{textPreview(result.error.message)}</Notice> : result.data !== undefined ? <><PagedText text={result.data} identity={JSON.stringify([host?.runtimeId, agentId, selected])} onPageChange={() => scroll.current?.scrollTo({ y: 0, animated: false })} /><Actions items={[{ label: 'Copy content', secondary: true, onPress: () => { void Clipboard.setStringAsync(result.data!).catch(runtime.report); } }]} /></> : <Notice>{!ready ? 'Reconnect to read this content.' : 'The retained content is unavailable.'}</Notice>}
     <Label muted>Content reads are limited to 256 KiB and verified against the host’s content hash.</Label>
   </ScrollView>;
 }

@@ -56,7 +56,7 @@ export async function testBrowserControl(window: BrowserWindow, origin: string) 
     console.log('PASS production BrowserControl initial admission, bounded hidden viewport screenshot and method denials');
     const long = command('cdp', { method: 'Runtime.evaluate', params: { expression: 'new Promise(r=>setTimeout(()=>{window.finishedAfterCancel=true;r(1)},150))', awaitPromise: true, returnByValue: true } });
     const pending = call<BrowserAgentResult>('dispatch', long); await new Promise(resolve => setTimeout(resolve, 25));
-    await call('cancel', { command_id: long.command_id, root_id: rootId, provider_epoch: provider.provider_epoch, attachment_generation: scope.attachment_generation, reason: 'Test cancellation' });
+    await call('cancel', { command_id: long.command_id, root_id: rootId, provider_epoch: provider.provider_epoch, attachment_generation: scope.attachment_generation });
     assert.equal((await pending).error?.kind, 'outcome_unknown'); await new Promise(resolve => setTimeout(resolve, 200));
     for (let attempt = 0; attempt < 30 && !await guest.executeJavaScript('window.finishedAfterCancel === true'); attempt++) await new Promise(resolve => setTimeout(resolve, 100));
     assert.equal(await guest.executeJavaScript('window.finishedAfterCancel'), true, 'delivered cancellation side effect');

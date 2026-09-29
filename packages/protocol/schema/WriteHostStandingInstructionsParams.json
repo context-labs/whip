@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "properties": {
+    "expected_revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "text": {
+      "type": "string",
+      "maxLength": 65536,
+      "pattern": "^[^\\x00]*$"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/WriteHostStandingInstructionsParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "WriteHostStandingInstructionsParams",
+  "required": [
+    "expected_revision",
+    "text"
+  ],
+  "additionalProperties": false
+}

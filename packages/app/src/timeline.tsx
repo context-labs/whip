@@ -17,10 +17,7 @@ import {
 } from 'react';
 import { renderMarkdownReact } from '@tanstack/markdown/react';
 import { streamingMarkdownExtension } from '@tanstack/markdown/extensions/streaming';
-import { useQuery } from '@tanstack/react-query';
-import type { WhipClient } from '@whip/legacy-sdk';
-import type { DeepReadonly, HistoryView } from '@whip/legacy-sdk/state';
-import type { RootSnapshot, StreamEvent } from '@whip/legacy-protocol';
+import type { Client } from '@whip/sdk';
 import { Button, CodeBlock, CopyButton, Dialog, IconButton, Menu, Spinner } from '@whip/ui';
 import {
   ChevronRight,
@@ -41,19 +38,17 @@ import { useRuntime } from './context';
 import { layout } from './styles';
 import { ReadingList, type ReadingListActions } from './reading-list';
 import { HistoryGapControl } from './history-gap';
+import { spawnedSession } from './chat-activity-rows';
 import { ActivityHeader, ActivityStep, ActivityDetail, InlineAgent, type TranscriptAgent } from './transcript-activity';
 import { MotionContext, RowMotion, transcriptMotion, useTranscriptMotion, type Arrival } from './transcript-motion';
 import { MarkdownBlock, isMarkdownRow, markdownRows, useCoalescedTranscript } from './streaming-markdown';
 import { DiagramChoices, MarkdownCodeBlock, MarkdownReadiness } from './markdown-code-block';
 import { isActivityGroup, isAgentActivity, activityItems, responseCopies, type ActivityItem, type ActivityGroup, type ConversationActivityRow } from './chat-activity-rows';
-import { conversationRows, messagePresentation, type ImagePart, type TimelineRow } from './conversation-rows';
+import { type ImagePart, type TimelineRow } from './conversation-rows';
 import { DesignInputAttachments } from './design-input-attachments';
-import { BrowserDesignAttachment } from './browser-design-attachment';
+import { MessageAttachments } from './message-attachments';
 export { conversationRows, messagePresentation, timelineRows, type TimelineRow } from './conversation-rows';
-import {
-  type InboxInput,
-  type SubmittedInput,
-} from './input-presentation';
+
 
 export function ImageAttachment({ image, thumbnail, label = 'Image attachment' }: { image: ImagePart; thumbnail?: boolean; label?: string }) {
   const [failed, setFailed] = useState<string>();
@@ -440,49 +435,9 @@ function MessageDisclosure({ row, readBody, children }: { row: TimelineRow; read
 }
 
 export interface MessageScope {
-  client: WhipClient;
+  client: Client;
   rootId: string;
   agentId: string;
-}
-
-/** A history-page byte limit is a transport detail, not a message disclosure.
- * Only mounted chat rows read bodies; tool/reasoning details still opt in. */
-function StoredMessageRow({ row, scope, connected, historyRevision, onProse, detailsOnly, ...props }: {
-  row: TimelineRow;
-  scope: MessageScope;
-  connected: boolean;
-  historyRevision?: string;
-  detailsOnly?: boolean;
-  onProse(row: TimelineRow, text: string): void;
-  readBody(row: TimelineRow): void;
-  historyAction?(row: TimelineRow, action: 'fork' | 'rewind'): void;
-}) {
-  const runtime = useRuntime();
-  const body = row.body!;
-  const query = useQuery({
-    queryKey: ['chat-message', scope.client.getSnapshot().info?.runtime_id, scope.rootId, scope.agentId, historyRevision, body.reference_id, body.digest],
-    queryFn: async ({ signal }) => {
-      const value = await scope.client.content(body, scope).readJSON({ maxBytes: 64 << 20, signal });
-      if (!value || typeof value !== 'object' || !('content' in value)) throw new Error('Stored message has no content.');
-      return messagePresentation(value.content, row.role === 'user' && 'presentation' in value ? value.presentation : undefined);
-    },
-    enabled: connected,
-    staleTime: Infinity,
-    gcTime: 0,
-    retry: false,
-    refetchOnWindowFocus: false,
-  }, runtime.queries);
-  useEffect(() => {
-    if (row.role === 'assistant' && query.data) onProse(row, query.data.text);
-  }, [row, query.data, onProse]);
-  if (query.data) {
-    const loaded = { ...row, ...query.data, body: undefined };
-    return detailsOnly ? <MessageDetails row={loaded} readBody={props.readBody} /> : <MessageRow {...props} row={loaded} />;
-  }
-  const content = query.error ? <ErrorNotice type="resource" owner={`${scope.rootId}:${scope.agentId}:${row.id}`} title="Could not load message" error={query.error}
-      action={<Button variant="ghost" disabled={!connected} onClick={() => void query.refetch()}>Retry</Button>} />
-    : <p role="status" {...stylex.props(layout.muted)}>{connected ? 'Loading message…' : 'Reconnect to load this message.'}</p>;
-  return detailsOnly ? content : <MessageRow {...props} row={row} content={content} />;
 }
 
 export const MessageRow = memo(function MessageRow({
@@ -517,9 +472,6 @@ export const MessageRow = memo(function MessageRow({
         <MessageDisclosure row={row} readBody={readBody}>{details}</MessageDisclosure>
       ) : user ? (
         <>
-          {content == null && !row.body && row.designEvidence && <BrowserDesignAttachment
-            context={{ ...row.designEvidence.context, elements: row.designEvidence.context.elements ?? [], url: row.designEvidence.context.page_url, title: row.designEvidence.context.page_title }} rawText={row.designEvidence.rawText}
-            screenshot={row.designEvidence.image && <ImageAttachment image={row.designEvidence.image} thumbnail label="Design screenshot"/>}/>}
           {content == null && !row.body && (!!row.images?.length || attachments) && <div role="group" aria-label="Message attachments" {...stylex.props(styles.attachments)}>
             {attachments}
             {row.images?.map((image, index, images) => <ImageAttachment key={index} image={image} thumbnail
@@ -588,6 +540,7 @@ export const MessageRow = memo(function MessageRow({
           ) : (
             <>
               <Prose text={row.text} live={row.live} truncated={row.truncated} ownerId={row.id} />
+              {attachments}
               {row.images?.map((image, index) => (
                 <ImageAttachment key={index} image={image} />
               ))}
@@ -642,7 +595,7 @@ export function Timeline({
   onAgent?(id: string): void;
   hasMore: boolean;
   loadOlder(): Promise<void>;
-  loadGap?(toSeq: number): Promise<void>;
+  loadGap?(messageID: string): Promise<void>;
   loadLatest?(): Promise<void>;
   latestMissing?: boolean;
   readBody(row: TimelineRow): void;
@@ -650,7 +603,7 @@ export function Timeline({
   bookmarkKey?: string;
   historyRevision?: string;
   historyReady?: boolean;
-  historyCursor?: number;
+  historyCursor?: string;
   canLoadOlder?: boolean;
   loadingHistory?: boolean;
   connected?: boolean;
@@ -668,34 +621,7 @@ export function Timeline({
   // Reattachment/visibility resumes with one final-state paint before allowing
   // new arrivals to animate. Work received while absent is already history.
   const motion = availableMotion && wasAvailable;
-  // Keep only bounded copy text after a virtual message unmounts, never image
-  // bodies. The SDK's history and activity identities remain authoritative.
-  const [storedProse, setStoredProse] = useState<ReadonlyMap<string, { digest: string; text: string }>>(new Map());
-  const retainProse = useCallback((row: TimelineRow, text: string) => {
-    if (text.length > 256 * 1024) return;
-    setStoredProse(previous => {
-      if (previous.get(row.id)?.digest === row.body?.digest) return previous;
-      const next = new Map(previous);
-      next.set(row.id, { digest: row.body!.digest, text });
-      let size = [...next.values()].reduce((sum, value) => sum + value.text.length, 0);
-      for (const [id, value] of next) {
-        if (size <= 256 * 1024 && next.size <= 512) break;
-        next.delete(id); size -= value.text.length;
-      }
-      return next;
-    });
-  }, []);
-  useEffect(() => {
-    const bodies = new Map(rows.filter(row => row.body).map(row => [row.id, row.body!.digest]));
-    setStoredProse(previous => {
-      const retained = [...previous].filter(([id, value]) => bodies.get(id) === value.digest);
-      return retained.length === previous.size ? previous : new Map(retained);
-    });
-  }, [rows]);
-  const copies = useMemo(() => responseCopies(rows.map(row => {
-    const prose = storedProse.get(row.id);
-    return prose && prose.digest === row.body?.digest ? { ...row, body: undefined, copyText: prose.text } : row;
-  }), active || !connected || !historyReady, hasMore), [rows, storedProse, active, connected, historyReady, hasMore]);
+  const copies = useMemo(() => responseCopies(rows, active || !connected || !historyReady, hasMore), [rows, active, connected, historyReady, hasMore]);
   const parsed = useRef<Parameters<typeof markdownRows>[1]>(new Map());
   const blocks = useMemo(() => markdownRows(rows, parsed.current), [rows]);
   const region = useRef<HTMLDivElement>(null);
@@ -723,7 +649,7 @@ export function Timeline({
       if (row.historyGap) continue;
       const items = isActivityGroup(row) ? activityItems(row) : [];
       let stagger = 0;
-      for (const id of [...(row.seq === undefined ? [row.id] : []), ...items.filter(item => (item.row?.seq ?? item.cell?.seq) === undefined).map(item => item.id)]) {
+      for (const id of [...(row.seq === undefined ? [row.id] : []), ...items.filter(item => (item.row?.seq ?? item.cell?.call?.message.sequence) === undefined).map(item => item.id)]) {
         if (!seen.current.has(id) && !arrivals.current.has(id)) arrivals.current.set(id, { time: performance.now(), delay: items.length && id !== row.id ? (seen.current.has(row.id) ? 0 : transcriptMotion.first) + stagger++ * transcriptMotion.stagger : 0 });
       }
     }
@@ -788,7 +714,7 @@ export function Timeline({
     return next;
     });
   };
-  type DisplayRow = { id: string; seq?: number; memberIds?: readonly string[]; memberSeqs?: readonly number[]; source: typeof blocks[number]; group?: ActivityGroup; item?: ActivityItem; detail?: boolean; open?: boolean; last?: boolean; copy?: { text: string; label: string } };
+  type DisplayRow = { id: string; seq?: string; memberIds?: readonly string[]; memberSeqs?: readonly string[]; source: typeof blocks[number]; group?: ActivityGroup; item?: ActivityItem; detail?: boolean; open?: boolean; last?: boolean; copy?: { text: string; label: string } };
   const displayRows: DisplayRow[] = [];
   for (const [blockIndex, row] of blocks.entries()) {
     if (isActivityGroup(row)) {
@@ -798,8 +724,8 @@ export function Timeline({
         const reasoningLive = original.kind === 'reasoning' && index === items.length - 1 && !!row.autoOpen && active && !!original.row?.live;
         const item = original.kind === 'reasoning' && original.row ? { ...original, row: { ...original.row, live: reasoningLive } } : original;
         const detail = choices.get(item.id) ?? (item.kind === 'mailbox' ? false : item.kind === 'reasoning' ? reasoningLive : density === 'detailed');
-        displayRows.push({ id: item.id, seq: item.row?.seq ?? item.cell?.seq, source: row, group: row, item, open: detail, last: index === items.length - 1 && !detail });
-        if (detail) displayRows.push({ id: `${item.id}:detail`, seq: item.row?.seq ?? item.cell?.seq, source: row, group: row, item, detail: true });
+        displayRows.push({ id: item.id, seq: item.row?.seq ?? item.cell?.call?.message.sequence, source: row, group: row, item, open: detail, last: index === items.length - 1 && !detail });
+        if (detail) displayRows.push({ id: `${item.id}:detail`, seq: item.row?.seq ?? item.cell?.call?.message.sequence, source: row, group: row, item, detail: true });
       });
     } else displayRows.push({ id: row.id, seq: row.seq, memberIds: row.memberIds, source: row });
     const owner = isMarkdownRow(row) ? row.ownerId : row.id;
@@ -815,22 +741,26 @@ export function Timeline({
         const source = row.source;
         return <>
           <RowMotion arrival={row.group || isAgentActivity(source) ? arrivals.current.get(row.id) : undefined} closing={!!row.item && closing.has(row.group!.id)}>
-            {source.historyGap ? <HistoryGapControl gap={source.historyGap} connected={connected} load={() => loadGap?.(source.historyGap!.toSeq) ?? Promise.resolve()} />
+            {source.historyGap ? <HistoryGapControl gap={source.historyGap} connected={connected} load={() => loadGap ? loadGap(source.historyGap!.messageID) : Promise.resolve(readBody(source))} />
             : row.group ? row.item ? row.detail
-              ? <ActivityDetail item={row.item} groupId={row.group.id} readBody={readBody} onOpenRepl={onOpenRepl} />
+              ? <ActivityDetail session={messageScope?.client.session(messageScope.agentId)} connected={connected} item={row.item} groupId={row.group.id} readBody={readBody} onOpenRepl={onOpenRepl} />
               : <ActivityStep item={row.item} groupId={row.group.id} open={!!row.open} toggle={() => toggle(row.item!.id, !!row.open)} connected={connected} last={!!row.last} />
               : <ActivityHeader group={row.group} open={!!row.open} toggle={() => toggle(row.group!.id, !!row.open)} connected={connected} density={density} />
-            : isAgentActivity(source) ? <InlineAgent row={source} agent={agents.find(agent => agent.id === source.agentHost.display?.child_id)} connected={connected} onAgent={onAgent} readBody={readBody} onOpenRepl={onOpenRepl} />
+            : isAgentActivity(source) ? <InlineAgent row={source} agent={agents.find(agent => agent.id === spawnedSession(source.agentHost))} connected={connected} onAgent={onAgent} readBody={readBody} onOpenRepl={onOpenRepl} />
             : isMarkdownRow(source) ? <article data-message-role="assistant" data-message-id={source.ownerId} {...stylex.props(messageMarker, styles.article)}><MarkdownBlock row={source} components={markdownComponents} arrival={arrivals.current.get(row.id)} /></article>
-            : source.body && messageScope && (source.role === 'user' || source.role === 'assistant')
-              ? <StoredMessageRow row={source} scope={messageScope} connected={connected} historyRevision={historyRevision} onProse={retainProse} readBody={readBody} historyAction={historyAction} />
-              : <MessageRow row={source} readBody={readBody} historyAction={historyAction}
-                  attachments={messageScope && !!source.inputAttachments?.length && <DesignInputAttachments files={source.inputAttachments} designContext={source.designContext}
+            : <MessageRow row={source} readBody={readBody} historyAction={historyAction}
+                attachments={messageScope && (!!source.references?.length || !!source.inputAttachments?.length) && <>
+                  {!!source.references?.length && <MessageAttachments references={source.references} designContext={source.designContext}
+                    client={messageScope.client} rootId={messageScope.rootId} agentId={messageScope.agentId} connected={connected} />}
+                  {!!source.inputAttachments?.length && <DesignInputAttachments files={source.inputAttachments} designContext={source.designContext}
                     client={messageScope.client} rootId={messageScope.rootId} agentId={messageScope.agentId}
-                    runtimeId={messageScope.client.getSnapshot().info?.runtime_id ?? ''} connected={connected}/>}
-                  details={source.role === 'internal' && source.body && messageScope
-                    ? <StoredMessageRow row={source} scope={messageScope} connected={connected} historyRevision={historyRevision} onProse={retainProse} readBody={readBody} detailsOnly />
-                    : undefined} />}
+                    runtimeId={messageScope.client.runtimeID} connected={connected} />}
+                </>}
+                details={['tool', 'internal', 'mailbox', 'reasoning'].includes(source.role) ? <>
+                  <MessageDetails row={source} readBody={readBody} />
+                  {messageScope && !!source.references?.length && <MessageAttachments references={source.references}
+                    client={messageScope.client} rootId={messageScope.rootId} agentId={messageScope.agentId} connected={connected} />}
+                </> : undefined} />}
           </RowMotion>
           {row.copy && <div data-response-actions {...stylex.props(styles.responseActions)}><MessageCopy key={source.id} owner={source.id} label={row.copy.label} text={row.copy.text} /></div>}
         </>;

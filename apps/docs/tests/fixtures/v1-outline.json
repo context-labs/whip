@@ -282,10 +282,11 @@
       [
         "Availability and installation",
         "Connect to a host",
-        "Submit work",
-        "Events and cancellation",
-        "Define agents and tools",
-        "State views and React"
+        "Create a session and run a turn",
+        "Recover uncertain delivery",
+        "Observe history and execution",
+        "Decisions, content and accounting",
+        "Author tools and agents"
       ]
     ]
   ]

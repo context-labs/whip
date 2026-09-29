@@ -7,10 +7,10 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { _electron } from 'playwright';
 import { expect } from '@playwright/test';
-import { createWhipClient } from '../../../packages/legacy-sdk/dist/index.js';
+import { defineAgent } from '../../../packages/sdk/dist/agents.js';
 import { fileDigest, LocalRuntime, readRuntimeManifest } from '../src/runtime.ts';
 import { repositoryRoot } from '../../../scripts/renderer-artifact.mjs';
-import { startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
+import { deadline, startFixture } from '../../web/scripts/native-fixture.mjs';
 
 const exec = promisify(execFile);
 // Keep both the runtime and its isolated TMPDIR below macOS's Unix socket limit.
@@ -34,7 +34,9 @@ try {
     settingsFile: path.join(env.WHIP_DESKTOP_USER_DATA, 'native-local-runtime.json'), defaultExecutable: executable })
     .install(executable, AbortSignal.timeout(15_000));
   runtimeInstalled = true;
-  remote = await startFixture({ allowedOrigins: ['whip-app://bundle'] });
+  remote = await startFixture({ allowedOrigins: ['whip-app://bundle'], rejectInput: 'desktop-fixture-rejected-turn' });
+  const client = await remote.connect(`desktop-tabs-${crypto.randomUUID()}`);
+  const { root } = await remote.createRoot(client, { title: 'Desktop smoke' });
   const artifacts = process.env.WHIP_DESKTOP_SMOKE_ARTIFACTS;
   if (artifacts) await mkdir(artifacts, { recursive: true });
   const launch = () => _electron.launch({ args: [path.join(stage, 'app')], env, timeout: 30_000,
@@ -48,7 +50,7 @@ try {
     .catch(async error => { console.error((await page.locator('body').innerText()).slice(0, 6000), diagnostics); throw error; });
   const { stdout } = await exec(executable, ['daemon', 'status', '--json'], { env, timeout: 5000 });
   const initial = JSON.parse(stdout);
-  assert.equal(initial.state, 'running'); assert(!initial.network_endpoint, 'Local attachment must not enable TCP');
+  assert.equal(initial.state, 'running'); assert(!initial.process.web_endpoint, 'Local attachment must not enable TCP');
   assert.equal(await fileDigest(executable), manifest.files.whipcode.sha256);
   await assert.rejects(lstat(path.join(env.WHIP_DESKTOP_USER_DATA, 'runtimes')), { code: 'ENOENT' });
   await assert.rejects(lstat(path.join(env.HOME, '.whip')), { code: 'ENOENT' });
@@ -56,26 +58,19 @@ try {
   await page.getByRole('button', { name: 'Add server', exact: true }).click();
   const hosts = page.getByRole('dialog', { name: 'Add server', exact: true });
   await hosts.getByRole('textbox', { name: /Server name/ }).fill('Smoke URL');
-  await hosts.getByRole('textbox', { name: 'Server address', exact: true }).fill(remote.info.endpoint);
+  await hosts.getByRole('textbox', { name: 'Server address', exact: true }).fill(remote.info.web);
   await hosts.getByRole('button', { name: 'Connect', exact: true }).click();
   await hosts.waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: 'Back to workspace', exact: true }).click();
-  const remoteLink = page.locator(`a[href="/h/${remote.info.runtime_id}/s/${remote.info.root_id}"]`).first();
+  const remoteLink = page.locator(`a[href="/h/${remote.info.runtime_id}/s/${root.id}"]`).first();
   await remoteLink.waitFor(); await remoteLink.click();
   await page.getByLabel('Message WHIP', { exact: true }).waitFor();
-  const client = createWhipClient({ endpoint: remote.info.endpoint, clientId: `desktop-tabs-${crypto.randomUUID()}`, clientKind: 'human' });
-  try {
-    await client.connect();
-    for (const title of ['Review changes', 'Check the implementation']) {
-      const created = await client.sessions.create({ cwd: remote.directory, model: 'model', provider: 'provider' }).result();
-      assert.equal(created.status, 'succeeded');
-      const id = created.result.root_id;
-      await client.session(id).rename(title).result();
-      const link = page.locator(`a[href="/h/${remote.info.runtime_id}/s/${id}"]`).first();
-      await link.waitFor(); await link.click();
-      await page.getByLabel('Message WHIP', { exact: true }).waitFor();
-    }
-  } finally { client.close(); }
+  for (const title of ['Review changes', 'Check the implementation']) {
+    const created = await remote.createRoot(client, { title });
+    const link = page.locator(`a[href="/h/${remote.info.runtime_id}/s/${created.root.id}"]`).first();
+    await link.waitFor(); await link.click();
+    await page.getByLabel('Message WHIP', { exact: true }).waitFor();
+  }
   await page.evaluate(() => localStorage.setItem('whip.appearance.theme.v1', JSON.stringify({ version: 1, id: 'claude-code' })));
   await page.reload();
   await expect(page.getByRole('tab')).toHaveCount(3);
@@ -191,9 +186,18 @@ try {
     await expect(tabs).toHaveCount(4);
   }
   if (process.env.WHIP_WEB_TURN_FAILURE_FIXTURE === '1') {
+    const definition = await client.agents.register(defineAgent({ id: 'architecture-researcher', name: 'Architecture researcher', defaults: { automatic_title: false } }), deadline());
+    const requestID = `desktop-child-failure-${crypto.randomUUID()}`;
+    const spawned = await client.session(root.id).spawn({ definition: definition.ref, overrides: {}, grant_ids: [],
+      parts: [{ type: 'text', text: 'desktop-fixture-rejected-turn' }] }, requestID, deadline());
+    assert(spawned.session);
+    const child = client.session(spawned.session.id);
+    const outcome = await client.wait(requestID, deadline());
+    assert.equal(outcome.turn.state, 'failed');
+    assert.equal(outcome.turn.session_id, child.id);
     const route = new URL(page.url());
-    route.pathname = `/h/${remote.info.runtime_id}/s/${remote.info.root_id}`;
-    route.search = '?agent=turn-failed-empty&view=repl';
+    route.pathname = `/h/${remote.info.runtime_id}/s/${root.id}`;
+    route.search = `?agent=${child.id}&view=repl`;
     await page.goto(route.href);
     const notice = page.locator('[data-agent-turn-outcome="failed"]').filter({ visible: true });
     await expect(notice).toHaveCount(1);
@@ -202,12 +206,13 @@ try {
     if (artifacts) await page.screenshot({ path: path.join(artifacts, 'desktop-turn-failure.png') });
     await page.reload();
     await expect(notice).toHaveCount(1);
-    const response = await fetch(`${remote.info.frontend}/control/turn-outcome/succeed`, { method: 'POST' });
-    assert.ok(response.ok, await response.text());
+    const followup = `desktop-child-followup-${crypto.randomUUID()}`;
+    await child.submit([{ type: 'text', text: 'Follow-up completed.' }], followup, deadline());
+    assert.equal((await client.wait(followup, deadline())).turn.state, 'succeeded');
     await expect(notice).toHaveCount(0);
-    route.search = '?agent=turn-failed-empty';
+    route.search = `?agent=${child.id}`;
     await page.goto(route.href);
-    await expect(page.getByText('Follow-up completed.', { exact: true })).toBeVisible();
+    await expect(page.locator('[data-message-role="assistant"]').getByText('Follow-up completed.', { exact: true })).toBeVisible();
   }
   await page.locator('#whip-session-navigation').getByRole('button', { name: 'Manage servers', exact: true }).click();
   const openActions = name => page.getByRole('button', { name: `Actions for ${name}`, exact: true }).click();
@@ -239,7 +244,7 @@ try {
   });
   electron = undefined;
   const survived = JSON.parse((await exec(executable, ['daemon', 'status', '--json'], { env, timeout: 5000 })).stdout);
-  assert.equal(survived.state, 'running'); assert.equal(survived.pid, initial.pid);
+  assert.equal(survived.state, 'running'); assert.equal(survived.process.pid, initial.process.pid);
   electron = await launch();
   const reopened = await electron.firstWindow();
   // The saved identity exists before reconnect. Require a host-dependent enabled
@@ -256,11 +261,11 @@ try {
     await reopened.keyboard.press('Escape');
   }
   const attached = JSON.parse((await exec(executable, ['daemon', 'status', '--json'], { env, timeout: 5000 })).stdout);
-  assert.equal(attached.pid, initial.pid);
+  assert.equal(attached.process.pid, initial.process.pid);
   const result = { purpose: 'Staged host integration; not signed/fused installed-app acceptance or a startup benchmark',
-    recordedAt: new Date().toISOString(),
+    recordedAt: new Date().toISOString(), rendererDigest: manifest.rendererDigest, runtimeDigest: manifest.files.whipcode.sha256,
     ...(process.env.WHIP_WEB_TURN_FAILURE_FIXTURE === '1' ? { savedTurnFailure: true, failureClearsOnSuccess: true } : {}),
-    noNetwork: !initial.network_endpoint, canonicalRuntimeInstalled: true, noRetainedRuntime: true, noLegacyHome: true, daemonSurvivedGUIExit: true,
+    noNetwork: !initial.process.web_endpoint, canonicalRuntimeInstalled: true, noRetainedRuntime: true, noLegacyHome: true, daemonSurvivedGUIExit: true,
     relaunchAttachedSameDaemon: true, settingsReload: true, desktopOriginURL: true, independentHostDisconnect: true, multipleHostsRestored: true, movingTabPreview: true, tabReorderPreservesDraft: true, sidebarDragCreatesFreshView: true, sidebarEdgeSplits: [...splitViews].length === 4, sidebarDragPreservesWindowBounds: true, rendererErrors: errors };
   await writeFile(process.env.WHIP_DESKTOP_SMOKE_OUTPUT ?? path.join(repositoryRoot, '.ai-docs/plans/desktop-app/evidence/local-smoke.json'), JSON.stringify(result, null, 2) + '\n');
   console.log(JSON.stringify(result, null, 2));

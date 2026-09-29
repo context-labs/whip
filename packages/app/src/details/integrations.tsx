@@ -1,8 +1,8 @@
-import { ErrorNotice } from '../error-feedback';
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Badge, Button, CodeBlock, Field, Input, Select } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
-import { useRuntime } from '../context';
+import { ErrorNotice } from '../error-feedback';
 import { layout } from '../styles';
 import { mcpRefreshNotice } from '../mcp-refresh';
 import {
@@ -39,17 +39,14 @@ export function Integrations(props: InspectorProps) {
   );
 }
 type MCPAction = 'reconnect' | 'enable' | 'disable';
-type MCPImportSource = 'claude' | 'codex' | 'project' | 'opencode';
-const importSources: ReadonlyArray<{ source: MCPImportSource; label: string }> = [
-  { source: 'claude', label: 'Claude user file (~/.claude.json)' },
-  { source: 'codex', label: 'Codex config (~/.codex/config.toml)' },
-  { source: 'project', label: 'Project .mcp.json (repository-authored, off by default)' },
-  { source: 'opencode', label: 'OpenCode config (~/.config/opencode/opencode.json)' },
-];
-// Controls follow what the daemon can honor for a row in its current state.
-// Blocked and unreadable rows are not live servers and get none.
-function mcpActions(status: string): readonly MCPAction[] {
-  switch (status) {
+const importSources = [
+  { source: 'claude', label: 'Claude user file' },
+  { source: 'codex', label: 'Codex configuration' },
+  { source: 'project', label: 'Project .mcp.json' },
+  { source: 'opencode', label: 'OpenCode configuration' },
+] as const;
+export function mcpActions(state: string): readonly MCPAction[] {
+  switch (state) {
     case 'blocked':
     case 'unreadable':
       return [];
@@ -61,208 +58,262 @@ function mcpActions(status: string): readonly MCPAction[] {
       return ['reconnect', 'disable'];
   }
 }
-// Every control names its subject and its real scope: enable/disable act on
-// this session only (the host keeps its configuration), reconnect is a
-// request the daemon may still be carrying out when the command succeeds.
-const mcpActionLabel: Record<MCPAction, (name: string) => string> = {
-  reconnect: (name) => `Reconnect ${name}`,
-  enable: (name) => `Enable ${name} for this session`,
-  disable: (name) => `Disable ${name} for this session`,
-};
-const mcpActionOutcome: Record<MCPAction, string> = {
-  reconnect: 'Reconnect requested',
-  enable: 'Enabled for this session',
-  disable: 'Disabled for this session',
-};
 export function MCP(props: InspectorProps) {
-  const runtime = useRuntime();
-  const query = useDetailQuery(props, 'mcp.status', {}, true);
-  const imports = useDetailQuery(props, 'mcp.import.status', {});
-  const [refreshNotice, setRefreshNotice] = useState('');
+  const query = useDetailQuery(props, 'mcp.status', { session_id: props.session.id }, true),
+    imports = useDetailQuery(props, 'mcp.configuration', {});
+  const [notice, setNotice] = useState('');
   return (
     <>
       <Section
         title="MCP servers"
-        description="Server processes, credentials, and delegated authority belong to the execution host. Enable and disable apply to this session only; add or remove servers on the host with whip mcp add and whip mcp remove."
+        description="Server processes, credentials, and authority belong to the execution host. Enable and disable affect this selected session only. Edit saved server declarations in Settings."
       >
-        {props.view.session.client.supports('runtime', 'mcp.refresh') ? (
-          <Action disabled={!props.connected} run={async () => {
-            setRefreshNotice('');
-            const outcome = await runtime.run(props.view.session.mcp.refresh(), 'MCP configuration refreshed');
-            setRefreshNotice(mcpRefreshNotice(outcome.result));
-          }}>
+        <div {...stylex.props(layout.row, layout.wrap)}>
+          <Action
+            disabled={!props.connected}
+            run={async () => {
+              setNotice('');
+              setNotice(mcpRefreshNotice(await props.client.refreshMCP(props.session.id)));
+              await query.refetch();
+            }}
+          >
             Refresh MCP configuration for this session
           </Action>
-        ) : <p {...stylex.props(layout.muted)}>This host does not support live MCP refresh. Update its daemon or start a new session after changing server configuration.</p>}
-        {refreshNotice && <p role="status" {...stylex.props(layout.muted)}>{refreshNotice}</p>}
-        <QueryFeedback query={query} view={props.view} />
-        {query.data?.result?.length === 0 && (
+          <Action
+            disabled={!props.connected}
+            run={async () => {
+              setNotice('');
+              setNotice(mcpRefreshNotice(await props.client.reloadMCP(props.session.id)));
+              await query.refetch();
+            }}
+          >
+            Reload MCP connections
+          </Action>
+        </div>
+        <p>
+          Refresh adds new declarations. Reload retires existing connections and applies changed
+          declarations; ongoing calls can be interrupted.
+        </p>
+        {notice && <p role="status">{notice}</p>}
+        <QueryFeedback query={query} connected={props.connected} />
+        {query.data?.items.length === 0 && (
           <Empty>No MCP servers are configured for this session.</Empty>
         )}
-        {query.data?.result?.map((server) => {
-          const actions = mcpActions(server.status);
-          return (
-            <article key={server.name} {...stylex.props(layout.column, layout.notice)}>
-              <div {...stylex.props(layout.row)}>
-                <strong>{server.name}</strong>
-                <Badge>{server.status}</Badge>
-              </div>
-              <span {...stylex.props(layout.muted)}>
-                {server.status === 'unreadable'
-                  ? server.source || 'discovery source'
-                  : `${server.tools ?? 0} tools · ${server.source || 'host configuration'}`}
-              </span>
-              {server.note && <p>{server.note}</p>}
-              {server.error && <ErrorNotice type="resource" owner={`mcp:${server.name}`} title={`${server.name} needs attention`} error={server.error} />}
-              {actions.length > 0 && (
-                <div {...stylex.props(layout.row, layout.wrap)}>
-                  {actions.map((action) => (
-                    <Action
-                      key={action}
-                      disabled={!props.connected}
-                      run={() =>
-                        runtime.run(
-                          props.view.session.command(`mcp.${action}`, { name: server.name }),
-                          mcpActionOutcome[action],
-                        )
-                      }
-                    >
-                      {mcpActionLabel[action](server.name)}
-                    </Action>
-                  ))}
-                </div>
-              )}
-            </article>
-          );
-        })}
+        {query.data?.items.map((server) => (
+          <article key={server.name} {...stylex.props(layout.column, layout.notice)}>
+            <div {...stylex.props(layout.row)}>
+              <strong>{server.name}</strong>
+              <Badge>{server.state}</Badge>
+            </div>
+            <span>
+              {server.tools} tools · {server.source || 'Host configuration'}
+            </span>
+            {server.note && <p>{server.note}</p>}
+            {server.failure && (
+              <ErrorNotice type="resource" owner={`mcp:${server.name}`} error={server.failure} />
+            )}
+            <div {...stylex.props(layout.row, layout.wrap)}>
+              {mcpActions(server.state).map((action) => (
+                <Action
+                  key={action}
+                  disabled={!props.connected}
+                  run={async () => {
+                    await props.client.call(`mcp.${action}`, {
+                      session_id: props.session.id,
+                      server: server.name,
+                    });
+                    await query.refetch();
+                  }}
+                >
+                  {action === 'reconnect'
+                    ? `Reconnect ${server.name}`
+                    : `${action === 'enable' ? 'Enable' : 'Disable'} ${server.name} for this session`}
+                </Action>
+              ))}
+            </div>
+          </article>
+        ))}
       </Section>
       <Section
         title="Host import defaults"
-        description="Which files on the execution host feed MCP definitions into sessions. Saved to host configuration; this session reloads when idle. Enabling a source runs those servers' programs at session start."
+        description="Discovery reads these external configurations on the host. Enabling a source does not itself grant permission to launch or call an untrusted server. Refresh or reload this session explicitly after saving."
       >
-        <QueryFeedback query={imports} view={props.view} />
-        {imports.data?.result &&
-          importSources.map(({ source, label }) => (
-            <div key={source} {...stylex.props(layout.settingsRow)}>
-              <span>
-                {label} · {imports.data!.result![source] ? 'Enabled' : 'Disabled'}
-              </span>
-              <Action
-                disabled={!props.connected}
-                run={() =>
-                  runtime.run(
-                    props.view.session.command('mcp.import.configure', {
-                      source,
-                      enabled: !imports.data!.result![source],
-                    }),
-                    'Saved to host configuration',
-                  )
-                }
-              >
-                {imports.data!.result![source] ? 'Disable' : 'Enable'} {source} imports
-              </Action>
-            </div>
-          ))}
+        <QueryFeedback query={imports} connected={props.connected} />
+        {imports.data &&
+          importSources.map(({ source, label }) => {
+            const configuration = imports.data,
+              policy = configuration.imports[source],
+              enabled = policy?.enabled;
+            return (
+              <div key={source} {...stylex.props(layout.settingsRow)}>
+                <span>
+                  {label} ·{' '}
+                  {enabled === null || enabled === undefined
+                    ? 'Default'
+                    : enabled
+                      ? 'Enabled'
+                      : 'Disabled'}
+                </span>
+                <Action
+                  disabled={!props.connected}
+                  run={async () => {
+                    try {
+                      await props.client.configureMCP({
+                        revision: configuration.revision,
+                        name: '',
+                        server: null,
+                        remove: false,
+                        brand_icons: null,
+                        imports: {
+                          ...configuration.imports,
+                          [source]: { only: [], exclude: [], ...policy, enabled: enabled !== true },
+                        },
+                      });
+                    } finally {
+                      await imports.refetch();
+                    }
+                  }}
+                >
+                  {enabled ? 'Disable' : 'Enable'} {source} imports
+                </Action>
+              </div>
+            );
+          })}
       </Section>
     </>
   );
 }
 function LSP(props: InspectorProps) {
-  const query = useDetailQuery(props, 'lsp.status', {}, true);
+  const query = useDetailQuery(props, 'lsp.status', { session_id: props.session.id }, true);
   return (
     <Section
       title="Language servers"
-      description="Health and workspace roots on the execution machine. Per-file diagnostics and editing are outside this release."
+      description="Health and workspace roots on the execution machine. Reading status never starts a server."
     >
-      <QueryFeedback query={query} view={props.view} />
-      {query.data?.result?.length === 0 && <Empty>No language servers are active.</Empty>}
-      {query.data?.result?.map((server, index) => (
+      <QueryFeedback query={query} connected={props.connected} />
+      {query.data?.items.length === 0 && <Empty>No language servers are active.</Empty>}
+      {query.data?.items.map((server, index) => (
         <article
-          key={`${server.name}:${server.root}:${index}`}
+          key={`${server.name}:${server.workspace_root}:${index}`}
           {...stylex.props(layout.column, layout.notice)}
         >
-          <div {...stylex.props(layout.row)}>
-            <strong>{server.name}</strong>
-            <Badge>{server.state}</Badge>
-          </div>
-          <code>{server.root}</code>
-          {server.error && <ErrorNotice type="resource" owner={`lsp:${server.name}:${server.root}`} title={`${server.name} needs attention`} error={server.error} />}
+          <strong>{server.name}</strong>
+          <Badge>{server.state}</Badge>
+          <code>{server.workspace_root}</code>
+          {server.failure && (
+            <ErrorNotice type="resource" owner={`lsp:${server.name}`} error={server.failure} />
+          )}
         </article>
       ))}
     </Section>
   );
 }
-function Browser(props: InspectorProps) {
-  const runtime = useRuntime();
-  const query = useDetailQuery(props, 'browser.status', {});
-  const [driver, setDriver] = useState('rod');
+export function Browser(props: InspectorProps) {
+  const query = useDetailQuery(
+    props,
+    'browser.attachments',
+    { session_id: props.session.id },
+    true,
+  );
   return (
     <Section
       title="Browser automation"
-      description="This controls browsers on the execution host, not the browser displaying this application."
+      description="Exact page attachments authorized for this selected agent. Viewing these records does not select, attach, or control a browser."
     >
-      <QueryFeedback query={query} view={props.view} />
-      {query.data?.result && (
-        <>
-          <p>
-            {query.data.result.enabled
-              ? `Available · current driver: ${query.data.result.driver}`
-              : 'Browser automation is unavailable on this execution host.'}
-          </p>
-          <Field label="Browser driver">
-            <Select
-              label="Browser driver"
-              value={driver}
-              onValueChange={setDriver}
-              options={[
-                { value: 'rod', label: 'Rod' },
-                { value: 'chromedp', label: 'ChromeDP' },
-              ]}
-            />
-          </Field>
-          <Action
-            disabled={!props.connected || !query.data.result.enabled}
-            run={() =>
-              runtime.run(
-                props.view.session.command('browser.set_driver', { driver }),
-                'Change browser driver',
-              )
-            }
-          >
-            Apply driver
-          </Action>
-        </>
-      )}
+      <QueryFeedback query={query} connected={props.connected} />
+      {query.data?.attachments.length === 0 && <Empty>No attached browser pages.</Empty>}
+      {query.data?.attachments.map((item) => (
+        <article key={item.scope.attachment_id} {...stylex.props(layout.column, layout.notice)}>
+          <strong>{item.title || 'Untitled page'}</strong>
+          <span>{item.url}</span>
+          <span>Document revision {item.document_revision}</span>
+          <details>
+            <summary>Attachment identity</summary>
+            <code>{item.scope.attachment_id}</code>
+          </details>
+        </article>
+      ))}
+      <Button variant="ghost" disabled={!props.connected} onClick={() => void query.refetch()}>
+        Refresh attachments
+      </Button>
+      <BrowserDriver {...props} />
     </Section>
   );
 }
-function Computer(props: InspectorProps) {
-  const runtime = useRuntime();
-  const query = useDetailQuery(props, 'computer.status', {});
-  const [app, setApp] = useState('');
-  const policy = query.data?.result;
+function BrowserDriver(props: InspectorProps) {
+  const query = useDetailQuery(props, 'host.browser_driver', {});
+  const [draft, setDraft] = useState<{ value: 'rod' | 'chromedp'; revision: string }>();
+  const [reviewRequired, setReviewRequired] = useState(false);
+  const current = query.data;
+  async function refresh() {
+    const result = await query.refetch();
+    if (!result.error) setReviewRequired(false);
+  }
+  return <>
+    <h4>Host browser driver</h4>
+    <QueryFeedback query={query} connected={props.connected} />
+    {current && <>
+      <Select label="Host browser driver" value={draft?.value ?? current.driver} disabled={current.pinned || !props.connected} options={[{ value: 'rod', label: 'Rod' }, { value: 'chromedp', label: 'ChromeDP' }]} onValueChange={value => { if (value === 'rod' || value === 'chromedp') setDraft({ value, revision: draft?.revision ?? current.revision }); }} />
+      <p>This saved choice applies to future browser batches on this host. Accepted work keeps its captured driver and browser permissions.</p>
+      {current.pinned && <p>The running host pins {current.driver} through its startup environment.</p>}
+      {draft && draft.revision !== current.revision && <p role="status">Host settings changed. This choice retains its original revision; discard it to use the current setting.</p>}
+      <Action disabled={!props.connected || current.pinned || query.isFetching || reviewRequired || !draft} run={async () => {
+        if (!draft) return;
+        setReviewRequired(true);
+        try { await props.client.hosts.setBrowserDriver(draft.revision, draft.value); setDraft(undefined); }
+        finally { await refresh(); }
+      }}>Save browser driver</Action>
+      <Button variant="ghost" disabled={!props.connected || query.isFetching} onClick={() => { setDraft(undefined); void refresh(); }}>Discard choice and refresh driver</Button>
+      {reviewRequired && <p role="status">Read the current host setting before another change. The previous request may have arrived.</p>}
+    </>}
+  </>;
+}
+export function Computer(props: InspectorProps) {
+  const query = useDetailQuery(props, 'computer.status', {}),
+    [app, setApp] = useState('');
+  const [reviewRequired, setReviewRequired] = useState(false);
+  async function refresh() {
+    const result = await query.refetch();
+    if (!result.error) setReviewRequired(false);
+  }
+  const status = query.data;
   return (
     <Section
       title="Computer app policy"
-      description="Application access is evaluated on the execution host. These rules do not change browser-client permissions."
+      description="These saved rules apply to the execution host. They do not change browser-client permissions. Configuration uses the exact host revision; a conflict is refreshed without replaying the edit."
     >
-      <QueryFeedback query={query} view={props.view} />
-      {policy && (
+      <QueryFeedback query={query} connected={props.connected} />
+      {status && (
         <>
           <p>
-            {policy.enabled
-              ? `Available · default ${policy.default_deny ? 'deny' : 'allow'}`
-              : 'Computer automation is unavailable on this execution host.'}
+            <Badge>{status.state}</Badge> · default{' '}
+            {status.configuration.default_deny ? 'deny' : 'allow'}
           </p>
-          {(['allowed', 'denied', 'session_allowed', 'session_denied'] as const).map((kind) => (
+          {!status.platform_supported && (
+            <p>Computer automation is unsupported on this host platform.</p>
+          )}
+          <p>Helper program: {status.configuration.helper_executable || 'None selected'}</p>
+          <p>Selecting or enabling a helper saves configuration. Connect it separately when ready.</p>
+          {status.bundled_available && <Action disabled={!props.connected || !!status.configuration.helper_executable || query.isFetching || reviewRequired} run={async () => {
+            setReviewRequired(true);
+            try { await props.client.useBundledComputer(status.revision); } finally { await refresh(); }
+          }}>Use bundled computer helper</Action>}
+          <Action disabled={!props.connected || !status.configuration.helper_executable || query.isFetching || reviewRequired} run={async () => {
+            setReviewRequired(true);
+            try { await props.client.configureComputer({ revision: status.revision, configuration: { ...status.configuration, enabled: !status.configuration.enabled } }); }
+            finally { await refresh(); }
+          }}>{status.configuration.enabled ? 'Disable computer helper' : 'Enable computer helper'}</Action>
+          <Button variant="ghost" disabled={!props.connected || query.isFetching} onClick={() => void refresh()}>Refresh helper status</Button>
+          {reviewRequired && <p role="status">Read current helper configuration before another change. The previous request may have arrived.</p>}
+          {(['allow', 'deny'] as const).map((kind) => (
             <div key={kind} {...stylex.props(layout.column, layout.notice)}>
-              <strong>{kind.replaceAll('_', ' ')}</strong>
-              <span>{policy[kind]?.join(', ') || 'None'}</span>
+              <strong>{kind === 'allow' ? 'Allowed applications' : 'Denied applications'}</strong>
+              <span>{status.configuration[kind]?.join(', ') || 'None'}</span>
             </div>
           ))}
           <Field
             label="Execution-host application"
-            description="Use the app name or identifier recognized by the host."
+            description="Use the exact application name or identifier recognized by the host."
           >
             <Input value={app} onChange={(event) => setApp(event.target.value)} />
           </Field>
@@ -270,91 +321,177 @@ function Computer(props: InspectorProps) {
             {(['allow', 'deny'] as const).map((action) => (
               <Action
                 key={action}
-                disabled={!props.connected || !policy.enabled || !app.trim()}
-                run={() =>
-                  runtime.run(
-                    props.view.session.command(`computer.${action}`, { app }),
-                    `${action} computer app`,
-                  )
-                }
+                disabled={!props.connected || !app.trim()}
+                run={async () => {
+                  const other = action === 'allow' ? 'deny' : 'allow',
+                    name = app.trim();
+                  try {
+                    await props.client.configureComputer({
+                      revision: status.revision,
+                      configuration: {
+                        ...status.configuration,
+                        [action]: [...new Set([...(status.configuration[action] ?? []), name])],
+                        [other]: (status.configuration[other] ?? []).filter(
+                          (item) => item !== name,
+                        ),
+                      },
+                    });
+                    setApp('');
+                  } finally {
+                    await query.refetch();
+                  }
+                }}
               >
                 {action === 'allow' ? 'Allow app' : 'Deny app'}
               </Action>
             ))}
+          </div>
+          <div {...stylex.props(layout.row, layout.wrap)}>
+            <Action
+              disabled={
+                !props.connected || !status.configuration.enabled || !status.platform_supported
+              }
+              run={async () => {
+                await props.client.reconnectComputer(status.generation);
+                await query.refetch();
+              }}
+            >
+              Reconnect computer helper
+            </Action>
+            <Action
+              disabled={!props.connected || status.state !== 'connected'}
+              run={async () => {
+                await props.client.disconnectComputer(status.generation);
+                await query.refetch();
+              }}
+            >
+              Disconnect computer helper
+            </Action>
           </div>
         </>
       )}
     </Section>
   );
 }
-function Tools(props: InspectorProps) {
-  const query = useDetailQuery(props, 'tool.schema', {});
-  const [search, setSearch] = useState('');
-  const [selected, setSelected] = useState('');
-  const info = props.view.session.client.getSnapshot().info;
-  const definitions = (query.data?.result ?? []).filter((tool) =>
-    tool.function.name.toLowerCase().includes(search.toLowerCase()),
+export function Tools(props: InspectorProps) {
+  const [search, setSearch] = useState(''),
+    [selected, setSelected] = useState('');
+  const schemas = useDetailQuery(props, 'tool.schemas', { session_id: props.session.id });
+  const builtins = (schemas.data?.items ?? []).filter(
+    (tool) =>
+      tool.module !== 'tools' &&
+      `${tool.module}.${tool.name}`.toLowerCase().includes(search.toLowerCase()),
+  );
+  const tools = Object.entries(props.selected.configuration.tools ?? {}).filter(([name]) =>
+    name.toLowerCase().includes(search.toLowerCase()),
   );
   return (
     <>
       <Section
         title="Built-in tools"
-        description="Public schemas of whip's own tools. MCP tools are counted per server under MCP servers; availability remains subject to permissions and delegated authority."
+        description="Public direct-call schemas for this agent’s enabled modules. Listing does not start resources, grant authority, or execute a tool."
       >
-        <QueryFeedback query={query} view={props.view} />
+        <QueryFeedback query={schemas} connected={props.connected} />
         <Field label="Find a tool">
           <Input value={search} onChange={(event) => setSearch(event.target.value)} />
         </Field>
-        {definitions.slice(0, 64).map((tool) => (
-          <article key={tool.function.name} {...stylex.props(layout.column, layout.notice)}>
-            <strong>{tool.function.name}</strong>
-            <p>{tool.function.description}</p>
-            <Button
-              variant="ghost"
-              onClick={() =>
-                setSelected((value) => (value === tool.function.name ? '' : tool.function.name))
-              }
-            >
+        {builtins.slice(0, 64).map((tool) => {
+          const name = `${tool.module}.${tool.name}`;
+          return (
+            <article key={name} {...stylex.props(layout.column, layout.notice)}>
+              <strong>{name}</strong>
+              <p>{tool.description}</p>
+              <Button variant="ghost" onClick={() => setSelected(selected === name ? '' : name)}>
+                Inspect {name} schema
+              </Button>
+              {selected === name && (
+                <CodeBlock
+                  code={JSON.stringify(tool.input_schema, null, 2)}
+                  label={`${name} input schema`}
+                  language="json"
+                  maxBytes={32 << 10}
+                />
+              )}
+            </article>
+          );
+        })}
+        {builtins.length > 64 && (
+          <Empty>
+            Showing 64 matches. Narrow the module or tool name to inspect another schema.
+          </Empty>
+        )}
+        {!builtins.length && schemas.data && (
+          <Empty>No matching built-in schemas for this agent.</Empty>
+        )}
+      </Section>
+      <Section
+        title="Captured custom tools"
+        description="These declarations belong to the selected agent’s exact configuration. Callable authority and executor availability are checked separately."
+      >
+        {tools.slice(0, 64).map(([name, tool]) => (
+          <article key={name} {...stylex.props(layout.column, layout.notice)}>
+            <strong>{name}</strong>
+            <p>{tool.description}</p>
+            <Button variant="ghost" onClick={() => setSelected(selected === name ? '' : name)}>
               Inspect schema
             </Button>
-            {selected === tool.function.name && (
-              <CodeBlock
-                language="json"
-                code={JSON.stringify(tool.function.parameters, null, 2)}
-                label="Tool input schema"
-                maxBytes={32 << 10}
-              />
+            {selected === name && (
+              <>
+                <CodeBlock
+                  code={JSON.stringify(tool.input_schema, null, 2)}
+                  label="Tool input schema"
+                  language="json"
+                  maxBytes={32 << 10}
+                />
+                <CodeBlock
+                  code={JSON.stringify(tool.output_schema, null, 2)}
+                  label="Tool output schema"
+                  language="json"
+                  maxBytes={32 << 10}
+                />
+              </>
             )}
           </article>
         ))}
-        {definitions.length > 64 && (
-          <Empty>Showing 64 matches. Narrow the tool name to inspect another schema.</Empty>
+        {tools.length > 64 && (
+          <Empty>Showing 64 matches. Narrow the name to inspect another tool.</Empty>
         )}
-        {!definitions.length && !query.isLoading && <Empty>No matching tool schemas.</Empty>}
+        {!tools.length && <Empty>No matching custom tools.</Empty>}
       </Section>
-      <Section title="Execution host">
-        {info && (
-          <>
-            <p>
-              {info.host_platform} / {info.host_architecture}
-            </p>
-            <code>Runtime {info.runtime_id}</code>
-            <span>
-              Generation {info.generation} · build {info.build_id}
-            </span>
-            <span {...stylex.props(layout.muted)}>
-              Protocol {info.protocol_major}.{info.protocol_minor} ·{' '}
-              {info.limits.root_subscriptions} root subscriptions per connection
-            </span>
-            <CodeBlock
-              code={JSON.stringify(info.limits, null, 2)}
-              label="Host limits"
-              language="json"
-              maxBytes={8192}
-            />
-          </>
-        )}
-      </Section>
+      <HostDiagnostics {...props} />
     </>
+  );
+}
+
+function HostDiagnostics(props: InspectorProps) {
+  const query = useQuery({
+    queryKey: ['inspector-host-status', props.client.runtimeID, props.client.processEpoch],
+    queryFn: async ({ signal }) => {
+      const value = await props.client.hosts.status({ signal });
+      if (value.process_epoch !== props.client.processEpoch)
+        throw new Error('The host process changed. Reconnect to inspect it.');
+      return value;
+    },
+    enabled: props.connected,
+    gcTime: 0,
+    retry: false,
+  });
+  return (
+    <Section
+      title="Execution host"
+      description="Observed identity and startup information for this exact connected process."
+    >
+      <QueryFeedback query={query} connected={props.connected} />
+      <code>Runtime {props.client.runtimeID}</code>
+      <span>Process epoch {props.client.processEpoch}</span>
+      {query.data && (
+        <>
+          <span>Process {query.data.pid}</span>
+          <span>Build {query.data.build || 'Unspecified'}</span>
+          <span>Started {query.data.started_at}</span>
+          <span>Web gateway: {query.data.web_endpoint || 'Disabled'}</span>
+        </>
+      )}
+    </Section>
   );
 }

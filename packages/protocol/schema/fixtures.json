@@ -1125,6 +1125,32 @@
     "valid": true
   },
   {
+    "type": "HostStandingInstructions",
+    "value": {
+      "published": false,
+      "revision": null,
+      "text": null
+    },
+    "valid": true
+  },
+  {
+    "type": "HostStandingInstructions",
+    "value": {
+      "published": true,
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "text": "# Raw comments\r\nPrefer evidence.\n"
+    },
+    "valid": true
+  },
+  {
+    "type": "WriteHostStandingInstructionsParams",
+    "value": {
+      "expected_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "text": ""
+    },
+    "valid": true
+  },
+  {
     "type": "HostThemeResolveParams",
     "value": {
       "name": "dark",

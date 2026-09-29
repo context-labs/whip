@@ -5,7 +5,7 @@ vars:
     sh: printf 'dev+%s' "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
   LDFLAGS: -X main.version={{.VERSION}}
   # Fast domain/runtime checks; all tests in these packages are required.
-  REDESIGN_PACKAGES: ./internal/acp ./internal/imageutil ./internal/browser ./internal/browser/extrelay ./internal/browserhost ./internal/trace ./internal/computer ./internal/computerconfig ./internal/helperprogram ./internal/hostview ./internal/theme ./internal/terminal ./internal/mcp ./internal/mcpconfig ./internal/jsonc ./internal/secretref ./internal/brandicon ./internal/gateway ./internal/webassets ./internal/executor ./internal/bashrun ./internal/shell ./internal/schedule ./internal/content ./internal/session ./internal/hostmodule ./internal/store ./internal/config ./internal/protocol ./internal/model ./internal/openaiauth ./internal/inferenceauth ./internal/inferenceaccount ./internal/providerhost ./internal/account ./internal/runner ./internal/tool ./internal/instruction ./internal/skills ./internal/capability ./internal/lsp ./internal/lspconfig ./internal/workspace ./internal/runtime ./internal/rpc ./internal/client ./internal/runclient ./internal/localruntime ./internal/hostcmd ./internal/engine ./internal/engine/quickjs ./cmd/whip-contract ./cmd/whip-runtime
+  REDESIGN_PACKAGES: ./internal/update ./internal/clientnotes ./internal/acp ./internal/imageutil ./internal/browser ./internal/browser/extrelay ./internal/browserhost ./internal/trace ./internal/computer ./internal/computerconfig ./internal/helperprogram ./internal/hostview ./internal/theme ./internal/terminal ./internal/mcp ./internal/mcpconfig ./internal/jsonc ./internal/secretref ./internal/brandicon ./internal/gateway ./internal/webassets ./internal/executor ./internal/bashrun ./internal/shell ./internal/schedule ./internal/content ./internal/session ./internal/hostmodule ./internal/store ./internal/config ./internal/protocol ./internal/model ./internal/openaiauth ./internal/inferenceauth ./internal/inferenceaccount ./internal/providerhost ./internal/account ./internal/runner ./internal/tool ./internal/instruction ./internal/skills ./internal/capability ./internal/lsp ./internal/lspconfig ./internal/workspace ./internal/runtime ./internal/rpc ./internal/client ./internal/runclient ./internal/localruntime ./internal/hostcmd ./internal/engine ./internal/engine/quickjs ./cmd/whip-contract ./cmd/whip-runtime
   # Process containment stress tests run in full at the change/CI boundary.
   REDESIGN_INTEGRATION_PACKAGES: ./internal/engine/process
   REDESIGN_ALL_PACKAGES: '{{.REDESIGN_PACKAGES}} {{.REDESIGN_INTEGRATION_PACKAGES}}'
@@ -193,16 +193,88 @@ tasks:
       - task: check:fixture
       - task: check:retained
 
+  check:product-web:
+    desc: Shared app, web assets, UI and browser support regressions
+    cmds:
+      - task: web
+
+  check:product-browser:
+    desc: Native production web acceptance in Chromium and Firefox
+    cmds:
+      - task: web-assets
+      - node --test --test-concurrency=1 apps/web/scripts/native-fixture.test.mjs apps/web/scripts/native-stream-fixture.test.mjs apps/web/scripts/native-performance-fixture.test.mjs
+      - node apps/web/scripts/browser.mjs
+      - node apps/web/scripts/snapshot-refresh.mjs
+      - node apps/web/scripts/session-search.mjs
+      - node apps/web/scripts/session-tabs.mjs
+      - node apps/web/scripts/user-messages.mjs
+      - node apps/web/scripts/sidebar.mjs
+      - node apps/web/scripts/workspace-layout.mjs
+      - node --test --test-concurrency=1 apps/web/scripts/native-history-fixture.test.mjs apps/web/scripts/native-tool-output.test.mjs
+
+  check:product-examples:
+    desc: Native agent and browser/Node client examples against a disposable real host
+    cmds:
+      - task: web-assets
+      - npm run check -w @whip/agents-example
+      - npm run acceptance -w @whip/agents-example
+      - npm run check -w @whip/client-example
+      - npm run smoke -w @whip/client-example
+
+  check:product-docs:
+    desc: Native public SDK examples and static documentation
+    cmds:
+      - npm run check -w @whip/protocol
+      - npm run build -w @whip/sdk
+      - npm run check:docs
+      - npm run test:docs
+      - npm run build:docs
+
+  check:product-mobile:
+    desc: Mobile types, UI, real native backend lifecycle and both platform bundles
+    cmds:
+      - npm run check:mobile
+      - npm run test:mobile
+      - npm run test:backend -w @whip/mobile
+      - task: web-assets
+      - node --test apps/mobile/scripts/fixture.test.mjs
+      - npm run export:mobile
+
+  check:product-desktop:
+    desc: Apple Silicon desktop types, distribution, disposable packaging and staged acceptance
+    platforms: [darwin/arm64]
+    env:
+      WHIP_ONBOARDING_SMOKE_OUTPUT: '{{.ROOT_DIR}}/test-results/redesign/desktop/onboarding.json'
+      WHIP_DESKTOP_SMOKE_OUTPUT: '{{.ROOT_DIR}}/test-results/redesign/desktop/workspace.json'
+      WHIP_DESKTOP_SMOKE_ARTIFACTS: '{{.ROOT_DIR}}/test-results/redesign/desktop/workspace'
+      WHIP_DESKTOP_TERMINAL_ARTIFACTS: '{{.ROOT_DIR}}/test-results/redesign/desktop/terminal'
+      WHIP_EDITOR_IPC_SMOKE_OUTPUT: '{{.ROOT_DIR}}/test-results/redesign/desktop/editor-ipc.json'
+    cmds:
+      - npm run check:desktop
+      - npm run test:desktop
+      - node --test apps/desktop/scripts/onboarding-fixture.test.mjs
+      - npm run package:desktop
+      - BROWSER_NATIVE_DAEMON=1 node apps/desktop/scripts/browser-native.mjs
+      - node apps/desktop/scripts/onboarding-smoke.mjs
+      - node apps/desktop/scripts/smoke.mjs
+      - WHIP_WEB_TURN_FAILURE_FIXTURE=1 node apps/desktop/scripts/smoke.mjs
+      - node apps/desktop/scripts/terminal-smoke.mjs
+      - node apps/desktop/scripts/project-editors-ipc-smoke.mjs
+
   check:native-cli:
-    desc: Native lifecycle, run, recovery, session catalog/export and compiled CLI fixtures
+    desc: Native lifecycle and CLI fixtures, plus terminal client regressions
     cmds:
       # Protocol clients have independent real-host lifecycles. Keep the same
       # deadline per family without growing one aggregate timer with each client.
       - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(Auth|OpenAIAuth|DeviceLogin|ProviderChoice|CLIChooser|TerminalKeyPrompt)'
       - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(Daemon|Desktop|ForcedDaemon)'
-      - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(Run|Native|Web|Headless|Sessions|TruncAndAgo|PushOTLP|MainDispatchesHeadlessCommands|ClientEntryPaths|DistributionMalformed)'
+      - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^TestRun(Daemon|timeModel)'
+      - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^TestRun' -skip '^TestRun(Daemon|timeModel)'
+      - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(Native|Web|Headless|Sessions|TruncAndAgo|PushOTLP|MainDispatchesHeadlessCommands|ClientEntryPaths|DistributionMalformed)'
       - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(MCP|Acp|ACP)'
+      - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(Update|DistributionUpdate)'
       - go test -tags=integration -count=1 -timeout=2m ./cmd/whip -run '^TestNativeCompiledCLI'
+      - go test -race -shuffle=on -count=1 -timeout=3m ./internal/tui
       - go vet ./cmd/whip
 
   check:change:
@@ -233,8 +305,8 @@ tasks:
     env:
       GOTOOLCHAIN: '{{.REDESIGN_TOOLCHAIN}}'
     cmds:
-      - go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1 run --new-from-rev={{.REDESIGN_BASELINE}} {{.REDESIGN_ALL_PACKAGES}}
-      - go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 {{.REDESIGN_ALL_PACKAGES}}
+      - go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1 run --new-from-rev={{.REDESIGN_BASELINE}} {{.REDESIGN_ALL_PACKAGES}} ./cmd/whip
+      - go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 {{.REDESIGN_ALL_PACKAGES}} ./cmd/whip
 
   check:phase:
     desc: Redesign milestone gate; expands with supported capabilities

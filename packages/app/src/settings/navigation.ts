@@ -18,6 +18,8 @@ export function isSettingsSection(value: unknown): value is SettingsSection {
 export interface SettingsSearch { section?: SettingsSection; host?: string; setting?: string }
 export interface SettingEntry { id: string; section: SettingsSection; label: string; keywords: string; desktopOnly?: boolean }
 export const settingEntries: readonly SettingEntry[] = [
+  { id: 'commandRecovery', section: 'general', label: 'Saved commands', keywords: 'delivery recovery lost acknowledgement check retry forget' },
+  { id: 'default_execution_engine', section: 'execution', label: 'Execution language', keywords: 'javascript quickjs starlark future roots' },
   { id: 'browserRecovery', section: 'general', label: 'Saved Browser addresses', keywords: 'browser tabs recovery restore upgrade downgrade' },
   { id: 'browserForget', section: 'general', label: 'Forget closed Browser addresses', keywords: 'browser history privacy data clear' },
   { id: 'commandShortcut', section: 'general', label: 'Open commands', keywords: 'keyboard shortcut command palette' },
@@ -41,8 +43,8 @@ export const settingEntries: readonly SettingEntry[] = [
   { id: 'compact_model', section: 'execution', label: 'Compaction model', keywords: 'context summary' },
   { id: 'compact_provider', section: 'execution', label: 'Compaction provider', keywords: 'context summary' },
   { id: 'compact_percent', section: 'execution', label: 'Compaction threshold', keywords: 'context percentage' },
-  { id: 'goal_max_rounds', section: 'execution', label: 'Goal rounds', keywords: 'agent limit execution' },
-  { id: 'max_retries', section: 'execution', label: 'Maximum retries', keywords: 'agent errors execution' },
+  { id: 'goal_max_rounds', section: 'execution', label: 'Additional goal continuations', keywords: 'agent limit execution' },
+  { id: 'max_retries', section: 'execution', label: 'Maximum attempts', keywords: 'agent errors execution' },
   { id: 'import_claude', section: 'execution', label: 'Import Claude configuration', keywords: 'integration' },
   { id: 'import_codex', section: 'execution', label: 'Import Codex configuration', keywords: 'integration' },
   { id: 'mcp_import', section: 'execution', label: 'Servers from other agents', keywords: 'mcp import codex claude opencode integration' },

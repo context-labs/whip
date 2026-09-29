@@ -1,9 +1,7 @@
 import { ErrorNotice } from '../error-feedback';
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useWhipConnection } from '@whip/legacy-sdk/react';
-import type { WhipClient } from '@whip/legacy-sdk';
-import type { Resolved } from '@whip/legacy-protocol';
+import type { Client, HostThemeResolved } from '@whip/sdk';
 import { Button, Combobox, Dialog, Field, useTheme } from '@whip/ui';
 import { FileJson, Upload } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
@@ -11,8 +9,7 @@ import { colors, surface, typography } from '@whip/ui/tokens.stylex';
 
 export { themeFromHost } from '../theme-presentation';
 import { themeFromHost } from '../theme-presentation';
-export function CustomThemes({ client }: { client: WhipClient }) {
-  const connection = useWhipConnection(client);
+export function CustomThemes({ client, enabled = true }: { client: Client; enabled?: boolean }) {
   const theme = useTheme();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -22,13 +19,16 @@ export function CustomThemes({ client }: { client: WhipClient }) {
   const input = useRef<HTMLInputElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const request = useRef<AbortController | null>(null);
-  useEffect(() => () => request.current?.abort(), [client]);
+  useEffect(() => {
+    request.current?.abort(); request.current = null; setBusy(false);
+    return () => request.current?.abort();
+  }, [client, enabled]);
   function changeOpen(next: boolean) {
     request.current?.abort();
     request.current = null;
     setBusy(false); setError(''); setFilename(''); setOpen(next);
   }
-  async function resolve(run: (signal: AbortSignal) => Promise<Resolved>, namespace: string) {
+  async function resolve(run: (signal: AbortSignal) => Promise<HostThemeResolved>, namespace: string) {
     request.current?.abort();
     const controller = new AbortController();
     request.current = controller; setBusy(true); setError(''); setErrorType('action');
@@ -38,15 +38,14 @@ export function CustomThemes({ client }: { client: WhipClient }) {
     } catch (error) { if (!controller.signal.aborted) setError(error instanceof Error ? error.message : String(error)); }
     finally { if (!controller.signal.aborted) { request.current = null; setBusy(false); } }
   }
-  const enabled = connection.state === 'connected';
   const themes = useQuery({
-    queryKey: ['host-themes', client.getSnapshot().info?.runtime_id],
-    queryFn: ({ signal }) => client.host.themes.list({ signal }),
+    queryKey: ['host-themes', client.runtimeID],
+    queryFn: ({ signal }) => client.hostThemes({ signal }),
     enabled: enabled && open,
   });
   const custom =
     themes.data?.themes?.filter((item) => item.source !== 'builtin') ?? [];
-  function install(resolved: Resolved, namespace: string) {
+  function install(resolved: HostThemeResolved, namespace: string) {
     const value = themeFromHost(resolved, namespace);
     theme.addTheme(value);
     theme.setTheme(value.id);
@@ -77,7 +76,7 @@ export function CustomThemes({ client }: { client: WhipClient }) {
               void resolve(async signal => {
                 const json = await file.text();
                 signal.throwIfAborted();
-                return client.host.themes.resolveJSON(json, { signal });
+                return client.resolveHostTheme({ name: '', json }, { signal });
               }, `import:${crypto.randomUUID()}`);
             }} />
         </div>
@@ -90,7 +89,7 @@ export function CustomThemes({ client }: { client: WhipClient }) {
           placeholder="Search local themes…"
           options={custom.map((item) => ({ value: item.id, label: item.name }))}
           disabled={!enabled || busy}
-          onValueChange={name => void resolve(signal => client.host.themes.resolve(name, { signal }), `host:${client.getSnapshot().info?.runtime_id}`)}
+          onValueChange={name => void resolve(signal => client.resolveHostTheme({ name, json: '' }, { signal }), `host:${client.runtimeID}`)}
         /></Field>
       )}
       {themes.error && enabled && <ErrorNotice type="resource" owner="local-themes" title="Could not load local themes" error={themes.error} />}

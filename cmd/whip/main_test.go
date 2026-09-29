@@ -132,7 +132,12 @@ func TestMainDispatchesHeadlessCommands(t *testing.T) {
 	})
 
 	t.Run("update", func(t *testing.T) {
-		home, bin := t.TempDir(), t.TempDir()
+		home, err := os.MkdirTemp("/tmp", "whip-update-main-") //nolint:usetesting // Native Unix socket paths must fit macOS.
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(home) })
+		bin := t.TempDir()
 		t.Setenv("WHIPCODE_HOME", home)
 		installer := filepath.Join(bin, "sh")
 		if err := os.WriteFile(installer, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {

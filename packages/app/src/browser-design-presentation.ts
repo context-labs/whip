@@ -1,7 +1,7 @@
-import type { SubmitPayload } from '@whip/legacy-protocol';
+import type { SubmitParams } from '@whip/protocol';
 import { boundedDesignText } from './browser-design-geometry';
 
-export type DesignContext = NonNullable<SubmitPayload['design_context']>;
+export type DesignContext = NonNullable<SubmitParams['design_context']>;
 
 /** Summarize our bounded native capture, never infer provenance from filenames. */
 export function designContextSummary(text: string, contextId: string, screenshotId?: string): DesignContext | undefined {

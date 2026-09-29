@@ -8,7 +8,7 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
-import type { Session } from '@whip/legacy-sdk';
+import type { Session, Turn } from '@whip/sdk';
 import { Button, IconButton, Select, Textarea } from '@whip/ui';
 import { ArrowUp, AtSign, Paperclip, Square } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
@@ -18,7 +18,6 @@ import { CompletionPicker } from './completion-picker';
 import { useSkillCompletion } from './use-skill-completion';
 import { layout } from './styles';
 import { ErrorNotice, type ErrorType } from './error-feedback';
-import { errorMessage } from './platform';
 import { selectedSessionTab } from './session-tabs';
 import { submitChatInput } from './chat-submission';
 import { ComposerAttachments } from './composer-attachments';
@@ -69,7 +68,7 @@ const styles = stylex.create({
 
 export function Composer({
   session,
-  agentId,
+  rootId,
   connected,
   unavailableReason,
   activeTurn,
@@ -93,11 +92,11 @@ export function Composer({
   queue?: ReactNode;
   queueEnabled?: boolean;
   session: Session;
-  agentId: string;
+  rootId: string;
   connected: boolean;
   unavailableReason?: string;
   activeTurn?: string;
-  lastTurn?: { event_seq: string; status?: string; error?: string; error_truncated?: boolean };
+  lastTurn?: Pick<Turn, 'id' | 'session_id' | 'state'>;
   runtimeId: string;
   viewId?: string;
   modelControl?: ReactNode;
@@ -105,9 +104,10 @@ export function Composer({
   /** The session is still opening: keep the footprint, skip the unavailable hint. */
   pending?: boolean;
 }) {
+  const agentId = session.id;
   const runtime = useRuntime();
   const app = useAppState();
-  const key = `${runtimeId}:${session.rootId}:${agentId}`;
+  const key = `${runtimeId}:${rootId}:${agentId}`;
   const selectionKey = viewId ? `${runtimeId}:${viewId}:${agentId}` : key;
   const [draft, setDraft] = useState(() => runtime.draft(key));
   const draftRef = useRef(draft);
@@ -119,7 +119,7 @@ export function Composer({
   const [completion, setCompletion] = useState(false);
   const selection = useRef({ start: 0, end: 0 });
   const [delivery, setDelivery] = useState<'queued' | 'steer'>('queued');
-  const [failure, setFailure] = useState<{ key: string; type: ErrorType; error: unknown; accepted?: boolean; outcome?: string; turnEventSeq?: string }>();
+  const [failure, setFailure] = useState<{ key: string; type: ErrorType; error: unknown; accepted?: boolean; outcome?: string; turnId?: string }>();
   const fail = (error: unknown, type: ErrorType = 'submission') => {
     if (mountedKey.current === key && !(error instanceof Error && error.name === 'AbortError')) setFailure({ key, type, error });
   };
@@ -192,7 +192,7 @@ export function Composer({
     }
   };
   const skills = useSkillCompletion({
-    client: session.client, owner: selectionKey, scope: { rootId: session.rootId, agentId },
+    client: session.client, owner: selectionKey, scope: { sessionId: session.id },
     input, draft, change, connected, blocked: completion || sending || !active,
     rememberSelection: value => runtime.compositions.rememberSelection(selectionKey, value),
   });
@@ -209,6 +209,8 @@ export function Composer({
         runtimeId,
         agentId,
         selected,
+        undefined,
+        rootId,
       );
     } catch (error) {
       fail(error, 'validation');
@@ -219,7 +221,7 @@ export function Composer({
     const text = runtime.draft(key);
     setFailure(undefined);
     const result = await submitChatInput({
-      runtime, session, runtimeId, agentId, compositionKey: key, connected,
+      runtime, session, runtimeId, rootId, agentId, compositionKey: key, connected,
       text, attachments, delivery: queueEnabled ? 'queued' : delivery, activeTurn,
       onAccepted: () => {
         try {
@@ -242,13 +244,20 @@ export function Composer({
     if (result.status === 'failed' && mountedKey.current === key
       && !(result.error instanceof Error && result.error.name === 'AbortError')) {
       setFailure({ key, type: 'submission', error: result.error, accepted: result.accepted,
-        outcome: result.outcome, turnEventSeq: lastTurn?.event_seq });
+        outcome: result.outcome, turnId: result.turnId });
     }
   }
-  const recordedTurnOutcome = failure?.accepted && lastTurn && lastTurn.event_seq !== failure.turnEventSeq
-    && (((failure.outcome === 'cancelled' || failure.outcome === 'interrupted') && lastTurn.status === failure.outcome)
-      || (lastTurn.error && (errorMessage(failure.error) === lastTurn.error
-        || (lastTurn.error_truncated && errorMessage(failure.error).startsWith(lastTurn.error)))));
+  const recordedTurnOutcome = failure?.accepted && failure.turnId && lastTurn
+    && lastTurn.id === failure.turnId && lastTurn.session_id === session.id
+    && ['failed', 'cancelled', 'interrupted'].includes(lastTurn.state);
+  const [pausing, setPausing] = useState(false);
+  async function pause() {
+    if (!connected || !activeTurn || pausing) return;
+    setPausing(true);
+    try { await session.cancelTurn(activeTurn); }
+    catch (error) { fail(error, 'action'); }
+    finally { setPausing(false); }
+  }
   return (
     <form
       ref={form}
@@ -306,7 +315,7 @@ export function Composer({
             ref={input}
             {...skills.inputProps}
             data-whip-composer
-            aria-label={agentId === session.rootId ? 'Message WHIP' : 'Message this agent'}
+            aria-label={agentId === rootId ? 'Message WHIP' : 'Message this agent'}
             rows={1}
             onPaste={(event) => {
               const images = Array.from(event.clipboardData.files).filter(
@@ -403,17 +412,8 @@ export function Composer({
               xstyle={styles.send}
               aria-label="Pause this turn"
               title="Pause this turn"
-              disabled={!connected}
-              onClick={() =>
-                void runtime
-                  .run(
-                    agentId === session.rootId
-                      ? session.cancelTurn(activeTurn)
-                      : session.agents.cancelTurn(agentId, activeTurn),
-                    'Stop turn',
-                  )
-                  .catch(error => fail(error, 'action'))
-              }
+              disabled={!connected || pausing}
+              onClick={() => void pause()}
             >
               <Square size={14} fill="currentColor" strokeWidth={0} />
             </Button>
@@ -440,7 +440,7 @@ export function Composer({
       {completion && (
         <CompletionPicker
           session={session}
-          agentId={agentId}
+          connected={connected}
           onClose={() => setCompletion(false)}
           onSelect={(text) => {
             const current = draftRef.current;

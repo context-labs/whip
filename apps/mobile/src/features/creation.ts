@@ -1,147 +1,109 @@
-import type { CommandOutcome } from '@whip/legacy-sdk';
-import type { ProviderCatalogsResult } from '@whip/legacy-protocol';
+import { assertValid } from '@whip/protocol';
+import type { Client, DefinitionRef, ProviderCatalog, ProviderInventory } from '@whip/sdk';
 import type { CommandState, MobileRuntime } from '../runtime/runtime';
 import type { Draft } from '../runtime/storage';
 
-export type CreationStep = 'create' | 'effort' | 'submit';
+export type ModelSelection = import('@whip/protocol').Session['configuration']['model'];
+export type CreationStep = 'create' | 'submit';
 export interface CreationWorkflow {
-  version: 1;
-  id: string;
-  runtimeId: string;
-  clientId: string;
-  cwd: string;
-  model?: string;
-  provider?: string;
-  definition?: string;
-  effort?: string;
-  executionEngine?: string;
-  rootId?: string;
-  pendingStep?: CreationStep;
-  effortDone: boolean;
-  promptSent: boolean;
+  version: 2; id: string; runtimeId: string; clientId: string; cwd: string;
+  definition: DefinitionRef; model?: ModelSelection; executionEngine: 'starlark' | 'quickjs';
+  rootId?: string; pendingStep?: CreationStep; promptSent: boolean;
 }
 export const creationSettingsKey = (hostId: string) => `creation:${hostId}`;
 export const creationDraftKey = (workflow: CreationWorkflow) => JSON.stringify(['create', workflow.runtimeId, workflow.id]);
-const operations = { create: 'session.create', effort: 'session.effort', submit: 'submit' } as const;
+const operations = { create: 'trees.create', submit: 'sessions.submit' } as const;
 export function validateWorkflow(value: CreationWorkflow, runtimeId: string, clientId: string): CreationWorkflow {
-  if (!value || value.version !== 1 || value.runtimeId !== runtimeId || value.clientId !== clientId || !value.id || typeof value.cwd !== 'string' || typeof value.effortDone !== 'boolean' || typeof value.promptSent !== 'boolean') {
-    throw new Error('The saved creation workflow belongs to an unavailable identity or version. Its draft and recovery have been preserved.');
-  }
-  for (const key of ['id', 'model', 'provider', 'definition', 'effort', 'rootId'] as const) {
-    if (value[key] !== undefined && (typeof value[key] !== 'string' || value[key]!.length > 2048)) throw new Error('The saved creation settings are unreadable; existing data has been preserved.');
-  }
-  if (value.pendingStep && !['create', 'effort', 'submit'].includes(value.pendingStep)) throw new Error('The saved creation step is unreadable; existing data has been preserved.');
-  if (value.executionEngine !== undefined && value.executionEngine !== 'starlark' && value.executionEngine !== 'quickjs') throw new Error('The saved execution language is unsupported; existing data has been preserved.');
-  return value.executionEngine === undefined ? { ...value, executionEngine: 'starlark' } : value;
+  if (!value || value.version !== 2 || value.runtimeId !== runtimeId || value.clientId !== clientId || !/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,119}$/.test(value.id) || typeof value.cwd !== 'string' || value.cwd.length > 2048 || typeof value.promptSent !== 'boolean' || !['starlark', 'quickjs'].includes(value.executionEngine) || value.pendingStep && !['create', 'submit'].includes(value.pendingStep)) throw new Error('The saved creation workflow belongs to an unavailable identity or version. Its draft and recovery have been preserved.');
+  assertValid('DefinitionRef', value.definition);
+  assertValid('CreateTreeParams', { creation_id: value.id, metadata: { title: null, archived: false, pinned: false }, definition: value.definition, working_directory: value.cwd, overrides: value.model ? { model: value.model } : {} });
+  if (value.rootId !== undefined && (typeof value.rootId !== 'string' || !value.rootId || value.rootId.length > 128)) throw new Error('The saved session identity is unreadable. Existing data has been preserved.');
+  return value;
 }
 export function creationCommands(workflow: CreationWorkflow, commands: readonly CommandState[]) {
-  return commands.filter(command => command.record.runtimeId === workflow.runtimeId && command.record.clientId === workflow.clientId && command.intent?.workflowId === workflow.id);
+  return commands.filter(command => command.record.runtimeId === workflow.runtimeId && command.record.clientId === workflow.clientId && command.intent.workflowId === workflow.id);
 }
 export function stepCommand(workflow: CreationWorkflow, commands: readonly CommandState[], step: CreationStep) {
-  return creationCommands(workflow, commands).findLast(command => command.intent?.step === step && command.record.operation === operations[step]);
+  return creationCommands(workflow, commands).findLast(command => command.intent.step === step && command.record.operation === operations[step]);
 }
-/** Recover facts only. Rendering/restoration never advances another mutation. */
+/** Restore known facts only. Receipt identity alone cannot confirm the request after restart. */
 export function reconcileCreation(workflow: CreationWorkflow, commands: readonly CommandState[]): CreationWorkflow {
   let next = workflow;
-  for (const step of ['create', 'effort', 'submit'] as const) {
+  for (const step of ['create', 'submit'] as const) {
     const command = stepCommand(next, commands, step);
-    if (command?.status !== 'succeeded' || command.outcome?.status !== 'succeeded') continue;
+    if (!command?.knownAccepted) continue;
     if (step === 'create') {
-      const rootId = (command.outcome.result as { root_id?: string } | undefined)?.root_id;
-      if (!rootId) continue;
-      if (next.rootId && next.rootId !== rootId) throw new Error('Creation recovery returned a conflicting session. Existing records have been preserved.');
-      if (!next.rootId || next.pendingStep === step) next = { ...next, rootId, ...(next.pendingStep === step ? { pendingStep: undefined } : {}) };
-    } else if (next.rootId && command.record.rootId === next.rootId) {
-      const changed = step === 'effort' ? !next.effortDone : !next.promptSent;
-      if (changed || next.pendingStep === step) next = { ...next, [step === 'effort' ? 'effortDone' : 'promptSent']: true, ...(next.pendingStep === step ? { pendingStep: undefined } : {}) };
-    }
+      const destination = command.destination;
+      if (!destination || destination.deleted) continue;
+      if (next.rootId && next.rootId !== destination.rootId) throw new Error('Creation recovery returned a conflicting session. Existing records have been preserved.');
+      if (!next.rootId || next.pendingStep === step) next = { ...next, rootId: destination.rootId, pendingStep: undefined };
+    } else if (next.rootId && command.record.sessionId === next.rootId && (!next.promptSent || next.pendingStep === step)) next = { ...next, promptSent: true, pendingStep: undefined };
   }
   return next;
 }
-
-/** A successful recovery record can be removed only after its workflow fact is durable. */
 export function creationResultRecorded(workflow: CreationWorkflow, command: CommandState): boolean {
-  if (command.record.runtimeId !== workflow.runtimeId || command.record.clientId !== workflow.clientId || command.intent?.workflowId !== workflow.id) return false;
-  if (command.status !== 'succeeded') return true;
-  const step = command.intent.step;
-  if (step === 'create') return !!workflow.rootId && (command.outcome?.result as { root_id?: string } | undefined)?.root_id === workflow.rootId;
-  if (command.record.rootId !== workflow.rootId) return false;
-  if (step === 'effort') return workflow.effortDone;
-  if (step === 'submit') return workflow.promptSent;
-  return false;
+  if (command.record.runtimeId !== workflow.runtimeId || command.record.clientId !== workflow.clientId || command.intent.workflowId !== workflow.id) return false;
+  if (!command.knownAccepted) return true;
+  if (command.intent.step === 'create') return !!workflow.rootId && command.destination?.rootId === workflow.rootId;
+  return command.intent.step === 'submit' && command.record.sessionId === workflow.rootId && workflow.promptSent;
 }
-
 export function nextCreationStep(workflow: CreationWorkflow, draft: Draft): CreationStep | undefined {
-  if (workflow.pendingStep) return workflow.pendingStep;
-  if (!workflow.rootId) return 'create';
-  if (workflow.effort && !workflow.effortDone) return 'effort';
-  if (draft.text.trim() && !workflow.promptSent) return 'submit';
-  return undefined;
-}
-export function requireCreationSuccess(step: CreationStep, outcome: CommandOutcome): void {
-  if (outcome.status !== 'succeeded') throw new Error(`${step === 'create' ? 'Session creation' : step === 'effort' ? 'Reasoning selection' : 'First message'} ${outcome.status}${outcome.failure?.message ? `: ${outcome.failure.message}` : '.'}`);
+  return workflow.pendingStep ?? (!workflow.rootId ? 'create' : draft.text.trim() && !workflow.promptSent ? 'submit' : undefined);
 }
 interface CreationRunner {
-  run: MobileRuntime['run'];
-  current(): boolean;
-  save(workflow: CreationWorkflow): Promise<void>;
-  saveDraft(key: string, draft: Draft): Promise<void>;
-  draft(key: string): Draft;
+  run: MobileRuntime['run']; current(): boolean; save(workflow: CreationWorkflow): Promise<void>;
+  saveDraft(key: string, draft: Draft): Promise<void>; draft(key: string): Draft;
 }
-/** One explicit user gesture may perform up to three independently journaled steps. */
+/** One explicit gesture creates one immutable configuration, then optionally submits.
+ * Stable identities never change when a prepared step is revisited. */
 export async function advanceCreation(initial: CreationWorkflow, runner: CreationRunner): Promise<CreationWorkflow> {
   if (initial.pendingStep) throw new Error('Resolve the previous creation step before continuing.');
-  if (!runner.current()) return initial;
   let workflow = { ...validateWorkflow(initial, initial.runtimeId, initial.clientId) };
-  const firstDraft = { ...runner.draft(creationDraftKey(initial)) };
-  if (firstDraft.text) await runner.saveDraft(creationDraftKey(initial), firstDraft);
-  for (let count = 0; count < 3; count++) {
-    if (!runner.current()) return workflow;
-    const draftKey = creationDraftKey(workflow);
-    const draft = { ...runner.draft(draftKey) };
-    const step = nextCreationStep(workflow, draft);
-    if (!step) return workflow;
-    workflow = { ...workflow, pendingStep: step };
-    await runner.save(workflow);
+  for (let count = 0; count < 2 && runner.current(); count++) {
+    const key = creationDraftKey(workflow), draft = { ...runner.draft(key) }, step = nextCreationStep(workflow, draft);
+    if (!step) break;
+    if (draft.text) await runner.saveDraft(key, draft);
+    workflow = { ...workflow, pendingStep: step }; await runner.save(workflow);
     if (!runner.current()) return workflow;
     const intent = { workflowId: workflow.id, step };
     if (step === 'create') {
-      const outcome = await runner.run('session.create', { cwd: workflow.cwd.trim(), kind: 'agent', model: workflow.model ?? '', provider: workflow.provider ?? '', execution_engine: workflow.executionEngine, ...(workflow.definition ? { definition: workflow.definition } : {}) }, { intent });
-      requireCreationSuccess(step, outcome);
-      if (!outcome.result?.root_id) throw new Error('Session creation succeeded without a session identity. Check the original command before continuing.');
-      workflow = { ...workflow, rootId: outcome.result.root_id, pendingStep: undefined };
-    } else if (step === 'effort') {
-      const outcome = await runner.run('session.effort', { effort: workflow.effort!, persist_default: false }, { rootId: workflow.rootId, intent: { ...intent, agentId: workflow.rootId } });
-      requireCreationSuccess(step, outcome);
-      workflow = { ...workflow, effortDone: true, pendingStep: undefined };
+      const result = await runner.run('trees.create', { creation_id: workflow.id, metadata: { title: null, archived: false, pinned: false }, definition: workflow.definition,
+        working_directory: workflow.cwd.trim(), engine: workflow.executionEngine, overrides: workflow.model ? { model: workflow.model } : {} }, { intent });
+      if (result.deleted || !result.root) throw new Error('The created session has been deleted. Its original identity will not be reused.');
+      workflow = { ...workflow, rootId: result.creation.root_id, pendingStep: undefined };
     } else {
-      await runner.saveDraft(draftKey, draft);
-      if (!runner.current()) return workflow;
-      const outcome = await runner.run('submit', { text: draft.text }, {
-        rootId: workflow.rootId, intent: { ...intent, agentId: workflow.rootId, draftKey, draftRevision: draft.revision },
-        preview: { agentId: workflow.rootId!, text: draft.text, queued: false },
+      await runner.run('sessions.submit', { session_id: workflow.rootId!, source: 'user', parts: [{ type: 'text', text: draft.text }], identity: { client_id: workflow.clientId, request_id: workflow.id + ':input' } }, {
+        rootId: workflow.rootId, intent: { ...intent, draftKey: key, draftRevision: draft.revision },
       });
-      requireCreationSuccess(step, outcome);
       workflow = { ...workflow, promptSent: true, pendingStep: undefined };
     }
-    // Commit the created root before any next step. A late completion may save
-    // this journal, but cannot navigate or initiate more work after leaving.
+    // Save the root before any submission. Late completion may save its fact,
+    // but cannot initiate more work after this screen leaves the foreground.
     await runner.save(workflow);
   }
   return workflow;
 }
-
 export interface CreationModel { model: string; provider: string; efforts: string[] }
-export function creationModels(catalog?: ProviderCatalogsResult): CreationModel[] {
+export interface MobileCatalog { inventory: ProviderInventory; catalogs: ProviderCatalog[] }
+export function creationModels(data?: MobileCatalog): CreationModel[] {
   const models = new Map<string, CreationModel>();
-  for (const [model, detail] of Object.entries(catalog?.models ?? {})) {
-    for (const provider of detail.providers ?? []) models.set(JSON.stringify([provider, model]), { model, provider, efforts: [] });
+  const add = (model: string, provider: string, efforts: string[] = []) => models.set(JSON.stringify([provider, model]), { model, provider, efforts });
+  for (const route of data?.inventory.routes ?? []) for (const name of Object.keys(route.models ?? {})) add(name, route.id);
+  for (const catalog of data?.catalogs ?? []) for (const model of catalog.models) add(model.id, catalog.provider, model.reasoning_efforts ?? []);
+  const defaults = data?.inventory.defaults; if (defaults && !models.has(JSON.stringify([defaults.provider, defaults.name]))) add(defaults.name, defaults.provider);
+  return [...models.values()].sort((a, b) => a.model.localeCompare(b.model) || a.provider.localeCompare(b.provider));
+}
+/** Cached catalogs only. This never refreshes remote accounts or executes a credential command. */
+export async function readModels(client: Client, signal?: AbortSignal): Promise<MobileCatalog> {
+  const options = { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000) };
+  const inventory = await client.listProviders(options), catalogs: ProviderCatalog[] = [];
+  let bytes = new TextEncoder().encode(JSON.stringify(inventory)).byteLength;
+  if (bytes > 1 << 20) throw new Error('Provider configuration exceeds the 1 MiB mobile limit.');
+  for (let start = 0; start < inventory.routes.length; start += 4) {
+    const batch = await Promise.all(inventory.routes.slice(start, start + 4).map(route => client.providerCatalog(route.id, options)));
+    bytes += new TextEncoder().encode(JSON.stringify(batch)).byteLength;
+    if (bytes > 1 << 20) throw new Error('Provider catalogs exceed the 1 MiB mobile limit.');
+    catalogs.push(...batch);
   }
-  for (const [provider, entry] of Object.entries(catalog?.catalogs ?? {})) {
-    for (const model of entry.models ?? []) models.set(JSON.stringify([provider, model.id]), {
-      model: model.id, provider, efforts: [...new Set(model.reasoning_efforts ?? [])].filter(Boolean),
-    });
-  }
-  return [...models.values()].filter(model => catalog?.providers?.[model.provider]?.available !== false)
-    .sort((a, b) => a.model.localeCompare(b.model) || a.provider.localeCompare(b.provider));
+  return { inventory, catalogs };
 }

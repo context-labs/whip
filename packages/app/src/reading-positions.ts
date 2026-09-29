@@ -3,9 +3,10 @@ export interface ReadingBookmark {
   readonly revision: string;
   readonly offset: number;
   readonly follow: boolean;
-  readonly seq?: number;
+  readonly seq?: string;
 }
 const encoder = new TextEncoder();
+const validCounter = (value: string) => typeof value === 'string' && /^(0|[1-9]\d{0,18})$/.test(value) && BigInt(value) <= 9223372036854775807n;
 
 /** Bounded per-view/agent reading hints, never a second transcript cache. */
 export class ReadingPositions {
@@ -24,12 +25,12 @@ export class ReadingPositions {
       encoder.encode(key).length > 512 ||
       !bookmark.messageId ||
       encoder.encode(bookmark.messageId).length > 512 ||
-      !/^\d{1,19}$/.test(bookmark.revision) ||
+      !validCounter(bookmark.revision) ||
       !Number.isFinite(bookmark.offset) ||
       Math.abs(bookmark.offset) > 1_000_000 ||
       typeof bookmark.follow !== 'boolean' ||
       (bookmark.seq !== undefined &&
-        (!Number.isSafeInteger(bookmark.seq) || bookmark.seq < 0))
+        !validCounter(bookmark.seq))
     )
       return;
     this.entries.delete(key);
@@ -61,7 +62,7 @@ export class ReadingPositions {
 
 /** Choose only among already retained rows; restoration never loads more history. */
 export function readingTarget(
-  rows: readonly { id: string; seq?: number; memberIds?: readonly string[]; memberSeqs?: readonly number[] }[],
+  rows: readonly { id: string; seq?: string; memberIds?: readonly string[]; memberSeqs?: readonly string[] }[],
   revision: string,
   bookmark: ReadingBookmark,
 ): { index: number; offset: number; fallback: boolean } {
@@ -78,12 +79,13 @@ export function readingTarget(
   }
   let index = rows.length ? 0 : -1;
   if (bookmark.seq !== undefined) {
-    let nearest = Infinity;
+    let nearest: bigint | undefined;
     for (let current = 0; current < rows.length; current++) {
       const seq = rows[current]!.seq;
       if (seq === undefined) continue;
-      const distance = Math.abs(seq - bookmark.seq);
-      if (distance < nearest) {
+      const delta = BigInt(seq) - BigInt(bookmark.seq);
+      const distance = delta < 0n ? -delta : delta;
+      if (nearest === undefined || distance < nearest) {
         nearest = distance;
         index = current;
       }

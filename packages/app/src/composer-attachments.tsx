@@ -16,7 +16,7 @@ export function ComposerAttachments({ attachments, owner, onRemove, disabled = f
   if (!attachments.length) return null;
   return <div role="group" aria-label="Message attachments" {...stylex.props(styles.attachments)}>
     {attachments.map(item => {
-      const image = item.mediaType?.startsWith('image/') || item.value?.kind === 'image';
+      const image = item.mediaType?.startsWith('image/') || item.value?.media_type.startsWith('image/');
       return <div key={item.id} {...stylex.props(image ? styles.imageItem : styles.fileItem)}>
         {image ? <ImagePreview item={item} disabled={disabled} onRemove={() => onRemove(item.id)} /> :
           <div {...stylex.props(layout.row)}>

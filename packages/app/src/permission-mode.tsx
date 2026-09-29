@@ -5,11 +5,12 @@ import { Button, Popover } from '@whip/ui';
 import { Check, ChevronDown, Hand, ShieldAlert, ShieldCheck } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { colors, scale, surface } from '@whip/ui/tokens.stylex';
-import { useRuntime } from './context';
+import { useAppState, useRuntime } from './context';
+import { useQuery } from '@tanstack/react-query';
+import type { Session, SessionRecord } from '@whip/sdk';
+import type { DeepReadonly } from '@whip/sdk/state';
 import { layout } from './styles';
-import type { InspectorProps } from './details/shared';
-
-type Props = Pick<InspectorProps, 'view' | 'root' | 'connected' | 'agentId'>;
+type Props = { session: Session; rootId: string; selected: DeepReadonly<SessionRecord>; connected: boolean };
 
 type Mode = {
   value: string;
@@ -29,7 +30,7 @@ const modes: Mode[] = [
   {
     value: 'automatic',
     label: 'Full Access',
-    description: 'Access files outside this project and approve actions automatically',
+    description: 'Approve eligible root actions automatically; child grants and resource scopes still apply',
     icon: ShieldAlert,
     danger: true,
   },
@@ -68,18 +69,48 @@ const styles = stylex.create({
   check: { color: surface.secondaryText, alignSelf: 'start', marginTop: 3 },
 });
 
-/** Composer control: consent mode for the session. Root-only, applies when idle. */
-export function PermissionModePicker({ view, root, connected, agentId }: Props) {
+/** The root owns the shared policy; mode changes retain the observed revision. */
+export function PermissionModePicker(props: Props) {
+  if (props.session.id !== props.rootId || props.selected.id !== props.session.id || props.selected.parent_id !== null) return null;
+  return <RootPermissionPicker key={`${props.session.client.runtimeID}:${props.session.client.processEpoch}:${props.session.id}`} {...props} />;
+}
+function RootPermissionPicker({ session, selected, connected }: Props) {
   const runtime = useRuntime();
-  if (agentId !== view.session.rootId) return null;
-  return <PermissionModeControl key={`${view.session.client?.getSnapshot().info?.runtime_id}:${view.session.rootId}`} value={root.permission_mode || ''} disabled={!connected || !!Object.keys(root.active_turns ?? {}).length}
-    onChange={mode => runtime.run(view.session.setPermissionMode(mode === 'prompt'), mode === 'automatic' ? 'Enable Full Access' : 'Require approval prompts')} />;
+  const { commands } = useAppState();
+  const owner = `${session.client.runtimeID}:${session.id}:permission-mode`;
+  const unresolved = commands.find(command => command.draftKey === owner && command.delivery);
+  const [base, setBase] = useState<string>();
+  const policy = useQuery({
+    queryKey: ['permission-mode', session.client.runtimeID, session.client.processEpoch, session.id],
+    queryFn: async ({ signal }) => {
+      const result = await session.permissions.policy({ signal });
+      if (result.tree_id !== selected.tree_id) throw new Error('Permission policy belongs to another tree');
+      return result;
+    },
+    enabled: connected, gcTime: 0, retry: false, refetchInterval: connected ? 3000 : false,
+  });
+  return <>
+    <PermissionModeControl value={policy.data?.mode ?? ''} disabled={!connected || !policy.data || !!policy.error || !!unresolved}
+      onOpenChange={open => setBase(open ? policy.data?.revision : undefined)}
+      onChange={async mode => {
+        if (!policy.data || !base) throw new Error('Reload the permission policy before changing it');
+        await runtime.run(runtime.command(session.client, 'permissions.set_mode', {
+          session_id: session.id, edit_id: crypto.randomUUID(), expected_revision: base,
+          mode: mode === 'automatic' ? 'automatic' : 'prompt',
+        }), mode === 'automatic' ? 'Enable Full Access' : 'Require approval prompts', undefined, owner);
+        await policy.refetch();
+      }} />
+    {policy.error && <ErrorNotice type="resource" owner={owner} error={policy.error}
+      action={<Button variant="ghost" onClick={() => void policy.refetch()}>Reload policy</Button>} />}
+    {base && policy.data && base !== policy.data.revision && <span role="status">Policy changed. Close and reopen this control to use the current policy.</span>}
+    {unresolved && <span role="status">Resolve the pending permission change in command recovery before changing it again.</span>}
+  </>;
 }
 
 /** Shared session, new-session and settings control; the caller owns persistence. */
-export function PermissionModeControl({ value: current, disabled, onChange, presentation = 'composer', label = 'Permission approval mode', inherited = false }: {
+export function PermissionModeControl({ value: current, disabled, onChange, presentation = 'composer', label = 'Permission approval mode', inherited = false, onOpenChange }: {
   value: string; disabled?: boolean; onChange(mode: string): void | Promise<unknown>;
-  presentation?: 'composer' | 'settings'; label?: string; inherited?: boolean;
+  presentation?: 'composer' | 'settings'; label?: string; inherited?: boolean; onOpenChange?(open: boolean): void;
 }) {
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<unknown>();
@@ -101,7 +132,7 @@ export function PermissionModeControl({ value: current, disabled, onChange, pres
   return (
     <Popover
       open={open}
-      onOpenChange={value => { if (!pending) setOpen(value); }}
+      onOpenChange={value => { if (!pending) { setOpen(value); onOpenChange?.(value); } }}
       title={<span {...stylex.props(styles.title)}>How should permissions be approved?</span>}
       xstyle={styles.popup}
       trigger={

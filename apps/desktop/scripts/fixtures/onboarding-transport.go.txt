@@ -1,0 +1,33 @@
+// Compiled only by onboarding-fixture.mjs through an isolated Go build overlay.
+// The production runtime composition is unchanged; only outbound HTTP is replaced.
+package main
+
+import (
+	"errors"
+	"net/http"
+	"net/url"
+	"os"
+	"strings"
+)
+
+type onboardingTransport struct{ local *http.Transport }
+
+func (t onboardingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	target, err := url.Parse(os.Getenv("WHIP_ONBOARDING_PROVIDER"))
+	if err != nil || target.Scheme != "http" || target.Hostname() != "127.0.0.1" || target.Port() == "" || target.User != nil || target.Path != "" || target.RawQuery != "" || target.Fragment != "" {
+		return nil, errors.New("onboarding fixture has no valid loopback destination")
+	}
+	source := request.URL
+	if source.Scheme != "https" || source.Host != "openrouter.ai" || source.User != nil || source.RawQuery != "" || source.Fragment != "" || source.RawPath != "" || (source.Path != "/api/v1/key" && source.Path != "/api/v1/models" && source.Path != "/api/v1/chat/completions") {
+		return nil, errors.New("onboarding fixture rejected outbound destination")
+	}
+	forwarded := request.Clone(request.Context())
+	forwarded.URL.Scheme, forwarded.URL.Host = target.Scheme, target.Host
+	forwarded.URL.Path = strings.TrimPrefix(source.Path, "/api/v1")
+	forwarded.Host = target.Host
+	return t.local.RoundTrip(forwarded)
+}
+
+func init() {
+	http.DefaultTransport = onboardingTransport{local: &http.Transport{DisableKeepAlives: true}}
+}

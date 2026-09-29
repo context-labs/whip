@@ -1,7 +1,7 @@
 /// <reference types="node" />
 /** @jest-environment node */
 import { DatabaseSync } from 'node:sqlite';
-import type { RecoveryRecord } from '@whip/legacy-sdk';
+import type { RetiredRecoveryRecord as RecoveryRecord } from './storage';
 import { SqliteMobileStorage, type StorageDatabase, type Draft } from './storage';
 
 function fixture() {
@@ -125,7 +125,7 @@ test('never initializes over unknown or newer schemas and retains unreadable rec
   database.exec('CREATE TABLE valuable (data TEXT); INSERT INTO valuable VALUES (\'keep\')');
   await expect(storage.initialize(true)).rejects.toMatchObject({ code: 'schema' });
   expect(database.prepare('SELECT data FROM valuable').get()?.data).toBe('keep');
-  database.exec('PRAGMA user_version = 3');
+  database.exec('PRAGMA user_version = 4');
   await expect(storage.initialize(true)).rejects.toMatchObject({ code: 'schema' });
   await storage.close();
   const other = fixture();
@@ -217,7 +217,7 @@ test('v1 migrates without dropping drafts and appearance replacement stays atomi
   await f.storage.setDraft('draft', { revision: '1', text: 'Keep my work' });
   f.database.exec('PRAGMA user_version = 1');
   await f.storage.initialize(false);
-  expect(f.database.prepare('PRAGMA user_version').get()?.user_version).toBe(2);
+  expect(f.database.prepare('PRAGMA user_version').get()?.user_version).toBe(3);
   expect(await f.storage.get('drafts', 'draft')).toEqual({ revision: '1', text: 'Keep my work' });
   await f.storage.set('themes', 'appearance', { themes: ['original'], appearance: 'original' });
   f.failWrites();

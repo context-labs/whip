@@ -1,37 +1,31 @@
-// JuniorDeveloper, authored in TypeScript. Registered as `junior-developer-ts`
-// it composes the same prompt as the built-in Go definition; the test beside
-// this file pins that against the runtime's fixture.
-import { defineAgent } from '@whip/legacy-sdk/agents';
+// A data-only native definition. Registration grants no file or shell authority.
+import { defineAgent } from '@whip/sdk/agents';
 
 export const juniorDeveloper = defineAgent({
-  id: 'junior-developer-ts',
-  instructions: {
-    persona: 'You are a junior developer working under review.',
-    rules: [
-      'Operating rules:',
-      '- Keep each change small, and explain what you changed and why in plain language.',
-      "- Run the project's tests or build after every change; if you cannot run them, say so.",
-      '- Never rewrite history, force-push, delete branches, or remove files you did not create.',
-      '- Do not add dependencies or change build, CI, or deployment configuration; ask first.',
-      '- When a task is ambiguous or risky, ask the user with user.ask instead of guessing.',
-    ].join('\n'),
-    projectFiles: ['CLAUDE.md', 'AGENTS.md'],
-    skillDiscovery: false,
-    standingInstructions: true,
-  },
-  modules: ['context', 'files', 'shell', 'state', 'artifacts', 'permissions', 'user'],
-  capabilities: ['read', 'write', 'shell'],
-  surface: { autoTitle: true, goalLoop: false },
+  id: 'junior-developer-ts', name: 'Junior Developer',
+  defaults: {
+    instructions: {
+      project_root: null,
+      text: [
+        'You are a junior developer working under review.', '', 'Operating rules:',
+        '- Keep each change small, and explain what you changed and why in plain language.',
+        "- Run the project's tests or build after every change; if you cannot run them, say so.",
+        '- Never rewrite history, force-push, delete branches, or remove files you did not create.',
+        '- Do not add dependencies or change build, CI, or deployment configuration; ask first.',
+        '- When a task is ambiguous or risky, ask the user with user.ask instead of guessing.',
+      ].join('\n'),
+      project_files: ['CLAUDE.md', 'AGENTS.md'], discover_skills: false,
+      standing_instructions: true, skill_roots: null,
+    },
+    modules: ['context', 'files', 'shell', 'state', 'artifacts', 'permissions', 'user'],
+    mcp_servers: { all: false, servers: [] }, automatic_title: true, goals_enabled: false,
+    children: {},
+  }, tools: [], hooks: {}, output: null,
 });
 
-// Register it and start a session:
-//
-//   import { createWhipClient } from '@whip/legacy-sdk';
-//   const client = createWhipClient({ endpoint: 'http://127.0.0.1:8080', clientId: 'agents-example' });
-//   await client.connect();
-//   const { revision } = await client.agents.register(juniorDeveloper);
-//   const created = await client.sessions.create({ cwd: '/path/to/repo', definition: 'junior-developer-ts' }).result();
-//
-// Or from the terminal, against the same daemon:
-//
-//   whip run --agent junior-developer-ts --permission-mode automatic "add a unit test for the parser"
+// const client = await Client.connect(unixSocket(socket), { clientID: 'junior-example' });
+// const definition = await client.agents.register(juniorDeveloper);
+// const created = await client.createTree({ definition: definition.ref,
+//   working_directory: '/path/to/repo', metadata: { title: null, pinned: false, archived: false }, overrides: {} }, crypto.randomUUID());
+// Keep the creation ID/payload for recovery. Inspect and approve requested operations
+// explicitly; selecting a definition never grants its declared modules authority.

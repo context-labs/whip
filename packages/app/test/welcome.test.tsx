@@ -2,7 +2,8 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import type { AppRuntime } from '../src/runtime';
 import { welcomeDraftKey } from '../src/session-tabs';
-import { fakeMCPImport, supportsImport, twoServers } from './mcp-import-fake';
+import { revision } from './provider-fixture';
+import { wire } from './welcome-fixture';
 import { fixture } from './welcome-fixture';
 
 it.each([
@@ -17,7 +18,7 @@ it.each([
   const button = document.createElement('button');
   dialog.append(button);
   if (overlay) { document.body.append(dialog); button.focus(); }
-  const f = fixture(false, true, focused); f.render();
+  const f = await fixture(false, true, focused); f.render();
   try {
     const input = await screen.findByRole('textbox', { name: 'Your first message' });
     await act(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); });
@@ -33,7 +34,7 @@ it.each([
 });
 
 it('shows local setup without the execution host picker in a new draft', async () => {
-  const f = fixture();
+  const f = await fixture();
   const status = { state: 'missing' as const, home: '/tmp/whip-test', message: 'No installation.', canInstall: true };
   f.runtime.platform.localRuntime = {
     test: vi.fn(async () => status), choose: vi.fn(async () => status),
@@ -53,7 +54,7 @@ it('shows local setup without the execution host picker in a new draft', async (
 });
 
 it('replaces the send icon with one spinner while creating a session', async () => {
-  const f = fixture();
+  const f = await fixture();
   let reject!: (error: Error) => void;
   f.run.mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail; }));
   f.render();
@@ -74,7 +75,7 @@ it('replaces the send icon with one spinner while creating a session', async () 
 });
 
 it('keeps the ready composer focused and saves model/effort choices to this draft only', async () => {
-  const f = fixture(); f.render();
+  const f = await fixture(); f.render();
   const input = await screen.findByRole('textbox', { name: 'Your first message' });
   expect(screen.queryByText('Change host')).toBeNull();
   expect(screen.queryByLabelText('Execution language')).toBeNull();
@@ -82,22 +83,22 @@ it('keeps the ready composer focused and saves model/effort choices to this draf
   fireEvent.change(input, { target: { value: 'Explain the code' } });
   fireEvent.click(screen.getByRole('button', { name: 'Model', exact: true }));
   fireEvent.click(await screen.findByRole('option', { name: /gpt-5.5/ }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Reasoning effort' })).toHaveProperty('disabled', false));
   fireEvent.click(screen.getByRole('button', { name: 'Reasoning effort' }));
   fireEvent.click(await screen.findByRole('menuitem', { name: 'High' }));
   expect(f.runtime.tabs.workspace().tabs.find(item => item.id === f.tab.id)).toMatchObject({ model: 'gpt-5.5', provider: 'openai', effort: 'high' });
-  expect(f.raw.configuration.update).not.toHaveBeenCalled();
+  expect(f.rpc['providers.defaults']).not.toHaveBeenCalled();
   expect(f.runtime.draft(welcomeDraftKey(f.tab.id))).toBe('Explain the code');
   fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
-  await waitFor(() => expect(f.raw.sessions.create).toHaveBeenCalledWith(expect.objectContaining({ cwd: '/project/whip', model: 'gpt-5.5', provider: 'openai', effort: 'high', permission_mode: 'prompt', execution_engine: 'starlark' })));
+  await waitFor(() => expect(f.rpc['trees.create']).toHaveBeenCalledWith(expect.objectContaining({ working_directory: '/project/whip', overrides: { model: { name: 'gpt-5.5', provider: 'openai', effort: 'high' } }, permission_mode: 'prompt', engine: 'starlark' }), undefined));
   await screen.findByText('Promoted to created');
-  expect(f.raw.session).toHaveBeenCalledWith('created');
-  expect(f.raw.session.mock.results[0]!.value.submit).toHaveBeenCalledWith({ text: 'Explain the code' });
-  expect(f.run.mock.calls.map(call => call[1])).toEqual(['Create session', 'Send first message']);
+  expect(f.rpc['sessions.submit']).toHaveBeenCalledWith(expect.objectContaining({ session_id: 'created', parts: [{ type: 'text', text: 'Explain the code' }] }), undefined);
+  expect(f.run.mock.calls.map(call => call[1])).toEqual(['Create session', 'Send message']);
   expect(f.runtime.draft(welcomeDraftKey(f.tab.id))).toBe('');
 });
 
 it('switches execution host without sending or losing the prompt and clears host-specific choices', async () => {
-  const f = fixture(); f.render();
+  const f = await fixture(); f.render();
   fireEvent.change(await screen.findByRole('textbox', { name: 'Your first message' }), { target: { value: 'Keep this task' } });
   fireEvent.click(screen.getByRole('button', { name: 'Execution host' }));
   const item = await screen.findByRole('menuitem', { name: /Mac mini/ });
@@ -106,60 +107,61 @@ it('switches execution host without sending or losing the prompt and clears host
   await waitFor(() => expect(f.connect).toHaveBeenCalledWith('remote'));
   expect(f.runtime.tabs.workspace().tabs.find(item => item.id === f.tab.id)).toMatchObject({ hostProfileId: 'remote', cwd: '' });
   expect(f.runtime.draft(welcomeDraftKey(f.tab.id))).toBe('Keep this task');
-  expect(f.raw.sessions.create).not.toHaveBeenCalled();
+  expect(f.rpc['trees.create']).not.toHaveBeenCalled();
 });
 
 it('opens the native system picker directly from the local folder control', async () => {
-  const f = fixture(); f.render();
+  const f = await fixture(); f.render();
   const folder = await screen.findByRole('button', { name: 'Project folder' });
   expect(screen.queryByRole('button', { name: 'Browse host' })).toBeNull();
   fireEvent.click(folder);
   await waitFor(() => expect(f.runtime.tabs.workspace().tabs.find(item => item.id === f.tab.id)).toMatchObject({ cwd: '/selected/project' }));
   expect(f.pickDirectory).toHaveBeenCalledOnce();
   expect(screen.queryByRole('dialog')).toBeNull();
-  expect(f.raw.host.pickDirectory).not.toHaveBeenCalled();
-  expect(f.raw.host.directories).not.toHaveBeenCalled();
-  expect(f.raw.sessions.create).not.toHaveBeenCalled();
+  expect(f.rpc['host.directory.pick']).not.toHaveBeenCalled();
+  expect(f.rpc['host.directories.list']).not.toHaveBeenCalled();
+  expect(f.rpc['trees.create']).not.toHaveBeenCalled();
 });
 
 it('uses remote recents and sends the confirmed remote directory with the retained draft', async () => {
-  const f = fixture(true); f.render();
+  const f = await fixture(true); f.render();
   fireEvent.change(await screen.findByRole('textbox', { name: 'Your first message' }), { target: { value: 'Explain the remote project' } });
   fireEvent.click(screen.getByRole('button', { name: 'Project folder' }));
   await screen.findByRole('dialog', { name: 'Choose a folder' });
   expect(screen.getByText('sam@kuzco')).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'recent', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: 'recent', exact: true }));
   await waitFor(() => expect((screen.getByRole('button', { name: 'Choose folder', exact: true }) as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(screen.getByRole('button', { name: 'Choose folder', exact: true }));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   expect(f.runtime.tabs.workspace().tabs.find(item => item.id === f.tab.id)).toMatchObject({ cwd: '/remote/recent' });
-  expect(f.pickDirectory).not.toHaveBeenCalled(); expect(f.raw.host.pickDirectory).not.toHaveBeenCalled();
-  expect(f.raw.sessions.create).not.toHaveBeenCalled();
+  expect(f.pickDirectory).not.toHaveBeenCalled(); expect(f.rpc['host.directory.pick']).not.toHaveBeenCalled();
+  expect(f.rpc['trees.create']).not.toHaveBeenCalled();
   expect(f.runtime.draft(welcomeDraftKey(f.tab.id))).toBe('Explain the remote project');
   fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
-  await waitFor(() => expect(f.raw.sessions.create).toHaveBeenCalledWith(expect.objectContaining({ cwd: '/remote/recent' })));
+  await waitFor(() => expect(f.rpc['trees.create']).toHaveBeenCalledWith(expect.objectContaining({ working_directory: '/remote/recent' }), undefined));
 });
 
 it('keeps an unsupported saved effort visible and requires an explicit replacement before sending', async () => {
-  const f = fixture();
+  const f = await fixture();
   f.runtime.tabs.updateNew(f.tab.id, { effort: 'high' });
   f.render();
   fireEvent.change(await screen.findByRole('textbox', { name: 'Your first message' }), { target: { value: 'Use my saved choice' } });
-  act(() => { f.runtime.queries.setQueryData(['provider-catalogs', 'host'], { result: { models: {}, providers: {}, catalogs: {} } }); });
+  act(() => { f.runtime.queries.setQueryData(['provider-catalogs', 'host', ''], { ...f.catalog, providers: [] }); });
   await screen.findByText('Choose an available reasoning effort for this model before sending.');
   expect(screen.getByRole('button', { name: 'Reasoning effort' }).textContent).toContain('High');
   fireEvent.keyDown(screen.getByRole('textbox', { name: 'Your first message' }), { key: 'Enter' });
-  expect(f.raw.sessions.create).not.toHaveBeenCalled();
+  expect(f.rpc['trees.create']).not.toHaveBeenCalled();
   expect(f.runtime.tabs.workspace().tabs.find(item => item.id === f.tab.id)).toMatchObject({ effort: 'high' });
   fireEvent.click(screen.getByRole('button', { name: 'Reasoning effort' }));
   fireEvent.click(await screen.findByRole('menuitem', { name: 'Default' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Send first message' })).toHaveProperty('disabled', false));
   fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
-  await waitFor(() => expect(f.raw.sessions.create).toHaveBeenCalledOnce());
-  await waitFor(() => expect(f.raw.sessions.create).toHaveBeenCalledWith(expect.objectContaining({ effort: 'off' })));
+  await waitFor(() => expect(f.rpc['trees.create']).toHaveBeenCalledOnce());
+  await waitFor(() => expect(f.rpc['trees.create']).toHaveBeenCalledWith(expect.objectContaining({ overrides: { model: { provider: 'openai', name: 'gpt-6-astra', effort: '' } } }), undefined));
 });
 
 it('preserves the collapsed provider top spacing while expanded and restores centering on collapse', async () => {
-  const f = fixture(false, false); f.render();
+  const f = await fixture(false, false); f.render();
   const heading = await screen.findByRole('heading', { name: 'Connect a provider to get started' });
   const column = heading.parentElement!;
   const computedStyle = window.getComputedStyle.bind(window);
@@ -177,40 +179,33 @@ it('preserves the collapsed provider top spacing while expanded and restores cen
 });
 
 it('shows standalone provider setup, reuses the connection dialog and restores the draft after explicit model confirmation', async () => {
-  const f = fixture(false, false);
+  const f = await fixture(false, false);
   f.runtime.setDraft(welcomeDraftKey(f.tab.id), 'Keep my task'); f.render();
   await screen.findByRole('heading', { name: 'Connect a provider to get started', level: 1 });
   expect(screen.queryByRole('textbox', { name: 'Your first message' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Project folder' })).toBeNull();
   expect(screen.getByRole('button', { name: 'Connect Remote' })).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Show all providers' }));
-  f.raw.providers.setKey.mockImplementation(async () => {
-    f.raw.providers.list.mockResolvedValue({ ...f.inventory, providers: [{ ...f.inventory.providers[0], status: { available: true, key_source: 'literal' } }] });
-    return {};
-  });
-  f.raw.configuration.update.mockImplementation(async () => {
-    f.raw.providers.list.mockResolvedValue({ ...f.inventory, selection: { ...f.inventory.selection, ready: true }, providers: [{ ...f.inventory.providers[0], status: { available: true, key_source: 'literal' } }] });
-  });
   fireEvent.click(await screen.findByRole('button', { name: 'Connect OpenAI' }));
   fireEvent.change(await screen.findByLabelText('API key'), { target: { value: 'fixture-api-key' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Connect', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save provider', exact: true }));
   const confirm = await screen.findByRole('button', { name: 'Use gpt-6-astra', exact: true });
-  expect(f.raw.configuration.update).not.toHaveBeenCalled(); expect(f.raw.sessions.create).not.toHaveBeenCalled();
+  expect(f.rpc['providers.defaults']).not.toHaveBeenCalled(); expect(f.rpc['trees.create']).not.toHaveBeenCalled();
   fireEvent.click(confirm);
   const input = await screen.findByRole('textbox', { name: 'Your first message' });
   expect(screen.getByRole('heading', { name: 'What do you want to work on?' }).parentElement!.style.marginTop).toBe('');
   expect((input as HTMLTextAreaElement).value).toBe('Keep my task');
   expect(screen.queryByRole('region', { name: 'Provider setup' })).toBeNull();
-  expect(f.raw.providers.setKey).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ provider: 'openai', key: 'fixture-api-key' }), expect.anything());
-  expect(f.raw.configuration.update).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ default_model: 'gpt-6-astra', default_provider: 'openai' }), expect.anything());
-  expect(f.raw.sessions.create).not.toHaveBeenCalled();
+  expect(f.rpc['providers.create']).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ provider: 'openai', key: { id: expect.any(String), key: 'fixture-api-key' } }), expect.anything());
+  expect(f.rpc['providers.defaults']).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ defaults: expect.objectContaining({ selection: { name: 'gpt-6-astra', provider: 'openai', effort: '' } }) }), expect.anything());
+  expect(f.rpc['trees.create']).not.toHaveBeenCalled();
 });
 
 it('keeps the composer footprint while the provider inventory is pending, then defers to setup', async () => {
-  const f = fixture(false, false);
+  const f = await fixture(false, false);
   f.runtime.queries.removeQueries({ queryKey: ['provider-list', 'host'] });
   let resolveList!: (value: unknown) => void;
-  f.raw.providers.list.mockImplementation(() => new Promise(resolve => { resolveList = resolve; }));
+  f.rpc['providers.list'].mockImplementation(() => new Promise(resolve => { resolveList = resolve; }));
   f.render();
   await screen.findByRole('textbox', { name: 'Your first message' });
   expect(screen.getByRole('heading', { name: 'What do you want to work on?', level: 1 })).toBeTruthy();
@@ -225,23 +220,22 @@ it('keeps the composer footprint while the provider inventory is pending, then d
 });
 
 it('renders the composer disabled while the host is still connecting', async () => {
-  const f = fixture();
-  const connecting = { state: 'connecting' };
-  f.raw.getSnapshot = () => connecting as never;
+  const f = await fixture();
+  vi.mocked(f.runtime.getSnapshot).mockReturnValue({ ...f.runtime.getSnapshot(), hosts: f.runtime.getSnapshot().hosts.map(host => host.id === 'local' ? { ...host, state: 'connecting' } : host) });
   f.render();
   await screen.findByRole('textbox', { name: 'Your first message' });
   expect(screen.getByRole('heading', { name: 'What do you want to work on?', level: 1 })).toBeTruthy();
   expect((screen.getByRole('button', { name: 'Send first message' }) as HTMLButtonElement).disabled).toBe(true);
-  expect(screen.getByText(/^Connecting to Local\./)).toBeTruthy();
+  expect(screen.getByText(/^Reconnecting to Local\./)).toBeTruthy();
   expect(screen.queryByText('Review unavailable session options')).toBeNull();
-  expect(document.querySelectorAll('[data-picker-skeleton]')).toHaveLength(2);
+  expect(screen.getByRole('button', { name: 'Model', exact: true })).toHaveProperty('disabled', true);
 });
 
 it('paints provider setup first when the device remembers this host has no ready provider', async () => {
-  const f = fixture(false, false);
+  const f = await fixture(false, false);
   f.runtime.queries.removeQueries({ queryKey: ['provider-list', 'host'] });
   f.runtime.platform.storage.setItem('whip.web.provider-ready.v1:host', 'false');
-  f.raw.providers.list.mockImplementation(() => new Promise(() => {}));
+  f.rpc['providers.list'].mockImplementation(() => new Promise(() => {}));
   f.render();
   await screen.findByRole('heading', { name: 'Connect a provider to get started', level: 1 });
   expect(screen.queryByRole('textbox', { name: 'Your first message' })).toBeNull();
@@ -249,14 +243,14 @@ it('paints provider setup first when the device remembers this host has no ready
 });
 
 it('remembers the inventory answer on the device', async () => {
-  const f = fixture();
+  const f = await fixture();
   f.render();
   await screen.findByRole('textbox', { name: 'Your first message' });
   await waitFor(() => expect(f.runtime.platform.storage.getItem('whip.web.provider-ready.v1:host')).toBe('true'));
 });
 
 it('keeps the draft and shows the delivery notice while the first send is unresolved', async () => {
-  const f = fixture();
+  const f = await fixture();
   const checkCommand = vi.spyOn(f.runtime, 'checkCommand').mockResolvedValue(undefined);
   vi.mocked(f.runtime.getSnapshot).mockReturnValue({ ...f.runtime.getSnapshot(), commands: [{ id: 'pending', commandId: 'c1', runtimeId: 'host', label: 'Create session', status: 'Acceptance unresolved', draftKey: welcomeDraftKey(f.tab.id), delivery: 'uncertain' }] });
   f.runtime.setDraft(welcomeDraftKey(f.tab.id), 'Still here');
@@ -264,13 +258,13 @@ it('keeps the draft and shows the delivery notice while the first send is unreso
   expect((await screen.findByRole('textbox', { name: 'Your first message' }) as HTMLTextAreaElement).value).toBe('Still here');
   expect(screen.getByText('Checking whether your first message was received')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
-  expect(f.raw.sessions.create).not.toHaveBeenCalled();
+  expect(f.rpc['trees.create']).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Check status' }));
   expect(checkCommand).toHaveBeenCalledWith('pending');
 });
 
 it('keeps the draft and reports the error when the first send fails before acceptance', async () => {
-  const f = fixture();
+  const f = await fixture();
   f.run.mockImplementationOnce((async () => { throw new Error('Host refused the session'); }) as never);
   f.render();
   fireEvent.change(await screen.findByRole('textbox', { name: 'Your first message' }), { target: { value: 'Try this' } });
@@ -280,7 +274,7 @@ it('keeps the draft and reports the error when the first send fails before accep
   expect(f.runtime.draft(welcomeDraftKey(f.tab.id))).toBe('Try this');
   expect(f.runtime.tabs.workspace().tabs.find(item => item.id === f.tab.id)).toMatchObject({ kind: 'new' });
   expect(f.runtime.compositions.get(welcomeDraftKey(f.tab.id)).attachments[0]).toMatchObject({ staged: true, previewUrl: 'blob:first.png' });
-  expect(f.raw.upload).not.toHaveBeenCalled();
+  expect(f.rpc['content.put']).not.toHaveBeenCalled();
   expect(URL.revokeObjectURL).not.toHaveBeenCalled();
 });
 
@@ -295,7 +289,7 @@ function imageFile(name = 'first.png') {
 }
 
 it.each(['picker', 'paste', 'drop'])('stages a first image through %s without creating a session or uploading', async method => {
-  const f = fixture(); f.render();
+  const f = await fixture(); f.render();
   const input = await screen.findByRole('textbox', { name: 'Your first message' });
   const image = imageFile();
   expect((screen.getByRole('button', { name: 'Attach text or images' }) as HTMLButtonElement).disabled).toBe(false);
@@ -305,8 +299,8 @@ it.each(['picker', 'paste', 'drop'])('stages a first image through %s without cr
   fireEvent.load(screen.getByRole('img', { name: 'first.png' }));
   expect(screen.queryByRole('img', { name: 'Uploading first.png' })).toBeNull();
   expect(image.arrayBuffer).not.toHaveBeenCalled();
-  expect(f.raw.upload).not.toHaveBeenCalled();
-  expect(f.raw.sessions.create).not.toHaveBeenCalled();
+  expect(f.rpc['content.put']).not.toHaveBeenCalled();
+  expect(f.rpc['trees.create']).not.toHaveBeenCalled();
   expect((screen.getByRole('button', { name: 'Send first message' }) as HTMLButtonElement).disabled).toBe(false);
   fireEvent.click(screen.getByRole('button', { name: 'Remove first.png' }));
   expect(f.runtime.compositions.getSnapshot().attachmentCount).toBe(0);
@@ -314,31 +308,32 @@ it.each(['picker', 'paste', 'drop'])('stages a first image through %s without cr
 });
 
 it('sends multiple images without text only after scoped uploads finish and clears previews on acceptance', async () => {
-  const f = fixture(); f.render();
+  const f = await fixture(); f.render();
   await screen.findByRole('textbox', { name: 'Your first message' });
   const first = imageFile(); const second = imageFile('second.png');
   let release!: () => void;
-  const uploaded = f.raw.upload.getMockImplementation()!;
-  f.raw.upload.mockImplementationOnce(() => new Promise(resolve => { release = () => resolve(uploaded()); }));
+  const uploaded = f.rpc['content.put'].getMockImplementation()!;
+  f.rpc['content.put'].mockImplementationOnce((...args) => new Promise(resolve => { release = () => resolve(uploaded(...args)); }));
   fireEvent.change(document.querySelector('input[type=file]')!, { target: { files: [first, second] } });
   fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
   // Repeated Enter/click cannot create a second session while awaiting upload.
   await screen.findByText('Promoted to created');
-  expect(f.raw.sessions.create).toHaveBeenCalledOnce();
-  expect(f.raw.session.mock.results[0]!.value.submit).not.toHaveBeenCalled();
+  expect(f.rpc['trees.create']).toHaveBeenCalledOnce();
+  expect(f.rpc['sessions.submit']).not.toHaveBeenCalled();
   expect(f.runtime.compositions.get('host:created:created').sending).toBe(true);
+  await waitFor(() => expect(f.rpc['content.put']).toHaveBeenCalled());
   await act(async () => release());
-  await waitFor(() => expect(f.raw.session.mock.results[0]!.value.submit).toHaveBeenCalledWith({ text: '', attachments: [
-    { kind: 'image', name: 'first.png', ref: 'uploaded' }, { kind: 'image', name: 'second.png', ref: 'uploaded' },
-  ] }, expect.objectContaining({ commandId: expect.any(String) })));
-  expect(f.raw.upload).toHaveBeenCalledTimes(2);
-  expect(f.raw.upload).toHaveBeenCalledWith(expect.any(Uint8Array), expect.objectContaining({ rootId: 'created', agentId: 'created' }));
+  await waitFor(() => expect(f.rpc['sessions.submit']).toHaveBeenCalledWith(expect.objectContaining({ session_id: 'created', parts: [
+    { type: 'content', reference_id: expect.any(String) }, { type: 'content', reference_id: expect.any(String) },
+  ] }), undefined));
+  expect(f.rpc['content.put']).toHaveBeenCalledTimes(2);
+  expect(f.rpc['content.put']).toHaveBeenCalledWith(expect.objectContaining({ session_id: 'created', media_type: 'image/png' }), expect.any(AbortSignal));
   await waitFor(() => expect(f.runtime.compositions.getSnapshot().attachmentCount).toBe(0));
   expect(URL.revokeObjectURL).toHaveBeenCalledTimes(2);
 });
 
 it('keeps local attachments with the new draft across closing/reopening and changing hosts', async () => {
-  const f = fixture(); f.render();
+  const f = await fixture(); f.render();
   await screen.findByRole('textbox', { name: 'Your first message' });
   fireEvent.change(document.querySelector('input[type=file]')!, { target: { files: [imageFile()] } });
   const attachments = f.runtime.compositions.get(welcomeDraftKey(f.tab.id)).attachments;
@@ -349,15 +344,15 @@ it('keeps local attachments with the new draft across closing/reopening and chan
   fireEvent.click(await screen.findByRole('menuitem', { name: /Mac mini/ }));
   await waitFor(() => expect(f.connect).toHaveBeenCalledWith('remote'));
   expect(f.runtime.compositions.get(welcomeDraftKey(f.tab.id)).attachments).toBe(attachments);
-  expect(f.raw.upload).not.toHaveBeenCalled();
+  expect(f.rpc['content.put']).not.toHaveBeenCalled();
   expect(URL.revokeObjectURL).not.toHaveBeenCalled();
 });
 
 it.each(['upload', 'send'])('preserves the draft in its created session after %s failure', async phase => {
-  const f = fixture(); f.render();
+  const f = await fixture(); f.render();
   fireEvent.change(await screen.findByRole('textbox', { name: 'Your first message' }), { target: { value: 'Keep my image' } });
   fireEvent.change(document.querySelector('input[type=file]')!, { target: { files: [imageFile()] } });
-  if (phase === 'upload') f.raw.upload.mockRejectedValueOnce(new Error('Upload unavailable'));
+  if (phase === 'upload') f.rpc['content.put'].mockRejectedValueOnce(new Error('Upload unavailable'));
   else {
     const run = f.run.getMockImplementation()!;
     f.run.mockImplementation(((...args: Parameters<AppRuntime['run']>) => {
@@ -368,47 +363,47 @@ it.each(['upload', 'send'])('preserves the draft in its created session after %s
   fireEvent.click(screen.getByRole('button', { name: 'Send first message' }));
   await screen.findByText('Promoted to created');
   await waitFor(() => expect(f.runtime.compositions.get('host:created:created').sending).toBe(false));
-  expect(f.raw.sessions.create).toHaveBeenCalledOnce();
+  expect(f.rpc['trees.create']).toHaveBeenCalledOnce();
   expect(f.runtime.draft('host:created:created')).toBe('Keep my image');
   expect(f.runtime.compositions.get('host:created:created').attachments[0]?.previewUrl).toBe('blob:first.png');
   expect(URL.revokeObjectURL).not.toHaveBeenCalled();
-  if (phase === 'upload') expect(f.raw.session.mock.results[0]!.value.submit).not.toHaveBeenCalled();
+  if (phase === 'upload') expect(f.rpc['sessions.submit']).not.toHaveBeenCalled();
 });
 
-// A host that has MCP servers configured for other agents gets one offer
-// before the composer; answering it returns the composer.
-function withMCPImport(f: ReturnType<typeof fixture>, offered = false) {
-  const mcpImport = fakeMCPImport(twoServers(offered));
-  Object.assign(f.raw, { supports: supportsImport, mcpImport });
-  f.runtime.queries.setQueryData(['runtime-configuration', 'host'], (old: object | undefined) => ({ ...old, mcp_import_offered: offered }));
-  return mcpImport;
+// Import discovery is scoped to global declarations before a session exists.
+function withMCPImport(f: Awaited<ReturnType<typeof fixture>>, offered = false) {
+  const configuration = { ...wire('MCPConfiguration'), revision, imports: { claude: null, codex: null, project: null, opencode: null, offered } };
+  f.on('mcp.configuration', () => configuration);
+  const candidates = f.on('mcp.import.candidates', () => ({ ...wire('MCPImportCandidatesResult'), revision, candidates: [{ ...wire('MCPImportCandidatesResult').candidates[0], name: 'paper' }] }));
+  const apply = f.on('mcp.import.apply', () => ({ configuration: { ...configuration, imports: { ...configuration.imports, offered: true } }, added: [], skipped: {} }));
+  return { candidates, apply };
 }
-
-it('offers the MCP import once a provider is ready and returns the composer after Skip', async () => {
-  const f = fixture(); const mcpImport = withMCPImport(f); f.render();
+it('offers global MCP import once a provider is ready and returns the composer after Skip', async () => {
+  const f = await fixture(); const mcp = withMCPImport(f); f.render();
   await screen.findByRole('heading', { name: 'Bring your MCP servers into Whip' });
   expect(screen.queryByRole('textbox', { name: 'Your first message' })).toBeNull();
   expect(screen.getByRole('checkbox', { name: 'Import paper' })).toBeTruthy();
-  expect(screen.getByRole('button', { name: 'Execution host' })).toBeTruthy();
-  expect(mcpImport.candidates).toHaveBeenCalledWith({ cwd: '/project/whip' }, expect.anything());
+  expect(mcp.candidates).toHaveBeenCalledWith({ session_id: null }, expect.any(AbortSignal));
   fireEvent.click(screen.getByRole('button', { name: 'Skip for now' }));
   await screen.findByRole('textbox', { name: 'Your first message' });
-  expect(mcpImport.apply).toHaveBeenCalledExactlyOnceWith({ cwd: '/project/whip', names: [] });
-  expect(screen.getByRole('heading', { name: 'What do you want to work on?' })).toBeTruthy();
+  expect(mcp.apply).toHaveBeenCalledExactlyOnceWith({ session_id: null, revision, fingerprints: {} }, expect.any(AbortSignal));
 });
-
-it('does not offer the import before a provider is ready, after it was answered, or on a daemon without it', async () => {
-  const notReady = fixture(false, false); const pending = withMCPImport(notReady); const pendingView = notReady.render();
-  await screen.findByRole('region', { name: 'Provider setup' });
+it.each([false, true])('does not offer import before provider readiness or after an answer (ready=%s)', async ready => {
+  const f = await fixture(false, ready); const mcp = withMCPImport(f, ready); f.render();
+  if (ready) await screen.findByRole('textbox', { name: 'Your first message' });
+  else await screen.findByRole('region', { name: 'Provider setup' });
   expect(screen.queryByRole('heading', { name: 'Bring your MCP servers into Whip' })).toBeNull();
-  expect(pending.candidates).not.toHaveBeenCalled();
-  pendingView.unmount(); notReady.runtime.dispose();
-  const answered = fixture(); const done = withMCPImport(answered, true); const answeredView = answered.render();
-  await screen.findByRole('textbox', { name: 'Your first message' });
-  expect(screen.queryByRole('heading', { name: 'Bring your MCP servers into Whip' })).toBeNull();
-  expect(done.candidates).not.toHaveBeenCalled();
-  answeredView.unmount(); answered.runtime.dispose();
-  const older = fixture(); const unsupported = withMCPImport(older); Object.assign(older.raw, { supports: () => false }); older.render();
-  await screen.findByRole('textbox', { name: 'Your first message' });
-  expect(unsupported.candidates).not.toHaveBeenCalled();
+  expect(mcp.candidates).not.toHaveBeenCalled();
+});
+it('requires an exact revision for a saved mutable agent name', async () => {
+  const f = await fixture(); f.runtime.tabs.updateNew(f.tab.id, { unresolvedDefinition: 'coding' }); f.render();
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Your first message' }), { target: { value: 'Keep my draft' } });
+  expect(screen.getByRole('button', { name: 'Send first message' })).toHaveProperty('disabled', true);
+  fireEvent.click(screen.getByRole('button', { name: 'Review unavailable session options' }));
+  fireEvent.click(await screen.findByRole('combobox', { name: 'Agent' }));
+  const revisionChoice = await screen.findByRole('option', { name: /Coding · coding @ aaaaaaaaaaaa/ });
+  fireEvent.pointerDown(revisionChoice); fireEvent.click(revisionChoice);
+  await waitFor(() => expect(f.runtime.tabs.workspace().tabs[0]).toMatchObject({ definition: { id: 'coding', revision } }));
+  expect(f.runtime.tabs.workspace().tabs[0]).not.toHaveProperty('unresolvedDefinition');
+  expect(f.rpc['trees.create']).not.toHaveBeenCalled();
 });

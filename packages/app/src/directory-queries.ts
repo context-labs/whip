@@ -1,11 +1,13 @@
 import { queryOptions, type QueryClient } from '@tanstack/react-query';
-import type { WhipClient } from '@whip/legacy-sdk';
+import type { Client } from '@whip/sdk';
+
+import { clientQueryKey } from './client-query-key';
 
 type Listing = { path?: string; prefix?: string; hidden?: boolean; after?: string };
-export function directoryOptions(client: WhipClient, { path, prefix, hidden = false, after }: Listing = {}) {
+export function directoryOptions(client: Client, { path, prefix, hidden = false, after }: Listing = {}) {
   return queryOptions({
-    queryKey: ['directories', client.getSnapshot().info?.runtime_id, path || '~', prefix || '', hidden, after ?? ''],
-    queryFn: ({ signal }) => client.host.directories({ path: path || '~', prefix: prefix || undefined, show_hidden: hidden, after, limit: 64 }, { signal }),
+    queryKey: ['directories', client.runtimeID, client.processEpoch, clientQueryKey(client), path || '~', prefix || '', hidden, after ?? ''],
+    queryFn: ({ signal }) => client.call('host.directories.list', { path: path || '~', prefix: prefix || '', show_hidden: hidden, after: after ?? '', limit: 64 }, { signal }),
     staleTime: 10_000, gcTime: 60_000, retry: false, networkMode: 'always',
     refetchOnWindowFocus: false, refetchOnReconnect: false,
   });
@@ -19,7 +21,7 @@ export function directoryCache(queries: QueryClient) {
   return cache;
 }
 function createDirectoryCache(queries: QueryClient) {
-  type Job = { client: WhipClient; options: ReturnType<typeof directoryOptions>; key: string };
+  type Job = { client: Client; options: ReturnType<typeof directoryOptions>; key: string };
   const queued: Job[] = [];
   const running = new Map<string, Job>();
   const positions = new Map<string, number>();
@@ -51,8 +53,6 @@ function createDirectoryCache(queries: QueryClient) {
     if (queries.getQueryCache().findAll({ queryKey: ['directories'] }).some(query => query.getObserversCount() && query.state.fetchStatus === 'fetching')) return;
     while (running.size < 2 && queued.length) {
       const job = queued.shift()!;
-      const connection = job.client.getSnapshot();
-      if (connection.state !== 'connected' || connection.info?.runtime_id !== job.options.queryKey[1]) continue;
       running.set(job.key, job);
       void queries.prefetchQuery(job.options).finally(() => { running.delete(job.key); prune(); schedule(); });
     }
@@ -63,8 +63,7 @@ function createDirectoryCache(queries: QueryClient) {
     if (event.type === 'updated' || event.type === 'observerRemoved') { prune(); schedule(); }
   });
   return {
-    warm(client: WhipClient, listing: Listing) {
-      if (client.getSnapshot().state !== 'connected' || !client.getSnapshot().info?.runtime_id) return;
+    warm(client: Client, listing: Listing) {
       const options = directoryOptions(client, listing), key = keyFor(options);
       const query = queries.getQueryCache().find({ queryKey: options.queryKey, exact: true });
       if (query && !query.isStaleByTime(10_000)) return;
@@ -72,7 +71,7 @@ function createDirectoryCache(queries: QueryClient) {
       if (queued.length >= 8) queued.pop();
       queued.unshift({ client, options, key }); schedule();
     },
-    cancel(client: WhipClient, keep?: Listing) {
+    cancel(client: Client, keep?: Listing) {
       const keepKey = keep ? keyFor(directoryOptions(client, keep)) : undefined;
       for (let i = queued.length - 1; i >= 0; i--) if (queued[i].client === client) queued.splice(i, 1);
       for (const job of running.values()) {

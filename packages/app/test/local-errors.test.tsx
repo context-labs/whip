@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { UIProvider } from '@whip/ui';
-import type { SessionView } from '@whip/legacy-sdk/state';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { Action, QueryFeedback } from '../src/details/shared';
 import { GeneralSettings } from '../src/settings/general';
 import { RuntimeContext } from '../src/context';
@@ -22,13 +22,10 @@ it('keeps an inspector action failure by its control and clears it after a succe
 });
 
 it('replaces a dependent resource error with availability status when the host disconnects', () => {
-  let snapshot = { state: 'connected' };
-  const listeners = new Set<() => void>();
-  const client = { subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener); }, getSnapshot: () => snapshot };
-  const view = { session: { rootId: 'session-a', client } } as unknown as SessionView;
-  const rendered = render(<UIProvider><QueryFeedback view={view} query={{ supported: true, isLoading: false, error: new Error('Socket disconnected') }} /></UIProvider>);
+  const query = { isLoading: false, error: new Error('Socket disconnected') };
+  const rendered = render(<UIProvider><QueryFeedback connected query={query} /></UIProvider>);
   expect(rendered.container.querySelector('[data-error-type="resource"]')).not.toBeNull();
-  act(() => { snapshot = { state: 'disconnected' }; for (const listener of listeners) listener(); });
+  rendered.rerender(<UIProvider><QueryFeedback connected={false} query={query} /></UIProvider>);
   expect(screen.queryByRole('alert')).toBeNull();
   expect(screen.getByRole('status').textContent).toContain('Unavailable while this host is offline');
   expect(screen.queryByText('Socket disconnected')).toBeNull();
@@ -40,7 +37,7 @@ it('keeps device preference save errors in settings without reporting an applica
   const runtime = new AppRuntime({ defaultEndpoint: 'http://127.0.0.1:8080', storage, copy: async () => {}, openExternal: async () => {}, download: async () => {} });
   const save = vi.spyOn(runtime, 'setPreferences').mockImplementationOnce(() => { throw new Error('Device storage is full'); });
   const report = vi.spyOn(runtime, 'report');
-  const view = render(<RuntimeContext.Provider value={runtime}><UIProvider><GeneralSettings /></UIProvider></RuntimeContext.Provider>);
+  const view = render(<RuntimeContext.Provider value={runtime}><QueryClientProvider client={runtime.queries}><UIProvider><GeneralSettings /></UIProvider></QueryClientProvider></RuntimeContext.Provider>);
   fireEvent.click(screen.getByRole('switch', { name: 'Announce attention changes' }));
   expect(save).toHaveBeenCalledOnce();
   expect(view.container.querySelector('[data-error-type="action"]')).not.toBeNull();

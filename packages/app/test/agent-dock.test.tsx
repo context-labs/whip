@@ -1,264 +1,264 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { afterEach, expect, it, vi } from 'vitest';
-import { Profiler } from 'react';
-import type { RootSnapshot } from '@whip/legacy-protocol';
-import type { SessionViewSnapshot } from '@whip/legacy-sdk/state';
-import { AgentDock, type AgentDockProps } from '../src/agent-dock';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import {
+  AgentDock,
+  AgentDockRoster,
+  projectAgent,
+  type DockAgent,
+} from '../src/agent-dock';
+import { activity, at, turn, parameters } from './native-conversation-fixture';
+import { providerFixture, sessionRecord } from './provider-fixture';
 
-type Agent = NonNullable<RootSnapshot['agents']>[number];
-const agent = (id: string, overrides: Partial<Agent> = {}): Agent => ({
-  id, name: id, parent_id: 'root', status: 'running', ...overrides,
-} as Agent);
-const state = (agents: Agent[], overrides: Record<string, unknown> = {}): SessionViewSnapshot => ({
-  status: 'live', root: { root_id: 'root', agents, active_turns: {}, permissions: [], questions: [], ...overrides },
-  history: {}, collections: {}, retainedBytes: 0, unavailable: false, truncated: false,
-} as unknown as SessionViewSnapshot);
-const props = (agents: Agent[], overrides: Partial<AgentDockProps> = {}): AgentDockProps => ({
-  state: state(agents), agentId: 'root', connected: true, onAgent: vi.fn(), onAllAgents: vi.fn(), ...overrides,
+const child = (
+  id: string,
+  state: 'running' | 'succeeded' | 'failed' | 'queued' | 'idle' = 'running',
+): DockAgent => {
+  const agent = sessionRecord(id);
+  agent.definition.id = id;
+  const last =
+    state === 'idle'
+      ? undefined
+      : turn('turn-' + id, state === 'queued' ? 'failed' : state, id);
+  return {
+    agent,
+    activity: {
+      ...activity(id, state === 'running' ? last! : null),
+      queued_input_count: state === 'queued' ? '1' : '0',
+    },
+    turn: last,
+  };
+};
+const props = (agents: readonly DockAgent[]) => ({
+  agents,
+  partial: false,
+  connected: true,
+  onAgent: vi.fn(),
+  onAllAgents: vi.fn(),
 });
-const visibleIds = (container: HTMLElement) => [...container.querySelectorAll('[data-agent-dock-row]')].map(row => row.getAttribute('data-agent-dock-row'));
 const heading = () => screen.getByRole('button', { name: /^Agents/ });
 const expand = () => fireEvent.click(heading());
-const duration = (id: string) => document.querySelector(`[data-agent-dock-row="${id}"] [data-agent-dock-duration]`)?.textContent;
-const started = '2026-09-19T12:00:00Z';
-const running = (id = 'worker', overrides: Partial<NonNullable<Agent['last_turn']>> = {}) => agent(id, {
-  last_turn: { status: 'running', event_seq: '1', turn_id: 'turn', started_at: started, ...overrides },
+const ids = (container: HTMLElement) =>
+  [...container.querySelectorAll('[data-agent-dock-row]')].map((row) =>
+    row.getAttribute('data-agent-dock-row'),
+  );
+const duration = (id: string) =>
+  document.querySelector(
+    `[data-agent-dock-row="${id}"] [data-agent-dock-duration]`,
+  )?.textContent;
+beforeEach(() =>
+  vi.stubGlobal('matchMedia', () => ({
+    matches: false,
+    addEventListener() {},
+    removeEventListener() {},
+  })),
+);
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
-afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
-it('starts as one summary disclosure, scopes to direct children, and resets for another recipient', () => {
-  const view = render(<AgentDock {...props([])} />);
-  expect(view.container.textContent).toBe('');
-  const agents = [agent('root', { parent_id: '' }), agent('child'), agent('grandchild', { parent_id: 'child' }), agent('deleted', { status: 'deleted' })];
-  view.rerender(<AgentDock {...props(agents)} />);
-  expect(heading().textContent).toBe('Agents · 1 working');
-  expect(heading().getAttribute('aria-expanded')).toBe('false');
-  expect(visibleIds(view.container)).toEqual([]);
-  expect(document.getElementById(heading().getAttribute('aria-controls')!)?.hidden).toBe(true);
+it('starts as a compact disclosure and prioritizes attention, active work, new children and final outcomes', () => {
+  const view = render(
+    <AgentDockRoster
+      {...props([
+        child('done', 'succeeded'),
+        child('working'),
+        child('new', 'idle'),
+        child('failed', 'failed'),
+      ])}
+    />,
+  );
+  expect(heading().textContent).toBe(
+    'Agents · 1 needs attention · 1 working · 1 not started · 1 finished',
+  );
+  expect(ids(view.container)).toEqual([]);
   expand();
-  expect(visibleIds(view.container)).toEqual(['child']);
-  view.rerender(<AgentDock {...props(agents, { agentId: 'child' })} />);
-  expect(heading().getAttribute('aria-expanded')).toBe('false');
+  expect(ids(view.container)).toEqual(['failed', 'working', 'new', 'done']);
   expand();
-  expect(visibleIds(view.container)).toEqual(['grandchild']);
+  expect(ids(view.container)).toEqual([]);
 });
-
-it('shows all agents on expansion with attention and active work first, finished last', () => {
-  const agents = [agent('done', { status: 'succeeded' }), agent('a'), agent('b'), agent('c'), agent('d'), agent('new', { status: 'idle' }), agent('failed', { status: 'failed' })];
-  const view = render(<AgentDock {...props(agents)} />);
-  expect(heading().textContent).toBe('Agents · 1 needs attention · 4 working · 1 not started · 1 finished');
+it('uses queue and current activity before a previous failed outcome', () => {
+  const queued = child('queued', 'queued'),
+    resumed = {
+      ...child('resumed', 'failed'),
+      activity: activity('resumed', turn('new', 'running', 'resumed')),
+    };
+  expect(projectAgent(queued)).toMatchObject({
+    text: 'Queued',
+    finished: false,
+    attention: false,
+  });
+  expect(projectAgent(resumed)).toMatchObject({
+    text: 'Working',
+    finished: false,
+    attention: false,
+  });
+});
+it('keeps explicit approval and question state separate from released execution permits', () => {
+  const values = [child('approval'), child('question'), child('waiting')];
+  values[0]!.activity = {
+    ...values[0]!.activity,
+    pending_permission_count: '1',
+  };
+  values[1]!.activity = { ...values[1]!.activity, pending_question_count: '1' };
+  values[2]!.activity = { ...values[2]!.activity, execution_permit: false };
+  render(<AgentDockRoster {...props(values)} />);
   expand();
-  expect(visibleIds(view.container)).toEqual(['failed', 'a', 'b', 'c', 'd', 'new', 'done']);
-  expect(screen.queryByRole('button', { name: /^More/ })).toBeNull();
-  expect(screen.getByRole('button', { name: /done · Completed/ })).toBeTruthy();
+  expect(screen.getByText('Waiting for your approval')).toBeTruthy();
+  expect(screen.getByText('Waiting for your answer')).toBeTruthy();
+  expect(screen.getByText('Waiting')).toBeTruthy();
+});
+it('opens the exact child and marks the currently open companion', () => {
+  const input = props([child('a'), child('b')]);
+  render(<AgentDockRoster {...input} openAgentId="b" />);
   expand();
-  expect(visibleIds(view.container)).toEqual([]);
+  const button = screen.getByRole('button', { name: /b · Working/ });
+  expect(button.getAttribute('aria-current')).toBe('true');
+  fireEvent.click(button);
+  expect(input.onAgent).toHaveBeenCalledWith('b');
 });
-
-it('keeps lifecycle state separate from model-call counts, including zero and unknown', () => {
-  const agents = [running('worker', { model_calls: 8, compactions: 2 }), running('single', { model_calls: 1 }), agent('unknown'), running('zero', { model_calls: 0 })];
-  const p = props(agents);
-  render(<AgentDock {...p} />); expand();
-  const worker = screen.getByRole('button', { name: /worker · Working · 8 model calls in latest turn/ });
-  expect(within(worker).getByText('8 calls').title).toBe('8 model calls in latest turn');
-  expect(screen.getByText('1 call').title).toBe('1 model call in latest turn');
-  expect(screen.getByText('0 calls')).toBeTruthy();
-  expect(worker.textContent).not.toContain('compaction');
-  expect(within(screen.getByRole('button', { name: /unknown · Working/ })).queryByText(/calls?/)).toBeNull();
-  fireEvent.click(worker);
-  expect(p.onAgent).toHaveBeenCalledWith('worker');
-});
-
-it('does not mistake never-started or unknown agents for finished', () => {
-  render(<AgentDock {...props([agent('new', { status: 'idle' }), agent('ready', { status: 'ready' }), agent('unknown', { status: '' })])} />);
-  expect(heading().textContent).not.toContain('finished');
+it('freezes order while a row is hovered or focused and reconciles after release', () => {
+  const input = props([child('a'), child('b'), child('c')]);
+  const view = render(<AgentDockRoster {...input} />);
   expand();
-  expect(screen.getByRole('button', { name: /new · Not started/ })).toBeTruthy();
-  expect(screen.getByRole('button', { name: /ready · Not started/ })).toBeTruthy();
-  expect(screen.getByRole('button', { name: /unknown · Status unavailable/ })).toBeTruthy();
-  expect(screen.queryByRole('img', { name: 'Agent is busy' })).toBeNull();
+  fireEvent.pointerEnter(screen.getByRole('button', { name: /b · Working/ }));
+  view.rerender(
+    <AgentDockRoster
+      {...props([child('urgent', 'failed'), ...input.agents])}
+    />,
+  );
+  expect(ids(view.container)).toEqual(['a', 'b', 'c', 'urgent']);
+  fireEvent.pointerLeave(screen.getByRole('button', { name: /b · Working/ }));
+  expect(ids(view.container)).toEqual(['urgent', 'a', 'b', 'c']);
+  act(() => screen.getByRole('button', { name: /a · Working/ }).focus());
+  view.rerender(
+    <AgentDockRoster
+      {...props([
+        child('new', 'failed'),
+        child('urgent', 'failed'),
+        ...input.agents,
+      ])}
+    />,
+  );
+  expect(ids(view.container)).toEqual(['urgent', 'a', 'b', 'c', 'new']);
 });
-
-it('uses queued inbox work before the previous turn outcome', () => {
-  const agents = [agent('new', { status: 'idle' }), agent('done', { status: 'idle', last_turn: { status: 'succeeded', event_seq: '1' } }), agent('retry', { status: 'idle', last_turn: { status: 'failed', event_seq: '2' } })];
-  const inbox = agents.map(item => ({ agent_id: item.id, status: 'queued' }));
-  render(<AgentDock {...props(agents, { state: state(agents, { inbox }) })} />);
-  expect(heading().textContent).toBe('Agents · 3 queued');
+it('returns focus to the disclosure when the focused child disappears, including the final child', () => {
+  const view = render(<AgentDockRoster {...props([child('only')])} />);
   expand();
-  for (const item of agents) expect(screen.getByRole('button', { name: new RegExp(`${item.id} · Queued`) })).toBeTruthy();
-  expect(screen.getAllByRole('img', { name: 'Agent is busy' })).toHaveLength(3);
-});
-
-it('transitions from not started through queued and running to recorded completion', () => {
-  const idle = agent('child', { status: 'idle' });
-  const view = render(<AgentDock {...props([idle])} />); expand();
-  expect(screen.getByRole('button', { name: /child · Not started/ })).toBeTruthy();
-  const inbox = [{ agent_id: 'child', status: 'queued' }];
-  view.rerender(<AgentDock {...props([idle], { state: state([idle], { inbox }) })} />);
-  expect(screen.getByRole('button', { name: /child · Queued/ })).toBeTruthy();
-  view.rerender(<AgentDock {...props([idle], { state: state([idle], { inbox, active_turns: { child: 'turn' } }) })} />);
-  expect(screen.getByRole('button', { name: /child · Working/ })).toBeTruthy();
-  view.rerender(<AgentDock {...props([agent('child', { status: 'idle', last_turn: { status: 'succeeded', event_seq: '1' } })])} />);
-  expect(screen.getByRole('button', { name: /child · Completed/ })).toBeTruthy();
-  expect(heading().textContent).toBe('Agents · 1 finished');
-});
-
-it('keeps stopped outcomes distinct and ignores obsolete pending work on stopped children', () => {
-  const agents = ['stopped', 'cancelled', 'interrupted'].map(status => agent(status, { status }));
-  render(<AgentDock {...props(agents, { state: state(agents, { inbox: agents.map(item => ({ agent_id: item.id, status: 'queued' })) }) })} />);
-  expect(heading().textContent).toBe('Agents · 3 finished'); expand();
-  for (const item of agents) expect(document.querySelector(`[data-agent-dock-row="${item.id}"] [data-agent-dock-status]`)?.textContent.toLowerCase()).toBe(item.status);
-});
-
-it('opening an agent highlights it without reordering or expanding the roster', () => {
-  const agents = [agent('done', { status: 'succeeded' }), agent('a')];
-  const view = render(<AgentDock {...props(agents, { openAgentId: 'done' })} />);
-  expect(heading().getAttribute('aria-expanded')).toBe('false'); expand();
-  expect(visibleIds(view.container)).toEqual(['a', 'done']);
-  expect(screen.getByRole('button', { name: /done · Completed/ }).getAttribute('aria-current')).toBe('true');
-  view.rerender(<AgentDock {...props(agents, { openAgentId: 'a' })} />);
-  expect(visibleIds(view.container)).toEqual(['a', 'done']);
-});
-
-it('freezes row order while focused or hovered, and restores focus after deletion', () => {
-  const view = render(<AgentDock {...props([agent('a'), agent('b'), agent('c')])} />); expand();
-  const b = screen.getByRole('button', { name: /b · Working/ });
-  act(() => b.focus());
-  const updated = [agent('urgent', { status: 'failed' }), agent('a'), agent('b', { status: 'succeeded' }), agent('c')];
-  view.rerender(<AgentDock {...props(updated)} />);
-  expect(visibleIds(view.container)).toEqual(['a', 'b', 'c', 'urgent']);
-  expect(document.activeElement).toBe(b);
-  view.rerender(<AgentDock {...props(updated.filter(item => item.id !== 'b'))} />);
-  expect(document.activeElement).toBe(heading());
-  expect(visibleIds(view.container)).toEqual(['urgent', 'a', 'c']);
-  fireEvent.pointerEnter(screen.getByRole('button', { name: /c · Working/ }));
-  view.rerender(<AgentDock {...props([agent('new', { status: 'failed' }), ...updated.filter(item => item.id !== 'b')])} />);
-  expect(visibleIds(view.container)).toEqual(['urgent', 'a', 'c', 'new']);
-  fireEvent.pointerLeave(screen.getByRole('button', { name: /c · Working/ }));
-  expect(visibleIds(view.container)).toEqual(['urgent', 'new', 'a', 'c']);
-});
-
-it('returns focus to the disclosure even when the final child is deleted', () => {
-  const view = render(<AgentDock {...props([agent('only')])} />); expand();
   act(() => screen.getByRole('button', { name: /only · Working/ }).focus());
-  view.rerender(<AgentDock {...props([])} />);
+  view.rerender(<AgentDockRoster {...props([])} />);
   expect(document.activeElement).toBe(heading());
   fireEvent.blur(heading());
   expect(view.container.textContent).toBe('');
 });
-
-it('keeps disconnected and partial rosters explicit without claiming live completeness', () => {
-  const agents = [agent('working')];
-  const view = render(<AgentDock {...props(agents)} />); expand();
-  view.rerender(<AgentDock {...props(agents)} connected={false} />);
+it('labels disconnected and partial evidence without pretending the roster is complete', () => {
+  const input = props([child('worker')]),
+    view = render(<AgentDockRoster {...input} />);
+  expand();
+  view.rerender(<AgentDockRoster {...input} connected={false} />);
   expect(heading().textContent).toBe('Agents · Updates paused');
-  expect(screen.getByRole('button', { name: /working · Working · Updates paused/ })).toBeTruthy();
   expect(screen.queryByRole('img', { name: 'Agent is busy' })).toBeNull();
-  expect(view.container.querySelector('[aria-live]')).toBeNull();
-  const p = props([], { state: state([], { omitted: { agents: 7 } }) });
-  view.rerender(<AgentDock {...p} />);
+  view.rerender(<AgentDockRoster {...input} partial agents={[]} />);
   expect(heading().textContent).toBe('Agents · Partial agent list');
-  fireEvent.click(screen.getByRole('button', { name: 'Partial agent list · See all agents' }));
-  expect(p.onAllAgents).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole('button', { name: /See all agents/ }));
+  expect(input.onAllAgents).toHaveBeenCalledOnce();
 });
-
-it('scopes attention to the child and clears previous failure while resuming', () => {
-  const agents = [agent('resumed', { status: 'idle', last_turn: { status: 'failed', event_seq: '1' } }), agent('child')];
-  const snapshot = state(agents, { active_turns: { resumed: 'new-turn' }, permissions: [{ agent_id: 'root', status: 'pending' }], questions: [{ agent_id: 'child', question_id: 'question' }] });
-  const view = render(<AgentDock {...props(agents, { state: snapshot })} />); expand();
-  expect(visibleIds(view.container)).toEqual(['child', 'resumed']);
-  expect(screen.getByRole('button', { name: /child · Waiting for your answer/ })).toBeTruthy();
-  expect(screen.getByRole('button', { name: /resumed · Working/ })).toBeTruthy();
-  expect(screen.queryByText('Waiting for your approval')).toBeNull();
+it('does not invent model-call counts when native turn metadata has no accounting projection', () => {
+  render(<AgentDockRoster {...props([child('worker')])} />);
+  expand();
+  expect(document.querySelector('[data-agent-dock-calls]')?.textContent).toBe(
+    '',
+  );
+  expect(screen.queryByText(/0 calls/)).toBeNull();
 });
-
-it('commits a fresh duration immediately when expanding after time spent collapsed', () => {
-  vi.useFakeTimers(); vi.setSystemTime(new Date(started));
-  const committed: (string | null | undefined)[] = [];
-  render(<Profiler id="dock" onRender={() => committed.push(duration('worker'))}>
-    <AgentDock {...props([running()])} />
-  </Profiler>);
-  act(() => vi.advanceTimersByTime(65_000));
+it('ticks only while expanded and visible, and completed duration remains fixed', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-09-28T12:01:05Z'));
+  const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+  const input = props([child('worker')]),
+    view = render(<AgentDockRoster {...input} />);
   expect(vi.getTimerCount()).toBe(0);
-  committed.length = 0;
   expand();
-  expect(committed.length).toBeGreaterThan(0);
-  expect(committed.every(value => value === '1m 5s')).toBe(true);
-  expand();
-  act(() => vi.advanceTimersByTime(30_000));
-  committed.length = 0;
-  expand();
-  expect(committed.every(value => value === '1m 35s')).toBe(true);
-});
-
-it('uses recorded starts across remounts, ticks only expanded, and fixes completed duration', () => {
-  vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-19T12:01:05Z'));
-  const view = render(<AgentDock {...props([running()])} />);
-  expect(vi.getTimerCount()).toBe(0); expand();
   expect(duration('worker')).toBe('1m 5s');
   act(() => vi.advanceTimersByTime(2000));
   expect(duration('worker')).toBe('1m 7s');
-  const done = agent('worker', { status: 'idle', last_turn: { status: 'succeeded', event_seq: '2', started_at: started, finished_at: '2026-09-19T12:01:06Z' } });
-  view.rerender(<AgentDock {...props([done])} />);
-  expect(duration('worker')).toBe('1m 6s');
+  hidden.mockReturnValue(true);
+  act(() => document.dispatchEvent(new Event('visibilitychange')));
   expect(vi.getTimerCount()).toBe(0);
-  act(() => vi.advanceTimersByTime(10000));
-  expect(duration('worker')).toBe('1m 6s');
-  view.unmount();
-  render(<AgentDock {...props([running()])} />); expand();
-  expect(duration('worker')).toBe('1m 17s');
-  expand(); expect(vi.getTimerCount()).toBe(0);
+  act(() => vi.advanceTimersByTime(3000));
+  hidden.mockReturnValue(false);
+  act(() => document.dispatchEvent(new Event('visibilitychange')));
+  expect(duration('worker')).toBe('1m 10s');
+  view.rerender(<AgentDockRoster {...props([child('worker', 'succeeded')])} />);
+  expect(duration('worker')).toBe('2s');
+  expect(vi.getTimerCount()).toBe(0);
 });
-
-it('stops live clocks while disconnected or hidden and catches up on reconnect or visibility', () => {
-  vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-19T12:00:10Z'));
-  const p = props([running()]);
-  const view = render(<AgentDock {...p} />); expand();
-  expect(duration('worker')).toBe('10s');
-  vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
-  fireEvent(document, new Event('visibilitychange'));
-  expect(vi.getTimerCount()).toBe(0);
-  act(() => vi.advanceTimersByTime(10000));
-  expect(duration('worker')).toBe('10s');
-  vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
-  fireEvent(document, new Event('visibilitychange'));
-  expect(duration('worker')).toBe('20s');
-  view.rerender(<AgentDock {...p} connected={false} />);
+it('shows a fresh elapsed estimate immediately on expansion and pauses disconnected clocks', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(at));
+  const input = props([child('worker')]),
+    view = render(<AgentDockRoster {...input} />);
+  act(() => vi.advanceTimersByTime(65_000));
+  expand();
+  expect(duration('worker')).toBe('1m 5s');
+  view.rerender(<AgentDockRoster {...input} connected={false} />);
   expect(duration('worker')).toBe('—');
   expect(vi.getTimerCount()).toBe(0);
-  act(() => vi.advanceTimersByTime(5000));
-  view.rerender(<AgentDock {...p} />);
-  expect(duration('worker')).toBe('25s');
-  view.unmount(); expect(vi.getTimerCount()).toBe(0);
 });
-
-it('does not reuse a previous turn duration for queued, resumed, or untimed agents', () => {
-  vi.useFakeTimers();
-  const done = { status: 'succeeded', event_seq: '1', turn_id: 'old', started_at: started, finished_at: '2026-09-19T12:00:20Z' };
-  const agents = [agent('queued', { status: 'queued', last_turn: done }), agent('resumed', { last_turn: done }), agent('missing'), running('mismatch')];
-  render(<AgentDock {...props(agents, { state: state(agents, { active_turns: { resumed: 'new', mismatch: 'other' } }) })} />); expand();
-  for (const item of agents) expect(duration(item.id)).toBe('—');
-  expect(vi.getTimerCount()).toBe(0);
+it('never substitutes a previous turn duration for queued or mismatched active work', () => {
+  const queued = child('queued', 'queued'),
+    resumed = {
+      ...child('resumed', 'succeeded'),
+      activity: activity('resumed', turn('replacement', 'running', 'resumed')),
+    };
+  render(
+    <AgentDockRoster {...props([queued, resumed, child('new', 'idle')])} />,
+  );
+  expand();
+  for (const id of ['queued', 'resumed', 'new']) expect(duration(id)).toBe('—');
 });
-
-it('handles invalid, future, missing-end, and reversed timestamps without fabricating final time', () => {
-  vi.useFakeTimers(); vi.setSystemTime(new Date(started));
-  const agents = [running('invalid', { started_at: 'bad' }), running('future', { started_at: '2026-09-19T13:00:00Z' }),
-    agent('missing-end', { status: 'stopped', last_turn: { status: 'succeeded', event_seq: '1', started_at: started } }),
-    agent('reversed', { status: 'idle', last_turn: { status: 'succeeded', event_seq: '1', started_at: started, finished_at: '2026-09-19T11:00:00Z' } }),
-    running('bad-end', { finished_at: 'bad' })];
-  render(<AgentDock {...props(agents)} />); expand();
-  for (const id of ['invalid', 'missing-end', 'reversed', 'bad-end']) expect(duration(id)).toBe('—');
-  expect(duration('future')).toBe('0s');
-});
-
-it('includes waiting time and preserves fixed failure and stopped durations', () => {
-  vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-19T13:02:03Z'));
-  const agents = [running('waiting', { status: 'waiting' }), ...['failed', 'stopped'].map(status => agent(status, {
-    status, last_turn: { status: 'failed', event_seq: '1', started_at: started, finished_at: '2026-09-19T12:00:00Z' },
-  }))];
-  render(<AgentDock {...props(agents, { state: state(agents, { permissions: [{ agent_id: 'waiting', status: 'pending' }] }) })} />); expand();
-  expect(duration('waiting')).toBe('1h 2m');
-  expect(duration('failed')).toBe('0s');
-  expect(duration('stopped')).toBe('0s');
+it('reads a bounded native tree roster and hydrates only direct-child activity and latest turn', async () => {
+  const f = await providerFixture(),
+    session = f.client.session('root');
+  const root = sessionRecord('root'),
+    direct = sessionRecord('child'),
+    descendant = { ...sessionRecord('grandchild'), parent_id: 'child' };
+  f.data.handlers['sessions.list'] = () => ({
+    items: [root, direct, descendant],
+  });
+  f.data.handlers['sessions.activity'] = (request) =>
+    activity(
+      parameters('SessionParams', request.params).session_id,
+      turn('child-turn', 'running', 'child'),
+    );
+  f.data.handlers['sessions.turns'] = () => ({
+    items: [turn('child-turn', 'running', 'child')],
+    next_cursor: null,
+  });
+  const view = f.mount(
+    <AgentDock
+      session={session}
+      treeId="tree"
+      connected
+      onAgent={vi.fn()}
+      onAllAgents={vi.fn()}
+    />,
+  );
+  await waitFor(() => expect(heading()).toBeTruthy());
+  expand();
+  expect(ids(view.container)).toEqual(['child']);
+  expect(
+    f.calls.find((call) => call.method === 'sessions.list')?.params,
+  ).toEqual({ tree_id: 'tree', limit: 16 });
+  expect(f.count('sessions.activity')).toBe(1);
+  expect(f.count('sessions.history_page')).toBe(0);
+  expect(
+    f.calls.find((call) => call.method === 'sessions.turns')?.params,
+  ).toEqual({ session_id: 'child', limit: 1 });
 });

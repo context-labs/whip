@@ -1,4 +1,4 @@
-import type { InputAttachment, Session } from '@whip/legacy-sdk';
+import type { ContentReference, Session, Client } from '@whip/sdk';
 
 export interface CompositionAttachment {
   readonly id: string;
@@ -9,7 +9,7 @@ export interface CompositionAttachment {
   readonly previewUrl?: string;
   /** Selected locally; upload waits until Send creates a session. */
   readonly staged?: boolean;
-  readonly value?: InputAttachment;
+  readonly value?: ContentReference;
   readonly error?: string;
 }
 export interface Composition {
@@ -71,6 +71,7 @@ export class CompositionStore {
     Object.freeze({ attachmentCount: 0, bytes: 0 });
   private draining = false;
   private disposed = false;
+  constructor(private readonly attached: (client: Client) => boolean) {}
 
   getSnapshot = () => this.snapshot;
   subscribe = (listener: () => void) => {
@@ -131,11 +132,13 @@ export class CompositionStore {
     agentId: string,
     files: readonly File[],
     surfaceId?: string,
+    rootId = session.id,
   ): Promise<void> {
     if (
-      key !== compositionKey(runtimeId, session.rootId, agentId, surfaceId) ||
-      session.client.getSnapshot().info?.runtime_id !== runtimeId ||
-      session.client.getSnapshot().state !== 'connected'
+      key !== compositionKey(runtimeId, rootId, agentId, surfaceId) ||
+      (rootId !== session.id && session.id !== agentId) ||
+      session.client.runtimeID !== runtimeId ||
+      !this.attached(session.client)
     )
       throw new Error(
         'Attachments must belong to the connected host and selected recipient',
@@ -148,7 +151,7 @@ export class CompositionStore {
   }
   /** Transfer local files and their previews once, then upload in the real root scope. */
   adopt(key: string, session: Session, runtimeId: string): Promise<void> {
-    const destination = compositionKey(runtimeId, session.rootId, session.rootId);
+    const destination = compositionKey(runtimeId, session.id, session.id);
     if (!key.startsWith('new:') || this.entries.has(destination))
       throw new Error('Attachments require a new session destination');
     const entry = this.entries.get(key);
@@ -161,7 +164,7 @@ export class CompositionStore {
       job.key = destination;
       job.session = session;
       job.runtimeId = runtimeId;
-      job.agentId = session.rootId;
+      job.agentId = session.id;
     }
     this.update(destination, {
       sending: false,
@@ -246,27 +249,24 @@ export class CompositionStore {
         try {
           job.abort.signal.throwIfAborted();
           if (!file || !session) continue;
-          if (session.client.getSnapshot().info?.runtime_id !== job.runtimeId || session.client.getSnapshot().state !== 'connected')
+          if (session.client.runtimeID !== job.runtimeId || !this.attached(session.client))
             throw new Error('Reconnect to the attachment’s execution host and select the file again.');
           const kind = file.type.startsWith('image/') ? 'image' : 'text';
           if (kind === 'text' && file.size > 256 * 1024)
             throw new Error('Text attachments are limited to 256 KiB.');
+          if (file.size > (4 << 20)) throw new Error('Attachments are limited to 4 MiB per file.');
           const bytes = new Uint8Array(await file.arrayBuffer());
+          if (bytes.byteLength !== file.size) throw new Error('Attachment size changed while reading');
           job.abort.signal.throwIfAborted();
           if (kind === 'text')
             new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-          const content = await session.client.upload(bytes, {
-            rootId: session.rootId,
-            agentId: job.agentId,
-            mediaType: kind === 'image' ? file.type : 'text/plain',
-            signal: job.abort.signal,
-          });
+          const content = await session.client.session(job.agentId).content.upload(job.id, kind === 'image' ? file.type : 'text/plain', bytes, { signal: job.abort.signal });
           job.abort.signal.throwIfAborted();
-          if (session.client.getSnapshot().info?.runtime_id !== job.runtimeId)
+          if (session.client.runtimeID !== job.runtimeId)
             throw new Error(
               'The attachment’s execution host changed. Select the file again.',
             );
-          this.complete(job, { value: content.asAttachment(kind, file.name) });
+          this.complete(job, { value: content });
         } catch (error) {
           if (!job.abort.signal.aborted)
             this.complete(job, {
@@ -380,7 +380,7 @@ export class CompositionStore {
   selection(key: string) {
     return this.selections.get(key);
   }
-  invalidateRuntime(runtimeId?: string) {
+  invalidateRuntime(runtimeId?: string, options: { preserveUploaded?: boolean } = {}) {
     for (const [key, entry] of this.entries) {
       if (runtimeId && !key.startsWith(runtimeId + ':')) continue;
       for (const item of entry.state.attachments) {
@@ -390,16 +390,15 @@ export class CompositionStore {
       this.update(key, {
         sending: false,
         attachments: Object.freeze(
-          entry.state.attachments.map(({ id, name, size, mediaType }) =>
-            Object.freeze({
-              id,
-              name,
-              size,
-              mediaType,
-              error:
-                'Attachment unavailable after changing hosts. Remove it and select the file again.',
-            }),
-          ),
+          entry.state.attachments.map(item => {
+            // A verified same-runtime reconnect preserves durable references,
+            // but unfinished uploads are never resumed or replayed.
+            if (runtimeId && options.preserveUploaded && item.value && !item.error) return item;
+            const { id, name, size, mediaType } = item;
+            return Object.freeze({ id, name, size, mediaType, error: options.preserveUploaded
+              ? 'Attachment upload was interrupted. Remove it and select the file again.'
+              : 'Attachment unavailable after changing hosts. Remove it and select the file again.' });
+          }),
         ),
       });
     }

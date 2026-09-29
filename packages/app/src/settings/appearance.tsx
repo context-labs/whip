@@ -28,7 +28,7 @@ export function AppearanceSettings() {
         <ThemePicker presentation="popover" />
       </SettingRow>
       <SettingRow id="custom-themes" label="Custom themes" description={home?.state === 'connected' ? 'Import a theme JSON file. It stays on this device.' : 'Reconnect to Whip to import a theme. Saved themes are still available above.'}>
-        {home?.client ? <CustomThemes key={`${home.id}:${home.runtimeId}`} client={home.client} /> : <Button disabled><Upload size={14} />Import theme</Button>}
+        {home?.client ? <CustomThemes key={`${home.id}:${home.runtimeId}`} client={home.client} enabled={home.state === 'connected'} /> : <Button disabled><Upload size={14} />Import theme</Button>}
       </SettingRow>
     </SettingsGroup>
     {notice && <p role="status" {...stylex.props(styles.notice)}>{notice}</p>}

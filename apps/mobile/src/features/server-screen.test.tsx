@@ -1,5 +1,5 @@
 import { act, fireEvent, render } from '@testing-library/react-native';
-import { WhipError } from '@whip/legacy-sdk';
+import { DeliveryError } from '@whip/sdk';
 import type { MobileRuntime } from '../runtime/runtime';
 import ServerScreen from '../app/server';
 
@@ -34,7 +34,7 @@ async function open() {
 }
 
 test('Connect failure is visible inside the server sheet, including native error details', async () => {
-  const f = fixture(); f.connect.mockRejectedValue(new WhipError('disconnected', 'WebSocket closed (1006): TLS rejected'));
+  const f = fixture(); f.connect.mockRejectedValue(new DeliveryError('WebSocket closed (1006): TLS rejected'));
   const screen = await open(); await fireEvent.press(screen.getByTestId('connect-server'));
   expect(screen.getByTestId('connection-error')).toBeTruthy();
   expect(screen.getByText('The live connection could not open')).toBeTruthy();
@@ -57,7 +57,7 @@ test('Test Connection reports an empty but healthy host without saving, switchin
 });
 
 test('probe failure stays in the sheet and can be retried', async () => {
-  fixture(); mockProbe.mockRejectedValueOnce(new WhipError('timeout', 'No reply within 15 seconds.'));
+  fixture(); mockProbe.mockRejectedValueOnce(new DOMException('No reply within 15 seconds.', 'TimeoutError'));
   const screen = await open(); await fireEvent.press(screen.getByTestId('test-connection'));
   expect(screen.getByText('The connection timed out')).toBeTruthy();
   await fireEvent.press(screen.getByTestId('test-connection'));

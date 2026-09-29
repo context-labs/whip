@@ -1,49 +1,74 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { DeliveryError } from '@whip/sdk';
 import { HostConnections, LocalRuntimeSetupRequiredError, daemonEndpoint, type HostProfile } from '../src/hosts';
 import { localProfile, urlProfile, type ConnectionProfile, type ConnectionOptions, type ResolvedConnection } from '../src/connections';
 import type { AppPlatform, LocalRuntimeStatus } from '../src/platform';
 
 const mocks = vi.hoisted(() => {
-  const configurations = { revision: '1', remote_hosts: [] as HostProfile[] };
+  const configurations = { revision: '1'.repeat(64), profiles: [] as HostProfile[] };
   const clients: Array<ReturnType<typeof create>> = [];
   const identities = new Map<string, string>();
+  const epochs = new Map<string, string>();
   const connecting = new Map<string, Promise<void>>();
-  const create = (options: { endpoint: string; clientId: string }) => {
-    const listeners = new Set<() => void>();
-    let snapshot: { state: string; info?: { runtime_id: string; connection_id: string }; error?: Error } = { state: 'closed' };
+  const discovered: string[] = [];
+  const peers: { endpoint: string; pin: { expectedRuntimeID: string; expectedProcessEpoch: string; signal: AbortSignal }; close: ReturnType<typeof vi.fn> }[] = [];
+  const identity = (endpoint: string) => identities.get(endpoint) ?? new URL(endpoint).hostname.split('.')[0]!;
+  const create = (endpoint: string, pin: { expectedRuntimeID: string; expectedProcessEpoch?: string }) => {
     const client = {
-      clientId: options.clientId, endpoint: options.endpoint,
-      getSnapshot: () => snapshot,
-      requireConnected: () => { if (snapshot.state !== 'connected') throw new Error('Disconnected'); return snapshot.info!; },
-      emit: (state: string, error?: Error) => { snapshot = { ...snapshot, state, error }; for (const listener of listeners) listener(); },
-      connect: vi.fn(async () => {
-        if (connecting.has(options.endpoint)) await connecting.get(options.endpoint);
-        snapshot = { state: 'connected', info: { runtime_id: identities.get(options.endpoint) ?? options.endpoint, connection_id: crypto.randomUUID() } };
-        for (const listener of listeners) listener();
+      endpoint, pin, signal: undefined as AbortSignal | undefined,
+      calls: [] as Array<{ method: string; params: unknown; signal?: AbortSignal }>,
+      connect: vi.fn(async () => { if (connecting.has(endpoint)) await connecting.get(endpoint); }),
+      reads: vi.fn(async () => structuredClone(configurations)),
+      writes: vi.fn(async (patch: { expected_revision: string; profiles: HostProfile[] }) => {
+        if (patch.expected_revision !== configurations.revision) throw new Error('Configuration revision conflict');
+        configurations.revision = (BigInt('0x' + configurations.revision) + 1n).toString(16).padStart(64, '0');
+        configurations.profiles = structuredClone(patch.profiles);
+        return structuredClone(configurations);
       }),
-      close: vi.fn(() => client.emit('closed')),
-      subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
-      configuration: {
-        get: vi.fn(async () => structuredClone(configurations)),
-        update: vi.fn(async (patch: typeof configurations) => {
-          if (patch.revision !== configurations.revision) throw new Error('Configuration revision conflict');
-          configurations.revision = String(Number(configurations.revision) + 1);
-          configurations.remote_hosts = structuredClone(patch.remote_hosts);
-          return structuredClone(configurations);
-        }),
-      },
+      fail: undefined as Error | undefined,
     };
     clients.push(client);
-    return client;
+    return async (request: { id: string; method: string; params: unknown }, _runtimeID: string | undefined, options: { signal?: AbortSignal }) => {
+      client.calls.push({ method: request.method, params: structuredClone(request.params), signal: options.signal });
+      options.signal?.throwIfAborted();
+      if (request.method === 'initialize') { client.signal = options.signal; await client.connect(); }
+      if (client.fail) throw client.fail;
+      if (pin.expectedRuntimeID !== identity(endpoint) || pin.expectedProcessEpoch !== (epochs.get(endpoint) ?? 'boot'))
+        throw new TypeError('Gateway identity or process generation mismatch');
+      let result: unknown;
+      switch (request.method) {
+        case 'initialize': result = { major: 4, minor: 0, runtime_id: identity(endpoint), process_epoch: epochs.get(endpoint) ?? 'boot', network_client: true, builtins: [] }; break;
+        case 'host.profiles': result = await client.reads(); break;
+        case 'host.set_profiles': result = await client.writes(request.params as { expected_revision: string; profiles: HostProfile[] }); break;
+        case 'trees.catalog': result = { revision: '1' }; break;
+        case 'trees.list': result = { revision: '1', items: [], next_cursor: null }; break;
+        default: throw new Error('Unexpected v4 request: ' + request.method);
+      }
+      return { jsonrpc: '2.0', id: request.id, result };
+    };
   };
-  return { clients, create, identities, connecting, configurations, lists: [] as Array<{ start: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> }> };
+  const createPeer = async (endpoint: string, pin: { expectedRuntimeID: string; expectedProcessEpoch: string; signal: AbortSignal }) => {
+    const close = vi.fn(async () => {}); peers.push({ endpoint, pin, close });
+    pin.signal.addEventListener('abort', () => { void close(); }, { once: true });
+    return { close, events: { async *[Symbol.asyncIterator]() {} }, request: async (request: { id: string }) => {
+      if (connecting.has(endpoint)) await connecting.get(endpoint);
+      return { jsonrpc: '2.0', id: request.id, result: { major: 4, minor: 0, runtime_id: identity(endpoint), process_epoch: epochs.get(endpoint) ?? 'boot', network_client: true, builtins: [] } };
+    } };
+  };
+  return { peers, createPeer, clients, create, identities, identity, epochs, connecting, configurations, discovered, lists: [] as Array<import('@whip/sdk/state').TreeCatalogView> };
 });
-vi.mock('@whip/legacy-sdk', () => ({ createWhipClient: mocks.create }));
-vi.mock('@whip/legacy-sdk/state', () => ({ createSessionListView: () => {
-  const list = { start: vi.fn(async () => {}), dispose: vi.fn(async () => {}) };
-  mocks.lists.push(list);
-  return list;
+vi.mock('@whip/sdk/browser', () => ({ browserProviderDuplex: mocks.createPeer, browserSocket: mocks.create, discoverGateway: async (endpoint: string, options: { signal: AbortSignal }) => {
+  options.signal.throwIfAborted(); mocks.discovered.push(endpoint);
+  return { runtime_id: mocks.identity(endpoint), process_epoch: mocks.epochs.get(endpoint) ?? 'boot' };
 } }));
+vi.mock('@whip/sdk/state', async importOriginal => {
+  const actual = await importOriginal<typeof import('@whip/sdk/state')>();
+  return { ...actual, createTreeCatalogView: (client: import('@whip/sdk').Client) => {
+    const list = actual.createTreeCatalogView(client, { pollIntervalMs: 60_000 });
+    vi.spyOn(list, 'start'); vi.spyOn(list, 'dispose');
+    mocks.lists.push(list); return list;
+  } };
+});
 
 const stores: HostConnections[] = [];
 const remote = (id: string): HostProfile => ({ id, name: id.toUpperCase(), url: `http://${id}.test`, runtime_id: id, connect_on_launch: true });
@@ -55,7 +80,7 @@ function deferred<T>() {
 }
 function fixture(profiles = [remote('a'), remote('b')], platform: Partial<AppPlatform> = {}, values = new Map<string, string>()) {
   const effects = { connected: vi.fn(), detached: vi.fn() };
-  mocks.configurations.remote_hosts = profiles;
+  mocks.configurations.profiles = profiles;
   for (const profile of profiles) mocks.identities.set(profile.url, profile.runtime_id);
   mocks.identities.set('http://local.test', 'home');
   const hosts = new HostConnections({ defaultEndpoint: 'http://local.test', storage: {
@@ -65,9 +90,9 @@ function fixture(profiles = [remote('a'), remote('b')], platform: Partial<AppPla
   stores.push(hosts);
   return { hosts, effects, values };
 }
-async function start(hosts: HostConnections) { await hosts.connect(); await hosts.refreshProfiles(); }
-beforeEach(() => { mocks.clients.length = 0; mocks.lists.length = 0; mocks.identities.clear(); mocks.connecting.clear(); mocks.configurations.revision = '1'; });
-afterEach(() => { for (const hosts of stores.splice(0)) hosts.dispose(); });
+async function start(hosts: HostConnections) { await hosts.connect(); await hosts.refreshProfiles(); await vi.waitFor(() => expect(hosts.getSnapshot().hosts.every(host => host.state !== 'connecting')).toBe(true)); }
+beforeEach(() => { mocks.clients.length = 0; mocks.peers.length = 0; mocks.lists.length = 0; mocks.identities.clear(); mocks.epochs.clear(); mocks.connecting.clear(); mocks.discovered.length = 0; mocks.configurations.revision = '1'.repeat(64); });
+afterEach(() => { for (const hosts of stores.splice(0)) hosts.dispose(); vi.useRealTimers(); });
 
 it('loads profiles from Local and observes three independent daemons', async () => {
   const { hosts } = fixture();
@@ -75,11 +100,11 @@ it('loads profiles from Local and observes three independent daemons', async () 
   await vi.waitFor(() => expect(hosts.getSnapshot().hosts.every(host => host.state === 'connected')).toBe(true));
   expect(hosts.getSnapshot().hosts.map(host => host.runtimeId)).toEqual(['home', 'a', 'b']);
   expect(mocks.lists).toHaveLength(3);
-  expect(mocks.clients[1]!.configuration.get).not.toHaveBeenCalled();
+  expect(mocks.clients[1]!.reads).not.toHaveBeenCalled();
   hosts.disconnect('a');
-  expect(mocks.clients[1]!.close).toHaveBeenCalledTimes(1);
-  expect(mocks.clients[0]!.close).not.toHaveBeenCalled();
-  expect(mocks.clients[2]!.close).not.toHaveBeenCalled();
+  expect(mocks.clients[1]!.signal?.aborted).toBe(true);
+  expect(mocks.clients[0]!.signal?.aborted).toBe(false);
+  expect(mocks.clients[2]!.signal?.aborted).toBe(false);
   expect(hosts.host('b')?.state).toBe('connected');
   await hosts.connect('a');
   expect(hosts.host('a')?.state).toBe('connected');
@@ -122,21 +147,21 @@ it('checks aliases before saving and never duplicates the local runtime', async 
   await expect(hosts.save({ ...remote('alias'), runtime_id: undefined })).rejects.toThrow('already saved as Local');
   expect(hosts.getSnapshot().profiles).toEqual([]);
   expect(mocks.lists).toHaveLength(1);
-  expect(mocks.clients[0]!.close).not.toHaveBeenCalled();
+  expect(mocks.clients[0]!.signal?.aborted).toBe(false);
 });
 
 it('persists only through Local and reconciles a conflict without overwriting another browser', async () => {
   const { hosts } = fixture();
   await start(hosts);
-  mocks.configurations.remote_hosts.push(remote('other-browser'));
-  mocks.configurations.revision = '2';
+  mocks.configurations.profiles.push(remote('other-browser'));
+  mocks.configurations.revision = '2'.repeat(64);
   await expect(hosts.remove('a')).rejects.toThrow('revision conflict');
-  expect(mocks.configurations.remote_hosts.map(host => host.id)).toEqual(['a', 'b', 'other-browser']);
+  expect(mocks.configurations.profiles.map(host => host.id)).toEqual(['a', 'b', 'other-browser']);
   expect(hosts.getSnapshot().profiles).toHaveLength(3);
   await hosts.remove('a');
   expect(hosts.getSnapshot().profiles.map(host => host.id)).toEqual(['b', 'other-browser']);
   expect(hosts.host('a')).toBeUndefined();
-  expect(mocks.clients[1]!.configuration.update).not.toHaveBeenCalled();
+  expect(mocks.clients[1]!.writes).not.toHaveBeenCalled();
 });
 
 it('requires explicit acceptance of a changed identity and saves a disabled startup preference', async () => {
@@ -158,19 +183,22 @@ it('refreshes the new Local connection while an earlier connection read is pendi
   const local = mocks.clients[0]!;
   const old = deferred<typeof mocks.configurations>();
   const current = deferred<typeof mocks.configurations>();
-  local.configuration.get.mockImplementationOnce(() => old.promise).mockImplementationOnce(() => current.promise);
+  local.reads.mockImplementationOnce(() => old.promise);
   const previous = hosts.refreshProfiles();
   const failure = expect(previous).rejects.toThrow('Previous connection closed');
-  local.emit('reconnecting');
-  await local.connect();
+  hosts.disconnect('local');
+  const reconnect = hosts.connect();
+  await vi.waitFor(() => expect(mocks.clients.length).toBe(4));
+  mocks.clients.at(-1)!.reads.mockImplementationOnce(() => current.promise);
+  await reconnect;
   const next = hosts.refreshProfiles();
-  const reads = local.configuration.get.mock.calls.length;
+  const reads = mocks.clients.at(-1)!.reads.mock.calls.length;
   old.reject(new Error('Previous connection closed'));
   await failure;
   expect(hosts.refreshProfiles()).toBe(next);
-  expect(local.configuration.get).toHaveBeenCalledTimes(reads);
+  expect(mocks.clients.at(-1)!.reads).toHaveBeenCalledTimes(reads);
   expect(hosts.getSnapshot().profileError).toBeUndefined();
-  current.resolve({ revision: '2', remote_hosts: [remote('b')] });
+  current.resolve({ revision: '2'.repeat(64), profiles: [remote('b')] });
   await next;
   expect(hosts.getSnapshot().profiles.map(profile => profile.id)).toEqual(['b']);
 });
@@ -180,7 +208,7 @@ it('does not let a delayed refresh undo a completed host removal', async () => {
   await start(hosts);
   const old = deferred<typeof mocks.configurations>();
   const before = structuredClone(mocks.configurations);
-  mocks.clients[0]!.configuration.get.mockImplementationOnce(() => old.promise);
+  mocks.clients[0]!.reads.mockImplementationOnce(() => old.promise);
   const refresh = hosts.refreshProfiles();
   await hosts.remove('a');
   old.resolve(before);
@@ -188,17 +216,17 @@ it('does not let a delayed refresh undo a completed host removal', async () => {
   expect(hosts.getSnapshot().profiles.map(profile => profile.id)).toEqual(['b']);
   expect(hosts.host('a')).toBeUndefined();
   await hosts.setConnectOnLaunch('b', false);
-  expect(mocks.configurations.remote_hosts[0]?.connect_on_launch).toBe(false);
+  expect(mocks.configurations.profiles[0]?.connect_on_launch).toBe(false);
 });
 
 it('reconciles a delayed write response after a newer configuration was observed and edited', async () => {
   const { hosts } = fixture();
   await start(hosts);
   const old = deferred<typeof mocks.configurations>();
-  mocks.clients[0]!.configuration.update.mockImplementationOnce(() => old.promise);
+  mocks.clients[0]!.writes.mockImplementationOnce(() => old.promise);
   const removal = hosts.remove('a');
-  mocks.configurations.revision = '2';
-  mocks.configurations.remote_hosts = [remote('b')];
+  mocks.configurations.revision = '2'.repeat(64);
+  mocks.configurations.profiles = [remote('b')];
   const removed = structuredClone(mocks.configurations);
   await hosts.refreshProfiles();
   await hosts.setConnectOnLaunch('b', false);
@@ -211,11 +239,11 @@ it('reports a detached Local write without applying it to the old workspace snap
   const { hosts } = fixture();
   await start(hosts);
   const pending = deferred<typeof mocks.configurations>();
-  mocks.clients[0]!.configuration.update.mockImplementationOnce(() => pending.promise);
+  mocks.clients[0]!.writes.mockImplementationOnce(() => pending.promise);
   const removal = hosts.remove('a');
   hosts.disconnect('local');
-  mocks.configurations.revision = '2';
-  mocks.configurations.remote_hosts = [remote('b')];
+  mocks.configurations.revision = '2'.repeat(64);
+  mocks.configurations.profiles = [remote('b')];
   pending.resolve(structuredClone(mocks.configurations));
   await expect(removal).rejects.toThrow('Local changed while saving hosts');
   expect(hosts.host('a')?.client).toBeDefined();
@@ -251,11 +279,11 @@ it('uses the saved identity even when an edit omits its expected runtime', async
 it('does not recreate a removed host from an old edit form', async () => {
   const { hosts } = fixture([remote('a')]);
   await start(hosts);
-  mocks.configurations.revision = '2';
-  mocks.configurations.remote_hosts = [];
+  mocks.configurations.revision = '2'.repeat(64);
+  mocks.configurations.profiles = [];
   await hosts.refreshProfiles();
   await expect(hosts.save(remote('a'))).rejects.toThrow('This saved host changed');
-  expect(mocks.configurations.remote_hosts).toEqual([]);
+  expect(mocks.configurations.profiles).toEqual([]);
 });
 
 it('retains the edit revision while probing so another browser cannot be overwritten', async () => {
@@ -265,8 +293,8 @@ it('retains the edit revision while probing so another browser cannot be overwri
   mocks.identities.set('http://alias.test', 'a');
   mocks.connecting.set('http://alias.test', pending.promise);
   const edit = hosts.save({ ...remote('a'), url: 'http://alias.test' });
-  mocks.configurations.revision = '2';
-  mocks.configurations.remote_hosts = [{ ...remote('a'), name: 'Other browser' }];
+  mocks.configurations.revision = '2'.repeat(64);
+  mocks.configurations.profiles = [{ ...remote('a'), name: 'Other browser' }];
   await hosts.refreshProfiles();
   pending.resolve();
   await expect(edit).rejects.toThrow('revision conflict');
@@ -284,8 +312,8 @@ it.each([
   const { hosts } = fixture();
   await start(hosts);
   const before = hosts.getSnapshot();
-  mocks.configurations.revision = '2';
-  mocks.configurations.remote_hosts = [remote('b'), invalid];
+  mocks.configurations.revision = '2'.repeat(64);
+  mocks.configurations.profiles = [remote('b'), invalid];
   await expect(hosts.refreshProfiles()).rejects.toThrow();
   expect(hosts.getSnapshot().profiles).toBe(before.profiles);
   expect(hosts.host('a')?.client).toBe(before.hosts[1]!.client);
@@ -299,21 +327,21 @@ it('keeps existing remotes usable when Local no longer advertises saved-host sup
   await start(hosts);
   const remoteClient = hosts.host('a')!.client;
   const local = mocks.clients[0]!;
-  local.configuration.get.mockResolvedValueOnce({ revision: '2' } as typeof mocks.configurations);
-  await expect(hosts.refreshProfiles()).rejects.toThrow('Update the local daemon');
+  local.reads.mockResolvedValueOnce({ revision: '2'.repeat(64) } as typeof mocks.configurations);
+  await expect(hosts.refreshProfiles()).rejects.toThrow();
   expect(hosts.getSnapshot().profilesReady).toBe(false);
   expect(hosts.host('a')?.client).toBe(remoteClient);
   await expect(hosts.remove('a')).rejects.toThrow('load its configuration');
-  expect(local.configuration.update).not.toHaveBeenCalled();
+  expect(local.writes).not.toHaveBeenCalled();
   await hosts.refreshProfiles();
   expect(hosts.getSnapshot().profilesReady).toBe(true);
 });
 
-it('normalizes loaded profiles without reconnecting an unchanged endpoint', async () => {
+it('retains exact validated profile endpoints without reconnecting an unchanged endpoint', async () => {
   const { hosts } = fixture([remote('a')]);
   await start(hosts);
   const client = hosts.host('a')!.client;
-  mocks.configurations.remote_hosts = [{ ...remote('a'), name: '  Kuzco  ', url: 'ws://A.test:80/api/v3/ws' }];
+  mocks.configurations.profiles = [{ ...remote('a'), name: '  Kuzco  ', url: 'http://a.test' }];
   await hosts.refreshProfiles();
   expect(hosts.getSnapshot().profiles[0]).toMatchObject({ name: 'Kuzco', url: 'http://a.test' });
   expect(hosts.host('a')?.client).toBe(client);
@@ -432,6 +460,8 @@ it.each(['result', 'failure'])('does not let an aborted inspection %s overwrite 
   const probe = deferred<LocalRuntimeStatus>();
   f.localRuntime.test.mockReturnValueOnce(probe.promise);
   const retired = f.hosts.connect();
+  const rejection = expect(retired).rejects.toThrow();
+  await vi.waitFor(() => expect(f.localRuntime.test).toHaveBeenCalledOnce());
   f.hosts.disconnect('local');
   const status = { ...missingRuntime, state: 'running' as const, executable: '/new/whipcode' };
   f.localRuntime.test.mockResolvedValueOnce(status);
@@ -439,7 +469,7 @@ it.each(['result', 'failure'])('does not let an aborted inspection %s overwrite 
   const client = f.hosts.home().client;
   if (outcome === 'result') probe.resolve(missingRuntime);
   else probe.reject(new Error('Retired inspection failed'));
-  await expect(retired).rejects.toThrow();
+  await rejection;
   expect(f.hosts.home()).toMatchObject({ state: 'connected', localRuntime: status });
   expect(f.hosts.home().client).toBe(client);
   expect(f.hosts.home().error).toBeUndefined();
@@ -508,7 +538,7 @@ it('keeps local, URL and SSH transports independently attached through refresh a
   expect(f.disposals.get('ssh:server')).toHaveBeenCalledOnce();
   expect(f.hosts.home().client).toBe(local); expect(f.hosts.host('a')!.client).toBe(url);
   expect(f.disposals.get('local')).not.toHaveBeenCalled(); expect(f.disposals.get('a')).not.toHaveBeenCalled();
-  expect(mocks.configurations.remote_hosts.map(profile => profile.id)).toEqual(['a']);
+  expect(mocks.configurations.profiles.map(profile => profile.id)).toEqual(['a']);
   expect(JSON.parse(f.values.get('whip.hosts.v2')!).some((profile: ConnectionProfile) => profile.id === 'ssh:server')).toBe(true);
 });
 it('deduplicates setup per host and disposes late transports after cancellation', async () => {
@@ -516,7 +546,7 @@ it('deduplicates setup per host and disposes late transports after cancellation'
   const setup = deferred<ResolvedConnection>(); let signal!: AbortSignal;
   f.resolveConnection.mockImplementationOnce(async (_profile, options) => { signal = options.signal; options.onProgress('Checking host key'); return setup.promise; });
   const connection = f.hosts.connect(saved.id); expect(f.hosts.connect(saved.id)).toBe(connection);
-  expect(f.hosts.getSnapshot().hosts.find(host => host.id === saved.id)?.progress).toBe('Checking host key');
+  await vi.waitFor(() => expect(f.hosts.getSnapshot().hosts.find(host => host.id === saved.id)?.progress).toBe('Checking host key'));
   const local = f.hosts.home().client; f.hosts.disconnect(saved.id); expect(signal.aborted).toBe(true);
   const dispose = vi.fn(); setup.resolve({ endpoint: 'http://retired.test', dispose });
   await expect(connection).rejects.toThrow(); expect(dispose).toHaveBeenCalledOnce();
@@ -532,6 +562,7 @@ it('cancels a native save on the deduplicated host without touching other hosts'
   const cancel = new AbortController();
   const saving = f.hosts.saveNative({ ...sshProfile(), id: 'ssh:duplicate' }, false, cancel.signal);
   const rejection = expect(saving).rejects.toThrow();
+  await vi.waitFor(() => expect(signal).toBeDefined());
   cancel.abort(); expect(signal.aborted).toBe(true);
   const dispose = vi.fn(); setup.resolve({ endpoint: 'http://late.test', dispose });
   await rejection; expect(dispose).toHaveBeenCalledOnce();
@@ -576,25 +607,25 @@ it('preserves old desktop addresses until verified import and retains their iden
   mocks.identities.set('http://a.test', 'old'); await f.hosts.save(profile, false, legacy.id);
   await f.hosts.forgetLegacyProfile(legacy.id);
   expect(f.hosts.getSnapshot().legacyProfiles).toEqual([]);
-  expect(mocks.configurations.remote_hosts[0]?.runtime_id).toBe('old');
+  expect(mocks.configurations.profiles[0]?.runtime_id).toBe('old');
 });
 it('does not let native profiles be overwritten by a shared configuration collision', async () => {
   const f = nativeFixture([], [localProfile, sshProfile()]); await start(f.hosts);
-  mocks.configurations.remote_hosts = [{ ...remote('a'), id: 'ssh:server' }];
+  mocks.configurations.profiles = [{ ...remote('a'), id: 'ssh:server' }];
   await expect(f.hosts.refreshProfiles()).rejects.toThrow('conflicts with a native host ID');
   expect(f.hosts.getSnapshot().hosts.find(host => host.id === 'ssh:server')?.profile.target.kind).toBe('ssh');
 });
 it('disposes native setup when the window closes without disconnecting accepted daemon work itself', async () => {
   const f = nativeFixture([], [localProfile, sshProfile()]); await start(f.hosts);
   const setup = deferred<ResolvedConnection>(); f.resolveConnection.mockReturnValueOnce(setup.promise);
-  const pending = f.hosts.connect('ssh:server'); f.hosts.dispose(); const dispose = vi.fn(); setup.resolve({ endpoint: 'http://server.test', dispose });
+  const pending = f.hosts.connect('ssh:server'); await vi.waitFor(() => expect(f.resolveConnection).toHaveBeenCalledTimes(2)); f.hosts.dispose(); const dispose = vi.fn(); setup.resolve({ endpoint: 'http://server.test', dispose });
   await expect(pending).rejects.toThrow(); expect(dispose).toHaveBeenCalledOnce(); expect(f.disposals.get('local')).toHaveBeenCalledOnce();
 });
 it('does not lose the freshly verified local identity when saving or selecting SSH', async () => {
   const f = nativeFixture([]); await start(f.hosts); await f.hosts.saveNative(sshProfile()); f.hosts.select('ssh:server');
   const saved = JSON.parse(f.values.get('whip.hosts.v2')!) as ConnectionProfile[];
   expect(saved.find(profile => profile.id === 'local')?.runtimeId).toBe('home');
-  expect(saved.find(profile => profile.id === 'ssh:server')?.runtimeId).toBe('http://server.test');
+  expect(saved.find(profile => profile.id === 'ssh:server')?.runtimeId).toBe('server');
 });
 it('keeps corrupt device records intact during automatic managed-local attachment', async () => {
   const values = new Map([['whip.hosts.v2', '{broken']]);
@@ -627,7 +658,7 @@ it('renames browser Local persistently without detaching its client or changing 
   expect(hosts.home()).toMatchObject({ name: 'My workstation', runtimeId: 'home', client, state: 'connected' });
   expect(signal.aborted).toBe(false);
   expect(effects.detached).not.toHaveBeenCalled();
-  expect(mocks.clients[0]!.configuration.update).not.toHaveBeenCalled();
+  expect(mocks.clients[0]!.writes).not.toHaveBeenCalled();
   expect(fixture([], {}, values).hosts.home().name).toBe('My workstation');
 });
 
@@ -638,10 +669,10 @@ it('renames a remote URL through revision-checked configuration without probing 
   const count = mocks.clients.length;
   await hosts.rename('a', 'Build server');
   expect(hosts.host('a')).toMatchObject({ name: 'Build server', runtimeId: 'a', endpoint: 'http://a.test', client });
-  expect(mocks.configurations.remote_hosts[0]).toEqual({ ...remote('a'), name: 'Build server' });
+  expect(mocks.configurations.profiles[0]).toEqual({ ...remote('a'), name: 'Build server' });
   expect(mocks.clients).toHaveLength(count);
   expect(effects.detached).not.toHaveBeenCalled();
-  mocks.configurations.revision = 'newer';
+  mocks.configurations.revision = 'f'.repeat(64);
   await expect(hosts.rename('a', 'Stale name')).rejects.toThrow('revision conflict');
   expect(hosts.host('a')!.name).toBe('Build server');
 });
@@ -659,4 +690,199 @@ it('does not display a successful rename when storage fails, and rejects invalid
   await expect(hosts.rename('local', 'New name')).rejects.toThrow('Storage unavailable');
   expect(hosts.home().name).toBe('Local');
   for (const name of ['', ' '.repeat(5), 'x'.repeat(257), 'bad\nname']) await expect(hosts.rename('local', name)).rejects.toThrow('server name');
+});
+
+it('publishes the SDK catalog before connection effects and deduplicates reentrant setup', async () => {
+  const { hosts, effects } = fixture([]);
+  effects.connected.mockImplementation((runtimeID, client) => {
+    expect(hosts.host(runtimeID)?.client).toBe(client);
+    expect(hosts.host(runtimeID)?.list).toBe(mocks.lists[0]);
+  });
+  let reentrant: Promise<void> | undefined;
+  const unsubscribe = hosts.subscribe(() => { if (hosts.home().state === 'connecting') reentrant = hosts.connect(); });
+  const connecting = hosts.connect();
+  expect(reentrant).toBe(connecting);
+  await connecting; unsubscribe();
+  expect(mocks.clients).toHaveLength(1);
+  expect(mocks.clients[0]!.connect).toHaveBeenCalledOnce();
+  expect(effects.connected).toHaveBeenCalledOnce();
+});
+
+it('recovers read-only after an uncertain profile edit without exposing or replaying the retired client', async () => {
+  vi.useFakeTimers();
+  const { hosts, effects } = fixture([remote('a')]);
+  await start(hosts);
+  const original = hosts.home().client!;
+  const catalog = hosts.home().list;
+  const old = mocks.clients[0]!;
+  old.writes.mockImplementationOnce(async patch => {
+    mocks.configurations.profiles = structuredClone(patch.profiles);
+    mocks.configurations.revision = '2'.repeat(64);
+    throw new DeliveryError('Profile publication acknowledgement lost');
+  });
+  await expect(hosts.rename('a', 'Saved before disconnect')).rejects.toBeInstanceOf(DeliveryError);
+  expect(hosts.home()).toMatchObject({ state: 'stale', list: catalog });
+  expect(hosts.home().client).toBeUndefined();
+  expect(hosts.isAttached(original)).toBe(false);
+  expect(effects.detached).toHaveBeenCalledWith(original, 'home', { recovering: true });
+  const calls = old.calls.length;
+  await expect(original.treeCatalog()).rejects.toThrow();
+  expect(old.calls).toHaveLength(calls);
+  await vi.advanceTimersByTimeAsync(500);
+  expect(hosts.home().state).toBe('connected');
+  expect(hosts.home().client).not.toBe(original);
+  expect(hosts.home().list).toBe(catalog);
+  expect(hosts.getSnapshot().profiles[0]?.name).toBe('Saved before disconnect');
+  expect(mocks.clients.flatMap(client => client.calls).filter(call => call.method === 'host.set_profiles')).toHaveLength(1);
+  expect(mocks.discovered.filter(endpoint => endpoint === 'http://local.test')).toHaveLength(2);
+});
+
+it('same-runtime browser restart changes epoch by read-only rediscovery while changed identity stops recovery', async () => {
+  vi.useFakeTimers();
+  const { hosts } = fixture([]);
+  await start(hosts);
+  const original = hosts.home().client!;
+  mocks.epochs.set('http://local.test', 'restarted');
+  await expect(original.treeCatalog()).rejects.toThrow();
+  expect(hosts.home().client).toBeUndefined();
+  await vi.advanceTimersByTimeAsync(500);
+  expect(hosts.home().client?.processEpoch).toBe('restarted');
+  expect(mocks.clients.at(-1)!.pin).toEqual({ expectedRuntimeID: 'home', expectedProcessEpoch: 'restarted' });
+  const restarted = hosts.home().client!;
+  mocks.identities.set('http://local.test', 'replacement');
+  await expect(restarted.treeCatalog()).rejects.toThrow();
+  await vi.advanceTimersByTimeAsync(500);
+  expect(hosts.home()).toMatchObject({ runtimeId: 'home', state: 'closed' });
+  expect(hosts.home().error).toContain('different daemon');
+  const discoveries = mocks.discovered.length;
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(mocks.discovered).toHaveLength(discoveries);
+});
+
+it('manual disconnect retires suspended observations and cancels scheduled recovery', async () => {
+  vi.useFakeTimers();
+  const { hosts, effects } = fixture([]);
+  await start(hosts);
+  const original = hosts.home().client!;
+  mocks.clients[0]!.fail = new DeliveryError('offline');
+  await expect(original.treeCatalog()).rejects.toThrow('offline');
+  expect(hosts.home().list).toBeDefined();
+  hosts.disconnect('local');
+  expect(effects.detached).toHaveBeenLastCalledWith(original, 'home', { recovering: false });
+  expect(hosts.home().list).toBeUndefined();
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(mocks.clients).toHaveLength(1);
+});
+
+it('native observation recovery reuses preparation and verifies the new process epoch before any effect', async () => {
+  vi.useFakeTimers();
+  let epoch = 'native-boot';
+  const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
+  let preparation: AbortSignal | undefined;
+  const dispose = vi.fn();
+  const open: import('@whip/sdk').FramedConnector = async handlers => ({
+    kind: 'unix', bufferedAmount: 0,
+    close() { handlers.close(new Error('frame closed')); },
+    send(raw) {
+      const request = JSON.parse(raw); calls.push(request);
+      const result = request.method === 'initialize'
+        ? { major: 4, minor: 0, runtime_id: 'native', process_epoch: epoch, network_client: false, builtins: [] }
+        : request.method === 'host.profiles' ? structuredClone(mocks.configurations)
+          : request.method === 'trees.list' ? { revision: '1', items: [], next_cursor: null } : { revision: '1' };
+      handlers.message(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }));
+    },
+  });
+  const resolveConnection = vi.fn(async (_profile: ConnectionProfile, options: ConnectionOptions) => {
+    preparation = options.signal;
+    return { endpoint: open, dispose };
+  });
+  const { hosts } = nativeFixture([], [], { resolveConnection });
+  await start(hosts);
+  const original = hosts.home().client!;
+  const catalog = hosts.home().list;
+  epoch = 'native-restarted';
+  await expect(original.hosts.setProfiles(mocks.configurations.revision, [])).rejects.toThrow('process generation');
+  expect(hosts.home().client).toBeUndefined();
+  expect(preparation?.aborted).toBe(false);
+  expect(dispose).not.toHaveBeenCalled();
+  expect(calls.some(call => call.method === 'host.set_profiles')).toBe(false);
+  await vi.advanceTimersByTimeAsync(500);
+  expect(hosts.home().client?.processEpoch).toBe(epoch);
+  expect(hosts.home().list).toBe(catalog);
+  expect(resolveConnection).toHaveBeenCalledOnce();
+  expect(calls.some(call => call.method === 'host.set_profiles')).toBe(false);
+  hosts.disconnect('local');
+  expect(preparation?.aborted).toBe(true);
+  expect(dispose).toHaveBeenCalledOnce();
+});
+
+it('preserves an exact saved URL through display-only edits without another discovery', async () => {
+  const profile = { ...remote('a'), url: 'http://a.test:80/' };
+  const { hosts } = fixture([profile]);
+  await start(hosts);
+  const client = hosts.host('a')!.client;
+  const discovered = mocks.discovered.length;
+  await hosts.save({ ...profile, name: 'Same endpoint' });
+  expect(hosts.getSnapshot().profiles[0]?.url).toBe(profile.url);
+  expect(hosts.host('a')?.client).toBe(client);
+  expect(mocks.discovered).toHaveLength(discovered);
+});
+
+it('does not redirect a probed save to a replacement Local client with an equal configuration revision', async () => {
+  const { hosts } = fixture([remote('a')]);
+  await start(hosts);
+  const probe = deferred<void>();
+  mocks.identities.set('http://alias.test', 'a');
+  mocks.connecting.set('http://alias.test', probe.promise);
+  const saving = hosts.save({ ...remote('a'), url: 'http://alias.test' });
+  const rejected = expect(saving).rejects.toThrow('Reconnect Local');
+  await vi.waitFor(() => expect(mocks.clients.some(client => client.endpoint === 'http://alias.test')).toBe(true));
+  hosts.disconnect('local'); await start(hosts);
+  probe.resolve(); await rejected;
+  expect(mocks.clients.flatMap(client => client.calls).some(call => call.method === 'host.set_profiles')).toBe(false);
+  expect(hosts.getSnapshot().profiles[0]?.url).toBe('http://a.test');
+});
+
+
+it('opens Browser peers from the verified gateway and rejects changed process identity without rediscovery', async () => {
+  const { hosts } = fixture([]); await start(hosts);
+  const client = hosts.home().client!, discoveryCount = mocks.discovered.length;
+  const peer = await hosts.browserProvider(client);
+  expect(mocks.peers[0]).toMatchObject({ endpoint: 'http://local.test', pin: { expectedRuntimeID: 'home', expectedProcessEpoch: 'boot' } });
+  expect(peer.runtimeID).toBe('home'); expect(mocks.discovered).toHaveLength(discoveryCount);
+  mocks.epochs.set('http://local.test', 'restarted');
+  await expect(hosts.browserProvider(client)).rejects.toThrow('process generation');
+  expect(mocks.peers[1]!.close).toHaveBeenCalled();
+  hosts.disconnect('local'); expect(mocks.peers[0]!.pin.signal.aborted).toBe(true); expect(mocks.peers[0]!.close).toHaveBeenCalled();
+  await expect(hosts.browserProvider(client)).rejects.toThrow('no longer attached');
+});
+
+it('retires a late Browser peer when its exact host connection closes during initialization', async () => {
+  const { hosts } = fixture([]); await start(hosts); const client = hosts.home().client!;
+  const wait = deferred<void>(); mocks.connecting.set('http://local.test', wait.promise);
+  const opening = hosts.browserProvider(client); await vi.waitFor(() => expect(mocks.peers).toHaveLength(1));
+  hosts.disconnect('local'); wait.resolve(); await expect(opening).rejects.toThrow();
+  expect(mocks.peers[0]!.close).toHaveBeenCalled();
+});
+
+it('borrows the exact native connector and ties its Browser peer to host retirement without preparing twice', async () => {
+  let epoch = 'native-boot'; const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const connections: { close: ReturnType<typeof vi.fn>; signal: AbortSignal }[] = [];
+  const open: import('@whip/sdk').FramedConnector = async (handlers, signal) => {
+    const close = vi.fn(() => handlers.close(new Error('closed'))); connections.push({ close, signal });
+    return { kind: 'unix', bufferedAmount: 0, close, send(raw) {
+      const request = JSON.parse(raw); calls.push(request);
+      const result = request.method === 'initialize' ? { major: 4, minor: 0, runtime_id: 'native', process_epoch: epoch, network_client: false, builtins: [] }
+        : request.method === 'host.profiles' ? structuredClone(mocks.configurations)
+          : request.method === 'trees.list' ? { revision: '1', items: [], next_cursor: null } : { revision: '1' };
+      handlers.message(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }));
+    } };
+  };
+  const resolveConnection = vi.fn(async () => ({ endpoint: open, dispose() {} }));
+  const { hosts } = nativeFixture([], [], { resolveConnection }); await start(hosts);
+  const client = hosts.home().client!, peer = await hosts.browserProvider(client), native = connections.at(-1)!;
+  expect(peer.processEpoch).toBe('native-boot'); expect(resolveConnection).toHaveBeenCalledOnce();
+  expect(calls.at(-1)).toMatchObject({ method: 'initialize', params: { expected_runtime_id: 'native', expected_process_epoch: 'native-boot' } });
+  epoch = 'restarted'; await expect(hosts.browserProvider(client)).rejects.toThrow('process generation');
+  expect(resolveConnection).toHaveBeenCalledOnce(); hosts.disconnect('local'); expect(native.close).toHaveBeenCalled();
 });

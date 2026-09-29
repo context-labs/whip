@@ -65,8 +65,9 @@ export interface AgentInput<O extends Schema | undefined = undefined> {
   /** Canonical v4 fields. Omitted fields inherit; explicit empty collections clear. */
   defaults?: Omit<DefinitionDocument['defaults'], 'tools' | 'hooks' | 'output'>;
   tools?: readonly ToolDefinition[]; hooks?: HooksInput;
-  /** Provider bytes follow the input schema; typed result applies its transform once. */
-  output?: O;
+  /** Provider bytes follow the input schema; typed result applies its transform once.
+   * null explicitly clears inherited output constraints; omission inherits them. */
+  output?: O | null;
 }
 export interface AgentDefinition<Output = unknown> {
   readonly document: DefinitionDocument;
@@ -94,12 +95,12 @@ export function defineAgent<O extends Schema | undefined = undefined>(input: Age
     hookSpecs[name] = { optional: options.optional ?? false, timeout_millis: timeout, operations: options.operations ?? null };
   };
   declare('before_tool', input.hooks?.beforeTool); declare('before_spawn', input.hooks?.beforeSpawn); declare('turn_start', input.hooks?.turnStart);
-  const output = input.output === undefined ? undefined : toJsonSchema(input.output, 'input', 'Agent output');
+  const output = input.output === undefined ? undefined : input.output === null ? null : toJsonSchema(input.output, 'input', 'Agent output');
   if (output && !describesObject(output)) throw new TypeError('Agent output must describe an object');
   const document = JSON.parse(JSON.stringify({ id: input.id, name: input.name, defaults: { ...input.defaults,
     ...(input.tools === undefined ? {} : { tools: declarations }), ...(input.hooks === undefined ? {} : { hooks: hookSpecs }), ...(output === undefined ? {} : { output: { schema: output } }) } })) as DefinitionDocument;
   assertValid('DefinitionDocument', document);
-  return Object.freeze({ document: freeze(document) as DefinitionDocument, handlers: Object.freeze(handlers), hooks: Object.freeze(hooks), output: input.output });
+  return Object.freeze({ document: freeze(document) as DefinitionDocument, handlers: Object.freeze(handlers), hooks: Object.freeze(hooks), output: input.output ?? undefined });
 }
 /** Typed JSON deliberately rejects unsafe integer coercion. Low-level executor
  * and output methods retain the original base64 bytes for exact-number callers. */

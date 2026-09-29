@@ -61,14 +61,15 @@ export class MobileWorkspace {
       if (select) await this.select(host.id); return current;
     }
     const generation = ++this.generation; this.attempts.set(host.id, generation);
-    if (current) { this.unsubscribers.get(host.id)?.(); this.runtimes.delete(host.id); await current.dispose(false); }
     if (this.disposed || this.attempts.get(host.id) !== generation) throw new Error('Connection cancelled.');
-    const runtime = this.makeRuntime(this.storage); runtime.setActive(this.state.active);
-    await runtime.start(false);
-    if (this.disposed || this.attempts.get(host.id) !== generation) { await runtime.dispose(false); throw new Error('Connection cancelled.'); }
-    this.runtimes.set(host.id, runtime); this.unsubscribers.set(host.id, runtime.subscribe(() => this.update())); this.update();
+    const runtime = current ?? this.makeRuntime(this.storage); runtime.setActive(this.state.active);
+    if (!current) {
+      await runtime.start(false);
+      if (this.disposed || this.attempts.get(host.id) !== generation) { await runtime.dispose(false); throw new Error('Connection cancelled.'); }
+      this.runtimes.set(host.id, runtime); this.unsubscribers.set(host.id, runtime.subscribe(() => this.update())); this.update();
+    }
     try {
-      await runtime.connect(host, { select: false, list: false });
+      await runtime.connect(host, { select: false, list: false, recovering: !!current });
       if (this.attempts.get(host.id) !== generation) throw new Error('Connection cancelled.');
       const runtimeId = runtime.getSnapshot().host?.runtimeId;
       if ([...this.runtimes.values()].some(other => other !== runtime && other.getSnapshot().host?.runtimeId === runtimeId && other.getSnapshot().client)) {

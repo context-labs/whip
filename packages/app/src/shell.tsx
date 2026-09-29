@@ -139,7 +139,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   };
   return (
     <SessionActionsProvider><WorkspaceDragScope><ShellCommandsContext.Provider value={runCommand}><div {...stylex.props(layout.shell)}>
-      {runtime.platform.notify && state.preferences.desktopNotifications && state.hosts.filter(host => host.client).map(host => <DesktopAttention key={`${host.id}:${host.runtimeId}`} client={host.client!} />)}
+      {runtime.platform.notify && state.preferences.desktopNotifications && state.hosts.filter(host => host.client).map(host => <DesktopAttention key={`${host.id}:${host.runtimeId}`} host={host} />)}
       {!settings && !compact && !sidebar.state.hidden && <aside id="whip-session-navigation" {...stylex.props(layout.sidebar)} style={{ width: sidebar.width }} aria-label="Session navigation">
         <SessionSidebar state={sidebar.state} setState={sidebar.setState} onSearch={openSearch} headerAction={<><Attention />{navigationToggle}</>}
           inset={inset} onConnect={manageServers} onNavigate={() => {}} />

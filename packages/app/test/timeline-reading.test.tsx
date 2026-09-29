@@ -63,7 +63,7 @@ vi.mock('@tanstack/react-virtual', () => {
 });
 const rows: TimelineRow[] = Array.from({ length: 6 }, (_, seq) => ({
   id: `row-${seq}`,
-  seq,
+  seq: String(seq),
   role: 'user',
   text: `Message ${seq}`,
 }));
@@ -109,7 +109,7 @@ function fixture() {
   const readingActions = createRef<ReadingListActions>();
   const readingPositions = new ReadingPositions();
   const loadOlder = vi.fn(async () => {});
-  const paging = { hasMore: true, canLoadOlder: true, loadingHistory: false, historyCursor: 1000 };
+  const paging = { hasMore: true, canLoadOlder: true, loadingHistory: false, historyCursor: '1000' };
   const report = vi.fn();
   const runtime = {
     readingPositions,
@@ -257,7 +257,7 @@ it('waits for ready history and restores a saved anchor under StrictMode without
   const f = fixture();
   f.readingPositions.set('host:root:root', {
     messageId: 'row-1',
-    seq: 1,
+    seq: '1',
     revision: '1',
     offset: 25,
     follow: false,
@@ -305,7 +305,7 @@ it('shows explicit revision/eviction fallback without fetching unbounded older p
   const f = fixture();
   f.readingPositions.set('host:root:root', {
     messageId: 'evicted',
-    seq: 3,
+    seq: '3',
     revision: '1',
     offset: 25,
     follow: false,
@@ -322,7 +322,7 @@ it('hands control back immediately when the reader scrolls during restoration', 
   const f = fixture();
   f.readingPositions.set('host:root:root', {
     messageId: 'row-1',
-    seq: 1,
+    seq: '1',
     revision: '1',
     offset: 25,
     follow: false,
@@ -343,7 +343,7 @@ it('hands control back immediately when the reader scrolls during restoration', 
 it('preserves a bookmark while the reader has no rows and restores when evidence arrives', () => {
   const f = fixture();
   f.readingPositions.set('host:view:root:repl', {
-    messageId: 'row-2', seq: 2, revision: '1', offset: 15, follow: false,
+    messageId: 'row-2', seq: '2', revision: '1', offset: 15, follow: false,
   });
   const mounted = render(f.app('host:view:root:repl', '1', true, []));
   mounted.rerender(f.app('host:view:root:repl'));
@@ -385,7 +385,7 @@ it.each(['hasMore', 'canLoadOlder', 'loadingHistory', 'historyReady', 'restoring
     if (condition === 'hasMore' || condition === 'canLoadOlder') f.paging[condition] = false;
     if (condition === 'loadingHistory') f.paging.loadingHistory = true;
     if (condition === 'restoring') f.readingPositions.set('host:root:root', {
-      messageId: 'row-1', seq: 1, revision: '1', offset: 25, follow: false,
+      messageId: 'row-1', seq: '1', revision: '1', offset: 25, follow: false,
     });
     render(f.app(undefined, undefined, condition !== 'historyReady'));
     const root = screen.getByRole('region', { name: 'Conversation' });
@@ -439,9 +439,9 @@ it('keeps clipboard failures on the affected message without reporting globally'
 
 it('replacing a focused gap control keeps keyboard focus at recovered content without loading older history', async () => {
   const f = fixture();
-  const missing: TimelineRow = { id: 'history-gap:1:3', role: 'history-gap', text: '', seq: 2, historyGap: { fromSeq: 2, toSeq: 3, status: 'error' } };
+  const missing: TimelineRow = { id: 'history-gap:1:3', role: 'history-gap', text: '', seq: '2', historyGap: { messageID: 'large-message', sequence: '2', reason: 'message_too_large', bytes: 999999 } };
   const mounted = render(f.app(undefined, undefined, true, [rows[0]!, rows[1]!, missing, rows[4]!, rows[5]!]));
-  act(() => screen.getByRole('button', { name: 'Retry', exact: true }).focus());
+  act(() => screen.getByRole('button', { name: 'Read large message', exact: true }).focus());
   mounted.rerender(f.app(undefined, undefined, true, rows));
   await act(async () => { vi.advanceTimersByTime(32); });
   expect(document.activeElement?.getAttribute('data-reading-id')).toBe('row-2');
@@ -551,7 +551,7 @@ function prefetchFixture() {
   root.scrollTo = vi.fn();
   root.scrollTop = 0;
   const start = () => fireEvent.wheel(root, { deltaY: -100 });
-  const finish = async (cursor = f.paging.historyCursor - 100, visibleRows = rows) => {
+  const finish = async (cursor = String(BigInt(f.paging.historyCursor) - 100n), visibleRows = rows) => {
     await act(async () => {
       f.paging.historyCursor = cursor;
       mounted.rerender(f.app(undefined, undefined, true, visibleRows));
@@ -597,7 +597,7 @@ it('waits for prepend anchor restoration and uses the resulting geometry', async
   fireEvent.scroll(f.root);
   const anchor = screen.getByText('Message 1').closest<HTMLElement>('[data-reading-id]')!;
   const before = anchor.getBoundingClientRect().top;
-  const older: TimelineRow[] = Array.from({ length: 10 }, (_, i) => ({ id: `older-${i}`, role: 'assistant', text: `Older ${i}`, seq: i - 10 }));
+  const older: TimelineRow[] = Array.from({ length: 10 }, (_, i) => ({ id: `older-${i}`, role: 'assistant', text: `Older ${i}`, seq: String(i) }));
   await f.finish(undefined, [...older, ...rows]);
   await act(async () => { vi.advanceTimersByTime(48); });
   expect(f.loadOlder).toHaveBeenCalledTimes(1);
@@ -708,7 +708,7 @@ it('never starts an episode from resize, streaming, programmatic scroll, downwar
 
 it('keeps REPL at the original 256px scroll threshold with no top-edge gesture or continuation', async () => {
   const f = fixture();
-  let cursor = 1000;
+  let cursor = '1000';
   const app = () => <RuntimeContext.Provider value={f.runtime}><UIProvider>
     <ReadingList rows={rows} hasMore loadOlder={f.loadOlder} historyCursor={cursor}
       label="REPL" earlierLabel="Earlier" renderRow={row => <p>{row.text}</p>} />
@@ -724,7 +724,7 @@ it('keeps REPL at the original 256px scroll threshold with no top-edge gesture o
   root.scrollTop = 255;
   await act(async () => { fireEvent.scroll(root); });
   expect(f.loadOlder).toHaveBeenCalledTimes(1);
-  cursor = 900;
+  cursor = '900';
   mounted.rerender(app());
   await act(async () => { vi.advanceTimersByTime(200); });
   expect(f.loadOlder).toHaveBeenCalledTimes(1);

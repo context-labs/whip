@@ -7,8 +7,8 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { _electron } from 'playwright';
-import { createWhipClient } from '../../../packages/legacy-sdk/dist/index.js';
-import { unixSocket } from '../../../packages/legacy-sdk/dist/node.js';
+import { Client } from '../../../packages/sdk/dist/index.js';
+import { unixSocket } from '../../../packages/sdk/dist/node.js';
 import { LocalRuntime, readRuntimeManifest } from '../src/runtime.ts';
 import { repositoryRoot } from '../../../scripts/renderer-artifact.mjs';
 
@@ -50,7 +50,7 @@ try {
     .catch(async error => { console.error((await page.locator('body').innerText()).slice(0, 4000), diagnostics); throw error; });
   const status = JSON.parse((await exec(executable, ['daemon', 'status', '--json'], { env, timeout: 5000 })).stdout);
   assert.equal(status.state, 'running');
-  assert(!status.network_endpoint, 'Local attachment must not enable TCP');
+  assert(!status.process.web_endpoint, 'Local attachment must not enable TCP');
 
   // Open a terminal from the command palette on an empty workspace.
   await page.keyboard.press('Meta+k');
@@ -58,35 +58,38 @@ try {
   await commands.getByRole('combobox').fill('New terminal');
   await page.getByRole('option', { name: 'New terminal', exact: true }).click();
   await eventually(() => /\/h\/[^/]+\/t\//.test(page.url()), 'terminal route');
-  const terminalId = decodeURIComponent(new URL(page.url()).pathname.split('/t/')[1]);
   const view = page.locator('[data-terminal-view]');
   const live = () => eventually(async () => (await view.getAttribute('data-terminal-status')) === 'live', 'terminal live');
-  const reattach = async () => {
-    await eventually(async () => (await view.getAttribute('data-terminal-status')) === 'detached', 'page notices the takeover');
-    await page.getByRole('button', { name: 'Reattach here', exact: true }).click();
-    await live();
-  };
   await live();
+  const terminalId = await view.getAttribute('data-terminal-view');
+  assert(terminalId);
+  assert.equal(decodeURIComponent(new URL(page.url()).pathname.split('/t/')[1]), terminalId);
   checks.push('palette opens a shell on This Mac over the Unix socket');
 
   await view.click();
   await page.keyboard.type('echo whip-$((40+2))');
   await page.keyboard.press('Enter');
-  // Verify through the daemon: a second Unix client attaches and reads the ring.
-  client = createWhipClient({ endpoint: unixSocket(status.socket), clientId: `desktop-terminal-${crypto.randomUUID()}`, clientKind: 'human' });
-  await client.connect();
-  const replay = async marker => {
-    let text = '';
-    const off = client.terminals.onOutput(output => { if (output.id === terminalId) text += new TextDecoder().decode(output.bytes); });
-    try {
-      const attachment = await client.terminals.attach(terminalId, 0);
-      await eventually(() => text.includes(marker), `replay containing ${marker}`);
-      return attachment;
-    } finally { off(); }
-  };
+  // A second native client reads bounded replay pages without taking over the UI.
+  client = await Client.connect(unixSocket(status.socket), { clientID: `desktop-terminal-${crypto.randomUUID()}`,
+    expectedRuntimeID: status.process.runtime_id, signal: AbortSignal.timeout(15000) });
+  const ref = { id: terminalId, process_epoch: client.processEpoch };
+  const replay = async marker => eventually(async () => {
+    let cursor = '0', text = '';
+    for (let pages = 0; pages < 32; pages++) {
+      const output = await client.readTerminal(ref, cursor, 32768, { signal: AbortSignal.timeout(5000) });
+      assert.equal(output.terminal.id, terminalId);
+      assert.equal(output.terminal.process_epoch, client.processEpoch);
+      text += Buffer.from(output.data_base64, 'base64').toString();
+      if (text.includes(marker)) return output;
+      if (BigInt(output.next) >= BigInt(output.end)) break;
+      assert(BigInt(output.next) > BigInt(cursor), 'Replay cursor must advance');
+      cursor = output.next;
+    }
+    return false;
+  }, `replay containing ${marker}`);
   await replay('whip-42');
   checks.push('typed keystrokes reach the shell and the daemon retains its output');
-  await reattach();
+  await live(); // Independent replay observation must not detach the renderer.
   await page.screenshot({ path: path.join(artifacts, 'desktop-terminal.png') });
 
   // Copy: select by dragging across the first rows. ghostty-web copies a mouse
@@ -117,17 +120,21 @@ try {
   await page.keyboard.type("clear; echo tracked-$((60+6)); printf '\\e[?1002h\\e[?1006h'; cat -v");
   await page.keyboard.press('Enter');
   await replay('tracked-66');
-  await reattach();
-  await electron.evaluate(({ clipboard }) => clipboard.writeText(''));
-  await page.keyboard.down('Shift');
-  await page.mouse.move(canvas.x + 2, canvas.y + 2);
-  await page.mouse.down();
-  await page.mouse.move(canvas.x + canvas.width - 4, canvas.y + 40, { steps: 8 });
-  await page.mouse.up();
-  await page.keyboard.up('Shift');
-  await eventually(async () => (await view.getAttribute('data-terminal-selection')) === 'true', 'Shift+drag selected text under mouse tracking');
-  await copyCommand();
-  await eventually(async () => (await clipboard()).includes('tracked-66'), 'the Copy command copied the Shift+drag selection');
+  await live(); // Independent replay observation must not detach the renderer.
+  // The independent backend read can lead the renderer's next bounded poll.
+  // Retry only this local selection/copy observation until the painted output arrives.
+  await eventually(async () => {
+    await page.keyboard.down('Shift');
+    await page.mouse.move(canvas.x + 2, canvas.y + 2);
+    await page.mouse.down();
+    await page.mouse.move(canvas.x + canvas.width - 4, canvas.y + 40, { steps: 8 });
+    await page.mouse.up();
+    await page.keyboard.up('Shift');
+    if (await view.getAttribute('data-terminal-selection') !== 'true') return false;
+    await electron.evaluate(({ clipboard }) => clipboard.writeText(''));
+    await copyCommand();
+    return (await clipboard()).includes('tracked-66');
+  }, 'the Copy command copied the Shift+drag selection');
   await view.click();
   await page.keyboard.press('Control+c');
   await page.keyboard.type("printf '\\e[?1002l\\e[?1006l'");
@@ -137,19 +144,20 @@ try {
   // Paste goes through the renderer's native paste command; the window denies
   // clipboard-read permission, so this is the only path and only a real host proves it.
   await electron.evaluate(({ clipboard }) => clipboard.writeText('echo paste-$((50+5))'));
-  await view.click();
+  // The terminal still has keyboard focus. A click before the disable-mouse
+  // output is painted would correctly be reported to the just-finished program.
   await page.keyboard.press('Meta+v');
   await page.keyboard.press('Enter');
   await replay('paste-55');
   checks.push('Cmd+V pastes through the native paste event');
-  await reattach();
+  await live(); // Independent replay observation must not detach the renderer.
 
   // Reload keeps the shell and the tab; the replay still holds earlier output.
   await page.reload();
   await live();
   assert.equal(await view.getAttribute('data-terminal-view'), terminalId, 'reload restored the same shell');
   await replay('paste-55');
-  await reattach();
+  await live(); // Independent replay observation must not detach the renderer.
   checks.push('reload restores the tab and reattaches the same shell');
 
   // Exercise the production New session menu/IPC path without replacing or
@@ -170,7 +178,7 @@ try {
   await live();
   assert.equal(await view.getAttribute('data-terminal-view'), terminalId, 'New session preserved the terminal');
   await replay('paste-55');
-  await reattach();
+  await live(); // Independent replay observation must not detach the renderer.
   checks.push('New session native menu opens a draft and preserves the running terminal');
 
   // Restore that exact draft via the production menu, including from a hidden window.
@@ -192,7 +200,7 @@ try {
   await live();
   assert.equal(await view.getAttribute('data-terminal-view'), terminalId, 'Reopen preserved the terminal');
   await replay('paste-55');
-  await reattach();
+  await live(); // Independent replay observation must not detach the renderer.
   checks.push('Reopen closed tab native menu restores the same draft from a hidden window and preserves the running terminal');
 
   // Closing the native window hides it without destroying the workspace.
@@ -223,25 +231,28 @@ try {
   });
   await eventually(async () => (await view.count()) === 0, 'terminal view closed');
   await eventually(async () => {
-    try { await client.terminals.attach(terminalId, 0); return false; }
-    catch (error) { return error?.code === -32003; }
+    try { await client.readTerminal(ref, '0', 1, { signal: AbortSignal.timeout(5000) }); return false; }
+    catch (error) { return error?.kind === 'NOT_FOUND'; }
   }, 'daemon forgot the closed terminal');
   checks.push('Cmd+W closes the tab and ends the shell');
   await page.screenshot({ path: path.join(artifacts, 'desktop-after-close.png') });
   assert.deepEqual(errors, []);
   const result = { purpose: 'Staged desktop terminal tab on This Mac; not signed installed-app acceptance',
-    recordedAt: new Date().toISOString(), terminalId, shell: env.SHELL, checks, rendererErrors: errors };
+    recordedAt: new Date().toISOString(), rendererDigest: manifest.rendererDigest, runtimeDigest: manifest.files.whipcode.sha256, processEpoch: client.processEpoch, terminalId, shell: env.SHELL, replay: 'Bounded cursor reads do not transfer a terminal attachment or stop the shell.', checks, rendererErrors: errors };
   await writeFile(path.join(artifacts, 'desktop-terminal.json'), JSON.stringify(result, null, 2) + '\n');
   console.log(JSON.stringify(result, null, 2));
 } catch (error) {
+  for (const details of await page?.getByRole('button', { name: 'Error details', exact: true }).all() ?? []) await details.click().catch(() => {});
   await page?.screenshot({ path: path.join(artifacts, 'desktop-terminal-failure.png') }).catch(() => {});
   await writeFile(path.join(artifacts, 'desktop-terminal-failure.txt'), `${error.stack}\n\n${await page?.locator('body').innerText().catch(() => '')}\n\n${JSON.stringify(errors)}`).catch(() => {});
   throw error;
 } finally {
-  client?.close();
   if (electron) await electron.evaluate(({ app }) => app.exit(0)).catch(() => {});
   try {
-    if (runtimeInstalled) await exec(executable, ['daemon', 'stop'], { env, timeout: 15_000 });
+    if (runtimeInstalled) {
+      await exec(executable, ['daemon', 'stop'], { env, timeout: 15_000 });
+      assert.equal(JSON.parse((await exec(executable, ['daemon', 'status', '--json'], { env, timeout: 5000 })).stdout).state, 'stopped');
+    }
     await rm(fixture, { recursive: true, force: true });
   } catch (error) {
     console.error(`Preserved smoke fixture after cleanup failure: ${fixture}`);

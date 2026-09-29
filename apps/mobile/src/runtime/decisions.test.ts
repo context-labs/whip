@@ -1,110 +1,49 @@
 /** @jest-environment node */
-import { RpcError } from '@whip/legacy-sdk';
+import { RemoteError } from '@whip/sdk';
 import { DecisionStore } from './decisions';
 import type { MobileRuntime } from './runtime';
-import type { PermissionRecoveryRecord, StoredRecovery } from './storage';
-
-const deferred = <T,>() => { let resolve!: (value: T) => void; let reject!: (error: unknown) => void; const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
-const missing = () => new RpcError({ code: -32000, message: 'Missing', data: { kind: 'command_not_found' } });
-const saved = (id = 'decision', knownAccepted = false): StoredRecovery<PermissionRecoveryRecord> => ({ record: { version: 1, commandId: id, runtimeId: 'runtime', clientId: 'client', operation: 'permission.decide', rootId: 'root' }, intent: { requestId: 'request', agentId: 'agent' }, knownAccepted });
-const outcome = (id = 'decision') => ({ operation: 'permission.decide', command_id: id, ingress_seq: '1', status: 'succeeded', result: { operation_id: 'operation', lease_id: 'lease' } });
-function fixture(initial: Array<StoredRecovery<PermissionRecoveryRecord>> = []) {
-  let sequence = 0;
-  const records = new Map(initial.map(item => [item.record.commandId, structuredClone(item)]));
-  const client = { clientId: 'client', lifetimeSignal: new AbortController().signal,
-    createId: () => `new-${++sequence}`, supports: () => true,
-    getSnapshot: () => ({ state: 'connected', info: { runtime_id: 'runtime', connection_id: 'connection' } }),
-    requireConnected: () => ({ runtime_id: 'runtime' }),
-    permissions: { decide: jest.fn(async () => ({})), status: jest.fn(async (id: string, _options?: { signal: AbortSignal; timeoutMs?: number }) => outcome(id)) },
-  };
-  let state = { client, host: { runtimeId: 'runtime' }, active: true, ready: true };
-  const storage = {
-    listDecisions: jest.fn(async () => [...records.values()].map(item => structuredClone(item))),
-    putDecision: jest.fn(async (record: PermissionRecoveryRecord, intent: unknown) => { records.set(record.commandId, { record, intent, knownAccepted: false } as StoredRecovery<PermissionRecoveryRecord>); }),
-    markDecisionAccepted: jest.fn(async (record: PermissionRecoveryRecord) => { const item = records.get(record.commandId); if (!item) throw new Error('missing durable record'); item.knownAccepted = true; }),
-    deleteDecision: jest.fn(async (record: PermissionRecoveryRecord) => { records.delete(record.commandId); }),
-  };
-  const runtime = { getSnapshot: () => state, requireReady: () => { if (!state.ready || !state.active) throw new Error('Not ready'); return state.client; }, storage, query: { invalidateQueries: jest.fn(async () => {}) } };
+import type { StoredMetadata } from './recovery-metadata';
+jest.mock('expo-crypto', () => ({ CryptoDigestAlgorithm: { SHA256: 'sha256' }, digestStringAsync: async (_: string, value: string) => require('node:crypto').createHash('sha256').update(value).digest('hex') }));
+const deferred = <T,>() => { let resolve!: (value: T) => void; const promise = new Promise<T>(yes => { resolve = yes; }); return { promise, resolve }; };
+const saved = (knownAccepted = false): StoredMetadata => ({ record: { version: 4, commandId: 'operation', runtimeId: 'runtime', clientId: 'phone', operation: 'permissions.resolve', requestHash: 'a'.repeat(64), rootId: 'root', sessionId: 'child' }, intent: {}, knownAccepted });
+function fixture(initial: StoredMetadata[] = []) {
+  const records = new Map(initial.map(value => [value.record.commandId, structuredClone(value)]));
+  const get = jest.fn(async (_id: string, _options?: unknown) => ({ id: 'operation', session_id: 'child', state: 'waiting' }));
+  const client = { runtimeID: 'runtime', clientID: 'phone', call: jest.fn(async () => ({})), session: jest.fn(() => ({ operations: { get }, questions: { get } })) };
+  const storage = { list: jest.fn(async () => structuredClone([...records.values()])), put: jest.fn(async (value: StoredMetadata) => { records.set(value.record.commandId, structuredClone(value)); }), accept: jest.fn(async () => { records.get('operation')!.knownAccepted = true; }), delete: jest.fn(async () => { records.delete('operation'); }) };
+  let state = { client, active: true, ready: true };
+  const runtime = { getSnapshot: () => state, requireReady() { if (!state.active || !state.ready) throw new Error('Not ready'); return state.client; }, storage: { nativeRecovery: storage }, query: { invalidateQueries: async () => {} } };
   const store = new DecisionStore(runtime as unknown as MobileRuntime);
-  return { store, client, storage, records, replaceHost: () => { store.reset(); state = { ...state, client: { ...client, clientId: 'new-client' }, host: { runtimeId: 'new-runtime' } }; }, setActive: (active: boolean) => { state = { ...state, active }; } };
+  return { store, client, get, storage, records, replace() { store.reset(); state = { ...state, client: { ...client, runtimeID: 'another' } }; } };
 }
-
-test('decision storage failure sends nothing and is visible without inventing an accepted result', async () => {
-  const f = fixture(); await f.store.reconcile();
-  f.storage.putDecision.mockRejectedValueOnce(new Error('disk full'));
-  await expect(f.store.decide('root', 'request', 'agent', true)).rejects.toThrow('disk full');
-  expect(f.client.permissions.decide).not.toHaveBeenCalled();
-  expect(f.client.permissions.status).not.toHaveBeenCalled();
-  expect(f.store.forRequest('request')).toMatchObject({ status: 'failed', knownAccepted: false, message: expect.stringContaining('not sent') });
-  expect(f.store.isBlocked('request')).toBe(true);
-  await f.store.clear('new-1');
-  expect(f.store.isBlocked('request')).toBe(false);
+test('decision persistence failure sends no authority and makes no success claim', async () => {
+  const f = fixture(); await f.store.reconcile(); f.storage.put.mockRejectedValueOnce(new Error('disk full'));
+  await expect(f.store.decide('root', 'operation', 'child', true)).rejects.toThrow('disk full'); expect(f.client.call).not.toHaveBeenCalled(); expect(f.store.forRequest('operation')).toBeUndefined();
 });
-
-test('a request is revalidated after durable storage and never automatically resent', async () => {
-  const f = fixture(); await f.store.reconcile();
-  const validate = jest.fn().mockImplementationOnce(() => {}).mockImplementationOnce(() => { throw new Error('Answered elsewhere'); });
-  await expect(f.store.decide('root', 'request', 'agent', true, validate)).rejects.toThrow('Answered elsewhere');
-  expect(f.records.size).toBe(1);
-  expect(f.client.permissions.decide).not.toHaveBeenCalled();
-  f.client.permissions.status.mockRejectedValue(missing());
-  await f.store.check('new-1');
-  await f.store.reconcile();
-  expect(f.store.forRequest('request')?.status).toBe('not_found');
-  expect(f.client.permissions.decide).not.toHaveBeenCalled();
-  expect(f.store.isBlocked('request')).toBe(true);
+test('captured permission is scoped and revalidated after local persistence', async () => {
+  const f = fixture(); await f.store.reconcile(); const validate = jest.fn().mockImplementationOnce(() => {}).mockImplementationOnce(() => { throw new Error('Changed host'); });
+  await expect(f.store.decide('root', 'operation', 'child', true, validate)).rejects.toThrow('Changed host'); expect(f.client.session).toHaveBeenCalledWith('child'); expect(f.client.call).not.toHaveBeenCalled();
+  await f.store.check('operation'); expect(f.store.forRequest('operation')?.status).toBe('pending'); expect(f.store.isBlocked('operation')).toBe(true);
 });
-
-test('accepted knowledge survives a failed disk update and a subsequent missing lookup', async () => {
-  const f = fixture(); await f.store.reconcile();
-  f.storage.markDecisionAccepted.mockRejectedValue(new Error('disk full'));
-  await expect(f.store.decide('root', 'request', 'agent', true)).rejects.toThrow('disk full');
-  expect(f.store.forRequest('request')).toMatchObject({ knownAccepted: true, status: 'checking' });
-  f.client.permissions.status.mockRejectedValue(missing());
-  await f.store.check('new-1'); await f.store.reconcile();
-  expect(f.store.forRequest('request')).toMatchObject({ knownAccepted: true, status: 'checking' });
-  await expect(f.store.clear('new-1')).rejects.toThrow('Check the decision');
-  expect(f.client.permissions.decide).toHaveBeenCalledTimes(1);
+test('local acceptance survives failed durability and missing read without a replay', async () => {
+  const f = fixture(); await f.store.reconcile(); f.storage.accept.mockRejectedValueOnce(new Error('disk full'));
+  await expect(f.store.decide('root', 'operation', 'child', false)).rejects.toThrow('disk full'); expect(f.store.forRequest('operation')).toMatchObject({ knownAccepted: true, status: 'unknown' });
+  f.get.mockRejectedValueOnce(new RemoteError({ code: -32000, kind: 'NOT_FOUND', message: 'gone' })); await f.store.check('operation'); await f.store.reconcile(); expect(f.store.forRequest('operation')?.knownAccepted).toBe(true); expect(f.client.call).toHaveBeenCalledTimes(1);
 });
-
-test('parallel status checks coalesce, and reset cancels/ignores late lookup and clear callbacks', async () => {
-  const f = fixture([saved()]); await f.store.reconcile();
-  const later = deferred<ReturnType<typeof outcome>>();
-  f.client.permissions.status.mockReturnValueOnce(later.promise);
-  const first = f.store.check('decision'); const second = f.store.check('decision');
-  expect(first).toBe(second);
-  const signal = f.client.permissions.status.mock.calls.at(-1)![1] as { signal: AbortSignal };
-  f.replaceHost(); later.resolve(outcome()); await first;
-  expect(signal.signal.aborted).toBe(true);
-  expect(f.store.getSnapshot().items).toEqual([]);
-  const g = fixture([saved()]); await g.store.reconcile();
-  const cleared = deferred<void>(); g.storage.deleteDecision.mockReturnValueOnce(cleared.promise);
-  const clear = g.store.clear('decision'); g.replaceHost(); cleared.resolve(); await clear;
-  expect(g.store.getSnapshot()).toMatchObject({ identity: '', items: [], ready: false });
+test('resolved elsewhere is distinct from delivery and reconnection never sends a decision', async () => {
+  const f = fixture([saved()]); await f.store.reconcile(); expect(f.client.call).not.toHaveBeenCalled(); f.get.mockResolvedValueOnce({ id: 'operation', session_id: 'child', state: 'succeeded' });
+  await f.store.check('operation'); expect(f.store.forRequest('operation')).toMatchObject({ status: 'resolved', knownAccepted: false, message: expect.stringContaining('Another client') });
 });
-
-test('reconciliation coalesces, blocks admission while loading, and preserves an in-flight decision', async () => {
-  const f = fixture(); await f.store.reconcile();
-  const sent = deferred<object>(); f.client.permissions.decide.mockReturnValueOnce(sent.promise);
-  const decision = f.store.decide('root', 'request', 'agent', true);
-  await Promise.resolve(); await Promise.resolve();
-  const list = deferred<Array<StoredRecovery<PermissionRecoveryRecord>>>(); f.storage.listDecisions.mockReturnValueOnce(list.promise);
-  const first = f.store.reconcile(); const second = f.store.reconcile();
-  expect(first).toBe(second);
-  expect(f.store.isBlocked('another-request')).toBe(true);
-  list.resolve([]); await first;
-  expect(f.store.forRequest('request')?.status).toBe('sending');
-  expect(f.client.permissions.status).not.toHaveBeenCalled();
-  sent.resolve({}); await decision;
-  expect(f.store.forRequest('request')).toMatchObject({ status: 'succeeded', knownAccepted: true });
+test('parallel checks admit one read; reset cancels and ignores late read/clear', async () => {
+  const f = fixture([saved()]); await f.store.reconcile(); const later = deferred<{ id: string; session_id: string; state: string }>(); f.get.mockReturnValueOnce(later.promise);
+  const one = f.store.check('operation'); await f.store.check('operation'); expect(f.get).toHaveBeenCalledTimes(1); const signal = (f.get.mock.calls[0][1] as { signal: AbortSignal }).signal;
+  f.replace(); later.resolve({ id: 'operation', session_id: 'child', state: 'succeeded' }); await one; expect(signal.aborted).toBe(true); expect(f.store.getSnapshot().items).toEqual([]);
+  const g = fixture([saved()]); await g.store.reconcile(); const clear = deferred<void>(); g.storage.delete.mockReturnValueOnce(clear.promise); const pending = g.store.clear('operation'); g.replace(); clear.resolve(); await pending; expect(g.store.getSnapshot()).toMatchObject({ items: [], ready: false });
 });
-
-test('missing correlation blocks its root and inactive observation performs no lookup', async () => {
-  const record = saved(); delete record.intent;
-  const f = fixture([record]); await f.store.reconcile();
-  expect(f.store.isBlocked('unrelated', 'root')).toBe(true);
-  f.setActive(false); const before = f.client.permissions.status.mock.calls.length;
-  await f.store.check('decision'); await f.store.reconcile();
-  expect(f.client.permissions.status).toHaveBeenCalledTimes(before);
-  expect(f.store.getSnapshot().ready).toBe(false);
+test('busy decision prevents a concurrent opposite decision before hashing or storage', async () => {
+  const f = fixture(); await f.store.reconcile(); const later = deferred<{}>(); f.client.call.mockReturnValueOnce(later.promise);
+  const first = f.store.decide('root', 'operation', 'child', true);
+  await expect(f.store.decide('root', 'operation', 'child', false)).rejects.toThrow('previous decision');
+  for (let i = 0; i < 20 && !f.client.call.mock.calls.length; i++) await Promise.resolve(); later.resolve({}); await first;
+  expect(f.client.call).toHaveBeenCalledTimes(1); expect(f.store.forRequest('operation')).toMatchObject({ status: 'delivered', knownAccepted: true });
 });

@@ -1,15 +1,16 @@
 import { readingTarget, type ReadingBookmark } from '@whip/app/presentation';
 
-type ReadingRow = { id: string; seq?: number };
+const validCounter = (value: string) => /^(0|[1-9]\d{0,18})$/.test(value) && BigInt(value) <= 9223372036854775807n;
+type ReadingRow = { id: string; seq?: string };
 export interface ReadingMeasurement { index: number; rowY: number; firstItemOffset: number; scrollOffset: number }
 
 export function validReadingBookmark(value: unknown): value is ReadingBookmark {
   if (!value || typeof value !== 'object') return false;
   const bookmark = value as ReadingBookmark;
   return typeof bookmark.messageId === 'string' && bookmark.messageId.length > 0 && bookmark.messageId.length <= 512
-    && typeof bookmark.revision === 'string' && /^\d{1,19}$/.test(bookmark.revision)
+    && typeof bookmark.revision === 'string' && validCounter(bookmark.revision)
     && Number.isFinite(bookmark.offset) && Math.abs(bookmark.offset) <= 1_000_000 && typeof bookmark.follow === 'boolean'
-    && (bookmark.seq === undefined || Number.isSafeInteger(bookmark.seq) && bookmark.seq >= 0);
+    && (bookmark.seq === undefined || typeof bookmark.seq === 'string' && validCounter(bookmark.seq));
 }
 
 /** FlashList adds viewOffset to row.y + firstItemOffset, including a partially read row. */

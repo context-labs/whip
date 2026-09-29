@@ -1,12 +1,11 @@
 import { WorkspaceExternalSource } from '@whip/ui/workspace-tabs';
 import { ErrorNotice } from './error-feedback';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction, type ReactNode, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type Dispatch, type SetStateAction, type ReactNode, type RefObject } from 'react';
 import { Link, useLocation, useNavigate } from '@tanstack/react-router';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useWhipConnection, useSessionListView } from '@whip/legacy-sdk/react';
-import type { WhipClient } from '@whip/legacy-sdk';
-import type { DeepReadonly, SessionListView } from '@whip/legacy-sdk/state';
-import type { SessionCatalogPage } from '@whip/legacy-protocol';
+import type { Client } from '@whip/sdk';
+import type { DeepReadonly, TreeCatalogView, TreeCatalogSnapshot } from '@whip/sdk/state';
+import { clientQueryKey } from './client-query-key';
 import { useQuery } from '@tanstack/react-query';
 import { Button, IconButton, Menu, ContextMenu, Spinner, WhipcodeWordmark } from '@whip/ui';
 import { Plus, Search, Settings2, Plug, ArrowUpRight, MoreHorizontal, ChevronRight, ChevronDown, Circle, Pin, MessageSquare, MessageSquareWarning, Archive } from 'lucide-react';
@@ -69,7 +68,7 @@ function HostSection({ host, showHeading, ...props }: SidebarProps & SidebarScro
       <span {...stylex.props(layout.muted)}>{needsSetup ? '' : host.state === 'closed' ? 'Offline' : host.state === 'connected' ? '' : host.state}</span>
     </button>}
     {expanded && <>
-      {host.client && host.list ? <HostSidebar {...props} client={host.client} list={host.list} />
+      {host.client && host.list ? <HostSidebar {...props} client={host.client} list={host.list} connected={host.state === 'connected'} />
         : !needsSetup && <Button variant="ghost" disabled={host.state === 'connecting'} onClick={() => {
           void runtime.connections.connect(host.id).catch(() => {});
         }}>{host.state === 'connecting' ? host.progress || 'Connecting…' : `Connect ${host.name}`}</Button>}
@@ -105,12 +104,11 @@ function SidebarFooter({ onConnect }: { onConnect(): void }) {
     </button>
   </div>;
 }
-function HostSidebar({ client, list, state, setState, onNavigate, scroll, content }: SidebarProps & SidebarScroll & { client: WhipClient; list: SessionListView }) {
+function HostSidebar({ client, list, connected, state, setState, onNavigate, scroll, content }: SidebarProps & SidebarScroll & { client: Client; list: TreeCatalogView; connected: boolean }) {
   const runtime = useRuntime();
-  const catalog = useSessionListView(list);
-  const connection = useWhipConnection(client);
+  const catalog = useSyncExternalStore(list.subscribe, list.getSnapshot, list.getSnapshot);
   const [collapseNotice, setCollapseNotice] = useState('');
-  const runtimeId = client.getSnapshot().info?.runtime_id ?? '';
+  const runtimeId = client.runtimeID;
   const collapsed = state.hosts.find(host => host.runtimeId === runtimeId)?.collapsed ?? noCollapsedDirectories;
   const collapse = (cwd: string, closed: boolean) => {
     const next = setDirectoryCollapsed(state, runtimeId, cwd, closed);
@@ -121,14 +119,15 @@ function HostSidebar({ client, list, state, setState, onNavigate, scroll, conten
   };
   return <>
       {collapseNotice && <p role="status">{collapseNotice}</p>}
-      <SessionRows client={client} scroll={scroll} content={content} page={catalog.page} loading={catalog.status === 'loading'} error={connection.state === 'connected' ? catalog.error?.message : undefined}
+      <SessionRows client={client} scroll={scroll} content={content} page={catalog} connected={connected} loading={catalog.status === 'loading' || catalog.status === 'idle'} error={connected ? catalog.error?.message : undefined}
         collapsed={collapsed} onCollapse={collapse}
-        onNavigate={onNavigate} retry={() => void list.refresh().catch(() => {})} loadMore={() => void list.loadMore().catch(() => {})} />
+        onNavigate={onNavigate} retry={() => void list.refresh().catch(() => {})} loadMore={() => void (catalog.truncated ? list.next() : list.loadMore()).catch(() => {})} />
   </>;
 }
-function SessionRows({ client, page, loading, error, onNavigate, loadMore, retry, scroll, content, collapsed = noCollapsedDirectories, onCollapse }: SidebarScroll & {
-  client: WhipClient;
-  page?: DeepReadonly<SessionCatalogPage>;
+function SessionRows({ client, connected, page, loading, error, onNavigate, loadMore, retry, scroll, content, collapsed = noCollapsedDirectories, onCollapse }: SidebarScroll & {
+  client: Client;
+  connected: boolean;
+  page: DeepReadonly<TreeCatalogSnapshot>;
   loading: boolean;
   error?: string;
   onNavigate(): void;
@@ -142,8 +141,7 @@ function SessionRows({ client, page, loading, error, onNavigate, loadMore, retry
   const [actionError, setActionError] = useState<{ owner: string; error: unknown }>();
   const navigate = useNavigate();
   useSessionTabs();
-  const connection = useWhipConnection(client);
-  const runtimeId = connection.info?.runtime_id ?? '';
+  const runtimeId = client.runtimeID;
   const container = useRef<HTMLDivElement>(null);
   const [scrollMargin, setScrollMargin] = useState(0);
   useLayoutEffect(() => {
@@ -180,42 +178,29 @@ function SessionRows({ client, page, loading, error, onNavigate, loadMore, retry
   const visibleRows = virtual.getVirtualItems();
   const ids = useMemo(() => visibleRows.flatMap(item => {
     const row = rows[item.index];
-    return row?.kind === 'session' ? [row.session.id] : [];
+    return row?.kind === 'session' ? [row.session.root_id] : [];
   }).sort(), [visibleRows, rows]);
   const [visible, setVisible] = useState(() => document.visibilityState !== 'hidden');
   useEffect(() => { const change = () => setVisible(document.visibilityState !== 'hidden'); document.addEventListener('visibilitychange', change); return () => document.removeEventListener('visibilitychange', change); }, []);
-  const supported = connection.info?.negotiated_capabilities?.includes('session_summaries') ?? false;
   const summaries = useQuery({
-    queryKey: ['session-sidebar-summaries', runtimeId, ids],
+    queryKey: ['session-sidebar-summaries', runtimeId, clientQueryKey(client), ids],
     queryFn: async ({ signal }) => {
       const items = [];
       for (let offset = 0; offset < ids.length; offset += 32) {
-        const page = await client.sessions.summaries(ids.slice(offset, offset + 32), { signal });
+        const page = await client.trees.summaries(ids.slice(offset, offset + 32), { signal });
         items.push(...page.items);
       }
       return { items };
     },
-    enabled: visible && connection.state === 'connected' && supported && ids.length > 0,
-    refetchInterval: visible && connection.state === 'connected' ? 2000 : false,
+    enabled: visible && connected && ids.length > 0,
+    refetchInterval: visible && connected ? 2000 : false,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     staleTime: 0,
     gcTime: 0,
   });
   const activity = new Map(summaries.data?.items.map(item => [item.root_id, item]));
-  const activityStale = !supported || connection.state !== 'connected' || !!summaries.error;
-  useEffect(() => {
-    if (!visible || connection.state !== 'connected' || !supported || !ids.length) return;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const off = client.onEvent(event => {
-      if (!ids.includes(event.root_id) || !/^(?:turn\.|agent\.(?:turn\.|admitted|prompt\.queued|subtree\.)|root\.|permission\.|question\.)/.test(event.kind) || timer) return;
-      timer = setTimeout(() => {
-        timer = undefined;
-        void runtime.queries.invalidateQueries({ queryKey: ['session-sidebar-summaries', runtimeId] });
-      }, 250);
-    });
-    return () => { off(); clearTimeout(timer); };
-  }, [client, connection.state, ids, runtime, runtimeId, supported, visible]);
+  const activityStale = !connected || !!summaries.error || !summaries.data;
   // Virtual rows can move beneath a stationary pointer during scroll or refresh.
   useLayoutEffect(() => {
     setHoveredDirectory(container.current?.querySelector<HTMLElement>('[data-sidebar-cwd]:hover')?.dataset.sidebarCwd);
@@ -225,7 +210,7 @@ function SessionRows({ client, page, loading, error, onNavigate, loadMore, retry
     const top = scroll.current?.scrollTop ?? 0;
     const visible = virtual.getVirtualItems().find(row => row.end > top);
     const row = visible && rows[visible.index];
-    anchor.current = row && visible && visible.start <= top ? { key: row.key, group: row.kind === 'session' ? `directory:${row.session.cwd}` : undefined, offset: top - visible.start } : null;
+    anchor.current = row && visible && visible.start <= top ? { key: row.key, group: row.kind === 'session' ? `directory:${row.session.working_directory}` : undefined, offset: top - visible.start } : null;
   };
   useEffect(() => {
     const element = scroll.current;
@@ -245,13 +230,13 @@ function SessionRows({ client, page, loading, error, onNavigate, loadMore, retry
   useLayoutEffect(() => {
     const id = pendingReveal.current;
     if (!id) return;
-    const session = items?.find(item => item.id === id);
+    const session = items?.find(item => item.root_id === id);
     if (!session) return;
-    if (collapsed.includes(session.cwd)) { onCollapse?.(session.cwd, false); return; }
-    const index = rows.findIndex(row => row.kind === 'session' && row.session.id === id);
+    if (collapsed.includes(session.working_directory)) { onCollapse?.(session.working_directory, false); return; }
+    const index = rows.findIndex(row => row.kind === 'session' && row.session.root_id === id);
     if (index < 0) {
-      const position = items!.filter(item => item.cwd === session.cwd).findIndex(item => item.id === id);
-      setDirectoryLimit(session.cwd, Math.ceil((position + 1) / defaultDirectorySessionLimit) * defaultDirectorySessionLimit);
+      const position = items!.filter(item => item.working_directory === session.working_directory).findIndex(item => item.root_id === id);
+      setDirectoryLimit(session.working_directory, Math.ceil((position + 1) / defaultDirectorySessionLimit) * defaultDirectorySessionLimit);
       return;
     }
     virtual.scrollToIndex(index, { align: 'auto' });
@@ -286,40 +271,41 @@ function SessionRows({ client, page, loading, error, onNavigate, loadMore, retry
             aria-label={`New session in ${item.cwd}`} title={`New session in ${item.cwd}`} {...stylex.props(styles.destination, styles.icon)}><Plus size={14} /></Link>}
         </div>;
         const session = item.session;
-        const saved = runtime.tabs.preferred(runtimeId, session.id);
-        const active = selected?.runtimeId === runtimeId && selected.rootId === session.id;
-        const menuItems = actions.items({ runtimeId, rootId: session.id, title: session.title, archived: session.archived });
-        return <div key={item.key} data-sidebar-session={session.id} data-sidebar-cwd={session.cwd}
+        const saved = runtime.tabs.preferred(runtimeId, session.root_id);
+        const active = selected?.runtimeId === runtimeId && selected.rootId === session.root_id;
+        const menuItems = actions.items({ runtimeId, rootId: session.root_id, title: session.tree.metadata.title ?? '', archived: session.tree.metadata.archived });
+        return <div key={item.key} data-sidebar-session={session.root_id} data-sidebar-cwd={session.working_directory}
           style={{ position: 'absolute', width: '100%', top: 0, height: row.size, transform: `translateY(${row.start - scrollMargin}px)` }}>
           <ContextMenu items={menuItems} onOpenChange={actions.prepare}><div {...stylex.props(styles.sessionRow, sessionMarker, active && styles.selected)}>
-            <WorkspaceExternalSource id={`sidebar:${JSON.stringify([runtimeId, session.id])}`}
-              data={{ runtimeId, rootId: session.id, titleHint: session.title }}
-              label={session.title || 'Untitled session'} status={<MessageSquare size={13}/>} disabled={touch || !runtimeId}>
-              {sourceProps => <Link {...sourceProps} to="/h/$runtimeId/s/$rootId" params={{ runtimeId, rootId: session.id }} search={sessionSearch(saved)} state={{ whipViewId: saved?.id }} preload={false}
-              aria-current={active ? 'page' : undefined} title={`${session.title || 'Untitled session'}\n${session.cwd}`}
+            <WorkspaceExternalSource id={`sidebar:${JSON.stringify([runtimeId, session.root_id])}`}
+              data={{ runtimeId, rootId: session.root_id, titleHint: session.tree.metadata.title ?? undefined }}
+              label={session.tree.metadata.title || 'Untitled session'} status={<MessageSquare size={13}/>} disabled={touch || !runtimeId}>
+              {sourceProps => <Link {...sourceProps} to="/h/$runtimeId/s/$rootId" params={{ runtimeId, rootId: session.root_id }} search={sessionSearch(saved)} state={{ whipViewId: saved?.id }} preload={false}
+              aria-current={active ? 'page' : undefined} title={`${session.tree.metadata.title || 'Untitled session'}\n${session.working_directory}`}
               onClick={event => {
                 if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-                try { runtime.tabs.open(runtimeId, session.id, session.title); onNavigate(); }
-                catch (error) { event.preventDefault(); setActionError({ owner: `${runtimeId}:${session.id}`, error }); }
+                try { runtime.tabs.open(runtimeId, session.root_id, session.tree.metadata.title ?? undefined); onNavigate(); }
+                catch (error) { event.preventDefault(); setActionError({ owner: `${runtimeId}:${session.root_id}`, error }); }
               }} {...stylex.props(styles.sessionLink)}>
-              <span {...stylex.props(styles.indicator)}>{session.pinned ? <Pin size={12} aria-label="Pinned" />
-                : sessionNeedsInput(activity.get(session.id), activityStale) ? <MessageSquareWarning size={12} {...stylex.props(styles.attention)} aria-label="Needs your input" />
-                : sessionBusy(activity.get(session.id), activityStale) ? <Spinner size={10} label="Session is busy" />
+              <span {...stylex.props(styles.indicator)}>{session.tree.metadata.pinned ? <Pin size={12} aria-label="Pinned" />
+                : sessionNeedsInput(activity.get(session.root_id), activityStale) ? <MessageSquareWarning size={12} {...stylex.props(styles.attention)} aria-label="Needs your input" />
+                : sessionBusy(activity.get(session.root_id), activityStale) ? <Spinner size={10} label="Session is busy" />
                 : <Circle size={5} aria-hidden="true" />}</span>
-              <span {...stylex.props(layout.grow)}><span {...stylex.props(styles.title, layout.ellipsis)}>{session.title || 'Untitled session'}</span>
+              <span {...stylex.props(layout.grow)}><span {...stylex.props(styles.title, layout.ellipsis)}>{session.tree.metadata.title || 'Untitled session'}</span>
               </span>
             </Link>}
             </WorkspaceExternalSource>
-            {!session.archived && <IconButton variant="ghost" label={`Archive ${session.title || 'Untitled session'}`} title="Archive chat"
-              onClick={event => { event.preventDefault(); event.stopPropagation(); void actions.archive({ runtimeId, rootId: session.id, title: session.title, archived: session.archived }, true); }}
+            {!session.tree.metadata.archived && <IconButton variant="ghost" label={`Archive ${session.tree.metadata.title || 'Untitled session'}`} title="Archive chat"
+              onClick={event => { event.preventDefault(); event.stopPropagation(); void actions.archive({ runtimeId, rootId: session.root_id, title: session.tree.metadata.title ?? '', archived: session.tree.metadata.archived }, true); }}
               xstyle={[styles.icon, styles.sessionMenu]}><Archive size={14} /></IconButton>}
-            <Menu trigger={<IconButton variant="ghost" label={`Actions for ${session.title || 'Untitled session'}`} xstyle={[styles.icon, styles.sessionMenu]}><MoreHorizontal size={14} /></IconButton>} items={menuItems} onOpenChange={actions.prepare} />
+            <Menu trigger={<IconButton variant="ghost" label={`Actions for ${session.tree.metadata.title || 'Untitled session'}`} xstyle={[styles.icon, styles.sessionMenu]}><MoreHorizontal size={14} /></IconButton>} items={menuItems} onOpenChange={actions.prepare} />
           </div></ContextMenu>
         </div>;
       })}
     </div>
     {!items?.length && <p {...stylex.props(layout.muted)}>{loading ? 'Loading sessions…' : 'No saved sessions yet.'}</p>}
-    {page?.has_more && <Button variant="ghost" disabled={loading} onClick={loadMore}>Load more sessions</Button>}
+    {page.truncated && <p role="status">This sidebar window reached its limit. Continue to the next sessions or use search.</p>}
+    {page.nextCursor && <Button variant="ghost" disabled={loading || !connected} onClick={loadMore}>{page.truncated ? 'Next sessions' : 'Load more sessions'}</Button>}
     {error && <ErrorNotice type="resource" owner={`sessions:${runtimeId}`} error={error} title="Could not load sessions" action={<Button variant="ghost" disabled={loading} onClick={retry}>Retry</Button>} />}
     {actionError && <ErrorNotice type="action" owner={actionError.owner} error={actionError.error} title="Could not open session" onDismiss={() => setActionError(undefined)} />}
   </div>;

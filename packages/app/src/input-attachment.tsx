@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { WhipClient } from '@whip/legacy-sdk';
-import type { ContentHandle } from '@whip/legacy-protocol';
+import type { Client } from '@whip/sdk';
+import type { ContentReference } from '@whip/protocol';
 import { Button, Dialog, Spinner } from '@whip/ui';
 import { Paperclip } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
@@ -9,7 +9,7 @@ import { colors } from '@whip/ui/tokens.stylex';
 import { ErrorNotice } from './error-feedback';
 
 export function InputAttachment({ client, rootId, runtimeId, agentId, file, name, image, connected, compact = false }: {
-  client: WhipClient; rootId: string; runtimeId: string; agentId: string; file: ContentHandle; name: string; image: boolean; connected: boolean;
+  client: Client; rootId: string; runtimeId: string; agentId: string; file: ContentReference; name: string; image: boolean; connected: boolean;
   compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -17,9 +17,9 @@ export function InputAttachment({ client, rootId, runtimeId, agentId, file, name
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   const query = useQuery({
-    queryKey: ['queued-attachment', runtimeId, rootId, agentId, file.reference_id, file.digest],
+    queryKey: ['queued-attachment', runtimeId, rootId, agentId, file.session_id, file.id, file.digest],
     enabled: connected && (image || open), staleTime: Infinity, gcTime: 0, retry: false, networkMode: 'always', refetchOnWindowFocus: false,
-    queryFn: ({ signal }) => client.content(file, { rootId, agentId }).readBytes({ maxBytes: 20 << 20, signal }),
+    queryFn: ({ signal }) => client.session(agentId).content.readBytes(file, { signal }),
   });
   useEffect(() => {
     if (!image || !query.data) return;
@@ -29,7 +29,7 @@ export function InputAttachment({ client, rootId, runtimeId, agentId, file, name
   }, [image, query.data, file.media_type]);
   const unavailable = !connected && !loaded || failed || !!query.error;
   const retry = <Button type="button" disabled={!connected} onClick={() => void query.refetch()}>Retry</Button>;
-  const error = <ErrorNotice type="resource" owner={file.reference_id} error={query.error} action={retry} />;
+  const error = <ErrorNotice type="resource" owner={file.id} error={query.error} action={retry} />;
   return <div {...stylex.props(compact && styles.compactAttachment)}>
     <Button type="button" variant="ghost" aria-label={`Preview ${name}`} title={name} disabled={image && !loaded} onClick={() => setOpen(true)} xstyle={image ? [styles.thumbnail, compact && styles.smallThumbnail] : undefined}>
       {!image && <><Paperclip size={14} />{name}</>}

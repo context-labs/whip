@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { JSDOM } from 'jsdom';
 import { screen } from '@testing-library/react';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { fixture } from '../../../packages/app/test/welcome-fixture';
 
 // Component-shape contracts only; startup-frontdoor.test.tsx covers real bootstrap.
@@ -21,7 +21,7 @@ async function observe(mutate?: (document: Document) => void) {
   } finally { dom.window.close(); }
 }
 async function home(ready = false) {
-  const f = fixture(false, ready); f.render();
+  const f = await fixture(false, ready); f.render();
   const control = await screen.findByRole('button', { name: ready ? 'Model' : 'Connect OpenAI', exact: true });
   expect((control as HTMLButtonElement).disabled).toBe(false);
   return f;
@@ -32,7 +32,7 @@ it('accepts actionable fresh provider setup without the first-message composer',
   const f = await home();
   expect(screen.queryByRole('textbox', { name: 'Your first message' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Send first message' })).toBeNull();
-  expect(f.raw.sessions.create).not.toHaveBeenCalled();
+  expect(f.rpc['trees.create']).not.toHaveBeenCalled();
   expect(await observe()).toMatchObject(usable);
 });
 it('accepts the configured first-message composer with its Model control', async () => {
@@ -41,16 +41,17 @@ it('accepts the configured first-message composer with its Model control', async
   expect(await observe()).toMatchObject(usable);
 });
 it('rejects the actual disconnected provider setup', async () => {
-  const f = fixture(false, false);
-  Object.assign(f.raw.getSnapshot(), { state: 'connecting' });
+  const f = await fixture(false, false);
+  const state = f.runtime.getSnapshot();
+  vi.mocked(f.runtime.getSnapshot).mockReturnValue({ ...state, hosts: state.hosts.map(host => host.id === 'local' ? { ...host, state: 'connecting' } : host) });
   f.render();
   expect((await screen.findByRole('button', { name: 'Connect OpenAI' }) as HTMLButtonElement).disabled).toBe(true);
   expect(await observe()).toMatchObject({ home: false, painted: false });
 });
 it('rejects pending provider inventory', async () => {
-  const f = fixture(false, false);
+  const f = await fixture(false, false);
   f.runtime.queries.removeQueries({ queryKey: ['provider-list', 'host'] });
-  f.raw.providers.list.mockImplementation(() => new Promise(() => {}));
+  f.rpc['providers.list']!.mockImplementation(() => new Promise(() => {}));
   f.render();
   await screen.findByRole('textbox', { name: 'Your first message' });
   expect(await observe()).toMatchObject({ home: false, painted: false });

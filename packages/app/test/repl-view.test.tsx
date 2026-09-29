@@ -1,166 +1,147 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
-import type { SessionView, SessionViewSnapshot } from '@whip/legacy-sdk/state';
+import { Client, type Cell, type HostOperation, type Message, type Operations, type Turn } from '@whip/sdk';
+import { createExecutionView, createSessionView } from '@whip/sdk/state';
 import { ThemeProvider, UIProvider } from '@whip/ui';
+import fixtures from '../../protocol/schema/fixtures.json';
 import { ReplView, outputPreview } from '../src/repl-view';
+import { executionOutput } from '../src/execution-output';
 import { RuntimeContext } from '../src/context';
 import type { AppRuntime } from '../src/runtime';
 
-// Layout/anchor behavior is covered by timeline-reading and browser fixtures.
 vi.mock('../src/reading-list', () => ({
-  ReadingList: ({ rows, renderRow, empty }: { rows: { id: string }[]; renderRow(row: unknown, index: number): ReactNode; empty: ReactNode }) =>
-    <div>{rows.length ? rows.map((row, index) => <div key={row.id}>{renderRow(row, index)}</div>) : empty}</div>,
+  ReadingList: ({ rows, renderRow, empty, footer }: { rows: { id: string }[]; renderRow(row: unknown, index: number): ReactNode; empty: ReactNode; footer: ReactNode }) =>
+    <div>{rows.length ? rows.map((row, index) => <div key={row.id}>{renderRow(row, index)}</div>) : empty}{footer}</div>,
 }));
-beforeEach(() => {
-  vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
-});
+beforeEach(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
 afterEach(() => vi.unstubAllGlobals());
-
+const sample = (type: string) => structuredClone(fixtures.find(value => value.type === type && value.valid)!.value);
 const output = Array.from({ length: 9 }, (_, index) => `line ${index + 1}`).join('\n') + '\n';
-it('previews the newest running output and first recorded lines, without changing full copy text', () => {
+const result = (value = output, engine: 'starlark' | 'quickjs' = 'starlark') => JSON.stringify({ result: { format_version: 2, execution_engine: engine, language: engine === 'quickjs' ? 'javascript' : 'starlark', output: value, has_value: true, value: 42, steps: 7, metrics: { quickjs_jobs: 3 } } });
+
+async function fixture(raw = result(), engine: 'starlark' | 'quickjs' = 'starlark', empty = false) {
+  const state: { turn: Turn; cell: Cell; messages: Message[]; operations: HostOperation[]; preview: Operations['sessions.observe']['result']['preview']; output: Operations['cells.output']['result']['preview'] } = {
+    output: null,
+    turn: { ...sample('Turn'), id: 'turn', session_id: 'session_child', state: 'succeeded', kind: 'prompt', finished_at: '2026-09-27T12:00:01Z' } as Turn,
+    cell: { ...sample('Cell'), id: 'cell', turn_id: 'turn', state: 'succeeded', checkpoint: null } as Cell,
+    messages: [] as Message[],
+    operations: [] as HostOperation[],
+    preview: null as Operations['sessions.observe']['result']['preview'],
+  };
+  state.messages = empty ? [] : [
+    { ...sample('Message'), id: 'message_call', session_id: 'session_child', turn_id: 'turn', group_id: 'turn', source: null, retired_by: null, retired_revision: null, sequence: '9007199254740993', role: 'assistant', parts: [{ type: 'tool_call', call: { id: 'call_fixture', name: 'execute', arguments: { code: 'print(42)' } } }] } as Message,
+    { ...sample('Message'), id: 'message_result', session_id: 'session_child', turn_id: 'turn', group_id: 'turn', source: null, retired_by: null, retired_revision: null, sequence: '9007199254740994', role: 'tool', parts: [{ type: 'tool_result', result: { call_id: 'call_fixture', output: raw, is_error: false } }] } as Message,
+  ];
+  const calls: string[] = [];
+  const client = await Client.connect(async request => {
+    calls.push(request.method);
+    const after = !!request.params && typeof request.params === 'object' && 'after' in request.params && request.params.after;
+    const history = { session_id: 'session_child', revision: '1', through_sequence: state.messages.at(-1)?.sequence ?? '0', message_count: String(state.messages.length) };
+    let value: unknown;
+    if (request.method === 'initialize') value = { major: 4, minor: 0, runtime_id: 'host', process_epoch: 'boot', network_client: false, builtins: [] };
+    else if (request.method === 'sessions.activity') value = { ...sample('SessionActivity'), active_turn: state.turn.state === 'running' ? state.turn : null, active_input_id: state.turn.state === 'running' ? 'input_fixture' : null };
+    else if (request.method === 'sessions.history_page') value = { snapshot: history, messages: state.messages, next_cursor: null };
+    else if (request.method === 'sessions.observe') value = { snapshot: history, epoch: 'boot', messages: [], preview: state.preview };
+    else if (request.method === 'cells.output') value = { epoch: 'boot', preview: state.output };
+    else if (request.method === 'sessions.turns') value = { items: [state.turn], next_cursor: null };
+    else if (request.method === 'turns.cells') value = { items: after || empty ? [] : [state.cell] };
+    else if (request.method === 'turns.operations') value = { items: after ? [] : state.operations };
+    else throw new Error(request.method);
+    return { jsonrpc: '2.0', id: request.id, result: structuredClone(value) };
+  }, { clientID: 'test' });
+  const session = client.session('session_child'), view = createSessionView(session, { pollIntervalMs: 60_000 });
+  await view.start();
+  const execution = createExecutionView(session, view, { pollIntervalMs: 60_000 }); await execution.start();
+  afterEach(async () => { await execution.dispose(); await view.dispose(); });
+  const copy = vi.fn(async () => {}), runtime = { platform: { copy }, report: vi.fn() } as unknown as AppRuntime;
+  const app = (connected = true) => <RuntimeContext.Provider value={runtime}><UIProvider copy={copy}><ThemeProvider initialTheme="claude-code">
+    <ReplView session={session} view={view} execution={execution} engine={engine} runtimeId="host" viewId="view" connected={connected} />
+  </ThemeProvider></UIProvider></RuntimeContext.Provider>;
+  return { app, state, view, execution, copy, calls };
+}
+
+it('previews running tails and recorded beginnings while keeping the full copy text', () => {
   expect(outputPreview(output, true, false)).toEqual({ text: 'line 4\nline 5\nline 6\nline 7\nline 8\nline 9', hidden: 3 });
   expect(outputPreview(output, false, false)).toEqual({ text: 'line 1\nline 2\nline 3\nline 4\nline 5\nline 6', hidden: 3 });
   expect(outputPreview(output, true, true)).toEqual({ text: output, hidden: 0 });
-  expect(outputPreview('one\n', false, false)).toEqual({ text: 'one\n', hidden: 0 });
 });
-
-function fixture(messages: NonNullable<SessionViewSnapshot['history'][string]>['messages'] = []) {
-  const state = {
-    status: 'live',
-    root: { root_id: 'root', history_revision: '1', agents: [], presentation: [], agent_presentations: {}, active_turns: {} },
-    history: { root: { revision: '1', throughSeq: 2, nextSeq: -1, hasMore: false, messages, loading: false, truncated: false } },
-    collections: {}, retainedBytes: 0, truncated: false, unavailable: false,
-  } as unknown as SessionViewSnapshot;
-  const view = {
-    session: { rootId: 'root' },
-    getSnapshot: () => state,
-    subscribe: () => () => {},
-    loadOlder: vi.fn(async () => {}), loadCollection: vi.fn(async () => {}),
-  } as unknown as SessionView;
-  const copy = vi.fn(async () => {});
-  const runtime = { platform: { copy }, report: vi.fn() } as unknown as AppRuntime;
-  const app = (connected = true) => <RuntimeContext.Provider value={runtime}><UIProvider copy={copy}><ThemeProvider initialTheme="claude-code">
-    <ReplView view={view} state={state} agentId="root" runtimeId="host" viewId="view" connected={connected} />
-  </ThemeProvider></UIProvider></RuntimeContext.Provider>;
-  return { app, state, view, copy };
-}
-
-it('explains a saved failure with no execution cells instead of the ordinary empty state', () => {
-  const f = fixture();
-  f.state.root!.agents = [{ id: 'root', name: 'Research', last_turn: { status: 'failed', event_seq: '14', error: 'Invalid prompt_cache_key' } }] as NonNullable<SessionViewSnapshot['root']>['agents'];
-  render(f.app());
-  expect(screen.getByText('The last turn failed')).toBeDefined();
-  expect(screen.queryByText('No executions in the loaded history')).toBeNull();
-  expect(screen.queryAllByRole('article')).toHaveLength(0);
-});
-it('renders a read-only cell, expands output, copies exact text and does not invent historical timing', async () => {
-  const f = fixture([
-    { seq: 1, message: { role: 'assistant', content: '', tool_calls: [{ id: 'call', type: 'function', function: { name: 'rlm_exec', arguments: '{"code":"print(42)"}' } }] } },
-    { seq: 2, message: { role: 'tool', name: 'rlm_exec', tool_call_id: 'call', content: JSON.stringify({ output, value: 42, steps: 7 }) } },
-  ]);
-  render(f.app());
-  expect(screen.getByRole('article', { name: 'Execution 1' })).toBeDefined();
-  expect(screen.getByText('Completed')).toBeDefined();
+it('renders native committed evidence, expands output and copies exact code, text and value', async () => {
+  const f = await fixture(); render(f.app());
+  expect(screen.getByRole('article', { name: 'Execution 1' })).toBeDefined(); expect(screen.getByText('Completed')).toBeDefined();
   expect(screen.getByRole('region', { name: 'Output' }).textContent).not.toContain('line 9');
-  const blocks = document.querySelectorAll('figure');
-  expect(blocks).toHaveLength(3);
-  for (const block of blocks) expect(within(block).getAllByRole('button')).toHaveLength(1);
-  fireEvent.click(screen.getByRole('button', {name: 'Copy Starlark code'}));
-  await waitFor(() => expect(f.copy).toHaveBeenLastCalledWith('print(42)'));
-  fireEvent.click(screen.getByRole('button', {name: 'Copy Return value'}));
-  await waitFor(() => expect(f.copy).toHaveBeenLastCalledWith('42'));
-  const outputButton = screen.getByRole('button', {name: 'Copy output'});
-  fireEvent.click(outputButton);
-  await waitFor(() => expect(f.copy).toHaveBeenLastCalledWith(output));
-  fireEvent.blur(outputButton);
-  fireEvent.click(screen.getByRole('button', { name: 'Show 3 more lines' }));
-  expect(screen.getByRole('region', { name: 'Output' }).textContent).toBe(output);
-  fireEvent.click(screen.getByRole('button', { name: 'Copy output' }));
-  await waitFor(() => expect(f.copy).toHaveBeenCalledWith(output));
-  expect(screen.getByRole('region', { name: 'Return value' }).textContent).toBe('42');
-  expect(screen.queryByText('⇒')).toBeNull();
-  expect(screen.queryByText(/Observed \d/)).toBeNull();
-  expect(screen.queryByRole('textbox')).toBeNull();
-  expect(screen.queryByRole('button', { name: 'About REPL history' })).toBeNull();
-  expect(screen.queryByText(/loaded cells?/)).toBeNull();
-  expect(f.view.loadOlder).not.toHaveBeenCalled();
-  expect(f.view.loadCollection).not.toHaveBeenCalled();
+  for (const block of document.querySelectorAll('figure')) expect(within(block).getAllByRole('button')).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Copy Starlark code' })); await waitFor(() => expect(f.copy).toHaveBeenLastCalledWith('print(42)'));
+  fireEvent.click(screen.getByRole('button', { name: 'Copy Return value' })); await waitFor(() => expect(f.copy).toHaveBeenLastCalledWith('42'));
+  fireEvent.click(screen.getByRole('button', { name: 'Copy output' })); await waitFor(() => expect(f.copy).toHaveBeenLastCalledWith(output));
+  fireEvent.click(screen.getByRole('button', { name: 'Show 3 more lines' })); expect(screen.getByRole('region', { name: 'Output' }).textContent).toBe(output);
+  expect(screen.queryByRole('textbox')).toBeNull(); expect(screen.queryByText(/Observed \d/)).toBeNull();
+  expect(f.calls.every(call => call === 'initialize' || call.startsWith('sessions.') || call.startsWith('turns.'))).toBe(true);
 });
-it('copies raw JSON output rather than its formatted preview', async () => {
-  const raw = '{"greeting":"🌍","items":[1,2]}';
-  const f = fixture([
-    {seq: 1, message: {role: 'assistant', content: '', tool_calls: [{id: 'call', type: 'function', function: {name: 'rlm_exec', arguments: '{"code":"read()"}'}}]}},
-    {seq: 2, message: {role: 'tool', name: 'rlm_exec', tool_call_id: 'call', content: JSON.stringify({output: raw, value: null, steps: 1})}},
-  ]);
-  render(f.app());
-  expect(screen.getByRole('region', {name: 'Output'}).textContent).not.toBe(raw);
-  fireEvent.click(screen.getByRole('button', {name: 'Copy output'}));
-  await waitFor(() => expect(f.copy).toHaveBeenCalledExactlyOnceWith(raw));
+it('copies raw JSON output and preserves unsafe integer payloads verbatim', async () => {
+  const raw = '{"greeting":"🌍","items":[1,2]}', f = await fixture(result(raw)); render(f.app());
+  expect(screen.getByRole('region', { name: 'Output' }).textContent).not.toBe(raw);
+  fireEvent.click(screen.getByRole('button', { name: 'Copy output' })); await waitFor(() => expect(f.copy).toHaveBeenCalledExactlyOnceWith(raw));
+  const exact = '{"result":{"execution_engine":"starlark","has_value":true,"value":9007199254740993}}';
+  expect(executionOutput(exact).output).toBe(exact); expect(executionOutput(exact).value).toBeUndefined();
+});
+it('shows native QuickJS explicit null and job count, while absent values stay absent', async () => {
+  const raw = JSON.stringify({ result: { execution_engine: 'quickjs', has_value: true, value: null, metrics: { quickjs_jobs: 3 } } });
+  const f = await fixture(raw, 'quickjs'); render(f.app());
+  expect(screen.getByText('3 jobs')).toBeDefined(); expect(screen.getByRole('region', { name: 'Return value' }).textContent).toBe('null');
+  expect(screen.getByRole('button', { name: 'Copy JavaScript (QuickJS) code' })).toBeDefined(); expect(screen.queryByText(/steps/)).toBeNull();
+  expect(executionOutput(JSON.stringify({ result: { execution_engine: 'starlark', has_value: false, value: null } })).value).toBeUndefined();
+});
+it('retains failed output, restart and checkpoint warnings without inventing a success or replay', async () => {
+  const raw = JSON.stringify({ error: 'cell failed', result: { execution_engine: 'starlark', output: 'before failure', has_value: false, value: null, scratch: { warning: 'Checkpoint failed. Do not replay effects.' }, restored: { restored: ['answer'], failed: [{ name: 'stream', reason: 'unavailable' }] } } });
+  const f = await fixture(raw); f.state.cell.state = 'failed'; await f.execution.refresh(); render(f.app());
+  expect(screen.getByText('Failed')).toBeDefined(); expect(screen.getByRole('region', { name: 'Output' }).textContent).toBe('before failure');
+  expect(screen.getByText('cell failed')).toBeDefined(); expect(screen.getByLabelText('Scratch checkpoint').textContent).toContain('Do not replay');
+  expect(screen.getByText('Worker restarted; restored 1 saved names, 1 unavailable.')).toBeDefined();
+  expect(screen.queryByRole('button', { name: /replay|run/i })).toBeNull();
+});
+it('distinguishes failed empty turns and paused retained evidence', async () => {
+  const f = await fixture('', 'starlark', true); f.state.turn.state = 'failed'; f.state.turn.failure = 'Invalid prompt_cache_key'; await f.execution.refresh();
+  const mounted = render(f.app()); expect(screen.getByText('The last turn failed')).toBeDefined(); expect(screen.getByText('Invalid prompt_cache_key')).toBeDefined();
+  mounted.rerender(f.app(false)); expect(screen.getByRole('status').textContent).toContain('paused'); expect(screen.queryAllByRole('article')).toHaveLength(0);
+});
+it('shows provisional code separately and exact host-operation state beside the committed cell', async () => {
+  const f = await fixture();
+  f.state.operations = [{ ...sample('HostOperation'), id: 'operation', session_id: 'session_child', turn_id: 'turn', cell_id: 'cell', state: 'waiting', result: null, dispatched_at: null, finished_at: null } as HostOperation];
+  f.state.preview = { attempt_id: 'attempt', turn_id: 'turn', message_id: 'preview', text: '', reasoning: '', calls: [{ index: 0, id: 'next_call', name: 'execute', arguments: '{"code":' }], truncated: false, revision: '1' };
+  await act(async () => { await f.view.refresh(); await f.execution.refresh(); }); render(f.app());
+  expect(screen.getByRole('article', { name: 'Provisional execution' })).toBeDefined(); expect(screen.getByText('waiting')).toBeDefined();
+  expect(document.querySelectorAll('[data-repl-cell]')).toHaveLength(1); expect(screen.getByText('Writing · provisional')).toBeDefined();
 });
 
-it('distinguishes empty, loading and unavailable agent history, and keeps stale evidence explicit', () => {
-  const f = fixture();
+it('keeps uncertain cell metadata when exact transcript bodies are outside the window', async () => {
+  const f = await fixture(); f.state.cell.state = 'uncertain'; f.state.messages = [];
+  await f.view.latest(); await f.execution.refresh(); render(f.app());
+  expect(screen.getByText('Outcome uncertain')).toBeDefined();
+  expect(screen.getByText('The exact call message is outside the loaded transcript window.')).toBeDefined();
+  expect(screen.getByText('The exact result message is outside the loaded transcript window.')).toBeDefined();
+  expect(screen.getByText('Effects may already have happened. The recorded outcome is uncertain.')).toBeDefined();
+  expect(screen.queryByRole('region', { name: 'Output' })).toBeNull();
+});
+
+it('renders native provisional stdout verbatim, then replaces it with the exact committed result and clears on detach', async () => {
+  const f = await fixture();
+  f.state.turn.state = 'running'; f.state.turn.finished_at = null;
+  f.state.cell.state = 'running'; f.state.cell.finished_at = null; f.state.cell.result_message_id = null;
+  f.state.messages = f.state.messages.slice(0, 1);
+  f.state.output = { session_id: 'session_child', turn_id: 'turn', cell_id: 'cell', call_message_id: 'message_call', call_id: 'call_fixture', history_revision: '1', revision: '9007199254740993', text: '{"result":{"output":"must stay raw"}}', truncated: true };
+  await f.view.latest(); await f.view.refresh(); await f.execution.refresh();
+  expect(f.execution.getSnapshot().output).not.toBeNull();
   const mounted = render(f.app());
-  expect(screen.getByText('No executions in the loaded history')).toBeDefined();
-  f.state.history.root!.loading = true;
+  expect(screen.getByRole('region', { name: 'Live output · provisional' }).textContent).toContain('must stay raw');
+  expect(screen.getByText('Live output is truncated to the first 64 KiB.')).toBeDefined();
+  fireEvent.click(screen.getByRole('button', { name: 'Copy output' })); await waitFor(() => expect(f.copy).toHaveBeenCalledWith(f.state.output!.text));
+  mounted.rerender(f.app(false)); expect(screen.queryByRole('region', { name: 'Live output · provisional' })).toBeNull();
   mounted.rerender(f.app());
-  expect(screen.getByText('Loading executions…')).toBeDefined();
-  f.state.history.root!.loading = false;
-  f.state.history.root!.error = new Error('missing');
-  mounted.rerender(f.app(false));
-  expect(screen.getByText('This agent’s executions are unavailable')).toBeDefined();
-  expect(screen.getByRole('status').textContent).toContain('paused');
-});
-
-it('does not render a panel for a null return value', () => {
-  const f = fixture([
-    { seq: 1, message: { role: 'assistant', content: '', tool_calls: [{ id: 'call', type: 'function', function: { name: 'rlm_exec', arguments: '{"code":"print(42)"}' } }] } },
-    { seq: 2, message: { role: 'tool', name: 'rlm_exec', tool_call_id: 'call', content: JSON.stringify({ output: '42\n', value: null, steps: 7 }) } },
-  ]);
-  render(f.app());
-  expect(screen.getByRole('region', { name: 'Output' }).textContent).toBe('42\n');
-  expect(screen.queryByRole('region', { name: 'Return value' })).toBeNull();
-});
-
-it('renders JavaScript completion with explicit null and jobs, without Starlark labels', () => {
-  const f = fixture([
-    { seq: 1, message: { role: 'assistant', content: '', tool_calls: [{ id: 'call', type: 'function', function: { name: 'rlm_exec', arguments: '{"code":"null"}' } }] } },
-    { seq: 2, message: { role: 'tool', name: 'rlm_exec', tool_call_id: 'call', content: JSON.stringify({ format_version: 2, execution_engine: 'quickjs', language: 'javascript', has_value: true, value: null, metrics: { quickjs_jobs: 3 } }) } },
-  ]);
-  f.state.root!.meta = { execution_engine: 'quickjs' } as NonNullable<SessionViewSnapshot['root']>['meta'];
-  render(f.app());
-  expect(screen.getByText('Completed')).toBeDefined();
-  expect(screen.getByText('3 jobs')).toBeDefined();
-  expect(screen.getByRole('region', { name: 'Return value' }).textContent).toBe('null');
-  expect(screen.getByRole('region', { name: 'Cell 1 · JavaScript (QuickJS)' })).toBeDefined();
-  expect(screen.getByRole('button', { name: 'Copy JavaScript (QuickJS) code' })).toBeDefined();
-  expect(screen.queryByText(/steps/)).toBeNull();
-});
-
-it('shows failed-cell output and checkpoint warnings together', () => {
-  const f = fixture([
-    { seq: 1, message: { role: 'assistant', content: '', tool_calls: [{ id: 'call', type: 'function', function: { name: 'rlm_exec', arguments: '{"code":"fail()"}' } }] } },
-    { seq: 2, message: { role: 'tool', name: 'rlm_exec', tool_call_id: 'call', content: 'Error: cell failed\n' + JSON.stringify({ output: 'before failure', value: null, steps: 7, scratch: { warning: 'Scratch checkpoint failed. Do not replay effects.' } }) } },
-  ]);
-  render(f.app());
-  expect(screen.getByText('Failed')).toBeDefined();
-  expect(screen.getByText('cell failed')).toBeDefined();
-  expect(screen.getByLabelText('Scratch checkpoint').textContent).toContain('Do not replay effects.');
-  expect(screen.getByRole('region', { name: 'Output' }).textContent).toBe('before failure');
-  expect(screen.queryByRole('region', { name: 'Return value' })).toBeNull();
-});
-
-it('shows a shared chronological gap and retries it without creating an execution', () => {
-  const f = fixture([
-    { seq: 1, message: { role: 'assistant', content: '', tool_calls: [{ id: 'before', function: { name: 'rlm_exec', arguments: '{"code":"1"}' } }] } },
-    { seq: 5, message: { role: 'assistant', content: '', tool_calls: [{ id: 'after', function: { name: 'rlm_exec', arguments: '{"code":"2"}' } }] } },
-  ]);
-  f.state.history.root!.gaps = [{ fromSeq: 2, toSeq: 4, status: 'error', error: 'Unavailable' }];
-  f.view.loadHistoryGap = vi.fn(async () => {});
-  const mounted = render(f.app());
-  expect([...mounted.container.querySelectorAll('[data-repl-cell], [data-history-gap]')].map(node => node.hasAttribute('data-history-gap'))).toEqual([false, true, false]);
-  fireEvent.click(screen.getByRole('button', { name: 'Retry', exact: true }));
-  expect(f.view.loadHistoryGap).toHaveBeenCalledWith('root', 4);
-  expect(screen.getAllByRole('article')).toHaveLength(2);
+  f.state.cell.state = 'succeeded'; f.state.cell.result_message_id = 'message_result'; f.state.cell.finished_at = '2026-09-27T12:00:01Z';
+  f.state.turn.state = 'succeeded'; f.state.turn.finished_at = '2026-09-27T12:00:01Z';
+  f.state.messages.push({ ...f.state.messages[0], id: 'message_result', sequence: '9007199254740994', role: 'tool', parts: [{ type: 'tool_result', result: { call_id: 'call_fixture', output: result('committed stdout'), is_error: false } }] });
+  await act(async () => { await f.view.latest(); await f.execution.refresh(); });
+  expect(screen.queryByRole('region', { name: 'Live output · provisional' })).toBeNull();
+  expect(screen.getByRole('region', { name: 'Output' }).textContent).toBe('committed stdout');
 });
