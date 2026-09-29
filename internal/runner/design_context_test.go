@@ -30,7 +30,12 @@ func (*designTranscript) ReadContent(_ context.Context, owner session.SessionID,
 
 func TestDesignContextIsDisplayOnlyWhileProviderReceivesExactEvidence(t *testing.T) {
 	parts := []session.Part{{Type: "text", Text: "My exact request"}, {Type: "content", ReferenceID: "evidence"}}
-	transcript := &designTranscript{flakyTranscript: &flakyTranscript{calls: 1}, message: session.Message{ID: "input_message", SessionID: "owner", Role: session.User, Sequence: 1, Parts: parts, DesignContext: &session.DesignContextPresentation{DesignContext: {ContextAttachmentID: "evidence", PageTitle: "DISPLAY_ONLY_SECRET", Elements: []session.DesignContextElement{}}, ContextPartIndex: 1}}}
+	design := &session.DesignContext{ContextAttachmentID: "evidence", PageTitle: "DISPLAY_ONLY_SECRET", Elements: []session.DesignContextElement{}}
+	presentation, err := design.Presentation(parts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transcript := &designTranscript{flakyTranscript: &flakyTranscript{calls: 1}, message: session.Message{ID: "input_message", SessionID: "owner", Role: session.User, Sequence: 1, Parts: parts, DesignContext: presentation}}
 	calls := 0
 	provider := providerFunc(func(_ context.Context, request model.Request) (model.Response, error) {
 		calls++
