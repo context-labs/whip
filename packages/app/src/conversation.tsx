@@ -815,6 +815,7 @@ export function SessionContent({
             selected={selected}
             turn={lastTurn}
             activeTurn={activeTurn}
+            connected={connected}
           />
         </>
       ) : activityRows.length ||
@@ -847,6 +848,7 @@ export function SessionContent({
                 selected={selected}
                 turn={lastTurn}
                 activeTurn={activeTurn}
+                connected={connected}
               />
             </>
           }
@@ -897,6 +899,7 @@ export function SessionContent({
                 selected={selected}
                 turn={lastTurn}
                 activeTurn={activeTurn}
+                connected={connected}
               />
             </>
           )}

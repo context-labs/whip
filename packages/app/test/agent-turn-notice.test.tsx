@@ -49,3 +49,22 @@ it('reads only the selected session, refreshes explicitly, and never admits work
   mounted.rerender(f.wrap(<Selected id="offline" connected={false} />)); expect(f.count('sessions.get')).toBe(3);
   expect(f.calls.every(call => ['initialize', 'sessions.get'].includes(call.method))).toBe(true);
 });
+
+it('uses the exact immutable definition display name and falls back when unnamed or offline', async () => {
+  const f = await providerFixture();
+  f.data.handlers['definitions.get'] = request => {
+    expect(request.params).toEqual(agent.definition);
+    return { ref: agent.definition, document: { id: agent.definition.id, name: 'Architecture researcher', defaults: {} }, created_at: agent.created_at };
+  };
+  const mounted = f.mount(<AgentTurnNotice session={f.client.session('child')} selected={agent} turn={turn} />);
+  await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Architecture researcher · Last turn failed'));
+  expect(f.count('definitions.get')).toBe(1);
+  const next = { ...agent, definition: { ...agent.definition, revision: 'b'.repeat(64) } };
+  mounted.rerender(f.wrap(<AgentTurnNotice session={f.client.session('child')} selected={next} turn={turn} connected={false} />));
+  expect(screen.getByRole('alert').textContent).toContain('architecture-researcher · Last turn failed');
+  expect(f.count('definitions.get')).toBe(1);
+  f.data.handlers['definitions.get'] = () => ({ ref: next.definition, document: { id: next.definition.id, name: '', defaults: {} }, created_at: next.created_at });
+  mounted.rerender(f.wrap(<AgentTurnNotice session={f.client.session('child')} selected={next} turn={turn} />));
+  await waitFor(() => expect(f.count('definitions.get')).toBe(2));
+  expect(screen.getByRole('alert').textContent).toContain('architecture-researcher · Last turn failed');
+});

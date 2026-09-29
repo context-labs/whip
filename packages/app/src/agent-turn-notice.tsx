@@ -17,15 +17,27 @@ export function useSelectedAgent(session: Session, connected: boolean) {
   });
 }
 
-export function AgentTurnNotice({ session, selected, turn, activeTurn }: {
-  session: Session; selected?: DeepReadonly<SessionRecord>; turn?: DeepReadonly<Turn>; activeTurn?: string;
+export function AgentTurnNotice({ session, selected, turn, activeTurn, connected = true }: {
+  session: Session; selected?: DeepReadonly<SessionRecord>; turn?: DeepReadonly<Turn>; activeTurn?: string; connected?: boolean;
 }) {
   const runtime = useRuntime();
   const [copyError, setCopyError] = useState<unknown>();
   useEffect(() => setCopyError(undefined), [session.id, turn?.id]);
-  if (!turn || turn.session_id !== session.id || selected?.id !== session.id || activeTurn || !['failed', 'cancelled', 'interrupted'].includes(turn.state)) return null;
+  const visible = !!turn && turn.session_id === session.id && selected?.id === session.id && !activeTurn && ['failed', 'cancelled', 'interrupted'].includes(turn.state);
+  const definition = useQuery({
+    queryKey: ['turn-notice-definition', session.client.runtimeID, session.client.processEpoch, selected?.definition.id, selected?.definition.revision],
+    queryFn: async ({ signal }) => {
+      if (!selected) throw new Error('The selected session is unavailable.');
+      const value = await session.client.agents.get(selected.definition, { signal });
+      if (value.ref.id !== selected.definition.id || value.ref.revision !== selected.definition.revision) throw new Error('The definition identity changed.');
+      return value;
+    },
+    enabled: connected && visible && selected?.parent_id !== null,
+    staleTime: Infinity, gcTime: 0, retry: false,
+  });
+  if (!visible || !turn || !selected) return null;
   const label = turn.state === 'failed' ? 'Last turn failed' : turn.state === 'cancelled' ? 'Last turn cancelled' : 'Last turn interrupted';
-  const name = selected.parent_id === null ? 'Root agent' : selected.definition.id;
+  const name = selected.parent_id === null ? 'Root agent' : definition.data?.document.name.trim() || selected.definition.id;
   const model = selected.config_revision === turn.config_revision ? selected.configuration.model : null;
   return <div {...stylex.props(styles.container)} data-agent-turn-outcome={turn.state} data-error-type="turn" data-error-owner={`${session.client.runtimeID}:${session.id}:${turn.id}`}>
     <Alert tone={turn.state === 'failed' ? 'error' : 'neutral'} title={`${name} · ${label}`}
