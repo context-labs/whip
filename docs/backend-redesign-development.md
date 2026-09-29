@@ -4029,3 +4029,12 @@ selection preserves the app allow/deny rules and never starts a helper. Focused
 inspector suites passed26 tests in3.94s, and shared-app TypeScript passed
 (`/tmp/whip-app-hostcontrols-{tests,types}.log`). Actual browser/signed desktop
 artifact coverage remains a separate pending obligation.
+
+### Native shared-app build dependency
+
+`build:web` now builds the native SDK before compiling the production renderer.
+The shared app drops its retired SDK/protocol dependencies, and the root lockfile
+also records the already-adopted native mobile dependencies. `npm run check:web`
+passed, producing the38-file renderer artifact `9c5a6c6ed398da48475bb28b3058d97643038d5a10316d0795f9f88b2f84ac39`
+(`/tmp/whip-native-client-web-build.log`). Existing production browser harnesses
+still need their explicit native migration; this build alone is not browser acceptance.
