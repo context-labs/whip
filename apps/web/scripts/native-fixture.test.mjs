@@ -4,7 +4,7 @@ import { DurableCommand } from '../../../packages/sdk/dist/index.js';
 import { deadline, eventually, startFixture } from './native-fixture.mjs';
 
 test('production web fixture executes both engines, scopes consent and preserves crash evidence', { timeout: 120000 }, async () => {
-  const fixture = await startFixture({ executeCode: true });
+  const fixture = await startFixture({ executeCode: true, rejectInput: 'fixture-provider-rejection' });
   try {
     let client = await fixture.connect('native-fixture-check');
     const { root } = await fixture.createRoot(client), session = client.session(root.id);
@@ -17,6 +17,18 @@ test('production web fixture executes both engines, scopes consent and preserves
       const result = history.messages.flatMap(message => message.parts).find(part => part.type === 'tool_result');
       assert.equal(JSON.parse(result.result.output).result.output, 'native ' + engine + '\n');
     }
+    await session.submit([{ type: 'text', text: 'fixture-provider-rejection' }], 'rejected', deadline());
+    assert.equal((await client.wait('rejected', deadline())).turn.state, 'failed');
+    await session.submit([{ type: 'text', text: 'Follow up after rejected provider response' }], 'after-rejection', deadline());
+    assert.equal((await client.wait('after-rejection', deadline())).turn.state, 'succeeded');
+    assert.equal((await fixture.effects()).filter(text => text === 'fixture-provider-rejection').length, 1);
+    const thinking = session.submission([{ type: 'text', text: 'hold:thinking-response' }], 'thinking');
+    await thinking.send(deadline());
+    await eventually(async () => (await fixture.effects()).includes('hold:thinking-response'));
+    assert.equal((await client.call('sessions.observe', { session_id: session.id, after: '0', limit: 100 }, deadline())).preview?.text ?? '', '');
+    fixture.release('thinking-first-token');
+    await eventually(async () => (await client.call('sessions.observe', { session_id: session.id, after: '0', limit: 100 }, deadline())).preview?.text === 'hold:thinking-response');
+    fixture.release('thinking-response'); assert.equal((await thinking.wait(deadline())).turn.state, 'succeeded');
     const permission = session.submission([{ type: 'text', text: 'permission:fixture' }], 'permission'); await permission.send(deadline());
     const pending = await eventually(async () => (await session.permissions.list({ pending_only: true }, deadline())).items?.[0], { description: 'actual pending file permission' });
     const { root: other } = await fixture.createRoot(client);

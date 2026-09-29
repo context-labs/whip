@@ -25,7 +25,8 @@ export async function eventually(check, { timeout = 15_000, interval = 25, descr
 
 /** Owns the real production runtime, engines and gateway, a local fake HTTP
  * provider and one explicit fixture executor lease. No legacy runtime or DTOs. */
-export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 240_000, executeCode = false } = {}) {
+export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 240_000, executeCode = false, rejectInput } = {}) {
+  if (rejectInput !== undefined && (typeof rejectInput !== 'string' || rejectInput.length < 1 || rejectInput.length > 256)) throw new RangeError('Rejected fixture input must contain 1..256 characters');
   if (!Number.isInteger(lifetimeMs) || lifetimeMs < 1 || lifetimeMs > 1_800_000) throw new RangeError('Fixture lifetime must be within 1..1800000ms');
   const directory = await mkdtemp('/tmp/whip-web-native-'), state = join(directory, 'state');
   const binary = join(directory, 'runtime');
@@ -66,6 +67,7 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
         if (effectBytes > (16 << 20)) throw new Error('Fixture effect evidence exceeds 16MiB');
         await appendFile(join(directory, 'effects.jsonl'), effect, { mode: 0o600 });
       }
+      if (rejectInput !== undefined && text === rejectInput) { response.writeHead(400, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: { message: 'Explicit fixture provider rejection' } })); return; }
       const stream = !!body.stream;
       response.setHeader('Content-Type', stream ? 'text/event-stream' : 'application/json');
       const delta = value => response.write(`data: ${JSON.stringify({ choices: [{ index: 0, delta: value, finish_reason: null }] })}\n\n`);
@@ -82,6 +84,7 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
         const codes = [refresh ? 'print("completed before snapshot")' : 'print("first"); print("second")', `print("first"); print("second"); tools.fixture_wait(key=${JSON.stringify(text.slice(5))})`];
         message = { role: 'assistant', content: text, tool_calls: codes.map(code => ({ id: randomUUID(), type: 'function', function: { name: 'execute', arguments: JSON.stringify({ code }) } })) };
       } else {
+        if (text === 'hold:thinking-response') await wait('thinking-first-token', signal);
         if (stream) { delta({ role: 'assistant', content: text.slice(0, Math.ceil(text.length / 2)) }); delta({ content: text.slice(Math.ceil(text.length / 2)) }); }
         if (text.startsWith('hold:')) await wait(text.slice(5), signal);
         message = { role: 'assistant', content: text };
