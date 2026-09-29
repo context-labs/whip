@@ -7,9 +7,13 @@ and the audited mail repair in [PR #215](https://github.com/context-labs/whip/pu
 The earlier completion claim missed ordinary-mail content-reference transfer;
 the repair passes local gates and hosted Linux, macOS and analysis checks.
 The implementation remains in an unmerged draft PR stack.
-Phase 5's retained-capability implementation and contract criteria are satisfied;
-Phases 6–7 final product acceptance remains in progress. The authorized execution scope
-is all phases, including client adoption and final removal of the retired core.
+Phase 5's retained-capability implementation and contract criteria are satisfied.
+Client adoption and retired-core removal are implemented. On 2026-09-29 the user
+requested first-version closeout for human verification, explicitly deferring
+Firefox/REPL issues, other recorded failures and signed install/update. The
+[first-version closeout](backend-redesign-closeout.md) records the candidate,
+combined validation and human follow-up. This supersedes using the deferred
+items as blockers to that handoff; it does not claim they passed.
 Written: 2026-09-27. Planning reference: `6f02507bf`.
 
 Execution baseline: `e3fed9c91918d9c36766dd47d878c1b5466238d1`. Commands,
@@ -438,9 +442,9 @@ complete with a passing check or recorded manual evidence.
 | 2 | Working database → runtime → protocol → SDK slice | 1 | Complete |
 | 3 | One provider, one engine, execution and recovery | 2 | Complete |
 | 4 | Recursion and shared coordination | 3 | Complete |
-| 5 | Remaining engines, integrations and product behavior | 4 | In progress |
-| 6 | Complete client adoption and product validation | Starts at 2; finishes after 5 | In progress |
-| 7 | Cutover, deletion and release readiness | All prior gates | Pending |
+| 5 | Remaining engines, integrations and product behavior | 4 | Implementation and contract criteria complete |
+| 6 | Complete client adoption and product validation | Starts at 2; finishes after 5 | Implemented; first candidate handed to human verification with recorded deferrals |
+| 7 | Cutover, deletion and release readiness | All prior gates | Core removal and first-version closeout complete; human/release acceptance remains separate |
 
 ### Phase 0 — Establish the feedback loop
 
@@ -1053,9 +1057,17 @@ pass hosted in both browsers at `e85f72203`. The earlier intermittent REPL
 observation overlap remains unexplained. The previously failing hosted
 Settings history seed passes at `b1c9ca965`, without an optimization claim. The [current acceptance snapshot](backend-native-gate-audit.md#current-acceptance-snapshot)
 separates those gates from actual Safari, physical-device,
-signed-release and live-provider requirements. No Phase 5–7 completion is claimed.
+signed-release and live-provider requirements. Under the user's subsequent
+first-version decision, these and the named correctness incidents move to
+[human follow-up](backend-redesign-closeout.md), with their unverified status
+preserved. The unchecked broader criteria below are not first-version blockers.
 
 ### Phase 7 — Cut over and remove the retired core
+
+The first-version engineering handoff is closed under the user-authorized
+2026-09-29 disposition in [the closeout](backend-redesign-closeout.md).
+Broader human and release requirements below remain visible; deferred does not
+mean passed. No merge, deployment or installed-runtime change is included.
 
 The isolated native core-removal increment deletes the retired execution roots,
 legacy SDK/protocol and contract generator, and restores dynamic whole-product
@@ -1085,7 +1097,10 @@ Acceptance:
       without silently importing or deleting them.
 - [x] The normal supported-product gate replaces the temporary active-target
       scope, with whole-module discovery and required supported-client jobs.
-- [ ] This plan records final completion and links to canonical documentation.
+- [x] This plan records first-version engineering closeout, canonical guides and
+      the explicit deferred-issue/human verification list.
+- [ ] Human verification and the deferred release/platform requirements are
+      complete before claiming unrestricted release readiness.
 
 ## Decisions to settle before dependent work
 

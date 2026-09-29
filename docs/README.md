@@ -2,6 +2,7 @@
 
 This source tree uses the native Go backend and protocol v4. The redesign
 is an unmerged draft stack; it does not replace an installed application or runtime.
+Start with the [first-version closeout and human verification checklist](backend-redesign-closeout.md).
 Use the [development record](backend-redesign-development.md) for exact revisions,
 validation and outstanding work. The [accepted plan](backend-redesign-plan.md)
 tracks retained capabilities and final cutover requirements.

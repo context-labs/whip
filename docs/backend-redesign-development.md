@@ -4,8 +4,11 @@ This is the working loop and chronological evidence record for
 [the redesign plan](backend-redesign-plan.md). The current source uses the native
 Go runtime, protocol v4, SDK and supported clients; the retired execution roots,
 legacy SDK/protocol and ambient browser/computer wrappers are removed.
-Phases 5–7 remain open. Start with the [current acceptance snapshot](backend-native-gate-audit.md#current-acceptance-snapshot)
-for exact passing revisions and outstanding requirements.
+The first-version engineering handoff is complete under the user's recorded
+deferrals. Start with the [closeout and human verification checklist](backend-redesign-closeout.md)
+for the exact candidate, failed/passing gates and deferred human/release work.
+The [acceptance snapshot](backend-native-gate-audit.md#current-acceptance-snapshot)
+retains earlier checkpoints without claiming unrestricted release readiness.
 
 The dated/checkpoint sections below preserve what was true when recorded.
 Statements there that clients were unported, wrappers remained, or a gate was
@@ -5866,3 +5869,61 @@ failures remain open. Actual Safari automation and the bounded live-provider
 smoke still await the existing approval questions. Signed/physical-device,
 minimum-OS and real account/hardware evidence remain separately named limits;
 none are implied by deterministic fixtures or by the user's speed acceptance.
+
+
+### First-version closeout for human verification — 2026-09-29
+
+The user changes the remaining acceptance sequence: document the Firefox scroll
+and REPL incidents for later, execute the final combined/environment/closeout
+steps, record other failures and continue, skip signed install/update, and stop
+performance optimization. This refers to items 2–4 of the current completion
+list; the original architecture Phases 2–4 were already complete. The first
+human-verification version is the requested endpoint, with deferred requirements
+recorded rather than falsely passed.
+
+Product candidate: `674347705b7d3fc162146a4bfd5a7174ff57de13`, draft #280.
+Branch `codex/backend-redesign-human-verification` adds documentation only.
+[The closeout](backend-redesign-closeout.md) names NATIVE-01 Firefox small-scroll,
+NATIVE-02 REPL observation accounting, NATIVE-03 cached child-anchor and NATIVE-04
+Desktop navigation incidents, exact evidence, environment results and human steps.
+The tested REPL fixture correction `fde8bd22020b42ff32977df4c985ccde4545c98e`
+remains deliberately unintegrated future work; its separate eleven tests and
+dual-browser workflow pass are not attributed to the candidate.
+
+A bounded source/history diagnostic found no supported cached-anchor product
+fix. All eight tiny Chromium/Firefox nested-history cases preserved the exact
+semantic bookmark; their window-scroll control confirmed browser restoration
+was exercised. No setting, product code or threshold changed. Evidence:
+`/tmp/whip-cached-anchor-source-followthrough.md` and
+`/tmp/whip-nested-history-audit/README.md`. Further investigation is deferred.
+
+Fresh read-only protection checks find the designated handoff worktree clean at
+`239f76152261484e4bc2c61dc1e8e7141fcb5f94`. The original development checkout
+is at externally advanced `12f0ea0768b7d769765596c35c049fe80edfaeba` with 14
+unrelated modified files. They are preserved; no reset, cleanup or source edits
+were performed there. No installed runtime, account, Safari configuration or
+physical device was changed, and no merge/deploy/publication occurred.
+
+Final candidate run `36594047984` at `674347705` completes with 38 successful
+jobs, one failed Desktop leaf, two dependent aggregate failures and zero skips.
+Activity (including Firefox), Settings and the complete conversation workflow
+pass. Desktop job `109501057523` passes types/package verification and its
+166 native/unit +116 distribution checks, then fails native browser navigation:
+page-3 records `ERR_ABORTED (-3)`, the same URL commits, and the act request still
+throws `Browser navigation failed`. Later stages do not execute. The failure's
+bounded JSON remains in the hosted log; the configured Desktop artifact path
+contains no files. No complete candidate Desktop pass is claimed from earlier
+checkpoints. This is NATIVE-04 in the closeout; per user direction it is recorded
+and deferred without another repair/retest cycle. The aggregate remains failed.
+
+
+The available environment preflight completes at 2026-09-29T16:21:19Z. Safari's
+Remote Automation preference is absent (not sufficient alone to prove effective
+state); its latest actual native WebDriver attempt rejected the missing opt-in.
+No explicit live-eval config is selected. Paired iPhones have unavailable tunnels
+and developer services; 25 simulators are available but none booted. No adb
+server is listening, and Android connection availability remains unverified.
+All metadata commands join. No credentials, Safari setting, device, provider or
+installed runtime is touched. These are recorded follow-ups, not new blockers.
+The [durable candidate inventory](backend-native-candidate-validation.md) retains
+all 41 job results and 25 artifact IDs, including the missing Desktop archive.
