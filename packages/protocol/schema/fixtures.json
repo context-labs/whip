@@ -1,5 +1,31 @@
 [
   {
+    "type": "CellOutput",
+    "value": {
+      "epoch": "boot_fixture",
+      "preview": {
+        "session_id": "session_child",
+        "turn_id": "turn_fixture",
+        "cell_id": "cell_fixture",
+        "call_message_id": "message_call",
+        "call_id": "call_fixture",
+        "history_revision": "9007199254740993",
+        "revision": "9007199254740993",
+        "text": "Starting…\n",
+        "truncated": false
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "CellOutput",
+    "value": {
+      "epoch": "boot_fixture",
+      "preview": null
+    },
+    "valid": true
+  },
+  {
     "type": "HostStatus",
     "value": {
       "runtime_id": "runtime_fixture",

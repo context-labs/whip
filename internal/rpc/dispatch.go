@@ -158,7 +158,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return dispatchPermissionMode(ctx, r, method, raw)
 	case "questions.get", "questions.list", "questions.answer":
 		return dispatchQuestion(ctx, r, method, raw)
-	case "grants.create", "grants.list", "grants.revoke", "operations.get", "turns.operations", "permissions.list", "permissions.resolve", "cells.get", "turns.cells":
+	case "grants.create", "grants.list", "grants.revoke", "operations.get", "turns.operations", "permissions.list", "permissions.resolve", "cells.get", "cells.output", "turns.cells":
 		return dispatchOperation(ctx, r, method, raw)
 	case "content.put":
 		return decode(raw, func(p protocol.PutContentParams) (any, error) {

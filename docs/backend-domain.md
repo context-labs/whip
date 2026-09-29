@@ -2286,3 +2286,11 @@ round bound. Headless denies new human waits while existing standing/automatic
 authority remains effective. Cache keys do not replace execution identity and
 are mapped through provider-specific cache handling. Children do not inherit
 root run configuration.
+
+Live cell stdout is disposable runtime observation. `cells.output` reports one
+nullable preview for an exact session, cell, turn, call and history revision,
+scoped to the current process epoch. At most64 sessions retain at most64 KiB of
+valid UTF-8 each. The engine's existing cumulative output callback replaces that
+prefix; truncation is explicit. SQL reads suppress settled cells and retired
+history, while the committed cell result remains the durable full outcome.
+Closing or reopening the runtime cannot restore or replay this preview.

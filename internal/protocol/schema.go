@@ -172,6 +172,7 @@ func Operations() []Operation {
 		{"budgets.list", reflect.TypeFor[SessionParams](), reflect.TypeFor[BudgetsResult]()},
 		{"budgets.set", reflect.TypeFor[SetBudgetParams](), reflect.TypeFor[Budget]()},
 		{"sessions.observe", reflect.TypeFor[HistoryParams](), reflect.TypeFor[SessionObservation]()},
+		{"cells.output", reflect.TypeFor[SessionParams](), reflect.TypeFor[CellOutput]()},
 		{"cells.get", reflect.TypeFor[CellParams](), reflect.TypeFor[Cell]()},
 		{"turns.cells", reflect.TypeFor[CellsParams](), reflect.TypeFor[CellsResult]()},
 		{"grants.create", reflect.TypeFor[CreateGrantParams](), reflect.TypeFor[Grant]()},

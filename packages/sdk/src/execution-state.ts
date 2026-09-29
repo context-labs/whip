@@ -1,11 +1,13 @@
 import { assertValid } from '@whip/protocol';
-import type { Cell, HostOperation, Message, ToolCall, ToolResult, Turn } from '@whip/protocol';
+import type { Cell, CellOutput, HostOperation, Message, ToolCall, ToolResult, Turn } from '@whip/protocol';
 import type { Client } from './index.js';
 import type { Session } from './session.js';
 import type { ObservationError, ObservationStatus, SessionView } from './state.js';
 import { boundedInteger, bytes, freeze } from './value.js';
 import type { DeepReadonly } from './value.js';
 import { RemoteError } from './wire.js';
+
+type CellOutputPreview = NonNullable<CellOutput['preview']>;
 
 export interface ExecutionViewSnapshot {
   status: ObservationStatus;
@@ -15,6 +17,7 @@ export interface ExecutionViewSnapshot {
   historyRevision: string | null;
   turns: Turn[];
   cells: Cell[];
+  output: CellOutputPreview | null;
   operations: HostOperation[];
   windowBefore: string | null;
   olderCursor: string | null;
@@ -62,7 +65,7 @@ export class ExecutionView {
     this.maxBytes = boundedInteger(options.maxBytes ?? 4 << 20, 'maxBytes', 16 << 20);
     if (this.maxBytes < 4096) throw new RangeError('maxBytes must be at least 4096');
     this.interval = boundedInteger(options.pollIntervalMs ?? 1000, 'pollIntervalMs', 60_000);
-    this.current = freeze({ status: 'idle', runtimeID: snapshot.runtimeID, sessionID: snapshot.sessionID, epoch: snapshot.epoch, historyRevision: snapshot.history.snapshot?.revision ?? null, turns: [], cells: [], operations: [], windowBefore: null, olderCursor: null, latestMissing: false, retainedBytes: 0, truncated: false, unavailable: false });
+    this.current = freeze({ status: 'idle', runtimeID: snapshot.runtimeID, sessionID: snapshot.sessionID, epoch: snapshot.epoch, historyRevision: snapshot.history.snapshot?.revision ?? null, turns: [], cells: [], output: null, operations: [], windowBefore: null, olderCursor: null, latestMissing: false, retainedBytes: 0, truncated: false, unavailable: false });
   }
   getSnapshot = (): DeepReadonly<ExecutionViewSnapshot> => this.current;
   subscribe = (listener: () => void): (() => void) => {
@@ -87,10 +90,11 @@ export class ExecutionView {
       this.generation++; this.controller.abort(); this.controller = new AbortController();
       if (changed) {
         this.before = undefined; this.focused = undefined;
-        this.patch({ epoch: source.epoch, historyRevision: revision, turns: [], cells: [], operations: [], windowBefore: null, olderCursor: null, latestMissing: false, truncated: false, status: 'loading', error: undefined });
+        this.patch({ epoch: source.epoch, historyRevision: revision, turns: [], cells: [], output: null, operations: [], windowBefore: null, olderCursor: null, latestMissing: false, truncated: false, status: 'loading', error: undefined });
       }
-      if (source.status !== 'live') this.patch({ status: source.status === 'suspended' || source.status === 'closed' ? 'suspended' : 'stale', unavailable: source.unavailable });
+      if (source.status !== 'live') this.patch({ output: null, status: source.status === 'suspended' || source.status === 'closed' ? 'suspended' : 'stale', unavailable: source.unavailable });
     }
+    if (this.current.output && source.activity?.active_turn?.id !== this.current.output.turn_id) this.patch({ output: null });
     // Source notifications replace evidence, not a queue of refresh requests.
     this.schedule(changed ? 0 : this.interval);
   };
@@ -112,7 +116,7 @@ export class ExecutionView {
     this.active = false; this.generation++; this.controller.abort();
     clearTimeout(this.timer); this.timer = undefined;
     this.unsubscribe?.(); this.unsubscribe = undefined;
-    if (!this.closed) this.patch({ status: 'suspended' });
+    if (!this.closed) this.patch({ status: 'suspended', output: null });
     await this.pending?.catch(() => {});
     await this.navigation?.catch(() => {});
   }
@@ -124,7 +128,7 @@ export class ExecutionView {
   async dispose(): Promise<void> {
     if (this.closed) return;
     await this.suspend(); this.closed = true;
-    this.patch({ status: 'closed', turns: [], cells: [], operations: [], olderCursor: null, error: undefined });
+    this.patch({ status: 'closed', turns: [], cells: [], output: null, operations: [], olderCursor: null, error: undefined });
     this.listeners.clear();
   }
   refresh(): Promise<void> {
@@ -134,7 +138,7 @@ export class ExecutionView {
     const generation = this.generation;
     this.pending = Promise.resolve().then(() => this.read(generation)).catch(error => {
       if (!this.valid(generation)) return;
-      this.patch({ status: 'stale', unavailable: error instanceof TypeError || error instanceof RemoteError && error.kind === 'NOT_FOUND', error: { message: (error instanceof Error ? error.message : String(error)).slice(0, 256), ...(error instanceof RemoteError ? { kind: error.kind.slice(0, 64) } : {}) } });
+      this.patch({ status: 'stale', output: null, unavailable: error instanceof TypeError || error instanceof RemoteError && error.kind === 'NOT_FOUND', error: { message: (error instanceof Error ? error.message : String(error)).slice(0, 256), ...(error instanceof RemoteError ? { kind: error.kind.slice(0, 64) } : {}) } });
     }).finally(() => { this.pending = undefined; this.schedule(); });
     return this.pending;
   }
@@ -154,7 +158,7 @@ export class ExecutionView {
       for (const message of [...source.history.messages].reverse()) if (message.turn_id) ids.add(message.turn_id);
     }
     for (const turn of page.items) ids.add(turn.id);
-    const value: ExecutionViewSnapshot = { status: 'live', runtimeID: this.current.runtimeID, sessionID: this.current.sessionID, epoch: source.epoch, historyRevision: source.history.snapshot.revision, turns: [], cells: [], operations: [], windowBefore: this.before ?? null, olderCursor: page.next_cursor, latestMissing: this.before !== undefined, retainedBytes: 0, truncated: ids.size > this.maxTurns || page.next_cursor !== null, unavailable: false };
+    const value: ExecutionViewSnapshot = { status: 'live', runtimeID: this.current.runtimeID, sessionID: this.current.sessionID, epoch: source.epoch, historyRevision: source.history.snapshot.revision, turns: [], cells: [], output: null, operations: [], windowBefore: this.before ?? null, olderCursor: page.next_cursor, latestMissing: this.before !== undefined, retainedBytes: 0, truncated: ids.size > this.maxTurns || page.next_cursor !== null, unavailable: false };
     let retained = bytes(value), requests = 1;
     const take = <T>(items: T[], record: T) => {
       const size = bytes(record) + 1;
@@ -188,6 +192,17 @@ export class ExecutionView {
         after = page.items.at(-1)!.id;
       }
     }
+    const activeTurn = source.activity?.active_turn?.id;
+    if (requests < 128 && this.before === undefined && activeTurn && value.cells.some(cell => cell.turn_id === activeTurn && cell.state === 'running')) {
+      const observed = await this.session.cells.output(options);
+      if (!this.valid(generation)) return;
+      const output = observed.preview;
+      const cell = output && value.cells.find(cell => cell.id === output.cell_id && cell.turn_id === output.turn_id && cell.state === 'running' && cell.call_id === output.call_id && cell.call_message_id === output.call_message_id);
+      if (output && cell && output.history_revision === value.historyRevision && output.turn_id === this.source.getSnapshot().activity?.active_turn?.id) {
+        if (retained + bytes(output) <= this.maxBytes - 2048) value.output = output;
+        else value.truncated = true;
+      }
+    }
     value.truncated ||= value.cells.length === this.maxCells || value.operations.length === this.maxOperations || requests >= 128;
     if (this.valid(generation)) this.publish(value);
   }
@@ -211,6 +226,7 @@ export const createExecutionView = (session: Session, source: SessionView, optio
 
 export interface CellExecutionRow {
   cell: DeepReadonly<Cell>;
+  output: DeepReadonly<CellOutputPreview> | null;
   turn: DeepReadonly<Turn> | null;
   call: { message: DeepReadonly<Message>; value: DeepReadonly<ToolCall> } | null;
   result: { message: DeepReadonly<Message>; value: DeepReadonly<ToolResult> } | null;
@@ -228,6 +244,7 @@ export function cellExecutionRows(execution: DeepReadonly<ExecutionViewSnapshot>
     const callMessage = match(cell.call_message_id), resultMessage = match(cell.result_message_id);
     const call = callMessage?.parts?.find(part => part.type === 'tool_call' && part.call.id === cell.call_id);
     const result = resultMessage?.parts?.find(part => part.type === 'tool_result' && part.result.call_id === cell.call_id);
-    return { cell, turn: turns.get(cell.turn_id) ?? null, call: call?.type === 'tool_call' ? { message: callMessage!, value: call.call } : null, result: result?.type === 'tool_result' ? { message: resultMessage!, value: result.result } : null, operations: execution.operations.filter(operation => operation.origin === 'cell' && operation.cell_id === cell.id && operation.turn_id === cell.turn_id && operation.session_id === cell.session_id) };
+    const output = execution.status === 'live' && cell.state === 'running' && execution.output?.cell_id === cell.id && execution.output.turn_id === cell.turn_id && execution.output.session_id === cell.session_id && execution.output.call_message_id === cell.call_message_id && execution.output.call_id === cell.call_id && execution.output.history_revision === execution.historyRevision ? execution.output : null;
+    return { cell, output, turn: turns.get(cell.turn_id) ?? null, call: call?.type === 'tool_call' ? { message: callMessage!, value: call.call } : null, result: result?.type === 'tool_result' ? { message: resultMessage!, value: result.result } : null, operations: execution.operations.filter(operation => operation.origin === 'cell' && operation.cell_id === cell.id && operation.turn_id === cell.turn_id && operation.session_id === cell.session_id) };
   });
 }

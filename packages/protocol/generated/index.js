@@ -740,6 +740,11 @@ export const manifest = {
       "result": "SessionObservation"
     },
     {
+      "name": "cells.output",
+      "params": "SessionParams",
+      "result": "CellOutput"
+    },
+    {
       "name": "cells.get",
       "params": "CellParams",
       "result": "Cell"

@@ -810,6 +810,20 @@ export interface Cell {
   created_at: string;
   finished_at: null | string;
 }
+export interface CellOutput {
+  epoch: string;
+  preview: null | {
+    session_id: string;
+    turn_id: string;
+    cell_id: string;
+    call_message_id: string;
+    call_id: string;
+    history_revision: string;
+    revision: string;
+    text: string;
+    truncated: boolean;
+  };
+}
 export interface CellParams {
   cell_id: string;
 }
@@ -10552,6 +10566,7 @@ export interface ContractTypes {
   CallHostToolParams: CallHostToolParams;
   CapturedText: CapturedText;
   Cell: Cell;
+  CellOutput: CellOutput;
   CellParams: CellParams;
   CellsParams: CellsParams;
   CellsResult: CellsResult;
@@ -10975,6 +10990,7 @@ export interface Operations {
   "budgets.list": { params: SessionParams; result: BudgetsResult };
   "budgets.set": { params: SetBudgetParams; result: Budget };
   "sessions.observe": { params: HistoryParams; result: SessionObservation };
+  "cells.output": { params: SessionParams; result: CellOutput };
   "cells.get": { params: CellParams; result: Cell };
   "turns.cells": { params: CellsParams; result: CellsResult };
   "grants.create": { params: CreateGrantParams; result: Grant };

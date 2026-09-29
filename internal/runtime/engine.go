@@ -241,7 +241,9 @@ func (r *Runtime) executeCell(ctx context.Context, turn session.Turn, messageID 
 		}
 		return result, err
 	}
-	evaluated, executionErr := entry.kernel.Exec(cellCtx, process.Cell{Code: arguments.Code, CallID: string(id)})
+	emit, end := r.beginCellOutput(turn, id, messageID, call.ID)
+	defer end()
+	evaluated, executionErr := entry.kernel.Exec(cellCtx, process.Cell{Code: arguments.Code, CallID: string(id), OnOutput: emit})
 	if evaluated.Restored == nil {
 		evaluated.Restored = start.Restore
 	}

@@ -71,6 +71,8 @@ func Fixtures() ([]Fixture, error) {
 		name  string
 		value any
 	}{
+		{"CellOutput", CellOutput{Epoch: "boot_fixture", Preview: &CellOutputPreview{SessionID: "session_child", TurnID: "turn_fixture", CellID: "cell_fixture", CallMessageID: "message_call", CallID: "call_fixture", HistoryRevision: 9007199254740993, Revision: 9007199254740993, Text: "Starting…\n", Truncated: false}}},
+		{"CellOutput", CellOutput{Epoch: "boot_fixture"}},
 		{"HostStatus", HostStatus{RuntimeID: "runtime_fixture", ProcessEpoch: "boot_fixture", PID: 123, Build: "fixture", StartedAt: created.Format(time.RFC3339Nano)}},
 		{"StopHostParams", StopHostParams{RuntimeID: "runtime_fixture", ProcessEpoch: "boot_fixture"}},
 		{"HostStopAccepted", HostStopAccepted{RuntimeID: "runtime_fixture", ProcessEpoch: "boot_fixture"}},

@@ -125,6 +125,11 @@ export class Session {
     },
   };
   readonly cells = {
+    output: async (options: CallOptions = {}) => {
+      const result = await this.client.call('cells.output', { session_id: this.id }, options);
+      if (result.epoch !== this.client.processEpoch || result.preview && (result.preview.session_id !== this.id || new TextEncoder().encode(result.preview.text).byteLength > 65536)) throw new TypeError('Cell output belongs to another session, process, or exceeds its byte limit');
+      return result;
+    },
     get: async (cellID: string, options: CallOptions = {}) => {
       const result = await this.client.call('cells.get', { cell_id: cellID }, options);
       if (result.session_id !== this.id || result.id !== cellID) throw new TypeError('Cell belongs to another session or identity');

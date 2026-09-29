@@ -37,6 +37,23 @@ type CellsResult struct {
 	Items []Cell `json:"items"`
 }
 
+// CellOutput is an ephemeral observation; Epoch scopes it to the host process.
+type CellOutput struct {
+	Epoch   ID                 `json:"epoch"`
+	Preview *CellOutputPreview `json:"preview"`
+}
+type CellOutputPreview struct {
+	SessionID       ID      `json:"session_id"`
+	TurnID          ID      `json:"turn_id"`
+	CellID          ID      `json:"cell_id"`
+	CallMessageID   ID      `json:"call_message_id"`
+	CallID          ID      `json:"call_id"`
+	HistoryRevision Counter `json:"history_revision"`
+	Revision        Counter `json:"revision"`
+	Text            string  `json:"text" maxLength:"65536"`
+	Truncated       bool    `json:"truncated"`
+}
+
 func CellFromDomain(value session.Cell) Cell {
 	result := Cell{ID: ID(value.ID), SessionID: ID(value.SessionID), TurnID: ID(value.TurnID), CallMessageID: ID(value.CallMessageID), CallID: ID(value.CallID), State: string(value.State), CreatedAt: value.CreatedAt.Format(time.RFC3339Nano), FinishedAt: timeString(value.FinishedAt)}
 	if value.ResultMessageID != nil {

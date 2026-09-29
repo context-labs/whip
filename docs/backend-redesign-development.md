@@ -3790,3 +3790,19 @@ Desktop draft262 repaired head `0e6930680` is now fully green in hosted run
 remains a recorded failure. The new parity draft's hosted gates are pending.
 Phases5–7 remain in progress: ACP/TUI, final renderer integration, acceptance
 artifacts and retirement of the old core still have work outstanding.
+
+## Bounded live native REPL stdout
+
+Both engines now publish their existing process output callback through read-only
+`cells.output`. The SDK validates owner, process and64 KiB byte bound and retains
+one exact-cell preview in the existing bounded ExecutionView. It clears on
+settlement, detach, history change or process replacement; slow readers neither
+queue output nor block execution. Reading never starts a kernel or replays code.
+
+Independent backend review and targeted races passed: runtime15.604s, RPC2.670s,
+protocol1.193s; vet/pinned lint0. Real engine proofs cover output before an
+intrinsic question, answer/settlement, cancel and restart, with committed full
+stdout retained. Callback tests cover capacity, Unicode, stale callbacks and
+settlement-before-retirement. All177 native SDK tests and protocol/CSP/drift
+passed (`/tmp/whip-cell-output-{sdk-check,protocol-check}.log`). Product renderers
+must still adopt this new preview; this checkpoint does not claim that UI work.

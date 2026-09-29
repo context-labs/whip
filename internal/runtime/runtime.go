@@ -94,6 +94,7 @@ type Runtime struct {
 	epoch            string
 	previewMu        sync.Mutex
 	previews         map[session.SessionID]*livePreview
+	cellOutputs      map[session.SessionID]*CellOutputPreview
 	workspace        *workspace.Git
 	workspaceCalls   sync.WaitGroup
 	workspaceSlots   chan struct{}
@@ -186,7 +187,7 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 	}
 	r := &Runtime{
 		browserDriverPin: browserDriverPin,
-		browser:          browserhost.New(), mcp: newMCPOwners(directory), executors: executor.New(), epoch: "boot_" + rand.Text(), previews: map[session.SessionID]*livePreview{},
+		browser:          browserhost.New(), mcp: newMCPOwners(directory), executors: executor.New(), epoch: "boot_" + rand.Text(), previews: map[session.SessionID]*livePreview{}, cellOutputs: map[session.SessionID]*CellOutputPreview{},
 		engineManager: process.NewManager(options.KernelWorkers), kernels: map[session.SessionID]*sessionKernel{},
 		store: database, content: bodies, owner: lock, directory: directory, host: host, configuration: configuration, options: options,
 		wake: make(chan struct{}, 1), done: make(chan struct{}), active: map[session.SessionID]*execution{},
@@ -284,6 +285,7 @@ func (r *Runtime) Close() error {
 		}
 		r.previewMu.Lock()
 		clear(r.previews)
+		clear(r.cellOutputs)
 		r.previewMu.Unlock()
 		r.closeErr = errors.Join(pickerErr, workspaceErr, mcpErr, r.store.Close(), r.owner.Close())
 	})
