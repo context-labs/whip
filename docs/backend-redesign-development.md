@@ -3453,3 +3453,48 @@ above establish this checkpoint. The subsequent merge brings in #257's separate
 race-runner CI repair (`4d3b155cb`) without changing Go runtime behavior. Hosted
 checks for this new checkpoint remain pending. Phases 5–6 remain in progress and
 Phase 7 remains pending; no installed runtime was modified.
+
+## Browser peers, execution defaults and input steering
+
+`codex/backend-redesign-browser-integration` follows draft #258. Integrated code
+`fc5753961` preserves schema 49/config 19/protocol 4. It reuses execution defaults
+8b652a1a9, the three browser foundation leaves 322c613cc/d1d60f7a0/bb0e75812,
+browser runtime 28271aae7, public peers c89fdeec1 and steering bfcba5070. Native
+transport deadlines reuse c2480748e. Browser runtime merged with existing tree
+control gates, schema versions stayed monotonic, and generated contracts were
+rebuilt from the combined Go registry.
+
+The combined browser/defaults/import-boundary focused race suite passed runtime
+14.563s, store 4.016s and RPC 5.705s. Independent steering evidence passed focused
+store/runtime/runner/RPC/protocol races, complete runner tests, 112 SDK tests,
+contract/CSP/drift checks and the production crash fixture (35.832s, steering
+stage 197ms). Independent browser public peers passed actual-socket RPC races,
+118 SDK tests and 13 strict-CSP contracts; these are leaf results, not a combined
+release pass. Full integrated phase and analysis gates are pending below. Every
+browser, browser/extrelay and browserhost test is now in the active gate union.
+
+Browser offers/catalogs do not grant control. Captured SQL authority and live
+provider epoch/attachment lineage both govern native dispatch. Preview expansion
+retires narrower authority; stop/revoke/delete/disconnect retire live resources.
+Screenshot chunks are confined to the exact pending command. Native success does
+not pre-settle an operation, and uncertain publication never restores live control.
+Atomic child transfer and the actual desktop bridge remain subsequent work.
+
+Input steering records one immutable target while preserving the original input
+and its one logical charge. Consumption appends canonical messages only at full
+tool-batch or text-response boundaries, bounded to 20 messages/2 MiB of encoded
+parts. An untaken input remains queued and may open its own later turn, never
+retargeting a different active turn. Exact promotion receipts survive deletion.
+Human submission defaults queued; guest agents.submit preserves default steering.
+
+Host execution defaults use configuration CAS. Engine, effort, compaction,
+additional goal continuations and total model attempts are captured at admission;
+existing work is unchanged. Maximum attempts remains the native 1–5 bound, with
+3 by default; zero additional goal continuations means none. These deliberate
+semantics replace legacy overloaded reset/retry labels in product settings.
+
+Draft #257's repaired hosted run 36518700275 at 4d3b155cb passed all Linux/macOS
+build, race-store, race-runtime, race-other and client jobs, analysis and the
+required aggregate. This supersedes the pending repair status above; the earlier
+Linux timeout is still a recorded failed run. Draft #258 remains pending hosted
+validation. Neither pull request was merged.

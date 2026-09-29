@@ -3113,3 +3113,17 @@ presentation by parsing tagged text or accept client-generated indices. The SDK
 the durable command retains the exact metadata for recovery. The app still owns
 the unsent selection and its local preview lifetime. A fork's copied message and
 references belong to its new owner even after the source is deleted.
+
+V4 input delivery distinguishes `queued` from `steer`. Preserve the exact target
+turn and stable edit ID when promoting an already queued input through
+`session.inputs.promotion`; checking the receipt is a read and never reissues the
+promotion. `input.steering.consumed` reports actual boundary consumption, not just
+accepted routing. An untaken input can later start its own turn. A final-step
+ceiling leaves new steering queued. The guest default remains steering; ordinary
+human submission defaults queued unless the caller explicitly chooses otherwise.
+
+Native browser provider selection binds one explicit live peer, pinned to runtime
+and process epoch. Offered tabs are discovery metadata, not agent authority.
+Provider disconnect or exact scope retirement clears live control; reconnect does
+not restore or replay it. Public screenshot uploads belong only to their pending
+command. The product desktop/browser bridge migration remains in progress.
