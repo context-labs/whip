@@ -76,7 +76,12 @@ The harness now pauses before launching any of the 16 streams, so subsequent
 measurements retain the original stream timing relationship. The pause itself
 is never included in keyboard latency.
 
-No forced collection was requested. Natural sampled aggregate Electron RSS
+No forced collection was requested after the drafts/streams/transfer stages.
+The earlier 1/8/32-tab baselines still contained a forced collection in that
+run; it must **not** be described as wholly GC-free. That remaining tab helper
+call is now removed: each tab baseline uses the same bounded passive sampler,
+with optional forced collection only in the separately labeled final diagnostic.
+Natural sampled aggregate Electron RSS
 peaked at 1,597,504 KiB and ended at 1,596,864 KiB. The final sequential browser
 sample reported 71,580,960 bytes used JS heap, 243,909,792 bytes embedder heap,
 20,011,411 bytes backing storage, 19,163 DOM nodes, 2,323 listeners and nine

@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { _electron } from 'playwright';
 import { deadline, eventually, repository } from './native-fixture.mjs';
+import { sampleBrowserRetention } from './performance-retention.mjs';
 
 const exec = promisify(execFile);
 
@@ -183,7 +184,6 @@ export async function exerciseDesktopTabs({ host, fixture, client, ready, frame,
     roots.push((await fixture.createRoot(client)).root.id);
   }
   const snapshots = [];
-  const inspector = await context.newCDPSession(page);
   const tab = id => page.locator(`#whip-workspace-tab-${id}`);
   const select = async id => {
     await tab(id).click();
@@ -203,11 +203,10 @@ export async function exerciseDesktopTabs({ host, fixture, client, ready, frame,
     assert.equal(await page.getByRole('tab').count(), count);
     for (const id of roots.slice(1, Math.min(count, 4))) await select(id);
     await select(roots[0]); await frame();
-    await inspector.send('HeapProfiler.collectGarbage');
     const traffic = await host.traffic();
     assert.equal(traffic.overflow, false); assert(traffic.maximumObservations <= 16);
-    snapshots.push({ tabs: count, heap: await inspector.send('Runtime.getHeapUsage'),
-      activeObservations: traffic.activeObservations, memory: await host.processMemory(`tabs-${count}`),
+    snapshots.push({ tabs: count, heap: await sampleBrowserRetention(context, page),
+      activeObservations: traffic.activeObservations, memory: await host.processMemory(`tabs-${count}-natural`),
       metadataBytes: await page.evaluate(() => new TextEncoder().encode(localStorage.getItem('whip.desktop.window.main.whip.web.workspace.v3')).length) });
   }
   const switches = [];
@@ -227,7 +226,6 @@ export async function exerciseDesktopTabs({ host, fixture, client, ready, frame,
   metrics.desktopTabs = { snapshots, cachedSwitchMilliseconds: summarize(switches), maximumObservations: traffic.maximumObservations,
     summaryPollingIn6100ms: summaryPolling, boundary: 'Playwright click through ready and two animation frames; includes automation overhead.' };
   metrics.checks.push('Staged IPC: 1/8/32 restored metadata tabs, <=16 native session observation waits, bounded aggregate polling for tabs and visible sidebar (identical root sets remain unattributed), 20 cached switches');
-  await inspector.detach();
   return roots;
 }
 
