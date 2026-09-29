@@ -59,7 +59,7 @@ func acpCLI(args []string) error {
 		}
 		override = &selection
 	}
-	stdio, err := newACPStdio(input, output, 5*time.Second)
+	stdio, err := newProtocolStdio(input, output, 5*time.Second, 10<<20)
 	if err != nil {
 		return err
 	}

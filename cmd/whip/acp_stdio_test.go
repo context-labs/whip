@@ -21,7 +21,7 @@ func TestACPStalledEditorReleasesBothDirections(t *testing.T) {
 	}
 	defer outputReader.Close()
 	defer output.Close()
-	stream, err := newACPStdio(input, output, 50*time.Millisecond)
+	stream, err := newProtocolStdio(input, output, 50*time.Millisecond, 10<<20)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -154,7 +154,7 @@ func TestMainDispatchesHeadlessCommands(t *testing.T) {
 		}
 	})
 	t.Run("mcp", func(t *testing.T) {
-		legacyRunFixture(t, "main reply", nil)
+		mcpHome(t, "")
 		if output := invokeMain(t, "mcp", "list"); output == "" {
 			t.Fatal("mcp list produced no output")
 		}

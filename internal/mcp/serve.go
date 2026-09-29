@@ -10,7 +10,7 @@ import (
 )
 
 // ToolProvider is the dispatcher-backed surface exposed over MCP. Production
-// uses a daemon adapter; tests may use bound in-process services.
+// uses a native host client; tests may use bounded protocol fixtures.
 type ToolProvider interface {
 	ToolDefinitions(context.Context) ([]Definition, error)
 	CallTool(context.Context, string, json.RawMessage) (string, error)
@@ -25,6 +25,11 @@ type ToolProvider interface {
 // registered as a stdio server. The model-facing `rlm_exec` tool is not part
 // of this restricted protocol endpoint. Callers use the raw definitions.
 func Serve(ctx context.Context, version string, provider ToolProvider) error {
+	return ServeTransport(ctx, version, provider, &sdkmcp.StdioTransport{})
+}
+
+// ServeTransport borrows one transport. The caller owns bounded I/O and shutdown.
+func ServeTransport(ctx context.Context, version string, provider ToolProvider, transport sdkmcp.Transport) error {
 	if provider == nil {
 		return errors.New("mcp serve requires a tool provider")
 	}
@@ -44,14 +49,17 @@ func Serve(ctx context.Context, version string, provider ToolProvider) error {
 			out, err := provider.CallTool(ctx, definition.Function.Name, req.Params.Arguments)
 			isError := err != nil
 			if err != nil {
-				out = "Error: " + err.Error() // errors are tool output, not protocol failures
+				if out != "" {
+					out += "\n"
+				}
+				out += "Error: " + err.Error() // errors are tool output, not protocol failures
 			}
 			return &sdkmcp.CallToolResult{
 				Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: out}}, IsError: isError,
 			}, nil
 		})
 	}
-	if err := srv.Run(ctx, &sdkmcp.StdioTransport{}); err != nil {
+	if err := srv.Run(ctx, transport); err != nil {
 		return fmt.Errorf("mcp serve: %w", err)
 	}
 	return nil

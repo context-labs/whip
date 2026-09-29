@@ -1,46 +1,39 @@
 package main
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/mcp"
+	"github.com/context-labs/whip/internal/mcpconfig"
 )
 
 // importFixture writes a healthy whipcode config plus a codex config with two
 // servers, and points CodexPath at the fixture.
-func importFixture(t *testing.T, mcpImport string) (wd string) {
+func importFixture(t *testing.T, excluded bool) (wd, directory string) {
 	t.Helper()
-	whipHome := t.TempDir()
-	t.Setenv("WHIPCODE_HOME", whipHome)
 	wd = t.TempDir()
-	cfgSrc := `{
-  "defaultModel": "m1",
-  "providers": { "a": { "baseUrl": "https://a", "api": "openai-completions" } },
-  "models": { "m1": { "providers": ["a"] } }
-  ` + mcpImport + `
-}`
-	if err := os.WriteFile(filepath.Join(whipHome, "config.json"), []byte(cfgSrc), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	codexFile := filepath.Join(wd, "codex.toml")
-	if err := os.WriteFile(codexFile, []byte(
-		"[mcp_servers.node_repl]\ncommand = \"/app/bin/node_repl\"\n[mcp_servers.paper]\nurl = \"http://127.0.0.1:29979/mcp\"\n",
-	), 0o600); err != nil {
+	if err := os.WriteFile(codexFile, []byte("[mcp_servers.node_repl]\ncommand = \"/app/bin/node_repl\"\n[mcp_servers.paper]\nurl = \"http://127.0.0.1:29979/mcp\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	orig := mcp.CodexPath
+	original, global := mcp.CodexPath, mcp.ClaudeGlobalPath
 	mcp.CodexPath = func() string { return codexFile }
-	t.Cleanup(func() { mcp.CodexPath = orig })
-	// Isolate discovery from the developer's real global ~/.claude.json.
-	origG := mcp.ClaudeGlobalPath
 	mcp.ClaudeGlobalPath = func() string { return filepath.Join(wd, "absent-claude.json") }
-	t.Cleanup(func() { mcp.ClaudeGlobalPath = origG })
-	return wd
+	t.Cleanup(func() { mcp.CodexPath = original; mcp.ClaudeGlobalPath = global })
+	directory = useNativeAuth(t, func(directory string) {
+		host := config.Default()
+		if excluded {
+			host.MCP.Imports.Codex = &mcpconfig.ImportSource{Exclude: []string{"node_repl"}}
+		}
+		if err := config.Save(directory, host); err != nil {
+			t.Fatal(err)
+		}
+	})
+	return wd, directory
 }
 
 // chdir switches the process into dir for the test (discovery is cwd-based).
@@ -82,7 +75,7 @@ func TestCaptureStdoutLargeOutput(t *testing.T) {
 }
 
 func TestMCPImportDryRunWritesNothing(t *testing.T) {
-	wd := importFixture(t, "")
+	wd, directory := importFixture(t, false)
 	chdir(t, wd)
 
 	var runErr error
@@ -93,51 +86,42 @@ func TestMCPImportDryRunWritesNothing(t *testing.T) {
 	if !strings.Contains(printed, "node_repl") || !strings.Contains(printed, "paper") {
 		t.Errorf("dry-run should list both imported servers:\n%s", printed)
 	}
-	// The printed fragment must parse as the entry map.
-	start := strings.Index(printed, "{")
-	if start < 0 {
-		t.Fatalf("no JSON fragment printed:\n%s", printed)
-	}
-	var fragment map[string]config.MCPServer
-	if err := json.Unmarshal([]byte(strings.TrimSpace(printed[start:])), &fragment); err != nil {
-		t.Errorf("fragment should parse as mcp entries: %v\n%s", err, printed[start:])
-	}
-	if fragment["paper"].URL != "http://127.0.0.1:29979/mcp" {
-		t.Errorf("fragment lost the url: %+v", fragment["paper"])
+	if strings.Contains(printed, "/app/bin/node_repl") || strings.Contains(printed, "127.0.0.1:29979") {
+		t.Fatal("dry run exposed private connection details", printed)
 	}
 	// Nothing written.
-	reloaded, err := config.Load()
+	reloaded, err := config.Load(directory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reloaded.MCPServers) != 0 {
-		t.Errorf("dry-run must not mutate the config, got %+v", reloaded.MCPServers)
+	if len(reloaded.MCP.Servers) != 0 {
+		t.Errorf("dry-run must not mutate the config, got %+v", reloaded.MCP.Servers)
 	}
 }
 
 func TestMCPImportAppliesAndIsIdempotent(t *testing.T) {
-	wd := importFixture(t, `, "mcpImport": { "codex": { "exclude": ["node_repl"] } }`)
+	wd, directory := importFixture(t, true)
 	chdir(t, wd)
 
 	if err := mcpImportCLI(nil); err != nil {
 		t.Fatal(err)
 	}
-	reloaded, err := config.Load()
+	reloaded, err := config.Load(directory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reloaded.MCPServers["paper"].URL != "http://127.0.0.1:29979/mcp" {
-		t.Errorf("paper should be imported, got %+v", reloaded.MCPServers)
+	if reloaded.MCP.Servers["paper"].URL != "http://127.0.0.1:29979/mcp" {
+		t.Errorf("paper should be imported, got %+v", reloaded.MCP.Servers)
 	}
-	if _, ok := reloaded.MCPServers["node_repl"]; ok {
+	if _, ok := reloaded.MCP.Servers["node_repl"]; ok {
 		t.Error("blocked servers are never imported")
 	}
-	// Materialized entries are native: no import provenance, so the daemon
+	// Materialized entries are native: no import provenance, so the host
 	// trusts them like hand-written ones. Import is the trust path.
-	if entry := reloaded.MCPServers["paper"]; entry.Origin != "" || entry.Source != "" {
+	if entry := reloaded.MCP.Servers["paper"]; entry.Origin != "" || entry.Source != "" {
 		t.Errorf("imported entry kept import provenance: %+v", entry)
 	}
-	if !mcp.FromConfigMap(reloaded.MCPServers)["paper"].Trusted {
+	if !mcp.NativeConfigs(reloaded.MCP.Servers, "fixture")["paper"].Trusted {
 		t.Error("an imported entry must be trusted once it lives in whip's own config")
 	}
 	// Second run: nothing left to import, config unchanged.
@@ -149,11 +133,11 @@ func TestMCPImportAppliesAndIsIdempotent(t *testing.T) {
 	if !strings.Contains(printed, "nothing to import") {
 		t.Errorf("second run should be a no-op, got %q", printed)
 	}
-	reloaded2, err := config.Load()
+	reloaded2, err := config.Load(directory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(reloaded2.MCPServers) != 1 {
-		t.Errorf("config should hold exactly the imported entry, got %+v", reloaded2.MCPServers)
+	if len(reloaded2.MCP.Servers) != 1 {
+		t.Errorf("config should hold exactly the imported entry, got %+v", reloaded2.MCP.Servers)
 	}
 }

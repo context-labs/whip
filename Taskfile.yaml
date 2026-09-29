@@ -196,7 +196,7 @@ tasks:
   check:native-cli:
     desc: Native lifecycle, run, recovery, session catalog/export and compiled CLI fixtures
     cmds:
-      - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(Acp|ACP|Auth|OpenAIAuth|DeviceLogin|ProviderChoice|CLIChooser|TerminalKeyPrompt|Daemon|Desktop|ForcedDaemon|Run|Native|Web|Headless|Sessions|TruncAndAgo|PushOTLP|MainDispatchesHeadlessCommands|ClientEntryPaths|DistributionMalformed)'
+      - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(MCP|Acp|ACP|Auth|OpenAIAuth|DeviceLogin|ProviderChoice|CLIChooser|TerminalKeyPrompt|Daemon|Desktop|ForcedDaemon|Run|Native|Web|Headless|Sessions|TruncAndAgo|PushOTLP|MainDispatchesHeadlessCommands|ClientEntryPaths|DistributionMalformed)'
       - go test -tags=integration -count=1 -timeout=2m ./cmd/whip -run '^TestNativeCompiledCLI'
       - go vet ./cmd/whip
 
