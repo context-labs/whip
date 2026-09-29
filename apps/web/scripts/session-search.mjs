@@ -2,27 +2,24 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { mkdir, readFile } from 'node:fs/promises';
 import { chromium, firefox } from '@playwright/test';
-import { createWhipClient } from '../../../packages/legacy-sdk/dist/index.js';
-import { startFixture, eventually } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
+import { startFixture, eventually } from './native-fixture.mjs';
 const output = '/tmp/whip-session-search-results';
 await mkdir(output, { recursive: true });
 for (const [name, launcher] of Object.entries({ chromium, firefox })) {
   const fixture = await startFixture();
   const browser = await launcher.launch();
-  const client = createWhipClient({ endpoint: fixture.info.endpoint, clientId: crypto.randomUUID(), clientKind: 'human' });
+  const client = await fixture.connect();
   try {
-    await client.connect();
     const roots = [];
     for (let i = 0; i < 70; i++) {
-      const result = await client.sessions.create({ cwd: fixture.directory, model: 'model', provider: 'provider' }).result();
-      roots.push(result.result.root_id);
-      await client.session(roots.at(-1)).rename(`Search dialog session ${i}`).result();
+      const result = await fixture.createRoot(client, { title: `Search dialog session ${i}` });
+      roots.push(result.root.id);
     }
     const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
     const errors = [], frames = [];
     page.on('pageerror', error => errors.push(error.message));
     page.on('websocket', socket => socket.on('framesent', ({ payload }) => { try { frames.push(JSON.parse(String(payload))); } catch {} }));
-    const origin = fixture.info.endpoint.replace(/^ws/, 'http').replace('/api/v3/ws', '');
+    const origin = fixture.info.web;
     await page.goto(`${origin}/h/${fixture.info.runtime_id}/s/${roots[0]}`);
     await page.getByLabel('Message WHIP', { exact: true }).waitFor();
     const trigger = page.getByRole('button', { name: 'Search sessions', exact: true });
@@ -31,7 +28,7 @@ for (const [name, launcher] of Object.entries({ chromium, firefox })) {
     await trigger.click(); await input.waitFor();
     assert.equal(await input.evaluate(node => node === document.activeElement), true);
     await eventually(async () => await dialog.locator('[data-search-index]').count() === 64);
-    assert.equal(frames.filter(frame => frame.method === 'root.snapshot').length, 1);
+    assert.equal(frames.filter(frame => frame.method === 'sessions.history_page').length, 1);
     const axeSource = await readFile(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8');
     await page.route(origin + '/__search-axe.js', route => route.fulfill({ contentType: 'text/javascript', body: axeSource }));
     await page.addScriptTag({ url: origin + '/__search-axe.js' });
@@ -75,5 +72,5 @@ for (const [name, launcher] of Object.entries({ chromium, firefox })) {
   } catch (error) {
     for (const page of browser.contexts().flatMap(context => context.pages())) { await page.screenshot({ path: `${output}/${name}-failure.png` }).catch(() => {}); console.log(await page.locator('body').innerText().catch(() => '')); }
     throw error;
-  } finally { client.close(); await browser.close(); await fixture.close(); }
+  } finally { await browser.close(); await fixture.close(); }
 }
