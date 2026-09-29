@@ -23,7 +23,7 @@ const bridge: DesktopBridge = {
   releaseConnection: id => send('releaseConnection', id),
   openTransport: (id, connectionId) => invoke('openTransport', id, connectionId),
   sendTransport: (id, sequence, frame) => {
-    if (typeof frame !== 'string' || frame.length > 1 << 20) throw new Error('Desktop frame limit exceeded');
+    if (typeof frame !== 'string' || frame.length >= 8 << 20) throw new Error('Desktop frame limit exceeded');
     send('sendTransport', id, sequence, frame);
   },
   acknowledgeTransport: (id, sequence) => send('acknowledgeTransport', id, sequence),

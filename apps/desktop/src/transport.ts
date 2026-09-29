@@ -1,8 +1,8 @@
-import { unixSocket } from '@whip/legacy-sdk/node';
-import type { Transport } from '@whip/legacy-sdk';
+import type { FramedConnection } from '@whip/sdk';
+import { nativeFrameBytes, unixFrames } from './unix-frames';
 import type { DesktopEvent } from '@whip/app/desktop-bridge';
 
-const frameLimit = 1 << 20;
+const frameLimit = nativeFrameBytes;
 const queueLimit = 8 << 20;
 export function validHandle(value: unknown): asserts value is string {
   if (typeof value !== 'string' || !/^[a-zA-Z0-9-]{1,128}$/.test(value)) throw new Error('Invalid desktop handle');
@@ -11,7 +11,7 @@ export function validHandle(value: unknown): asserts value is string {
 /** Bounded raw transport only; product SDK state remains in the renderer. */
 export class DesktopTransports {
   private entries = new Map<string, {
-    connectionId: string; controller: AbortController; transport?: Transport; sent: number; received: number;
+    connectionId: string; controller: AbortController; transport?: FramedConnection; sent: number; received: number;
     outstanding: Map<number, number>; bytes: number; timer?: ReturnType<typeof setInterval>;
   }>();
   constructor(private emit: (event: DesktopEvent) => void) {}
@@ -23,7 +23,7 @@ export class DesktopTransports {
       outstanding: new Map<number, number>(), bytes: 0 } as NonNullable<ReturnType<typeof this.entries.get>>;
     this.entries.set(id, entry);
     try {
-      entry.transport = await unixSocket(socket, frameLimit)({
+      entry.transport = await unixFrames(socket)({
         message: frame => {
           if (this.entries.get(id) !== entry) return;
           const bytes = Buffer.byteLength(frame);
@@ -36,7 +36,7 @@ export class DesktopTransports {
         close: error => { if (this.entries.get(id) === entry) this.close(id, error.message); },
       }, AbortSignal.any([signal, entry.controller.signal]));
       if (this.entries.get(id) !== entry) { entry.transport.close(); throw new Error('Connection was closed'); }
-      // The existing SDK transport exposes bufferedAmount, not a drain callback.
+      // The native connector exposes bufferedAmount, not a drain callback.
       // Poll only while a write remains buffered, and release this timer at close.
     } catch (error) { if (this.entries.get(id) === entry) this.close(id); throw error; }
   }
