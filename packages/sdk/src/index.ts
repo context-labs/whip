@@ -189,6 +189,8 @@ export class Client {
   /** Saved declarations only; never connects or resolves credentials. */
   computerStatus(options: CallOptions = {}): Promise<Operations['computer.status']['result']> { return this.call('computer.status', {}, options); }
   configureComputer(params: Operations['computer.configure']['params'], options: CallOptions = {}): Promise<Operations['computer.configure']['result']> { return this.call('computer.configure', params, options); }
+  /** Explicit helper publication; preserves policy. Refresh status after lost delivery before deciding what to do next. */
+  useBundledComputer(revision: string, options: CallOptions = {}): Promise<Operations['computer.use_bundled']['result']> { return this.call('computer.use_bundled', { revision }, options); }
   reconnectComputer(generation: string, options: CallOptions = {}): Promise<Operations['computer.reconnect']['result']> { return this.call('computer.reconnect', { generation }, { timeoutMs: 160_000, ...options }); }
   disconnectComputer(generation: string, options: CallOptions = {}): Promise<Operations['computer.disconnect']['result']> { return this.call('computer.disconnect', { generation }, options); }
   mcpConfiguration(options: CallOptions = {}): Promise<Operations['mcp.configuration']['result']> { return this.call('mcp.configuration', {}, options); }

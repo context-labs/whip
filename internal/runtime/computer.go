@@ -15,9 +15,10 @@ import (
 )
 
 type ComputerStatus struct {
-	Revision string
-	Config   computerconfig.Config
-	Control  computer.ControllerStatus
+	Revision         string
+	Config           computerconfig.Config
+	Control          computer.ControllerStatus
+	BundledAvailable bool
 }
 
 // ComputerStatus reads availability without probing, extracting or starting a
@@ -37,7 +38,38 @@ func (r *Runtime) computerStatus(ctx context.Context) (ComputerStatus, error) {
 		return ComputerStatus{}, err
 	}
 	settings, err := snapshot.Host.Computer.Normalize()
-	return ComputerStatus{Revision: snapshot.Revision, Config: settings, Control: r.computer.Status()}, err
+	return ComputerStatus{Revision: snapshot.Revision, Config: settings, Control: r.computer.Status(), BundledAvailable: computer.BundledAvailable()}, err
+}
+
+// UseBundledComputer explicitly publishes an embedded helper. It preserves
+// policy and refuses to replace an already configured executable. Configuration
+// remains the authority; an extracted file alone never enables control.
+func (r *Runtime) UseBundledComputer(ctx context.Context, expected string) (ComputerStatus, error) {
+	return r.useBundledComputer(ctx, expected, computer.PublishBundled)
+}
+
+func (r *Runtime) useBundledComputer(ctx context.Context, expected string, publish func(context.Context, string) (string, error)) (ComputerStatus, error) {
+	r.computerMu.Lock()
+	defer r.computerMu.Unlock()
+	snapshot, err := r.configuration.Snapshot(ctx)
+	if err != nil {
+		return ComputerStatus{}, err
+	}
+	if expected == "" || snapshot.Revision != expected || snapshot.Host.Computer.HelperExecutable != "" {
+		return ComputerStatus{}, config.ErrRevisionConflict
+	}
+	path, err := publish(ctx, r.directory)
+	if err != nil {
+		return ComputerStatus{}, err
+	}
+	_, err = r.configuration.Update(ctx, expected, func(host *config.Host) error {
+		host.Computer.HelperExecutable = path
+		return nil
+	})
+	// A concurrent host update can leave a verified, unreferenced file, but
+	// cannot cause publication to overwrite policy or a newer explicit path.
+	status, refreshErr := r.computerStatus(context.WithoutCancel(ctx))
+	return status, errors.Join(err, refreshErr)
 }
 
 func (r *Runtime) ConfigureComputer(ctx context.Context, expected string, settings computerconfig.Config) (ComputerStatus, error) {

@@ -21,6 +21,11 @@ type ComputerStatus struct {
 	State             string                `json:"state" enum:"disabled,available,connected,retired,closed"`
 	NativeConfigured  bool                  `json:"native_configured"`
 	PlatformSupported bool                  `json:"platform_supported"`
+	BundledAvailable  bool                  `json:"bundled_available"`
+}
+
+type UseBundledComputerParams struct {
+	Revision string `json:"revision" pattern:"^[a-f0-9]{64}$"`
 }
 
 type ConfigureComputerParams struct {

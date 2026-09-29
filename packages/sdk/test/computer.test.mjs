@@ -10,7 +10,7 @@ test('computer controls are explicit, generation-scoped and never retry a lost m
  const client=await Client.connect(async request=>{
   if(request.method==='initialize')return {jsonrpc:'2.0',id:request.id,result:initial};
   calls.push(structuredClone(request));
-  if(request.method==='computer.reconnect')throw new DeliveryError('lost acknowledgement');
+  if(request.method==='computer.reconnect'||request.method==='computer.use_bundled')throw new DeliveryError('lost acknowledgement');
   return {jsonrpc:'2.0',id:request.id,result:structuredClone(status)};
  }, {clientID:'human'});
  assert.deepEqual(await client.computerStatus(),status);
@@ -19,8 +19,12 @@ test('computer controls are explicit, generation-scoped and never retry a lost m
  await assert.rejects(client.reconnectComputer(status.generation),DeliveryError);
  assert.deepEqual(calls.map(value=>value.method),['computer.status','computer.configure','computer.disconnect','computer.reconnect']);
  assert.deepEqual(calls.at(-1).params,{generation:status.generation});
+ await assert.rejects(client.useBundledComputer(status.revision),DeliveryError);
+ assert.deepEqual(calls.at(-1).params,{revision:status.revision});
+ assert.equal(calls.filter(value=>value.method==='computer.use_bundled').length,1);
  const count=calls.length;
  await assert.rejects(client.reconnectComputer(status.generation,{signal:AbortSignal.abort()}),error=>error.name==='AbortError');
+ await assert.rejects(client.useBundledComputer('not-a-revision'),TypeError);
  await assert.rejects(client.configureComputer({revision:status.revision,configuration:{...status.configuration,allow:Array(65).fill('app')}}),TypeError);
  assert.equal(calls.length,count);
 });

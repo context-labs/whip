@@ -1194,7 +1194,15 @@
       "generation": "control_fixture",
       "state": "disabled",
       "native_configured": false,
-      "platform_supported": true
+      "platform_supported": true,
+      "bundled_available": false
+    },
+    "valid": true
+  },
+  {
+    "type": "UseBundledComputerParams",
+    "value": {
+      "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
     },
     "valid": true
   },

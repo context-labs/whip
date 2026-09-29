@@ -962,6 +962,7 @@ export interface ComputerStatus {
   state: "disabled" | "available" | "connected" | "retired" | "closed";
   native_configured: boolean;
   platform_supported: boolean;
+  bundled_available: boolean;
 }
 export interface ConfigureComputerParams {
   revision: string;
@@ -10048,6 +10049,9 @@ export interface Usage {
     overflow: boolean;
   };
 }
+export interface UseBundledComputerParams {
+  revision: string;
+}
 export interface WorkspaceAction {
   id: string;
   session_id: string;
@@ -10432,6 +10436,7 @@ export interface ContractTypes {
   UpdateConfigurationParams: UpdateConfigurationParams;
   UpdateTreeParams: UpdateTreeParams;
   Usage: Usage;
+  UseBundledComputerParams: UseBundledComputerParams;
   WorkspaceAction: WorkspaceAction;
   WorkspaceActionParams: WorkspaceActionParams;
   WorkspaceCompletionParams: WorkspaceCompletionParams;
@@ -10482,6 +10487,7 @@ export interface Operations {
   "shell.input": { params: ShellInputParams; result: ShellInputResult };
   "computer.status": { params: EmptyParams; result: ComputerStatus };
   "computer.configure": { params: ConfigureComputerParams; result: ComputerStatus };
+  "computer.use_bundled": { params: UseBundledComputerParams; result: ComputerStatus };
   "computer.reconnect": { params: ComputerConnectionParams; result: ComputerStatus };
   "computer.disconnect": { params: ComputerConnectionParams; result: ComputerStatus };
   "mcp.configuration": { params: EmptyParams; result: MCPConfiguration };

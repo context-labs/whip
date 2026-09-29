@@ -185,6 +185,11 @@ export const manifest = {
       "result": "ComputerStatus"
     },
     {
+      "name": "computer.use_bundled",
+      "params": "UseBundledComputerParams",
+      "result": "ComputerStatus"
+    },
+    {
       "name": "computer.reconnect",
       "params": "ComputerConnectionParams",
       "result": "ComputerStatus"

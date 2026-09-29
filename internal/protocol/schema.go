@@ -58,6 +58,7 @@ func Operations() []Operation {
 		{"shell.input", reflect.TypeFor[ShellInputParams](), reflect.TypeFor[ShellInputResult]()},
 		{"computer.status", reflect.TypeFor[EmptyParams](), reflect.TypeFor[ComputerStatus]()},
 		{"computer.configure", reflect.TypeFor[ConfigureComputerParams](), reflect.TypeFor[ComputerStatus]()},
+		{"computer.use_bundled", reflect.TypeFor[UseBundledComputerParams](), reflect.TypeFor[ComputerStatus]()},
 		{"computer.reconnect", reflect.TypeFor[ComputerConnectionParams](), reflect.TypeFor[ComputerStatus]()},
 		{"computer.disconnect", reflect.TypeFor[ComputerConnectionParams](), reflect.TypeFor[ComputerStatus]()},
 		{"mcp.configuration", reflect.TypeFor[EmptyParams](), reflect.TypeFor[MCPConfiguration]()},

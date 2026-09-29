@@ -33,6 +33,9 @@ func TestComputerRPCPassiveAvailabilityCASAndNoImplicitReconnect(t *testing.T) {
 	if err := c.Call(t.Context(), "computer.configure", request, &response); !errors.As(err, &wire) || wire.Kind != "CONFLICT" {
 		t.Fatal("stale config accepted", err)
 	}
+	if err := c.Call(t.Context(), "computer.use_bundled", protocol.UseBundledComputerParams{Revision: configured.Revision}, &response); !errors.As(err, &wire) || wire.Kind != "CONFLICT" {
+		t.Fatal("bundled setup replaced explicit helper", err)
+	}
 	retired := call[protocol.ComputerStatus](t, c, "computer.disconnect", protocol.ComputerConnectionParams{Generation: configured.Generation})
 	if retired.State != "retired" {
 		t.Fatal(retired)

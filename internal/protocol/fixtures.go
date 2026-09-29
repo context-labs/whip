@@ -141,6 +141,7 @@ func Fixtures() ([]Fixture, error) {
 		{"ShellInputResult", ShellInputResult{Sequence: 9007199254740993}},
 		{"RPCError", RPCError{Code: -32035, Kind: "MCP_UNAVAILABLE", Message: "MCP operation unavailable; inspect configuration and connection status"}},
 		{"ComputerStatus", ComputerStatus{Revision: ref.Revision, Configuration: ComputerConfiguration{Allow: []string{}, Deny: []string{}, DefaultDeny: true}, Generation: "control_fixture", State: "disabled", PlatformSupported: true}},
+		{"UseBundledComputerParams", UseBundledComputerParams{Revision: ref.Revision}},
 		{"MCPConfiguration", MCPConfiguration{Revision: ref.Revision, Servers: []MCPDeclaration{}, Imports: MCPImportPolicy{}, BrandIcons: true}},
 		{"MCPImportCandidatesResult", MCPImportCandidatesResult{Revision: ref.Revision, Candidates: []MCPImportCandidate{{Fingerprint: ref.Revision, Name: "candidate", Source: "codex", State: "importable", Gated: false, BrandHint: "example.com", BrandKey: "example.com"}}, SourceErrors: map[string]string{}}},
 		{"MCPImportParams", MCPImportParams{Revision: ref.Revision, Fingerprints: map[string]string{"candidate": ref.Revision}}},

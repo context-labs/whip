@@ -10,20 +10,12 @@
 package computer
 
 import (
-	_ "embed"
 	"errors"
 	"os"
 	"path/filepath"
 
 	"github.com/context-labs/whip/internal/buildinfo"
 )
-
-// helperBinary is empty until `task driver` builds the Swift driver and
-// copies it into internal/computer/bin/ (go:embed needs the file at build
-// time; a zero-byte placeholder keeps the build green before then).
-//
-//go:embed bin/whip-computer
-var helperBinary []byte
 
 // helperDest is the stable extraction path TCC binds to.
 func helperDest() (string, error) {
