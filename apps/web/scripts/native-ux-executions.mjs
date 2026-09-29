@@ -35,6 +35,8 @@ for (const name of names) {
     name,
     gates: [],
     errors: [],
+    consoleDiagnostics: [],
+    connectionDiagnostics: [],
     observations: [],
     frames: [],
     rawMaxima: {},
@@ -134,7 +136,16 @@ for (const name of names) {
     result.version = browser.version();
     page.on('pageerror', record);
     page.on('console', (message) => {
-      if (message.type() === 'error') record(message.text());
+      if (message.type() === 'error') {
+        record(message.text());
+        if (result.consoleDiagnostics.length < 64)
+          result.consoleDiagnostics.push({
+            at: performance.now(),
+            phase,
+            url: page.url(),
+            message: message.text().slice(0, 4096),
+          });
+      }
     });
     await page.exposeFunction('replObservationEvidence', (evidence) =>
       retainObservationEvidence(result.observations, evidence, record),
@@ -149,6 +160,16 @@ for (const name of names) {
     page.on('websocket', (socket) => {
       const id = ++connection,
         pending = new Map();
+      const lifetime = {
+        connection: id,
+        at: performance.now(),
+        phase,
+        documentURL: page.url(),
+        url: socket.url(),
+        initialized: false,
+      };
+      if (result.connectionDiagnostics.length < 128) result.connectionDiagnostics.push(lifetime);
+      else record(new Error('Connection diagnostics bound exceeded'));
       const settle = (request) => {
         if (request.settled) return;
         request.settled = true;
@@ -156,6 +177,8 @@ for (const name of names) {
           outstanding.get(request.params.session_id)?.delete(request);
       };
       socket.on('close', () => {
+        lifetime.closedAt = performance.now();
+        lifetime.closedPhase = phase;
         for (const request of pending.values()) settle(request);
         pending.clear();
       });
@@ -194,6 +217,7 @@ for (const name of names) {
           const response = JSON.parse(String(payload)),
             request = pending.get(response.id);
           if (!request) return;
+          if (request.method === 'initialize' && response.result) lifetime.initialized = true;
           request.error = response.error?.kind;
           request.nextCursor = response.result?.next_cursor;
           if (request.method === 'turns.cells_page')
