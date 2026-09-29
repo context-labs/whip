@@ -22,6 +22,7 @@ type Message struct {
 	Continuation *session.ModelContinuation
 }
 type Request struct {
+	CacheKey     string // explicit cache affinity; never substitutes for owner identity
 	Purpose      string
 	SessionID    session.SessionID
 	TurnID       session.TurnID

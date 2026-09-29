@@ -107,6 +107,12 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 		return r.compactTurn(ctx, turn, configuration)
 	}
 	request := model.Request{SessionID: turn.SessionID, TurnID: turn.ID, Selection: configuration.Model, Instructions: configuration.Instructions.Text}
+	if configuration.Run != nil {
+		request.CacheKey = configuration.Run.CacheKey
+		if configuration.Run.System != "" {
+			request.Instructions = configuration.Run.System
+		}
+	}
 	if r.executor != nil {
 		instructions, err := r.executor.Instructions(ctx, turn, configuration.Instructions)
 		if err != nil {
@@ -132,12 +138,21 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 	replannedContext := false
 	var correction []session.Part
 	baseInstructions := request.Instructions
-	for round := 1; round <= 32; round++ {
+	for round := 1; configuration.Run != nil || round <= 32; round++ {
+		if err := ctx.Err(); err != nil {
+			return Outcome{}, err
+		}
+		final := configuration.Run != nil && configuration.Run.MaxTurns > 0 && round > configuration.Run.MaxTurns
+		request.Instructions = baseInstructions
 		if notices, ok := r.executor.(interface{ TurnNotices(session.Turn) string }); ok {
-			request.Instructions = baseInstructions
 			if text := notices.TurnNotices(turn); text != "" {
 				request.Instructions += "\n\n--- Hook notices ---\n" + text
 			}
+		}
+		if final {
+			request.Tools = nil
+			request.Purpose = "final"
+			request.Instructions += "\n\nYou have reached the tool-call limit. Do not request any more tools. Give your final answer using only what you have already gathered."
 		}
 		if r.mail != nil {
 			messages, err := r.mail.ObserveSteers(ctx, turn.ID)
@@ -184,6 +199,9 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 			if part.Call != nil {
 				calls = append(calls, *part.Call)
 			}
+		}
+		if final && len(calls) != 0 {
+			return Failure(errors.New("final response requested a tool after the configured limit")), nil
 		}
 		if correctedOutput && len(calls) != 0 {
 			return Failure(errors.New("output_invalid: the corrective response must be a final JSON value without tool calls")), nil

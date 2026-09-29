@@ -3,6 +3,21 @@
   "minor": 0,
   "operations": [
     {
+      "name": "workspace.inspect",
+      "params": "SessionParams",
+      "result": "WorkspaceInspection"
+    },
+    {
+      "name": "workspace.set",
+      "params": "WorkspaceSetParams",
+      "result": "ControlEdit"
+    },
+    {
+      "name": "run.configure",
+      "params": "RunConfigureParams",
+      "result": "ControlEdit"
+    },
+    {
       "name": "trace.page",
       "params": "TracePageParams",
       "result": "TracePageResult"

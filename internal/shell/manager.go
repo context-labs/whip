@@ -22,6 +22,7 @@ const (
 )
 
 var (
+	ErrBusy     = errors.New("shell owner is busy or changing workspace")
 	ErrClosed   = errors.New("shell resource generation is closed")
 	ErrLimit    = errors.New("shell resource limit reached")
 	ErrNotFound = errors.New("shell job not found in this owner generation")
@@ -33,6 +34,7 @@ var (
 type Manager struct {
 	mu            sync.Mutex
 	owners        map[string]*Scope
+	paused        map[string]int
 	running, jobs int
 	closed        bool
 }
@@ -51,13 +53,18 @@ type Scope struct {
 	workers              sync.WaitGroup
 }
 
-func NewManager() *Manager { return &Manager{owners: make(map[string]*Scope)} }
+func NewManager() *Manager {
+	return &Manager{owners: make(map[string]*Scope), paused: make(map[string]int)}
+}
 
 func (m *Manager) Capture(owner string) (*Scope, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed || owner == "" {
 		return nil, ErrClosed
+	}
+	if m.paused[owner] != 0 {
+		return nil, ErrBusy
 	}
 	if scope := m.owners[owner]; scope != nil {
 		return scope, nil
@@ -88,6 +95,9 @@ func (s *Scope) Reserve(background bool) (*Reservation, error) {
 	m := s.manager
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.paused[s.owner] != 0 {
+		return nil, ErrBusy
+	}
 	if s.closed {
 		return nil, ErrClosed
 	}
@@ -316,4 +326,35 @@ func (m *Manager) Close() {
 	m.owners = make(map[string]*Scope)
 	m.jobs = 0
 	m.mu.Unlock()
+}
+
+// PauseIdle prevents new reservations for an exact owner set while a human
+// workspace control commits. It never stops a running job to make the check pass.
+func (m *Manager) PauseIdle(owners []string) (func(), error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return nil, ErrClosed
+	}
+	for _, owner := range owners {
+		if m.paused[owner] != 0 {
+			return nil, ErrBusy
+		}
+		if scope := m.owners[owner]; scope != nil && scope.running != 0 {
+			return nil, ErrBusy
+		}
+	}
+	for _, owner := range owners {
+		m.paused[owner]++
+	}
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			m.mu.Lock()
+			defer m.mu.Unlock()
+			for _, owner := range owners {
+				delete(m.paused, owner)
+			}
+		})
+	}, nil
 }

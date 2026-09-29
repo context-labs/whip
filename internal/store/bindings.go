@@ -73,7 +73,7 @@ func (s *Store) CellSession(ctx context.Context, id session.SessionID, cell sess
 		if err != nil {
 			return err
 		}
-		current.Config, err = readConfiguration(ctx, tx, owner, revision)
+		current, err = capturedSession(ctx, tx, current, revision)
 		if err != nil {
 			return err
 		}
@@ -82,4 +82,24 @@ func (s *Store) CellSession(ctx context.Context, id session.SessionID, cell sess
 		return nil
 	})
 	return
+}
+
+// ConfigurationSession projects an immutable configuration and working directory
+// using the existing session identity. It does not claim execution authority.
+func (s *Store) ConfigurationSession(ctx context.Context, id session.SessionID, revision session.Revision) (session.Session, error) {
+	current, err := readSession(ctx, s.db, id)
+	if err != nil {
+		return current, err
+	}
+	return capturedSession(ctx, s.db, current, revision)
+}
+
+func capturedSession(ctx context.Context, q querier, current session.Session, revision session.Revision) (session.Session, error) {
+	var raw string
+	if err := q.QueryRowContext(ctx, "SELECT configuration,working_directory FROM session_configurations WHERE session_id=? AND revision=?", current.ID, revision).Scan(&raw, &current.WorkingDirectory); err != nil {
+		return current, found(err)
+	}
+	current.ConfigRevision = revision
+	current.Config = session.Configuration{}
+	return current, json.Unmarshal([]byte(raw), &current.Config)
 }

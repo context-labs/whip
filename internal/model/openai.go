@@ -71,6 +71,11 @@ type CallError struct {
 func (e *CallError) Error() string { return e.Message }
 
 func (p OpenAI) Prepare(ctx context.Context, request Request) (Prepared, error) {
+	if request.CacheKey != "" {
+		if err := session.ValidateText(request.CacheKey, 4096); err != nil {
+			return Prepared{}, err
+		}
+	}
 	request.Selection = request.Selection.Clone()
 	if request.Purpose == "" {
 		request.Purpose = "turn"
@@ -327,7 +332,7 @@ func encodeChat(request Request, baseURL string, maxTokens int64) ([]byte, error
 	if effort == "off" {
 		effort = ""
 	}
-	cacheKey := promptCacheKey(request.SessionID)
+	cacheKey := requestCacheKey(request)
 	// Match complete preset roots, not hostnames: custom proxies retain the
 	// generic wire contract. These presets omit the explicit cache-key field.
 	switch baseURL {
@@ -485,4 +490,11 @@ func retryAfter(value string) time.Duration {
 		return min(max(time.Until(date), 0), time.Minute)
 	}
 	return 0
+}
+
+func requestCacheKey(request Request) string {
+	if request.CacheKey != "" {
+		return promptCacheKey(session.SessionID(request.CacheKey))
+	}
+	return promptCacheKey(request.SessionID)
 }

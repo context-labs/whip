@@ -471,7 +471,7 @@ func TestSessionInstructionsReadOnlySnapshotWithWriter(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(t.Context(), `INSERT INTO session_configurations(session_id,revision,configuration,created_at) VALUES (?,?,?,?)`, owner.ID, owner.ConfigRevision+1, raw, now()); err != nil {
+	if _, err := tx.ExecContext(t.Context(), `INSERT INTO session_configurations(session_id,revision,configuration,working_directory,created_at) VALUES (?,?,?,?,?)`, owner.ID, owner.ConfigRevision+1, raw, owner.WorkingDirectory, now()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tx.ExecContext(t.Context(), "UPDATE sessions SET config_revision=? WHERE id=?", owner.ConfigRevision+1, owner.ID); err != nil {

@@ -504,6 +504,125 @@ export interface ContextHistoryParams {
   through_sequence: string;
   limit: number;
 }
+export interface ControlEdit {
+  id: string;
+  session_id: string;
+  revision: string;
+  deleted: boolean;
+  session: null | {
+    history_revision: string;
+    id: string;
+    tree_id: string;
+    parent_id: null | string;
+    definition: {
+      id: string;
+      revision: string;
+    };
+    config_revision: string;
+    configuration: {
+      run: null | {
+        system: string;
+        max_turns: number;
+        headless: boolean;
+        cache_key: string;
+      };
+      mcp_servers: {
+        [k: string]: unknown;
+      };
+      /**
+       * @maxItems 17
+       */
+      modules: (
+        | "agents"
+        | "artifacts"
+        | "browser"
+        | "computer"
+        | "context"
+        | "files"
+        | "goals"
+        | "mail"
+        | "mcp"
+        | "messages"
+        | "models"
+        | "permissions"
+        | "schedules"
+        | "shell"
+        | "skills"
+        | "state"
+        | "user"
+      )[];
+      tools_definition: null | {
+        id: string;
+        revision: string;
+      };
+      hooks_definition: null | {
+        id: string;
+        revision: string;
+      };
+      automatic_title: boolean;
+      goals_enabled: boolean;
+      compaction: {
+        model: null | {
+          provider: string;
+          name: string;
+          effort: string;
+          temperature?: null | number;
+          top_p?: null | number;
+        };
+        threshold_percent: number;
+      };
+      report_mode: "notice" | "inline" | "message";
+      model:
+        | {
+            provider: string;
+            name: string;
+            effort: string;
+            temperature?: null | number;
+            top_p?: null | number;
+          }
+        | {
+            provider: "";
+            name: "";
+            effort: "";
+            temperature?: null | number;
+            top_p?: null | number;
+          };
+      instructions: {
+        project_root: null | string;
+        text: string;
+        project_files: null | string[];
+        discover_skills: boolean;
+        standing_instructions: boolean;
+        skill_roots: null | string[];
+      };
+      tools: {
+        [k: string]: {
+          timeout_millis: number;
+          description: string;
+          input_schema: unknown;
+          output_schema: unknown;
+        };
+      } | null;
+      children: {
+        [k: string]: {
+          id: string;
+          revision: string;
+        };
+      } | null;
+      hooks: {
+        [k: string]: {
+          operations: null | string[];
+          optional: boolean;
+          timeout_millis: number;
+        };
+      } | null;
+      output_schema: unknown;
+    };
+    working_directory: string;
+    lifecycle: "active" | "stopped";
+    created_at: string;
+  };
+}
 export interface CreateGoalParams {
   session_id: string;
   goal_id: string;
@@ -735,6 +854,12 @@ export interface CreateTreeResult {
     };
     config_revision: string;
     configuration: {
+      run: null | {
+        system: string;
+        max_turns: number;
+        headless: boolean;
+        cache_key: string;
+      };
       mcp_servers: {
         [k: string]: unknown;
       };
@@ -1573,6 +1698,12 @@ export interface ForkResult {
     };
     config_revision: string;
     configuration: {
+      run: null | {
+        system: string;
+        max_turns: number;
+        headless: boolean;
+        cache_key: string;
+      };
       mcp_servers: {
         [k: string]: unknown;
       };
@@ -3146,6 +3277,12 @@ export interface ListSessionsResult {
         };
         config_revision: string;
         configuration: {
+          run: null | {
+            system: string;
+            max_turns: number;
+            headless: boolean;
+            cache_key: string;
+          };
           mcp_servers: {
             [k: string]: unknown;
           };
@@ -6752,6 +6889,17 @@ export interface RewindParams {
   observed_through: string;
   keep_through: string;
 }
+export interface RunConfigureParams {
+  id: string;
+  session_id: string;
+  expected_revision: string;
+  configuration: {
+    system: string;
+    max_turns: number;
+    headless: boolean;
+    cache_key: string;
+  };
+}
 export interface RunShellParams {
   identity: {
     client_id: string;
@@ -6982,6 +7130,12 @@ export interface Session {
   };
   config_revision: string;
   configuration: {
+    run: null | {
+      system: string;
+      max_turns: number;
+      headless: boolean;
+      cache_key: string;
+    };
     mcp_servers: {
       [k: string]: unknown;
     };
@@ -7587,6 +7741,12 @@ export interface SpawnSessionResult {
     };
     config_revision: string;
     configuration: {
+      run: null | {
+        system: string;
+        max_turns: number;
+        headless: boolean;
+        cache_key: string;
+      };
       mcp_servers: {
         [k: string]: unknown;
       };
@@ -8267,6 +8427,11 @@ export interface WorkspaceActionParams {
   snapshot_id: string;
   session_id: string;
 }
+export interface WorkspaceInspection {
+  session_id: string;
+  working_directory: string;
+  configuration_revision: string;
+}
 export interface WorkspaceResult {
   action: {
     id: string;
@@ -8288,6 +8453,12 @@ export interface WorkspaceResult {
     created_at: string;
     released_at: null | string;
   };
+}
+export interface WorkspaceSetParams {
+  id: string;
+  session_id: string;
+  expected_revision: string;
+  path: string;
 }
 export interface WorkspaceSnapshot {
   id: string;
@@ -8358,6 +8529,7 @@ export interface ContractTypes {
   ContentReference: ContentReference;
   ContextHead: ContextHead;
   ContextHistoryParams: ContextHistoryParams;
+  ControlEdit: ControlEdit;
   CreateGoalParams: CreateGoalParams;
   CreateGrantParams: CreateGrantParams;
   CreateScheduleParams: CreateScheduleParams;
@@ -8514,6 +8686,7 @@ export interface ContractTypes {
   Response: Response;
   ResumeGoalParams: ResumeGoalParams;
   RewindParams: RewindParams;
+  RunConfigureParams: RunConfigureParams;
   RunShellParams: RunShellParams;
   ScheduleAdmission: ScheduleAdmission;
   ScheduleParams: ScheduleParams;
@@ -8575,7 +8748,9 @@ export interface ContractTypes {
   UpdateTreeParams: UpdateTreeParams;
   WorkspaceAction: WorkspaceAction;
   WorkspaceActionParams: WorkspaceActionParams;
+  WorkspaceInspection: WorkspaceInspection;
   WorkspaceResult: WorkspaceResult;
+  WorkspaceSetParams: WorkspaceSetParams;
   WorkspaceSnapshot: WorkspaceSnapshot;
   WorkspaceSnapshotParams: WorkspaceSnapshotParams;
   WorkspaceSnapshotsParams: WorkspaceSnapshotsParams;
@@ -8583,6 +8758,9 @@ export interface ContractTypes {
   WriteStateParams: WriteStateParams;
 }
 export interface Operations {
+  "workspace.inspect": { params: SessionParams; result: WorkspaceInspection };
+  "workspace.set": { params: WorkspaceSetParams; result: ControlEdit };
+  "run.configure": { params: RunConfigureParams; result: ControlEdit };
   "trace.page": { params: TracePageParams; result: TracePageResult };
   "trace.export": { params: TraceExportParams; result: TraceExportResult };
   "host.attention": { params: HostAttentionParams; result: HostAttentionResult };

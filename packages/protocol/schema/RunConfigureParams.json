@@ -1,0 +1,56 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "expected_revision": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "configuration": {
+      "type": "object",
+      "properties": {
+        "system": {
+          "type": "string",
+          "maxLength": 524288
+        },
+        "max_turns": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "headless": {
+          "type": "boolean"
+        },
+        "cache_key": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "system",
+        "max_turns",
+        "headless",
+        "cache_key"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/RunConfigureParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RunConfigureParams",
+  "required": [
+    "id",
+    "session_id",
+    "expected_revision",
+    "configuration"
+  ],
+  "additionalProperties": false
+}

@@ -111,6 +111,7 @@ type CompactionPolicy struct {
 	ThresholdPercent int             `json:"threshold_percent" min:"0" max:"100"`
 }
 type Configuration struct {
+	Run             *RunConfiguration          `json:"run"`
 	MCPServers      MCPSelection               `json:"mcp_servers"`
 	Modules         []ID                       `json:"modules"`
 	ToolsDefinition *DefinitionRef             `json:"tools_definition"`

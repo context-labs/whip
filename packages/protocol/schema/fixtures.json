@@ -197,6 +197,129 @@
     "valid": true
   },
   {
+    "type": "WorkspaceInspection",
+    "value": {
+      "session_id": "session_root",
+      "working_directory": "/workspace ",
+      "configuration_revision": "9007199254740993"
+    },
+    "valid": true
+  },
+  {
+    "type": "WorkspaceSetParams",
+    "value": {
+      "id": "workspace_edit",
+      "session_id": "session_root",
+      "expected_revision": "9007199254740993",
+      "path": "../workspace "
+    },
+    "valid": true
+  },
+  {
+    "type": "RunConfigureParams",
+    "value": {
+      "id": "run_edit",
+      "session_id": "session_root",
+      "expected_revision": "9007199254740993",
+      "configuration": {
+        "system": "",
+        "max_turns": 0,
+        "headless": true,
+        "cache_key": ""
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "ControlEdit",
+    "value": {
+      "id": "workspace_edit",
+      "session_id": "session_root",
+      "revision": "9007199254740993",
+      "deleted": false,
+      "session": {
+        "history_revision": "9007199254740993",
+        "id": "session_root",
+        "tree_id": "tree_fixture",
+        "parent_id": null,
+        "definition": {
+          "id": "assistant",
+          "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+        },
+        "config_revision": "9007199254740993",
+        "configuration": {
+          "run": null,
+          "mcp_servers": {
+            "all": true,
+            "servers": []
+          },
+          "modules": [
+            "agents",
+            "artifacts",
+            "browser",
+            "computer",
+            "context",
+            "files",
+            "goals",
+            "mail",
+            "mcp",
+            "messages",
+            "models",
+            "permissions",
+            "schedules",
+            "shell",
+            "skills",
+            "state",
+            "user"
+          ],
+          "tools_definition": null,
+          "hooks_definition": null,
+          "automatic_title": true,
+          "goals_enabled": true,
+          "compaction": {
+            "model": null,
+            "threshold_percent": 50
+          },
+          "report_mode": "notice",
+          "model": {
+            "provider": "fixture",
+            "name": "scripted",
+            "effort": ""
+          },
+          "instructions": {
+            "project_root": null,
+            "text": "Help the user complete their task. Use only the operations made available to you.",
+            "project_files": [
+              "AGENTS.md"
+            ],
+            "discover_skills": true,
+            "standing_instructions": false,
+            "skill_roots": null
+          },
+          "tools": null,
+          "children": null,
+          "hooks": null,
+          "output_schema": null
+        },
+        "working_directory": "/workspace",
+        "lifecycle": "active",
+        "created_at": "2026-09-27T12:00:00.123456Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "ControlEdit",
+    "value": {
+      "id": "workspace_deleted",
+      "session_id": "session_root",
+      "revision": "9007199254740993",
+      "deleted": true,
+      "session": null
+    },
+    "valid": true
+  },
+  {
     "type": "HostSkillsResult",
     "value": {
       "candidates": [
@@ -1204,6 +1327,7 @@
         },
         "config_revision": "9007199254740993",
         "configuration": {
+          "run": null,
           "mcp_servers": {
             "all": true,
             "servers": []
@@ -2927,6 +3051,7 @@
       },
       "config_revision": "9007199254740993",
       "configuration": {
+        "run": null,
         "mcp_servers": {
           "all": true,
           "servers": []
@@ -2998,6 +3123,7 @@
       },
       "config_revision": "9007199254740993",
       "configuration": {
+        "run": null,
         "mcp_servers": {
           "all": true,
           "servers": []
@@ -3120,6 +3246,7 @@
       },
       "config_revision": "9007199254740993",
       "configuration": {
+        "run": null,
         "mcp_servers": {
           "all": true,
           "servers": []

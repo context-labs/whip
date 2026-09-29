@@ -312,6 +312,18 @@ export class Client {
   }
 
   /** Fixed-revision canonical updates. A null span deletes that ID; conflicts require a fresh scan. */
+  inspectWorkspace(sessionID: string, options: CallOptions = {}): Promise<Operations['workspace.inspect']['result']> {
+    return this.call('workspace.inspect', { session_id: sessionID }, options);
+  }
+
+  setWorkingDirectory(params: Operations['workspace.set']['params'], options: CallOptions = {}): Promise<Operations['workspace.set']['result']> {
+    return this.call('workspace.set', params, options);
+  }
+
+  configureRun(params: Operations['run.configure']['params'], options: CallOptions = {}): Promise<Operations['run.configure']['result']> {
+    return this.call('run.configure', params, options);
+  }
+
   tracePage(params: Operations['trace.page']['params'], options: CallOptions = {}): Promise<Operations['trace.page']['result']> {
     return this.call('trace.page', params, options);
   }

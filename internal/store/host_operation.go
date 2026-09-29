@@ -131,7 +131,7 @@ func (s *Store) HostTurnSession(ctx context.Context, owner session.SessionID, id
 		if err != nil {
 			return err
 		}
-		result.Config, err = readConfiguration(ctx, tx, owner, turn.ConfigRevision)
+		result, err = capturedSession(ctx, tx, result, turn.ConfigRevision)
 		result.ConfigRevision = turn.ConfigRevision
 		return err
 	})

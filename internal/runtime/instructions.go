@@ -22,11 +22,7 @@ import (
 // Instructions captures external sources once for this turn. Already captured
 // bytes survive later file edits or grant revocation; the next turn checks again.
 func (r *Runtime) Instructions(ctx context.Context, turn session.Turn, policy session.Instructions) (string, error) {
-	current, err := r.store.Session(ctx, turn.SessionID)
-	if err != nil {
-		return "", err
-	}
-	current.Config, err = r.store.Configuration(ctx, current.ID, turn.ConfigRevision)
+	current, err := r.store.ConfigurationSession(ctx, turn.SessionID, turn.ConfigRevision)
 	if err != nil {
 		return "", err
 	}
@@ -37,6 +33,22 @@ func (r *Runtime) Instructions(ctx context.Context, turn session.Turn, policy se
 	input, err := r.store.TurnInput(ctx, turn.ID)
 	if err != nil {
 		return "", err
+	}
+	if current.ParentID == nil && current.Config.Run != nil && current.Config.Run.System != "" {
+		text := current.Config.Run.System
+		contribution, err := r.turnStart(ctx, current, turn, input)
+		if err != nil {
+			return "", err
+		}
+		if contribution != "" {
+			text += "\n\n--- Turn-start hook context ---\n" + contribution
+		}
+		if len(text) > session.MaxInstructionBytes {
+			return "", errors.New("composed instructions exceed 1 MiB")
+		}
+		digest := sha256.Sum256([]byte(text))
+		manifest := session.InstructionManifest{Bytes: int64(len(text)), SHA256: hex.EncodeToString(digest[:]), Sources: []session.InstructionSource{}}
+		return text, r.store.SaveInstructionManifest(ctx, turn.ID, manifest)
 	}
 	var invoked []string
 	if input != nil {

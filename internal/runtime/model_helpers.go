@@ -49,11 +49,15 @@ func (r *Runtime) prepareModel(ctx context.Context, current session.Session, cal
 	if err != nil {
 		return tool.Prepared{}, err
 	}
+	cacheKey := ""
+	if configuration.Run != nil {
+		cacheKey = configuration.Run.CacheKey
+	}
 	return tool.Prepared{
 		Capability: "models." + call.Name, Resource: string(current.TreeID), Arguments: arguments, ModelTimeouts: true,
 		Acquire: func(ctx context.Context) (func(), error) { return func() {}, ctx.Err() },
 		Run: func(ctx context.Context, id session.OperationID) (any, error) {
-			results, err := r.runner.CallModels(ctx, runner.ModelHelperRequest{Turn: turn, Model: configuration.Model, OperationID: id, Prompts: prompts, MaxTokens: limit}, modelAdmissionRefused)
+			results, err := r.runner.CallModels(ctx, runner.ModelHelperRequest{Turn: turn, Model: configuration.Model, CacheKey: cacheKey, OperationID: id, Prompts: prompts, MaxTokens: limit}, modelAdmissionRefused)
 			if _, fatal := errors.AsType[*runner.AccountingError](err); fatal {
 				return nil, tool.Fatal(err)
 			}

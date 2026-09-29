@@ -204,6 +204,22 @@ func (s *Store) admitOperation(ctx context.Context, spec session.OperationSpec, 
 			spec.ID, nullableCell(spec.CellID), nullableTurn(spec.DirectTurnID), spec.RequestID, spec.Capability, spec.Resource, string(spec.Arguments), state, grantID, permissionRevision, created); err != nil {
 			return err
 		}
+
+		if state == session.OperationWaiting || spec.Capability == session.QuestionCapability {
+			headless, err := rootHeadless(ctx, tx, ownerID)
+			if err != nil {
+				return err
+			}
+			if headless {
+				operation, err := readOperation(ctx, tx, spec.ID)
+				if err != nil {
+					return err
+				}
+				failure := "headless run cannot wait for human permission or an answer"
+				result, err = settleOperation(ctx, tx, operation, session.OperationResult{State: session.OperationDenied, Failure: &failure})
+				return err
+			}
+		}
 		if state == session.OperationWaiting {
 			owner, err := readSession(ctx, tx, ownerID)
 			if err != nil {
@@ -272,6 +288,13 @@ func authorizeOperation(ctx context.Context, q querier, operation session.Operat
 		return err
 	}
 	if operation.Capability == session.QuestionCapability {
+		headless, err := rootHeadless(ctx, q, operation.SessionID)
+		if err != nil {
+			return err
+		}
+		if headless {
+			return ErrConflict
+		}
 		if err := validateQuestionIntent(operation.SessionID, operation.OperationSpec); err != nil {
 			return err
 		}

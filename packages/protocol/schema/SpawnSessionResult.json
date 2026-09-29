@@ -53,6 +53,37 @@
         "configuration": {
           "type": "object",
           "properties": {
+            "run": {
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "system": {
+                  "type": "string",
+                  "maxLength": 524288
+                },
+                "max_turns": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1000000
+                },
+                "headless": {
+                  "type": "boolean"
+                },
+                "cache_key": {
+                  "type": "string",
+                  "maxLength": 4096
+                }
+              },
+              "required": [
+                "system",
+                "max_turns",
+                "headless",
+                "cache_key"
+              ],
+              "additionalProperties": false
+            },
             "mcp_servers": {
               "type": "object",
               "properties": {
@@ -470,6 +501,7 @@
             "output_schema": true
           },
           "required": [
+            "run",
             "mcp_servers",
             "modules",
             "tools_definition",
