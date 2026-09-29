@@ -65,7 +65,7 @@ func TestDefinitionDiscoveryRetainsEveryRevisionWithoutBodies(t *testing.T) {
 		}
 	}
 	full, err := s.DefinitionSummaries(t.Context(), nil, 100)
-	if err != nil || len(full.Items) != 3 || full.Next != nil {
+	if err != nil || len(full.Items) != len(session.Builtins())+2 || full.Next != nil {
 		t.Fatal(full, err)
 	}
 	var collected []session.DefinitionSummary
@@ -81,7 +81,13 @@ func TestDefinitionDiscoveryRetainsEveryRevisionWithoutBodies(t *testing.T) {
 		}
 		after = page.Next
 	}
-	if !reflect.DeepEqual(collected, full.Items) || collected[1].Ref.ID != "custom" || collected[2].Ref.ID != "custom" || collected[1].Ref.Revision >= collected[2].Ref.Revision {
+	var custom []session.DefinitionSummary
+	for _, item := range collected {
+		if item.Ref.ID == "custom" {
+			custom = append(custom, item)
+		}
+	}
+	if !reflect.DeepEqual(collected, full.Items) || len(custom) != 2 || custom[0].Ref.Revision >= custom[1].Ref.Revision {
 		t.Fatal(collected)
 	}
 	for _, limit := range []int{0, 101} {
