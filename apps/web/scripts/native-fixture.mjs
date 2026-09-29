@@ -98,8 +98,12 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
       const final = agentResponses ? text.match(/```final\n([\s\S]*?)\n```/)?.[1] : undefined;
       if (final !== undefined && Buffer.byteLength(final) > 65536) throw new RangeError('Fixture final response exceeds 64KiB');
       if (agentResponses && last.role === 'tool' && text.startsWith('hold:agent-')) await wait(text.slice(5).split('\n')[0], signal);
+      const toolImages = last.role === 'user' && Array.isArray(last.content)
+        && last.content.length > 0 && last.content.every(part => part.type === 'image_url')
+        && messages.at(-2)?.role === 'tool';
       let message;
-      if (agentResponses && last.role === 'tool') message = { role: 'assistant', content: final ?? `done: ${typeof last.content === 'string' ? last.content : JSON.stringify(last.content)}` };
+      if (toolImages) message = { role: 'assistant', content: 'Received tool images.' };
+      else if (agentResponses && last.role === 'tool') message = { role: 'assistant', content: final ?? `done: ${typeof last.content === 'string' ? last.content : JSON.stringify(last.content)}` };
       else if (last.role === 'tool') message = { role: 'assistant', content: text.startsWith('hold:tool-stream') ? 'Completed held tools.' : text };
       else if (executeCode && /```(?:starlark|python|javascript|js)\n([\s\S]*?)\n```/.test(text)) {
         const code = text.match(/```(?:starlark|python|javascript|js)\n([\s\S]*?)\n```/)[1];
