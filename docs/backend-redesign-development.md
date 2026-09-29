@@ -5799,3 +5799,21 @@ The three pre-existing SDK draft-route presentation checks remain intentionally
 skipped under the publication disposition above. Log:
 `/tmp/whip-final-docs-gate.log`; the owned gate joins with exit 0 and the source
 tree stays clean. No public documentation or release was deployed.
+
+Hosted #278 run `36588313432` finishes at exact `e85f72203` with 38 successful
+jobs, the single performance setup-order leaf failure and two propagated
+aggregate failures. No job is skipped; Desktop and both client/native-browser
+gates pass. The setup-order repair is already exercised successfully in #279.
+
+The #279 Settings failure is a fixture ownership error: two distinct canonical
+operations share one running cell, and each mounted operation panel correctly
+contains that cell's provisional stdout. Integrated `28060cf20` captures the
+two exact operation IDs, their owner/turn and single running cell; checks one
+hint per mounted expected operation with no duplicate or foreign hint; and
+preserves disclosure, line-nine, committed replacement, REPL, draft and split
+assertions. Both actual browsers pass all nine REPL Settings checks and join
+their owned runtimes (48.432s Chromium/46.954s Firefox), using renderer
+`0af75b87cce53a45cc1fb60227912395b09dfe601c899c4abfeb0e0d79cdc39d`.
+No product code, workload, deadline or geometry changes; the untouched body
+scenario is not claimed by this focused repair. Evidence:
+`/tmp/whip-settings-provisional-evidence.md` and its exact ownership reports.
