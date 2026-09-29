@@ -8,7 +8,7 @@ import { boundedInteger, bytes, delay, freeze, utf8Base64, withSignal } from './
 const methods = [
   'sessions.submit', 'sessions.compact', 'sessions.spawn', 'goals.formulate', 'goals.resume', 'tool.call', 'shell.run',
   'trees.create', 'sessions.reload', 'sessions.fork', 'sessions.rewind', 'permissions.set_mode', 'permissions.set_denial',
-  'workspace.capture', 'workspace.restore', 'workspace.release', 'inputs.steer',
+  'workspace.capture', 'workspace.restore', 'workspace.release', 'workspace.set', 'run.configure', 'inputs.steer',
   'goals.create', 'schedules.create', 'mail.send', 'state.write', 'state.append', 'state.subscribe',
 ] as const;
 export type DurableMethod = typeof methods[number];
@@ -53,10 +53,12 @@ function validateRecord(value: unknown): RecoveryRecord {
   if ('identity' in candidate.params && candidate.params.identity.client_id !== record.clientID) throw new TypeError('Recovery client identity mismatch');
   return Object.freeze({ ...record });
 }
+function requestID(params: CommandRequest['params']): string {
+  return 'identity' in params ? params.identity.request_id : 'creation_id' in params ? params.creation_id : 'fork_id' in params ? params.fork_id : 'edit_id' in params ? params.edit_id : 'action_id' in params ? params.action_id : 'id' in params ? params.id : 'goal_id' in params ? params.goal_id : 'schedule_id' in params ? params.schedule_id : 'mail_id' in params ? params.mail_id : 'version_id' in params ? params.version_id : params.subscription_id;
+}
 function key(record: RecoveryRecord): string {
   const { method, params } = JSON.parse(record.request) as CommandRequest;
-  const identity = 'identity' in params ? params.identity.request_id : 'creation_id' in params ? params.creation_id : 'fork_id' in params ? params.fork_id : 'edit_id' in params ? params.edit_id : 'action_id' in params ? params.action_id : 'goal_id' in params ? params.goal_id : 'schedule_id' in params ? params.schedule_id : 'mail_id' in params ? params.mail_id : 'version_id' in params ? params.version_id : params.subscription_id;
-  return JSON.stringify([record.runtimeID, record.clientID, 'identity' in params ? 'receipt' : method, identity]);
+  return JSON.stringify([record.runtimeID, record.clientID, 'identity' in params ? 'receipt' : method, requestID(params)]);
 }
 /** Implementations must namespace their storage, return at most limit records,
  * and durably replace one keyed record before resolving put. The journal is the
@@ -131,6 +133,8 @@ export class DurableCommand<M extends DurableMethod> {
     return new DurableCommand(client, (JSON.parse(checked.request) as CommandRequest).method, checked, options.journal, true);
   }
   get record(): RecoveryRecord { return this.current; }
+  /** Stable caller identity used by notices and explicit recovery actions. */
+  get id(): string { return requestID(this.params); }
   get params(): Operations[M]['params'] { return JSON.parse(this.current.request).params as Operations[M]['params']; }
   private async persistAccepted(acknowledgement: unknown): Promise<void> {
     if (this.current.accepted) return;
