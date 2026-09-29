@@ -3,10 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { chromium, firefox, expect } from '@playwright/test';
-import { startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
-
-process.env.OPENROUTER_API_KEY = 'fixture-settings-key';
-process.env.INFERENCE_API_KEY = '';
+import { startFixture } from './native-fixture.mjs';
 
 const results = process.env.WHIP_SETTINGS_RESULTS ?? '/tmp/whip-settings-browser-results';
 await mkdir(results, { recursive: true });
@@ -22,8 +19,7 @@ for (const engine of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split
     window.cspErrors = [];
     document.addEventListener('securitypolicyviolation', event => window.cspErrors.push(event.violatedDirective));
   });
-  const origin = fixture.info.endpoint.replace(/^ws/, 'http').replace('/api/v3/ws', '');
-  const chatURL = `${origin}/h/${fixture.info.runtime_id}/s/${fixture.info.root_id}`;
+  const origin = fixture.info.web;
   const auditServers = async selector => {
     await page.route(`${origin}/__settings-axe.js`, route => route.fulfill({ contentType: 'text/javascript', body: axeSource }));
     await page.addScriptTag({ url: `${origin}/__settings-axe.js` });
@@ -38,14 +34,16 @@ for (const engine of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split
     await page.getByRole('option', { name: option, exact: true }).click();
   };
   try {
-    await writeFile(join(fixture.directory, 'home', 'config.json'), JSON.stringify({ defaultModel: 'settings-model', defaultProvider: 'openrouter', models: { 'settings-model': { providers: ['openrouter'] }, 'unsaved-settings-model': { providers: ['openrouter'] } } }));
-    await writeFile(join(fixture.directory, 'home', 'models.json'), JSON.stringify({ openrouter: { baseUrl: 'https://openrouter.ai/api/v1', fetchedAt: new Date().toISOString(), models: [{ id: 'settings-model' }, { id: 'unsaved-settings-model', reasoning_efforts: ['low', 'high'] }] } }));
+    const client = await fixture.connect(`settings-${engine}`);
+    const created = await fixture.createRoot(client);
+    const chatURL = `${origin}/h/${fixture.info.runtime_id}/s/${created.root.id}`;
     await page.goto(chatURL);
     const composer = page.locator('[data-whip-composer]');
     await composer.waitFor();
     await composer.fill('Keep this unsent draft while changing settings.');
     const before = await page.evaluate(() => sessionStorage.getItem('whip.web.workspace.v3'));
     await page.locator('#whip-settings-link').click();
+    await category('Appearance').click();
     await expect(page.getByRole('heading', { name: 'Appearance', exact: true })).toBeVisible();
     await expect(page.locator('#whip-session-navigation')).toHaveCount(0);
     await expect(page.getByRole('tablist')).toHaveCount(0);
@@ -53,7 +51,7 @@ for (const engine of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split
     checks.push('dedicated Settings shell preserves the workspace without hidden conversation navigation/tabs');
 
     const density = page.getByRole('slider', { name: 'Tool call density', exact: true });
-    const contentReads = () => frames.filter(frame => /content\.(read|download)|root\.snapshot|history\.page/.test(frame.method ?? '')).length;
+    const contentReads = () => frames.filter(frame => /content\.(read|download)|sessions\.(observe|history_page)/.test(frame.method ?? '')).length;
     const reads = contentReads();
     await density.focus(); await page.keyboard.press('Home'); await page.keyboard.press('ArrowRight');
     await expect(density).toHaveAttribute('aria-valuetext', 'Comfortable');
@@ -90,15 +88,15 @@ for (const engine of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split
     await category('Providers & models').click();
     const model = page.getByRole('button', { name: 'Default model', exact: true });
     await model.click();
-    await page.getByRole('option', { name: 'unsaved-settings-model · openrouter', exact: true }).click();
-    await expect(page.getByRole('combobox', { name: 'Reasoning effort' })).toContainText('Model default');
+    await page.getByRole('option', { name: 'replacement · provider', exact: true }).click();
+    await expect(page.getByRole('combobox', { name: 'Reasoning effort' })).toContainText('Default');
     await category('Appearance').click();
     const guard = page.getByRole('dialog', { name: 'Unsaved settings' });
     await expect(guard).toBeVisible();
     await expect(guard.locator('p').last()).toHaveCSS('font-size', '20px');
     await page.screenshot({ path: join(results, `${engine}-unsaved-large.png`) });
     await guard.getByRole('button', { name: 'Stay', exact: true }).click();
-    await expect(model).toContainText('unsaved-settings-model');
+    await expect(model).toContainText('replacement');
     await category('Appearance').click();
     await guard.getByRole('button', { name: 'Discard changes', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Appearance', exact: true })).toBeVisible();
