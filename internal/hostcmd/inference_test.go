@@ -1,4 +1,4 @@
-package main
+package hostcmd
 
 import (
 	"bytes"
@@ -115,7 +115,7 @@ func TestCommandStartsWithoutReadingUnusedInferenceCredentials(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	var diagnostics bytes.Buffer
-	err := run(ctx, []string{"-directory", directory, "-scripted"}, readyWriter{cancel: cancel}, &diagnostics)
+	err := Run(ctx, []string{"-directory", directory, "-scripted"}, readyWriter{cancel: cancel}, &diagnostics)
 	if ctx.Err() == nil || err != nil && !errors.Is(err, context.Canceled) {
 		t.Fatalf("unrelated private file blocked command readiness: %v", err)
 	}
