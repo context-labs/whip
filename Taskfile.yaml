@@ -303,6 +303,21 @@ tasks:
       - node apps/web/scripts/model-budgets.mjs
       - node apps/web/scripts/claude-code-theme.mjs
 
+  check:product-ux-restoration:
+    desc: Native UX parity workflows, exact recovery and reading anchors in Chromium and Firefox
+    cmds:
+      - task: web-assets
+      - node --test apps/web/scripts/native-observation-probe.test.mjs
+      - go test ./apps/web/scripts/fixtures/provider-settings
+      - node apps/web/scripts/frontend-migration-parity.mjs native '{{.ROOT_DIR}}'
+      - node apps/web/scripts/provider-settings-restoration.mjs
+      - node apps/web/scripts/permission-recovery-restoration.mjs
+      - node apps/web/scripts/native-ux-executions.mjs
+      - WHIP_WEB_BROWSER=chromium node apps/web/scripts/native-response-history.mjs
+      - WHIP_WEB_BROWSER=firefox node apps/web/scripts/native-response-history.mjs
+      - node apps/web/scripts/native-projects-polish.mjs
+      - node apps/web/scripts/native-history-recovery.mjs
+
   check:product-distributions:
     desc: Disposable native pinned install, restart, update and packaged browser acceptance
     cmds:
