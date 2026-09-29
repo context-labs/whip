@@ -119,6 +119,19 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
       if (polished) message = polished;
       else if (queued) message = queued;
       else if (toolImages) message = { role: 'assistant', content: 'Received tool images.' };
+      else if (replStreams && /^acceptance:many:[0-9]+:[0-9]+$/.test(text)) {
+        const base = Number(text.split(':')[2]), count = Number(text.split(':')[3]);
+        if (base < 0 || base > 130 || count < 1 || count > 64 || base + count > 131) throw new Error('Execution paging fixture bound exceeded');
+        const completed = messages.slice(messages.findLastIndex(message => message.role === 'user')).filter(message => message.role === 'tool').length;
+        if (completed >= count) message = { role: 'assistant', content: 'All 131 actual cells completed.' };
+        else {
+          message = { role: 'assistant', content: null, tool_calls: Array.from({ length: Math.min(16, count - completed) }, (_, offset) => {
+            const index = base + completed + offset;
+            const code = 'print("bulk cell ' + String(index).padStart(3, '0') + '")' + (index === 130 ? '\ntools.fixture_wait(key="many-execution")' : '');
+            return { id: randomUUID(), type: 'function', function: { name: 'execute', arguments: JSON.stringify({ code }) } };
+          }) };
+        }
+      }
       else if (replStreams && text === 'repl:live') {
         if (!stream) throw new Error('REPL fixture requires actual provider streaming');
         message = await replResponse({ last, delta, wait, signal });
