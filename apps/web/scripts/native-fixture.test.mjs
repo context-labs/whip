@@ -5,7 +5,8 @@ import { DurableCommand } from '../../../packages/sdk/dist/index.js';
 import { deadline, eventually, startFixture } from './native-fixture.mjs';
 
 test('production web fixture executes both engines, scopes consent and preserves crash evidence', { timeout: 120000 }, async () => {
-  const fixture = await startFixture({ executeCode: true, rejectInput: 'fixture-provider-rejection' });
+  const rejectionMessage = 'Private synthetic provider detail '.repeat(1500);
+  const fixture = await startFixture({ executeCode: true, rejectInput: 'fixture-provider-rejection', rejectionMessage });
   try {
     let client = await fixture.connect('native-fixture-check');
     const { root } = await fixture.createRoot(client), session = client.session(root.id);
@@ -26,7 +27,11 @@ test('production web fixture executes both engines, scopes consent and preserves
       assert.equal(JSON.parse(result.result.output).result.output, 'native ' + engine + '\n');
     }
     await session.submit([{ type: 'text', text: 'fixture-provider-rejection' }], 'rejected', deadline());
-    assert.equal((await client.wait('rejected', deadline())).turn.state, 'failed');
+    const rejected = (await client.wait('rejected', deadline())).turn;
+    assert.equal(rejected.state, 'failed');
+    assert.match(rejected.failure, /provider returned HTTP 400/);
+    assert.ok(!rejected.failure.includes('Private synthetic provider detail'));
+    assert.ok(Buffer.byteLength(rejected.failure) < 256);
     await session.submit([{ type: 'text', text: 'Follow up after rejected provider response' }], 'after-rejection', deadline());
     assert.equal((await client.wait('after-rejection', deadline())).turn.state, 'succeeded');
     assert.equal((await fixture.effects()).filter(text => text === 'fixture-provider-rejection').length, 1);
@@ -83,4 +88,9 @@ print("evidence")
     const history = await client.session(plain.id).history.page({ direction: 'forward' }, deadline());
     assert.ok(history.messages.some(message => message.parts.some(part => part.type === 'text' && part.text.startsWith('done: ') && part.text.includes('evidence'))));
   } finally { await fixture.close(); }
+});
+
+test('fixture rejection body rejects oversized and invalid options before owning a process', async () => {
+  await assert.rejects(startFixture({ rejectionMessage: '界'.repeat(22000) }), /64KiB/);
+  await assert.rejects(startFixture({ rejectionMessage: null }), /64KiB/);
 });
