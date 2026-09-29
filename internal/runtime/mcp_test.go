@@ -50,7 +50,17 @@ func mcpHTTPFixture(t *testing.T) (string, *sdkmcp.Server, *atomic.Int32) {
 		})
 	}
 	httpServer := httptest.NewServer(sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server { return server }, nil))
-	t.Cleanup(httpServer.Close)
+	t.Cleanup(func() {
+		// The HTTP listener does not own SDK sessions. A cancelled client's
+		// DELETE may never reach this server, whose idle timeout is unlimited.
+		httpServer.CloseClientConnections()
+		httpServer.Close()
+		for connection := range server.Sessions() {
+			if err := connection.Close(); err != nil {
+				t.Error(err)
+			}
+		}
+	})
 	return httpServer.URL, server, calls
 }
 

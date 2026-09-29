@@ -159,19 +159,26 @@ tasks:
     desc: Complete runtime race suite in complementary bounded groups
     cmds:
       - task: check:race-runtime-first
+      - task: check:race-runtime-middle
       - task: check:race-runtime-rest
 
   check:race-runtime-first:
-    desc: Runtime race tests whose names begin TestA through TestM
+    desc: Runtime race tests whose names begin TestA through TestC
     cmds:
       - mkdir -p test-results/go
-      - go test -coverprofile=test-results/go/race-runtime-first.out -p=2 -race -shuffle=on -count=1 -timeout=10m -run '^Test[A-M]' ./internal/runtime
+      - go test -coverprofile=test-results/go/race-runtime-first.out -p=2 -race -shuffle=on -count=1 -timeout=10m -run '^Test[A-C]' ./internal/runtime
+
+  check:race-runtime-middle:
+    desc: Runtime race tests whose names begin TestD through TestM
+    cmds:
+      - mkdir -p test-results/go
+      - go test -coverprofile=test-results/go/race-runtime-middle.out -p=2 -race -shuffle=on -count=1 -timeout=10m -run '^Test[D-M]' ./internal/runtime
 
   check:race-runtime-rest:
     desc: Every other runtime test and example under the race detector
     cmds:
       - mkdir -p test-results/go
-      # Complement the first group, including newly added test names/examples.
+      # Complement both A–M groups, including new names, examples and fuzz seeds.
       - go test -coverprofile=test-results/go/race-runtime-rest.out -p=2 -race -shuffle=on -count=1 -timeout=10m -skip '^Test[A-M]' ./internal/runtime
 
   check:race-other:
