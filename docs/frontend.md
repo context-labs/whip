@@ -3630,3 +3630,27 @@ Terminal descriptors retain their native process epoch. A descriptor without an 
 The sidebar observes the host-owned native TreeCatalogView directly, groups exact working-directory strings, and reads activity summaries only for visible root rows. Its bounded window exposes continuation at capacity. Search opens at most one 64-row native tree page per host, carries the exact catalog revision with its cursor, and discards transient pages on close. Catalog revision changes invalidate only that host's search and cursor. Query and cursor identities include the actual Client lifetime; replacement transports cannot reuse prior reads. Search dates describe tree creation, not inferred last activity.
 
 Attention consumes native per-session activity metadata. Child entries and desktop notification links retain the exact child recipient. Notifications compare exact decimal request counts, keep at most 256 sessions, scan at most four 64-row/256-KiB pages and reset after uncertainty or Client replacement. The advisory index contains counts rather than question identities or bodies; equal counts do not establish a new question or completion. No navigation or notification observer hydrates transcripts. Hidden browser polling and opt-in desktop polling retain their separate policies. Canonical HostConnection records own connection notices and startup readiness; the SDK Client itself has no connection snapshot.
+
+### Prepared model instruction inspection
+
+Trace details perform an explicit `session.models.inspection(attemptID)` read, scoped to
+that span's canonical session and attempt. They show exact base instructions and appended
+notices captured at preparation, plus the prepared-request digest and bounded message/tool
+provenance. These descriptors do not reconstruct historical transcript bodies or provider wire
+requests. Private provider continuation, cache identity, credentials, and hydrated attachment
+bytes never enter the public capture. Existing attempts with no capture remain unavailable.
+
+Captured text retains at most 16 MiB per request in content chunks of at most 4 MiB. Publication
+and registration use the existing owner content quotas; unavailable oversized, quota, or storage
+captures are labeled explicitly and never replaced with current instructions. Reading verifies
+owner, individual chunk bytes/digests, and the complete text digest. The UI retains a preview of
+at most 1 MiB and renders a bounded excerpt; explicit downloads preserve the complete captured
+text. Selecting a different attempt, changing transport, disconnecting, or unmounting cancels
+pending reads without cancelling model work. Trace observers never hydrate these bodies.
+
+Compaction inspection follows the exact attempt's immutable summary metadata and reads its
+canonical text, even after context selection changes. It displays the original raw cutoff as an
+exact decimal counter. Trace export includes available captured instructions under the explicit
+`captured_instructions_only` scope, with the existing 1 MiB body and 4 MiB export limits, and
+includes committed compaction output as canonical text parts. It does not manufacture missing
+prompts, notices, summaries, or private request state.

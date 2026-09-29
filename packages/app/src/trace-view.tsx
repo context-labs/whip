@@ -7,6 +7,7 @@ import { Badge, Button, CodeBlock, IconButton, Select, ToggleGroup } from '@whip
 import { ChevronDown, ChevronRight, Maximize2, ZoomIn, ZoomOut } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { ErrorNotice } from './error-feedback';
+import { ModelRequestInspection } from './details/model-inspection';
 import { useRuntime } from './context';
 import { useTranscriptMotion } from './transcript-motion';
 import { TraceResizeHandle } from './trace-resize-handle';
@@ -589,6 +590,8 @@ export function TraceView({
         )}
         {showDetails && (
           <SpanDetails
+            client={client}
+            connected={connected}
             width={detailsWidth}
             node={selected}
             domainStartMs={domain.startMs}
@@ -610,11 +613,15 @@ function Total({ label, value }: { label: string; value: string }) {
 }
 
 function SpanDetails({
+  client,
+  connected,
   width,
   node,
   domainStartMs,
   now,
 }: {
+  client: Client;
+  connected: boolean;
   width: number;
   node?: TraceNode;
   domainStartMs: number;
@@ -652,7 +659,14 @@ function SpanDetails({
     ...(span.kind === 'llm'
       ? ([
           ['model', text(attrs['gen_ai.request.model']) || span.name],
-          ['cost source', attrs['whip.cost.source'] === 'provider' ? 'Provider reported' : attrs['whip.cost.source'] === 'prices' ? 'Catalog estimate' : 'Unknown'],
+          [
+            'cost source',
+            attrs['whip.cost.source'] === 'provider'
+              ? 'Provider reported'
+              : attrs['whip.cost.source'] === 'prices'
+                ? 'Catalog estimate'
+                : 'Unknown',
+          ],
         ] as [string, string][])
       : []),
     ...(group ? [['loaded descendants', String(sums!.descendants)] as [string, string]] : []),
@@ -718,13 +732,22 @@ function SpanDetails({
               available.
             </p>
           )}
-          {attrs['whip.input.body_available'] === false && (
+          {attrs['whip.input.body_available'] === false && !attrs['whip.instructions.status'] && (
             <p {...stylex.props(styles.notice)}>
               Historical model request bodies were not retained. The request digest identifies the
               captured request; its prompt is unavailable.
             </p>
           )}
-          {!bodies.length && (
+          {span.record.source_kind === 'attempt' && (
+            <ModelRequestInspection
+              key={`${client.runtimeID}:${client.processEpoch}:${span.sessionId}:${span.record.source_id}`}
+              client={client}
+              sessionID={span.sessionId}
+              attemptID={span.record.source_id}
+              connected={connected}
+            />
+          )}
+          {!bodies.length && span.kind !== 'llm' && (
             <p {...stylex.props(styles.notice)}>
               This span has no recorded excerpt. Export includes only available canonical bodies.
             </p>

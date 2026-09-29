@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { webcrypto } from 'node:crypto';
-import { Client, DeliveryError, type ContentReference } from '@whip/sdk';
+import { Client, DeliveryError, type ContentReference, type ModelInspection } from '@whip/sdk';
 import type { TracePageParams } from '@whip/protocol';
 import { createTraceView, type TraceRow, type TraceView as TraceObserver } from '@whip/sdk/state';
 import { ThemeProvider, UIProvider } from '@whip/ui';
@@ -122,7 +122,13 @@ function records() {
   ];
 }
 async function fixture(
-  options: { rows?: TraceRow[]; maxRows?: number; maxRoots?: number; start?: boolean } = {},
+  options: {
+    rows?: TraceRow[];
+    maxRows?: number;
+    maxRoots?: number;
+    start?: boolean;
+    capture?: boolean;
+  } = {},
 ) {
   const state = {
     rows: options.rows ?? records(),
@@ -131,7 +137,59 @@ async function fixture(
     foreignExport: false,
     epoch: 'boot',
     now: ns(3100),
+    foreignCapture: false,
+    inspection: undefined as ModelInspection | undefined,
   };
+  const capturedData = new TextEncoder().encode('Exact prepared instructions 😃');
+  const capturedDigest = Buffer.from(
+    await webcrypto.subtle.digest('SHA-256', capturedData),
+  ).toString('hex');
+  const capturedReference = {
+    id: `model_${capturedDigest}`,
+    session_id: 'root',
+    digest: capturedDigest,
+    size: String(capturedData.length),
+    media_type: 'text/plain',
+    created_at: '2026-09-28T12:00:00Z',
+  };
+  if (options.capture) {
+    state.inspection = {
+      session_id: 'root',
+      attempt_id: 'source_2',
+      turn_id: 'turn_1',
+      request_digest: 'a'.repeat(64),
+      capture: {
+        request_digest: 'a'.repeat(64),
+        source_digest: 'b'.repeat(64),
+        instructions: {
+          digest: capturedDigest,
+          bytes: String(capturedData.length),
+          status: 'available',
+          chunks: [capturedReference],
+        },
+        notices: { digest: 'c'.repeat(64), bytes: '7', status: 'quota', chunks: [] },
+        messages: [{ id: 'authored', role: 'user', parts_digest: 'd'.repeat(64), parts_count: 1 }],
+        tools_count: 1,
+        tools_digest: 'e'.repeat(64),
+        context_complete: true,
+      },
+      compaction: {
+        id: 'summary',
+        session_id: 'root',
+        turn_id: 'turn_1',
+        attempt_id: 'source_2',
+        history_revision: '0',
+        source: null,
+        base_id: null,
+        expected_revision: '0',
+        through_sequence: '9007199254740993',
+        pinned_message_ids: [],
+        text_bytes: '13',
+        created_at: '2026-09-28T12:00:00Z',
+      },
+    };
+    state.rows[1]?.span?.attributes.push(attribute('whip.instructions.status', 'available'));
+  }
   const calls: { method: string; params: unknown }[] = [];
   const data = new TextEncoder().encode('{"resourceSpans":[]}');
   const digest = Buffer.from(await webcrypto.subtle.digest('SHA-256', data)).toString('hex');
@@ -171,7 +229,7 @@ async function fixture(
             error: { code: -32001, kind: 'CONFLICT', message: 'Trace changed during read' },
           };
         const p = request.params as TracePageParams;
-        if (!("before" in p)) throw new Error("Trace observer must use backward paging");
+        if (!('before' in p)) throw new Error('Trace observer must use backward paging');
         const all = state.rows
           .filter(
             (item) =>
@@ -189,6 +247,20 @@ async function fixture(
           revision,
           next: has_more ? items.at(-1)!.sequence : '0',
           has_more,
+        };
+      } else if (request.method === 'models.inspection') {
+        expect(request.params).toEqual({ session_id: 'root', attempt_id: 'source_2' });
+        result = { ...state.inspection, session_id: state.foreignCapture ? 'other' : 'root' };
+      } else if (request.method === 'context.compaction') {
+        expect(request.params).toEqual({ session_id: 'root', compaction_id: 'summary' });
+        result = { metadata: state.inspection?.compaction, text: 'Exact summary' };
+      } else if (
+        request.method === 'content.read' &&
+        (request.params as { reference_id: string }).reference_id === capturedReference.id
+      ) {
+        result = {
+          reference: capturedReference,
+          data_base64: Buffer.from(capturedData).toString('base64'),
         };
       } else if (request.method === 'trace.export') {
         if (state.lostExport) throw new DeliveryError('Trace export acknowledgement was lost');
@@ -477,4 +549,52 @@ it('preserves wheel zoom, divider keyboard bounds, pane sizes and drag cancellat
   expect(screen.queryByRole('separator', { name: 'Resize tree and timeline' })).toBeNull();
   mounted.unmount();
   expect(wheel({ ctrlKey: true, deltaY: -40 })).toBe(true);
+});
+
+it('reads exact prepared instructions and compaction on demand without synthesizing missing notices', async () => {
+  const f = await fixture({ capture: true });
+  const rendered = render(f.app());
+  fireEvent.click(screen.getByRole('treeitem', { name: 'kimi-k3-fast · 2.0s' }));
+  expect(f.calls.filter((call) => call.method === 'models.inspection')).toHaveLength(0);
+  fireEvent.click(screen.getByRole('button', { name: 'Inspect prepared request' }));
+  await screen.findByRole('button', { name: 'Read system instructions' });
+  expect(
+    screen.getByText(/Ephemeral notices unavailable: reached the session content quota/),
+  ).toBeDefined();
+  expect(screen.getByText(/9007199254740993/)).toBeDefined();
+  expect(f.calls.filter((call) => call.method === 'content.read')).toHaveLength(0);
+  fireEvent.click(screen.getByRole('button', { name: 'Read system instructions' }));
+  await waitFor(() =>
+    expect(screen.getByRole('region', { name: 'System instructions' }).textContent).toContain(
+      'Exact prepared instructions 😃',
+    ),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Read compaction summary' }));
+  await waitFor(() =>
+    expect(screen.getByRole('region', { name: 'Compaction summary' }).textContent).toContain(
+      'Exact summary',
+    ),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Download system instructions' }));
+  await waitFor(() => expect(f.download).toHaveBeenCalledOnce());
+  expect(new TextDecoder().decode(f.download.mock.calls[0]![0])).toBe(
+    'Exact prepared instructions 😃',
+  );
+  rendered.rerender(f.app(false));
+  expect(
+    screen.getByRole('button', { name: 'Read system instructions' }).hasAttribute('disabled'),
+  ).toBe(true);
+  fireEvent.click(screen.getByRole('treeitem', { name: 'kimi-k3-fast · running' }));
+  expect(screen.queryByRole('region', { name: 'System instructions' })).toBeNull();
+});
+
+it('rejects a foreign attempt inspection before offering any body read', async () => {
+  const f = await fixture({ capture: true });
+  f.state.foreignCapture = true;
+  render(f.app());
+  fireEvent.click(screen.getByRole('treeitem', { name: 'kimi-k3-fast · 2.0s' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Inspect prepared request' }));
+  await screen.findByText('Could not inspect prepared request');
+  expect(screen.queryByRole('button', { name: 'Read system instructions' })).toBeNull();
+  expect(f.calls.some((call) => call.method === 'content.read')).toBe(false);
 });
