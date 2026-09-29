@@ -38,6 +38,24 @@ preserves every result. The [family disposition](backend-native-core-retirement.
 implementation and exact earlier checkpoints. The normal gate is unchanged;
 this handoff does not turn a failed, skipped or unverified check into a pass.
 
+## Human verification follow-up: provider defaults
+
+On 2026-09-29, the temporary Desktop install exposed a catalog/validation
+mismatch: choosing `kimi-k3-fast` submitted its bundled 1,048,576-token output
+ceiling, while host configuration rejected values above 1,000,000. The generic
+provider error hid that validation detail. Fix commit
+`f8a88d3b2bedb95bc1e42e3a28b8b25e5e1e660a` on
+`codex/backend-redesign-provider-output-limit` aligns configuration, dispatch
+and recorded requests with the supported catalog range. Explicit helper/request
+limits remain unchanged.
+
+The config, model, providerhost, session and store suites pass, including new
+regressions that fail on the previous source. A clean Desktop package from that
+commit runs in `/private/tmp/whip-review-wpUH7k` with its existing isolated data.
+Clicking **Use kimi-k3-fast** succeeds and opens the composer; the backend saves
+the exact model and output ceiling. No inference request was sent. This targeted
+fix does not reclassify the earlier full candidate gate or the deferred issues.
+
 ## Deferred issues
 
 These issues are recorded for subsequent engineering and human reproduction.

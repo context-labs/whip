@@ -534,6 +534,9 @@ captures and removes saved credentials while preserving host route declarations.
 The SDK keeps no account cache, starts no browser and implements no polling loop;
 product clients own the bounded visible observation lifetime.
 
+Host output ceilings accept the provider catalog's range up to one billion
+tokens, including the bundled 1,048,576-token ceiling for `kimi-k3-fast`.
+Configuration, dispatch and recorded request snapshots preserve the same ceiling.
 An internal model request may narrow its captured output ceiling with
 `OutputTokenLimit`. Nil retains the host ceiling; explicit values must be
 1–1000000 and cannot widen it. API encoders, the immutable request digest and the

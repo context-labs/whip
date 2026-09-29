@@ -131,7 +131,7 @@ func (s Scripted) Prepare(_ context.Context, request Request) (Prepared, error) 
 // effectiveOutputLimit validates the host ceiling as well as the optional
 // caller bound, so narrowing cannot make an invalid host route appear valid.
 func effectiveOutputLimit(ceiling int64, requested *int64) (int64, error) {
-	if ceiling < 1 || ceiling > 1000000 {
+	if ceiling < 1 || ceiling > session.MaxModelOutputTokens {
 		return 0, fmt.Errorf("%w: invalid provider output token ceiling", session.ErrInvalid)
 	}
 	if requested == nil {

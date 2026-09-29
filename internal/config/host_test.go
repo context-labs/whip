@@ -93,7 +93,7 @@ func TestProviderDispatchLimitsAndUnknownPrices(t *testing.T) {
 	}
 	for _, settings := range []Model{
 		{MaxOutputTokens: -1},
-		{MaxOutputTokens: 1000001},
+		{MaxOutputTokens: 1000000001},
 		{TimeoutMillis: -1},
 		{TimeoutMillis: 600001},
 		{MaxAttempts: -1},
@@ -107,6 +107,24 @@ func TestProviderDispatchLimitsAndUnknownPrices(t *testing.T) {
 		if _, err := settings.Resolve(); err == nil {
 			t.Fatalf("accepted invalid dispatch configuration: %+v", settings)
 		}
+	}
+}
+
+func TestProviderOutputCeilingPreservesSupportedCatalogLimits(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		limit int64
+	}{
+		{"million-token model", 1048576},
+		{"maximum catalog limit", 1000000000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			settings := Model{MaxOutputTokens: tc.limit, ContextWindowTokens: &tc.limit}
+			resolved, err := settings.Resolve()
+			if err != nil || resolved.MaxOutputTokens != tc.limit {
+				t.Fatalf("catalog output ceiling changed: %+v %v", resolved, err)
+			}
+		})
 	}
 }
 

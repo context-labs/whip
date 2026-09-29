@@ -5927,3 +5927,35 @@ All metadata commands join. No credentials, Safari setting, device, provider or
 installed runtime is touched. These are recorded follow-ups, not new blockers.
 The [durable candidate inventory](backend-native-candidate-validation.md) retains
 all 41 job results and 25 artifact IDs, including the missing Desktop archive.
+
+
+## 2026-09-29 — fix provider default selection during human verification
+
+The user reported `invalid provider setup operation` from the temporary Desktop
+review installation. Actual bundled `kimi-k3-fast` metadata carries a 1,048,576
+output ceiling, but configuration, dispatch and request-snapshot validation
+still capped host output at 1,000,000. The SDK and renderer payload was correct.
+Commit `f8a88d3b2bedb95bc1e42e3a28b8b25e5e1e660a` shares the supported host ceiling
+across those three validators; the explicit 1,000,000-token helper/request
+narrowing bound and subscription natural limits remain unchanged.
+
+The actual Inference.net suggested-model setup regression fails on the previous
+source specifically for `kimi-k3-fast`. Config and frozen Chat/Responses request
+regressions also fail before the fix. Afterward, complete `internal/config`,
+`internal/model`, `internal/providerhost`, `internal/session` and `internal/store`
+suites pass. The wire regression checks exact limits, immutable digests and valid
+saved request evidence. Independent review found no further natural-ceiling
+validator or accounting mismatch.
+
+A clean production Desktop package builds and verifies from `f8a88d3b2`, with
+build ID `0.1.0-native-f8a88d3b2` and the unchanged validated renderer digest.
+Only the user-authorized temporary installation at `/private/tmp/whip-review-wpUH7k`
+was updated through its managed runtime path; the previous app/build evidence
+is retained under `previous-build`. Its profile, runtime identity and saved data
+were preserved. Native UI verification clicks **Use kimi-k3-fast**, observes the
+normal first-message composer, and confirms the exact persisted selection and
+1,048,576 ceiling. No message/inference request was sent. Local evidence is
+`provider-fix-verification.json`, `build-evidence.json` and `launch-status.json`
+in that temporary directory; the build log is `/private/tmp/whip-provider-fix-build.log`.
+The normal installation and original development checkout remain untouched.
+This is a targeted verified follow-up, not a new claim of full CI or release acceptance.
