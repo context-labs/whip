@@ -120,7 +120,7 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 			return Failure(err), nil
 		}
 		request.Instructions = instructions
-		request.Tools = []model.Tool{{Name: "execute", Description: "Execute a code cell in this session’s persistent, isolated REPL. Host operations require separate authority.", InputSchema: json.RawMessage(`{"type":"object","properties":{"code":{"type":"string"}},"required":["code"],"additionalProperties":false}`)}}
+		request.Tools = []model.Tool{{Name: "execute", Description: "Execute a short code cell in this session’s persistent, isolated REPL using the language and enabled modules described in the runtime guide. Print focused results. Host operations require separate authority. A failed cell may have completed effects; never replay effects just to repair a checkpoint.", InputSchema: json.RawMessage(`{"type":"object","properties":{"code":{"type":"string"}},"required":["code"],"additionalProperties":false}`)}}
 	}
 	request.Instructions += outputInstructions(configuration.OutputSchema)
 	if err := r.addGoalContext(ctx, turn, &request); err != nil {

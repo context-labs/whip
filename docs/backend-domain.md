@@ -322,12 +322,12 @@ Subscription credentials
 belong to the independent host account manager and its private file.
 
 Current fresh [host configuration](../internal/config/host.go) is version 21;
-the [SQLite schema](../internal/store/store.go) is version 56. Version numbers in
+the [SQLite schema](../internal/store/store.go) is version 59. Version numbers in
 the implementation histories below identify their introducing checkpoints, not
 additional formats accepted by the current binary.
-SQLite has an application identifier and schema version. Schema55 upgrades
-atomically to56 by adding child permission-policy delegation records, with no
-backfill for existing children. Other applications and versions are rejected.
+SQLite has an application identifier and schema version. This development format accepts only fresh stores or its exact schema version.
+Older data is rejected without modification. No upgrade/backfill path is retained;
+the user explicitly permits dev-session and checkpoint invalidation.
 Reopening preserves runtime identity, session data and seeded revisions; separate
 databases receive distinct identities. Downgrading requires restoring the
 pre-upgrade database together with its matching binary.
@@ -774,13 +774,14 @@ query durable records; they do not introduce another authority cache.
 Fresh schema37/config14 stores one permission policy per tree: `prompt` (Ask) or
 `automatic` (Full Access), positive revision and update time. Only roots may edit
 it, including stopped roots. Children display the same tree policy; execution
-requires either an exact live delegated grant chain or captured policy delegation.
-Schema56 captures automatic authority for newly spawned children only when
-`grant_ids` is omitted/null, the parent is eligible, and the working directories
-match exactly. Explicit subsets (including `[]`) never inherit policy authority.
-Each child-to-parent hop must retain the captured tree policy revision and workspace.
-Historical children receive no backfilled authority. Policy changes permanently
-expire prior child delegation, even if Full Access is later enabled again.
+requires either an exact live delegated grant chain or an ongoing policy-inheritance
+relationship. A default child inherits the parent policy when `grant_ids` is
+omitted/null, the parent inherits that policy, and working directories match
+exactly. This relationship is captured in Ask mode as well as Full Access.
+Explicit subsets (including `[]`) never inherit policy authority. Every ancestor
+hop and workspace is checked. Later mode changes propagate to existing default
+children, including Ask → Full Access and off/on transitions. The recorded child
+revision is an admission observation, not an expiration of this relationship.
 Automatic mode never bypasses input validation, fixed workspace scopes, root-only
 human questions, or explicit host consent for computer/MCP effects.
 
@@ -865,11 +866,25 @@ parent-scoped content references copied into new child references, delegated
 grants, captured permission-policy delegation, initial input and receipt commit
 together. No duplicate body bytes or
 child-specific transcript path exists. `grant_ids: null` inherits currently valid
-standing grants plus eligible same-workspace automatic authority; an explicit
+standing grants plus ongoing same-workspace permission-policy inheritance; an explicit
 subset delegates only those grants and `[]` delegates none. Retries preserve this
 original request and
 return the same child/input even if parent defaults or grants have since changed.
 A deleted receipt returns `session: null`; it cannot resurrect the child.
+
+An optional `name` gives the child an immutable display label. It must be trimmed,
+nonempty text of at most 128 UTF-8 bytes without control characters; omission
+derives `agent-` plus eight lowercase characters from its session ID. Duplicate
+labels are allowed; all routing and controls still use session/input IDs. Fresh
+schema59 stores the label atomically with child admission. Roots omit it.
+
+An optional `template` selects an alias from the parent's captured `children`
+configuration and resolves its pinned definition revision. It cannot be combined
+with an explicit `definition`. Child modules, tools, hooks and MCP bindings still
+cannot widen the captured parent's scope. Name and template selection participate
+in the request digest, so changing either on retry conflicts. REPL spawn results,
+list and inspect include the name; supported clients prefer it over definition
+labels without using it as an identifier.
 
 A child standing grant names an `issuer_id` belonging to its direct parent with
 exactly the same capability/resource. One-use approvals cannot be delegated.
@@ -1497,10 +1512,11 @@ external instruction sources.
 
 Project files are unique, canonical workspace-relative paths, with at most 32
 entries. Automatic reads require a standing `files.read` grant for the exact
-workspace, including an unrevoked issuer chain. A short database transaction
+workspace, including an unrevoked issuer chain, or eligible current Full Access
+authority through the live parent-policy relationship. A short database transaction
 admits the read; descriptor-confined filesystem I/O follows outside it. One-use
-approvals cannot authorize capture. No grant omits project sources without
-probing them. Revocation prevents later admission; it cannot retract bytes
+approvals cannot authorize capture. Absent read authority omits project sources
+without probing them. Revocation prevents later admission; it cannot retract bytes
 already captured. Policies with no filesystem sources and inputs without skill
 references perform no source filesystem reads.
 
@@ -1539,7 +1555,7 @@ names stay literal. Mail, historical inputs, tool results and attachment bodies
 do not invoke skills. `discover_skills: false` suppresses automatic catalog
 rendering; explicit references and human inspection can still discover authorized
 skills. No read authority means no file probes or selection. A selected body
-requires another current standing grant check before its descriptor-confined read;
+requires another current read-authority check before its descriptor-confined read;
 losing authority after selection fails capture. The complete file is bounded to
 256 KiB, must be UTF-8 without NUL, and its frontmatter must match the selected
 metadata exactly. Body-only edits are read fresh at this admission point. All
@@ -1554,7 +1570,7 @@ frozen body. Immutable metadata records what was read without duplicating bodies
 in SQLite or claiming they can be reconstructed after edits.
 
 `skills.list` supplies one live, read-only metadata API for completion and source
-inspection. It reads current copied policy and standing authority in a database
+inspection. It reads current copied policy and effective read authority in a database
 snapshot, then reads files outside the transaction. It requires no runnable turn,
 permit or kernel and works for idle or stopped sessions. It neither claims input,
 creates permission decisions nor acknowledges mail. Results include disabled
@@ -1570,7 +1586,8 @@ IDs; an empty list selects none. Registry paths stay host-local, and unknown
 selected IDs fail clearly. The instruction-root registry uses its runtime startup snapshot;
 source files refresh for each capture. No HOME/environment discovery or implicit
 registry grants exist. A host catalog or explicit body requires standing
-`skills.read` authority for the exact named root, including the live issuer chain.
+`skills.read` authority for the exact named root, including the live issuer chain,
+or eligible Full Access. Only explicitly published and selected roots are used.
 Missing authority omits that root without opening it. Human catalog inspection
 uses the same authority. Root IDs and whole-field policy changes are copied into
 children and frozen for active turns.
@@ -1601,9 +1618,10 @@ authority. Catalog guidance names this tool and exposes no absolute host paths.
 Standing user instructions use the explicitly configured host
 `standing_instructions_file` and the captured `standing_instructions` policy
 flag. Empty host configuration fails an enabled capture clearly; a configured
-source without standing authority is omitted without probing it. Authority is
-exactly `instructions.read` on resource `standing`, including the issuer chain;
-workspace and named skill grants cannot substitute. One-use approvals do not
+source without read authority is omitted without probing it. Standing authority
+is exactly `instructions.read` on resource `standing`, including the issuer chain;
+workspace and named skill grants cannot substitute. Eligible Full Access also
+admits this explicitly selected source without creating a grant. One-use approvals do not
 authorize automatic capture. No home-directory lookup, template seeding or file
 creation occurs during execution or inspection.
 
@@ -1621,15 +1639,15 @@ belongs to `instructions.read`; an identically named skill root has separate
 `skills.read` authority.
 
 Configuration/file edits and revocation affect later turns; active turns retain
-their captured rules. Children copy the flag and can receive delegated standing
-authority. Restart preserves old audit and reads current rules on a new turn.
+their captured rules. Children copy the flag and use delegated standing authority
+or their eligible live Full Access policy. Restart preserves old audit and reads current rules on a new turn.
 Skill catalog inspection and maintenance compaction never load this file.
 Malformed authorized rules or audit failure stop before provider dispatch.
 
 Authorized ancestors use explicit host `project_roots` (at most 16 named absolute
 boundaries) and the copied nullable `instructions.project_root` selection. Neither
-publishing nor selecting a root creates authority. One standing `instructions.read`
-grant on exact resource `project:<id>` admits membership metadata and instruction
+publishing nor selecting a root creates authority. A standing `instructions.read`
+grant on exact resource `project:<id>`, or eligible Full Access, admits membership metadata and instruction
 sources from that boundary through cwd, including cwd itself. It grants no arbitrary
 file or script access and needs no additional workspace `files.read` grant. Project,
 standing-file and host-skill authorities remain distinct even when names coincide.
@@ -2120,7 +2138,14 @@ session kernels and human terminals. Session stop/deletion and runtime shutdown
 cancel and join owned work; a reload does not replace unrelated session state.
 
 Metadata inspection never implicitly connects a server. Guest catalog reads
-validate the exact session, captured configuration and live delegated grants.
+validate the exact session, captured configuration and current delegated authority.
+Default children capture bounded trusted tool identities at spawn, even in Ask
+mode. Full Access changes apply live within that immutable tool ceiling. Discovery
+and dispatch use the same standing-grant or inherited-policy eligibility; dispatch
+rechecks before effects. Root reconnect preserves unchanged selectors but cannot
+add newly discovered or redefined tools to an existing child. Explicit child grant
+selections, narrowed server lists, and separate server-instruction consent remain
+in force. Exact spawn retries preserve the original captured tool set.
 Calls and connections enter the ordinary operation/consent/dispatch ledger.
 Only explicitly trusted server variants are eligible for saved automatic
 permission policy. Untrusted variants remain excluded both at admission and
@@ -2289,9 +2314,8 @@ verified runtime and, when provided, process epoch before dependent requests.
 Display-only design provenance was introduced in fresh schema 48 after schema
 46's workspace and run controls; schema 47 was allocated to browser integration.
 That checkpoint used host config 18. The current versions are listed at the
-[host and schema boundary](#host-and-schema-boundary); protocol remains 4. Only
-the additive schema55-to-56 upgrade is supported; retired-core databases remain
-unsupported.
+[host and schema boundary](#host-and-schema-boundary); protocol remains 4. Earlier
+development and retired-core databases are unsupported.
 
 `sessions.submit.design_context` optionally identifies a unique text content
 reference and an optional unique image content reference in the submitted parts.

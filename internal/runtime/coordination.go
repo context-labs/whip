@@ -89,6 +89,10 @@ func (r *Runtime) PrepareCoordination(ctx context.Context, current session.Sessi
 	if err != nil {
 		return tool.Prepared{}, err
 	}
+	request.MCPTools, err = r.captureChildMCPTools(ctx, current)
+	if err != nil {
+		return tool.Prepared{}, err
+	}
 	if call.DirectTurnID != "" && len(request.BrowserAttachments) == 0 {
 		return tool.Prepared{}, session.ErrInvalid
 	}
@@ -108,7 +112,7 @@ func (r *Runtime) PrepareCoordination(ctx context.Context, current session.Sessi
 		if admitted.Session == nil || admitted.Admission.Input == nil {
 			return nil, errors.New("child admission was deleted")
 		}
-		return map[string]any{"session_id": string(admitted.Session.ID), "input_id": string(admitted.Admission.Input.ID)}, nil
+		return store.ChildAdmissionValue(admitted)
 	}}, nil
 }
 

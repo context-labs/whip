@@ -415,7 +415,9 @@ export function InlineAgent({
 }) {
   const [details, setDetails] = useState(false);
   const id = spawnedSession(row.agentHost);
-  const title = agent?.definition.id || id || 'Agent';
+  const value = row.agentHost.result?.value;
+  const recordedName = id && value && typeof value === 'object' && 'name' in value && typeof value.name === 'string' ? value.name : undefined;
+  const title = agent?.name || recordedName || agent?.definition.id || id || 'Agent';
   // This is launch evidence, not a second live roster. A child's later turn does
   // not change the outcome of the operation that launched it.
   const launchStatus =

@@ -116,3 +116,26 @@ test('grant revocation is scoped atomically and an uncertain write is never repl
   await assert.rejects(session.grants.revoke('grant'), /lost acknowledgement/);
   assert.equal(calls.length, before + 1);
 });
+
+test('child names and template aliases pass through without becoming routing identities', async () => {
+  const { client, calls } = await clientFixture(request => {
+    if (request.method === 'sessions.spawn') {
+      const session = { ...fixture('Session'), id: 'child', parent_id: 'root', name: request.params.name };
+      const admission = fixture('Admission'); admission.receipt.identity = request.params.identity;
+      admission.input = { ...fixture('Input'), session_id: 'child' };
+      return { session, admission };
+    }
+    if (request.method === 'sessions.get') return { ...fixture('Session'), id: request.params.session_id, parent_id: 'root', name: 'Repository reviewer' };
+    throw new Error(request.method);
+  });
+  const params = { name: 'Repository reviewer', template: 'review', parts: [{ type: 'text', text: 'Review' }], overrides: {}, grant_ids: null };
+  const first = await client.session('root').spawn(params, 'named-spawn');
+  const retried = await client.session('root').spawn(params, 'named-spawn');
+  assert.equal(first.session.name, 'Repository reviewer');
+  assert.equal(first.session.id, 'child');
+  assert.deepEqual(calls[0].params, { ...params, parent_id: 'root', identity: { client_id: 'client', request_id: 'named-spawn' } });
+  assert.deepEqual(calls[1].params, calls[0].params);
+  assert.equal(retried.session.id, first.session.id);
+  assert.equal((await client.session(first.session.id).get()).name, first.session.name);
+  assert.equal(calls.at(-1).params.session_id, 'child');
+});

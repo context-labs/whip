@@ -103,7 +103,7 @@ func TestChildPolicyDelegationDoesNotWidenExplicitGrantSelection(t *testing.T) {
 	}
 }
 
-func TestChildPolicyDelegationExpiresAcrossPolicyChanges(t *testing.T) {
+func TestChildPolicyDelegationFollowsPolicyChangesWithoutReplayingOperations(t *testing.T) {
 	for _, change := range []string{"mode", "interactive-denial"} {
 		t.Run(change, func(t *testing.T) {
 			s := fresh(t)
@@ -145,8 +145,8 @@ func TestChildPolicyDelegationExpiresAcrossPolicyChanges(t *testing.T) {
 				}
 				next := operation.OperationSpec
 				next.ID, next.RequestID = operation.ID+"_new", operation.RequestID+"_new"
-				if denied := admitOperation(t, s, next); denied.State != session.OperationDenied || denied.PermissionRevision != nil {
-					t.Fatal("later automatic policy revived captured child delegation", denied)
+				if nextOperation := admitOperation(t, s, next); nextOperation.State != session.OperationReady || nextOperation.PermissionRevision == nil || *nextOperation.PermissionRevision != 4 {
+					t.Fatal("existing child did not follow the new automatic policy", nextOperation)
 				}
 			}
 			if _, err := s.SettleOperation(t.Context(), dispatched.ID, session.OperationResult{State: session.OperationSucceeded}); err != nil {
@@ -155,10 +155,10 @@ func TestChildPolicyDelegationExpiresAcrossPolicyChanges(t *testing.T) {
 			if retry := spawnChildTest(t, s, "child", request); retry.Session.ID != child.Session.ID {
 				t.Fatal("old spawn receipt was replaced")
 			}
-			blocked := spawnChildTest(t, s, "stale-parent-child", childRequest(child.Session.ID))
-			blockedCell := childOperationCell(t, s, blocked.Session.ID)
-			if denied := admitOperation(t, s, delegatedReadSpec(*blocked.Session, blockedCell, "stale-parent-read")); denied.State != session.OperationDenied {
-				t.Fatal("stale ancestor delegated the new policy revision", denied)
+			descendant := spawnChildTest(t, s, "existing-parent-child", childRequest(child.Session.ID))
+			descendantCell := childOperationCell(t, s, descendant.Session.ID)
+			if next := admitOperation(t, s, delegatedReadSpec(*descendant.Session, descendantCell, "descendant-read")); next.State != session.OperationReady || next.PermissionRevision == nil || *next.PermissionRevision != 4 {
+				t.Fatal("existing ancestor failed to delegate the current policy", next)
 			}
 			freshChild := spawnChildTest(t, s, "fresh-child", childRequest(root.ID))
 			freshCell := childOperationCell(t, s, freshChild.Session.ID)
@@ -211,7 +211,7 @@ func TestChildPolicyDelegationKeepsExactWorkspaceAndExplicitConsent(t *testing.T
 	}
 }
 
-func TestChildPolicyDelegationDoesNotInheritAskOrOneUseApproval(t *testing.T) {
+func TestChildPolicyDelegationFollowsAskToAutomaticWithoutInheritingOneUseApproval(t *testing.T) {
 	s := fresh(t)
 	root, rootCell := operationCell(t, s)
 	approved := admitOperation(t, s, delegatedReadSpec(root, rootCell, "one-use"))
@@ -224,12 +224,12 @@ func TestChildPolicyDelegationDoesNotInheritAskOrOneUseApproval(t *testing.T) {
 		t.Fatal("child inherited a one-use approval", denied)
 	}
 	setModeTest(t, s, root.ID, "automatic", 1, session.PermissionAutomatic)
-	if denied := admitOperation(t, s, delegatedReadSpec(*child.Session, cell, "later-read")); denied.State != session.OperationDenied || denied.PermissionRevision != nil {
-		t.Fatal("existing Ask child gained automatic authority retroactively", denied)
+	if next := admitOperation(t, s, delegatedReadSpec(*child.Session, cell, "later-read")); next.State != session.OperationReady || next.PermissionRevision == nil || *next.PermissionRevision != 2 {
+		t.Fatal("existing Ask child did not inherit the changed mode", next)
 	}
 	grandchild := spawnChildTest(t, s, "grandchild", childRequest(child.Session.ID))
 	grandchildCell := childOperationCell(t, s, grandchild.Session.ID)
-	if denied := admitOperation(t, s, delegatedReadSpec(*grandchild.Session, grandchildCell, "grandchild-read")); denied.State != session.OperationDenied {
-		t.Fatal("undelegated ancestor passed root automatic authority", denied)
+	if next := admitOperation(t, s, delegatedReadSpec(*grandchild.Session, grandchildCell, "grandchild-read")); next.State != session.OperationReady || next.PermissionRevision == nil || *next.PermissionRevision != 2 {
+		t.Fatal("existing Ask ancestor did not delegate current mode", next)
 	}
 }

@@ -363,15 +363,16 @@ it('shows a direct human operation without manufacturing an execution cell or pr
   expect(output[0]?.live).toBe(true);
   expect(conversationActivityRows([], [], [], undefined, [direct])).toEqual([]);
 });
-it('launch records use canonical result identity and do not reinterpret later child lifecycle', () => {
+it.each([true, false])('launch names retain canonical identity with child metadata=%s', (withMetadata) => {
   const child = sessionRecord('child');
-  child.definition.id = 'Reviewer';
+  child.name = 'Reviewer';
+  child.definition.id = 'coding';
   const host = {
     ...operation('spawn', 'succeeded', 'agents.spawn'),
     result: {
       state: 'succeeded' as const,
       content_references: [],
-      value: { session_id: 'child', input_id: 'input' },
+      value: { session_id: 'child', input_id: 'input', name: 'Reviewer' },
       failure: null,
     },
   };
@@ -386,7 +387,7 @@ it('launch records use canonical result identity and do not reinterpret later ch
     wrap(
       <InlineAgent
         row={row}
-        agent={child}
+        agent={withMetadata ? child : undefined}
         connected={false}
         onAgent={open}
         readBody={vi.fn()}

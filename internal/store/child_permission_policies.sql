@@ -1,5 +1,5 @@
--- Shared by fresh initialization and the additive schema55-to-56 upgrade.
--- No backfill: old children did not capture permission-policy delegation.
+-- A row records ongoing inheritance from the direct parent. policy_revision is
+-- the admission observation; operation revisions determine dispatch authority.
 CREATE TABLE child_permission_policies (
  session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
  policy_revision INTEGER NOT NULL CHECK(policy_revision>0)

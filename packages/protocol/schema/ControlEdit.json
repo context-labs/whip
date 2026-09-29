@@ -23,6 +23,11 @@
         "object"
       ],
       "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[^\\x00-\\x1f\\x7f-\\x9f]*$"
+        },
         "history_revision": {
           "type": "string",
           "pattern": "^(0|[1-9][0-9]{0,18})$",
@@ -155,7 +160,6 @@
                   "goals",
                   "mail",
                   "mcp",
-                  "messages",
                   "models",
                   "permissions",
                   "schedules",
@@ -166,7 +170,7 @@
                 ],
                 "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
               },
-              "maxItems": 17,
+              "maxItems": 16,
               "uniqueItems": true
             },
             "tools_definition": {

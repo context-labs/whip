@@ -6012,3 +6012,124 @@ are unchanged; no child-policy rows are backfilled. Integrity and foreign-key
 checks pass. Exact local evidence is `child-policy-fix-verification.json`,
 `runtime-manifest.json`, `build-evidence.json` and `launch-status.json`. The build
 log is `/private/tmp/whip-subagent-debug/package-build.log`.
+
+
+## 2026-09-29 — restore working REPL behavior after the native migration
+
+The user clarifies that the old working behavior is the acceptance target unless
+a deliberate change fixes a documented defect. In particular, the permanent
+child-policy expiry described in the previous entry was a regression. This
+follow-up preserves the new execution/persistence boundaries while restoring
+live permission propagation, automatic instruction capture, MCP discovery/call
+alignment, useful model guidance and friendly child identity. Performance work
+remains closed. The active frontend checkout and normal installation are untouched.
+
+The first increment keeps an ongoing policy-inheritance relationship for default
+same-workspace children, including children created in Ask mode. Later policy
+changes apply to new operations in existing children and grandchildren. Waiting
+and ready old-policy operations remain denied; they are never replayed. Explicit
+grant subsets, empty grants, different workspaces and explicit host-consent
+requirements retain their restrictions. No standing grants are fabricated.
+
+Schema57 restores missing default relationships only when immutable successful
+agent-spawn arguments and matching receipts prove the original selection. Old
+direct-client receipts without those arguments cannot safely distinguish default
+inheritance from explicit restrictions and remain restricted. Identity, input
+and operation outcomes are preserved. Existing schema56 delegation records now
+follow the live policy. Fresh stores and atomic55/56 upgrades are supported.
+
+The new off/on and Ask-to-Full-Access store regressions fail against the previous
+helper. Focused store inheritance/preview/migration tests pass with the fix, as
+does the actual Starlark/QuickJS scenario exercising existing default and
+explicitly restricted children through Ask → Full Access → Ask → Full Access.
+Broader integrated validation and the remaining increments are still in progress.
+
+The user subsequently explicitly permits session invalidation during development.
+The final implementation therefore removes the schema55/56 compatibility upgrade
+and historical delegation backfill. Prior upgrade tests were useful intermediate
+evidence, not a promise retained by this slice. Older databases are rejected
+without modification; a fresh development runtime is required. Unsupported REPL
+aliases will be removed even though this changes saved QuickJS fingerprints.
+No user's existing database or running installation is modified by these edits.
+
+Integrated instruction capture now admits an exact standing grant or eligible
+current Full Access authority, including default children with zero standing
+grants. Workspace rules, selected published skill/project roots, standing rules,
+explicit skill invocation and human skill inspection share that decision. Source
+selection stays explicit and confined; captured bytes remain immutable for the
+turn and later reads recheck authority. The isolated full store/runtime suites
+and focused race checks passed.
+
+The MCP increment captures trusted tool identities at spawn and combines that
+ceiling with live permission policy for both discovery and dispatch. It retains
+root-owned connections, explicit untrusted-tool consent, separately scoped server
+instructions and exact retry behavior. Focused real-spawn Starlark/QuickJS and
+race tests cover zero-grant discovery/calls, Ask → Full Access, off/on, nested
+restriction, reconnect/schema changes, and restart without implicit reconnection.
+Schema58 adds the fresh child MCP scope table, with no historical reconstruction.
+
+The REPL guide again covers local libraries, language differences, checkpoint
+limits, browser/computer/MCP/user calls, helper-versus-child selection, and mail
+completion behavior. Examples run in both actual engines. Unsupported messages,
+agents.wait, context.history, and legacy state aliases are removed. This changes
+builtin module sets and QuickJS fingerprints as explicitly approved for dev.
+One tiny-context usage fixture unintentionally compacted after the richer guide;
+its print-only agent now declares no host modules, keeping its original window
+and exact-prefill assertions. Focused race checks pass after that correction.
+
+The final increment restores optional immutable child names and configured
+template aliases. The template resolves from the parent's captured configuration
+to a pinned definition; existing binding narrowing remains in force. Exact
+request retries preserve name/template selection, and duplicate names never
+replace IDs for routing. The protocol, SDK, both REPL engines, shared web/Desktop
+renderer, mobile recipient views and terminal agent tree carry the persisted
+name. Launch rows can use the recorded name before session metadata arrives.
+Both engines' model guidance lists sorted captured aliases only when the agents
+module is enabled. Fresh schema 59 includes both child tool ceilings and names;
+schemas 55–58 are rejected without mutation. No upgrade/backfill is retained.
+
+Independent reviews found no blocking issue in live policy/instruction authority,
+MCP scope enforcement or names/template admission. The integrated checks pass
+protocol generation/drift and 18 interoperability tests, 206 SDK tests, app/mobile
+type checks, the mobile native gateway's six both-engine/restart tests, 47 focused
+renderer tests, terminal child navigation/routing tests, fresh-schema rejection,
+both-engine executable guidance and whole-module Go vet. The first renderer
+invocation used a nonexistent config path; its corrected repository command
+passes all four selected suites.
+
+The foundation-wide store/runtime race+shuffle attempt hit the cumulative
+ten-minute package timeout in each suite (the tests active at timeout had each
+been running about one second). It reported no race; this attempt is not counted
+as a pass. Its log is `/private/tmp/whip-parity-foundation-race.log`. Final
+integrated full non-race suites, focused race coverage and frozen-baseline lint
+are recorded in the completion entry below; this is not full release acceptance.
+
+Final integrated full non-race suites pass: session 1.380s, store 91.185s,
+runtime 225.148s, RPC 41.894s, protocol 5.245s and TUI 82.661s. The focused
+integrated race run passes 36 tests plus 28 subtests across store/runtime/RPC,
+including both actual engines, in 118.51s wall time with no race reports.
+The separate retired-binding regression passes in both engines. Logs are
+`/private/tmp/whip-parity-final-go.log`,
+`/private/tmp/whip-parity-final-focused-race.log` and
+`/private/tmp/whip-parity-final-pruned-bindings.log`.
+
+Pinned golangci-lint v2.13.1 passes over the whole module with zero issues against
+the unchanged `e3fed9c91918d9c36766dd47d878c1b5466238d1` baseline. Initial findings
+were formatting, an unused test assignment, bounded alias-list allocation, and
+the intentional nil result meaning no automatic authority; these are corrected
+or documented at the exact optional-authority boundary. The final command
+disables issue-count truncation, not lint checks. Its log is
+`/private/tmp/whip-parity-final-lint.log`. No dependencies, installed runtime,
+user database, deployment or merge changed during this follow-up.
+
+## 2026-09-29 — keep shared execution guidance engine-neutral
+
+The shared `execute` tool description no longer mentions JavaScript or `await`.
+Syntax guidance remains in the selected engine's existing guide. A request-level
+regression checks the actual tool description through ordinary calls, correction
+and replan; it fails against the prior wording. Guide checks require QuickJS's
+await guidance and exclude it from the tested Starlark module guides. Focused
+runner and both-engine guide/example tests pass under the race detector (1.595s
+and 6.497s), with independent review finding no issue. The validation log is
+`/private/tmp/whip-engine-guidance-check.log`. No runtime behavior or installation
+changed.

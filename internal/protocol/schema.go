@@ -439,7 +439,13 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 			schema.Properties["sources"].Types = nil
 			schema.Properties["sources"].MaxItems = new(1152)
 		}
+		if t == reflect.TypeFor[Session]() || t == reflect.TypeFor[SpawnSessionParams]() {
+			schema.Properties["name"].MaxLength = new(session.MaxChildNameBytes)
+			schema.Properties["name"].Pattern = `^[^\x00-\x1f\x7f-\x9f]*$`
+		}
 		if t == reflect.TypeFor[SpawnSessionParams]() {
+			schema.Properties["template"].MaxLength = new(128)
+			schema.Properties["template"].Pattern = "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
 			attachments := schema.Properties["browser_attachments"]
 			attachments.Type, attachments.Types = "array", nil
 			attachments.MaxItems = new(4)

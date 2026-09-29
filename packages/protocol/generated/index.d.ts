@@ -1126,6 +1126,7 @@ export interface ControlEdit {
   revision: string;
   deleted: boolean;
   session: null | {
+    name?: string;
     history_revision: string;
     id: string;
     tree_id: string;
@@ -1150,7 +1151,7 @@ export interface ControlEdit {
         servers: string[];
       };
       /**
-       * @maxItems 17
+       * @maxItems 16
        */
       modules: (
         | "agents"
@@ -1162,7 +1163,6 @@ export interface ControlEdit {
         | "goals"
         | "mail"
         | "mcp"
-        | "messages"
         | "models"
         | "permissions"
         | "schedules"
@@ -1365,7 +1365,7 @@ export interface CreateTreeParams {
       servers: string[];
     };
     /**
-     * @maxItems 17
+     * @maxItems 16
      */
     modules?:
       | null
@@ -1379,7 +1379,6 @@ export interface CreateTreeParams {
           | "goals"
           | "mail"
           | "mcp"
-          | "messages"
           | "models"
           | "permissions"
           | "schedules"
@@ -1470,6 +1469,7 @@ export interface CreateTreeResult {
     created_at: string;
   };
   root: null | {
+    name?: string;
     history_revision: string;
     id: string;
     tree_id: string;
@@ -1494,7 +1494,7 @@ export interface CreateTreeResult {
         servers: string[];
       };
       /**
-       * @maxItems 17
+       * @maxItems 16
        */
       modules: (
         | "agents"
@@ -1506,7 +1506,6 @@ export interface CreateTreeResult {
         | "goals"
         | "mail"
         | "mcp"
-        | "messages"
         | "models"
         | "permissions"
         | "schedules"
@@ -1627,7 +1626,7 @@ export interface Definition {
         servers: string[];
       };
       /**
-       * @maxItems 17
+       * @maxItems 16
        */
       modules?:
         | null
@@ -1641,7 +1640,6 @@ export interface Definition {
             | "goals"
             | "mail"
             | "mcp"
-            | "messages"
             | "models"
             | "permissions"
             | "schedules"
@@ -1726,7 +1724,7 @@ export interface DefinitionDocument {
       servers: string[];
     };
     /**
-     * @maxItems 17
+     * @maxItems 16
      */
     modules?:
       | null
@@ -1740,7 +1738,6 @@ export interface DefinitionDocument {
           | "goals"
           | "mail"
           | "mcp"
-          | "messages"
           | "models"
           | "permissions"
           | "schedules"
@@ -2459,6 +2456,7 @@ export interface ForkResult {
     created_at: string;
   };
   root: null | {
+    name?: string;
     history_revision: string;
     id: string;
     tree_id: string;
@@ -2483,7 +2481,7 @@ export interface ForkResult {
         servers: string[];
       };
       /**
-       * @maxItems 17
+       * @maxItems 16
        */
       modules: (
         | "agents"
@@ -2495,7 +2493,6 @@ export interface ForkResult {
         | "goals"
         | "mail"
         | "mcp"
-        | "messages"
         | "models"
         | "permissions"
         | "schedules"
@@ -4573,6 +4570,7 @@ export interface ListSessionsResult {
   items:
     | null
     | {
+        name?: string;
         history_revision: string;
         id: string;
         tree_id: string;
@@ -4597,7 +4595,7 @@ export interface ListSessionsResult {
             servers: string[];
           };
           /**
-           * @maxItems 17
+           * @maxItems 16
            */
           modules: (
             | "agents"
@@ -4609,7 +4607,6 @@ export interface ListSessionsResult {
             | "goals"
             | "mail"
             | "mcp"
-            | "messages"
             | "models"
             | "permissions"
             | "schedules"
@@ -8501,7 +8498,7 @@ export interface ReloadEdit {
       servers: string[];
     };
     /**
-     * @maxItems 17
+     * @maxItems 16
      */
     modules: (
       | "agents"
@@ -8513,7 +8510,6 @@ export interface ReloadEdit {
       | "goals"
       | "mail"
       | "mcp"
-      | "messages"
       | "models"
       | "permissions"
       | "schedules"
@@ -8970,6 +8966,7 @@ export interface SendMailParams {
   available_at?: null | string;
 }
 export interface Session {
+  name?: string;
   history_revision: string;
   id: string;
   tree_id: string;
@@ -8994,7 +8991,7 @@ export interface Session {
       servers: string[];
     };
     /**
-     * @maxItems 17
+     * @maxItems 16
      */
     modules: (
       | "agents"
@@ -9006,7 +9003,6 @@ export interface Session {
       | "goals"
       | "mail"
       | "mcp"
-      | "messages"
       | "models"
       | "permissions"
       | "schedules"
@@ -9536,6 +9532,8 @@ export interface ShellInteractionResult {
   };
 }
 export interface SpawnSessionParams {
+  name?: string;
+  template?: string;
   /**
    * @maxItems 4
    */
@@ -9558,7 +9556,7 @@ export interface SpawnSessionParams {
       servers: string[];
     };
     /**
-     * @maxItems 17
+     * @maxItems 16
      */
     modules?:
       | null
@@ -9572,7 +9570,6 @@ export interface SpawnSessionParams {
           | "goals"
           | "mail"
           | "mcp"
-          | "messages"
           | "models"
           | "permissions"
           | "schedules"
@@ -9698,6 +9695,7 @@ export interface SpawnSessionParams {
 }
 export interface SpawnSessionResult {
   session: null | {
+    name?: string;
     history_revision: string;
     id: string;
     tree_id: string;
@@ -9722,7 +9720,7 @@ export interface SpawnSessionResult {
         servers: string[];
       };
       /**
-       * @maxItems 17
+       * @maxItems 16
        */
       modules: (
         | "agents"
@@ -9734,7 +9732,6 @@ export interface SpawnSessionResult {
         | "goals"
         | "mail"
         | "mcp"
-        | "messages"
         | "models"
         | "permissions"
         | "schedules"
@@ -10526,7 +10523,7 @@ export interface UpdateConfigurationParams {
       servers: string[];
     };
     /**
-     * @maxItems 17
+     * @maxItems 16
      */
     modules?:
       | null
@@ -10540,7 +10537,6 @@ export interface UpdateConfigurationParams {
           | "goals"
           | "mail"
           | "mcp"
-          | "messages"
           | "models"
           | "permissions"
           | "schedules"

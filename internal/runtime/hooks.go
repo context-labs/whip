@@ -99,6 +99,8 @@ func (r *Runtime) BeforeTool(ctx context.Context, current session.Session, call 
 
 func parseSpawn(parent session.SessionID, arguments map[string]any) (store.ChildRequest, error) {
 	var args struct {
+		Name               string                  `json:"name,omitempty"`
+		Template           string                  `json:"template,omitempty"`
 		Parts              []session.Part          `json:"parts,omitempty"`
 		Prompt             string                  `json:"prompt"`
 		BrowserAttachments []string                `json:"browser_attachments,omitempty"`
@@ -125,7 +127,7 @@ func parseSpawn(parent session.SessionID, arguments map[string]any) (store.Child
 		}
 		args.Parts = []session.Part{{Type: "text", Text: args.Prompt}}
 	}
-	return store.ChildRequest{ParentID: parent, Definition: args.Definition, Overrides: args.Overrides, WorkingDirectory: args.WorkingDirectory, Parts: args.Parts, GrantIDs: args.GrantIDs, Budgets: args.Budgets, Resources: args.Resources, BrowserAttachments: args.BrowserAttachments}, nil
+	return store.ChildRequest{Name: args.Name, Template: args.Template, ParentID: parent, Definition: args.Definition, Overrides: args.Overrides, WorkingDirectory: args.WorkingDirectory, Parts: args.Parts, GrantIDs: args.GrantIDs, Budgets: args.Budgets, Resources: args.Resources, BrowserAttachments: args.BrowserAttachments}, nil
 }
 
 func hookArguments(raw json.RawMessage) (map[string]any, error) {

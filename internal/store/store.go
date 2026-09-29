@@ -21,7 +21,7 @@ import (
 
 const (
 	applicationID = 0x57504834
-	schemaVersion = 56
+	schemaVersion = 59
 )
 
 // SchemaVersion reports the single database format supported by this build.
@@ -36,6 +36,9 @@ var schema string
 
 //go:embed child_permission_policies.sql
 var childPermissionPoliciesSchema string
+
+//go:embed child_mcp_tools.sql
+var childMCPToolsSchema string
 
 var (
 	ErrNotFound = errors.New("record not found")
@@ -113,19 +116,16 @@ func Open(ctx context.Context, path string) (_ *Store, err error) {
 			if _, err := tx.ExecContext(ctx, childPermissionPoliciesSchema); err != nil {
 				return fmt.Errorf("initialize child permission policies: %w", err)
 			}
+			if _, err := tx.ExecContext(ctx, childMCPToolsSchema); err != nil {
+				return fmt.Errorf("initialize child MCP tool scopes: %w", err)
+			}
+			if _, err := tx.ExecContext(ctx, childNamesSchema); err != nil {
+				return fmt.Errorf("initialize child names: %w", err)
+			}
 			if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA application_id=%d; PRAGMA user_version=%d", applicationID, schemaVersion)); err != nil {
 				return err
 			}
 			if _, err := tx.ExecContext(ctx, "INSERT INTO metadata VALUES (?)", newID("runtime")); err != nil {
-				return err
-			}
-		} else if app == applicationID && version == 55 {
-			// Existing children have no captured delegation and remain restricted.
-			// DDL and the version advance commit atomically with the identity check.
-			if _, err := tx.ExecContext(ctx, childPermissionPoliciesSchema); err != nil {
-				return fmt.Errorf("upgrade child permission policies: %w", err)
-			}
-			if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version=%d", schemaVersion)); err != nil {
 				return err
 			}
 		} else if app != applicationID || version != schemaVersion {

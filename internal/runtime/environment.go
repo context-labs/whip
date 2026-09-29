@@ -29,7 +29,7 @@ func environmentInstructions(owner session.Session, turn session.Turn) string {
 	quoted := func(value string) string { raw, _ := json.Marshal(value); return string(raw) }
 	identity := fmt.Sprintf("Identity: root agent (session %s, tree %s, definition %s at revision %s).", owner.ID, owner.TreeID, owner.Definition.ID, owner.Definition.Revision)
 	if owner.ParentID != nil {
-		identity = fmt.Sprintf("Identity: child agent (session %s, tree %s, parent session %s, definition %s at revision %s).", owner.ID, owner.TreeID, *owner.ParentID, owner.Definition.ID, owner.Definition.Revision)
+		identity = fmt.Sprintf("Identity: child agent %s (session %s, tree %s, parent session %s, definition %s at revision %s).", quoted(owner.Name), owner.ID, owner.TreeID, *owner.ParentID, owner.Definition.ID, owner.Definition.Revision)
 		switch owner.Config.ReportMode {
 		case session.ReportNotice:
 			identity += " Successful completion sends your parent a short automatic notice with evidence for the full result."

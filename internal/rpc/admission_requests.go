@@ -23,7 +23,7 @@ func childRequest(p protocol.SpawnSessionParams) (store.ChildRequest, error) {
 	if err != nil {
 		return store.ChildRequest{}, err
 	}
-	request := store.ChildRequest{ParentID: session.SessionID(p.ParentID), Overrides: patch, Resources: protocol.ResourceLimitsDomain(p.Resources)}
+	request := store.ChildRequest{Name: p.Name, Template: p.Template, ParentID: session.SessionID(p.ParentID), Overrides: patch, Resources: protocol.ResourceLimitsDomain(p.Resources)}
 	for _, id := range p.BrowserAttachments {
 		request.BrowserAttachments = append(request.BrowserAttachments, string(id))
 	}

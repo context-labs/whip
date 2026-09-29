@@ -49,7 +49,7 @@ export function Agents(props: InspectorProps) {
                 location: { agent: agent.id === props.rootId ? undefined : agent.id },
               })}
             >
-              {agent.id === props.rootId ? 'Root agent' : agent.definition.id}
+              {agent.id === props.rootId ? 'Root agent' : agent.name || agent.definition.id}
             </Link>
             <Badge>{agent.lifecycle}</Badge>
           </div>

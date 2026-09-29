@@ -49,7 +49,7 @@ func TestPackagedRuntime(t *testing.T) {
 				Command: []string{executable, "_kernel"}, Engine: engine,
 				Scratch: &memoryScratch{}, Checkpoints: &memoryCheckpoints{},
 				Host: HostFunc(func(_ context.Context, module, operation string, args map[string]any) (any, error) {
-					if module != "state" || operation != "private_get" || args["key"] != "answer" {
+					if module != "state" || operation != "get" || args["key"] != "answer" {
 						return nil, fmt.Errorf("unexpected host call: %s.%s", module, operation)
 					}
 					calls.Add(1)
@@ -76,9 +76,9 @@ func TestPackagedRuntime(t *testing.T) {
 			}
 			descriptor.GuideSHA256 = described.GuideSHA256
 			observed := observation{Descriptor: descriptor, StartupMillis: startupMillis}
-			code := "answer = state.private_get(key='answer')\nprint('runtime-ready')\nanswer + 2"
+			code := "answer = state.get(scope='session', key='answer')\nprint('runtime-ready')\nanswer + 2"
 			if engine == EngineQuickJS {
-				code = `var answer = await state.private_get({key:"answer"}); print("runtime-ready"); answer + 2`
+				code = `var answer = await state.get({scope:"session",key:"answer"}); print("runtime-ready"); answer + 2`
 			}
 			started = time.Now()
 			result, err := kernel.Exec(t.Context(), Cell{Code: code})

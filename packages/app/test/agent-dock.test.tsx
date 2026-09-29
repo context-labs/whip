@@ -123,6 +123,18 @@ it('opens the exact child and marks the currently open companion', () => {
   fireEvent.click(button);
   expect(input.onAgent).toHaveBeenCalledWith('b');
 });
+it('shows child names while duplicate names still open the exact session', () => {
+  const a = child('a'), b = child('b');
+  a.agent.name = b.agent.name = 'Reviewer';
+  const input = props([a, b]);
+  render(<AgentDockRoster {...input} openAgentId="b" />);
+  expand();
+  const named = screen.getAllByRole('button', { name: /^Reviewer · Working/ });
+  expect(named).toHaveLength(2);
+  const selected = named.find(button => button.getAttribute('aria-current') === 'true')!;
+  fireEvent.click(selected);
+  expect(input.onAgent).toHaveBeenCalledWith('b');
+});
 it('freezes order while a row is hovered or focused and reconciles after release', () => {
   const input = props([child('a'), child('b'), child('c')]);
   const view = render(<AgentDockRoster {...input} />);

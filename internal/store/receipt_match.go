@@ -54,7 +54,7 @@ func (s *Store) MatchChild(ctx context.Context, identity session.RequestIdentity
 		result, err := s.ChildTransferResult(ctx, identity, request)
 		return result.Admission, err
 	}
-	digest, err := requestDigest("spawn_child", request)
+	digest, err := childRequestDigest(request)
 	if err != nil {
 		return Admission{}, err
 	}

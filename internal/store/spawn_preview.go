@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 
 	"github.com/context-labs/whip/internal/session"
 )
@@ -10,6 +11,8 @@ import (
 // ChildPreview is an observation, never admission or a reusable grant. The
 // committed spawn resolves and narrows the same request again in its transaction.
 type ChildPreview struct {
+	Name               string                `json:"name,omitempty"`
+	Template           string                `json:"template,omitempty"`
 	Definition         session.DefinitionRef `json:"definition"`
 	Configuration      session.Configuration `json:"configuration"`
 	WorkingDirectory   string                `json:"working_directory"`
@@ -20,8 +23,19 @@ type ChildPreview struct {
 func resolveChild(ctx context.Context, q querier, parent session.Session, request SpawnSession) (ChildPreview, error) {
 	ref := parent.Definition
 	var document session.DefinitionDocument
-	if request.Definition != nil {
+	if request.Template != "" {
+		if request.Definition != nil {
+			return ChildPreview{}, fmt.Errorf("%w: choose a child template or definition, not both", session.ErrInvalid)
+		}
+		var ok bool
+		ref, ok = parent.Config.Children[request.Template]
+		if !ok {
+			return ChildPreview{}, fmt.Errorf("%w: unknown child template %q", session.ErrInvalid, request.Template)
+		}
+	} else if request.Definition != nil {
 		ref = *request.Definition
+	}
+	if request.Definition != nil || request.Template != "" {
 		declared, err := definition(ctx, q, ref)
 		if err != nil {
 			return ChildPreview{}, err
@@ -40,7 +54,7 @@ func resolveChild(ctx context.Context, q querier, parent session.Session, reques
 	if cwd == "" {
 		cwd = parent.WorkingDirectory
 	}
-	return ChildPreview{Definition: ref, Configuration: configuration, WorkingDirectory: cwd}, nil
+	return ChildPreview{Name: request.Name, Template: request.Template, Definition: ref, Configuration: configuration, WorkingDirectory: cwd}, nil
 }
 
 func (s *Store) PreviewChild(ctx context.Context, cellID session.CellID, request ChildRequest) (result ChildPreview, err error) {

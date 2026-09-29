@@ -151,6 +151,12 @@ drafts, composition, reading positions and tabs. It does not own accepted work.
 Unmounting, hiding, local wait cancellation and detaching stop observations;
 execution cancellation always names an explicit native input or turn.
 
+Child sessions expose a persisted, immutable `name` alongside their ID. Agent
+lists, launch rows, selected-child headings, failure notices, mobile recipients
+and terminal trees prefer that name. Duplicate names are allowed; navigation,
+mail, actions, drafts and SDK observations continue to use exact session IDs.
+Recorded spawn results retain the name for launch display before metadata loads.
+
 Each visible selected root or child leases its exact session. Root navigation,
 tree identity and selected session identity are separate values. Two views of
 one session share a transcript and ExecutionView; independent panes retain their

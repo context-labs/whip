@@ -3,7 +3,7 @@ package process
 import "testing"
 
 func TestModuleRegistryIsCompleteAndClosed(t *testing.T) {
-	want := []string{"context", "files", "shell", "browser", "computer", "models", "agents", "messages", "mail", "mcp", "state", "artifacts", "goals", "schedules", "permissions", "user"}
+	want := []string{"context", "skills", "files", "shell", "browser", "computer", "models", "agents", "mail", "mcp", "state", "artifacts", "goals", "schedules", "permissions", "user"}
 	modules := Modules()
 	for _, name := range want {
 		if len(modules[name]) == 0 {
@@ -17,7 +17,7 @@ func TestModuleRegistryIsCompleteAndClosed(t *testing.T) {
 	if err := validateModuleOperation("os", "getenv"); err == nil {
 		t.Fatal("ambient module was accepted")
 	}
-	for _, removed := range []struct{ module, operation string }{{"answer", "submit"}, {"agents", "await"}, {"agents", "steer"}, {"messages", "receive"}} {
+	for _, removed := range []struct{ module, operation string }{{"answer", "submit"}, {"agents", "await"}, {"agents", "steer"}, {"messages", "receive"}, {"messages", "send"}, {"agents", "wait"}, {"context", "history"}, {"state", "private_get"}, {"state", "private_set"}, {"state", "blackboard_get"}, {"state", "cancel_subscription"}} {
 		if err := validateModuleOperation(removed.module, removed.operation); err == nil {
 			t.Errorf("removed operation %s.%s was accepted", removed.module, removed.operation)
 		}

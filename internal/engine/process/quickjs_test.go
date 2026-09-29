@@ -90,7 +90,7 @@ func TestQuickJSHostPromisesAndLosslessNumbers(t *testing.T) {
 	var calls atomic.Int32
 	host := HostFunc(func(_ context.Context, module, operation string, args map[string]any) (any, error) {
 		calls.Add(1)
-		if operation == "private_get" {
+		if operation == "get" {
 			return map[string]any{"big": json.Number("9007199254740993"), "decimal": json.Number("1.00000000000000000001"), "exponent": json.Number("1e3"), "zero": json.Number("-0")}, nil
 		}
 		value := args["value"].(map[string]any)
@@ -102,7 +102,7 @@ func TestQuickJSHostPromisesAndLosslessNumbers(t *testing.T) {
 		return value, nil
 	})
 	kernel := testQuickJS(t, host, nil)
-	result, err := kernel.Exec(t.Context(), Cell{Code: `const payload = await state.private_get({key:"large"}); payload.negative = -0; const saved = await state.private_set({key:"large",value:payload}); [typeof saved.big, saved.big === 9007199254740993n, json.encode(saved), Number(saved.exponent)]`})
+	result, err := kernel.Exec(t.Context(), Cell{Code: `const payload = await state.get({scope:"session",key:"large"}); payload.negative = -0; const saved = await state.write({scope:"session",expected_revision:"0",key:"large",value:payload}); [typeof saved.big, saved.big === 9007199254740993n, json.encode(saved), Number(saved.exponent)]`})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestQuickJSPassiveHostArguments(t *testing.T) {
 		`({value:Infinity})`,
 	}
 	for _, args := range cases {
-		result, err := kernel.Exec(t.Context(), Cell{Code: `var caught=""; try {await state.private_set(` + args + `)} catch(e) {caught=e.message}; caught`})
+		result, err := kernel.Exec(t.Context(), Cell{Code: `var caught=""; try {await state.write(` + args + `)} catch(e) {caught=e.message}; caught`})
 		if err != nil || !result.HasValue || result.Value == "" {
 			t.Fatalf("%s: %+v %v", args, result, err)
 		}
@@ -415,12 +415,12 @@ func TestQuickJSRejectsUnpairedUnicodeAndPreservesUTF8(t *testing.T) {
 		return args["value"], nil
 	}), nil)
 	for _, source := range []string{`"\ud800"`, `"\udfff"`, `{"\ud800":1}`} {
-		got, err := kernel.Exec(t.Context(), Cell{Code: `var unicodeError="";try {await state.private_set({key:"x",value:` + source + `})}catch(e){unicodeError=e.code};unicodeError`})
+		got, err := kernel.Exec(t.Context(), Cell{Code: `var unicodeError="";try {await state.write({scope:"session",expected_revision:"0",key:"x",value:` + source + `})}catch(e){unicodeError=e.code};unicodeError`})
 		if err != nil || got.Value != "E_JSON" {
 			t.Fatalf("invalid Unicode %s: %+v %v", source, got, err)
 		}
 	}
-	got, err := kernel.Exec(t.Context(), Cell{Code: `await state.private_set({key:"x",value:"hello 🌏 café"})`})
+	got, err := kernel.Exec(t.Context(), Cell{Code: `await state.write({scope:"session",expected_revision:"0",key:"x",value:"hello 🌏 café"})`})
 	if err != nil || got.Value != "hello 🌏 café" || calls.Load() != 1 {
 		t.Fatalf("Unicode fidelity: %+v %v calls=%d", got, err, calls.Load())
 	}
