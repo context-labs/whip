@@ -63,7 +63,7 @@ func acpCLI(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer stdio.Close()
+	defer func() { _ = stdio.Close() }()
 	bridge := acp.NewBridge(version, c, acp.Options{Model: override, Vision: acpSupportsVision(ctx, c, selection)})
 	connection := acpsdk.NewAgentSideConnection(bridge, stdio, stdio.input)
 	if err := bridge.SetAgentConnection(connection); err != nil {
@@ -77,7 +77,7 @@ func acpCLI(args []string) error {
 	}
 	// Closing the process-owned stdio releases blocked SDK reads/writes before
 	// joining editor observers. It does not cancel any host execution.
-	stdio.Close()
+	_ = stdio.Close()
 	bridge.CloseAll()
 	return nil
 }

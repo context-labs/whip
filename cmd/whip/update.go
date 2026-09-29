@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,9 +13,8 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/buildinfo"
-
-	"github.com/context-labs/whip/internal/daemon"
-	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/localruntime"
+	"github.com/context-labs/whip/internal/protocol"
 	"github.com/context-labs/whip/internal/update"
 )
 
@@ -33,20 +34,6 @@ func updateCLI() error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("%s %s — updating via %s\n\n", buildinfo.Name, version, installURL)
-	if err := runInstaller(installURL, channel); err != nil {
-		return fmt.Errorf("update failed: %w", err)
-	}
-	update.Acknowledge()
-	if err := restartDaemonAfterUpdate(); err != nil {
-		fmt.Fprintln(os.Stderr, buildinfo.Name+": updated, but daemon restart was not confirmed:", err)
-	}
-	fmt.Printf("\n%s updated — the local daemon will reconnect on the new version.\n", buildinfo.Name)
-	return nil
-}
-
-// Download first: a failing curl piped into sh otherwise looks like success.
-func runInstaller(url, channel string) error {
 	self, err := os.Executable()
 	if err != nil {
 		return err
@@ -55,6 +42,20 @@ func runInstaller(url, channel string) error {
 	if err != nil {
 		return err
 	}
+	fmt.Printf("%s %s — updating via %s\n\n", buildinfo.Name, version, installURL)
+	if err := runInstaller(self, installURL, channel); err != nil {
+		return fmt.Errorf("update failed: %w", err)
+	}
+	update.Acknowledge()
+	if err := restartDaemonAfterUpdate(self); err != nil {
+		return fmt.Errorf("%s updated, but native runtime restart was not confirmed: %w", buildinfo.Name, err)
+	}
+	fmt.Printf("\n%s updated — new connections use the installed native runtime.\n", buildinfo.Name)
+	return nil
+}
+
+// Download first: a failing curl piped into sh otherwise looks like success.
+func runInstaller(self, url, channel string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "sh", "-c", `script=$(mktemp) || exit 1
@@ -77,35 +78,96 @@ sh "$script"`, buildinfo.Name+"-update", url)
 	return cmd.Run()
 }
 
-var restartDaemonAfterUpdate = func() error {
-	dir, err := config.Dir()
-	if err != nil {
-		return err
-	}
-	paths, err := daemon.Paths(dir)
-	if err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+// Keep the canonical executable selected before installation: on Linux the old
+// updater process may now resolve to an unlinked inode. Read build metadata from
+// the replacement itself so the new host never advertises this process's build.
+var restartDaemonAfterUpdate = restartUpdatedNativeRuntime
+
+func restartUpdatedNativeRuntime(self string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
-	client, err := daemon.DialClient(ctx, paths, daemon.InitializeParams{
-		ProtocolMajor: daemon.ProtocolMajor, ClientID: fmt.Sprintf("update-%d", os.Getpid()), ClientKind: "automation",
-	})
-	if err != nil {
-		return nil // no responsive daemon means the next client starts the installed build
-	}
-	defer func() { _ = client.Close() }()
-	payload, _ := json.Marshal(map[string]string{"reason": "binary updated"})
-	result, err := client.Command(ctx, daemon.CommandParams{
-		CommandID: fmt.Sprintf("update-%d", time.Now().UnixNano()), Scope: "daemon",
-		Operation: "daemon.checkpoint", Payload: payload,
-	})
+	paths, err := nativeRuntimePaths()
 	if err != nil {
 		return err
 	}
-	var notice daemon.RestartNotice
-	if err := json.Unmarshal([]byte(result.Output), &notice); err != nil {
+	selected := localruntime.Inspect(ctx, paths)
+	if selected.State == "stopped" {
+		return nil
+	}
+	if selected.Process == nil {
+		return fmt.Errorf("cannot restart an unverified native runtime: %s", selected.Error)
+	}
+	if selected.Process.PID == os.Getpid() {
+		return errors.New("refusing to stop the updater itself")
+	}
+	launch, err := updatedRuntimeLaunch(ctx, self)
+	if err != nil {
 		return err
 	}
-	return client.RequestRestart(ctx, notice.Generation)
+	maintenance, err := localruntime.AcquireMaintenance(ctx, paths)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = maintenance.Close() }()
+	current := localruntime.Inspect(ctx, paths)
+	if current.State == "stopped" {
+		return nil
+	}
+	if current.Process == nil || current.Process.RuntimeID != selected.Process.RuntimeID || current.Process.ProcessEpoch != selected.Process.ProcessEpoch {
+		return errors.New("native runtime owner changed before restart; select it again explicitly")
+	}
+	if err := maintenance.Stop(ctx, *selected.Process); err != nil {
+		return err
+	}
+	if current := localruntime.Inspect(ctx, paths); current.State != "stopped" {
+		return errors.New("native runtime owner changed while stopping; no replacement was launched")
+	}
+	ready, err := maintenance.Start(ctx, launch)
+	if err != nil {
+		return err
+	}
+	if ready.Process == nil || ready.Process.RuntimeID != selected.Process.RuntimeID || ready.Process.ProcessEpoch == selected.Process.ProcessEpoch || ready.Process.Build != launch.Build {
+		return errors.New("replacement runtime returned an unexpected identity or build")
+	}
+	return nil
+}
+
+func updatedRuntimeLaunch(ctx context.Context, self string) (localruntime.Launch, error) {
+	launch, err := nativeRuntimeLaunch()
+	if err != nil {
+		return launch, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, self, "_desktop-runtime-info")
+	cmd.WaitDelay = time.Second
+	var output updateMetadataBuffer
+	cmd.Stdout = &output
+	if err := cmd.Run(); err != nil {
+		return launch, fmt.Errorf("installed runtime metadata unavailable: %w", err)
+	}
+	data := output.Bytes()
+	var info struct {
+		Distribution  string `json:"distribution"`
+		BuildID       string `json:"buildId"`
+		UpdateOwner   string `json:"updateOwner"`
+		ProtocolMajor int    `json:"protocolMajor"`
+	}
+	if err := json.Unmarshal(data, &info); err != nil {
+		return launch, err
+	}
+	if info.Distribution != buildinfo.Name || info.UpdateOwner != "standalone" || info.ProtocolMajor != protocol.Major || strings.TrimSpace(info.BuildID) == "" || len(info.BuildID) > 256 || strings.ContainsAny(info.BuildID, "\x00\r\n") {
+		return launch, errors.New("installed executable is not a compatible standalone native runtime")
+	}
+	launch.Executable, launch.Build = self, info.BuildID
+	return launch, nil
+}
+
+type updateMetadataBuffer struct{ bytes.Buffer }
+
+func (b *updateMetadataBuffer) Write(data []byte) (int, error) {
+	if len(data) > 4096-b.Len() {
+		return 0, errors.New("installed runtime metadata exceeds 4 KiB")
+	}
+	return b.Buffer.Write(data)
 }

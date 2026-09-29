@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/buildinfo"
-	"github.com/context-labs/whip/internal/legacy/config"
 	"golang.org/x/mod/semver"
 )
 
@@ -56,7 +55,7 @@ func Check(current string) string {
 	if buildinfo.UpdateOwner == "desktop" || !validRelease(current) {
 		return ""
 	}
-	dir, err := config.Dir()
+	dir, err := noticeDirectory()
 	if err != nil {
 		return ""
 	}
@@ -79,7 +78,7 @@ func Pending(current string) string {
 	if err != nil {
 		return ""
 	}
-	dir, err := config.Dir()
+	dir, err := noticeDirectory()
 	if err != nil {
 		return ""
 	}
@@ -93,7 +92,7 @@ func Pending(current string) string {
 // Acknowledge marks any pending notice as acted on (called by `whipcode update`
 // after a successful install). Best-effort.
 func Acknowledge() {
-	dir, err := config.Dir()
+	dir, err := noticeDirectory()
 	if err != nil {
 		return
 	}
@@ -104,6 +103,16 @@ func Acknowledge() {
 	}
 	n.Acknowledged = true
 	_ = writeNotice(p, n)
+}
+
+// Release notices are client-owned preferences, independent of runtime storage.
+func noticeDirectory() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	directory := buildinfo.Home(home)
+	return directory, os.MkdirAll(directory, 0o700)
 }
 
 // check is the pure core, I/O injected for tests.

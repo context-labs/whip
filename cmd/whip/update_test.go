@@ -40,10 +40,11 @@ func stubShell(t *testing.T, exitCode string) (argsFile string) {
 }
 
 func TestUpdateCLIRunsInstaller(t *testing.T) {
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	argsFile := stubShell(t, "0")
 	previousRestart := restartDaemonAfterUpdate
 	restarted := false
-	restartDaemonAfterUpdate = func() error { restarted = true; return nil }
+	restartDaemonAfterUpdate = func(string) error { restarted = true; return nil }
 	t.Cleanup(func() { restartDaemonAfterUpdate = previousRestart })
 
 	var err error
@@ -67,6 +68,7 @@ func TestUpdateCLIRunsInstaller(t *testing.T) {
 }
 
 func TestUpdateCLIInstallerFails(t *testing.T) {
+	t.Setenv("WHIPCODE_HOME", t.TempDir())
 	stubShell(t, "3")
 
 	var err error

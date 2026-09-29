@@ -4038,3 +4038,33 @@ also records the already-adopted native mobile dependencies. `npm run check:web`
 passed, producing the38-file renderer artifact `9c5a6c6ed398da48475bb28b3058d97643038d5a10316d0795f9f88b2f84ac39`
 (`/tmp/whip-native-client-web-build.log`). Existing production browser harnesses
 still need their explicit native migration; this build alone is not browser acceptance.
+
+### Standalone updater native lifecycle — 2026-09-29
+
+`whipcode update` retains its download-before-execute/checksummed installer path
+and desktop-owned update refusal, but now controls only the fresh native host.
+Capture the canonical executable before installation; read bounded compiled
+metadata from its replacement so the old updater cannot advertise the old build
+on the new process. Inspect and select a verified runtime/epoch, hold the native
+maintenance lease, recheck ownership, stop/join that exact host and start the
+replacement. Verify stable runtime identity, changed epoch and replacement build.
+Absent hosts remain absent; unsafe/unverified or changed owners are never signalled.
+A failed restart returns an explicit installed-but-unconfirmed error instead of
+promising reconnection. Client-owned update notices retain their existing path
+without importing retired runtime configuration.
+
+Disposable real native child processes prove restart identity/build, bad metadata
+leaving the old owner alive, absent/unverified owner handling and old-directory
+preservation. Stub installers prove download failure does not execute partial
+content/acknowledge notices and restart failure does not print readiness. No real
+installer, provider, installed application or user runtime was executed/modified.
+Focused updater race5.453s and complete update-notice race1.616s pass; final combined
+updater/ACP/MCP race22.503s, vet and Go1.27 pinned lint0 pass. Logs:
+`/tmp/whip-native-update-{tests,notices,vet,cli-final,lint-final}.log`.
+
+Required analysis now also includes the supported CLI, previously validated only
+with build/vet/selected race suites. Its first expanded lint run found unchecked
+intentional stdio cleanup and two unreferenced retired fixture/cleanup functions.
+Those cleanup errors are now explicitly discarded, and only unused functions
+were removed; retained title-fixture assertions remain. Frozen lint baseline is
+unchanged. The notice package is added to active build/race/analysis gates.
