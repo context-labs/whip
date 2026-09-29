@@ -3702,3 +3702,11 @@ exact reload is explicit, and neither action resends it. Interactive permission 
 is a separate root-controlled tree policy, independent from Ask/Full Access, standing
 grants and intrinsic questions. Both policy forms retain their captured revision when
 another client changes the policy.
+
+The native browser inspector saves the host driver through revision-checked CAS.
+Running-host environment pins are visible and disable edits. A changed host revision
+never rebases an in-progress choice silently; accepted batches retain their captured
+driver. Computer controls keep bundled-program publication, enabled configuration,
+and live connection as separate explicit actions. After uncertain publication, read
+current configuration before another edit; neither inspection nor selecting a bundle
+connects a helper.

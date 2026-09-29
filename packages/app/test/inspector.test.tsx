@@ -22,7 +22,7 @@ import fixtures from '../../protocol/schema/fixtures.json';
 import { RuntimeContext } from '../src/context';
 import type { AppRuntime } from '../src/runtime';
 import { Agents, Mailbox } from '../src/details/observation';
-import { MCP, Tools } from '../src/details/integrations';
+import { Browser, Computer, MCP, Tools } from '../src/details/integrations';
 import {
   Compaction,
   Goals,
@@ -795,4 +795,49 @@ it('does not let child or offline inspectors request a reload', async () => {
   rendered.rerender(f.wrap(<SessionReload {...f.props} connected={false} session={f.client.session('session_root')} />));
   expect(screen.getByRole('button', { name: 'Reload session defaults' })).toHaveProperty('disabled', true);
   expect(f.count('sessions.reload')).toBe(0);
+});
+
+
+it('changes the host browser driver with the exact captured revision and preserves a conflicted choice', async () => {
+  const f = await fixture();
+  let driver: Operations['host.browser_driver']['result'] = { revision: hash, configured_driver: 'rod', driver: 'rod', pinned: false };
+  f.handlers['browser.attachments'] = () => ({ attachments: [] });
+  f.handlers['host.browser_driver'] = () => driver;
+  f.handlers['host.set_browser_driver'] = request => { expect(params(request, 'host.set_browser_driver')).toEqual({ expected_revision: hash, driver: 'chromedp' }); throw new Error('Host settings conflict'); };
+  f.render(<Browser {...f.props} />); const user = userEvent.setup();
+  await user.click(await screen.findByRole('combobox', { name: 'Host browser driver' }));
+  await user.click(await screen.findByRole('option', { name: 'ChromeDP' }));
+  driver = { ...driver, revision: 'b'.repeat(64) };
+  await act(async () => { await f.queries.invalidateQueries({ queryKey: ['inspector'] }); });
+  await screen.findByText(/Host settings changed/);
+  fireEvent.click(screen.getByRole('button', { name: 'Save browser driver' }));
+  await screen.findByText('Host settings conflict');
+  expect(f.count('host.set_browser_driver')).toBe(1);
+  expect(screen.getByRole('combobox', { name: 'Host browser driver' }).textContent).toContain('ChromeDP');
+});
+it('shows an environment-pinned browser driver without enabling edits', async () => {
+  const f = await fixture();
+  f.handlers['browser.attachments'] = () => ({ attachments: [] });
+  f.handlers['host.browser_driver'] = () => ({ revision: hash, configured_driver: 'rod', driver: 'chromedp', pinned: true });
+  f.render(<Browser {...f.props} />);
+  await screen.findByText(/running host pins chromedp/);
+  expect(screen.getByRole('combobox', { name: 'Host browser driver' })).toHaveProperty('disabled', true);
+  expect(screen.getByRole('button', { name: 'Save browser driver' })).toHaveProperty('disabled', true);
+  expect(f.count('host.set_browser_driver')).toBe(0);
+});
+it('selects and enables a bundled helper through separate explicit CAS operations without connecting it', async () => {
+  const f = await fixture();
+  let status: Operations['computer.status']['result'] = { ...sample<Operations['computer.status']['result']>('ComputerStatus'), revision: hash, state: 'disabled', bundled_available: true, platform_supported: true, configuration: { enabled: false, helper_executable: '', allow: ['Editor'], deny: ['Secrets'], default_deny: true } };
+  f.handlers['computer.status'] = () => status;
+  f.handlers['computer.use_bundled'] = request => { expect(params(request, 'computer.use_bundled')).toEqual({ revision: hash }); status = { ...status, revision: 'b'.repeat(64), configuration: { ...status.configuration, helper_executable: '/host/bin/helper' } }; return status; };
+  f.handlers['computer.configure'] = request => { const p = params(request, 'computer.configure'); expect(p).toEqual({ revision: 'b'.repeat(64), configuration: { ...status.configuration, enabled: true } }); status = { ...status, revision: 'c'.repeat(64), configuration: p.configuration }; return status; };
+  f.render(<Computer {...f.props} />);
+  await screen.findByText('Helper program: None selected'); expect(f.count('computer.use_bundled')).toBe(0);
+  fireEvent.click(screen.getByRole('button', { name: 'Use bundled computer helper' }));
+  await screen.findByText('Helper program: /host/bin/helper');
+  expect(status.configuration.enabled).toBe(false); expect(f.count('computer.configure')).toBe(0); expect(f.count('computer.reconnect')).toBe(0);
+  const enable = screen.getByRole('button', { name: 'Enable computer helper' });
+  await waitFor(() => expect(enable).toHaveProperty('disabled', false)); fireEvent.click(enable);
+  await screen.findByRole('button', { name: 'Disable computer helper' });
+  expect(f.count('computer.configure')).toBe(1); expect(f.count('computer.reconnect')).toBe(0);
 });

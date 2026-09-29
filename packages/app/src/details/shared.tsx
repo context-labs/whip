@@ -42,6 +42,7 @@ type DetailRead =
   | 'mcp.configuration'
   | 'lsp.status'
   | 'computer.status'
+  | 'host.browser_driver'
   | 'browser.attachments'
   | 'definitions.get'
   | 'goals.current'

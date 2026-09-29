@@ -208,7 +208,7 @@ function LSP(props: InspectorProps) {
     </Section>
   );
 }
-function Browser(props: InspectorProps) {
+export function Browser(props: InspectorProps) {
   const query = useDetailQuery(
     props,
     'browser.attachments',
@@ -236,13 +236,46 @@ function Browser(props: InspectorProps) {
       <Button variant="ghost" disabled={!props.connected} onClick={() => void query.refetch()}>
         Refresh attachments
       </Button>
-      <p>Browser driver selection is not yet available in this inspector.</p>
+      <BrowserDriver {...props} />
     </Section>
   );
 }
-function Computer(props: InspectorProps) {
+function BrowserDriver(props: InspectorProps) {
+  const query = useDetailQuery(props, 'host.browser_driver', {});
+  const [draft, setDraft] = useState<{ value: 'rod' | 'chromedp'; revision: string }>();
+  const [reviewRequired, setReviewRequired] = useState(false);
+  const current = query.data;
+  async function refresh() {
+    const result = await query.refetch();
+    if (!result.error) setReviewRequired(false);
+  }
+  return <>
+    <h4>Host browser driver</h4>
+    <QueryFeedback query={query} connected={props.connected} />
+    {current && <>
+      <Select label="Host browser driver" value={draft?.value ?? current.driver} disabled={current.pinned || !props.connected} options={[{ value: 'rod', label: 'Rod' }, { value: 'chromedp', label: 'ChromeDP' }]} onValueChange={value => { if (value === 'rod' || value === 'chromedp') setDraft({ value, revision: draft?.revision ?? current.revision }); }} />
+      <p>This saved choice applies to future browser batches on this host. Accepted work keeps its captured driver and browser permissions.</p>
+      {current.pinned && <p>The running host pins {current.driver} through its startup environment.</p>}
+      {draft && draft.revision !== current.revision && <p role="status">Host settings changed. This choice retains its original revision; discard it to use the current setting.</p>}
+      <Action disabled={!props.connected || current.pinned || query.isFetching || reviewRequired || !draft} run={async () => {
+        if (!draft) return;
+        setReviewRequired(true);
+        try { await props.client.hosts.setBrowserDriver(draft.revision, draft.value); setDraft(undefined); }
+        finally { await refresh(); }
+      }}>Save browser driver</Action>
+      <Button variant="ghost" disabled={!props.connected || query.isFetching} onClick={() => { setDraft(undefined); void refresh(); }}>Discard choice and refresh driver</Button>
+      {reviewRequired && <p role="status">Read the current host setting before another change. The previous request may have arrived.</p>}
+    </>}
+  </>;
+}
+export function Computer(props: InspectorProps) {
   const query = useDetailQuery(props, 'computer.status', {}),
     [app, setApp] = useState('');
+  const [reviewRequired, setReviewRequired] = useState(false);
+  async function refresh() {
+    const result = await query.refetch();
+    if (!result.error) setReviewRequired(false);
+  }
   const status = query.data;
   return (
     <Section
@@ -259,6 +292,19 @@ function Computer(props: InspectorProps) {
           {!status.platform_supported && (
             <p>Computer automation is unsupported on this host platform.</p>
           )}
+          <p>Helper program: {status.configuration.helper_executable || 'None selected'}</p>
+          <p>Selecting or enabling a helper saves configuration. Connect it separately when ready.</p>
+          {status.bundled_available && <Action disabled={!props.connected || !!status.configuration.helper_executable || query.isFetching || reviewRequired} run={async () => {
+            setReviewRequired(true);
+            try { await props.client.useBundledComputer(status.revision); } finally { await refresh(); }
+          }}>Use bundled computer helper</Action>}
+          <Action disabled={!props.connected || !status.configuration.helper_executable || query.isFetching || reviewRequired} run={async () => {
+            setReviewRequired(true);
+            try { await props.client.configureComputer({ revision: status.revision, configuration: { ...status.configuration, enabled: !status.configuration.enabled } }); }
+            finally { await refresh(); }
+          }}>{status.configuration.enabled ? 'Disable computer helper' : 'Enable computer helper'}</Action>
+          <Button variant="ghost" disabled={!props.connected || query.isFetching} onClick={() => void refresh()}>Refresh helper status</Button>
+          {reviewRequired && <p role="status">Read current helper configuration before another change. The previous request may have arrived.</p>}
           {(['allow', 'deny'] as const).map((kind) => (
             <div key={kind} {...stylex.props(layout.column, layout.notice)}>
               <strong>{kind === 'allow' ? 'Allowed applications' : 'Denied applications'}</strong>

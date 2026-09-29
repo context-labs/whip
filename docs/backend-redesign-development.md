@@ -4019,3 +4019,13 @@ At this client checkpoint, shared-app source TypeScript passed and all **109 ren
 suites / 1,314 tests passed** in25.31s (`/tmp/whip-app-parity-full.log`); the focused
 reload/denial/recovery/runtime subset passed80 tests in3.77s. Mobile controls for these
 new APIs and browser-driver UI are still being completed. This is not Phase6 closure.
+
+### Shared host browser and computer controls
+
+The browser inspector now exposes native Rod/ChromeDP selection with exact host CAS,
+explicit stale-draft discard and process-environment pin display. Computer settings
+expose bundled helper publication and separate enable/disable/connection controls;
+selection preserves the app allow/deny rules and never starts a helper. Focused
+inspector suites passed26 tests in3.94s, and shared-app TypeScript passed
+(`/tmp/whip-app-hostcontrols-{tests,types}.log`). Actual browser/signed desktop
+artifact coverage remains a separate pending obligation.
