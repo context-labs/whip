@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/context-labs/whip/internal/session"
@@ -14,6 +15,10 @@ func TestBrowserHostSchemasKeepNamedAndOfferedTargetsSeparate(t *testing.T) {
 				if schema.Module == "browser" && schema.Name == action {
 					declaration.InputSchema = schema.InputSchema
 				}
+			}
+			var schema map[string]any
+			if err := json.Unmarshal(declaration.InputSchema, &schema); err != nil || schema["type"] != "object" {
+				t.Fatalf("MCP tools require explicit top-level object type: %s (%v)", declaration.InputSchema, err)
 			}
 			for _, target := range []map[string]any{{"attachment_id": "exact"}, {"session": "default"}, {"session": "headless:named"}} {
 				if action == "run" {
