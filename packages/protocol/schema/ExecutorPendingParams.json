@@ -1,0 +1,49 @@
+{
+  "type": "object",
+  "properties": {
+    "epoch": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "definition": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "revision": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "id",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "generation": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "after": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ExecutorPendingParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ExecutorPendingParams",
+  "required": [
+    "epoch",
+    "definition",
+    "generation",
+    "after"
+  ],
+  "additionalProperties": false
+}

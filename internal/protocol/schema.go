@@ -21,6 +21,12 @@ type Operation struct {
 
 func Operations() []Operation {
 	return []Operation{
+		{"executor.activity", reflect.TypeFor[SessionParams](), reflect.TypeFor[ExecutorActivityResult]()},
+		{"executor.bind", reflect.TypeFor[ExecutorBindParams](), reflect.TypeFor[ExecutorLease]()},
+		{"executor.pending", reflect.TypeFor[ExecutorPendingParams](), reflect.TypeFor[ExecutorPendingResult]()},
+		{"tool.result", reflect.TypeFor[ExecutorToolResultParams](), reflect.TypeFor[ExecutorAccepted]()},
+		{"hook.result", reflect.TypeFor[ExecutorHookResultParams](), reflect.TypeFor[ExecutorAccepted]()},
+		{"tool.progress", reflect.TypeFor[ExecutorProgressParams](), reflect.TypeFor[ExecutorAccepted]()},
 		{"workspace.capture", reflect.TypeFor[WorkspaceActionParams](), reflect.TypeFor[WorkspaceResult]()},
 		{"workspace.restore", reflect.TypeFor[WorkspaceActionParams](), reflect.TypeFor[WorkspaceResult]()},
 		{"workspace.release", reflect.TypeFor[WorkspaceActionParams](), reflect.TypeFor[WorkspaceResult]()},
@@ -155,6 +161,7 @@ func Operations() []Operation {
 
 func Types() map[string]reflect.Type {
 	result := map[string]reflect.Type{}
+	result["ExecutorEvent"] = reflect.TypeFor[ExecutorEvent]()
 	result["RPCError"] = reflect.TypeFor[RPCError]()
 	result["Request"] = reflect.TypeFor[Request]()
 	result["Response"] = reflect.TypeFor[Response]()
@@ -240,6 +247,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 		}
 		automaticTitleSchema(schema, t)
 		providerSchema(schema, t)
+		executorSchema(schema, t)
 		questionSchema(schema, t)
 		languageServerSchema(schema, t)
 		discoverySchema(schema, t)

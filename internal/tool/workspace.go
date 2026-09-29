@@ -48,6 +48,9 @@ type Prepared struct {
 	// Timeout overrides the ordinary thirty-second effect deadline. Only trusted
 	// preparation chooses it, up to five minutes; model and database paths reject it.
 	Timeout time.Duration
+	// CustomTimeout preserves the declared custom-tool deadline (up to fifteen
+	// minutes). It cannot be used by ordinary, model or database operations.
+	CustomTimeout time.Duration
 	// Apply is used instead of Acquire/Run for database-only coordination. It
 	// rechecks dispatch authority, performs the mutation and records its outcome
 	// in one transaction. It never performs an external effect.

@@ -19,6 +19,9 @@ func (r *Runtime) PrepareCoordination(ctx context.Context, current session.Sessi
 	if call.Module == "user" {
 		return r.prepareQuestion(current, call)
 	}
+	if call.Module == "tools" {
+		return r.prepareCustomTool(ctx, current, call)
+	}
 	if call.Module == "models" {
 		return r.prepareModel(ctx, current, call)
 	}
@@ -67,22 +70,10 @@ func (r *Runtime) PrepareCoordination(ctx context.Context, current session.Sessi
 	if call.Module != "agents" || call.Name != "spawn" {
 		return tool.Prepared{}, fmt.Errorf("%w: unsupported host operation %s.%s", session.ErrInvalid, call.Module, call.Name)
 	}
-	var args struct {
-		Prompt           string                  `json:"prompt"`
-		Definition       *session.DefinitionRef  `json:"definition,omitempty"`
-		Overrides        session.ConfigPatch     `json:"overrides"`
-		WorkingDirectory string                  `json:"working_directory,omitempty"`
-		GrantIDs         []session.GrantID       `json:"grant_ids"`
-		Budgets          []session.BudgetLimit   `json:"budgets,omitempty"`
-		Resources        []session.ResourceLimit `json:"resources,omitempty"`
-	}
-	if err := decodeArguments(call.Arguments, &args); err != nil {
+	request, err := parseSpawn(current.ID, call.Arguments)
+	if err != nil {
 		return tool.Prepared{}, err
 	}
-	if err := session.ValidateText(args.Prompt, session.MaxDocumentBytes/2); err != nil {
-		return tool.Prepared{}, err
-	}
-	request := store.ChildRequest{ParentID: current.ID, Definition: args.Definition, Overrides: args.Overrides, WorkingDirectory: args.WorkingDirectory, Parts: []session.Part{{Type: "text", Text: args.Prompt}}, GrantIDs: args.GrantIDs, Budgets: args.Budgets, Resources: args.Resources}
 	arguments, err := json.Marshal(request)
 	if err != nil {
 		return tool.Prepared{}, err

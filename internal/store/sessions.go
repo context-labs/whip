@@ -107,28 +107,11 @@ func spawnSession(ctx context.Context, tx *sql.Tx, request SpawnSession, capture
 	if captured != nil {
 		parent.Config = captured.Clone()
 	}
-	ref := parent.Definition
-	var doc session.DefinitionDocument
-	if request.Definition != nil {
-		ref = *request.Definition
-		def, err := definition(ctx, tx, ref)
-		if err != nil {
-			return session.Session{}, err
-		}
-		doc = def.Document
-	}
-	config, err := session.Resolve(parent.Config, doc, request.Overrides)
+	resolved, err := resolveChild(ctx, tx, parent, request)
 	if err != nil {
 		return session.Session{}, err
 	}
-	if err := session.NarrowBindings(parent.Config, config); err != nil {
-		return session.Session{}, err
-	}
-	cwd := request.WorkingDirectory
-	if cwd == "" {
-		cwd = parent.WorkingDirectory
-	}
-	child, err := insertSession(ctx, tx, parent.TreeID, &parent.ID, ref, config, cwd)
+	child, err := insertSession(ctx, tx, parent.TreeID, &parent.ID, resolved.Definition, resolved.Configuration, resolved.WorkingDirectory)
 	if err != nil {
 		return child, err
 	}

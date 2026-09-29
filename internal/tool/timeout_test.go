@@ -3,10 +3,11 @@ package tool
 import (
 	"context"
 	"errors"
-	"github.com/context-labs/whip/internal/session"
 	"testing"
 	"testing/synctest"
 	"time"
+
+	"github.com/context-labs/whip/internal/session"
 )
 
 func TestHostEffectTimeoutRemainsBoundedAndCancellable(t *testing.T) {
@@ -39,7 +40,7 @@ func TestDispatcherRejectsInvalidTimeoutBeforeAdmission(t *testing.T) {
 		{Timeout: -time.Second},
 		{Timeout: 301 * time.Second},
 		{Capability: "models.call", ModelTimeouts: true, Timeout: time.Second},
-		{Timeout: time.Second, Apply: func(context.Context, session.OperationID) (any, error) { return nil, nil }},
+		{Timeout: time.Second, Apply: func(context.Context, session.OperationID) (any, error) { return map[string]any{}, nil }},
 	} {
 		_, dispatcher, owner, _, _ := dispatchFixture(t)
 		dispatcher.coordination = preparedFixture(func(context.Context, session.Session, Invocation) (Prepared, error) { return prepared, nil })

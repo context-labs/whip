@@ -65,17 +65,30 @@ func (d *Dispatcher) Call(ctx context.Context, call Invocation) (any, session.Op
 		if err := declaration.ValidateInput(call.Arguments); err != nil {
 			return nil, "", err
 		}
-		// Declarations install guest syntax, not a live handler or executor identity.
-		return nil, "", errors.New("custom tool executor unavailable")
 	}
-	if !slices.Contains(current.Config.Modules, call.Module) {
+	if call.Module != "tools" && !slices.Contains(current.Config.Modules, call.Module) {
 		return nil, "", fmt.Errorf("%w: host module is not enabled for this turn", session.ErrInvalid)
+	}
+	if hooks, ok := d.coordination.(interface {
+		BeforeTool(context.Context, session.Session, Invocation) (Invocation, error)
+	}); ok {
+		call, err = hooks.BeforeTool(ctx, current, call)
+		if err != nil {
+			return nil, "", err
+		}
+		if call.Module == "tools" {
+			if err := current.Config.Tools[call.Name].ValidateInput(call.Arguments); err != nil {
+				return nil, "", err
+			}
+		}
 	}
 	var prepared Prepared
 	if call.Module == "files" {
 		prepared, err = d.files.Prepare(current.WorkingDirectory, call.Module+"."+call.Name, call.Arguments)
 	} else if d.coordination != nil {
 		prepared, err = d.coordination.PrepareCoordination(ctx, current, call)
+	} else if call.Module == "tools" {
+		err = errors.New("custom tool executor unavailable")
 	} else {
 		err = errors.New("unsupported host module")
 	}
@@ -111,6 +124,9 @@ func (d *Dispatcher) callPrepared(ctx context.Context, call Invocation, prepared
 		return nil, "", fmt.Errorf("%w: model timeouts require models.call or models.batch execution", session.ErrInvalid)
 	}
 
+	if prepared.CustomTimeout != 0 && (call.Module != "tools" || prepared.Capability != "tools."+call.Name || prepared.CustomTimeout < 0 || prepared.CustomTimeout > 15*time.Minute || prepared.Timeout != 0 || prepared.ModelTimeouts || prepared.Apply != nil) {
+		return nil, "", fmt.Errorf("%w: invalid custom tool timeout", session.ErrInvalid)
+	}
 	if prepared.Timeout < 0 || prepared.Timeout > 5*time.Minute || prepared.Timeout != 0 && (prepared.ModelTimeouts || prepared.Apply != nil || prepared.Capability == "models.call" || prepared.Capability == "models.batch") {
 		return nil, "", fmt.Errorf("%w: invalid host effect timeout", session.ErrInvalid)
 	}
@@ -181,7 +197,11 @@ func (d *Dispatcher) callPrepared(ctx context.Context, call Invocation, prepared
 		}
 		return nil, id, errors.New("operation dispatch was not authorized")
 	}
-	effectCtx, cancel := operationContext(ctx, prepared.ModelTimeouts, prepared.Timeout)
+	timeout := prepared.Timeout
+	if prepared.CustomTimeout != 0 {
+		timeout = prepared.CustomTimeout
+	}
+	effectCtx, cancel := operationContext(ctx, prepared.ModelTimeouts, timeout)
 	value, callErr := prepared.Run(effectCtx, id)
 	cancel()
 	if isFatal(callErr) {

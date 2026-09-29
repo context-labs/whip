@@ -58,10 +58,24 @@ func Fixtures() ([]Fixture, error) {
 	titleAttempt := attempt
 	titleAttempt.Request.Purpose = session.AutomaticTitlePurpose
 	titleAttempt.MessageID = nil
+
+	executorLease := ExecutorLease{Epoch: "executor_fixture", Definition: DefinitionRef{ID: "custom", Revision: ref.Revision}, Generation: 9007199254740993, Tools: []ID{"lookup"}, Hooks: []ID{}}
+	executorInvocation := ExecutorInvocation{InvocationID: "invocation_fixture", Lease: executorLease, Kind: "tool", Name: "lookup", SessionID: "session_root", TurnID: "turn_fixture", CellID: new(ID("cell_fixture")), OperationID: new(ID("operation_fixture")), Operation: "tools.lookup", ArgumentsBase64: new(base64.StdEncoding.EncodeToString([]byte(`{"count":9007199254740993}`))), DeadlineMillis: Counter(created.UnixMilli())}
 	values := []struct {
 		name  string
 		value any
 	}{
+		{"ExecutorActivityResult", ExecutorActivityResult{Activity: &ExecutorActivity{Epoch: "executor_fixture", TurnID: "turn_fixture", Revision: 9007199254740993, Decisions: []HookDecision{{Hook: "before_tool", Operation: "files.read", Decision: "skipped", Reason: "unavailable"}}}}},
+		{"ExecutorBindParams", ExecutorBindParams{Definition: executorLease.Definition, Tools: []ID{"lookup"}, Hooks: []ID{}}},
+		{"ExecutorLease", executorLease},
+		{"ExecutorPendingParams", ExecutorPendingParams{Epoch: executorLease.Epoch, Definition: executorLease.Definition, Generation: executorLease.Generation}},
+		{"ExecutorPendingResult", ExecutorPendingResult{Items: []ExecutorInvocation{executorInvocation}}},
+		{"ExecutorToolResultParams", ExecutorToolResultParams{Epoch: executorLease.Epoch, Generation: executorLease.Generation, InvocationID: executorInvocation.InvocationID, OutputBase64: new("bnVsbA==")}},
+		{"ExecutorHookResultParams", ExecutorHookResultParams{Epoch: executorLease.Epoch, Generation: executorLease.Generation, InvocationID: "hook_fixture"}},
+		{"ExecutorProgressParams", ExecutorProgressParams{Epoch: executorLease.Epoch, Generation: executorLease.Generation, InvocationID: executorInvocation.InvocationID, Text: "bounded progress"}},
+		{"ExecutorAccepted", ExecutorAccepted{Accepted: true}},
+		{"ExecutorEvent", ExecutorEvent{JSONRPC: "2.0", Method: "executor.invoke", Epoch: executorLease.Epoch, Generation: executorLease.Generation, InvocationID: executorInvocation.InvocationID, Invocation: &executorInvocation}},
+		{"ExecutorEvent", ExecutorEvent{JSONRPC: "2.0", Method: "executor.cancel", Epoch: executorLease.Epoch, Generation: executorLease.Generation, InvocationID: executorInvocation.InvocationID}},
 		{"ProviderParams", ProviderParams{Provider: "explicit"}},
 		{"ProviderPresetsResult", ProviderPresetsResult{Items: []ProviderPreset{{ID: "openai", Name: "OpenAI", Kind: "openai-responses", BaseURL: "https://api.openai.com/v1", Methods: []string{"api_key"}, Environments: []string{"OPENAI_API_KEY"}, SuggestedModels: []string{"gpt-6-astra"}}}}},
 		{"ProviderModelsResult", ProviderModelsResult{Items: []ProviderModel{{ID: "model", Prices: ModelPrices{Input: new(Counter(9007199254740993)), Output: new(Counter(0))}, ContextWindowTokens: new(Counter(1000000)), ReasoningEfforts: []string{}, MetadataSource: "advertised"}}}},

@@ -100,6 +100,13 @@ func (r *Runtime) Instructions(ctx context.Context, turn session.Turn, policy se
 		}
 	}
 	text += "\n" + executionInstructions(current, tree)
+	contribution, err := r.turnStart(ctx, current, turn, input)
+	if err != nil {
+		return "", err
+	}
+	if contribution != "" {
+		text += "\n\n--- Turn-start hook context ---\n" + contribution
+	}
 	if len(text) > session.MaxInstructionBytes {
 		return "", errors.New("composed instructions exceed 1 MiB")
 	}

@@ -1,0 +1,86 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+
+	"github.com/context-labs/whip/internal/session"
+)
+
+// ChildPreview is an observation, never admission or a reusable grant. The
+// committed spawn resolves and narrows the same request again in its transaction.
+type ChildPreview struct {
+	Definition       session.DefinitionRef `json:"definition"`
+	Configuration    session.Configuration `json:"configuration"`
+	WorkingDirectory string                `json:"working_directory"`
+	GrantIDs         []session.GrantID     `json:"grant_ids"`
+}
+
+func resolveChild(ctx context.Context, q querier, parent session.Session, request SpawnSession) (ChildPreview, error) {
+	ref := parent.Definition
+	var document session.DefinitionDocument
+	if request.Definition != nil {
+		ref = *request.Definition
+		declared, err := definition(ctx, q, ref)
+		if err != nil {
+			return ChildPreview{}, err
+		}
+		document = declared.Document
+	}
+	configuration, err := session.Resolve(parent.Config, document, request.Overrides)
+	if err != nil {
+		return ChildPreview{}, err
+	}
+	if err := session.NarrowBindings(parent.Config, configuration); err != nil {
+		return ChildPreview{}, err
+	}
+	cwd := request.WorkingDirectory
+	if cwd == "" {
+		cwd = parent.WorkingDirectory
+	}
+	return ChildPreview{Definition: ref, Configuration: configuration, WorkingDirectory: cwd}, nil
+}
+
+func (s *Store) PreviewChild(ctx context.Context, cellID session.CellID, request ChildRequest) (result ChildPreview, err error) {
+	if err := validateChildRequest(session.RequestIdentity{ClientID: "operation", RequestID: "preview"}, request); err != nil {
+		return result, err
+	}
+	err = s.write(ctx, func(tx *sql.Tx) error {
+		if err := operationLive(ctx, tx, cellID); err != nil {
+			return err
+		}
+		var owner session.SessionID
+		var revision session.Revision
+		if err := tx.QueryRowContext(ctx, "SELECT t.session_id,t.config_revision FROM cells c JOIN turns t ON t.id=c.turn_id WHERE c.id=?", cellID).Scan(&owner, &revision); err != nil {
+			return found(err)
+		}
+		if owner != request.ParentID {
+			return ErrConflict
+		}
+		parent, err := readSession(ctx, tx, owner)
+		if err != nil {
+			return err
+		}
+		if parent.Lifecycle != session.Active {
+			return ErrStopped
+		}
+		parent.Config, err = readConfiguration(ctx, tx, owner, revision)
+		if err != nil {
+			return err
+		}
+		result, err = resolveChild(ctx, tx, parent, request.SpawnSession)
+		if err != nil {
+			return err
+		}
+		grants, err := delegatedGrants(ctx, tx, owner, request.GrantIDs)
+		if err != nil {
+			return err
+		}
+		result.GrantIDs = []session.GrantID{}
+		for _, grant := range grants {
+			result.GrantIDs = append(result.GrantIDs, grant.ID)
+		}
+		return nil
+	})
+	return
+}

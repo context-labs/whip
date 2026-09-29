@@ -109,3 +109,20 @@ func contractSubset[T any](declared, enabled map[string]T) bool {
 	}
 	return true
 }
+
+// ValidateResult checks one JSON value against the captured custom tool output
+// contract. It never converts exact numeric lexemes through floating point.
+func (t ToolDeclaration) ValidateResult(raw json.RawMessage) error {
+	value, err := decodeExactJSON(raw)
+	if err != nil {
+		return err
+	}
+	schema, err := compileSchema(t.OutputSchema, true)
+	if err != nil || schema == nil {
+		return err
+	}
+	if err := schema.Validate(value); err != nil {
+		return fmt.Errorf("%w: custom tool output does not match schema", ErrInvalid)
+	}
+	return nil
+}

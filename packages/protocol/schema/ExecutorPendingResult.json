@@ -1,0 +1,172 @@
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "invocation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "lease": {
+            "type": "object",
+            "properties": {
+              "epoch": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "definition": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "revision": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                },
+                "required": [
+                  "id",
+                  "revision"
+                ],
+                "additionalProperties": false
+              },
+              "generation": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "tools": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                },
+                "maxItems": 128,
+                "uniqueItems": true
+              },
+              "hooks": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                },
+                "maxItems": 3,
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "epoch",
+              "definition",
+              "generation",
+              "tools",
+              "hooks"
+            ],
+            "additionalProperties": false
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tool",
+              "hook"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "session_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "turn_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "cell_id": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "operation_id": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "operation": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "arguments_base64": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "maxLength": 1398104
+          },
+          "spawn_base64": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "maxLength": 1398104
+          },
+          "input_preview": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "permission_mode": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "deadline_millis": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,18})$",
+            "format": "counter"
+          }
+        },
+        "required": [
+          "invocation_id",
+          "lease",
+          "kind",
+          "name",
+          "session_id",
+          "turn_id",
+          "cell_id",
+          "operation_id",
+          "operation",
+          "arguments_base64",
+          "spawn_base64",
+          "input_preview",
+          "permission_mode",
+          "deadline_millis"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 4
+    },
+    "next_after": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ExecutorPendingResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ExecutorPendingResult",
+  "required": [
+    "items",
+    "next_after"
+  ],
+  "additionalProperties": false
+}

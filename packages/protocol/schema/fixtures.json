@@ -1,5 +1,199 @@
 [
   {
+    "type": "ExecutorActivityResult",
+    "value": {
+      "activity": {
+        "epoch": "executor_fixture",
+        "turn_id": "turn_fixture",
+        "revision": "9007199254740993",
+        "decisions": [
+          {
+            "invocation_id": null,
+            "hook": "before_tool",
+            "operation": "files.read",
+            "decision": "skipped",
+            "reason": "unavailable"
+          }
+        ],
+        "truncated": false,
+        "progress": null
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "ExecutorBindParams",
+    "value": {
+      "definition": {
+        "id": "custom",
+        "revision": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f"
+      },
+      "tools": [
+        "lookup"
+      ],
+      "hooks": []
+    },
+    "valid": true
+  },
+  {
+    "type": "ExecutorLease",
+    "value": {
+      "epoch": "executor_fixture",
+      "definition": {
+        "id": "custom",
+        "revision": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f"
+      },
+      "generation": "9007199254740993",
+      "tools": [
+        "lookup"
+      ],
+      "hooks": []
+    },
+    "valid": true
+  },
+  {
+    "type": "ExecutorPendingParams",
+    "value": {
+      "epoch": "executor_fixture",
+      "definition": {
+        "id": "custom",
+        "revision": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f"
+      },
+      "generation": "9007199254740993",
+      "after": null
+    },
+    "valid": true
+  },
+  {
+    "type": "ExecutorPendingResult",
+    "value": {
+      "items": [
+        {
+          "invocation_id": "invocation_fixture",
+          "lease": {
+            "epoch": "executor_fixture",
+            "definition": {
+              "id": "custom",
+              "revision": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f"
+            },
+            "generation": "9007199254740993",
+            "tools": [
+              "lookup"
+            ],
+            "hooks": []
+          },
+          "kind": "tool",
+          "name": "lookup",
+          "session_id": "session_root",
+          "turn_id": "turn_fixture",
+          "cell_id": "cell_fixture",
+          "operation_id": "operation_fixture",
+          "operation": "tools.lookup",
+          "arguments_base64": "eyJjb3VudCI6OTAwNzE5OTI1NDc0MDk5M30=",
+          "spawn_base64": null,
+          "input_preview": "",
+          "permission_mode": "",
+          "deadline_millis": "1790510400123"
+        }
+      ],
+      "next_after": null
+    },
+    "valid": true
+  },
+  {
+    "type": "ExecutorToolResultParams",
+    "value": {
+      "epoch": "executor_fixture",
+      "generation": "9007199254740993",
+      "invocation_id": "invocation_fixture",
+      "output_base64": "bnVsbA==",
+      "failure": ""
+    },
+    "valid": true
+  },
+  {
+    "type": "ExecutorHookResultParams",
+    "value": {
+      "epoch": "executor_fixture",
+      "generation": "9007199254740993",
+      "invocation_id": "hook_fixture",
+      "decision": "",
+      "reason": "",
+      "arguments_base64": null,
+      "spawn_base64": null,
+      "context": "",
+      "failure": ""
+    },
+    "valid": true
+  },
+  {
+    "type": "ExecutorProgressParams",
+    "value": {
+      "epoch": "executor_fixture",
+      "generation": "9007199254740993",
+      "invocation_id": "invocation_fixture",
+      "text": "bounded progress"
+    },
+    "valid": true
+  },
+  {
+    "type": "ExecutorAccepted",
+    "value": {
+      "accepted": true
+    },
+    "valid": true
+  },
+  {
+    "type": "ExecutorEvent",
+    "value": {
+      "jsonrpc": "2.0",
+      "method": "executor.invoke",
+      "epoch": "executor_fixture",
+      "generation": "9007199254740993",
+      "invocation_id": "invocation_fixture",
+      "invocation": {
+        "invocation_id": "invocation_fixture",
+        "lease": {
+          "epoch": "executor_fixture",
+          "definition": {
+            "id": "custom",
+            "revision": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f"
+          },
+          "generation": "9007199254740993",
+          "tools": [
+            "lookup"
+          ],
+          "hooks": []
+        },
+        "kind": "tool",
+        "name": "lookup",
+        "session_id": "session_root",
+        "turn_id": "turn_fixture",
+        "cell_id": "cell_fixture",
+        "operation_id": "operation_fixture",
+        "operation": "tools.lookup",
+        "arguments_base64": "eyJjb3VudCI6OTAwNzE5OTI1NDc0MDk5M30=",
+        "spawn_base64": null,
+        "input_preview": "",
+        "permission_mode": "",
+        "deadline_millis": "1790510400123"
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "ExecutorEvent",
+    "value": {
+      "jsonrpc": "2.0",
+      "method": "executor.cancel",
+      "epoch": "executor_fixture",
+      "generation": "9007199254740993",
+      "invocation_id": "invocation_fixture",
+      "invocation": null
+    },
+    "valid": true
+  },
+  {
     "type": "ProviderParams",
     "value": {
       "provider": "explicit"

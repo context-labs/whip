@@ -123,6 +123,10 @@ func (s *Server) connection(ctx context.Context, conn net.Conn) {
 		if json.Unmarshal(raw, &request) != nil {
 			return
 		}
+		if initialized && request.Method == "executor.bind" {
+			s.executorConnection(ctx, conn, scanner, request)
+			return
+		}
 		var result any
 		var err error
 		if initialized && request.Method == "initialize" {

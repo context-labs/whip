@@ -127,7 +127,14 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 	correctedOutput := false
 	replannedContext := false
 	var correction []session.Part
+	baseInstructions := request.Instructions
 	for round := 1; round <= 32; round++ {
+		if notices, ok := r.executor.(interface{ TurnNotices(session.Turn) string }); ok {
+			request.Instructions = baseInstructions
+			if text := notices.TurnNotices(turn); text != "" {
+				request.Instructions += "\n\n--- Hook notices ---\n" + text
+			}
+		}
 		if r.mail != nil {
 			messages, err := r.mail.ObserveSteers(ctx, turn.ID)
 			if err != nil {

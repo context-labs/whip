@@ -33,6 +33,11 @@ export class Client {
     return decodeResponse(method, id, response);
   }
 
+  /** Bounded ephemeral executor progress/decisions; null after its owning turn ends. */
+  executorActivity(sessionID: string, options: CallOptions = {}): Promise<Operations['executor.activity']['result']> {
+    return this.call('executor.activity', { session_id: sessionID }, options);
+  }
+
   /** Offline setup templates. Does not discover routes or read credentials. */
   providerPresets(options: CallOptions = {}): Promise<Operations['providers.presets']['result']> {
     return this.call('providers.presets', {}, options);
@@ -455,3 +460,6 @@ function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
     signal?.addEventListener('abort', aborted, { once: true });
   });
 }
+
+export { ExecutorClient } from './executors.js';
+export type { DuplexTransport } from './executors.js';
