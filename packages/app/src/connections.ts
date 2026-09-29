@@ -1,4 +1,4 @@
-import type { TransportFactory } from '@whip/legacy-sdk';
+import type { FramedConnector } from '@whip/sdk';
 import type { AppStorage } from './platform';
 
 export type ConnectionTarget =
@@ -14,7 +14,7 @@ export interface ConnectionProfile {
   runtimeId?: string;
 }
 export interface ResolvedConnection {
-  endpoint: string | TransportFactory;
+  endpoint: string | FramedConnector;
   dispose(): void;
 }
 export interface ConnectionOptions {
@@ -148,12 +148,13 @@ export function readConnections(storage: AppStorage, fallback: ConnectionProfile
 }
 
 export function daemonEndpoint(value: string): string {
+  if (value.length > 2048 || /[\u0000-\u001f\u007f]/.test(value)) throw new Error('Enter a valid daemon address');
   const url = new URL(value.trim());
   if (!['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol) || !url.hostname)
     throw new Error('Enter an HTTP or WebSocket daemon endpoint');
-  if (url.username || url.password || url.search || url.hash || url.href.includes('?'))
+  if (url.username || url.password || url.search || url.hash || url.href.includes('?') || url.href.includes('#'))
     throw new Error('Daemon addresses cannot contain credentials, a query, or a fragment');
-  if (!['', '/', '/api/v3/ws'].includes(url.pathname))
+  if (!['', '/', '/api/v3/ws', '/api/v4/ws'].includes(url.pathname))
     throw new Error('Use a root-mounted daemon endpoint, without a proxy path prefix');
   url.protocol = url.protocol === 'ws:' ? 'http:' : url.protocol === 'wss:' ? 'https:' : url.protocol;
   url.pathname = '/';

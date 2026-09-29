@@ -1,10 +1,11 @@
-import { createWhipClient, type ConnectionState, type RecoveryStorage, type WhipClient } from '@whip/legacy-sdk';
-import { createSessionListView, type SessionListView } from '@whip/legacy-sdk/state';
-import type { RuntimeConfiguration } from '@whip/legacy-protocol';
+import { Client, DeliveryError, RemoteError, framedTransport, type HostProfiles, type RecoveryStorage, type Transport } from '@whip/sdk';
+import { discoverGateway, browserSocket } from '@whip/sdk/browser';
+import { createTreeCatalogView, type TreeCatalogView } from '@whip/sdk/state';
 import { errorMessage, readPreference, type AppPlatform, type LocalRuntimeStatus } from './platform';
 import { daemonEndpoint, readConnections, saveConnections, urlProfile, validateProfile, type ConnectionProfile, type ResolvedConnection } from './connections';
 
-export type HostProfile = NonNullable<RuntimeConfiguration['remote_hosts']>[number];
+export type HostProfile = HostProfiles['profiles'][number];
+export type ConnectionState = 'closed' | 'connecting' | 'connected' | 'stale';
 export interface HostConnection {
   readonly id: string;
   readonly name: string;
@@ -13,8 +14,8 @@ export interface HostConnection {
   readonly runtimeId?: string;
   readonly connectOnLaunch: boolean;
   readonly state: ConnectionState;
-  readonly client?: WhipClient;
-  readonly list?: SessionListView;
+  readonly client?: Client;
+  readonly list?: TreeCatalogView;
   readonly error?: string;
   readonly profile: ConnectionProfile;
   readonly device: boolean;
@@ -29,13 +30,17 @@ interface ConnectionRecord {
   setup?: { controller: AbortController; promise: Promise<void> };
   progress?: string;
   localRuntime?: LocalRuntimeStatus;
-  client?: WhipClient;
-  list?: SessionListView;
+  client?: Client;
+  retiredClient?: Client;
+  list?: TreeCatalogView;
   verified: boolean;
   error?: string;
   waits: AbortController;
-  unsubscribe?: () => void;
-  connectionId?: string;
+  preparation?: AbortController;
+  state: ConnectionState;
+  endpoint?: ResolvedConnection['endpoint'];
+  retry?: ReturnType<typeof setTimeout>;
+  retryCount: number;
 }
 interface HostsSnapshot {
   readonly hosts: readonly HostConnection[];
@@ -57,18 +62,23 @@ export class LocalRuntimeSetupRequiredError extends Error {
   }
 }
 
+class ChangedIdentityError extends Error {
+  constructor(message = 'This address now serves a different daemon. Edit the host and explicitly accept its new identity to reconnect.') { super(message); }
+}
+
 function normalizeProfiles(profiles: readonly HostProfile[]): HostProfile[] {
+  if (profiles.length > 16) throw new Error('There are 16 saved URL hosts. Remove a host before adding another.');
   const ids = new Set<string>();
   const endpoints = new Set<string>();
   const runtimes = new Set<string>();
   return profiles.map(profile => {
     if (profile.id === 'local') throw new Error('A remote profile cannot replace Local');
-    const normalized = { ...profile, name: profile.name.trim(), url: daemonEndpoint(profile.url) };
+    const normalized = { ...profile, name: profile.name.trim(), url: profile.url };
     if ([normalized.id, normalized.name, normalized.runtime_id].some(value => !value.trim() || /[\r\n\t\0]/.test(value)))
       throw new Error('A remote host requires an ID, name, and verified runtime ID');
-    if (ids.has(normalized.id) || endpoints.has(normalized.url) || runtimes.has(normalized.runtime_id))
+    if (ids.has(normalized.id) || endpoints.has(daemonEndpoint(normalized.url)) || runtimes.has(normalized.runtime_id))
       throw new Error(`Remote host ${normalized.name} duplicates a saved profile, endpoint, or runtime`);
-    ids.add(normalized.id); endpoints.add(normalized.url); runtimes.add(normalized.runtime_id);
+    ids.add(normalized.id); endpoints.add(daemonEndpoint(normalized.url)); runtimes.add(normalized.runtime_id);
     return normalized;
   });
 }
@@ -77,11 +87,11 @@ function normalizeProfiles(profiles: readonly HostProfile[]): HostProfile[] {
 export class HostConnections {
   private readonly records = new Map<string, ConnectionRecord>();
   private readonly listeners = new Set<() => void>();
-  private readonly probes = new Set<WhipClient>();
+  private readonly probes = new Set<AbortController>();
   private snapshot: HostsSnapshot = Object.freeze({ hosts: [], profiles: [], profilesReady: false });
   private revision?: string;
   private configurationVersion = 0;
-  private refreshing?: { client: WhipClient; connectionId: string; version: number; promise: Promise<void> };
+  private refreshing?: { client: Client; version: number; promise: Promise<void> };
   private closed = false;
   private deviceProfiles: ConnectionProfile[] = [];
   private selected?: ConnectionProfile;
@@ -89,8 +99,8 @@ export class HostConnections {
 
   constructor(
     private readonly platform: AppPlatform,
-    private readonly recovery: RecoveryStorage,
-    private readonly effects: { connected(runtimeId: string, client: WhipClient): void; detached(client: WhipClient, runtimeId: string): void },
+    _recovery: RecoveryStorage,
+    private readonly effects: { connected(runtimeId: string, client: Client): void; detached(client: Client, runtimeId: string, options: { recovering: boolean }): void },
   ) {
     const fallback = platform.defaultConnection ?? urlProfile(platform.defaultEndpoint!);
     const native = fallback.target.kind === 'local';
@@ -113,94 +123,151 @@ export class HostConnections {
     this.publish();
   }
   getSnapshot = () => this.snapshot;
-  subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
+  subscribe = (listener: () => void) => { if (this.listeners.size >= 64 && !this.listeners.has(listener)) throw new Error('Host observer limit reached'); this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   private record(profile: HostProfile, target: ConnectionProfile = { id: profile.id, label: profile.name, runtimeId: profile.runtime_id || undefined, target: { kind: 'url', endpoint: profile.url } }, device = false): ConnectionRecord {
-    return { profile: Object.freeze({ ...profile }), target, device, verified: false, waits: new AbortController() };
+    return { profile: Object.freeze({ ...profile }), target, device, verified: false, state: 'closed', retryCount: 0, waits: new AbortController() };
   }
   private publish(patch: Partial<HostsSnapshot> = {}) {
     this.snapshot = Object.freeze({ ...this.snapshot, ...patch, hosts: Object.freeze([...this.records.values()].map(record => Object.freeze({
       id: record.profile.id, name: record.profile.name, endpoint: record.profile.url, local: record.profile.id === 'local',
       runtimeId: record.profile.runtime_id || undefined, connectOnLaunch: record.profile.connect_on_launch,
-      state: record.client?.getSnapshot().state ?? (record.setup ? 'connecting' : 'closed'),
+      state: record.state,
       profile: record.target, device: record.device, progress: record.progress, localRuntime: record.localRuntime,
-      client: record.verified ? record.client : undefined, list: record.verified ? record.list : undefined,
-      error: record.error ?? record.client?.getSnapshot().error?.message,
+      client: record.verified ? record.client : undefined, list: record.list,
+      error: record.error,
     }))) });
     for (const listener of this.listeners) listener();
   }
   host(runtimeId: string) { return this.snapshot.hosts.find(host => host.runtimeId === runtimeId); }
   home() { return this.snapshot.hosts.find(host => host.local)!; }
-  isAttached(client: WhipClient) {
+  isAttached(client: Client) {
     return !this.closed && [...this.records.values()].some(record => record.verified && record.client === client);
   }
-  signal(client: WhipClient): AbortSignal {
+  signal(client: Client): AbortSignal {
     const record = [...this.records.values()].find(record => record.client === client && record.verified);
     if (!record || this.closed) throw new Error('This host is no longer attached');
     return record.waits.signal;
   }
-  private createClient(endpoint: ResolvedConnection['endpoint'], reconnect = true) {
+  private async createClient(endpoint: ResolvedConnection['endpoint'], expected: string | undefined, lifetime: AbortSignal, failed?: (error: unknown) => void) {
     if (this.closed) throw new Error('Application has been disposed');
-    let clientId = this.platform.storage.getItem('whip.web.client.v1');
-    if (!clientId) {
+    lifetime.throwIfAborted();
+    let clientID = this.platform.storage.getItem('whip.web.client.v1');
+    if (!clientID) {
       if (!globalThis.crypto?.randomUUID) throw new Error('Open the web app on HTTPS or localhost to connect to a daemon');
-      clientId = crypto.randomUUID();
-      this.platform.storage.setItem('whip.web.client.v1', clientId);
+      clientID = crypto.randomUUID();
+      this.platform.storage.setItem('whip.web.client.v1', clientID);
     }
-    return createWhipClient({ endpoint, clientId, clientKind: 'human', browserProvider: !!this.platform.browserAgent, recoveryStorage: this.recovery, reconnect });
+    let transport: Transport;
+    if (typeof endpoint === 'string') {
+      const discovery = await discoverGateway(endpoint, { signal: lifetime });
+      if (expected && discovery.runtime_id !== expected) throw new ChangedIdentityError();
+      transport = browserSocket(endpoint, { expectedRuntimeID: discovery.runtime_id, expectedProcessEpoch: discovery.process_epoch });
+      expected = discovery.runtime_id;
+    } else transport = framedTransport(endpoint);
+    const scoped: Transport = async (request, runtimeID, options) => {
+      const signal = options.signal ? AbortSignal.any([lifetime, options.signal]) : lifetime;
+      signal.throwIfAborted();
+      try { return await transport(request, runtimeID, { ...options, signal }); }
+      catch (error) {
+        if (!signal.aborted && (error instanceof DeliveryError || error instanceof TypeError || error instanceof RemoteError && error.kind === 'IDENTITY')) failed?.(error);
+        throw error;
+      }
+    };
+    try {
+      const client = await Client.connect(scoped, { clientID, expectedRuntimeID: expected, signal: lifetime });
+      lifetime.throwIfAborted();
+      if (typeof endpoint !== 'string') transport = framedTransport(endpoint, { expectedProcessEpoch: client.processEpoch });
+      return client;
+    } catch (error) {
+      if (typeof endpoint !== 'string' && /runtime identity mismatch/i.test(errorMessage(error))) throw new ChangedIdentityError();
+      throw error;
+    }
   }
   connect(id = 'local'): Promise<void> {
     if (this.closed) return Promise.reject(new Error('Application has been disposed'));
     const record = this.records.get(id);
     if (!record) return Promise.reject(new Error('This host is no longer saved'));
     if (record.setup) return record.setup.promise;
+    if (record.verified && record.client) return Promise.resolve();
+    return this.establish(record, false);
+  }
+  private establish(record: ConnectionRecord, recovering: boolean): Promise<void> {
+    clearTimeout(record.retry); record.retry = undefined;
     const controller = new AbortController();
     const setup = { controller, promise: Promise.resolve() };
     record.setup = setup;
-    record.error = undefined;
+    record.waits = new AbortController();
+    if (!recovering) { record.preparation?.abort(); record.preparation = controller; }
+    record.state = recovering ? 'stale' : 'connecting';
+    if (!recovering) record.error = undefined;
     const connect = async () => {
       try {
-        if (!record.client) {
+        controller.signal.throwIfAborted();
+        if (!recovering) {
+          record.resolved?.dispose(); record.resolved = undefined;
           if (record.target.target.kind === 'local' && this.platform.localRuntime) {
             const status = await this.platform.localRuntime.test();
             controller.signal.throwIfAborted();
-            if (record.setup !== setup || this.closed) throw new Error('Connection setup was retired');
             record.localRuntime = Object.freeze({ ...status });
             this.publish();
             if (status.state === 'missing') throw new LocalRuntimeSetupRequiredError();
           }
-          let endpoint: ResolvedConnection['endpoint'] = record.profile.url;
+          record.endpoint = record.profile.url;
           if (this.platform.resolveConnection) {
             const resolved = await this.platform.resolveConnection(record.target, { signal: controller.signal, onProgress: message => {
               if (record.setup === setup) { record.progress = message.slice(0, 1024); this.publish(); }
             } });
             if (controller.signal.aborted || record.setup !== setup || this.closed) { resolved.dispose(); controller.signal.throwIfAborted(); throw new Error('Connection setup was retired'); }
-            record.resolved = resolved;
-            endpoint = resolved.endpoint;
+            record.resolved = resolved; record.endpoint = resolved.endpoint;
           }
-          controller.signal.throwIfAborted();
-          const client = this.createClient(endpoint);
-          record.client = client;
-          record.waits = new AbortController();
-          record.unsubscribe = client.subscribe(() => this.connectionChanged(record, client));
-          this.publish();
         }
-        const client = record.client;
-        await client.connect();
-        this.connectionChanged(record, client);
-        if (!record.verified || record.client !== client) throw new Error(record.error ?? 'Host was disconnected while connecting');
+        controller.signal.throwIfAborted();
+        if (record.endpoint === undefined) throw new Error('Reconnect this host to prepare its connection');
+        let client: Client | undefined;
+        const lifetime = AbortSignal.any([controller.signal, record.waits.signal, ...(record.preparation ? [record.preparation.signal] : [])]);
+        client = await this.createClient(record.endpoint, record.profile.runtime_id || undefined, lifetime, error => {
+          if (client) this.stale(record, client, error);
+        });
+        controller.signal.throwIfAborted();
+        if (record.setup !== setup || this.closed) throw new Error('Connection setup was retired');
+        this.attached(record, client);
+        if (record.client !== client || !record.verified) throw new Error('Host was disconnected while connecting');
       } catch (error) {
         if (record.setup === setup) {
-          if (!(error instanceof LocalRuntimeSetupRequiredError)) record.error = errorMessage(error);
-          this.detach(record); this.publish();
+          record.setup = undefined;
+          if (!(error instanceof LocalRuntimeSetupRequiredError)) record.error = errorMessage(error).slice(0, 1024);
+          if (recovering && !(error instanceof ChangedIdentityError)) {
+            record.state = 'stale'; controller.abort(); this.retry(record);
+          } else this.detach(record);
+          this.publish();
         }
         throw error;
       } finally {
-        if (record.setup === setup) { record.setup = undefined; record.progress = undefined; this.publish(); }
+        if (record.setup === setup) { record.setup = undefined; record.progress = undefined; this.publish(); if (record.state === 'stale') this.retry(record); }
       }
     };
-    setup.promise = connect();
+    // Defer I/O until the complete setup promise is installed, including for a
+    // synchronous subscriber which calls connect again while publishing.
+    setup.promise = Promise.resolve().then(connect);
     this.publish();
     return setup.promise;
+  }
+  private retry(record: ConnectionRecord) {
+    if (this.closed || record.retry || record.setup || record.endpoint === undefined) return;
+    const delay = Math.min(10_000, 500 * 2 ** Math.min(record.retryCount++, 5));
+    record.retry = setTimeout(() => {
+      record.retry = undefined;
+      if (!this.closed && this.records.get(record.profile.id) === record && record.state === 'stale') void this.establish(record, true).catch(() => {});
+    }, delay);
+  }
+  private stale(record: ConnectionRecord, client: Client, error: unknown) {
+    if (this.closed || record.client !== client) return;
+    record.client = undefined; record.retiredClient = client; record.verified = false; record.state = 'stale';
+    record.error = errorMessage(error).slice(0, 1024);
+    record.waits.abort();
+    void record.list?.suspend();
+    this.effects.detached(client, record.profile.runtime_id, { recovering: true });
+    this.publish(); this.retry(record);
   }
   async connectOnLaunch() {
     const local = this.connect('local');
@@ -267,40 +334,29 @@ export class HostConnections {
     if (local.device && local.target.runtimeId) this.persistDevice(local.target);
     this.publish({ legacyProfiles: this.deviceProfiles.filter(profile => profile.target.kind === 'url'), notice: undefined });
   }
-  private connectionChanged(record: ConnectionRecord, client: WhipClient) {
-    if (this.closed || record.client !== client) return;
-    const connection = client.getSnapshot();
-    if (connection.state === 'connected' && connection.info) {
-      const info = connection.info;
-      const expected = record.profile.runtime_id;
-      const alias = [...this.records.values()].find(other => other !== record && other.profile.runtime_id === info.runtime_id);
-      if (expected && expected !== info.runtime_id || alias) {
-        record.error = alias ? `This daemon is already connected as ${alias.profile.name}` : 'This address now serves a different daemon. Edit the host and explicitly accept its new identity to reconnect.';
-        record.verified = false;
-        // Finish the SDK's connection notification before closing its transport.
-        queueMicrotask(() => { if (record.client === client) { this.detach(record); this.publish(); } });
-        this.publish();
-        return;
-      }
-      record.verified = true;
-      record.profile = Object.freeze({ ...record.profile, runtime_id: info.runtime_id });
-      if (record.target.runtimeId !== info.runtime_id) {
-        record.target = { ...record.target, runtimeId: info.runtime_id };
-        if (record.device) {
-          try { this.persistDevice(record.target); } catch (error) { record.error = errorMessage(error); }
-        }
-      }
-      if (!record.list) {
-        record.list = createSessionListView(client);
-        void record.list.start().catch(error => { if (record.client === client) { record.error = errorMessage(error); this.publish(); } });
-      }
-      if (record.connectionId !== info.connection_id) {
-        record.connectionId = info.connection_id;
-        this.effects.connected(info.runtime_id, client);
-        if (record.profile.id === 'local') void this.refreshProfiles().catch(() => {});
+  private attached(record: ConnectionRecord, client: Client) {
+    const alias = [...this.records.values()].find(other => other !== record && other.profile.runtime_id === client.runtimeID);
+    if (alias) throw new ChangedIdentityError(`This daemon is already connected as ${alias.profile.name}`);
+    record.verified = true; record.client = client; record.retiredClient = undefined; record.state = 'connected'; record.error = undefined;
+    record.profile = Object.freeze({ ...record.profile, runtime_id: client.runtimeID });
+    if (record.target.runtimeId !== client.runtimeID) {
+      record.target = { ...record.target, runtimeId: client.runtimeID };
+      if (record.device) {
+        try { this.persistDevice(record.target); } catch (error) { record.error = errorMessage(error).slice(0, 1024); }
       }
     }
+    const retained = record.list;
+    record.list ??= createTreeCatalogView(client);
+    const list = record.list;
     this.publish();
+    if (!this.isAttached(client)) return;
+    this.effects.connected(client.runtimeID, client);
+    if (!this.isAttached(client)) return;
+    void (retained ? retained.reconnect(client) : list.start()).then(
+      () => { if (record.client === client) record.retryCount = 0; },
+      error => this.stale(record, client, error),
+    );
+    if (record.profile.id === 'local') void this.refreshProfiles().catch(() => {});
   }
   disconnect(id: string) {
     const record = this.records.get(id);
@@ -309,55 +365,50 @@ export class HostConnections {
     this.publish();
   }
   private detach(record: ConnectionRecord) {
+    clearTimeout(record.retry); record.retry = undefined; record.retryCount = 0;
     record.setup?.controller.abort();
     record.setup = undefined;
     record.progress = undefined;
     record.waits.abort();
-    record.unsubscribe?.();
-    record.unsubscribe = undefined;
-    const client = record.client;
-    record.client = undefined;
+    record.preparation?.abort(); record.preparation = undefined;
+    const client = record.client ?? record.retiredClient;
+    record.client = undefined; record.retiredClient = undefined;
     record.verified = false;
-    record.connectionId = undefined;
+    record.state = 'closed';
+    record.endpoint = undefined;
     void record.list?.dispose();
     record.list = undefined;
-    if (client) { this.effects.detached(client, record.profile.runtime_id); client.close(); }
+    if (client) this.effects.detached(client, record.profile.runtime_id, { recovering: false });
     record.resolved?.dispose();
     record.resolved = undefined;
   }
   refreshProfiles(): Promise<void> {
     const record = this.records.get('local')!;
     const client = record.verified ? record.client : undefined;
-    const connection = client?.getSnapshot();
-    if (!client || connection?.state !== 'connected' || !connection.info) return Promise.reject(new Error('Reconnect Local to manage saved hosts'));
-    const connectionId = connection.info.connection_id;
+    if (!client || record.state !== 'connected') return Promise.reject(new Error('Reconnect Local to manage saved hosts'));
     const version = this.configurationVersion;
     const pending = this.refreshing;
-    if (pending?.client === client && pending.connectionId === connectionId && pending.version === version) return pending.promise;
+    if (pending?.client === client && pending.version === version) return pending.promise;
     const signal = record.waits.signal;
     const refresh = async () => {
       try {
-        const configuration = await client.configuration.get({ signal });
-        if (!this.currentConnection(client, connectionId) || version !== this.configurationVersion) return;
+        const configuration = await client.hosts.profiles({ signal });
+        if (!this.isAttached(client) || version !== this.configurationVersion) return;
         this.applyProfiles(configuration);
       } catch (error) {
-        if (this.currentConnection(client, connectionId) && version === this.configurationVersion)
+        if (this.isAttached(client) && version === this.configurationVersion)
           this.publish({ profilesReady: false, profileError: errorMessage(error) });
         throw error;
       }
     };
     const promise = refresh().finally(() => { if (this.refreshing?.promise === promise) this.refreshing = undefined; });
-    this.refreshing = { client, connectionId, version, promise };
+    this.refreshing = { client, version, promise };
     return promise;
   }
-  private currentConnection(client: WhipClient, connectionId: string) {
-    const connection = client.getSnapshot();
-    return this.isAttached(client) && connection.state === 'connected' && connection.info?.connection_id === connectionId;
-  }
-  private applyProfiles(configuration: RuntimeConfiguration) {
-    if (!Array.isArray(configuration.remote_hosts)) throw new Error('Update the local daemon to save remote hosts in its configuration');
+  private applyProfiles(configuration: HostProfiles) {
+    if (!Array.isArray(configuration.profiles)) throw new Error('Update the local daemon to save remote hosts in its configuration');
     // Validate the whole document before detaching any healthy connection.
-    const profiles = normalizeProfiles(configuration.remote_hosts);
+    const profiles = normalizeProfiles(configuration.profiles);
     if (profiles.some(profile => this.records.get(profile.id)?.device)) throw new Error('A remote profile conflicts with a native host ID');
     this.revision = configuration.revision;
     ++this.configurationVersion;
@@ -375,16 +426,14 @@ export class HostConnections {
     this.publish({ profiles: Object.freeze(profiles.map(profile => Object.freeze({ ...profile }))), profilesReady: true, profileError: undefined });
     for (const id of connect) void this.connect(id).catch(() => {});
   }
-  private async writeProfiles(profiles: readonly HostProfile[], revision = this.revision) {
-    const client = this.home().client;
-    if (!client || client.getSnapshot().state !== 'connected' || !revision || !this.snapshot.profilesReady)
+  private async writeProfiles(profiles: readonly HostProfile[], revision = this.revision, client = this.home().client) {
+    if (!client || !this.isAttached(client) || !revision || !this.snapshot.profilesReady)
       throw new Error('Reconnect Local and load its configuration before saving hosts');
-    const connectionId = client.requireConnected().connection_id;
     const version = this.configurationVersion;
     const normalized = normalizeProfiles(profiles);
     try {
-      const configuration = await client.configuration.update({ revision, remote_hosts: normalized }, { signal: this.signal(client) });
-      if (!this.currentConnection(client, connectionId)) {
+      const configuration = await client.hosts.setProfiles(revision, normalized, { signal: this.signal(client) });
+      if (!this.isAttached(client)) {
         ++this.configurationVersion;
         throw new Error('Local changed while saving hosts. Reload its configuration to confirm the saved hosts.');
       }
@@ -407,7 +456,8 @@ export class HostConnections {
       throw new Error('Enter a valid ID and name for the remote host');
     const profiles = this.snapshot.profiles;
     const revision = this.revision;
-    if (!revision || !this.snapshot.profilesReady || this.home().state !== 'connected')
+    const source = this.home().client;
+    if (!source || !revision || !this.snapshot.profilesReady || this.home().state !== 'connected')
       throw new Error('Reconnect Local and load its configuration before saving hosts');
     const existing = profiles.find(host => host.id === profile.id);
     const legacy = importId ? this.deviceProfiles.find(item => item.id === importId && item.target.kind === 'url') : undefined;
@@ -415,19 +465,20 @@ export class HostConnections {
     if (!legacy && profile.runtime_id && existing?.runtime_id !== profile.runtime_id)
       throw new Error('This saved host changed. Reopen its settings before editing it.');
     let runtimeId = existing?.runtime_id;
-    if (!existing || existing.url !== endpoint || acceptChangedIdentity) {
-      const probe = this.createClient(endpoint, false);
+    if (!existing || daemonEndpoint(existing.url) !== endpoint || acceptChangedIdentity) {
+      if (this.probes.size >= 8) throw new Error('Host verification is busy; wait for another check to finish');
+      const probe = new AbortController();
       this.probes.add(probe);
-      try { await probe.connect(); runtimeId = probe.requireConnected().runtime_id; }
-      finally { probe.close(); this.probes.delete(probe); }
+      try { runtimeId = (await this.createClient(endpoint, undefined, probe.signal)).runtimeID; }
+      finally { probe.abort(); this.probes.delete(probe); }
     }
     const expected = existing?.runtime_id ?? profile.runtime_id;
     if (expected && expected !== runtimeId && !acceptChangedIdentity)
       throw new Error('This address serves a different daemon. Accept the new daemon identity to save it; existing tabs will keep their original identity.');
     const alias = this.snapshot.hosts.find(host => host.runtimeId === runtimeId && host.id !== profile.id);
     if (alias) throw new Error(`This daemon is already saved as ${alias.name}`);
-    const saved: HostProfile = { ...profile, name, url: endpoint, runtime_id: runtimeId! };
-    await this.writeProfiles([...profiles.filter(host => host.id !== profile.id), saved], revision);
+    const saved: HostProfile = { ...profile, name, url: existing && daemonEndpoint(existing.url) === endpoint ? existing.url : endpoint, runtime_id: runtimeId! };
+    await this.writeProfiles([...profiles.filter(host => host.id !== profile.id), saved], revision, source);
     return profile.id;
   }
   async setConnectOnLaunch(id: string, value: boolean) {
@@ -436,7 +487,7 @@ export class HostConnections {
   /** A display-name change preserves the attached client and daemon identity. */
   async rename(id: string, value: string) {
     const name = value.trim();
-    if (!name || name.length > 256 || /[\u0000-\u001f\u007f]/.test(name)) throw new Error('Enter a server name between 1 and 256 characters.');
+    if (!name || [...name].length > 256 || /[\u0000-\u001f\u007f]/.test(name)) throw new Error('Enter a server name between 1 and 256 characters.');
     const record = this.records.get(id);
     if (!record || this.closed) throw new Error('This server is no longer available.');
     if (name === record.profile.name) return;
@@ -463,7 +514,7 @@ export class HostConnections {
   dispose() {
     if (this.closed) return;
     this.closed = true;
-    for (const probe of this.probes) probe.close();
+    for (const probe of this.probes) probe.abort();
     this.probes.clear();
     for (const record of this.records.values()) this.detach(record);
     this.listeners.clear();

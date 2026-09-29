@@ -3239,3 +3239,42 @@ jumping to current work. Both pages publish only after their revisions agree;
 conflict retains stale evidence until a later read succeeds. Reconnection never
 replays effects, and a changed process epoch clears prior pages and cursors.
 Trace-window counts are not whole-tree usage totals.
+### V4 window host ownership
+
+`HostConnections` now owns one v4 `Client` and SDK `TreeCatalogView` per attached
+host. The client has no connection event reducer. The app owns `closed`,
+`connecting`, `connected`, and `stale` attachment state; the SDK alone owns the
+bounded catalog and its revision reconciliation. The catalog exists in the
+published host record before the window receives its connected callback. Other
+product consumers are being migrated separately; they must consume these v4
+objects directly rather than introduce a legacy-client facade.
+
+URL attachment first uses `discoverGateway`, then `browserSocket` pinned to the
+observed runtime and process epoch. Native connection resolution supplies an SDK
+`FramedConnector`; `framedTransport` verifies the runtime and captured epoch on
+every new unary connection. One host wait controller scopes all client calls.
+A caller abort stops only that read or wait; detaching aborts the whole client's
+observation lifetime. Native preparation has a separate lifetime so a dropped
+call cannot dispose the connection needed for read-only recovery.
+
+After a transport failure, the stale client is hidden from consumers, the catalog
+is suspended but retained, and the window receives `detached(..., {recovering:
+true})`. One bounded backoff timer per host rediscovers or reinitializes only the
+saved identity, reconnects the existing catalog, and publishes a fresh client.
+It never repeats a mutation, terminal input, account action, native preparation,
+or runtime start. Explicit Disconnect cancels recovery and disposes the prepared
+connection and catalog. A changed runtime identity stops automatic recovery and
+requires explicit acceptance. Explicit Connect retains the platform's normal
+user-requested native preparation contract. Local failure does not detach other
+hosts or cancel their accepted work.
+
+Saved URL profiles use `client.hosts.profiles()` and `setProfiles()` through the
+single host configuration revision. Profiles retain exact validated root HTTP(S)
+URLs and observed runtime pins, with at most 16 records. Input normalization can
+accept a WebSocket URL or either known WebSocket path before discovery; it never
+stores credentials, queries, fragments, or a proxy path. A display-only edit
+preserves the saved URL and live attachment. Uncertain writes and conflicts trigger
+read-only reconciliation, never an automatic write retry. Device-owned SSH/local
+profiles and legacy URL imports keep their existing explicit verification and
+storage boundaries. Host subscriptions and concurrent probes are bounded; SDK
+catalog retention remains independently bounded.

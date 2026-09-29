@@ -1,6 +1,6 @@
 import { createHostPrompts, localProfile, resolveURLConnection, type AppPlatform, type AppUpdateSnapshot, type ConnectionProfile } from '@whip/app/platform';
 import type { DesktopBridge } from '@whip/app/desktop-bridge';
-import type { TransportFactory } from '@whip/legacy-sdk';
+import type { FramedConnector } from '@whip/sdk';
 import { browserStorage } from './storage';
 
 const frameLimit = 8 << 20;
@@ -25,7 +25,7 @@ function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
 }
 
 /** A single SDK connection over the host's existing Unix transport. */
-export function desktopTransport(bridge: DesktopBridge, connectionId: string): TransportFactory {
+export function desktopTransport(bridge: DesktopBridge, connectionId: string): FramedConnector {
   return async (handlers, signal) => {
     signal.throwIfAborted();
     const id = crypto.randomUUID();

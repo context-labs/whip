@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hostsStorageKey, localProfile, readConnections, saveConnections, selectedHostStorageKey, urlProfile, validateProfile } from '../src/connections';
+import { hostsStorageKey, localProfile, readConnections, saveConnections, selectedHostStorageKey, urlProfile, validateProfile, daemonEndpoint } from '../src/connections';
 import type { AppStorage } from '../src/platform';
 
 function storage(entries: [string, string][] = []): AppStorage {
@@ -89,4 +89,11 @@ describe('execution host profiles', () => {
     expect(JSON.stringify(profile)).not.toContain('password');
     expect(profile.target).toEqual({ kind: 'ssh', host: '[::1]', port: 2222, remoteExecutable: '/a path/whip' });
   });
+});
+
+it('normalizes the v4 gateway endpoint without admitting URL secrets or unbounded input', () => {
+  expect(daemonEndpoint(' wss://Example.test:443/api/v4/ws ')).toBe('https://example.test');
+  expect(daemonEndpoint('ws://example.test:80/api/v3/ws')).toBe('http://example.test');
+  for (const address of ['https://host#', 'https://host?', 'https://host\n', 'https://' + 'a'.repeat(2048)])
+    expect(() => daemonEndpoint(address)).toThrow();
 });
