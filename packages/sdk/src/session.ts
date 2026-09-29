@@ -79,6 +79,21 @@ export class Session {
     if (input.session_id !== this.id) throw new TypeError('Input belongs to another session');
     return this.client.call('inputs.cancel', { input_id: input.id }, options);
   }
+  readonly context = {
+    /** Latest actual prefill, with explicit stale tail and unknown capacity; never cumulative usage. */
+    usage: async (options: CallOptions = {}) => {
+      const result = await this.client.call('context.usage', { session_id: this.id }, options);
+      if (result.session_id !== this.id) throw new TypeError('Context usage belongs to another session');
+      if ((result.prefill === null) !== (result.unavailable_reason !== '')) throw new TypeError('Context availability evidence disagrees');
+      if (result.prefill) {
+        const through = BigInt(result.prefill.through_sequence), current = BigInt(result.through_sequence);
+        if (through > current || result.prefill.stale !== (through !== current)) throw new TypeError('Context prefill tail evidence disagrees');
+        const capacity = result.prefill.context_window_tokens;
+        if (capacity !== null && (BigInt(capacity) < 1n || BigInt(capacity) > 1000000000n)) throw new TypeError('Context capacity is outside the captured policy bounds');
+      }
+      return result;
+    },
+  };
   readonly history = {
     page: (params: Page<'sessions.history_page'> = { direction: 'backward' }, options: CallOptions = {}) => this.client.call('sessions.history_page', { limit: 100, ...params, session_id: this.id }, options),
     snapshot: (options: CallOptions = {}) => this.client.call('context.snapshot', { session_id: this.id }, options),

@@ -143,6 +143,7 @@ func Operations() []Operation {
 		{"context.compaction", reflect.TypeFor[CompactionParams](), reflect.TypeFor[CompactionResult]()},
 		{"context.compactions", reflect.TypeFor[CompactionsParams](), reflect.TypeFor[CompactionsResult]()},
 		{"context.select", reflect.TypeFor[SelectCompactionParams](), reflect.TypeFor[ContextHead]()},
+		{"context.usage", reflect.TypeFor[SessionParams](), reflect.TypeFor[ContextUsage]()},
 		{"context.snapshot", reflect.TypeFor[SessionParams](), reflect.TypeFor[HistorySnapshot]()},
 		{"context.list", reflect.TypeFor[ContextHistoryParams](), reflect.TypeFor[HistoryMetadataResult]()},
 		{"context.read", reflect.TypeFor[ReadHistoryParams](), reflect.TypeFor[ReadHistoryResult]()},

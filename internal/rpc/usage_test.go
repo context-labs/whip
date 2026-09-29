@@ -14,6 +14,10 @@ func TestUsageRPCReadsCanonicalOwnerWithoutStartingQueuedWork(t *testing.T) {
 	root := create(t, c).Root
 	identity := protocol.RequestIdentity{ClientID: "usage", RequestID: "input"}
 	call[protocol.Admission](t, c, "sessions.submit", protocol.SubmitParams{Identity: identity, SessionID: root.ID, Source: "user", Parts: []protocol.Part{{Type: "text", Text: "hi"}}})
+	contextBefore := call[protocol.ContextUsage](t, c, "context.usage", protocol.SessionParams{SessionID: root.ID})
+	if contextBefore.Prefill != nil || contextBefore.UnavailableReason != "no_evidence" {
+		t.Fatal(contextBefore)
+	}
 	before := call[protocol.Usage](t, c, "usage.get", protocol.SessionParams{SessionID: root.ID})
 	if before.SessionID != root.ID || before.Attempts != (protocol.UsageAttempts{}) {
 		t.Fatal(before)
@@ -44,6 +48,10 @@ func TestUsageRPCReadsCanonicalOwnerWithoutStartingQueuedWork(t *testing.T) {
 	turn := call[protocol.TurnUsage](t, c, "usage.turn", protocol.TurnUsageParams{SessionID: root.ID, TurnID: turnID})
 	if turn.TurnID != turnID || turn.Usage != got || turn.Compactions != 0 || turn.CompactionAttempts != (protocol.UsageAttempts{}) {
 		t.Fatal(turn)
+	}
+	prefill := call[protocol.ContextUsage](t, c, "context.usage", protocol.SessionParams{SessionID: root.ID})
+	if prefill.Prefill == nil || prefill.Prefill.TurnID != turnID || !prefill.Prefill.Stale || prefill.Prefill.InputSource != "estimated" || prefill.Prefill.ContextWindowTokens != nil {
+		t.Fatal(prefill)
 	}
 	foreign := create(t, c).Root
 	requireHistoryError(t, c, "usage.turn", protocol.TurnUsageParams{SessionID: foreign.ID, TurnID: turnID}, "NOT_FOUND")

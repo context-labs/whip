@@ -21,7 +21,7 @@ import (
 
 const (
 	applicationID = 0x57504834
-	schemaVersion = 54
+	schemaVersion = 55
 )
 
 // SchemaVersion reports the single database format supported by this build.

@@ -1071,6 +1071,31 @@ export interface ContextHistoryParams {
   through_sequence: string;
   limit: number;
 }
+export interface ContextUsage {
+  session_id: string;
+  config_revision: string;
+  history_revision: string;
+  context_revision: string;
+  through_sequence: string;
+  basis: "latest_prefill";
+  unavailable_reason: "" | "no_evidence" | "configuration_changed" | "history_changed" | "selection_changed";
+  prefill: null | {
+    attempt_id: string;
+    turn_id: string;
+    model: {
+      provider: string;
+      name: string;
+      effort: string;
+      temperature?: null | number;
+      top_p?: null | number;
+    };
+    through_sequence: string;
+    input_tokens: string;
+    input_source: "reported" | "estimated";
+    context_window_tokens: null | string;
+    stale: boolean;
+  };
+}
 export interface ControlEdit {
   id: string;
   session_id: string;
@@ -5206,7 +5231,16 @@ export interface ModelAttemptsResult {
         operation_id: null | string;
         batch_index: null | number;
         request: {
-          purpose: "turn" | "compaction" | "goal_formulation" | "model_helper" | "automatic_title";
+          context?: null | {
+            session_id: string;
+            config_revision: string;
+            history_revision: string;
+            context_revision: string;
+            through_sequence: string;
+            estimated_tokens: string;
+            context_window_tokens: null | string;
+          };
+          purpose: "turn" | "final" | "compaction" | "goal_formulation" | "model_helper" | "automatic_title";
           model: {
             provider: string;
             name: string;
@@ -10534,6 +10568,7 @@ export interface ContractTypes {
   ContentReference: ContentReference;
   ContextHead: ContextHead;
   ContextHistoryParams: ContextHistoryParams;
+  ContextUsage: ContextUsage;
   ControlEdit: ControlEdit;
   CreateGoalParams: CreateGoalParams;
   CreateGrantParams: CreateGrantParams;
@@ -10911,6 +10946,7 @@ export interface Operations {
   "context.compaction": { params: CompactionParams; result: CompactionResult };
   "context.compactions": { params: CompactionsParams; result: CompactionsResult };
   "context.select": { params: SelectCompactionParams; result: ContextHead };
+  "context.usage": { params: SessionParams; result: ContextUsage };
   "context.snapshot": { params: SessionParams; result: HistorySnapshot };
   "context.list": { params: ContextHistoryParams; result: HistoryMetadataResult };
   "context.read": { params: ReadHistoryParams; result: ReadHistoryResult };

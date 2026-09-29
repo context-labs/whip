@@ -569,6 +569,8 @@ CREATE TABLE model_attempts (
  CHECK(message_id IS NULL OR json_extract(request,'$.purpose') NOT IN ('compaction','model_helper','goal_formulation','automatic_title'))
 ) STRICT;
 CREATE INDEX attempts_by_turn ON model_attempts(turn_id,id);
+-- The implicit rowid suffix orders exact admissions within one captured owner.
+CREATE INDEX attempts_context_owner ON model_attempts(json_extract(request,'$.context.session_id')) WHERE dispatched_at IS NOT NULL;
 CREATE INDEX attempts_unfinished ON model_attempts(id) WHERE finished_at IS NULL;
 CREATE TRIGGER attempt_transition BEFORE UPDATE ON model_attempts
  WHEN NEW.id IS NOT OLD.id OR NEW.turn_id IS NOT OLD.turn_id OR NEW.logical_id IS NOT OLD.logical_id

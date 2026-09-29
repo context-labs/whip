@@ -109,7 +109,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return dispatchAccount(ctx, host.OpenAI, method, raw)
 	case "accounts.inference.begin", "accounts.inference.get", "accounts.inference.list", "accounts.inference.cancel", "accounts.inference.team", "accounts.inference.project", "accounts.inference.create_project", "accounts.inference.retry", "accounts.inference.rotate", "accounts.inference.status", "accounts.inference.setup", "accounts.inference.logout", "accounts.inference.cleanup", "accounts.inference.retry_cleanup":
 		return dispatchInferenceAccount(ctx, host, method, raw)
-	case "sessions.compact", "context.head", "context.compaction", "context.compactions", "context.select", "context.snapshot", "context.list", "context.read", "context.search":
+	case "sessions.compact", "context.head", "context.compaction", "context.compactions", "context.select", "context.usage", "context.snapshot", "context.list", "context.read", "context.search":
 		return dispatchContext(ctx, r, method, raw)
 	case "turns.output":
 		return decode(raw, func(p protocol.TurnParams) (any, error) {

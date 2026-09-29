@@ -435,6 +435,47 @@
     "valid": true
   },
   {
+    "type": "ContextUsage",
+    "value": {
+      "session_id": "session_root",
+      "config_revision": "9007199254740993",
+      "history_revision": "9007199254740993",
+      "context_revision": "9007199254740993",
+      "through_sequence": "9007199254740994",
+      "basis": "latest_prefill",
+      "unavailable_reason": "",
+      "prefill": {
+        "attempt_id": "attempt",
+        "turn_id": "turn",
+        "model": {
+          "provider": "fixture",
+          "name": "model",
+          "effort": ""
+        },
+        "through_sequence": "9007199254740993",
+        "input_tokens": "9007199254740993",
+        "input_source": "reported",
+        "context_window_tokens": "100000",
+        "stale": true
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "ContextUsage",
+    "value": {
+      "session_id": "session_root",
+      "config_revision": "2",
+      "history_revision": "1",
+      "context_revision": "0",
+      "through_sequence": "0",
+      "basis": "latest_prefill",
+      "unavailable_reason": "configuration_changed",
+      "prefill": null
+    },
+    "valid": true
+  },
+  {
     "type": "Usage",
     "value": {
       "session_id": "session_root",
@@ -3668,6 +3709,15 @@
           "operation_id": null,
           "batch_index": null,
           "request": {
+            "context": {
+              "session_id": "session_child",
+              "config_revision": "9007199254740993",
+              "history_revision": "1",
+              "context_revision": "0",
+              "through_sequence": "9007199254740993",
+              "estimated_tokens": "9007199254740993",
+              "context_window_tokens": "100000"
+            },
             "purpose": "turn",
             "model": {
               "provider": "fixture",
@@ -3729,6 +3779,15 @@
           "operation_id": "operation_helper",
           "batch_index": 31,
           "request": {
+            "context": {
+              "session_id": "session_child",
+              "config_revision": "9007199254740993",
+              "history_revision": "1",
+              "context_revision": "0",
+              "through_sequence": "9007199254740993",
+              "estimated_tokens": "9007199254740993",
+              "context_window_tokens": "100000"
+            },
             "purpose": "model_helper",
             "model": {
               "provider": "fixture",
@@ -3790,6 +3849,15 @@
           "operation_id": null,
           "batch_index": null,
           "request": {
+            "context": {
+              "session_id": "session_child",
+              "config_revision": "9007199254740993",
+              "history_revision": "1",
+              "context_revision": "0",
+              "through_sequence": "9007199254740993",
+              "estimated_tokens": "9007199254740993",
+              "context_window_tokens": "100000"
+            },
             "purpose": "automatic_title",
             "model": {
               "provider": "fixture",

@@ -595,6 +595,11 @@ export const manifest = {
       "result": "ContextHead"
     },
     {
+      "name": "context.usage",
+      "params": "SessionParams",
+      "result": "ContextUsage"
+    },
+    {
       "name": "context.snapshot",
       "params": "SessionParams",
       "result": "HistorySnapshot"

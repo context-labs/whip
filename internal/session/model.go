@@ -163,18 +163,27 @@ func (p ModelPrices) Cost(u ModelUsage) (*int64, error) {
 // ModelRequestSnapshot contains dispatch provenance without credentials, provider
 // objects or copied transcript bodies. The digest identifies the composed request.
 type ModelRequestSnapshot struct {
-	Purpose         string         `json:"purpose"`
-	Model           ModelSelection `json:"model"`
-	Route           string         `json:"route"`
-	Adapter         string         `json:"adapter"`
-	RequestDigest   string         `json:"request_digest"`
-	Prices          ModelPrices    `json:"prices"`
-	InputTokenBound *int64         `json:"input_token_bound"`
-	MaxOutputTokens int64          `json:"max_output_tokens"`
-	TimeoutMillis   int64          `json:"timeout_millis"`
+	Context         *ModelContextEvidence `json:"context,omitempty"`
+	Purpose         string                `json:"purpose"`
+	Model           ModelSelection        `json:"model"`
+	Route           string                `json:"route"`
+	Adapter         string                `json:"adapter"`
+	RequestDigest   string                `json:"request_digest"`
+	Prices          ModelPrices           `json:"prices"`
+	InputTokenBound *int64                `json:"input_token_bound"`
+	MaxOutputTokens int64                 `json:"max_output_tokens"`
+	TimeoutMillis   int64                 `json:"timeout_millis"`
 }
 
 func (s ModelRequestSnapshot) Validate() error {
+	if s.Context != nil {
+		if s.Purpose != "turn" && s.Purpose != "final" {
+			return ErrInvalid
+		}
+		if err := s.Context.Validate(); err != nil {
+			return err
+		}
+	}
 	if err := ValidateID(s.Purpose); err != nil {
 		return err
 	}
