@@ -60,6 +60,7 @@ func (w *nativeWork) close() { w.mu.Lock(); w.closed = true; w.stop(); w.mu.Unlo
 // nativeModel is the native chat composition. Commands and menus are added
 // directly over typed host operations; it does not adapt retired RootActions.
 type nativeModel struct {
+	terminal                                  *nativeTerminal
 	shell                                     *nativeShellView
 	shellFocus, shellPending                  *nativeShellFocus
 	shellHidden                               bool
@@ -203,6 +204,13 @@ func newNativeModel(ctx context.Context, c *client.Client, owner protocol.Sessio
 }
 
 func (m *nativeModel) Init() tea.Cmd {
+	if m.terminal != nil {
+		commands := []tea.Cmd{m.read(), m.terminalCommands()}
+		if m.menu != nil {
+			commands = append(commands, m.menu.Init())
+		}
+		return tea.Batch(commands...)
+	}
 	if m.menu != nil {
 		return tea.Batch(m.read(), m.menu.Init())
 	}
@@ -336,6 +344,9 @@ func nativeTick() tea.Cmd {
 }
 
 func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
+	if m.terminalMessage(message) {
+		return m, nil
+	}
 	switch message.(type) {
 	case tea.KeyPressMsg, tea.PasteMsg, tea.WindowSizeMsg, tea.MouseWheelMsg:
 		m.selection = nil
@@ -923,6 +934,7 @@ func (m *nativeModel) cancelTurn(id protocol.ID) tea.Cmd {
 }
 
 func (m *nativeModel) refresh() {
+	m.input.SetStyles(currentTheme().Textarea)
 	width := m.transcriptWidth()
 	m.input.SetWidth(max(width-2, 1))
 	m.sizeInput()
@@ -982,6 +994,10 @@ func (m *nativeModel) refresh() {
 				rows = append(rows, "Output preview truncated.")
 			}
 		}
+	}
+	if hints := m.terminal.notice(); hints != "" {
+		rows = append(rows, "", "Local terminal hints")
+		appendText(hints)
 	}
 	if m.notice != "" {
 		rows = append(rows, "", "Terminal command output · not conversation history")

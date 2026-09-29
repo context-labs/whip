@@ -37,7 +37,7 @@ Agents: /agents [list|open <ID>|stop <ID>|delete <child ID>|revoke <grant ID>]
 Display: /sidebar · /panel agents|context|lsp · /dock · /repl [older|latest|turn <ID>|focus] · /tools expand|collapse · /reasoning on|off · /report
 Exit: /quit (accepted host work continues)
 
-Enter sends; Ctrl+J/Shift+Enter inserts a newline; Escape cancels the exact active input.
+Enter sends; Ctrl+J, Shift+Enter, or Alt+Enter inserts a newline.
 Ctrl+X 1/2/3 expands Agents/Context/LSP; sidebar headings select a panel; wheel scrolls it.
 Click an agent row in the sidebar/dock to open that owner. Ctrl+T focuses the agent tree; arrows select, Enter opens, Escape returns to its root.
 Drag selects displayed transcript/input/REPL text; release offers it to the clipboard. Double-click selects a word; triple-click a row.
