@@ -340,6 +340,8 @@ export class BrowserControl {
             this.expanding.set(environmentId, attachment);
             try { await this.options.expand(selection.input, attachment.scope, args.port as number); this.assertAttachment(attachment); } finally { this.expanding.delete(environmentId); }
             attachment.scope.preview!.ports = [...new Set([...(attachment.scope.preview!.ports ?? []), args.port as number])].sort((a, b) => a - b);
+            const created = selection.created.get(attachment.scope.tab_id);
+            if (created?.agentId === command.agent_id && created.scope.tab_generation === attachment.scope.tab_generation) created.scope.preview = clone(attachment.scope.preview);
             result.result = this.metadata(attachment); break;
           }
           default: fail('unsupported_operation', 'Unknown native browser operation');

@@ -88,5 +88,8 @@ test('created preview pages retain their creation profile through detach and exp
   f.control.retire({ root_id: 'root', provider_id: 'provider', provider_epoch: 'provider-gen', scopes: [reopened] });
   const expanded = { ...reopened, preview: { ...reopened.preview!, ports: [3000, 4000] } };
   assert.equal((await f.control.dispatch(f.command('detach', expanded))).error, undefined);
+  const final = { ...expanded, attachment_id: 'final', attachment_generation: 'final-gen' };
+  assert.equal((await f.control.dispatch(f.command('attach', final, {}, 'other-agent'))).error?.kind, 'permission_denied');
+  assert.equal((await f.control.dispatch(f.command('attach', final))).error, undefined);
   assert.equal(f.tabs.length, 2); f.control.dispose();
 });
