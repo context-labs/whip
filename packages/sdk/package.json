@@ -8,7 +8,8 @@
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
     "./node": { "types": "./dist/node.d.ts", "import": "./dist/node.js" },
     "./browser": { "types": "./dist/browser.d.ts", "import": "./dist/browser.js" },
-    "./state": { "types": "./dist/state.d.ts", "import": "./dist/state.js" }
+    "./state": { "types": "./dist/state.d.ts", "import": "./dist/state.js" },
+    "./react": { "types": "./dist/react.d.ts", "import": "./dist/react.js" }
   },
   "files": ["dist"],
   "scripts": {
@@ -17,5 +18,7 @@
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": { "@whip/protocol": "4.0.0" },
+  "peerDependencies": { "react": "^19.0.0" },
+  "peerDependenciesMeta": { "react": { "optional": true } },
   "devDependencies": { "typescript": "5.9.3", "@types/node": "24.13.3" }
 }

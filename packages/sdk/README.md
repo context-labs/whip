@@ -905,3 +905,14 @@ process epoch; subsequent calls preserve the exact returned terminal reference.
 An uncertain open can be inspected by listing. Input writes have no receipt;
 report uncertain delivery and never retry their bytes automatically. Reads use
 exact byte cursors with visible truncation; view disposal is independent of close.
+
+packaging and persistent executor browser support are separate increments.
+
+
+React consumers import `useSessionView` and `useTreeCatalogView` from
+`@whip/sdk/react`. These hooks subscribe to the SDK view's immutable snapshot;
+they do not introduce a cache or start, suspend, dispose or cancel anything.
+Own shared view lifetimes above individual components so navigation and React
+StrictMode remounts preserve observation and app-owned drafts/reading anchors.
+React is an optional peer; transport, services and state entry points do not
+import it.
