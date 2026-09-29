@@ -13,6 +13,15 @@ import (
 
 func dispatchHostViews(ctx context.Context, r *runtime.Runtime, method string, raw json.RawMessage) (any, error) {
 	switch method {
+	case "workspace.complete":
+		return decode(raw, func(p protocol.WorkspaceCompletionParams) (any, error) {
+			value, err := r.CompleteWorkspace(ctx, session.SessionID(p.SessionID), hostview.CompletionParams{Kind: p.Kind, Prefix: p.Prefix, Limit: p.Limit})
+			result := protocol.WorkspaceCompletionResult{WorkingDirectory: value.WorkingDirectory, Candidates: []protocol.WorkspaceCompletionCandidate{}, Truncated: value.Truncated}
+			for _, candidate := range value.Candidates {
+				result.Candidates = append(result.Candidates, protocol.WorkspaceCompletionCandidate(candidate))
+			}
+			return result, err
+		})
 	case "host.attention":
 		return decode(raw, func(p protocol.HostAttentionParams) (any, error) {
 			var cursor *session.AttentionCursor

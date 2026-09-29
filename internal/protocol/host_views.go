@@ -6,6 +6,22 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
+type WorkspaceCompletionParams struct {
+	SessionID ID     `json:"session_id"`
+	Kind      string `json:"kind" enum:"mention,path"`
+	Prefix    string `json:"prefix"`
+	Limit     int    `json:"limit" min:"1" max:"64"`
+}
+type WorkspaceCompletionCandidate struct {
+	Text        string `json:"text"`
+	Description string `json:"description" enum:",dir"`
+}
+type WorkspaceCompletionResult struct {
+	WorkingDirectory string                         `json:"working_directory"`
+	Candidates       []WorkspaceCompletionCandidate `json:"candidates"`
+	Truncated        bool                           `json:"truncated"`
+}
+
 type HostDirectoriesParams struct {
 	Path       string `json:"path"`
 	After      string `json:"after"`
@@ -149,6 +165,13 @@ func hostViewsSchema(schema *jsonschema.Schema, t reflect.Type) {
 		value.MaxItems = new(n)
 	}
 	switch t {
+	case reflect.TypeFor[WorkspaceCompletionParams]():
+		bound("prefix", 4096)
+	case reflect.TypeFor[WorkspaceCompletionCandidate]():
+		bound("text", 8192)
+	case reflect.TypeFor[WorkspaceCompletionResult]():
+		bound("working_directory", 4096)
+		array("candidates", 64)
 	case reflect.TypeFor[HostDirectoriesParams]():
 		bound("path", 4096)
 		bound("after", 256)

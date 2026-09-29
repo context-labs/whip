@@ -58,7 +58,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return dispatchControls(ctx, r, method, raw)
 	case "trace.page", "trace.export":
 		return dispatchTrace(ctx, r, method, raw)
-	case "host.attention", "host.directories.list", "host.directory.pick", "host.skills.complete", "host.themes.list", "host.themes.resolve":
+	case "workspace.complete", "host.attention", "host.directories.list", "host.directory.pick", "host.skills.complete", "host.themes.list", "host.themes.resolve":
 		return dispatchHostViews(ctx, r, method, raw)
 	case "tool.schemas", "tool.call", "shell.run":
 		return dispatchHostOperation(ctx, r, method, raw)

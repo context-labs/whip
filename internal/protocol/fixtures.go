@@ -101,6 +101,8 @@ func Fixtures() ([]Fixture, error) {
 		{"TracePageResult", TracePageFromDomain(session.TracePage{Revision: 9007199254740999, Next: 9007199254740999, Items: []session.TraceRow{{Sequence: 9007199254740999, RootID: "session_root", SessionID: "session_child", TurnID: "turn", SourceKind: "attempt", SourceID: "attempt", SpanID: session.TraceSpanID("attempt", "attempt"), Span: &session.TraceSpan{TraceID: session.TraceID("turn"), Kind: "llm", Name: "turn model", State: "succeeded", StartNS: 1790600000000000000, EndNS: new(int64(1790600000000001000)), Attributes: []session.TraceAttribute{{Key: "whip.cost.nano_usd", Count: new(int64(9007199254740993))}, {Key: "whip.input.body_available", Flag: new(false)}, {Key: "gen_ai.request.model", Text: new("model")}}}}, {Sequence: 9007199254740998, RootID: "session_root", SessionID: "deleted", TurnID: "gone", SourceKind: "turn", SourceID: "gone", SpanID: session.TraceSpanID("turn", "gone")}}})},
 		{"TraceExportParams", TraceExportParams{RootID: "session_root"}},
 		{"HostAttentionResult", HostAttentionResult{Items: []HostAttentionItem{}}},
+		{"WorkspaceCompletionParams", WorkspaceCompletionParams{SessionID: "session_root", Kind: "mention", Prefix: "roadmap", Limit: 64}},
+		{"WorkspaceCompletionResult", WorkspaceCompletionResult{WorkingDirectory: "/workspace", Candidates: []WorkspaceCompletionCandidate{{Text: "@docs/roadmap.md", Description: ""}, {Text: "@docs/", Description: "dir"}}, Truncated: true}},
 		{"HostDirectoriesParams", HostDirectoriesParams{Path: "/workspace", Limit: 64}},
 		{"HostDirectoriesResult", HostDirectoriesResult{Path: "/workspace", Parent: "/", Entries: []HostDirectoryEntry{{Name: "project", Path: "/workspace/project"}}}},
 		{"HostDirectoryPickParams", HostDirectoryPickParams{}},

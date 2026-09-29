@@ -174183,10 +174183,416 @@ validate282.errors = vErrors;
 return errors === 0;
 }
 
-export const WorkspaceInspection = validate283;
-const schema284 = {"type":"object","properties":{"session_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"working_directory":{"type":"string"},"configuration_revision":{"type":"string","pattern":"^(0|[1-9][0-9]{0,18})$","format":"counter"}},"$id":"https://whip.dev/protocol/v4/WorkspaceInspection","$schema":"http://json-schema.org/draft-07/schema#","title":"WorkspaceInspection","required":["session_id","working_directory","configuration_revision"],"additionalProperties":false};
+export const WorkspaceCompletionParams = validate283;
+const schema284 = {"type":"object","properties":{"session_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"kind":{"type":"string","enum":["mention","path"]},"prefix":{"type":"string","maxLength":4096},"limit":{"type":"integer","minimum":1,"maximum":64}},"$id":"https://whip.dev/protocol/v4/WorkspaceCompletionParams","$schema":"http://json-schema.org/draft-07/schema#","title":"WorkspaceCompletionParams","required":["session_id","kind","prefix","limit"],"additionalProperties":false};
 
 function validate283(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
+/*# sourceURL="https://whip.dev/protocol/v4/WorkspaceCompletionParams" */;
+let vErrors = null;
+let errors = 0;
+if(data && typeof data == "object" && !Array.isArray(data)){
+if(data.session_id === undefined){
+const err0 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "session_id"},message:"must have required property '"+"session_id"+"'"};
+if(vErrors === null){
+vErrors = [err0];
+}
+else {
+vErrors.push(err0);
+}
+errors++;
+}
+if(data.kind === undefined){
+const err1 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "kind"},message:"must have required property '"+"kind"+"'"};
+if(vErrors === null){
+vErrors = [err1];
+}
+else {
+vErrors.push(err1);
+}
+errors++;
+}
+if(data.prefix === undefined){
+const err2 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "prefix"},message:"must have required property '"+"prefix"+"'"};
+if(vErrors === null){
+vErrors = [err2];
+}
+else {
+vErrors.push(err2);
+}
+errors++;
+}
+if(data.limit === undefined){
+const err3 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "limit"},message:"must have required property '"+"limit"+"'"};
+if(vErrors === null){
+vErrors = [err3];
+}
+else {
+vErrors.push(err3);
+}
+errors++;
+}
+for(const key0 in data){
+if(!((((key0 === "session_id") || (key0 === "kind")) || (key0 === "prefix")) || (key0 === "limit"))){
+const err4 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err4];
+}
+else {
+vErrors.push(err4);
+}
+errors++;
+}
+}
+if(data.session_id !== undefined){
+let data0 = data.session_id;
+if(typeof data0 === "string"){
+if(!pattern0.test(data0)){
+const err5 = {instancePath:instancePath+"/session_id",schemaPath:"#/properties/session_id/pattern",keyword:"pattern",params:{pattern: "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},message:"must match pattern \""+"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"+"\""};
+if(vErrors === null){
+vErrors = [err5];
+}
+else {
+vErrors.push(err5);
+}
+errors++;
+}
+}
+else {
+const err6 = {instancePath:instancePath+"/session_id",schemaPath:"#/properties/session_id/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err6];
+}
+else {
+vErrors.push(err6);
+}
+errors++;
+}
+}
+if(data.kind !== undefined){
+let data1 = data.kind;
+if(typeof data1 !== "string"){
+const err7 = {instancePath:instancePath+"/kind",schemaPath:"#/properties/kind/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err7];
+}
+else {
+vErrors.push(err7);
+}
+errors++;
+}
+if(!((data1 === "mention") || (data1 === "path"))){
+const err8 = {instancePath:instancePath+"/kind",schemaPath:"#/properties/kind/enum",keyword:"enum",params:{allowedValues: schema284.properties.kind.enum},message:"must be equal to one of the allowed values"};
+if(vErrors === null){
+vErrors = [err8];
+}
+else {
+vErrors.push(err8);
+}
+errors++;
+}
+}
+if(data.prefix !== undefined){
+let data2 = data.prefix;
+if(typeof data2 === "string"){
+if(func5(data2) > 4096){
+const err9 = {instancePath:instancePath+"/prefix",schemaPath:"#/properties/prefix/maxLength",keyword:"maxLength",params:{limit: 4096},message:"must NOT have more than 4096 characters"};
+if(vErrors === null){
+vErrors = [err9];
+}
+else {
+vErrors.push(err9);
+}
+errors++;
+}
+}
+else {
+const err10 = {instancePath:instancePath+"/prefix",schemaPath:"#/properties/prefix/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err10];
+}
+else {
+vErrors.push(err10);
+}
+errors++;
+}
+}
+if(data.limit !== undefined){
+let data3 = data.limit;
+if(!((typeof data3 == "number") && (!(data3 % 1) && !isNaN(data3)))){
+const err11 = {instancePath:instancePath+"/limit",schemaPath:"#/properties/limit/type",keyword:"type",params:{type: "integer"},message:"must be integer"};
+if(vErrors === null){
+vErrors = [err11];
+}
+else {
+vErrors.push(err11);
+}
+errors++;
+}
+if(typeof data3 == "number"){
+if(data3 > 64 || isNaN(data3)){
+const err12 = {instancePath:instancePath+"/limit",schemaPath:"#/properties/limit/maximum",keyword:"maximum",params:{comparison: "<=", limit: 64},message:"must be <= 64"};
+if(vErrors === null){
+vErrors = [err12];
+}
+else {
+vErrors.push(err12);
+}
+errors++;
+}
+if(data3 < 1 || isNaN(data3)){
+const err13 = {instancePath:instancePath+"/limit",schemaPath:"#/properties/limit/minimum",keyword:"minimum",params:{comparison: ">=", limit: 1},message:"must be >= 1"};
+if(vErrors === null){
+vErrors = [err13];
+}
+else {
+vErrors.push(err13);
+}
+errors++;
+}
+}
+}
+}
+else {
+const err14 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err14];
+}
+else {
+vErrors.push(err14);
+}
+errors++;
+}
+validate283.errors = vErrors;
+return errors === 0;
+}
+
+export const WorkspaceCompletionResult = validate284;
+const schema285 = {"type":"object","properties":{"working_directory":{"type":"string","maxLength":4096},"candidates":{"type":"array","items":{"type":"object","properties":{"text":{"type":"string","maxLength":8192},"description":{"type":"string","enum":["","dir"]}},"required":["text","description"],"additionalProperties":false},"maxItems":64},"truncated":{"type":"boolean"}},"$id":"https://whip.dev/protocol/v4/WorkspaceCompletionResult","$schema":"http://json-schema.org/draft-07/schema#","title":"WorkspaceCompletionResult","required":["working_directory","candidates","truncated"],"additionalProperties":false};
+
+function validate284(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
+/*# sourceURL="https://whip.dev/protocol/v4/WorkspaceCompletionResult" */;
+let vErrors = null;
+let errors = 0;
+if(data && typeof data == "object" && !Array.isArray(data)){
+if(data.working_directory === undefined){
+const err0 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "working_directory"},message:"must have required property '"+"working_directory"+"'"};
+if(vErrors === null){
+vErrors = [err0];
+}
+else {
+vErrors.push(err0);
+}
+errors++;
+}
+if(data.candidates === undefined){
+const err1 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "candidates"},message:"must have required property '"+"candidates"+"'"};
+if(vErrors === null){
+vErrors = [err1];
+}
+else {
+vErrors.push(err1);
+}
+errors++;
+}
+if(data.truncated === undefined){
+const err2 = {instancePath,schemaPath:"#/required",keyword:"required",params:{missingProperty: "truncated"},message:"must have required property '"+"truncated"+"'"};
+if(vErrors === null){
+vErrors = [err2];
+}
+else {
+vErrors.push(err2);
+}
+errors++;
+}
+for(const key0 in data){
+if(!(((key0 === "working_directory") || (key0 === "candidates")) || (key0 === "truncated"))){
+const err3 = {instancePath,schemaPath:"#/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key0},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err3];
+}
+else {
+vErrors.push(err3);
+}
+errors++;
+}
+}
+if(data.working_directory !== undefined){
+let data0 = data.working_directory;
+if(typeof data0 === "string"){
+if(func5(data0) > 4096){
+const err4 = {instancePath:instancePath+"/working_directory",schemaPath:"#/properties/working_directory/maxLength",keyword:"maxLength",params:{limit: 4096},message:"must NOT have more than 4096 characters"};
+if(vErrors === null){
+vErrors = [err4];
+}
+else {
+vErrors.push(err4);
+}
+errors++;
+}
+}
+else {
+const err5 = {instancePath:instancePath+"/working_directory",schemaPath:"#/properties/working_directory/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err5];
+}
+else {
+vErrors.push(err5);
+}
+errors++;
+}
+}
+if(data.candidates !== undefined){
+let data1 = data.candidates;
+if(Array.isArray(data1)){
+if(data1.length > 64){
+const err6 = {instancePath:instancePath+"/candidates",schemaPath:"#/properties/candidates/maxItems",keyword:"maxItems",params:{limit: 64},message:"must NOT have more than 64 items"};
+if(vErrors === null){
+vErrors = [err6];
+}
+else {
+vErrors.push(err6);
+}
+errors++;
+}
+const len0 = data1.length;
+for(let i0=0; i0<len0; i0++){
+let data2 = data1[i0];
+if(data2 && typeof data2 == "object" && !Array.isArray(data2)){
+if(data2.text === undefined){
+const err7 = {instancePath:instancePath+"/candidates/" + i0,schemaPath:"#/properties/candidates/items/required",keyword:"required",params:{missingProperty: "text"},message:"must have required property '"+"text"+"'"};
+if(vErrors === null){
+vErrors = [err7];
+}
+else {
+vErrors.push(err7);
+}
+errors++;
+}
+if(data2.description === undefined){
+const err8 = {instancePath:instancePath+"/candidates/" + i0,schemaPath:"#/properties/candidates/items/required",keyword:"required",params:{missingProperty: "description"},message:"must have required property '"+"description"+"'"};
+if(vErrors === null){
+vErrors = [err8];
+}
+else {
+vErrors.push(err8);
+}
+errors++;
+}
+for(const key1 in data2){
+if(!((key1 === "text") || (key1 === "description"))){
+const err9 = {instancePath:instancePath+"/candidates/" + i0,schemaPath:"#/properties/candidates/items/additionalProperties",keyword:"additionalProperties",params:{additionalProperty: key1},message:"must NOT have additional properties"};
+if(vErrors === null){
+vErrors = [err9];
+}
+else {
+vErrors.push(err9);
+}
+errors++;
+}
+}
+if(data2.text !== undefined){
+let data3 = data2.text;
+if(typeof data3 === "string"){
+if(func5(data3) > 8192){
+const err10 = {instancePath:instancePath+"/candidates/" + i0+"/text",schemaPath:"#/properties/candidates/items/properties/text/maxLength",keyword:"maxLength",params:{limit: 8192},message:"must NOT have more than 8192 characters"};
+if(vErrors === null){
+vErrors = [err10];
+}
+else {
+vErrors.push(err10);
+}
+errors++;
+}
+}
+else {
+const err11 = {instancePath:instancePath+"/candidates/" + i0+"/text",schemaPath:"#/properties/candidates/items/properties/text/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err11];
+}
+else {
+vErrors.push(err11);
+}
+errors++;
+}
+}
+if(data2.description !== undefined){
+let data4 = data2.description;
+if(typeof data4 !== "string"){
+const err12 = {instancePath:instancePath+"/candidates/" + i0+"/description",schemaPath:"#/properties/candidates/items/properties/description/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err12];
+}
+else {
+vErrors.push(err12);
+}
+errors++;
+}
+if(!((data4 === "") || (data4 === "dir"))){
+const err13 = {instancePath:instancePath+"/candidates/" + i0+"/description",schemaPath:"#/properties/candidates/items/properties/description/enum",keyword:"enum",params:{allowedValues: schema285.properties.candidates.items.properties.description.enum},message:"must be equal to one of the allowed values"};
+if(vErrors === null){
+vErrors = [err13];
+}
+else {
+vErrors.push(err13);
+}
+errors++;
+}
+}
+}
+else {
+const err14 = {instancePath:instancePath+"/candidates/" + i0,schemaPath:"#/properties/candidates/items/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err14];
+}
+else {
+vErrors.push(err14);
+}
+errors++;
+}
+}
+}
+else {
+const err15 = {instancePath:instancePath+"/candidates",schemaPath:"#/properties/candidates/type",keyword:"type",params:{type: "array"},message:"must be array"};
+if(vErrors === null){
+vErrors = [err15];
+}
+else {
+vErrors.push(err15);
+}
+errors++;
+}
+}
+if(data.truncated !== undefined){
+if(typeof data.truncated !== "boolean"){
+const err16 = {instancePath:instancePath+"/truncated",schemaPath:"#/properties/truncated/type",keyword:"type",params:{type: "boolean"},message:"must be boolean"};
+if(vErrors === null){
+vErrors = [err16];
+}
+else {
+vErrors.push(err16);
+}
+errors++;
+}
+}
+}
+else {
+const err17 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err17];
+}
+else {
+vErrors.push(err17);
+}
+errors++;
+}
+validate284.errors = vErrors;
+return errors === 0;
+}
+
+export const WorkspaceInspection = validate285;
+const schema286 = {"type":"object","properties":{"session_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"working_directory":{"type":"string"},"configuration_revision":{"type":"string","pattern":"^(0|[1-9][0-9]{0,18})$","format":"counter"}},"$id":"https://whip.dev/protocol/v4/WorkspaceInspection","$schema":"http://json-schema.org/draft-07/schema#","title":"WorkspaceInspection","required":["session_id","working_directory","configuration_revision"],"additionalProperties":false};
+
+function validate285(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v4/WorkspaceInspection" */;
 let vErrors = null;
 let errors = 0;
@@ -174316,14 +174722,14 @@ vErrors.push(err10);
 }
 errors++;
 }
-validate283.errors = vErrors;
+validate285.errors = vErrors;
 return errors === 0;
 }
 
-export const WorkspaceResult = validate284;
-const schema285 = {"type":"object","properties":{"action":{"type":"object","properties":{"id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"session_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"snapshot_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"kind":{"type":"string","enum":["capture","restore","release"]},"state":{"type":"string","enum":["claimed","succeeded","uncertain"]},"failure":{"type":["null","string"]},"created_at":{"type":"string"},"finished_at":{"type":["null","string"]}},"required":["id","session_id","snapshot_id","kind","state","failure","created_at","finished_at"],"additionalProperties":false},"snapshot":{"type":"object","properties":{"id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"session_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"capture_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"state":{"type":"string","enum":["claimed","succeeded","uncertain"]},"scope":{"type":"string","enum":["session_working_directory"]},"semantics":{"type":"string"},"created_at":{"type":"string"},"released_at":{"type":["null","string"]}},"required":["id","session_id","capture_id","state","scope","semantics","created_at","released_at"],"additionalProperties":false}},"$id":"https://whip.dev/protocol/v4/WorkspaceResult","$schema":"http://json-schema.org/draft-07/schema#","title":"WorkspaceResult","required":["action","snapshot"],"additionalProperties":false};
+export const WorkspaceResult = validate286;
+const schema287 = {"type":"object","properties":{"action":{"type":"object","properties":{"id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"session_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"snapshot_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"kind":{"type":"string","enum":["capture","restore","release"]},"state":{"type":"string","enum":["claimed","succeeded","uncertain"]},"failure":{"type":["null","string"]},"created_at":{"type":"string"},"finished_at":{"type":["null","string"]}},"required":["id","session_id","snapshot_id","kind","state","failure","created_at","finished_at"],"additionalProperties":false},"snapshot":{"type":"object","properties":{"id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"session_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"capture_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"state":{"type":"string","enum":["claimed","succeeded","uncertain"]},"scope":{"type":"string","enum":["session_working_directory"]},"semantics":{"type":"string"},"created_at":{"type":"string"},"released_at":{"type":["null","string"]}},"required":["id","session_id","capture_id","state","scope","semantics","created_at","released_at"],"additionalProperties":false}},"$id":"https://whip.dev/protocol/v4/WorkspaceResult","$schema":"http://json-schema.org/draft-07/schema#","title":"WorkspaceResult","required":["action","snapshot"],"additionalProperties":false};
 
-function validate284(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
+function validate286(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v4/WorkspaceResult" */;
 let vErrors = null;
 let errors = 0;
@@ -174543,7 +174949,7 @@ vErrors.push(err18);
 errors++;
 }
 if(!(((data4 === "capture") || (data4 === "restore")) || (data4 === "release"))){
-const err19 = {instancePath:instancePath+"/action/kind",schemaPath:"#/properties/action/properties/kind/enum",keyword:"enum",params:{allowedValues: schema285.properties.action.properties.kind.enum},message:"must be equal to one of the allowed values"};
+const err19 = {instancePath:instancePath+"/action/kind",schemaPath:"#/properties/action/properties/kind/enum",keyword:"enum",params:{allowedValues: schema287.properties.action.properties.kind.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err19];
 }
@@ -174566,7 +174972,7 @@ vErrors.push(err20);
 errors++;
 }
 if(!(((data5 === "claimed") || (data5 === "succeeded")) || (data5 === "uncertain"))){
-const err21 = {instancePath:instancePath+"/action/state",schemaPath:"#/properties/action/properties/state/enum",keyword:"enum",params:{allowedValues: schema285.properties.action.properties.state.enum},message:"must be equal to one of the allowed values"};
+const err21 = {instancePath:instancePath+"/action/state",schemaPath:"#/properties/action/properties/state/enum",keyword:"enum",params:{allowedValues: schema287.properties.action.properties.state.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err21];
 }
@@ -174579,7 +174985,7 @@ errors++;
 if(data0.failure !== undefined){
 let data6 = data0.failure;
 if((data6 !== null) && (typeof data6 !== "string")){
-const err22 = {instancePath:instancePath+"/action/failure",schemaPath:"#/properties/action/properties/failure/type",keyword:"type",params:{type: schema285.properties.action.properties.failure.type},message:"must be null,string"};
+const err22 = {instancePath:instancePath+"/action/failure",schemaPath:"#/properties/action/properties/failure/type",keyword:"type",params:{type: schema287.properties.action.properties.failure.type},message:"must be null,string"};
 if(vErrors === null){
 vErrors = [err22];
 }
@@ -174604,7 +175010,7 @@ errors++;
 if(data0.finished_at !== undefined){
 let data8 = data0.finished_at;
 if((data8 !== null) && (typeof data8 !== "string")){
-const err24 = {instancePath:instancePath+"/action/finished_at",schemaPath:"#/properties/action/properties/finished_at/type",keyword:"type",params:{type: schema285.properties.action.properties.finished_at.type},message:"must be null,string"};
+const err24 = {instancePath:instancePath+"/action/finished_at",schemaPath:"#/properties/action/properties/finished_at/type",keyword:"type",params:{type: schema287.properties.action.properties.finished_at.type},message:"must be null,string"};
 if(vErrors === null){
 vErrors = [err24];
 }
@@ -174809,7 +175215,7 @@ vErrors.push(err41);
 errors++;
 }
 if(!(((data13 === "claimed") || (data13 === "succeeded")) || (data13 === "uncertain"))){
-const err42 = {instancePath:instancePath+"/snapshot/state",schemaPath:"#/properties/snapshot/properties/state/enum",keyword:"enum",params:{allowedValues: schema285.properties.snapshot.properties.state.enum},message:"must be equal to one of the allowed values"};
+const err42 = {instancePath:instancePath+"/snapshot/state",schemaPath:"#/properties/snapshot/properties/state/enum",keyword:"enum",params:{allowedValues: schema287.properties.snapshot.properties.state.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err42];
 }
@@ -174832,7 +175238,7 @@ vErrors.push(err43);
 errors++;
 }
 if(!(data14 === "session_working_directory")){
-const err44 = {instancePath:instancePath+"/snapshot/scope",schemaPath:"#/properties/snapshot/properties/scope/enum",keyword:"enum",params:{allowedValues: schema285.properties.snapshot.properties.scope.enum},message:"must be equal to one of the allowed values"};
+const err44 = {instancePath:instancePath+"/snapshot/scope",schemaPath:"#/properties/snapshot/properties/scope/enum",keyword:"enum",params:{allowedValues: schema287.properties.snapshot.properties.scope.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err44];
 }
@@ -174869,7 +175275,7 @@ errors++;
 if(data9.released_at !== undefined){
 let data17 = data9.released_at;
 if((data17 !== null) && (typeof data17 !== "string")){
-const err47 = {instancePath:instancePath+"/snapshot/released_at",schemaPath:"#/properties/snapshot/properties/released_at/type",keyword:"type",params:{type: schema285.properties.snapshot.properties.released_at.type},message:"must be null,string"};
+const err47 = {instancePath:instancePath+"/snapshot/released_at",schemaPath:"#/properties/snapshot/properties/released_at/type",keyword:"type",params:{type: schema287.properties.snapshot.properties.released_at.type},message:"must be null,string"};
 if(vErrors === null){
 vErrors = [err47];
 }
@@ -174902,14 +175308,14 @@ vErrors.push(err49);
 }
 errors++;
 }
-validate284.errors = vErrors;
+validate286.errors = vErrors;
 return errors === 0;
 }
 
-export const WorkspaceSetParams = validate285;
-const schema286 = {"type":"object","properties":{"id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"session_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"expected_revision":{"type":"string","pattern":"^(0|[1-9][0-9]{0,18})$","format":"counter"},"path":{"type":"string","maxLength":4096}},"$id":"https://whip.dev/protocol/v4/WorkspaceSetParams","$schema":"http://json-schema.org/draft-07/schema#","title":"WorkspaceSetParams","required":["id","session_id","expected_revision","path"],"additionalProperties":false};
+export const WorkspaceSetParams = validate287;
+const schema288 = {"type":"object","properties":{"id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"session_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"expected_revision":{"type":"string","pattern":"^(0|[1-9][0-9]{0,18})$","format":"counter"},"path":{"type":"string","maxLength":4096}},"$id":"https://whip.dev/protocol/v4/WorkspaceSetParams","$schema":"http://json-schema.org/draft-07/schema#","title":"WorkspaceSetParams","required":["id","session_id","expected_revision","path"],"additionalProperties":false};
 
-function validate285(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
+function validate287(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v4/WorkspaceSetParams" */;
 let vErrors = null;
 let errors = 0;
@@ -175087,14 +175493,14 @@ vErrors.push(err14);
 }
 errors++;
 }
-validate285.errors = vErrors;
+validate287.errors = vErrors;
 return errors === 0;
 }
 
-export const WorkspaceSnapshot = validate286;
-const schema287 = {"type":"object","properties":{"id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"session_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"capture_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"state":{"type":"string","enum":["claimed","succeeded","uncertain"]},"scope":{"type":"string","enum":["session_working_directory"]},"semantics":{"type":"string"},"created_at":{"type":"string"},"released_at":{"type":["null","string"]}},"$id":"https://whip.dev/protocol/v4/WorkspaceSnapshot","$schema":"http://json-schema.org/draft-07/schema#","title":"WorkspaceSnapshot","required":["id","session_id","capture_id","state","scope","semantics","created_at","released_at"],"additionalProperties":false};
+export const WorkspaceSnapshot = validate288;
+const schema289 = {"type":"object","properties":{"id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"session_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"capture_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"state":{"type":"string","enum":["claimed","succeeded","uncertain"]},"scope":{"type":"string","enum":["session_working_directory"]},"semantics":{"type":"string"},"created_at":{"type":"string"},"released_at":{"type":["null","string"]}},"$id":"https://whip.dev/protocol/v4/WorkspaceSnapshot","$schema":"http://json-schema.org/draft-07/schema#","title":"WorkspaceSnapshot","required":["id","session_id","capture_id","state","scope","semantics","created_at","released_at"],"additionalProperties":false};
 
-function validate286(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
+function validate288(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v4/WorkspaceSnapshot" */;
 let vErrors = null;
 let errors = 0;
@@ -175279,7 +175685,7 @@ vErrors.push(err15);
 errors++;
 }
 if(!(((data3 === "claimed") || (data3 === "succeeded")) || (data3 === "uncertain"))){
-const err16 = {instancePath:instancePath+"/state",schemaPath:"#/properties/state/enum",keyword:"enum",params:{allowedValues: schema287.properties.state.enum},message:"must be equal to one of the allowed values"};
+const err16 = {instancePath:instancePath+"/state",schemaPath:"#/properties/state/enum",keyword:"enum",params:{allowedValues: schema289.properties.state.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err16];
 }
@@ -175302,7 +175708,7 @@ vErrors.push(err17);
 errors++;
 }
 if(!(data4 === "session_working_directory")){
-const err18 = {instancePath:instancePath+"/scope",schemaPath:"#/properties/scope/enum",keyword:"enum",params:{allowedValues: schema287.properties.scope.enum},message:"must be equal to one of the allowed values"};
+const err18 = {instancePath:instancePath+"/scope",schemaPath:"#/properties/scope/enum",keyword:"enum",params:{allowedValues: schema289.properties.scope.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err18];
 }
@@ -175339,7 +175745,7 @@ errors++;
 if(data.released_at !== undefined){
 let data7 = data.released_at;
 if((data7 !== null) && (typeof data7 !== "string")){
-const err21 = {instancePath:instancePath+"/released_at",schemaPath:"#/properties/released_at/type",keyword:"type",params:{type: schema287.properties.released_at.type},message:"must be null,string"};
+const err21 = {instancePath:instancePath+"/released_at",schemaPath:"#/properties/released_at/type",keyword:"type",params:{type: schema289.properties.released_at.type},message:"must be null,string"};
 if(vErrors === null){
 vErrors = [err21];
 }
@@ -175360,14 +175766,14 @@ vErrors.push(err22);
 }
 errors++;
 }
-validate286.errors = vErrors;
+validate288.errors = vErrors;
 return errors === 0;
 }
 
-export const WorkspaceSnapshotParams = validate287;
-const schema288 = {"type":"object","properties":{"session_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"snapshot_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"}},"$id":"https://whip.dev/protocol/v4/WorkspaceSnapshotParams","$schema":"http://json-schema.org/draft-07/schema#","title":"WorkspaceSnapshotParams","required":["session_id","snapshot_id"],"additionalProperties":false};
+export const WorkspaceSnapshotParams = validate289;
+const schema290 = {"type":"object","properties":{"session_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"snapshot_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"}},"$id":"https://whip.dev/protocol/v4/WorkspaceSnapshotParams","$schema":"http://json-schema.org/draft-07/schema#","title":"WorkspaceSnapshotParams","required":["session_id","snapshot_id"],"additionalProperties":false};
 
-function validate287(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
+function validate289(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v4/WorkspaceSnapshotParams" */;
 let vErrors = null;
 let errors = 0;
@@ -175465,14 +175871,14 @@ vErrors.push(err7);
 }
 errors++;
 }
-validate287.errors = vErrors;
+validate289.errors = vErrors;
 return errors === 0;
 }
 
-export const WorkspaceSnapshotsParams = validate288;
-const schema289 = {"type":"object","properties":{"session_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"after":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"limit":{"type":"integer","minimum":1,"maximum":100}},"$id":"https://whip.dev/protocol/v4/WorkspaceSnapshotsParams","$schema":"http://json-schema.org/draft-07/schema#","title":"WorkspaceSnapshotsParams","required":["session_id","limit"],"additionalProperties":false};
+export const WorkspaceSnapshotsParams = validate290;
+const schema291 = {"type":"object","properties":{"session_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"after":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"limit":{"type":"integer","minimum":1,"maximum":100}},"$id":"https://whip.dev/protocol/v4/WorkspaceSnapshotsParams","$schema":"http://json-schema.org/draft-07/schema#","title":"WorkspaceSnapshotsParams","required":["session_id","limit"],"additionalProperties":false};
 
-function validate288(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
+function validate290(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v4/WorkspaceSnapshotsParams" */;
 let vErrors = null;
 let errors = 0;
@@ -175605,14 +176011,14 @@ vErrors.push(err10);
 }
 errors++;
 }
-validate288.errors = vErrors;
+validate290.errors = vErrors;
 return errors === 0;
 }
 
-export const WorkspaceSnapshotsResult = validate289;
-const schema290 = {"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"session_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"capture_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"state":{"type":"string","enum":["claimed","succeeded","uncertain"]},"scope":{"type":"string","enum":["session_working_directory"]},"semantics":{"type":"string"},"created_at":{"type":"string"},"released_at":{"type":["null","string"]}},"required":["id","session_id","capture_id","state","scope","semantics","created_at","released_at"],"additionalProperties":false},"maxItems":100}},"$id":"https://whip.dev/protocol/v4/WorkspaceSnapshotsResult","$schema":"http://json-schema.org/draft-07/schema#","title":"WorkspaceSnapshotsResult","required":["items"],"additionalProperties":false};
+export const WorkspaceSnapshotsResult = validate291;
+const schema292 = {"type":"object","properties":{"items":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"session_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"capture_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"state":{"type":"string","enum":["claimed","succeeded","uncertain"]},"scope":{"type":"string","enum":["session_working_directory"]},"semantics":{"type":"string"},"created_at":{"type":"string"},"released_at":{"type":["null","string"]}},"required":["id","session_id","capture_id","state","scope","semantics","created_at","released_at"],"additionalProperties":false},"maxItems":100}},"$id":"https://whip.dev/protocol/v4/WorkspaceSnapshotsResult","$schema":"http://json-schema.org/draft-07/schema#","title":"WorkspaceSnapshotsResult","required":["items"],"additionalProperties":false};
 
-function validate289(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
+function validate291(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v4/WorkspaceSnapshotsResult" */;
 let vErrors = null;
 let errors = 0;
@@ -175836,7 +176242,7 @@ vErrors.push(err18);
 errors++;
 }
 if(!(((data5 === "claimed") || (data5 === "succeeded")) || (data5 === "uncertain"))){
-const err19 = {instancePath:instancePath+"/items/" + i0+"/state",schemaPath:"#/properties/items/items/properties/state/enum",keyword:"enum",params:{allowedValues: schema290.properties.items.items.properties.state.enum},message:"must be equal to one of the allowed values"};
+const err19 = {instancePath:instancePath+"/items/" + i0+"/state",schemaPath:"#/properties/items/items/properties/state/enum",keyword:"enum",params:{allowedValues: schema292.properties.items.items.properties.state.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err19];
 }
@@ -175859,7 +176265,7 @@ vErrors.push(err20);
 errors++;
 }
 if(!(data6 === "session_working_directory")){
-const err21 = {instancePath:instancePath+"/items/" + i0+"/scope",schemaPath:"#/properties/items/items/properties/scope/enum",keyword:"enum",params:{allowedValues: schema290.properties.items.items.properties.scope.enum},message:"must be equal to one of the allowed values"};
+const err21 = {instancePath:instancePath+"/items/" + i0+"/scope",schemaPath:"#/properties/items/items/properties/scope/enum",keyword:"enum",params:{allowedValues: schema292.properties.items.items.properties.scope.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err21];
 }
@@ -175896,7 +176302,7 @@ errors++;
 if(data1.released_at !== undefined){
 let data9 = data1.released_at;
 if((data9 !== null) && (typeof data9 !== "string")){
-const err24 = {instancePath:instancePath+"/items/" + i0+"/released_at",schemaPath:"#/properties/items/items/properties/released_at/type",keyword:"type",params:{type: schema290.properties.items.items.properties.released_at.type},message:"must be null,string"};
+const err24 = {instancePath:instancePath+"/items/" + i0+"/released_at",schemaPath:"#/properties/items/items/properties/released_at/type",keyword:"type",params:{type: schema292.properties.items.items.properties.released_at.type},message:"must be null,string"};
 if(vErrors === null){
 vErrors = [err24];
 }
@@ -175941,14 +176347,14 @@ vErrors.push(err27);
 }
 errors++;
 }
-validate289.errors = vErrors;
+validate291.errors = vErrors;
 return errors === 0;
 }
 
-export const WriteStateParams = validate290;
-const schema291 = {"type":"object","properties":{"session_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"scope":{"type":"string","enum":["session","tree"]},"version_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"key":{"type":"string"},"expected_revision":{"type":"string","pattern":"^(0|[1-9][0-9]{0,18})$","format":"counter"},"data_base64":{"type":"string"}},"$id":"https://whip.dev/protocol/v4/WriteStateParams","$schema":"http://json-schema.org/draft-07/schema#","title":"WriteStateParams","required":["session_id","scope","version_id","key","expected_revision","data_base64"],"additionalProperties":false};
+export const WriteStateParams = validate292;
+const schema293 = {"type":"object","properties":{"session_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"scope":{"type":"string","enum":["session","tree"]},"version_id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"},"key":{"type":"string"},"expected_revision":{"type":"string","pattern":"^(0|[1-9][0-9]{0,18})$","format":"counter"},"data_base64":{"type":"string"}},"$id":"https://whip.dev/protocol/v4/WriteStateParams","$schema":"http://json-schema.org/draft-07/schema#","title":"WriteStateParams","required":["session_id","scope","version_id","key","expected_revision","data_base64"],"additionalProperties":false};
 
-function validate290(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
+function validate292(data, {instancePath="", parentData, parentDataProperty, rootData=data}={}){
 /*# sourceURL="https://whip.dev/protocol/v4/WriteStateParams" */;
 let vErrors = null;
 let errors = 0;
@@ -176063,7 +176469,7 @@ vErrors.push(err9);
 errors++;
 }
 if(!((data1 === "session") || (data1 === "tree"))){
-const err10 = {instancePath:instancePath+"/scope",schemaPath:"#/properties/scope/enum",keyword:"enum",params:{allowedValues: schema291.properties.scope.enum},message:"must be equal to one of the allowed values"};
+const err10 = {instancePath:instancePath+"/scope",schemaPath:"#/properties/scope/enum",keyword:"enum",params:{allowedValues: schema293.properties.scope.enum},message:"must be equal to one of the allowed values"};
 if(vErrors === null){
 vErrors = [err10];
 }
@@ -176168,6 +176574,6 @@ vErrors.push(err18);
 }
 errors++;
 }
-validate290.errors = vErrors;
+validate292.errors = vErrors;
 return errors === 0;
 }

@@ -9668,6 +9668,23 @@ export interface WorkspaceActionParams {
   snapshot_id: string;
   session_id: string;
 }
+export interface WorkspaceCompletionParams {
+  session_id: string;
+  kind: "mention" | "path";
+  prefix: string;
+  limit: number;
+}
+export interface WorkspaceCompletionResult {
+  working_directory: string;
+  /**
+   * @maxItems 64
+   */
+  candidates: {
+    text: string;
+    description: "" | "dir";
+  }[];
+  truncated: boolean;
+}
 export interface WorkspaceInspection {
   session_id: string;
   working_directory: string;
@@ -10018,6 +10035,8 @@ export interface ContractTypes {
   UpdateTreeParams: UpdateTreeParams;
   WorkspaceAction: WorkspaceAction;
   WorkspaceActionParams: WorkspaceActionParams;
+  WorkspaceCompletionParams: WorkspaceCompletionParams;
+  WorkspaceCompletionResult: WorkspaceCompletionResult;
   WorkspaceInspection: WorkspaceInspection;
   WorkspaceResult: WorkspaceResult;
   WorkspaceSetParams: WorkspaceSetParams;
@@ -10030,6 +10049,7 @@ export interface ContractTypes {
 export interface Operations {
   "host.status": { params: EmptyParams; result: HostStatus };
   "host.stop": { params: StopHostParams; result: HostStopAccepted };
+  "workspace.complete": { params: WorkspaceCompletionParams; result: WorkspaceCompletionResult };
   "workspace.inspect": { params: SessionParams; result: WorkspaceInspection };
   "workspace.set": { params: WorkspaceSetParams; result: ControlEdit };
   "run.configure": { params: RunConfigureParams; result: ControlEdit };

@@ -24,6 +24,7 @@ func Operations() []Operation {
 	return []Operation{
 		{"host.status", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostStatus]()},
 		{"host.stop", reflect.TypeFor[StopHostParams](), reflect.TypeFor[HostStopAccepted]()},
+		{"workspace.complete", reflect.TypeFor[WorkspaceCompletionParams](), reflect.TypeFor[WorkspaceCompletionResult]()},
 		{"workspace.inspect", reflect.TypeFor[SessionParams](), reflect.TypeFor[WorkspaceInspection]()},
 		{"workspace.set", reflect.TypeFor[WorkspaceSetParams](), reflect.TypeFor[ControlEdit]()},
 		{"run.configure", reflect.TypeFor[RunConfigureParams](), reflect.TypeFor[ControlEdit]()},

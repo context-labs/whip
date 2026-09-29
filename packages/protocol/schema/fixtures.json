@@ -550,6 +550,34 @@
     "valid": true
   },
   {
+    "type": "WorkspaceCompletionParams",
+    "value": {
+      "session_id": "session_root",
+      "kind": "mention",
+      "prefix": "roadmap",
+      "limit": 64
+    },
+    "valid": true
+  },
+  {
+    "type": "WorkspaceCompletionResult",
+    "value": {
+      "working_directory": "/workspace",
+      "candidates": [
+        {
+          "text": "@docs/roadmap.md",
+          "description": ""
+        },
+        {
+          "text": "@docs/",
+          "description": "dir"
+        }
+      ],
+      "truncated": true
+    },
+    "valid": true
+  },
+  {
     "type": "HostDirectoriesParams",
     "value": {
       "path": "/workspace",

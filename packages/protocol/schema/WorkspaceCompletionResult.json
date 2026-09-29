@@ -1,0 +1,46 @@
+{
+  "type": "object",
+  "properties": {
+    "working_directory": {
+      "type": "string",
+      "maxLength": 4096
+    },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 8192
+          },
+          "description": {
+            "type": "string",
+            "enum": [
+              "",
+              "dir"
+            ]
+          }
+        },
+        "required": [
+          "text",
+          "description"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 64
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/WorkspaceCompletionResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "WorkspaceCompletionResult",
+  "required": [
+    "working_directory",
+    "candidates",
+    "truncated"
+  ],
+  "additionalProperties": false
+}

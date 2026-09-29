@@ -214,3 +214,15 @@ test('browser transfer controls are bounded and private spawn provenance cannot 
   assert.equal(validate('CallHostToolParams', { identity: params.identity, session_id: params.parent_id, operation: input.host_operation }), false);
   for (const kind of ['TRANSFER_FAILED', 'TRANSFER_UNCERTAIN', 'TRANSFER_INTERRUPTED', 'TRANSFER_CANCELLED', 'TRANSFER_DELETED']) assert.equal(validate('Response', { jsonrpc: '2.0', id: 'call', error: { code: -32038, kind, message: 'terminal outcome' } }), true);
 });
+
+test('workspace completion preserves empty/dir descriptions and bounded candidate arrays',()=>{
+ const params={session_id:'child',kind:'mention',prefix:'',limit:64};
+ assert.equal(validate('WorkspaceCompletionParams',params),true);
+ assert.equal(validate('WorkspaceCompletionParams',{...params,limit:65}),false);
+ assert.equal(validate('WorkspaceCompletionParams',{...params,prefix:'a'.repeat(4097)}),false);
+ assert.equal(validate('WorkspaceCompletionParams',{...params,kind:'skill'}),false);
+ const result={working_directory:'/workspace',candidates:[],truncated:false};
+ assert.equal(validate('WorkspaceCompletionResult',result),true);
+ assert.equal(validate('WorkspaceCompletionResult',{...result,candidates:Array.from({length:65},()=>({text:'@file',description:''}))}),false);
+ assert.equal(validate('WorkspaceCompletionResult',{...result,candidates:[{text:'@file',description:'body'}]}),false);
+});

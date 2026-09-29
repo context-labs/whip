@@ -15,6 +15,11 @@ export const manifest = {
       "result": "HostStopAccepted"
     },
     {
+      "name": "workspace.complete",
+      "params": "WorkspaceCompletionParams",
+      "result": "WorkspaceCompletionResult"
+    },
+    {
       "name": "workspace.inspect",
       "params": "SessionParams",
       "result": "WorkspaceInspection"
