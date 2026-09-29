@@ -342,3 +342,14 @@ it('suspends and reconnects the shared execution observer with its exact transcr
     expect(lease.execution.dispose).toHaveBeenCalledOnce();
   } finally { app.dispose(); mocks.client = previous; }
 });
+
+
+it('reconciles exact steering edit evidence without requiring an input-admission receipt shape', async () => {
+  const app = runtime(); await app.connect();
+  const evidence = { id: 'steer', session_id: 'child', input_id: 'queued', turn_id: 'active', input: null, deleted: true };
+  const handle = command({ id: 'steer', method: 'inputs.steer', params: { edit_id: 'steer', session_id: 'child', input_id: 'queued', turn_id: 'active' }, check: vi.fn(async () => ({ state: 'found', evidence })) });
+  const accepted = vi.fn();
+  expect(await app.run(handle, 'Steer input', accepted)).toEqual(evidence);
+  expect(handle.send).toHaveBeenCalledOnce(); expect(handle.check).toHaveBeenCalledOnce(); expect(handle.retry).not.toHaveBeenCalled();
+  expect(accepted).toHaveBeenCalledOnce(); expect(handle.forget).toHaveBeenCalledOnce(); app.dispose();
+});

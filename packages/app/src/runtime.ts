@@ -647,10 +647,13 @@ export class AppRuntime {
         notice('Not accepted · explicit retry available', { delivery: 'absent' });
         throw new RecoveryError('The host has no receipt for this command');
       }
-      if (result.state !== 'found' || !('receipt' in result.evidence)) {
+      if (result.state !== 'found') {
         notice('Acceptance unresolved', { delivery: 'uncertain' });
         throw new RecoveryError('The available receipt does not establish the exact original request; inspect the saved recovery record');
       }
+      // Input admissions and edit receipts have different native result shapes.
+      if (handle.method === 'workspace.capture' || handle.method === 'workspace.restore' || handle.method === 'workspace.release')
+        return { action: result.evidence } as Operations[M]['result'];
       return result.evidence as Operations[M]['result'];
     };
     const observe = async (mode: 'initial' | 'check' | 'retry'): Promise<Operations[M]['result']> => {
