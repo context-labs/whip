@@ -113,6 +113,16 @@ export class Client {
     return this.call('host.set_permission_default', params, options);
   }
 
+  /** Live operation preview. Reading creates no process and retains no client cache. */
+  shellInteraction(sessionID: string, cursor = '0', options: CallOptions = {}): Promise<Operations['shell.interaction']['result']> {
+    return this.call('shell.interaction', { session_id: sessionID, cursor }, options);
+  }
+
+  /** Human keystrokes; acknowledge queue admission only. Never replay into a different operation. */
+  shellInput(params: Operations['shell.input']['params'], options: CallOptions = {}): Promise<Operations['shell.input']['result']> {
+    return this.call('shell.input', params, options);
+  }
+
   /** Durable question evidence; reading never creates or resumes a waiter. */
   getQuestion(sessionID: string, operationID: string, options: CallOptions = {}): Promise<Operations['questions.get']['result']> {
     return this.call('questions.get', { session_id: sessionID, operation_id: operationID }, options);

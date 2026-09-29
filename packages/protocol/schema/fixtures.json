@@ -194,6 +194,53 @@
     "valid": true
   },
   {
+    "type": "ShellInteractionParams",
+    "value": {
+      "session_id": "shell-owner",
+      "cursor": "9007199254740993"
+    },
+    "valid": true
+  },
+  {
+    "type": "ShellInteractionResult",
+    "value": {
+      "interaction": null
+    },
+    "valid": true
+  },
+  {
+    "type": "ShellInteractionResult",
+    "value": {
+      "interaction": {
+        "operation_id": "shell-operation",
+        "started_at": "2026-09-27T12:00:00.123456Z",
+        "data_base64": "cHJvbXB0",
+        "from": "9007199254740993",
+        "through": "9007199254740999",
+        "next_input": "9007199254740993",
+        "seconds_left": 12
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "ShellInputParams",
+    "value": {
+      "session_id": "shell-owner",
+      "operation_id": "shell-operation",
+      "sequence": "9007199254740993",
+      "data_base64": "a2V5"
+    },
+    "valid": true
+  },
+  {
+    "type": "ShellInputResult",
+    "value": {
+      "sequence": "9007199254740993"
+    },
+    "valid": true
+  },
+  {
     "type": "ProviderParams",
     "value": {
       "provider": "explicit"

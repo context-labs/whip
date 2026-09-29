@@ -29,7 +29,10 @@ var (
 
 // ProcessOptions contains the explicit authority passed to one child.
 type ProcessOptions struct {
-	Cwd            string
+	Cwd string
+	// CwdIdentity revalidates the captured launch directory before starting.
+	// Shell authority does not freeze external filesystem writers or sandbox paths.
+	CwdIdentity    os.FileInfo
 	Env            map[string]string
 	Stdin          io.Reader
 	Stdout         io.Writer
@@ -169,6 +172,9 @@ func (m *ProcessManager) Start(ctx context.Context, rootID, name string, args []
 
 	cmd := exec.CommandContext(context.WithoutCancel(ctx), name, args...) //nolint:gosec // callers authorize the executable through the capability ledger
 	cmd.Dir = cwd
+	if opts.CwdIdentity != nil && !os.SameFile(info, opts.CwdIdentity) {
+		return nil, errors.New("working directory identity changed")
+	}
 	cmd.Env = env
 	cmd.Stdin = opts.Stdin
 	cmd.Stdout = opts.Stdout

@@ -27,6 +27,8 @@ func Operations() []Operation {
 		{"tool.result", reflect.TypeFor[ExecutorToolResultParams](), reflect.TypeFor[ExecutorAccepted]()},
 		{"hook.result", reflect.TypeFor[ExecutorHookResultParams](), reflect.TypeFor[ExecutorAccepted]()},
 		{"tool.progress", reflect.TypeFor[ExecutorProgressParams](), reflect.TypeFor[ExecutorAccepted]()},
+		{"shell.interaction", reflect.TypeFor[ShellInteractionParams](), reflect.TypeFor[ShellInteractionResult]()},
+		{"shell.input", reflect.TypeFor[ShellInputParams](), reflect.TypeFor[ShellInputResult]()},
 		{"workspace.capture", reflect.TypeFor[WorkspaceActionParams](), reflect.TypeFor[WorkspaceResult]()},
 		{"workspace.restore", reflect.TypeFor[WorkspaceActionParams](), reflect.TypeFor[WorkspaceResult]()},
 		{"workspace.release", reflect.TypeFor[WorkspaceActionParams](), reflect.TypeFor[WorkspaceResult]()},

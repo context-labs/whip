@@ -35,6 +35,16 @@ export const manifest = {
       "result": "ExecutorAccepted"
     },
     {
+      "name": "shell.interaction",
+      "params": "ShellInteractionParams",
+      "result": "ShellInteractionResult"
+    },
+    {
+      "name": "shell.input",
+      "params": "ShellInputParams",
+      "result": "ShellInputResult"
+    },
+    {
       "name": "workspace.capture",
       "params": "WorkspaceActionParams",
       "result": "WorkspaceResult"

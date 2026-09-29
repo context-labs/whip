@@ -6179,6 +6179,30 @@ export interface SetResourceParams {
     limit: null | string;
   };
 }
+export interface ShellInputParams {
+  session_id: string;
+  operation_id: string;
+  sequence: string;
+  data_base64: string;
+}
+export interface ShellInputResult {
+  sequence: string;
+}
+export interface ShellInteractionParams {
+  session_id: string;
+  cursor: string;
+}
+export interface ShellInteractionResult {
+  interaction: null | {
+    operation_id: string;
+    started_at: string;
+    data_base64: string;
+    from: string;
+    through: string;
+    next_input: string;
+    seconds_left: number;
+  };
+}
 export interface SpawnSessionParams {
   identity: {
     client_id: string;
@@ -7007,6 +7031,10 @@ export interface ContractTypes {
   SetDefaultPermissionModeParams: SetDefaultPermissionModeParams;
   SetPermissionModeParams: SetPermissionModeParams;
   SetResourceParams: SetResourceParams;
+  ShellInputParams: ShellInputParams;
+  ShellInputResult: ShellInputResult;
+  ShellInteractionParams: ShellInteractionParams;
+  ShellInteractionResult: ShellInteractionResult;
   SpawnSessionParams: SpawnSessionParams;
   SpawnSessionResult: SpawnSessionResult;
   StateHistoryParams: StateHistoryParams;
@@ -7045,6 +7073,8 @@ export interface Operations {
   "tool.result": { params: ExecutorToolResultParams; result: ExecutorAccepted };
   "hook.result": { params: ExecutorHookResultParams; result: ExecutorAccepted };
   "tool.progress": { params: ExecutorProgressParams; result: ExecutorAccepted };
+  "shell.interaction": { params: ShellInteractionParams; result: ShellInteractionResult };
+  "shell.input": { params: ShellInputParams; result: ShellInputResult };
   "workspace.capture": { params: WorkspaceActionParams; result: WorkspaceResult };
   "workspace.restore": { params: WorkspaceActionParams; result: WorkspaceResult };
   "workspace.release": { params: WorkspaceActionParams; result: WorkspaceResult };

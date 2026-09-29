@@ -72,6 +72,8 @@ func passwdShell() string {
 
 // Result is the outcome of one command run.
 type Result struct {
+	// StartError means no command was launched; a nonzero process exit is separate.
+	StartError error
 	// Output is the combined stdout+stderr captured for the model.
 	Output string
 	// TotalBytes includes bytes discarded from the bounded retained tail.
@@ -91,11 +93,12 @@ type Result struct {
 
 // Options configure a single run.
 type Options struct {
-	Command   string
-	Cwd       string
-	RootID    string
-	Processes *capability.ProcessManager
-	Env       map[string]string
+	Command     string
+	Cwd         string
+	CwdIdentity os.FileInfo
+	RootID      string
+	Processes   *capability.ProcessManager
+	Env         map[string]string
 	// Timeout is the hard wall-clock cap. <=0 means 120s.
 	Timeout time.Duration
 	// Interactive runs the command in a PTY so sudo/ssh-like password prompts
@@ -172,7 +175,7 @@ func startProcess(ctx context.Context, cmd *exec.Cmd, opts Options, controllingT
 	env := map[string]string{"WHIP": "1", "WHIP_PID": strconv.Itoa(os.Getpid())}
 	maps.Copy(env, opts.Env)
 	process, err := manager.Start(ctx, rootID, cmd.Path, cmd.Args[1:], capability.ProcessOptions{
-		Cwd: cwd, Env: env, Stdin: cmd.Stdin, Stdout: cmd.Stdout, Stderr: cmd.Stderr, ControllingTTY: controllingTTY,
+		Cwd: cwd, CwdIdentity: opts.CwdIdentity, Env: env, Stdin: cmd.Stdin, Stdout: cmd.Stdout, Stderr: cmd.Stderr, ControllingTTY: controllingTTY,
 	})
 	if err != nil {
 		cleanup()
@@ -223,13 +226,13 @@ func runPiped(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 	// our own pipes Wait touches nothing and we control when reads end.
 	stdout, outW, err := os.Pipe()
 	if err != nil {
-		return Result{Exit: "pipe: " + err.Error()}
+		return Result{StartError: err, Exit: "pipe: " + err.Error()}
 	}
 	stderr, errW, err := os.Pipe()
 	if err != nil {
 		_ = stdout.Close()
 		_ = outW.Close()
-		return Result{Exit: "pipe: " + err.Error()}
+		return Result{StartError: err, Exit: "pipe: " + err.Error()}
 	}
 	cmd.Stdout = outW
 	cmd.Stderr = errW
@@ -243,7 +246,7 @@ func runPiped(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 		_ = outW.Close()
 		_ = stderr.Close()
 		_ = errW.Close()
-		return Result{Exit: exitString(err)}
+		return Result{StartError: err, Exit: exitString(err)}
 	}
 	defer cleanup()
 	// Drop our copies of the write ends: the drains must see EOF when the
@@ -340,9 +343,9 @@ func runPiped(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 }
 
 // runInteractive runs the command in a PTY. sudo, ssh, gpg and friends detect a
-// real terminal and prompt normally; the password is never echoed into the
-// transcript because the PTY slave's ECHO is off for the master and the runner
-// forwards raw bytes, not display text.
+// real terminal and prompt normally. The child controls terminal echo; password
+// programs must disable echo themselves. The runner never records input separately,
+// but anything the child echoes is ordinary output.
 func runInteractive(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -498,10 +501,6 @@ func runInteractive(ctx context.Context, cmd *exec.Cmd, opts Options) Result {
 					Killed:      true,
 					Interactive: true,
 				}
-				res.Output += fmt.Sprintf(
-					"\n[whip: interactive command killed after %s with no input]",
-					opts.InactivityTimeout.Round(time.Second),
-				)
 				return res
 			}
 			if opts.OnAwaitInput != nil {

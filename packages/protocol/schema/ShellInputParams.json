@@ -1,0 +1,31 @@
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "operation_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "sequence": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "data_base64": {
+      "type": "string"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ShellInputParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ShellInputParams",
+  "required": [
+    "session_id",
+    "operation_id",
+    "sequence",
+    "data_base64"
+  ],
+  "additionalProperties": false
+}

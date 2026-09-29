@@ -16,6 +16,7 @@ import (
 	"github.com/context-labs/whip/internal/providerhost"
 	"github.com/context-labs/whip/internal/runtime"
 	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/shell"
 	"github.com/context-labs/whip/internal/store"
 )
 
@@ -68,6 +69,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 			return result, err
 		})
 
+	case "shell.interaction", "shell.input":
+		return dispatchShell(ctx, r, method, raw)
 	case "workspace.capture", "workspace.restore", "workspace.release", "workspace.action", "workspace.snapshot", "workspace.snapshots":
 		return dispatchWorkspace(ctx, r, method, raw)
 	case "providers.presets", "providers.bundled", "providers.list", "providers.create", "providers.update", "providers.remove", "providers.defaults", "providers.compaction", "providers.catalog", "providers.refresh", "providers.readiness":
@@ -438,6 +441,10 @@ func wireError(err error) *protocol.RPCError {
 		code int
 		kind string
 	}{
+		{shell.ErrNotFound, -32004, "NOT_FOUND"},
+		{shell.ErrInputConflict, -32009, "CONFLICT"},
+		{shell.ErrLimit, -32011, "LIMIT"},
+		{shell.ErrClosed, -32013, "CLOSED"},
 		{providerhost.ErrInvalid, -32602, "INVALID"},
 		{providerhost.ErrMissing, -32004, "NOT_FOUND"},
 		{providerhost.ErrExists, -32009, "CONFLICT"},

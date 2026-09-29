@@ -321,6 +321,14 @@ func executionInstructions(current session.Session, tree session.Tree) string {
 		}
 		instructions += " File operations are confined to the session workspace and may wait for an explicit permission decision. An approval authorizes that operation only. Post-write diagnostics are separate observational evidence and run automatically only with standing lsp.diagnostics workspace authority or the root’s current automatic policy; skipped or unavailable diagnostics do not undo a successful file write."
 	}
+	if slices.Contains(current.Config.Modules, "shell") {
+		instructions += " Shell commands run in the session working directory with separately authorized shell.run or shell.start; this authority is not an OS filesystem sandbox. run accepts command, timeout in seconds (default/max120), and interactive (default false). Interactive mode uses a PTY and allows the human to type; inactivity ends it after15 seconds and input is never carried to another operation. The child controls echo, so ask password programs to disable it. start accepts command and optional timeout up to86400 seconds, returning a job id. Jobs survive turn completion/cancellation, but session stop/deletion or runtime shutdown kills and joins their process groups. poll, tail, wait, kill and list inspect/control only this session's jobs. wait timeout_ms is at most25000 and tail bytes at most8192. Output keeps a1MiB tail, an8KiB inline preview, decimal bytes/retained_bytes, truncation flags and nullable owner-scoped content_ref readable with shell.read or artifacts.read under artifacts.read authority. Interrupted commands may already have performed external effects; do not replay them automatically."
+		if tree.Engine == session.Starlark {
+			instructions += " Example: shell.run(command=\"pwd\"); job=shell.start(command=\"sleep 5\"); shell.wait(id=job[\"id\"], timeout_ms=1000)."
+		} else {
+			instructions += " Example: await shell.run({command:\"pwd\"}); const job=await shell.start({command:\"sleep 5\"}); await shell.wait({id:job.id, timeout_ms:1000})."
+		}
+	}
 	if slices.Contains(current.Config.Modules, "models") {
 		if tree.Engine == session.Starlark {
 			instructions += " Stateless model helpers: models.call(prompt=\"question\", max_tokens=1024) or models.batch(prompts=[\"first\", \"second\"], max_tokens=1024)."

@@ -38,6 +38,11 @@ func (r *Runtime) prepareChildControl(current session.Session, call tool.Invocat
 		for _, turn := range result.CancelTurns {
 			r.cancelTurn(turn)
 		}
+		if call.Name == "stop" {
+			if err := r.cleanupShellOwners(ctx); err != nil {
+				return nil, fmt.Errorf("child stop committed; shell cleanup failed: %w", err)
+			}
+		}
 		if result.Deleted {
 			if err := r.cleanupDeletedKernels(ctx); err != nil {
 				return nil, fmt.Errorf("child deletion committed; kernel cleanup failed: %w", err)

@@ -21,6 +21,7 @@ import (
 	"github.com/context-labs/whip/internal/lsp"
 	"github.com/context-labs/whip/internal/runner"
 	"github.com/context-labs/whip/internal/session"
+	"github.com/context-labs/whip/internal/shell"
 	"github.com/context-labs/whip/internal/store"
 	"github.com/context-labs/whip/internal/tool"
 	"github.com/context-labs/whip/internal/workspace"
@@ -49,6 +50,7 @@ type execution struct {
 	executorActivity ExecutorActivity
 }
 type Runtime struct {
+	shells            *shell.Manager
 	languageServers   *lsp.Pool
 	languageProcesses *capability.ProcessManager
 	store             *store.Store
@@ -174,6 +176,7 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 		preferResumption: true,
 		workspace:        workspace.New(string(database.Identity())), workspaceSlots: make(chan struct{}, 16),
 	}
+	r.shells = shell.NewManager()
 	r.languageProcesses = capability.NewProcessManager()
 	r.languageServers = lsp.NewPool(r.languageProcesses)
 	r.tools = tool.NewDispatcher(database, database, r)
@@ -226,6 +229,7 @@ func (r *Runtime) Close() error {
 		}
 		r.mu.Unlock()
 		r.executors.Close()
+		r.shells.Close()
 		workspaceErr := r.workspace.Close()
 		r.workspaceCalls.Wait()
 		r.languageServers.Close()

@@ -45,6 +45,7 @@ type Scope struct {
 	processes            *capability.ProcessManager
 	jobs                 map[string]*bashrun.Job
 	starting             map[string]struct{}
+	interaction          *Interaction
 	running, pendingJobs int
 	closed               bool
 	workers              sync.WaitGroup

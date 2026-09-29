@@ -137,6 +137,7 @@ func (r *Runtime) SetLifecycle(ctx context.Context, id session.SessionID, state 
 
 func (r *Runtime) applyLifecycleChange(change store.LifecycleChange) {
 	if change.Session.Lifecycle != session.Active {
+		r.shells.Retire(string(change.Session.ID))
 		r.languageServers.RetireAll()
 	}
 	if change.CancelTurnID != nil {
@@ -155,6 +156,9 @@ func (r *Runtime) DeleteSubtree(ctx context.Context, id session.SessionID) error
 }
 
 func (r *Runtime) cleanupDeletedKernels(ctx context.Context) error {
+	if err := r.cleanupShellOwners(ctx); err != nil {
+		return err
+	}
 	r.languageServers.RetireAll()
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
