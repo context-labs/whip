@@ -16,6 +16,11 @@ registered v4 operation by its current shared-renderer or SDK/service owner.
 Its manifest check uses the native protocol; SDK-only rows expose current UI
 boundaries and do not waive retained-feature parity.
 
+The [frontend UX restoration plan](frontend-ux-restoration-plan.md) records the
+approved latest-development reference, proposed minimal compatibility work and
+comparative acceptance criteria. It is a proposal, not implemented behavior;
+this guide continues to describe the current application until each change lands.
+
 ## Start here
 
 Before implementation, identify the owner of the state you are changing and read

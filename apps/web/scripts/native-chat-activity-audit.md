@@ -45,8 +45,13 @@ The existing content audit documents canonical content references replacing
 retired JSON body handles.
 
 Native reasoning is an ephemeral active preview: it survives an active reload
-but is absent after settlement. This replaces the old fixture's invented durable
-reasoning. Real file reads finish before the fixture executor hold, so the UI
+while retained by the running host but is absent after settlement or host restart.
+The earlier description of the old fixture's durable reasoning as invented was
+incorrect: the old production session presentation path persisted it and tested
+history/fork/rewind behavior. This is an open parity gap, covered by G1 in the
+[frontend UX restoration plan](../../../docs/frontend-ux-restoration-plan.md).
+The native fixture passes below establish current native behavior, not reasoning
+parity. Real file reads finish before the fixture executor hold, so the UI
 reports that actual held tool. `agents.wait_after_cell` releases execution and
 reports waiting for work to continue, not an invented active wait operation.
 The canonical tree and subsequent prose remain actual accepted native work.
