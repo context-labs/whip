@@ -269,5 +269,6 @@ func Fixtures() ([]Fixture, error) {
 	if err != nil {
 		return nil, err
 	}
-	return workspaceFixtures(append(result, questions...), created)
+	result = append(result, questions...)
+	return workspaceFixtures(append(result, permissionModeFixtures()...), created)
 }

@@ -41,20 +41,21 @@ type HostOperationResult struct {
 	Failure *string         `json:"failure,omitempty"`
 }
 type HostOperation struct {
-	ID           ID                   `json:"id"`
-	SessionID    ID                   `json:"session_id"`
-	TurnID       ID                   `json:"turn_id"`
-	CellID       ID                   `json:"cell_id"`
-	RequestID    ID                   `json:"request_id"`
-	Capability   string               `json:"capability"`
-	Resource     string               `json:"resource"`
-	Arguments    json.RawMessage      `json:"arguments"`
-	State        string               `json:"state" enum:"waiting,ready,dispatched,succeeded,failed,denied,cancelled,uncertain"`
-	GrantID      *ID                  `json:"grant_id"`
-	Result       *HostOperationResult `json:"result"`
-	CreatedAt    string               `json:"created_at"`
-	DispatchedAt *string              `json:"dispatched_at"`
-	FinishedAt   *string              `json:"finished_at"`
+	PermissionRevision *Counter             `json:"permission_revision" pattern:"^[1-9][0-9]{0,18}$"`
+	ID                 ID                   `json:"id"`
+	SessionID          ID                   `json:"session_id"`
+	TurnID             ID                   `json:"turn_id"`
+	CellID             ID                   `json:"cell_id"`
+	RequestID          ID                   `json:"request_id"`
+	Capability         string               `json:"capability"`
+	Resource           string               `json:"resource"`
+	Arguments          json.RawMessage      `json:"arguments"`
+	State              string               `json:"state" enum:"waiting,ready,dispatched,succeeded,failed,denied,cancelled,uncertain"`
+	GrantID            *ID                  `json:"grant_id"`
+	Result             *HostOperationResult `json:"result"`
+	CreatedAt          string               `json:"created_at"`
+	DispatchedAt       *string              `json:"dispatched_at"`
+	FinishedAt         *string              `json:"finished_at"`
 }
 type HostOperationParams struct {
 	OperationID ID `json:"operation_id"`
@@ -101,6 +102,9 @@ func OperationFromDomain(value session.Operation) HostOperation {
 	result := HostOperation{ID: ID(value.ID), SessionID: ID(value.SessionID), TurnID: ID(value.TurnID), CellID: ID(value.CellID), RequestID: ID(value.RequestID), Capability: value.Capability, Resource: value.Resource, Arguments: append(json.RawMessage(nil), value.Arguments...), State: string(value.State), CreatedAt: value.CreatedAt.Format(time.RFC3339Nano), DispatchedAt: timeString(value.DispatchedAt), FinishedAt: timeString(value.FinishedAt)}
 	if value.GrantID != nil {
 		result.GrantID = new(ID(*value.GrantID))
+	}
+	if value.PermissionRevision != nil {
+		result.PermissionRevision = new(Counter(*value.PermissionRevision))
 	}
 	if value.Result != nil {
 		result.Result = &HostOperationResult{State: string(value.Result.State), Value: append(json.RawMessage(nil), value.Result.Value...), Failure: value.Result.Failure}

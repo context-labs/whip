@@ -86,6 +86,28 @@ export class Client {
     return this.call('providers.readiness', { selection }, options);
   }
 
+  getPermissionPolicy(sessionID: string, options: CallOptions = {}): Promise<Operations['permissions.policy']['result']> {
+    return this.call('permissions.policy', { session_id: sessionID }, options);
+  }
+
+  /** Persist the edit ID and exact payload before delivery; an explicit retry returns the original receipt. */
+  setPermissionMode(params: Omit<Operations['permissions.set_mode']['params'], 'edit_id'>, editID: string, options: CallOptions = {}): Promise<Operations['permissions.set_mode']['result']> {
+    return this.call('permissions.set_mode', { ...params, edit_id: editID }, options);
+  }
+
+  getPermissionModeEdit(sessionID: string, editID: string, options: CallOptions = {}): Promise<Operations['permissions.mode_edit']['result']> {
+    return this.call('permissions.mode_edit', { session_id: sessionID, edit_id: editID }, options);
+  }
+
+  getDefaultPermissionMode(options: CallOptions = {}): Promise<Operations['host.permission_default']['result']> {
+    return this.call('host.permission_default', {}, options);
+  }
+
+  /** A host publication error requires a fresh read; never replay against a newly observed revision automatically. */
+  setDefaultPermissionMode(params: Operations['host.set_permission_default']['params'], options: CallOptions = {}): Promise<Operations['host.set_permission_default']['result']> {
+    return this.call('host.set_permission_default', params, options);
+  }
+
   /** Durable question evidence; reading never creates or resumes a waiter. */
   getQuestion(sessionID: string, operationID: string, options: CallOptions = {}): Promise<Operations['questions.get']['result']> {
     return this.call('questions.get', { session_id: sessionID, operation_id: operationID }, options);

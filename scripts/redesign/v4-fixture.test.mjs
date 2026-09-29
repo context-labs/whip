@@ -279,6 +279,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await stage('conversation fork', () => forkAcceptance(runtime, client, createParams, evidence));
     await stage('operations', () => operationAcceptance(runtime, client, createParams, evidence));
     await stage('human questions', () => questionAcceptance(runtime, client, createParams, evidence));
+    await stage('saved permission modes', () => permissionModeAcceptance(runtime, client, createParams, evidence));
     await stage('streaming', () => streamAcceptance(runtime, client, createParams, evidence));
   } catch (error) {
     failure = error;
@@ -3341,6 +3342,119 @@ async function questionAcceptance(runtime, client, createParams, evidence) {
       assert.deepEqual((await client.call('permissions.list', { session_id: child.session.id, limit: 100 }, deadline())).items, []);
       await assert.rejects(client.getQuestion(child.session.id, first.question.operation_id, deadline()), error => error instanceof RemoteError && error.kind === 'NOT_FOUND');
       evidence.push({ engine, acceptedQuestion: accepted, interruptedQuestion: interrupted, cancelledQuestion: cancellation, childQuestionOperation: childOperations.items[0] });
+    }
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+  }
+}
+
+async function permissionModeAcceptance(runtime, client, createParams, evidence) {
+  const server = http.createServer(async (request, response) => {
+    let raw = '';
+    for await (const chunk of request) raw += chunk;
+    const body = JSON.parse(raw);
+    const prompt = body.messages.findLast(item => item.role === 'user')?.content ?? '';
+    const [engine, , stage] = prompt.split(':');
+    const path = `${engine}-mode-${stage}.txt`;
+    const code = engine === 'quickjs'
+      ? `await files.write({path:${JSON.stringify(path)},content:'authorized'}); console.log('done');`
+      : `files.write(path=${JSON.stringify(path)},content="authorized")\nprint("done")`;
+    const message = body.messages.at(-1).role === 'tool'
+      ? { role: 'assistant', content: body.messages.at(-1).content }
+      : { role: 'assistant', content: null, tool_calls: [{ id: 'mode-call', type: 'function', function: { name: 'execute', arguments: JSON.stringify({ code }) } }] };
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify({ choices: [{ message, finish_reason: message.tool_calls ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 10, completion_tokens: 4, cost: 0 } }));
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    await runtime.stop();
+    const path = join(runtime.directory, 'state', 'host.json');
+    const host = JSON.parse(await readFile(path, 'utf8'));
+    host.providers.modes = { kind: 'openai-chat', base_url: `http://127.0.0.1:${server.address().port}/v1`, credential_source: 'none', models: { modes: { max_output_tokens: 500, timeout_millis: 10000, max_attempts: 1 } } };
+    await writeFile(path, JSON.stringify(host), { mode: 0o600 });
+    await runtime.start(null);
+    const initialDefault = await client.getDefaultPermissionMode(deadline());
+    const automaticDefault = await client.setDefaultPermissionMode({ expected_revision: initialDefault.revision, mode: 'automatic' }, deadline());
+    const { root: defaultRoot } = await client.call('trees.create', createParams, deadline());
+    assert.equal((await client.getPermissionPolicy(defaultRoot.id, deadline())).mode, 'automatic');
+    const promptDefault = await client.setDefaultPermissionMode({ expected_revision: automaticDefault.revision, mode: 'prompt' }, deadline());
+    await assert.rejects(client.setDefaultPermissionMode({ expected_revision: automaticDefault.revision, mode: 'automatic' }, deadline()), error => error instanceof RemoteError && error.kind === 'CONFLICT');
+    assert.deepEqual(await client.getDefaultPermissionMode(deadline()), promptDefault);
+    assert.equal((await client.getPermissionPolicy(defaultRoot.id, deadline())).mode, 'automatic');
+    for (const engine of ['starlark', 'quickjs']) {
+      const { root } = await client.call('trees.create', { ...createParams, engine, permission_mode: 'prompt', overrides: { report_mode: 'notice', model: { provider: 'modes', name: 'modes', effort: '' } } }, deadline());
+      const policy = await client.getPermissionPolicy(root.id, deadline());
+      assert.equal(policy.mode, 'prompt');
+      const samePrompt = await client.setPermissionMode({ session_id: root.id, expected_revision: policy.revision, mode: 'prompt' }, `${engine}.Same-Prompt`, deadline());
+      assert.deepEqual(samePrompt.policy, policy);
+      const params = { session_id: root.id, expected_revision: policy.revision, mode: 'automatic' };
+      const editID = `${engine}.Edit-Mixed-Case`;
+      let accepted;
+      let killed;
+      const proxy = join(runtime.directory, `mode-${engine}.sock`);
+      const closeProxy = await dropAcknowledgement(proxy, runtime.info.socket, editID, value => {
+        accepted = value;
+        killed = runtime.stop('SIGKILL');
+      }, response => response.result?.id === editID);
+      try {
+        const unreliable = await Client.connect(unixSocket(proxy), { clientID: client.clientID, expectedRuntimeID: client.runtimeID, ...deadline() });
+        await assert.rejects(unreliable.setPermissionMode(params, editID, deadline()), DeliveryError);
+        assert.ok(accepted);
+        await killed;
+      } finally { await closeProxy(); }
+      await runtime.start(null);
+      assert.deepEqual(await client.getPermissionModeEdit(root.id, editID, deadline()), accepted);
+      assert.deepEqual(await client.setPermissionMode(params, editID, deadline()), accepted);
+      assert.equal(accepted.id, editID);
+      assert.equal(accepted.policy.revision, '2');
+      await assert.rejects(client.setPermissionMode({ ...params, mode: 'prompt' }, editID, deadline()), error => error instanceof RemoteError && error.kind === 'CONFLICT');
+      const automaticID = `${engine}:mode:automatic`;
+      await client.submit(root.id, [{ type: 'text', text: automaticID }], automaticID, deadline());
+      const automatic = await client.wait(automaticID, deadline());
+      assert.equal(automatic.turn.state, 'succeeded');
+      const operations = (await client.call('turns.operations', { turn_id: automatic.turn.id, limit: 100 }, deadline())).items;
+      assert.equal(operations.length, 1);
+      assert.equal(operations[0].permission_revision, '2');
+      assert.equal(operations[0].grant_id, null);
+      assert.equal(operations[0].state, 'succeeded');
+      assert.equal(await readFile(join(runtime.directory, `${engine}-mode-automatic.txt`), 'utf8'), 'authorized');
+      assert.deepEqual((await client.call('permissions.list', { session_id: root.id, limit: 100 }, deadline())).items, []);
+      const sameParams = { session_id: root.id, expected_revision: '2', mode: 'automatic' };
+      const same = await client.setPermissionMode(sameParams, `${engine}.Same-Auto`, deadline());
+      assert.deepEqual(same.policy, accepted.policy);
+      await client.call('sessions.lifecycle', { session_id: root.id, lifecycle: 'stopped' }, deadline());
+      const stoppedParams = { session_id: root.id, expected_revision: '2', mode: 'prompt' };
+      const stopped = await client.setPermissionMode(stoppedParams, `${engine}.Stopped-Ask`, deadline());
+      assert.equal(stopped.policy.revision, '3');
+      assert.deepEqual(await client.setPermissionMode(sameParams, `${engine}.Same-Auto`, deadline()), same);
+      assert.deepEqual(await client.setPermissionMode(params, editID, deadline()), accepted);
+      assert.deepEqual(await client.getPermissionPolicy(root.id, deadline()), stopped.policy);
+      await runtime.stop('SIGKILL');
+      await runtime.start(null);
+      assert.equal((await client.call('sessions.get', { session_id: root.id }, deadline())).lifecycle, 'stopped');
+      assert.deepEqual(await client.getPermissionPolicy(root.id, deadline()), stopped.policy);
+      await client.call('sessions.lifecycle', { session_id: root.id, lifecycle: 'active' }, deadline());
+      const askID = `${engine}:mode:ask`;
+      await client.submit(root.id, [{ type: 'text', text: askID }], askID, deadline());
+      const pending = await until(() => client.call('permissions.list', { session_id: root.id, limit: 100 }, deadline()), page => page.items.some(item => item.state === 'pending'), 30_000);
+      const approval = pending.items.find(item => item.state === 'pending');
+      await assert.rejects(readFile(join(runtime.directory, `${engine}-mode-ask.txt`)), error => error.code === 'ENOENT');
+      await client.call('permissions.resolve', { operation_id: approval.operation_id, approved: false }, deadline());
+      await client.wait(askID, deadline());
+      const automaticAgain = await client.setPermissionMode({ session_id: root.id, expected_revision: '3', mode: 'automatic' }, `${engine}.Reenable`, deadline());
+      const childID = `${engine}:mode:child`;
+      const child = await client.spawn({ parent_id: root.id, parts: [{ type: 'text', text: childID }], grant_ids: [], overrides: { report_mode: 'notice' } }, childID, deadline());
+      const childOutcome = await client.wait(childID, deadline());
+      assert.deepEqual(await client.getPermissionPolicy(child.session.id, deadline()), automaticAgain.policy);
+      const denied = (await client.call('turns.operations', { turn_id: childOutcome.turn.id, limit: 100 }, deadline())).items;
+      assert.equal(denied.length, 1);
+      assert.equal(denied[0].state, 'denied');
+      assert.equal(denied[0].permission_revision, null);
+      await assert.rejects(readFile(join(runtime.directory, `${engine}-mode-child.txt`)), error => error.code === 'ENOENT');
+      await assert.rejects(client.setPermissionMode({ session_id: child.session.id, expected_revision: '4', mode: 'prompt' }, `${engine}.Child-Edit`, deadline()), error => error instanceof RemoteError && error.kind === 'CONFLICT');
+      evidence.push({ engine, permissionModeEdit: accepted, stoppedPermissionEdit: stopped, automaticOperation: operations[0], childDeniedOperation: denied[0] });
     }
   } finally {
     server.closeAllConnections();

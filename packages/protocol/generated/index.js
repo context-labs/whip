@@ -455,6 +455,31 @@ export const manifest = {
       "result": "Permission"
     },
     {
+      "name": "permissions.policy",
+      "params": "SessionParams",
+      "result": "PermissionPolicy"
+    },
+    {
+      "name": "permissions.set_mode",
+      "params": "SetPermissionModeParams",
+      "result": "PermissionModeEdit"
+    },
+    {
+      "name": "permissions.mode_edit",
+      "params": "PermissionModeEditParams",
+      "result": "PermissionModeEdit"
+    },
+    {
+      "name": "host.permission_default",
+      "params": "EmptyParams",
+      "result": "DefaultPermissionMode"
+    },
+    {
+      "name": "host.set_permission_default",
+      "params": "SetDefaultPermissionModeParams",
+      "result": "DefaultPermissionMode"
+    },
+    {
       "name": "questions.get",
       "params": "QuestionParams",
       "result": "Question"

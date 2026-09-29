@@ -426,3 +426,58 @@ test('human question reads and answers preserve exact identity and delivery unce
   const invalid = await Client.connect(async request => success(request, request.method === 'initialize' ? initial : { ...pending, answers }), { clientID: 'human' });
   await assert.rejects(invalid.getQuestion('session', 'operation_question'), TypeError);
 });
+
+test('permission mode edits preserve exact receipts and never replay delivery automatically', async () => {
+  const policy = { tree_id: 'tree', mode: 'automatic', revision: '9007199254740994', updated_at: '2026-09-28T00:00:00Z' };
+  const params = { session_id: 'root', expected_revision: '9007199254740993', mode: 'automatic' };
+  const receipt = { id: 'Edit.Mixed-Case', ...params, previous_mode: 'prompt', policy, created_at: policy.updated_at };
+  const calls = [];
+  let dropped = false;
+  const client = await Client.connect(async request => {
+    if (request.method === 'initialize') return success(request, initial);
+    calls.push(structuredClone(request));
+    if (request.method === 'permissions.mode_edit') {
+      assert.deepEqual(request.params, { session_id: 'root', edit_id: receipt.id });
+      return success(request, receipt);
+    }
+    if (request.method === 'permissions.policy') return success(request, { ...policy, mode: 'prompt', revision: '9007199254740995' });
+    assert.equal(request.method, 'permissions.set_mode');
+    assert.deepEqual(request.params, { ...params, edit_id: receipt.id });
+    if (!dropped) { dropped = true; throw new DeliveryError('acknowledgement lost'); }
+    return success(request, receipt);
+  }, { clientID: 'test' });
+  await assert.rejects(client.setPermissionMode(params, receipt.id), DeliveryError);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(await client.getPermissionModeEdit('root', receipt.id), receipt);
+  assert.equal((await client.getPermissionPolicy('root')).revision, '9007199254740995');
+  assert.deepEqual(await client.setPermissionMode(params, receipt.id), receipt);
+  const count = calls.length;
+  for (const expected_revision of [0, '0', '01', '9223372036854775808']) await assert.rejects(client.setPermissionMode({ ...params, expected_revision }, receipt.id), TypeError);
+  for (const mode of ['', 'Automatic', 'full_access']) await assert.rejects(client.setPermissionMode({ ...params, mode }, receipt.id), TypeError);
+  await assert.rejects(client.setPermissionMode(params, receipt.id, { signal: AbortSignal.abort() }), error => error.name === 'AbortError');
+  assert.equal(calls.length, count);
+});
+
+test('host permission default uses explicit host revision and projects only safe settings', async () => {
+  const before = { mode: 'prompt', revision: 'a'.repeat(64) };
+  const after = { mode: 'automatic', revision: 'b'.repeat(64) };
+  const calls = [];
+  let changed = false;
+  const client = await Client.connect(async request => {
+    if (request.method === 'initialize') return success(request, initial);
+    calls.push(request);
+    if (request.method === 'host.permission_default') return success(request, changed ? after : before);
+    assert.equal(request.method, 'host.set_permission_default');
+    assert.deepEqual(request.params, { mode: 'automatic', expected_revision: before.revision });
+    changed = true;
+    throw new DeliveryError('host publication acknowledgement lost');
+  }, { clientID: 'test' });
+  assert.deepEqual(await client.getDefaultPermissionMode(), before);
+  await assert.rejects(client.setDefaultPermissionMode({ mode: 'automatic', expected_revision: before.revision }), DeliveryError);
+  assert.equal(calls.filter(call => call.method === 'host.set_permission_default').length, 1);
+  assert.deepEqual(await client.getDefaultPermissionMode(), after);
+  const count = calls.length;
+  await assert.rejects(client.setDefaultPermissionMode({ mode: 'Ask', expected_revision: after.revision }), TypeError);
+  await assert.rejects(client.setDefaultPermissionMode({ mode: 'prompt', expected_revision: '1' }), TypeError);
+  assert.equal(calls.length, count);
+});

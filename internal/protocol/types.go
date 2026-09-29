@@ -242,6 +242,7 @@ type Admission struct {
 }
 
 type CreateTreeParams struct {
+	PermissionMode   *string         `json:"permission_mode,omitempty" enum:"prompt,automatic"`
 	Metadata         TreeMetadata    `json:"metadata"`
 	Engine           string          `json:"engine" enum:"starlark,quickjs"`
 	Resources        []ResourceLimit `json:"resources,omitempty"`
