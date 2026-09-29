@@ -234,9 +234,10 @@ tasks:
       - sh evals/check-native.sh
 
   check:product-examples:
-    desc: Native agent and browser/Node client examples against a disposable real host
+    desc: Native packed SDK and agent/browser/Node examples against a disposable real host
     cmds:
       - task: web-assets
+      - node packages/sdk/scripts/package-smoke.mjs
       - npm run check -w @whip/agents-example
       - npm run acceptance -w @whip/agents-example
       - npm run check -w @whip/client-example

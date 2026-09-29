@@ -4592,3 +4592,46 @@ provider-save guards and responsive theme controls. Logs/artifacts:
 No product polling policy, deadline or read assertion changed. The earlier hosted
 run remains failed; client/desktop results and the next exact-head run remain
 separate evidence.
+
+### Native Python evaluation and public package entry points — 2026-09-29
+
+Python trials now create a private native-v4 host/tree with explicit delegated
+workspace authority and observe native turns, inputs, operations, permissions,
+goals, mail and the immutable attempt ancestry ledger. Finality uses database
+commit quiescence plus verified exact-process freeze and matching settled readback.
+Scoped content is exported with byte/digest checks. Exact integer nanodollars
+remain authoritative; missing usage, cache usage and cost remain unknown. Reports
+verify state.json against the copied database. New trials use a separate baseline
+track; archived results and frozen source hashes remain unchanged. Historical
+analysis readers are read-only and never execute the retired runtime.
+
+Full deterministic qualification at6497bc957 passed all eight combinations of
+Harbor/Pier, Starlark/QuickJS and shared/separate verifiers, including Pier's
+no-network tasks. Every trial passed hidden grading, accounting/evidence checks
+and owned cleanup with zero external model calls. The Linuxamd64 candidate ran
+on an arm64 Docker host; this proves emulated correctness, not native performance
+or model proficiency. Evidence:
+/private/tmp/whip-native-eval-observer/evals/artifacts/doctor-20260929T101726Z-dca1fc2967/doctor.json.
+The integrated backend separately passed both-engine offline Linuxarm64 tests,
+including native report normalization/tamper rejection, in13.001s. Canonical
+Python checks pass87 tests (optional Linux acceptance skipped on macOS); retained
+native/historical checks pass77. Full scenario mapping is evals/native-observer.md.
+Required Linux CI now includes this native evaluation gate.
+
+The first doctor attempt stopped before a trial because dirty source capture
+rejected the repository's internal skill symlink. The preparation fix preserves
+internal relative links as archive metadata, rejects absolute/escaping links and
+never follows an external target; extraction and negative paths are tested. A
+clean frozen-source run then supplied the eight-way qualification above.
+
+Root npm generate/build/check/test/acceptance/browser/package commands now target
+the supported native protocol and SDK. The package gate installs private4.0.0
+archives outside the repository, checks all public imports, browser bundling and
+positive/negative consumer types, then submits a real native input and verifies
+history. Its first fixture run failed because renderer assets had not been
+packaged; test:package now includes that prerequisite and passes. Eight existing
+native acceptance families passed62.275s. Complete integrated product-examples,
+including packed SDK, both agent examples and the actual browser/Node client,
+also passes. The broader legacy reference gates remain explicitly named until
+final removal; this checkpoint does not claim Phase7 completion or new Safari,
+signed-distribution, real-account or remote-SSH evidence.
