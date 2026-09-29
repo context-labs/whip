@@ -53,7 +53,8 @@
     "android": "expo run:android",
     "check": "tsc --noEmit",
     "export": "expo export --platform ios --platform android",
-    "test": "jest --runInBand"
+    "test": "jest --runInBand",
+    "test:backend": "jest --runInBand --config jest.backend.config.cjs"
   },
   "private": true,
   "expo": {

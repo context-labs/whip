@@ -5,6 +5,7 @@ import * as Crypto from 'expo-crypto';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, MoreHorizontal } from 'lucide-react-native';
 import { Composer } from '../../components/composer';
+import { SessionControls } from '../../components/session-controls';
 import { SessionMenu } from '../../components/session-menu';
 import { EmptyState, IconButton, ScreenHeader, Sheet, StatusBadge, Text } from '../../ui';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
@@ -79,7 +80,7 @@ function SessionContent({ lease, root, recipient, tree, runtimeId, showRequests 
           {agents.data?.items?.length === 32 && <Actions items={[{ label: 'Next recipients', onPress: () => setAfter(agents.data!.items!.at(-1)!.id) }]} />}{after && <Actions items={[{ label: 'First recipients', onPress: () => setAfter(undefined) }]} />}
         </> : <><Label muted>Directory</Label><Label selectable>{recipient.working_directory}</Label><Label muted>Model</Label><Label>{recipient.configuration.model.name} · {recipient.configuration.model.provider}</Label><Label muted>Reasoning effort</Label><Label>{recipient.configuration.model.effort || 'Default'}</Label>
           {recipient.id === root.id && <RootSettings view={view} session={recipient} />}
-          <Label muted>Observed execution</Label><Label>{execution.turns.length} turns · {execution.cells.length} cells · {execution.operations.length} operations retained in this view</Label>{execution.error && <Notice>{execution.error.message}</Notice>}{execution.truncated && <Notice>Execution details are bounded; use the host app to inspect larger traces.</Notice>}
+          <SessionControls rootId={root.id} session={recipient} view={view} /><Label muted>Observed execution</Label><Label>{execution.turns.length} turns · {execution.cells.length} cells · {execution.operations.length} operations retained in this view</Label>{execution.error && <Notice>{execution.error.message}</Notice>}{execution.truncated && <Notice>Execution details are bounded; use the host app to inspect larger traces.</Notice>}
           <Label muted>Root ID</Label><Label selectable>{root.id}</Label><Label muted>Recipient ID</Label><Label selectable>{recipient.id}</Label>
         </>}
       </ScrollView>}</View>
@@ -101,7 +102,7 @@ function RootSettings({ view, session }: { view: SessionView; session: SessionRe
     finally { await runtime.query.invalidateQueries({ queryKey: [state.host?.runtimeId, 'session-metadata'] }); lock.current = false; setBusy(false); }
   }
   return <Stack><Label muted>Model changes preserve this session’s execution environment. Host policy rejects changes while incompatible work is active.</Label>
-    {uncertain && <><Notice>The setting response was not confirmed. Read the current configuration before making another change.</Notice><Actions items={[{ label: 'Read current settings', disabled: busy || !state.ready, onPress: () => { void runtime.query.refetchQueries({ queryKey: [state.host?.runtimeId, 'session-metadata'] }).then(() => setUncertain(false)).catch(runtime.report); } }]} /></>}
+    {uncertain && <><Notice>The setting response was not confirmed. Read the current configuration before making another change.</Notice><Actions items={[{ label: 'Read current settings', disabled: busy || !state.ready, onPress: () => { void runtime.query.refetchQueries({ queryKey: [state.host?.runtimeId, 'session-metadata'] }, { throwOnError: true }).then(() => setUncertain(false)).catch(runtime.report); } }]} /></>}
     <Actions items={[{ label: open ? 'Close model selection' : 'Change model', onPress: () => setOpen(!open), disabled: busy }]} />
     {open && <><Field label="Find a model or provider" value={search} onChangeText={setSearch} maxLength={128} />{catalogs.isFetching && <Loading />}{catalogs.error && <Notice>{catalogs.error.message}</Notice>}
       {matching.slice(0, 64).map(item => <RowButton key={item.provider + '/' + item.model} title={item.model} detail={item.provider} selected={item.model === current.name && item.provider === current.provider} disabled={!editable} onPress={() => { void apply({ name: item.model, provider: item.provider, effort: '' }); }} />)}{matching.length > 64 && <Notice>Showing 64 choices. Narrow your search.</Notice>}
