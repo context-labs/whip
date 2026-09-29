@@ -52,6 +52,20 @@ func Connect(ctx context.Context, socket string, expected *protocol.ID) (*Client
 // Call reconnects with the pinned runtime identity. Transport errors have an
 // unknown delivery outcome; callers recover mutations with their request ID.
 func (c *Client) Call(ctx context.Context, method string, params, result any) error {
+	return c.call(ctx, nil, method, params, result)
+}
+
+// CallAtEpoch pins an ephemeral operation to the observed host process. A
+// replacement process cannot receive the operation, even with the same runtime
+// identity. Transport failures remain uncertain and are never retried here.
+func (c *Client) CallAtEpoch(ctx context.Context, epoch protocol.ID, method string, params, result any) error {
+	if epoch == "" {
+		return errors.New("observed process epoch is required")
+	}
+	return c.call(ctx, &epoch, method, params, result)
+}
+
+func (c *Client) call(ctx context.Context, epoch *protocol.ID, method string, params, result any) error {
 	if method == "initialize" {
 		return errors.New("use Connect to initialize")
 	}
@@ -62,7 +76,7 @@ func (c *Client) Call(ctx context.Context, method string, params, result any) er
 	defer cancel()
 	stop := context.AfterFunc(c.lifecycle, cancel)
 	defer stop()
-	return exchange(ctx, c.socket, protocol.InitializeParams{Major: protocol.Major, ExpectedRuntimeID: &c.initial.RuntimeID}, method, params, result)
+	return exchange(ctx, c.socket, protocol.InitializeParams{Major: protocol.Major, ExpectedRuntimeID: &c.initial.RuntimeID, ExpectedProcessEpoch: epoch}, method, params, result)
 }
 
 func exchange(parent context.Context, socket string, initial protocol.InitializeParams, method string, params, result any) error {
@@ -85,7 +99,7 @@ func exchange(parent context.Context, socket string, initial protocol.Initialize
 	if err := invoke(conn, scanner, "init", "initialize", initial, &initialized); err != nil {
 		return err
 	}
-	if initialized.Major != protocol.Major || initial.ExpectedRuntimeID != nil && initialized.RuntimeID != *initial.ExpectedRuntimeID {
+	if initialized.Major != protocol.Major || initial.ExpectedRuntimeID != nil && initialized.RuntimeID != *initial.ExpectedRuntimeID || initial.ExpectedProcessEpoch != nil && initialized.ProcessEpoch != *initial.ExpectedProcessEpoch {
 		return errors.New("runtime initialization identity or protocol mismatch")
 	}
 	if method == "initialize" {
