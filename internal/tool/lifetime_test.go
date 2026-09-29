@@ -20,7 +20,10 @@ func TestCapturedResourceRetirementCancelsPendingPermission(t *testing.T) {
 		return Prepared{
 			Capability: "mcp.call", Resource: "captured-server-generation", Arguments: json.RawMessage(`{}`), Lifetime: lifetime,
 			Acquire: func(context.Context) (func(), error) { executions.Add(1); return func() {}, nil },
-			Run:     func(context.Context, session.OperationID) (any, error) { executions.Add(1); return nil, nil },
+			Run: func(context.Context, session.OperationID) (any, error) {
+				executions.Add(1)
+				return "unexpected execution", nil
+			},
 		}, nil
 	})
 	done := make(chan error, 1)

@@ -18,10 +18,11 @@ func TestConfirmedFailureRetainsEvidenceWhileLostOutcomesStayUncertain(t *testin
 				t.Fatal(err)
 			}
 			cause := errors.New("remote completed with an error")
-			failure := error(cause)
-			if kind == "cancel" {
+			failure := cause
+			switch kind {
+			case "cancel":
 				failure = SettledFailure(context.Canceled)
-			} else if kind == "confirmed" || kind == "oversized" {
+			case "confirmed", "oversized":
 				failure = SettledFailure(cause)
 			}
 			output := map[string]any{"reference": "content_owned_error_evidence"}
