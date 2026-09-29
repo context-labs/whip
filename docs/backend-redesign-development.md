@@ -4225,3 +4225,19 @@ workflow. No product assertion was removed. In a fresh exact-PR worktree with
 build (four pages/65 files), and all18 web-pack tests passed; the exact Electron
 license and executable inputs are present. Hosted validation of this repair is
 pending. No installed application or runtime was touched.
+
+### Hosted product gates after clean setup repair
+
+At `9176615a2`, run `36545994800` passes the repaired web and documentation jobs,
+mobile, examples, browser acceptance, both clients jobs, and every completed
+native build/store/runtime/analysis job. The macOS other-race job remains pending
+at this record. Desktop packaging now succeeds and its native browser probe
+reaches the production zoom/focus assertions; it then fails an immediate check
+that a guest100ms timer fired within a fixed130ms sleep after observer cancellation.
+
+The compiled bundle maps that failure exactly to the retained cancellation-effect
+assertion. The probe now observes that original effect within its existing bounded
+fixture lifetime; it retains `outcome_unknown`, checks `delivered=true`, and never
+reissues the command. The real isolated Electron suite passes `NATIVE_MANAGER_OK`
+with production BrowserManager, IPC, preload, debugger, transfer and close paths.
+No production timeout or behavior changed. New hosted validation remains required.
