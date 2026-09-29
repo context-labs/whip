@@ -36,6 +36,9 @@ func (p *nativeUIProvider) Prepare(ctx context.Context, request hostmodel.Reques
 		return prepared, err
 	}
 	prepared.Execute = func(ctx context.Context, emit func(hostmodel.Chunk)) (hostmodel.Response, error) {
+		if request.Purpose == "compaction" {
+			return hostmodel.Response{Parts: []session.Part{{Type: "text", Text: "Compacted fixture history."}}}, nil
+		}
 		last := request.Messages[len(request.Messages)-1]
 		text := last.Parts[0].Text
 		if code, ok := p.codes[text]; ok && last.Role == session.User {
