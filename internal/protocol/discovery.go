@@ -19,6 +19,7 @@ type GatewayDiscovery struct {
 }
 
 type ListTreesParams struct {
+	Search           string   `json:"search,omitempty" maxLength:"256"`
 	ExpectedRevision *Counter `json:"expected_revision,omitempty" pattern:"^[1-9][0-9]{0,18}$"`
 	After            *ID      `json:"after,omitempty"`
 	Archived         *bool    `json:"archived,omitempty"`
@@ -27,8 +28,9 @@ type ListTreesParams struct {
 }
 
 type TreeSummary struct {
-	Tree   Tree `json:"tree"`
-	RootID ID   `json:"root_id"`
+	Tree             Tree   `json:"tree"`
+	RootID           ID     `json:"root_id"`
+	WorkingDirectory string `json:"working_directory" maxLength:"4096"`
 }
 
 type ListTreesResult struct {

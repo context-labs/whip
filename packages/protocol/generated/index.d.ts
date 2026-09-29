@@ -4312,6 +4312,7 @@ export interface ListStateParams {
   limit: number;
 }
 export interface ListTreesParams {
+  search?: string;
   expected_revision?: null | string;
   after?: null | string;
   archived?: null | boolean;
@@ -4336,6 +4337,7 @@ export interface ListTreesResult {
       created_at: string;
     };
     root_id: string;
+    working_directory: string;
   }[];
   next_cursor: null | string;
 }

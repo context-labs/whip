@@ -156,3 +156,15 @@ test('activity observes other clients durable work without hydrating queue paylo
   state.intercept = () => { throw new Error('disconnected'); }; await view.refresh();
   assert.equal(view.getSnapshot().status, 'stale'); assert.equal(view.getSnapshot().activity, null);
 });
+
+test('catalog search stays in every bounded host request without session hydration', async t => {
+  const { state, client } = await backend(); state.trees = trees(6);
+  const view = createTreeCatalogView(client, { search: '100%_Ready', pageSize: 2, pollIntervalMs: 60_000 });
+  t.after(() => view.dispose());
+  await view.start(); await view.loadMore();
+  const pages = state.calls.filter(call => call.method === 'trees.list');
+  assert.equal(pages.length, 2);
+  assert.ok(pages.every(call => call.params.search === '100%_Ready'));
+  assert.equal(pages[1].params.expected_revision, view.getSnapshot().revision);
+  assert.ok(state.calls.every(call => call.method.startsWith('trees.')));
+});

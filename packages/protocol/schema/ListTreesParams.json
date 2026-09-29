@@ -1,6 +1,9 @@
 {
   "type": "object",
   "properties": {
+    "search": {
+      "type": "string"
+    },
     "expected_revision": {
       "type": [
         "null",

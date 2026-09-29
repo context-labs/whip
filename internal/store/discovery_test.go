@@ -93,3 +93,58 @@ func TestDefinitionDiscoveryRetainsEveryRevisionWithoutBodies(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestTreeCatalogLiteralSearchAndWorkspaceRevision(t *testing.T) {
+	s := fresh(t)
+	tree, root := create(t, s, nil)
+	_, other := create(t, s, nil)
+	if _, err := s.UpdateTree(t.Context(), tree.ID, tree.Revision, session.TreeMetadata{Title: new("Release 100%_Ready")}); err != nil {
+		t.Fatal(err)
+	}
+	for _, search := range []string{"100%_ready", string(root.ID), string(tree.ID), root.WorkingDirectory} {
+		page, err := s.Trees(t.Context(), TreeList{Search: search, Limit: 1})
+		if err != nil || len(page.Items) != 1 || page.Items[0].RootID != root.ID || page.Items[0].WorkingDirectory != root.WorkingDirectory || page.Next != nil {
+			t.Fatal(search, page, err)
+		}
+	}
+	page, err := s.Trees(t.Context(), TreeList{Search: "100XXready", Limit: 1})
+	if err != nil || len(page.Items) != 0 {
+		t.Fatal(page, err)
+	}
+	for _, search := range []string{strings.Repeat("x", 257), "bad\x00search", string([]byte{255})} {
+		if _, err := s.Trees(t.Context(), TreeList{Search: search, Limit: 1}); !errors.Is(err, session.ErrInvalid) {
+			t.Fatal("invalid search", err)
+		}
+	}
+	before := catalogTest(t, s)
+	request := session.WorkspaceSetRequest{ID: "catalog-directory", SessionID: root.ID, ExpectedRevision: root.ConfigRevision, Path: "/new-project"}
+	if _, err := setDirectory(t, s, request, "/new-project"); err != nil {
+		t.Fatal(err)
+	}
+	if catalogTest(t, s) != before+1 {
+		t.Fatal("root path failed to invalidate catalog")
+	}
+	if _, err := s.Trees(t.Context(), TreeList{Search: "new-project", Limit: 1, ExpectedRevision: &before}); !errors.Is(err, ErrConflict) {
+		t.Fatal("search mixed catalog generations", err)
+	}
+	page, err = s.Trees(t.Context(), TreeList{Search: "new-project", Limit: 1})
+	if err != nil || len(page.Items) != 1 || page.Items[0].RootID != root.ID || page.Items[0].WorkingDirectory != "/new-project" {
+		t.Fatal(page, err)
+	}
+	if _, err := setDirectory(t, s, request, "/ignored-retry"); err != nil || catalogTest(t, s) != before+1 {
+		t.Fatal("retry changed catalog", err)
+	}
+	// Catalog failure must roll back both workspace configuration and receipt.
+	execTest(t, s, "CREATE TRIGGER catalog_fail BEFORE UPDATE ON tree_catalog BEGIN SELECT RAISE(ABORT,'injected'); END")
+	failed := session.WorkspaceSetRequest{ID: "catalog-fail", SessionID: other.ID, ExpectedRevision: other.ConfigRevision, Path: "/rollback"}
+	if _, err := setDirectory(t, s, failed, "/rollback"); err == nil {
+		t.Fatal("catalog failure ignored")
+	}
+	unchanged, err := s.Session(t.Context(), other.ID)
+	if err != nil || unchanged.WorkingDirectory != other.WorkingDirectory || unchanged.ConfigRevision != other.ConfigRevision {
+		t.Fatal(unchanged, err)
+	}
+	if _, err := s.WorkspaceSetRetry(t.Context(), failed); !errors.Is(err, ErrNotFound) {
+		t.Fatal("failed receipt escaped", err)
+	}
+}

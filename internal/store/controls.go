@@ -138,6 +138,9 @@ func (s *Store) SetWorkingDirectory(ctx context.Context, request session.Workspa
 		}
 		current.WorkingDirectory = canonical
 		result, err = commitControl(ctx, tx, request.ID, "workspace", digest, current)
+		if err == nil && current.ParentID == nil {
+			err = bumpTreeCatalog(ctx, tx)
+		}
 		return err
 	})
 	return

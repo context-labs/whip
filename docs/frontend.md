@@ -3127,3 +3127,12 @@ and process epoch. Offered tabs are discovery metadata, not agent authority.
 Provider disconnect or exact scope retirement clears live control; reconnect does
 not restore or replay it. Public screenshot uploads belong only to their pending
 command. The product desktop/browser bridge migration remains in progress.
+
+
+V4 tree catalogs include the root working directory as navigation metadata.
+Optional `search` is a bounded literal substring over titles, tree/root identities
+and root directories (SQLite ASCII case folding); `%` and `_` are ordinary text.
+Search stays on the host and uses the same revision-pinned keyset pages. Root
+workspace edits invalidate that catalog within their existing transaction; exact
+receipt retries do not invalidate it again. Reading a catalog never hydrates
+configuration bodies or opens a session view.
