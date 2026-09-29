@@ -75,6 +75,7 @@ export async function checkActivityReading({ page, fixture, run, directory, name
     await expect.poll(async () => (await row.allTextContents()).join('').length).toBeGreaterThan(before);
   };
   await page.evaluate(installActivityScrollTrace);
+  let readingFailed = false;
   try {
     for (let index = 0; index < 3; index++) { await stream(); await expect.poll(gap).toBeLessThanOrEqual(2); }
     const box = await reading.boundingBox();
@@ -82,8 +83,16 @@ export async function checkActivityReading({ page, fixture, run, directory, name
     await stream(); await expect.poll(gap).toBeLessThanOrEqual(2);
     await reading.hover(); await page.mouse.wheel(0, -12);
     await expect.poll(gap).toBeGreaterThan(3); await expect(latest).toBeVisible();
+  } catch (error) {
+    readingFailed = true;
+    throw error;
   } finally {
-    await writeFile(join(directory, `${name}-small-scroll-trace.json`), JSON.stringify(await page.evaluate(finishActivityScrollTrace), null, 2));
+    try {
+      await writeFile(join(directory, `${name}-small-scroll-trace.json`), JSON.stringify(await page.evaluate(finishActivityScrollTrace), null, 2));
+    } catch (error) {
+      if (!readingFailed) throw error;
+      console.error(`${name}: small-scroll diagnostic capture also failed`, error);
+    }
   }
   const detached = await settledOffset();
   // Chunk 6 begins a new block while reading remains detached.
