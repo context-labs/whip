@@ -801,3 +801,13 @@ never substitutes a new answer or retries on its own. A later different answer
 conflicts. After runtime interruption, unanswered questions close and do not
 resume; an already committed answer survives. Product rendering and recovery
 still belong to the later supported-client adoption work.
+
+
+### Language servers
+
+`languageServerStatus(sessionID)` reads current safe connection metadata for that
+session. It never starts a process or grants access, and omits custom command,
+environment and raw startup errors. Runtime restart resets live status. Workspace
+listing/search and explicit/automatic diagnostics are ordinary agent operations
+whose durable evidence is available through operation reads; diagnostics remain
+observations of captured content and do not change the success of a file write.

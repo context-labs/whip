@@ -1820,3 +1820,51 @@ recovery rules still apply to the interrupted REPL. Historical question reads
 never start or resume execution. `questions.get/list/answer` and the SDK expose
 scoped durable evidence and explicit answer submission; accepted work survives a
 client's disconnect and no client auto-generates or auto-replays an answer.
+
+
+## Workspace discovery and language diagnostics
+
+`files.list` and literal `files.search` use the same canonical workspace,
+descriptor confinement, dispatch grants and path revalidation as read/write/patch.
+Listing returns at most2000 immediate names, sorted within its inspected portion.
+Search returns at most100 matches, skips `.git`, descendant symlinks and unreadable
+or non-text files, and reports skipped/truncated work. Traversal stops at10000
+entries,64 directory levels or8MiB of searched bytes; rendered output is capped
+at32KiB. These are bounded observations of a changing directory, not stable
+pagination snapshots. Listing/search do not acquire mutation locks.
+
+Host config13 declares up to16 enabled stdio language servers (including the
+built-in `gopls` entry), with bounded argv, environment and matching rules. This
+publishes availability, never session authority, and performs no installation.
+The side-effect-free `internal/lspconfig` leaf owns declarations, validation and
+built-in merging; `internal/lsp` owns transport/diagnostic behavior. Runtime owns a
+bounded pool and process manager. Current host declarations are captured for each
+prepared diagnostic operation through the shared config authority.
+
+Successful write/patch settlement precedes optional automatic diagnostics. The
+latter is a separate ordinary operation with a stable source-derived identity,
+workspace resource, source operation and captured content hash. It needs standing
+`lsp.diagnostics` authority; without that authority it returns a skipped
+observation without opening a permission request or starting a process. Explicit
+`files.diagnostics` can obtain one-use approval, whose isolated server is joined
+before the call returns. Standing grants permit session-owned reuse. Child calls
+revalidate their exact issuer chain; parent revocation cannot leave delegated
+language servers usable. Diagnostics never reverse a successful file write.
+
+Diagnostics describe bounded captured UTF-8 content, with a captured workspace
+identity and scoped project-root lookup. External writers are not frozen. The
+pool has16 process slots and128 manager slots. Each manager has at most128 open
+documents/4MiB content and128 diagnostic files; each file retains at most20 bounded
+messages, and rendered output is32KiB. Initialization is bounded at10seconds and
+matching-version diagnostics at1.5seconds; bounded sibling errors are included.
+Frames are at most1MiB with8KiB headers and a bounded cancellable write queue.
+
+Stop, cancellation, deletion and grant revocation invalidate pool generation and
+join its clients; runtime shutdown also joins its process owner before SQL closes.
+Retirement waits for the owned process group to disappear, including descendants
+that race the first kill signal. A delayed old prepared operation cannot recreate
+a retired generation. Read-only `lsp.status`/SDK `languageServerStatus` expose
+bounded safe metadata without spawning a server, granting authority or exposing
+custom command/environment/startup errors. Status is ephemeral and resets on
+restart. The temporary retained-config alias points inward to `lspconfig`
+and must be removed with the retired core in Phase7.
