@@ -5993,3 +5993,22 @@ diagnostics race tests and preview race/shuffle tests pass. Permission UI tests
 pass (19 tests across three suites). An independent review caught and corrected
 revision serialization above JavaScript integer precision; no additional authority
 blocker was found. This is a targeted follow-up, not full release acceptance.
+
+
+The clean production Desktop package from `96498440ac3dd12e3dbad919ae52c94dd26b4b23`
+builds and verifies as `0.1.0-native-96498440a`. The user-authorized temporary
+installation at `/private/tmp/whip-review-wpUH7k` was updated through the managed
+runtime synchronizer and reopened to the same root and remaining child panes.
+Native UI inspection verifies Full Access and its updated inheritance explanation.
+No live inference was requested. The normal installation and development checkout
+remain untouched.
+
+Runtime identity is unchanged. The actual schema55 snapshot and matching prior
+app/backend are retained in `before-child-policy-fix/`, whose README records the
+backup capture sequence. Comparing all54 original tables after upgrade finds
+53 identical, with only18 unreferenced content bodies removed by normal restart
+collection. Referenced content, history, sessions, configuration and permissions
+are unchanged; no child-policy rows are backfilled. Integrity and foreign-key
+checks pass. Exact local evidence is `child-policy-fix-verification.json`,
+`runtime-manifest.json`, `build-evidence.json` and `launch-status.json`. The build
+log is `/private/tmp/whip-subagent-debug/package-build.log`.
