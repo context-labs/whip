@@ -5485,6 +5485,21 @@ export interface Permission {
   created_at: string;
   resolved_at: null | string;
 }
+export interface PermissionDenialEdit {
+  id: string;
+  session_id: string;
+  expected_revision: string;
+  deny_interactive: boolean;
+  previous_denial: boolean;
+  policy: {
+    deny_interactive: boolean;
+    tree_id: string;
+    mode: "prompt" | "automatic";
+    revision: string;
+    updated_at: string;
+  };
+  created_at: string;
+}
 export interface PermissionModeEdit {
   id: string;
   session_id: string;
@@ -5492,6 +5507,7 @@ export interface PermissionModeEdit {
   mode: "prompt" | "automatic";
   previous_mode: "prompt" | "automatic";
   policy: {
+    deny_interactive: boolean;
     tree_id: string;
     mode: "prompt" | "automatic";
     revision: string;
@@ -5504,6 +5520,7 @@ export interface PermissionModeEditParams {
   edit_id: string;
 }
 export interface PermissionPolicy {
+  deny_interactive: boolean;
   tree_id: string;
   mode: "prompt" | "automatic";
   revision: string;
@@ -8960,6 +8977,12 @@ export interface SetHostProfilesParams {
     connect_on_launch: boolean;
   }[];
 }
+export interface SetPermissionDenialParams {
+  edit_id: string;
+  session_id: string;
+  expected_revision: string;
+  deny_interactive: boolean;
+}
 export interface SetPermissionModeParams {
   edit_id: string;
   session_id: string;
@@ -10339,6 +10362,7 @@ export interface ContractTypes {
   OpenAILoginFlow: OpenAILoginFlow;
   Part: Part;
   Permission: Permission;
+  PermissionDenialEdit: PermissionDenialEdit;
   PermissionModeEdit: PermissionModeEdit;
   PermissionModeEditParams: PermissionModeEditParams;
   PermissionPolicy: PermissionPolicy;
@@ -10400,6 +10424,7 @@ export interface ContractTypes {
   SetDefaultPermissionModeParams: SetDefaultPermissionModeParams;
   SetExecutionDefaultsParams: SetExecutionDefaultsParams;
   SetHostProfilesParams: SetHostProfilesParams;
+  SetPermissionDenialParams: SetPermissionDenialParams;
   SetPermissionModeParams: SetPermissionModeParams;
   SetResourceParams: SetResourceParams;
   ShellInputParams: ShellInputParams;
@@ -10617,6 +10642,8 @@ export interface Operations {
   "permissions.resolve": { params: ResolvePermissionParams; result: Permission };
   "permissions.policy": { params: SessionParams; result: PermissionPolicy };
   "permissions.set_mode": { params: SetPermissionModeParams; result: PermissionModeEdit };
+  "permissions.set_denial": { params: SetPermissionDenialParams; result: PermissionDenialEdit };
+  "permissions.denial_edit": { params: PermissionModeEditParams; result: PermissionDenialEdit };
   "permissions.mode_edit": { params: PermissionModeEditParams; result: PermissionModeEdit };
   "host.profiles": { params: EmptyParams; result: HostProfiles };
   "host.execution_defaults": { params: EmptyParams; result: HostExecutionDefaults };

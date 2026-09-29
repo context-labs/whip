@@ -217,3 +217,57 @@ test('browser transfer recovery preserves exact scoped attachment payload when a
   assert.equal(sends.length, 2);
   assert.deepEqual(sends[0].params, sends[1].params);
 });
+
+
+test('permission denial recovery proves exact false clearing without replay or changing mode', async () => {
+  const receipt = fixture('PermissionDenialEdit');
+  const input = { edit_id: receipt.id, session_id: receipt.session_id, expected_revision: receipt.expected_revision, deny_interactive: false };
+  const storage = memoryStorage(), journal = new RecoveryJournal(storage);
+  let accepted = false;
+  const { client, calls } = await clientFixture(request => {
+    if (request.method === 'permissions.denial_edit') {
+      assert.deepEqual(request.params, { session_id: input.session_id, edit_id: input.edit_id });
+      return accepted ? { jsonrpc: '2.0', id: request.id, result: receipt } : missing(request.id);
+    }
+    assert.equal(request.method, 'permissions.set_denial');
+    assert.deepEqual(request.params, input);
+    assert.equal(storage.records.size, 1);
+    if (!accepted) { accepted = true; throw new DeliveryError('denial acknowledgement lost'); }
+    return { jsonrpc: '2.0', id: request.id, result: receipt };
+  });
+  const command = client.command('permissions.set_denial', input, { journal });
+  await assert.rejects(command.send(), DeliveryError);
+  assert.equal(calls.length, 1);
+  const recovered = DurableCommand.recover(client, (await journal.list())[0], { journal });
+  const check = await recovered.check();
+  assert.equal(check.state, 'found');
+  assert.equal(check.evidence.policy.mode, 'automatic');
+  assert.equal(check.evidence.policy.deny_interactive, false);
+  assert.equal(check.evidence.policy.revision, '9007199254740994');
+  assert.equal(recovered.record.accepted, true);
+  assert.equal(calls.filter(call => call.method === 'permissions.set_denial').length, 1);
+  assert.deepEqual(await recovered.retry(), receipt);
+  const sends = calls.filter(call => call.method === 'permissions.set_denial');
+  assert.equal(sends.length, 2); assert.deepEqual(sends[0].params, sends[1].params);
+  for (const changed of [{ deny_interactive: true }, { expected_revision: '9007199254740992' }, { edit_id: 'Other' }, { session_id: 'child' }]) {
+    const foreign = await clientFixture(request => ({ jsonrpc: '2.0', id: request.id, result: receipt }));
+    const collision = foreign.client.command('permissions.set_denial', { ...input, ...changed });
+    await assert.rejects(collision.check(), /receipt mismatch/);
+    await assert.rejects(collision.retry(), /receipt mismatch/);
+    assert.equal(collision.record.accepted, false);
+    assert.ok(foreign.calls.every(call => call.method === 'permissions.denial_edit'));
+  }
+});
+
+test('session permission denial methods preserve owner and reject malformed policies before transport', async () => {
+  const receipt = fixture('PermissionDenialEdit');
+  const { client, calls } = await clientFixture(request => ({ jsonrpc: '2.0', id: request.id, result: receipt }));
+  const root = client.session(receipt.session_id);
+  assert.deepEqual(await root.permissions.setDenial({ expected_revision: receipt.expected_revision, deny_interactive: false }, receipt.id), receipt);
+  assert.deepEqual(calls[0].params, { session_id: receipt.session_id, edit_id: receipt.id, expected_revision: receipt.expected_revision, deny_interactive: false });
+  assert.deepEqual(await root.permissions.denialEdit(receipt.id), receipt);
+  assert.deepEqual(calls[1].params, { session_id: receipt.session_id, edit_id: receipt.id });
+  for (const deny_interactive of [undefined, null, 'false', 0]) await assert.rejects(root.permissions.setDenial({ expected_revision: '1', deny_interactive }, receipt.id), TypeError);
+  for (const expected_revision of [0, '0', '01', '9223372036854775808']) await assert.rejects(root.permissions.setDenial({ expected_revision, deny_interactive: false }, receipt.id), TypeError);
+  assert.equal(calls.length, 2);
+});

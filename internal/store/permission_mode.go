@@ -19,9 +19,9 @@ func insertPermissionPolicy(ctx context.Context, tx *sql.Tx, tree session.TreeID
 
 func readPermissionPolicy(ctx context.Context, q querier, owner session.SessionID) (policy session.PermissionPolicy, err error) {
 	var updated int64
-	err = q.QueryRowContext(ctx, `SELECT p.tree_id,p.mode,p.revision,p.updated_at
+	err = q.QueryRowContext(ctx, `SELECT p.tree_id,p.mode,p.revision,p.updated_at,p.deny_interactive
  FROM permission_policies p JOIN sessions s ON s.tree_id=p.tree_id WHERE s.id=?`, owner).
-		Scan(&policy.TreeID, &policy.Mode, &policy.Revision, &updated)
+		Scan(&policy.TreeID, &policy.Mode, &policy.Revision, &updated, &policy.DenyInteractive)
 	policy.UpdatedAt = timestamp(updated)
 	return policy, found(err)
 }
@@ -30,13 +30,13 @@ func (s *Store) PermissionPolicy(ctx context.Context, owner session.SessionID) (
 	return readPermissionPolicy(ctx, s.db, owner)
 }
 
-const permissionModeEditSelect = `SELECT id,digest,session_id,tree_id,expected_revision,mode,previous_mode,revision,updated_at,created_at
+const permissionModeEditSelect = `SELECT id,digest,session_id,tree_id,expected_revision,mode,previous_mode,revision,updated_at,created_at,deny_interactive
  FROM permission_mode_edits`
 
 func scanPermissionModeEdit(row scanner) (edit session.PermissionModeEdit, digest string, err error) {
 	var updated, created int64
 	err = row.Scan(&edit.ID, &digest, &edit.SessionID, &edit.Policy.TreeID, &edit.ExpectedRevision, &edit.Mode,
-		&edit.PreviousMode, &edit.Policy.Revision, &updated, &created)
+		&edit.PreviousMode, &edit.Policy.Revision, &updated, &created, &edit.Policy.DenyInteractive)
 	edit.Policy.Mode, edit.Policy.UpdatedAt, edit.CreatedAt = edit.Mode, timestamp(updated), timestamp(created)
 	return edit, digest, found(err)
 }
@@ -111,8 +111,8 @@ func (s *Store) ApplyPermissionMode(ctx context.Context, request session.Permiss
 		}
 		created := now()
 		if _, err := tx.ExecContext(ctx, `INSERT INTO permission_mode_edits
- (id,digest,session_id,tree_id,expected_revision,mode,previous_mode,revision,updated_at,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-			request.ID, digest, owner.ID, policy.TreeID, request.ExpectedRevision, request.Mode, oldMode, policy.Revision, policy.UpdatedAt.UnixMicro(), created); err != nil {
+ (id,digest,session_id,tree_id,expected_revision,mode,previous_mode,revision,updated_at,created_at,deny_interactive) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+			request.ID, digest, owner.ID, policy.TreeID, request.ExpectedRevision, request.Mode, oldMode, policy.Revision, policy.UpdatedAt.UnixMicro(), created, policy.DenyInteractive); err != nil {
 			return err
 		}
 		result = session.PermissionModeEdit{PermissionModeRequest: request, Policy: policy, PreviousMode: oldMode, CreatedAt: timestamp(created)}

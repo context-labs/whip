@@ -770,6 +770,16 @@ export const manifest = {
       "result": "PermissionModeEdit"
     },
     {
+      "name": "permissions.set_denial",
+      "params": "SetPermissionDenialParams",
+      "result": "PermissionDenialEdit"
+    },
+    {
+      "name": "permissions.denial_edit",
+      "params": "PermissionModeEditParams",
+      "result": "PermissionDenialEdit"
+    },
+    {
       "name": "permissions.mode_edit",
       "params": "PermissionModeEditParams",
       "result": "PermissionModeEdit"

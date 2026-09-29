@@ -428,7 +428,7 @@ test('human question reads and answers preserve exact identity and delivery unce
 });
 
 test('permission mode edits preserve exact receipts and never replay delivery automatically', async () => {
-  const policy = { tree_id: 'tree', mode: 'automatic', revision: '9007199254740994', updated_at: '2026-09-28T00:00:00Z' };
+  const policy = { tree_id: 'tree', deny_interactive: false, mode: 'automatic', revision: '9007199254740994', updated_at: '2026-09-28T00:00:00Z' };
   const params = { session_id: 'root', expected_revision: '9007199254740993', mode: 'automatic' };
   const receipt = { id: 'Edit.Mixed-Case', ...params, previous_mode: 'prompt', policy, created_at: policy.updated_at };
   const calls = [];

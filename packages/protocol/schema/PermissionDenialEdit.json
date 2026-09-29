@@ -14,19 +14,11 @@
       "pattern": "^[1-9][0-9]{0,18}$",
       "format": "counter"
     },
-    "mode": {
-      "type": "string",
-      "enum": [
-        "prompt",
-        "automatic"
-      ]
+    "deny_interactive": {
+      "type": "boolean"
     },
-    "previous_mode": {
-      "type": "string",
-      "enum": [
-        "prompt",
-        "automatic"
-      ]
+    "previous_denial": {
+      "type": "boolean"
     },
     "policy": {
       "type": "object",
@@ -67,15 +59,15 @@
       "type": "string"
     }
   },
-  "$id": "https://whip.dev/protocol/v4/PermissionModeEdit",
+  "$id": "https://whip.dev/protocol/v4/PermissionDenialEdit",
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "PermissionModeEdit",
+  "title": "PermissionDenialEdit",
   "required": [
     "id",
     "session_id",
     "expected_revision",
-    "mode",
-    "previous_mode",
+    "deny_interactive",
+    "previous_denial",
     "policy",
     "created_at"
   ],

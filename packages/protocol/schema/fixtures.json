@@ -5419,9 +5419,58 @@
     "valid": false
   },
   {
+    "type": "SetPermissionDenialParams",
+    "value": {
+      "edit_id": "deny",
+      "session_id": "root",
+      "expected_revision": "9007199254740993",
+      "deny_interactive": true
+    },
+    "valid": true
+  },
+  {
+    "type": "PermissionDenialEdit",
+    "value": {
+      "id": "Deny.Mixed-Case",
+      "session_id": "root",
+      "expected_revision": "9007199254740993",
+      "deny_interactive": false,
+      "previous_denial": true,
+      "policy": {
+        "tree_id": "tree",
+        "deny_interactive": false,
+        "mode": "automatic",
+        "revision": "9007199254740994",
+        "updated_at": "2026-09-28T00:00:00Z"
+      },
+      "created_at": "2026-09-28T00:00:00Z"
+    },
+    "valid": true
+  },
+  {
+    "type": "SetPermissionDenialParams",
+    "value": {
+      "edit_id": "deny",
+      "session_id": "root",
+      "expected_revision": "1"
+    },
+    "valid": false
+  },
+  {
+    "type": "SetPermissionDenialParams",
+    "value": {
+      "edit_id": "deny",
+      "session_id": "root",
+      "expected_revision": "1",
+      "deny_interactive": "true"
+    },
+    "valid": false
+  },
+  {
     "type": "PermissionPolicy",
     "value": {
       "tree_id": "tree",
+      "deny_interactive": false,
       "mode": "automatic",
       "revision": "9007199254740993",
       "updated_at": "2026-09-28T00:00:00Z"
@@ -5456,6 +5505,7 @@
       "previous_mode": "prompt",
       "policy": {
         "tree_id": "tree",
+        "deny_interactive": false,
         "mode": "automatic",
         "revision": "9007199254740994",
         "updated_at": "2026-09-28T00:00:00Z"

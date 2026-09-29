@@ -16,10 +16,11 @@ CREATE TABLE session_trees (
 CREATE TABLE permission_policies (
  tree_id TEXT PRIMARY KEY REFERENCES session_trees(id) ON DELETE CASCADE,
  mode TEXT NOT NULL CHECK(mode IN ('prompt','automatic')),
+ deny_interactive INTEGER NOT NULL DEFAULT 0 CHECK(deny_interactive IN (0,1)),
  revision INTEGER NOT NULL CHECK(revision>0), updated_at INTEGER NOT NULL
 ) STRICT;
 CREATE TRIGGER permission_policy_transition BEFORE UPDATE ON permission_policies
- WHEN NEW.tree_id IS NOT OLD.tree_id OR NEW.mode IS OLD.mode OR NEW.revision<>OLD.revision+1
+ WHEN NEW.tree_id IS NOT OLD.tree_id OR (NEW.mode IS OLD.mode AND NEW.deny_interactive IS OLD.deny_interactive) OR NEW.revision<>OLD.revision+1
  BEGIN SELECT RAISE(ABORT, 'permission policy requires a new revision'); END;
 -- Receipts outlive their tree; retrying an old edit cannot recreate authority.
 CREATE TABLE permission_mode_edits (
@@ -27,6 +28,7 @@ CREATE TABLE permission_mode_edits (
  tree_id TEXT NOT NULL, expected_revision INTEGER NOT NULL CHECK(expected_revision>0),
  mode TEXT NOT NULL CHECK(mode IN ('prompt','automatic')),
  previous_mode TEXT NOT NULL CHECK(previous_mode IN ('prompt','automatic')),
+ deny_interactive INTEGER NOT NULL CHECK(deny_interactive IN (0,1)),
  revision INTEGER NOT NULL CHECK(revision=expected_revision+(mode<>previous_mode)),
  updated_at INTEGER NOT NULL, created_at INTEGER NOT NULL
 ) STRICT;
@@ -34,6 +36,19 @@ CREATE TRIGGER permission_mode_edit_immutable BEFORE UPDATE ON permission_mode_e
  BEGIN SELECT RAISE(ABORT, 'permission mode edit is immutable'); END;
 CREATE TRIGGER permission_mode_edit_retained BEFORE DELETE ON permission_mode_edits
  BEGIN SELECT RAISE(ABORT, 'permission mode receipt must be retained'); END;
+CREATE TABLE permission_denial_edits (
+ id TEXT PRIMARY KEY, digest TEXT NOT NULL, session_id TEXT NOT NULL,
+ tree_id TEXT NOT NULL, expected_revision INTEGER NOT NULL CHECK(expected_revision>0),
+ deny_interactive INTEGER NOT NULL CHECK(deny_interactive IN (0,1)),
+ previous_denial INTEGER NOT NULL CHECK(previous_denial IN (0,1)),
+ mode TEXT NOT NULL CHECK(mode IN ('prompt','automatic')),
+ revision INTEGER NOT NULL CHECK(revision=expected_revision+(deny_interactive<>previous_denial)),
+ updated_at INTEGER NOT NULL, created_at INTEGER NOT NULL
+) STRICT;
+CREATE TRIGGER permission_denial_edit_immutable BEFORE UPDATE ON permission_denial_edits
+ BEGIN SELECT RAISE(ABORT, 'permission denial edit is immutable'); END;
+CREATE TRIGGER permission_denial_edit_retained BEFORE DELETE ON permission_denial_edits
+ BEGIN SELECT RAISE(ABORT, 'permission denial receipt must be retained'); END;
 CREATE TABLE sessions (
  id TEXT PRIMARY KEY, tree_id TEXT NOT NULL REFERENCES session_trees(id) ON DELETE CASCADE,
  parent_id TEXT, definition_id TEXT NOT NULL, definition_revision TEXT NOT NULL,

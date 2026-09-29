@@ -158,6 +158,14 @@ export class Client {
     return this.call('permissions.mode_edit', { session_id: sessionID, edit_id: editID }, options);
   }
 
+  setPermissionDenial(params: Omit<Operations['permissions.set_denial']['params'], 'edit_id'>, editID: string, options: CallOptions = {}): Promise<Operations['permissions.set_denial']['result']> {
+    return this.call('permissions.set_denial', { ...params, edit_id: editID }, options);
+  }
+
+  getPermissionDenialEdit(sessionID: string, editID: string, options: CallOptions = {}): Promise<Operations['permissions.denial_edit']['result']> {
+    return this.call('permissions.denial_edit', { session_id: sessionID, edit_id: editID }, options);
+  }
+
   getDefaultPermissionMode(options: CallOptions = {}): Promise<Operations['host.permission_default']['result']> {
     return this.call('host.permission_default', {}, options);
   }

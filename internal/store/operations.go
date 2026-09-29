@@ -204,7 +204,7 @@ func (s *Store) admitOperation(ctx context.Context, spec session.OperationSpec, 
 					if err != nil {
 						return err
 					}
-					if policy.Mode == session.PermissionAutomatic {
+					if policy.Mode == session.PermissionAutomatic && !policy.DenyInteractive {
 						permissionRevision, state = &policy.Revision, session.OperationReady
 					}
 				}
@@ -236,6 +236,19 @@ func (s *Store) admitOperation(ctx context.Context, spec session.OperationSpec, 
 			}
 		}
 		if state == session.OperationWaiting {
+			policy, err := readPermissionPolicy(ctx, tx, ownerID)
+			if err != nil {
+				return err
+			}
+			if policy.DenyInteractive {
+				operation, err := readOperation(ctx, tx, spec.ID)
+				if err != nil {
+					return err
+				}
+				failure := "tree policy denies interactive tool permissions"
+				result, err = settleOperation(ctx, tx, operation, session.OperationResult{State: session.OperationDenied, Failure: &failure})
+				return err
+			}
 			owner, err := readSession(ctx, tx, ownerID)
 			if err != nil {
 				return err
@@ -365,7 +378,7 @@ func authorizeOperation(ctx context.Context, q querier, operation session.Operat
 		if err != nil {
 			return err
 		}
-		if policy.Mode != session.PermissionAutomatic || policy.Revision != *operation.PermissionRevision {
+		if policy.DenyInteractive || policy.Mode != session.PermissionAutomatic || policy.Revision != *operation.PermissionRevision {
 			return ErrConflict
 		}
 		return nil

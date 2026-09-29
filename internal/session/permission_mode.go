@@ -33,10 +33,11 @@ func ResolvePermissionMode(m PermissionMode) (PermissionMode, error) {
 }
 
 type PermissionPolicy struct {
-	TreeID    TreeID
-	Mode      PermissionMode
-	Revision  Revision
-	UpdatedAt time.Time
+	DenyInteractive bool
+	TreeID          TreeID
+	Mode            PermissionMode
+	Revision        Revision
+	UpdatedAt       time.Time
 }
 
 type PermissionModeRequest struct {
@@ -65,4 +66,24 @@ type PermissionModeEdit struct {
 	Policy       PermissionPolicy
 	PreviousMode PermissionMode
 	CreatedAt    time.Time
+}
+
+// PermissionDenialRequest changes whether ungranted work can request consent.
+// Saved mode and exact explicit grants remain separate authorities.
+type PermissionDenialRequest struct {
+	ID               string    `json:"id"`
+	SessionID        SessionID `json:"session_id"`
+	ExpectedRevision Revision  `json:"expected_revision,string"`
+	DenyInteractive  bool      `json:"deny_interactive"`
+}
+
+func (r PermissionDenialRequest) Validate() error {
+	return validateControl(r.ID, r.SessionID, r.ExpectedRevision)
+}
+
+type PermissionDenialEdit struct {
+	PermissionDenialRequest
+	Policy         PermissionPolicy
+	PreviousDenial bool
+	CreatedAt      time.Time
 }

@@ -150,7 +150,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return dispatchHostProfiles(ctx, r, method, raw)
 	case "host.execution_defaults", "host.set_execution_defaults":
 		return dispatchExecutionDefaults(ctx, r, method, raw)
-	case "permissions.policy", "permissions.set_mode", "permissions.mode_edit", "host.permission_default", "host.set_permission_default":
+	case "permissions.set_denial", "permissions.denial_edit", "permissions.policy", "permissions.set_mode", "permissions.mode_edit", "host.permission_default", "host.set_permission_default":
 		return dispatchPermissionMode(ctx, r, method, raw)
 	case "questions.get", "questions.list", "questions.answer":
 		return dispatchQuestion(ctx, r, method, raw)

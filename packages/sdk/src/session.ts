@@ -88,6 +88,8 @@ export class Session {
   readonly permissions = {
     list: (params: Page<'permissions.list'> = {}, options: CallOptions = {}) => this.client.call('permissions.list', { limit: 50, ...params, session_id: this.id }, options),
     policy: (options: CallOptions = {}) => this.client.getPermissionPolicy(this.id, options),
+    setDenial: (params: Omit<Params<'permissions.set_denial'>, 'session_id' | 'edit_id'>, editID: string, options: CallOptions = {}) => this.client.setPermissionDenial({ ...params, session_id: this.id }, editID, options),
+    denialEdit: (editID: string, options: CallOptions = {}) => this.client.getPermissionDenialEdit(this.id, editID, options),
     setMode: (params: Omit<Params<'permissions.set_mode'>, 'session_id' | 'edit_id'>, editID: string, options: CallOptions = {}) => this.client.setPermissionMode({ ...params, session_id: this.id }, editID, options),
     resolve: async (operationID: string, approved: boolean, options: CallOptions = {}) => {
       await this.operations.get(operationID, options);
