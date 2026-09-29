@@ -81,6 +81,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await page.getByRole('menuitem', { name: 'Session details', exact: true }).click();
     const details = page.getByRole('dialog', { name: 'Session details', exact: true });
     const childLink = details.getByRole('link', { name: 'perf-child-000', exact: true });
+    await details.locator('article code').first().waitFor();
     for (let index = 0; index < 7 && !await childLink.count(); index++) {
       const prior = await details.locator('article code').first().textContent();
       assert.ok(await details.locator('article').count() <= 16, 'Agent inspector exceeded its native page bound');
