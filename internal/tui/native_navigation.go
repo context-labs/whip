@@ -34,7 +34,7 @@ func (m *nativeModel) navigationRead(label string, call func(context.Context) na
 }
 
 func (m *nativeModel) navigationAllowed() bool {
-	if m.uncertain != nil || m.retryControl != nil || m.standingDraft != nil || m.sending || m.controlling {
+	if m.uncertain != nil || m.rejected != nil || m.retryControl != nil || m.standingDraft != nil || m.sending || m.controlling {
 		m.status = "Resolve the pending input, control, or standing draft before switching sessions."
 		return false
 	}
@@ -149,11 +149,19 @@ func (m *nativeModel) attachSession(owner protocol.Session) error {
 	if err != nil {
 		return err
 	}
+	var retained *client.InputCommand
+	if m.recovery != nil {
+		retained, err = m.recovery.restore(m.connection, owner.ID)
+		if err != nil {
+			return err
+		}
+	}
 	m.closeMenu()
 	m.invalidateRead()
 	m.navigationRequest++
 	m.handle, m.owner = handle, owner
 	m.permissionPolicy = nil
+	m.uncertain, m.recoveryCheck = retained, retained != nil
 	m.observer, m.ready, m.cancelling = nil, false, false
 	m.history = nativeTranscript{owner: owner.ID}
 	m.activity = protocol.SessionActivity{SessionID: owner.ID, Lifecycle: owner.Lifecycle}

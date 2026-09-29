@@ -39,4 +39,7 @@ func (m *nativeModel) closeMenu() {
 func (m *nativeModel) close() {
 	m.closeMenu()
 	m.work.close()
+	if m.recovery != nil {
+		_ = m.recovery.root.Close()
+	}
 }

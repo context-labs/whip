@@ -55,8 +55,20 @@ func RunNative(ctx context.Context, connection *client.Client, options NativeOpt
 	defer m.close()
 	m.notesHome, m.preferencesDirectory, m.preferences = options.ClientHome, directory, preferences
 	m.showReasoning = nativePreferenceLabel(preferences.Thinking, true) == "on"
+	m.recovery, err = openNativeRecovery(directory, connection.Identity())
+	if err != nil {
+		return string(owner.ID), err
+	}
+	m.uncertain, err = m.recovery.restore(connection, owner.ID)
+	if err != nil {
+		return string(owner.ID), err
+	}
+	m.recoveryCheck = m.uncertain != nil
 	m.initialPrompt = options.InitialPrompt
 	m.input.SetValue(options.InitialPrompt)
+	if m.uncertain != nil {
+		m.initialPrompt = ""
+	}
 	m.status = "Session " + string(owner.ID) + " · /setup /model /sessions /settings · Ctrl+C twice detaches"
 	specs, failures := theme.Load(directory)
 	themeMu.Lock()
@@ -110,6 +122,9 @@ func nativeClientDirectory(home string) (string, error) {
 	info, err := root.Lstat(name)
 	if err != nil || !info.IsDir() {
 		return "", errors.New("native client directory must be a directory, not a symbolic link")
+	}
+	if err := nativeSyncRoot(root); err != nil {
+		return "", err
 	}
 	return filepath.Join(home, name), nil
 }

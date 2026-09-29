@@ -42,21 +42,35 @@ func testNativeTUIPromptContext(t *testing.T) {
 		id  string
 		err error
 	}
+	acknowledged := make(chan struct{}, 1)
 	done := make(chan outcome, 1)
 	joined := make(chan struct{})
 	clientHome := t.TempDir()
 	t.Cleanup(func() { cancel(); _ = writer.Close(); <-joined })
 	go func() {
 		defer close(joined)
-		id, err := tui.RunNative(ctx, connection, tui.NativeOptions{Resume: string(owner.ID), ClientHome: clientHome, InitialPrompt: "verify prompt environment"}, tea.WithInput(input), tea.WithOutput(io.Discard), tea.WithoutRenderer())
+		id, err := tui.RunNative(ctx, connection, tui.NativeOptions{Resume: string(owner.ID), ClientHome: clientHome, InitialPrompt: "verify prompt environment"}, tea.WithInput(input), tea.WithOutput(io.Discard), tea.WithoutRenderer(), tea.WithWindowSize(100, 30), tea.WithFilter(func(model tea.Model, message tea.Msg) tea.Msg {
+			if strings.Contains(model.View().Content, "Accepted input") {
+				select {
+				case acknowledged <- struct{}{}:
+				default:
+				}
+			}
+			return message
+		}))
 		done <- outcome{id, err}
 	}()
 	for turn := range 2 {
 		marker := "STANDING_BEFORE_EDIT"
 		if turn == 1 {
+			select {
+			case <-acknowledged:
+			case <-ctx.Done():
+				t.Fatal("terminal did not acknowledge its first input", ctx.Err())
+			}
 			marker = "STANDING_AFTER_EDIT"
 			writePromptRequestFile(t, standing, "# COMMENT_MUST_NOT_REACH_MODEL\n"+marker)
-			if _, err := io.WriteString(writer, "verify prompt environment\r"); err != nil {
+			if _, err := io.WriteString(writer, "/queue verify prompt environment\r"); err != nil {
 				t.Fatal(err)
 			}
 		}

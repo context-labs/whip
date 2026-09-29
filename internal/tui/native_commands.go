@@ -65,6 +65,19 @@ func (m *nativeModel) command(text string) tea.Cmd {
 	switch name {
 	case "/quit", "/exit", "/q":
 		return tea.Quit
+	case "/rejected":
+		if args == "restore" && m.restoreRejectedDraft() {
+			m.status = "Rejected input restored as a draft; nothing was sent."
+			return nil
+		}
+		if args == "discard" {
+			m.rejected = nil
+			m.input.Reset()
+			m.status = "Rejected draft discarded."
+			return nil
+		}
+		m.status = "usage: /rejected restore|discard"
+		return nil
 	case "/check":
 		if m.uncertain != nil {
 			m.input.Reset()

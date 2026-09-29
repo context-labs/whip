@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -70,6 +71,8 @@ type nativeModel struct {
 	preferencesDirectory            string
 	preferences                     nativePreferences
 	initialPrompt                   string
+	recovery                        *nativeRecovery
+	recoveryCheck                   bool
 	navigationRequest               uint64
 	history                         nativeTranscript
 	activity                        protocol.SessionActivity
@@ -83,6 +86,7 @@ type nativeModel struct {
 	polls                           int
 	status                          string
 	uncertain                       *client.InputCommand
+	rejected                        *client.InputCommand
 	quitArmed                       bool
 	cancelling                      bool
 	controlling                     bool
@@ -122,10 +126,11 @@ type (
 )
 
 type nativeSubmission struct {
-	command   *client.InputCommand
-	admission protocol.Admission
-	err       error
-	uncertain bool
+	command       *client.InputCommand
+	admission     protocol.Admission
+	err           error
+	uncertain     bool
+	recoveryError error
 }
 type nativeCancelled struct {
 	generation uint64
@@ -314,6 +319,10 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if renderChanged {
 			m.refresh()
 		}
+		if m.recoveryCheck && m.uncertain != nil && !m.sending {
+			m.recoveryCheck = false
+			return m, tea.Batch(nativeTick(), m.sendInput(m.uncertain, "check"))
+		}
 		if m.menu == nil && m.initialPrompt != "" && m.owner.Configuration.Model.Provider != "" && m.owner.Configuration.Model.Name != "" {
 			text := m.initialPrompt
 			m.initialPrompt = ""
@@ -322,11 +331,26 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nativeTick()
 	case nativeSubmission:
 		m.sending = false
-		if value.uncertain {
+		if value.recoveryError != nil {
+			m.uncertain = value.command
+			outcome := "Input accepted"
+			if value.err != nil {
+				outcome = "Input rejected: " + value.err.Error()
+			} else if value.admission.Input == nil {
+				outcome = "Original input was deleted"
+			}
+			m.status = outcome + "; local recovery cleanup failed: " + value.recoveryError.Error() + ". /check rereads the original receipt and retries cleanup only."
+		} else if value.uncertain {
 			m.uncertain = value.command
 			m.status = "Input acceptance is uncertain; inspect the original request before submitting again. " + value.err.Error()
 		} else if value.err != nil {
 			m.status = "Input rejected: " + value.err.Error()
+			m.rejected = value.command
+			if m.input.Value() == "" && m.restoreRejectedDraft() {
+				m.status += ". Original draft restored."
+			} else if m.rejected != nil {
+				m.status += ". Rejected draft retained: /rejected restore or /rejected discard."
+			}
 		} else {
 			m.uncertain = nil
 			if value.admission.Input == nil {
@@ -511,6 +535,10 @@ func (m *nativeModel) submit() tea.Cmd {
 }
 
 func (m *nativeModel) prompt(text, delivery string) tea.Cmd {
+	if m.rejected != nil {
+		m.status = "A rejected draft is retained. /rejected restore or /rejected discard before another submission."
+		return nil
+	}
 	if m.standingDraft != nil {
 		m.status = "An unsaved standing draft remains: /me draft, /me retry, or /me discard."
 		return nil
@@ -536,6 +564,16 @@ func (m *nativeModel) prompt(text, delivery string) tea.Cmd {
 		m.status = err.Error()
 		return nil
 	}
+	if m.recovery != nil {
+		if err := m.recovery.save(command); err != nil {
+			m.status = "Input was not sent: " + err.Error()
+			retained, restoreErr := m.recovery.restore(m.connection, m.owner.ID)
+			if restoreErr == nil && retained != nil {
+				m.uncertain, m.recoveryCheck = retained, true
+			}
+			return nil
+		}
+	}
 	m.input.Reset()
 	m.notice = ""
 	m.latest()
@@ -544,16 +582,29 @@ func (m *nativeModel) prompt(text, delivery string) tea.Cmd {
 
 func (m *nativeModel) sendInput(command *client.InputCommand, action string) tea.Cmd {
 	m.sending = true
+	recovery := m.recovery
 	return func() tea.Msg {
 		ctx, done, err := m.work.begin()
 		if err != nil {
-			return nativeSubmission{command: command, err: err}
+			return nativeSubmission{command: command, err: err, uncertain: recovery != nil}
 		}
 		defer done()
+		settled := func(admission protocol.Admission, resultErr error) nativeSubmission {
+			result := nativeSubmission{command: command, admission: admission, err: resultErr}
+			if recovery != nil {
+				result.recoveryError = recovery.clear(command)
+			}
+			return result
+		}
+		if action != "check" && recovery != nil {
+			if err := recovery.save(command); err != nil {
+				return nativeSubmission{command: command, err: fmt.Errorf("recovery could not be durably published; this send was not dispatched: %w", err), uncertain: true}
+			}
+		}
 		if action == "check" {
 			value, found, err := command.Check(ctx)
 			if err == nil && found {
-				return nativeSubmission{command: command, admission: value}
+				return settled(value, nil)
 			}
 			if err == nil {
 				err = errors.New("original request not found; /retry explicitly repeats the same request")
@@ -567,14 +618,14 @@ func (m *nativeModel) sendInput(command *client.InputCommand, action string) tea
 			value, err = command.Send(ctx)
 		}
 		if err == nil {
-			return nativeSubmission{command: command, admission: value}
+			return settled(value, nil)
 		}
 		if _, rejected := errors.AsType[*client.Error](err); rejected {
-			return nativeSubmission{command: command, err: err}
+			return settled(protocol.Admission{}, err)
 		}
 		value, found, checkErr := command.Check(ctx)
 		if checkErr == nil && found {
-			return nativeSubmission{command: command, admission: value}
+			return settled(value, nil)
 		}
 		return nativeSubmission{command: command, err: errors.Join(err, checkErr), uncertain: true}
 	}
@@ -706,4 +757,17 @@ func nativeContextLabel(value protocol.ContextUsage) string {
 		label += " · earlier history tail"
 	}
 	return label
+}
+
+func (m *nativeModel) restoreRejectedDraft() bool {
+	if m.rejected == nil || m.rejected.Record().Method != "sessions.submit" {
+		return false
+	}
+	var params protocol.SubmitParams
+	if err := json.Unmarshal(m.rejected.Record().Params, &params); err != nil || len(params.Parts) != 1 || params.Parts[0].Type != "text" {
+		return false
+	}
+	m.input.SetValue(params.Parts[0].Text)
+	m.rejected = nil
+	return true
 }
