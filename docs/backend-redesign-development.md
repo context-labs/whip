@@ -3284,3 +3284,48 @@ vulnerabilities. Exact logs are `/tmp/whip-host-resources-release-phase.log` and
 checkpoint will be recorded against its published head, not inferred from local
 results or another PR.
 
+
+## Uniform session clients, direct human actions and exact recovery
+
+The integrated client contract now uses fresh schema42/config16/protocol4.
+Guest utilities (8f57b136e) preserve scoped text artifacts and intrinsic own
+permission inspection. Direct human tool/shell admission (95ed567b5) shares the
+ordinary receipt/input/turn/permission/dispatcher path with exact direct-turn
+provenance, without inventing model calls, interpreter cells or conversation.
+The retained parity audit is `.ai-docs/audits/backend-redesign-phase5-parity-2026-09-28.md`;
+its unresolved families remain implementation obligations.
+
+History paging2c5e5c3b2 reads tail/revision/page in one statement; activity and
+input discovery9293ab46f expose exact owner state including another client's
+queued work. Receipt matching65e3e3932 compares original typed parameters using
+shared Go admission normalization, without sending or admitting work. Missing,
+changed payload and tombstoned outcomes remain distinct across restart.
+
+SDK checkpoints5b542dba7/2b5cd949f/ef5b00662/47c5228bc/a474a180c/c1dfef7a7
+provide inert uniform root/child handles, explicit bounded command journals,
+immutable bounded session/catalog views, activity/input services and thin React
+subscriptions. A recovered identity alone cannot prove payload acceptance;
+ordinary commands use read-only receipt matching. Application drafts, selection,
+reading anchors and shared observation lifetimes remain outside SDK truth.
+
+The complete local phase gate passes: store217.764s/runtime267.254s/RPC50.819s/
+process114.530s race+shuffle,11 strict-CSP v4 contracts,81 SDK tests, generated
+drift/examples, production fixture31.670s, gateway/session/terminal3.620s,
+Unix/browser executors2.190s/1.788s, shell1.924s, retained crash2.495s and selected
+daemon races2.704s. Analysis reports zero new lint findings and no reachable
+vulnerabilities. Logs: `/tmp/whip-session-clients-phase.log` and
+`/tmp/whip-session-clients-analysis.log`. The gate began before the CI-only task
+split; its command union and package/scenario/deadline coverage are unchanged.
+The split was checked with `task --dry check:phase` as well.
+
+PR255's base repair was inherited as7ece7203f: its earlier conflict was solely
+chronological documentation because the already-tested PTY patch existed under
+a cherry-picked identity. c54b64c98 preserves its exact tree; bcec1270f also
+inherits the required CI stage split. No pull request was merged. Hosted results
+for the split jobs remain pending and must be verified against their exact heads.
+
+The uniform SDK handle/view acceptance item is complete. Phase6 overall remains
+open because supported product clients still need cutover and their own gates.
+Native computer/browser controls, host bootstrap/attention/trace, saved host
+profiles and remaining CLI controls are proceeding in isolated leaves; none of
+those unintegrated leaves is credited here. Phase7 deletion/release work remains.
