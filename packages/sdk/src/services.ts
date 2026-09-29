@@ -19,6 +19,8 @@ export class Trees {
     if (remaining.size) throw new TypeError('Tree summary omitted a requested root');
     return result;
   }
+  /** A bounded fresh activity ordering; catalog_revision does not freeze activity or provide a cursor. */
+  recent(limit = 50, options: CallOptions = {}) { return this.client.call('trees.recent', { limit }, options); }
   catalog(options: CallOptions = {}) { return this.client.treeCatalog(options); }
   create(params: Omit<Params<'trees.create'>, 'creation_id'>, creationID: string, options: CallOptions = {}) { return this.client.createTree(params, creationID, options); }
   creation(creationID: string, options: CallOptions = {}) { return this.client.getTreeCreation(creationID, options); }

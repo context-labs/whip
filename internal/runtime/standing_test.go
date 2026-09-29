@@ -168,8 +168,16 @@ func TestStandingInstructionCaptureAuditsRawFileAndComposesFilteredText(t *testi
 			if tc.filtered != "" {
 				want += "\n\n--- Standing user instructions ---\n" + tc.filtered
 			}
-			if !strings.HasPrefix(request.Instructions, want+"\nThe execute tool runs ") || strings.Contains(request.Instructions, "private comment") || strings.Contains(request.Instructions, path) {
-				t.Fatal("standing composition lost filtering, ordering or host path privacy")
+			if !strings.HasPrefix(request.Instructions, want+"\n\nIdentity: root agent ") {
+				t.Fatal("configured and filtered standing instructions must precede host context")
+			}
+			environment := strings.Index(request.Instructions, "\nEnvironment:\n<env>")
+			execution := strings.Index(request.Instructions, "\nThe execute tool runs ")
+			if environment < len(want) || execution < environment {
+				t.Fatal("host environment must precede the execution guide")
+			}
+			if strings.Contains(request.Instructions, "private comment") || strings.Contains(request.Instructions, filepath.Dir(path)) {
+				t.Fatal("standing composition exposed filtered comments or private source directory")
 			}
 			manifest, err := r.InstructionManifest(t.Context(), done.Turn.ID)
 			if err != nil || manifest == nil || len(manifest.Sources) != 1 {

@@ -13,6 +13,9 @@ import (
 // configuration checks. A second direct action cannot join an existing queue;
 // ordinary prompt admissions can queue behind this accepted input.
 func (s *Store) AdmitHostOperation(ctx context.Context, identity session.RequestIdentity, owner session.SessionID, operation session.HostOperation) (result Admission, err error) {
+	if operation.Module == "agents" {
+		return result, session.ErrInvalid
+	}
 	if err := validatePublicIdentity(identity); err != nil {
 		return result, err
 	}
@@ -26,31 +29,37 @@ func (s *Store) AdmitHostOperation(ctx context.Context, identity session.Request
 		return result, err
 	}
 	err = s.write(ctx, func(tx *sql.Tx) error {
-		receipt, err := readReceipt(ctx, tx, identity)
-		if err == nil {
-			if receipt.Digest != digest {
-				return ErrConflict
-			}
-			result, err = readAdmission(ctx, tx, identity)
-			return err
-		}
-		if !errors.Is(err, ErrNotFound) {
-			return err
-		}
-		var busy bool
-		if err := tx.QueryRowContext(ctx, `SELECT
- EXISTS(SELECT 1 FROM turns WHERE session_id=? AND state IN ('running','cancelling')) OR
- EXISTS(SELECT 1 FROM inputs WHERE session_id=? AND turn_id IS NULL AND steered_turn_id IS NULL AND cancelled_at IS NULL) OR
- EXISTS(SELECT 1 FROM workspace_actions WHERE session_id=? AND state='claimed')`, owner, owner, owner).Scan(&busy); err != nil {
-			return err
-		}
-		if busy {
-			return ErrBusy
-		}
-		result, err = admitInput(ctx, tx, identity, digest, request)
+		result, err = admitHostOperation(ctx, tx, identity, request, digest)
 		return err
 	})
 	return
+}
+
+func admitHostOperation(ctx context.Context, tx *sql.Tx, identity session.RequestIdentity, request Submission, digest string) (result Admission, err error) {
+	owner := request.SessionID
+	receipt, err := readReceipt(ctx, tx, identity)
+	if err == nil {
+		if receipt.Digest != digest {
+			return result, ErrConflict
+		}
+		result, err = readAdmission(ctx, tx, identity)
+		return result, err
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return result, err
+	}
+	var busy bool
+	if err := tx.QueryRowContext(ctx, `SELECT
+ EXISTS(SELECT 1 FROM turns WHERE session_id=? AND state IN ('running','cancelling')) OR
+ EXISTS(SELECT 1 FROM inputs WHERE session_id=? AND turn_id IS NULL AND steered_turn_id IS NULL AND cancelled_at IS NULL) OR
+ EXISTS(SELECT 1 FROM workspace_actions WHERE session_id=? AND state='claimed')`, owner, owner, owner).Scan(&busy); err != nil {
+		return result, err
+	}
+	if busy {
+		return result, ErrBusy
+	}
+	result, err = admitInput(ctx, tx, identity, digest, request)
+	return result, err
 }
 
 func readHostOperation(ctx context.Context, q querier, input session.InputID) (session.HostOperation, error) {

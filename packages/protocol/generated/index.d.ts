@@ -133,7 +133,7 @@ export interface Admission {
           page_title?: string;
         };
         host_operation: {
-          module: "shell" | "files" | "tools" | "computer" | "browser";
+          module: "shell" | "files" | "tools" | "computer" | "browser" | "agents";
           name: string;
           arguments_base64: string;
         };
@@ -2468,7 +2468,7 @@ export interface GoalAdmission {
             page_title?: string;
           };
           host_operation: {
-            module: "shell" | "files" | "tools" | "computer" | "browser";
+            module: "shell" | "files" | "tools" | "computer" | "browser" | "agents";
             name: string;
             arguments_base64: string;
           };
@@ -3827,7 +3827,7 @@ export type Input =
         page_title?: string;
       };
       host_operation: {
-        module: "shell" | "files" | "tools" | "computer" | "browser";
+        module: "shell" | "files" | "tools" | "computer" | "browser" | "agents";
         name: string;
         arguments_base64: string;
       };
@@ -4017,7 +4017,7 @@ export interface InputSteeringResult {
           page_title?: string;
         };
         host_operation: {
-          module: "shell" | "files" | "tools" | "computer" | "browser";
+          module: "shell" | "files" | "tools" | "computer" | "browser" | "agents";
           name: string;
           arguments_base64: string;
         };
@@ -7601,6 +7601,11 @@ export interface RPCError {
     | "PROVIDER_KEY_STORAGE"
     | "MCP_UNAVAILABLE"
     | "BROWSER_EVENT_STALE"
+    | "TRANSFER_FAILED"
+    | "TRANSFER_UNCERTAIN"
+    | "TRANSFER_INTERRUPTED"
+    | "TRANSFER_CANCELLED"
+    | "TRANSFER_DELETED"
     | "INTERNAL";
 }
 export interface ReadCompletionParams {
@@ -7727,6 +7732,39 @@ export interface ReadWorkspaceActionParams {
   session_id: string;
   action_id: string;
 }
+export interface RecentTreesParams {
+  limit: number;
+}
+export interface RecentTreesResult {
+  catalog_revision: string;
+  /**
+   * @maxItems 100
+   */
+  items: {
+    tree: {
+      id: string;
+      metadata: {
+        title: null | string;
+        archived: boolean;
+        pinned: boolean;
+      };
+      engine: "starlark" | "quickjs";
+      revision: string;
+      created_at: string;
+    };
+    root_id: string;
+    working_directory: string;
+    model: {
+      provider: string;
+      name: string;
+      effort: string;
+      temperature?: null | number;
+      top_p?: null | number;
+    };
+    last_activity_at: string;
+  }[];
+  has_more: boolean;
+}
 export interface RemoveProviderParams {
   revision: string;
   provider: string;
@@ -7830,6 +7868,11 @@ export type Response = {
       | "PROVIDER_KEY_STORAGE"
       | "MCP_UNAVAILABLE"
       | "BROWSER_EVENT_STALE"
+      | "TRANSFER_FAILED"
+      | "TRANSFER_UNCERTAIN"
+      | "TRANSFER_INTERRUPTED"
+      | "TRANSFER_CANCELLED"
+      | "TRANSFER_DELETED"
       | "INTERNAL";
   };
 } & {
@@ -8613,6 +8656,10 @@ export interface ShellInteractionResult {
   };
 }
 export interface SpawnSessionParams {
+  /**
+   * @maxItems 4
+   */
+  browser_attachments?: [] | [string] | [string, string] | [string, string, string] | [string, string, string, string];
   identity: {
     client_id: string;
     request_id: string;
@@ -9011,7 +9058,7 @@ export interface SpawnSessionResult {
             page_title?: string;
           };
           host_operation: {
-            module: "shell" | "files" | "tools" | "computer" | "browser";
+            module: "shell" | "files" | "tools" | "computer" | "browser" | "agents";
             name: string;
             arguments_base64: string;
           };
@@ -9304,16 +9351,27 @@ export interface TraceExportResult {
   spans: number;
   traces: number;
 }
-export interface TracePageParams {
-  root_id: string;
-  after: string;
-  expected_revision: null | string;
-  trace_id: string;
-  roots_only: boolean;
-  limit: number;
-  max_bytes: number;
-}
+export type TracePageParams =
+  | {
+      after: string;
+      expected_revision: null | string;
+      limit: number;
+      max_bytes: number;
+      root_id: string;
+      roots_only: boolean;
+      trace_id: string;
+    }
+  | {
+      before: null | string;
+      expected_revision: null | string;
+      limit: number;
+      max_bytes: number;
+      root_id: string;
+      roots_only: boolean;
+      trace_id: string;
+    };
 export interface TracePageResult {
+  observed_at_ns: string;
   /**
    * @maxItems 2048
    */
@@ -9596,6 +9654,63 @@ export interface UpdateTreeParams {
     pinned: boolean;
   };
 }
+export interface Usage {
+  session_id: string;
+  attempts: {
+    reserved: string;
+    in_flight: string;
+    settled: string;
+    not_dispatched: string;
+    uncertain: string;
+  };
+  reported_cost: {
+    value: string;
+    attempts: string;
+    overflow: boolean;
+  };
+  estimated_cost: {
+    value: string;
+    attempts: string;
+    overflow: boolean;
+  };
+  unknown_cost: string;
+  input_tokens: {
+    value: string;
+    known_attempts: string;
+    missing_attempts: string;
+    overflow: boolean;
+  };
+  output_tokens: {
+    value: string;
+    known_attempts: string;
+    missing_attempts: string;
+    overflow: boolean;
+  };
+  reasoning_tokens: {
+    value: string;
+    known_attempts: string;
+    missing_attempts: string;
+    overflow: boolean;
+  };
+  cached_input: {
+    value: string;
+    known_attempts: string;
+    missing_attempts: string;
+    overflow: boolean;
+  };
+  cached_output: {
+    value: string;
+    known_attempts: string;
+    missing_attempts: string;
+    overflow: boolean;
+  };
+  elapsed_millis: {
+    value: string;
+    known_attempts: string;
+    missing_attempts: string;
+    overflow: boolean;
+  };
+}
 export interface WorkspaceAction {
   id: string;
   session_id: string;
@@ -9610,6 +9725,23 @@ export interface WorkspaceActionParams {
   action_id: string;
   snapshot_id: string;
   session_id: string;
+}
+export interface WorkspaceCompletionParams {
+  session_id: string;
+  kind: "mention" | "path";
+  prefix: string;
+  limit: number;
+}
+export interface WorkspaceCompletionResult {
+  working_directory: string;
+  /**
+   * @maxItems 64
+   */
+  candidates: {
+    text: string;
+    description: "" | "dir";
+  }[];
+  truncated: boolean;
 }
 export interface WorkspaceInspection {
   session_id: string;
@@ -9881,6 +10013,8 @@ export interface ContractTypes {
   ReadStateParams: ReadStateParams;
   ReadStateResult: ReadStateResult;
   ReadWorkspaceActionParams: ReadWorkspaceActionParams;
+  RecentTreesParams: RecentTreesParams;
+  RecentTreesResult: RecentTreesResult;
   RemoveProviderParams: RemoveProviderParams;
   Request: Request;
   RequestIdentity: RequestIdentity;
@@ -9957,8 +10091,11 @@ export interface ContractTypes {
   UnsubscribeStateParams: UnsubscribeStateParams;
   UpdateConfigurationParams: UpdateConfigurationParams;
   UpdateTreeParams: UpdateTreeParams;
+  Usage: Usage;
   WorkspaceAction: WorkspaceAction;
   WorkspaceActionParams: WorkspaceActionParams;
+  WorkspaceCompletionParams: WorkspaceCompletionParams;
+  WorkspaceCompletionResult: WorkspaceCompletionResult;
   WorkspaceInspection: WorkspaceInspection;
   WorkspaceResult: WorkspaceResult;
   WorkspaceSetParams: WorkspaceSetParams;
@@ -9971,6 +10108,7 @@ export interface ContractTypes {
 export interface Operations {
   "host.status": { params: EmptyParams; result: HostStatus };
   "host.stop": { params: StopHostParams; result: HostStopAccepted };
+  "workspace.complete": { params: WorkspaceCompletionParams; result: WorkspaceCompletionResult };
   "workspace.inspect": { params: SessionParams; result: WorkspaceInspection };
   "workspace.set": { params: WorkspaceSetParams; result: ControlEdit };
   "run.configure": { params: RunConfigureParams; result: ControlEdit };
@@ -10103,6 +10241,7 @@ export interface Operations {
   "mail.read": { params: ReadMailParams; result: ReadMailResult };
   "resources.list": { params: SessionParams; result: ResourcesResult };
   "resources.set": { params: SetResourceParams; result: ResourceUsage };
+  "usage.get": { params: SessionParams; result: Usage };
   "budgets.list": { params: SessionParams; result: BudgetsResult };
   "budgets.set": { params: SetBudgetParams; result: Budget };
   "sessions.observe": { params: HistoryParams; result: SessionObservation };
@@ -10131,6 +10270,7 @@ export interface Operations {
   "trees.create": { params: CreateTreeParams; result: CreateTreeResult };
   "trees.creation": { params: TreeCreationParams; result: CreateTreeResult };
   "trees.catalog": { params: EmptyParams; result: TreeCatalog };
+  "trees.recent": { params: RecentTreesParams; result: RecentTreesResult };
   "trees.list": { params: ListTreesParams; result: ListTreesResult };
   "trees.summaries": { params: TreeSummariesParams; result: TreeSummariesResult };
   "definitions.list": { params: ListDefinitionsParams; result: ListDefinitionsResult };

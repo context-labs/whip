@@ -43,16 +43,20 @@ func resolveChild(ctx context.Context, q querier, parent session.Session, reques
 }
 
 func (s *Store) PreviewChild(ctx context.Context, cellID session.CellID, request ChildRequest) (result ChildPreview, err error) {
+	return s.PreviewChildOperation(ctx, session.OperationSpec{CellID: cellID, Capability: "agents.spawn"}, request)
+}
+
+func (s *Store) PreviewChildOperation(ctx context.Context, spec session.OperationSpec, request ChildRequest) (result ChildPreview, err error) {
 	if err := validateChildRequest(session.RequestIdentity{ClientID: "operation", RequestID: "preview"}, request); err != nil {
 		return result, err
 	}
 	err = s.write(ctx, func(tx *sql.Tx) error {
-		if err := operationLive(ctx, tx, cellID); err != nil {
+		owner, turnID, err := operationOwnerLive(ctx, tx, spec)
+		if err != nil {
 			return err
 		}
-		var owner session.SessionID
 		var revision session.Revision
-		if err := tx.QueryRowContext(ctx, "SELECT t.session_id,t.config_revision FROM cells c JOIN turns t ON t.id=c.turn_id WHERE c.id=?", cellID).Scan(&owner, &revision); err != nil {
+		if err := tx.QueryRowContext(ctx, "SELECT config_revision FROM turns WHERE id=?", turnID).Scan(&revision); err != nil {
 			return found(err)
 		}
 		if owner != request.ParentID {

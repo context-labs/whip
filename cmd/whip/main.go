@@ -61,6 +61,13 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "_native-runtime" {
+		if err := nativeRuntimeCLI(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "whipcode runtime:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "_daemon" {
 		if err := daemonCLI(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "whipcode daemon:", err)

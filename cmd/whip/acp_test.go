@@ -170,7 +170,7 @@ func testAcpCLIServeExitsOnEOF(t *testing.T, authentication string) {
 
 func TestACPDaemonBackendAndMCPToolsRoundTrip(t *testing.T) {
 	var requests []llm.Request
-	runFixture(t, "daemon reply", &requests)
+	legacyRunFixture(t, "daemon reply", &requests)
 	backend := &acpDaemonBackend{
 		clientID: "acp-round-trip",
 		model:    "test", provider: "testprov",

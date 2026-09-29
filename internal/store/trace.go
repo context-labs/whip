@@ -16,6 +16,9 @@ import (
 // It never hydrates workers, replays effects or reconstructs provider input bodies.
 func (s *Store) TracePage(ctx context.Context, query session.TraceQuery) (session.TracePage, error) {
 	result := session.TracePage{Items: []session.TraceRow{}, Next: query.After}
+	if query.Before != nil {
+		result.Next = *query.Before
+	}
 	if err := query.Validate(); err != nil {
 		return result, err
 	}
@@ -34,11 +37,21 @@ func (s *Store) TracePage(ctx context.Context, query session.TraceQuery) (sessio
 	if !current && result.Revision == 0 {
 		return result, ErrNotFound
 	}
-	if query.After > result.Revision || query.ExpectedRevision != nil && *query.ExpectedRevision != result.Revision {
+	if query.After > result.Revision || query.Before != nil && *query.Before > result.Revision || query.ExpectedRevision != nil && *query.ExpectedRevision != result.Revision {
 		return result, fmt.Errorf("%w: trace revision changed", ErrConflict)
 	}
 	// Scan work is independently bounded, including when filters match nothing.
-	rows, err := tx.QueryContext(ctx, `SELECT sequence,root_id,session_id,turn_id,kind,source_id FROM trace_index WHERE root_id=? AND sequence>? ORDER BY sequence LIMIT 2049`, query.RootID, query.After)
+	statement := `SELECT sequence,root_id,session_id,turn_id,kind,source_id FROM trace_index WHERE root_id=? AND sequence>? ORDER BY sequence LIMIT 2049`
+	cursor := query.After
+	if query.Backward {
+		statement = `SELECT sequence,root_id,session_id,turn_id,kind,source_id FROM trace_index WHERE root_id=? AND sequence<=? ORDER BY sequence DESC LIMIT 2049`
+		cursor = result.Revision
+		if query.Before != nil {
+			statement = `SELECT sequence,root_id,session_id,turn_id,kind,source_id FROM trace_index WHERE root_id=? AND sequence<? ORDER BY sequence DESC LIMIT 2049`
+			cursor = *query.Before
+		}
+	}
+	rows, err := tx.QueryContext(ctx, statement, query.RootID, cursor)
 	if err != nil {
 		return result, err
 	}
@@ -95,7 +108,11 @@ func (s *Store) TracePage(ctx context.Context, query session.TraceQuery) (sessio
 	}
 	if !result.HasMore {
 		result.Next = result.Revision
+		if query.Backward {
+			result.Next = 0
+		}
 	}
+	result.ObservedAtNS = time.Now().UnixNano()
 	if err := tx.Commit(); err != nil {
 		return result, err
 	}

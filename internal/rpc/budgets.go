@@ -11,6 +11,11 @@ import (
 
 func dispatchBudget(ctx context.Context, r *runtime.Runtime, method string, raw json.RawMessage) (any, error) {
 	switch method {
+	case "usage.get":
+		return decode(raw, func(p protocol.SessionParams) (any, error) {
+			value, err := r.Usage(ctx, session.SessionID(p.SessionID))
+			return protocol.UsageFromDomain(value), err
+		})
 	case "budgets.list":
 		return decode(raw, func(p protocol.SessionParams) (any, error) {
 			values, err := r.Budgets(ctx, session.SessionID(p.SessionID))

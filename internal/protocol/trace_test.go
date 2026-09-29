@@ -24,5 +24,5 @@ func TestTraceContractsExactCountersTypedAttributesAndBounds(t *testing.T) {
 }
 
 func validateTraceAttribute(value string) error {
-	return Validate("TracePageResult", []byte(`{"revision":"1","next":"1","has_more":false,"items":[{"sequence":"1","root_id":"root","session_id":"root","turn_id":"turn","source_kind":"turn","source_id":"turn","span_id":"0123456789abcdef","span":{"trace_id":"0123456789abcdef0123456789abcdef","parent_span_id":null,"kind":"agent","name":"turn.prompt","state":"running","start_ns":"1790600000000000000","end_ns":null,"attributes":[`+value+`]}}]}`))
+	return Validate("TracePageResult", []byte(`{"observed_at_ns":"1790600000000001000","revision":"1","next":"1","has_more":false,"items":[{"sequence":"1","root_id":"root","session_id":"root","turn_id":"turn","source_kind":"turn","source_id":"turn","span_id":"0123456789abcdef","span":{"trace_id":"0123456789abcdef0123456789abcdef","parent_span_id":null,"kind":"agent","name":"turn.prompt","state":"running","start_ns":"1790600000000000000","end_ns":null,"attributes":[`+value+`]}}]}`))
 }

@@ -18,6 +18,9 @@ type HostOperation struct {
 func (h HostOperation) Validate() error {
 	allowed := false
 	switch h.Module {
+	case "agents":
+		// Only the dedicated child-transfer admission can create this input.
+		allowed = h.Name == "spawn"
 	case "browser":
 		switch h.Name {
 		case "list_tabs", "open", "attach", "run", "detach", "allow_preview_port":

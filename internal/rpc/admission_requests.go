@@ -24,6 +24,9 @@ func childRequest(p protocol.SpawnSessionParams) (store.ChildRequest, error) {
 		return store.ChildRequest{}, err
 	}
 	request := store.ChildRequest{ParentID: session.SessionID(p.ParentID), Overrides: patch, Resources: protocol.ResourceLimitsDomain(p.Resources)}
+	for _, id := range p.BrowserAttachments {
+		request.BrowserAttachments = append(request.BrowserAttachments, string(id))
+	}
 	for _, limit := range p.Budgets {
 		request.Budgets = append(request.Budgets, limit.Domain())
 	}

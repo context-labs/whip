@@ -14,6 +14,19 @@ import (
 	"github.com/context-labs/whip/internal/theme"
 )
 
+// CompleteWorkspace reads the selected session's current working directory once.
+// It does not activate a kernel, add content, or grant agent filesystem access.
+func (r *Runtime) CompleteWorkspace(ctx context.Context, id session.SessionID, request hostview.CompletionParams) (hostview.CompletionResult, error) {
+	if err := r.Err(); err != nil {
+		return hostview.CompletionResult{}, err
+	}
+	owner, err := r.store.Session(ctx, id)
+	if err != nil {
+		return hostview.CompletionResult{}, err
+	}
+	return hostview.CompleteWorkspace(ctx, owner.WorkingDirectory, request)
+}
+
 func (r *Runtime) HostDirectories(ctx context.Context, request hostview.DirectoryParams) (hostview.DirectoryResult, error) {
 	if err := r.Err(); err != nil {
 		return hostview.DirectoryResult{}, err

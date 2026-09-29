@@ -16,6 +16,17 @@ export async function hostViewsAcceptance(runtime,client,createParams,evidence,d
  const resolved=await client.resolveHostTheme({name:'host-fixture',json:''},deadline());assert.equal(resolved.colors.primary,'#abcdef');
  assert.deepEqual(await client.call('trees.catalog',{},deadline()),before);
  const {root}=await client.call('trees.create',{...createParams,creation_id:'host-attention',working_directory:workspace},deadline());
+ const childDirectory=join(runtime.directory,'completion-child');await mkdir(childDirectory);
+ await writeFile(join(workspace,'parent-note.md'),'PARENT_FILE_BODY');await writeFile(join(childDirectory,'child-note.md'),'CHILD_FILE_BODY');
+ const child=await client.spawn({parent_id:root.id,overrides:{},working_directory:childDirectory,parts:[{type:'text',text:'completion child'}],grant_ids:[]},'completion-child',deadline());
+ const parentCompletion=await client.completeWorkspace({session_id:root.id,kind:'mention',prefix:'note',limit:64},deadline());
+ const childCompletion=await client.completeWorkspace({session_id:child.session.id,kind:'mention',prefix:'note',limit:64},deadline());
+ assert.deepEqual(parentCompletion,{working_directory:workspace,candidates:[{text:'@parent-note.md',description:''}],truncated:false});
+ assert.deepEqual(childCompletion,{working_directory:childDirectory,candidates:[{text:'@child-note.md',description:''}],truncated:false});
+ const explicit=await client.completeWorkspace({session_id:child.session.id,kind:'path',prefix:workspace+'/parent',limit:64},deadline());
+ assert.deepEqual(explicit.candidates,[{text:workspace+'/parent-note.md',description:''}]);
+ assert.equal(JSON.stringify([parentCompletion,childCompletion,explicit]).includes('_FILE_BODY'),false);
+ await client.wait('completion-child',deadline());
  await client.callTool(root.id,{module:'files',name:'read',arguments_base64:Buffer.from('{"path":".agents/skills/preview/SKILL.md"}').toString('base64')},'host-attention-read',deadline());
  let observed;
  for(let attempt=0;attempt<100;attempt++) {
@@ -28,5 +39,5 @@ export async function hostViewsAcceptance(runtime,client,createParams,evidence,d
  const permissions=await client.call('permissions.list',{session_id:root.id,limit:10},deadline());
  await client.call('permissions.resolve',{operation_id:permissions.items.find(item=>item.state==='pending').operation_id,approved:false},deadline());
  assert.equal((await client.wait('host-attention-read',deadline())).turn.state,'failed');
- evidence.push({host_views:{directories,skills,theme:resolved.id}});
+ evidence.push({host_views:{directories,skills,theme:resolved.id,workspace_completion:{parent:parentCompletion,child:childCompletion}}});
 }

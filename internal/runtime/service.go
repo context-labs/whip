@@ -58,6 +58,9 @@ func (r *Runtime) SpawnChild(ctx context.Context, identity session.RequestIdenti
 	if err := r.Err(); err != nil {
 		return store.ChildAdmission{}, err
 	}
+	if len(request.BrowserAttachments) != 0 {
+		return r.spawnTransferredChild(ctx, identity, request)
+	}
 	result, err := r.store.SpawnChild(ctx, identity, request)
 	if err == nil {
 		r.Wake()

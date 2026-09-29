@@ -24,6 +24,7 @@ func Operations() []Operation {
 	return []Operation{
 		{"host.status", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostStatus]()},
 		{"host.stop", reflect.TypeFor[StopHostParams](), reflect.TypeFor[HostStopAccepted]()},
+		{"workspace.complete", reflect.TypeFor[WorkspaceCompletionParams](), reflect.TypeFor[WorkspaceCompletionResult]()},
 		{"workspace.inspect", reflect.TypeFor[SessionParams](), reflect.TypeFor[WorkspaceInspection]()},
 		{"workspace.set", reflect.TypeFor[WorkspaceSetParams](), reflect.TypeFor[ControlEdit]()},
 		{"run.configure", reflect.TypeFor[RunConfigureParams](), reflect.TypeFor[ControlEdit]()},
@@ -159,6 +160,7 @@ func Operations() []Operation {
 		{"mail.read", reflect.TypeFor[ReadMailParams](), reflect.TypeFor[ReadMailResult]()},
 		{"resources.list", reflect.TypeFor[SessionParams](), reflect.TypeFor[ResourcesResult]()},
 		{"resources.set", reflect.TypeFor[SetResourceParams](), reflect.TypeFor[ResourceUsage]()},
+		{"usage.get", reflect.TypeFor[SessionParams](), reflect.TypeFor[Usage]()},
 		{"budgets.list", reflect.TypeFor[SessionParams](), reflect.TypeFor[BudgetsResult]()},
 		{"budgets.set", reflect.TypeFor[SetBudgetParams](), reflect.TypeFor[Budget]()},
 		{"sessions.observe", reflect.TypeFor[HistoryParams](), reflect.TypeFor[SessionObservation]()},
@@ -187,6 +189,7 @@ func Operations() []Operation {
 		{"trees.create", reflect.TypeFor[CreateTreeParams](), reflect.TypeFor[CreateTreeResult]()},
 		{"trees.creation", reflect.TypeFor[TreeCreationParams](), reflect.TypeFor[CreateTreeResult]()},
 		{"trees.catalog", reflect.TypeFor[EmptyParams](), reflect.TypeFor[TreeCatalog]()},
+		{"trees.recent", reflect.TypeFor[RecentTreesParams](), reflect.TypeFor[RecentTreesResult]()},
 		{"trees.list", reflect.TypeFor[ListTreesParams](), reflect.TypeFor[ListTreesResult]()},
 		{"trees.summaries", reflect.TypeFor[TreeSummariesParams](), reflect.TypeFor[TreeSummariesResult]()},
 		{"definitions.list", reflect.TypeFor[ListDefinitionsParams](), reflect.TypeFor[ListDefinitionsResult]()},
@@ -359,6 +362,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 		}
 		hostViewsSchema(schema, t)
 		discoverySchema(schema, t)
+		recentSchema(schema, t)
 		navigationSchema(schema, t)
 		if t == reflect.TypeFor[GoalFormulationRequest]() {
 			schema.Properties["tail_messages"] = &jsonschema.Schema{OneOf: []*jsonschema.Schema{
@@ -389,6 +393,13 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 			schema.Properties["sources"].Type = "array"
 			schema.Properties["sources"].Types = nil
 			schema.Properties["sources"].MaxItems = new(1152)
+		}
+		if t == reflect.TypeFor[SpawnSessionParams]() {
+			attachments := schema.Properties["browser_attachments"]
+			attachments.Type, attachments.Types = "array", nil
+			attachments.MaxItems = new(4)
+			attachments.UniqueItems = true
+			attachments.Items.MaxLength = new(128)
 		}
 		if t == reflect.TypeFor[Input]() || t == reflect.TypeFor[SubmitParams]() || t == reflect.TypeFor[SpawnSessionParams]() {
 			schema.Properties["parts"].Items = partSchema("text", "content")

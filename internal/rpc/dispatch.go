@@ -58,7 +58,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return dispatchControls(ctx, r, method, raw)
 	case "trace.page", "trace.export":
 		return dispatchTrace(ctx, r, method, raw)
-	case "host.attention", "host.directories.list", "host.directory.pick", "host.skills.complete", "host.themes.list", "host.themes.resolve":
+	case "workspace.complete", "host.attention", "host.directories.list", "host.directory.pick", "host.skills.complete", "host.themes.list", "host.themes.resolve":
 		return dispatchHostViews(ctx, r, method, raw)
 	case "tool.schemas", "tool.call", "shell.run":
 		return dispatchHostOperation(ctx, r, method, raw)
@@ -141,7 +141,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return dispatchSchedule(ctx, r, method, raw)
 	case "resources.list", "resources.set":
 		return dispatchResource(ctx, r, method, raw)
-	case "budgets.list", "budgets.set":
+	case "usage.get", "budgets.list", "budgets.set":
 		return dispatchBudget(ctx, r, method, raw)
 	case "sessions.observe":
 		return dispatchObservation(ctx, r, raw)
@@ -249,6 +249,11 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 				return nil, err
 			}
 			return protocol.TreeSummariesFromDomain(page), nil
+		})
+	case "trees.recent":
+		return decode(raw, func(p protocol.RecentTreesParams) (any, error) {
+			page, err := r.RecentTrees(ctx, p.Limit)
+			return protocol.RecentTreesFromDomain(page), err
 		})
 	case "trees.list":
 		return listTrees(ctx, r, raw)
@@ -538,6 +543,11 @@ func wireError(err error) *protocol.RPCError {
 		{inferenceaccount.ErrCredentials, -32020, "ACCOUNT_CREDENTIALS"},
 		{inferenceaccount.ErrSetup, -32021, "ACCOUNT_SETUP"},
 		{inferenceaccount.ErrManagement, -32024, "ACCOUNT_MANAGEMENT"},
+		{store.ErrTransferFailed, -32037, "TRANSFER_FAILED"},
+		{store.ErrTransferUncertain, -32038, "TRANSFER_UNCERTAIN"},
+		{store.ErrTransferInterrupted, -32039, "TRANSFER_INTERRUPTED"},
+		{store.ErrTransferCancelled, -32040, "TRANSFER_CANCELLED"},
+		{store.ErrTransferDeleted, -32041, "TRANSFER_DELETED"},
 		{store.ErrNotFound, -32004, "NOT_FOUND"},
 		{store.ErrConflict, -32009, "CONFLICT"},
 		{runtime.ErrWorkspaceChanged, -32009, "CONFLICT"},

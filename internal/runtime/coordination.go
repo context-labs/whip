@@ -89,6 +89,12 @@ func (r *Runtime) PrepareCoordination(ctx context.Context, current session.Sessi
 	if err != nil {
 		return tool.Prepared{}, err
 	}
+	if call.DirectTurnID != "" && len(request.BrowserAttachments) == 0 {
+		return tool.Prepared{}, session.ErrInvalid
+	}
+	if len(request.BrowserAttachments) != 0 {
+		return r.prepareBrowserTransfer(ctx, current, call, request)
+	}
 	arguments, err := json.Marshal(request)
 	if err != nil {
 		return tool.Prepared{}, err

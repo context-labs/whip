@@ -172,6 +172,16 @@ export class Session {
     read: (referenceID: string, options: CallOptions = {}) => this.client.call('content.read', { session_id: this.id, reference_id: referenceID }, options),
     put: (params: Scoped<'content.put'>, options: CallOptions = {}) => this.client.call('content.put', { ...params, session_id: this.id }, options),
   };
+  async usage(options: CallOptions = {}) {
+    const result = await this.client.call('usage.get', { session_id: this.id }, options);
+    if (result.session_id !== this.id) throw new TypeError('Usage belongs to another session');
+    const settled = BigInt(result.attempts.settled);
+    if (BigInt(result.reported_cost.attempts) + BigInt(result.estimated_cost.attempts) + BigInt(result.unknown_cost) !== settled || BigInt(result.attempts.uncertain) > settled) throw new TypeError('Usage attempt counts disagree');
+    for (const field of [result.input_tokens, result.output_tokens, result.reasoning_tokens, result.cached_input, result.cached_output, result.elapsed_millis]) {
+      if (BigInt(field.known_attempts) + BigInt(field.missing_attempts) !== settled) throw new TypeError('Usage field presence counts disagree');
+    }
+    return result;
+  }
   readonly budgets = {
     list: (options: CallOptions = {}) => this.client.call('budgets.list', { session_id: this.id }, options),
     set: (params: Scoped<'budgets.set'>, options: CallOptions = {}) => this.client.call('budgets.set', { ...params, session_id: this.id }, options),

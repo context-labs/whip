@@ -27,3 +27,19 @@ test('host bootstrap queries need no root and never retry a lost picker acknowle
  await assert.rejects(client.hostDirectories({path:'/',after:'',prefix:'',show_hidden:false,limit:0}),TypeError);
  assert.equal(calls.length,count);
 });
+
+
+test('workspace completion uses exact selected session, validates bounds, and preserves explicit truncation',async()=>{
+ const calls=[];
+ const client=await Client.connect(async request=>{
+  if(request.method==='initialize')return{jsonrpc:'2.0',id:request.id,result:initial};
+  calls.push(request);return{jsonrpc:'2.0',id:request.id,result:fixture('WorkspaceCompletionResult')};
+ },{clientID:'completion'});
+ const params={session_id:'child',kind:'mention',prefix:'~/project/',limit:64};
+ const result=await client.completeWorkspace(params);
+ assert.deepEqual(calls[0].params,params);assert.equal(result.truncated,true);assert.equal(result.working_directory,'/workspace');
+ assert.deepEqual(result.candidates,[{text:'@docs/roadmap.md',description:''},{text:'@docs/',description:'dir'}]);
+ for(const invalid of [{...params,limit:65},{...params,kind:'skill'},{...params,prefix:'x'.repeat(4097)}])await assert.rejects(client.completeWorkspace(invalid),TypeError);
+ await assert.rejects(client.completeWorkspace(params,{signal:AbortSignal.abort()}),error=>error.name==='AbortError');
+ assert.equal(calls.length,1);
+});

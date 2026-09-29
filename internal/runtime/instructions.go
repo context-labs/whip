@@ -111,7 +111,7 @@ func (r *Runtime) Instructions(ctx context.Context, turn session.Turn, policy se
 			text += framed
 		}
 	}
-	text += "\n" + executionInstructions(current, tree)
+	text += "\n\n" + environmentInstructions(current, turn) + "\n\n" + executionInstructions(current, tree)
 	contribution, err := r.turnStart(ctx, current, turn, input)
 	if err != nil {
 		return "", err

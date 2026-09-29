@@ -435,6 +435,67 @@
     "valid": true
   },
   {
+    "type": "Usage",
+    "value": {
+      "session_id": "session_root",
+      "attempts": {
+        "reserved": "0",
+        "in_flight": "1",
+        "settled": "2",
+        "not_dispatched": "0",
+        "uncertain": "0"
+      },
+      "reported_cost": {
+        "value": "9007199254740993",
+        "attempts": "1",
+        "overflow": false
+      },
+      "estimated_cost": {
+        "value": "0",
+        "attempts": "0",
+        "overflow": false
+      },
+      "unknown_cost": "1",
+      "input_tokens": {
+        "value": "9007199254740993",
+        "known_attempts": "1",
+        "missing_attempts": "1",
+        "overflow": false
+      },
+      "output_tokens": {
+        "value": "0",
+        "known_attempts": "0",
+        "missing_attempts": "2",
+        "overflow": false
+      },
+      "reasoning_tokens": {
+        "value": "0",
+        "known_attempts": "0",
+        "missing_attempts": "2",
+        "overflow": false
+      },
+      "cached_input": {
+        "value": "0",
+        "known_attempts": "0",
+        "missing_attempts": "2",
+        "overflow": false
+      },
+      "cached_output": {
+        "value": "0",
+        "known_attempts": "0",
+        "missing_attempts": "2",
+        "overflow": false
+      },
+      "elapsed_millis": {
+        "value": "0",
+        "known_attempts": "0",
+        "missing_attempts": "2",
+        "overflow": false
+      }
+    },
+    "valid": true
+  },
+  {
     "type": "TracePageParams",
     "value": {
       "root_id": "session_root",
@@ -448,8 +509,35 @@
     "valid": true
   },
   {
+    "type": "TracePageParams",
+    "value": {
+      "root_id": "session_root",
+      "before": null,
+      "expected_revision": null,
+      "trace_id": "",
+      "roots_only": false,
+      "limit": 2048,
+      "max_bytes": 524288
+    },
+    "valid": true
+  },
+  {
+    "type": "TracePageParams",
+    "value": {
+      "root_id": "session_root",
+      "before": "9007199254740993",
+      "expected_revision": "9007199254740999",
+      "trace_id": "",
+      "roots_only": false,
+      "limit": 2048,
+      "max_bytes": 524288
+    },
+    "valid": true
+  },
+  {
     "type": "TracePageResult",
     "value": {
+      "observed_at_ns": "1790600000000001000",
       "items": [
         {
           "sequence": "9007199254740999",
@@ -520,6 +608,34 @@
     "value": {
       "items": [],
       "next_cursor": null
+    },
+    "valid": true
+  },
+  {
+    "type": "WorkspaceCompletionParams",
+    "value": {
+      "session_id": "session_root",
+      "kind": "mention",
+      "prefix": "roadmap",
+      "limit": 64
+    },
+    "valid": true
+  },
+  {
+    "type": "WorkspaceCompletionResult",
+    "value": {
+      "working_directory": "/workspace",
+      "candidates": [
+        {
+          "text": "@docs/roadmap.md",
+          "description": ""
+        },
+        {
+          "text": "@docs/",
+          "description": "dir"
+        }
+      ],
+      "truncated": true
     },
     "valid": true
   },
@@ -1883,6 +1999,53 @@
       "revision": "9007199254740993",
       "items": [],
       "next_cursor": null
+    },
+    "valid": true
+  },
+  {
+    "type": "RecentTreesParams",
+    "value": {
+      "limit": 50
+    },
+    "valid": true
+  },
+  {
+    "type": "RecentTreesResult",
+    "value": {
+      "catalog_revision": "1",
+      "items": [],
+      "has_more": false
+    },
+    "valid": true
+  },
+  {
+    "type": "RecentTreesResult",
+    "value": {
+      "catalog_revision": "1",
+      "items": [
+        {
+          "tree": {
+            "id": "tree_recent",
+            "metadata": {
+              "title": null,
+              "archived": false,
+              "pinned": false
+            },
+            "engine": "starlark",
+            "revision": "1",
+            "created_at": "2026-09-27T12:00:00.123456Z"
+          },
+          "root_id": "session_root",
+          "working_directory": "/workspace",
+          "model": {
+            "provider": "fixture",
+            "name": "scripted",
+            "effort": ""
+          },
+          "last_activity_at": "2026-09-27T12:00:00.123456Z"
+        }
+      ],
+      "has_more": true
     },
     "valid": true
   },
@@ -3901,6 +4064,65 @@
         }
       ],
       "grant_ids": []
+    },
+    "valid": true
+  },
+  {
+    "type": "SpawnSessionParams",
+    "value": {
+      "browser_attachments": [
+        "attachment-1",
+        "attachment-2",
+        "attachment-3",
+        "attachment-4"
+      ],
+      "identity": {
+        "client_id": "client",
+        "request_id": "transfer"
+      },
+      "parent_id": "session_root",
+      "overrides": {},
+      "parts": [
+        {
+          "type": "text",
+          "text": "Transferred child"
+        }
+      ],
+      "grant_ids": null
+    },
+    "valid": true
+  },
+  {
+    "type": "Response",
+    "value": {
+      "jsonrpc": "2.0",
+      "id": "transfer",
+      "error": {
+        "code": -32038,
+        "message": "accepted child browser transfer has an uncertain effect; it will not be repeated",
+        "kind": "TRANSFER_UNCERTAIN"
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "Input",
+    "value": {
+      "host_operation": {
+        "module": "agents",
+        "name": "spawn",
+        "arguments_base64": "eyJpZGVudGl0eSI6eyJDbGllbnRJRCI6ImNsaWVudCIsIlJlcXVlc3RJRCI6InRyYW5zZmVyIn0sInJlcXVlc3QiOnsicGFyZW50X2lkIjoic2Vzc2lvbl9yb290IiwiYnJvd3Nlcl9hdHRhY2htZW50cyI6WyJhdHRhY2htZW50Il19fQ=="
+      },
+      "goal": null,
+      "id": "private-transfer",
+      "session_id": "session_root",
+      "source": "user",
+      "kind": "host_operation",
+      "parts": [],
+      "state": "claimed",
+      "turn_id": "host-turn",
+      "created_at": "2026-09-27T12:00:00.123456Z",
+      "schedule": null
     },
     "valid": true
   },

@@ -8,13 +8,15 @@ import (
 )
 
 type TracePageParams struct {
-	RootID           ID       `json:"root_id"`
-	After            Counter  `json:"after"`
-	ExpectedRevision *Counter `json:"expected_revision"`
-	TraceID          string   `json:"trace_id" pattern:"^([a-f0-9]{32})?$"`
-	RootsOnly        bool     `json:"roots_only"`
-	Limit            int      `json:"limit" min:"1" max:"2048"`
-	MaxBytes         int      `json:"max_bytes" min:"4096" max:"524288"`
+	RootID ID       `json:"root_id"`
+	After  *Counter `json:"after,omitempty"`
+	// Before is absent for forward reads; present null opens the newest page.
+	Before           **Counter `json:"before,omitempty"`
+	ExpectedRevision *Counter  `json:"expected_revision"`
+	TraceID          string    `json:"trace_id" pattern:"^([a-f0-9]{32})?$"`
+	RootsOnly        bool      `json:"roots_only"`
+	Limit            int       `json:"limit" min:"1" max:"2048"`
+	MaxBytes         int       `json:"max_bytes" min:"4096" max:"524288"`
 }
 type TraceAttribute struct {
 	Key   string   `json:"key"`
@@ -43,10 +45,11 @@ type TraceRow struct {
 	Span       *TraceSpan `json:"span"`
 }
 type TracePageResult struct {
-	Items    []TraceRow `json:"items"`
-	Revision Counter    `json:"revision"`
-	Next     Counter    `json:"next"`
-	HasMore  bool       `json:"has_more"`
+	ObservedAtNS Counter    `json:"observed_at_ns"`
+	Items        []TraceRow `json:"items"`
+	Revision     Counter    `json:"revision"`
+	Next         Counter    `json:"next"`
+	HasMore      bool       `json:"has_more"`
 }
 type TraceExportParams struct {
 	RootID           ID       `json:"root_id"`
@@ -62,6 +65,20 @@ type TraceExportResult struct {
 
 func traceSchema(schema *jsonschema.Schema, t reflect.Type) {
 	switch t {
+	case reflect.TypeFor[TracePageParams]():
+		schema.Properties["after"].Type = "string"
+		schema.Properties["after"].Types = nil
+		for _, cursor := range []string{"after", "before"} {
+			properties := make(map[string]*jsonschema.Schema, len(schema.Properties)-1)
+			for name, field := range schema.Properties {
+				if name != "after" && name != "before" || name == cursor {
+					properties[name] = field.CloneSchemas()
+				}
+			}
+			required := append(append([]string{}, schema.Required...), cursor)
+			schema.OneOf = append(schema.OneOf, &jsonschema.Schema{Type: "object", Properties: properties, Required: required, AdditionalProperties: schema.AdditionalProperties.CloneSchemas()})
+		}
+		schema.Properties, schema.Required, schema.AdditionalProperties = nil, nil, nil
 	case reflect.TypeFor[TracePageResult]():
 		schema.Properties["items"].Type = "array"
 		schema.Properties["items"].Types = nil
@@ -99,7 +116,7 @@ func traceSchema(schema *jsonschema.Schema, t reflect.Type) {
 }
 
 func TracePageFromDomain(page session.TracePage) TracePageResult {
-	result := TracePageResult{Items: []TraceRow{}, Revision: Counter(page.Revision), Next: Counter(page.Next), HasMore: page.HasMore}
+	result := TracePageResult{ObservedAtNS: Counter(page.ObservedAtNS), Items: []TraceRow{}, Revision: Counter(page.Revision), Next: Counter(page.Next), HasMore: page.HasMore}
 	for _, row := range page.Items {
 		item := TraceRow{Sequence: Counter(row.Sequence), RootID: ID(row.RootID), SessionID: ID(row.SessionID), TurnID: ID(row.TurnID), SourceKind: row.SourceKind, SourceID: ID(row.SourceID), SpanID: row.SpanID}
 		if row.Span != nil {

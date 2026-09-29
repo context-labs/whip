@@ -42,6 +42,8 @@ type TraceRow struct {
 type TraceQuery struct {
 	RootID           SessionID
 	After            int64
+	Backward         bool
+	Before           *int64
 	ExpectedRevision *int64
 	TraceID          string
 	RootsOnly        bool
@@ -50,10 +52,11 @@ type TraceQuery struct {
 }
 
 type TracePage struct {
-	Items    []TraceRow
-	Revision int64
-	Next     int64
-	HasMore  bool
+	ObservedAtNS int64
+	Items        []TraceRow
+	Revision     int64
+	Next         int64
+	HasMore      bool
 }
 
 func TraceSpanID(kind, source string) string {
@@ -70,7 +73,7 @@ func (q TraceQuery) Validate() error {
 	if err := ValidateID(string(q.RootID)); err != nil {
 		return err
 	}
-	if q.After < 0 || q.ExpectedRevision != nil && *q.ExpectedRevision < q.After || q.Limit < 1 || q.Limit > 2048 || q.MaxBytes < 4096 || q.MaxBytes > 512<<10 {
+	if q.Backward && q.After != 0 || q.Before != nil && (!q.Backward || *q.Before < 0) || q.After < 0 || q.ExpectedRevision != nil && *q.ExpectedRevision < q.After || q.Limit < 1 || q.Limit > 2048 || q.MaxBytes < 4096 || q.MaxBytes > 512<<10 {
 		return fmt.Errorf("%w: invalid trace page bounds", ErrInvalid)
 	}
 	if q.TraceID != "" {

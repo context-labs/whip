@@ -15,6 +15,11 @@ export const manifest = {
       "result": "HostStopAccepted"
     },
     {
+      "name": "workspace.complete",
+      "params": "WorkspaceCompletionParams",
+      "result": "WorkspaceCompletionResult"
+    },
+    {
       "name": "workspace.inspect",
       "params": "SessionParams",
       "result": "WorkspaceInspection"
@@ -675,6 +680,11 @@ export const manifest = {
       "result": "ResourceUsage"
     },
     {
+      "name": "usage.get",
+      "params": "SessionParams",
+      "result": "Usage"
+    },
+    {
       "name": "budgets.list",
       "params": "SessionParams",
       "result": "BudgetsResult"
@@ -813,6 +823,11 @@ export const manifest = {
       "name": "trees.catalog",
       "params": "EmptyParams",
       "result": "TreeCatalog"
+    },
+    {
+      "name": "trees.recent",
+      "params": "RecentTreesParams",
+      "result": "RecentTreesResult"
     },
     {
       "name": "trees.list",

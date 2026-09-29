@@ -311,6 +311,12 @@ export class Client {
     return this.call('accounts.openai.logout', {}, options);
   }
 
+  /** Human filename discovery from the selected session cwd; explicit absolute
+   * and ~/ paths are supported. No file bodies or agent grants are created. */
+  completeWorkspace(params: Operations['workspace.complete']['params'], options: CallOptions = {}): Promise<Operations['workspace.complete']['result']> {
+    return this.call('workspace.complete', params, options);
+  }
+
   /** Fixed-revision canonical updates. A null span deletes that ID; conflicts require a fresh scan. */
   inspectWorkspace(sessionID: string, options: CallOptions = {}): Promise<Operations['workspace.inspect']['result']> {
     return this.call('workspace.inspect', { session_id: sessionID }, options);
@@ -394,7 +400,10 @@ export class Client {
     return this.call('sessions.fork', { ...params, fork_id: forkID }, options);
   }
 
-  /** Child identity, initial input and delegated authority share one recoverable admission. */
+  /** Child identity, initial input and delegated authority share one recoverable admission.
+   * browser_attachments transfers up to four live controls before child publication.
+   * After acceptance, receipts.match returns BUSY while pending; TRANSFER_* errors are terminal and never imply absence.
+   * Keep the same request ID and exact params for explicit observation/retry. */
   spawn(params: Omit<Operations['sessions.spawn']['params'], 'identity'>, requestID: string, options: CallOptions = {}): Promise<Operations['sessions.spawn']['result']> {
     return this.call('sessions.spawn', { ...params, identity: this.identity(requestID) }, options);
   }

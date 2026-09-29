@@ -61,7 +61,9 @@ func TestTraceIndexAtomicSettlementPagingAndQuestionUpdate(t *testing.T) {
 	if _, err := s.ResolvePermission(t.Context(), op.ID, true); err == nil {
 		t.Fatal("injected failure ignored")
 	}
-	if unchanged := readTrace(t, s, owner.ID); !reflect.DeepEqual(unchanged, initial) {
+	unchanged := readTrace(t, s, owner.ID)
+	unchanged.ObservedAtNS = initial.ObservedAtNS
+	if !reflect.DeepEqual(unchanged, initial) {
 		t.Fatal("trace index escaped rollback", unchanged, initial)
 	}
 	execTest(t, s, "DROP TRIGGER reject_trace_decision")
@@ -374,5 +376,72 @@ func TestTraceFilteredScanHasBoundedForwardProgress(t *testing.T) {
 	second, err := s.TracePage(t.Context(), query)
 	if err != nil || second.HasMore || len(second.Items) != 0 || second.Next != first.Revision {
 		t.Fatal(second, err)
+	}
+}
+
+func TestTraceBackwardExactWindowRevisionAndScope(t *testing.T) {
+	s := fresh(t)
+	owner, cell := operationCell(t, s)
+	op := admitOperation(t, s, operationSpec(cell, "read"))
+	execTest(t, s, "UPDATE trace_index SET sequence=sequence+9007199254740993")
+	forward := readTrace(t, s, owner.ID)
+	query := traceQuery(owner.ID)
+	query.Backward, query.Limit = true, 2
+	first, err := s.TracePage(t.Context(), query)
+	if err != nil || len(first.Items) != 2 || !first.HasMore || first.Revision != forward.Revision {
+		t.Fatal(first, err)
+	}
+	if first.Items[0].Sequence != forward.Items[3].Sequence || first.Next != first.Items[1].Sequence || first.Next <= 9007199254740993 {
+		t.Fatal("inexact newest window", first)
+	}
+	query.Before, query.ExpectedRevision = &first.Next, &first.Revision
+	second, err := s.TracePage(t.Context(), query)
+	if err != nil || len(second.Items) != 2 || second.HasMore || second.Next != 0 || second.Items[0].Sequence >= first.Next || second.Items[1].Sequence != forward.Items[0].Sequence {
+		t.Fatal("exclusive older window", second, err)
+	}
+	query.Before = new(int64(0))
+	empty, err := s.TracePage(t.Context(), query)
+	if err != nil || len(empty.Items) != 0 || empty.HasMore || empty.Next != 0 {
+		t.Fatal("zero is an exclusive lower edge, not a newest alias", empty, err)
+	}
+	query.Before = nil
+	query.RootsOnly = true
+	roots, err := s.TracePage(t.Context(), query)
+	if err != nil || len(roots.Items) != 1 || roots.Items[0].SourceID != string(cell.TurnID) || roots.Next != 0 {
+		t.Fatal("filtered newest scan", roots, err)
+	}
+	query.Before, query.RootsOnly = &first.Next, false
+	if _, err := s.ResolvePermission(t.Context(), op.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.TracePage(t.Context(), query); !errors.Is(err, ErrConflict) {
+		t.Fatal("missed changed revision", err)
+	}
+	// An explicit refreshed older window keeps its captured edge, never jumps
+	// to newly changed sources at the head.
+	query.ExpectedRevision = nil
+	refreshed, err := s.TracePage(t.Context(), query)
+	if err != nil || refreshed.Revision <= first.Revision {
+		t.Fatal(refreshed, err)
+	}
+	for _, row := range refreshed.Items {
+		if row.Sequence >= first.Next || row.RootID != owner.ID {
+			t.Fatal("older window retargeted", row)
+		}
+	}
+	_, foreign := create(t, s, nil)
+	query.RootID, query.Before = foreign.ID, nil
+	foreignPage, err := s.TracePage(t.Context(), query)
+	if err != nil || len(foreignPage.Items) != 0 || foreignPage.Revision != 0 {
+		t.Fatal("cross-root evidence", foreignPage, err)
+	}
+	for _, invalid := range []session.TraceQuery{
+		{RootID: owner.ID, Backward: true, After: 1, Limit: 10, MaxBytes: 4096},
+		{RootID: owner.ID, Before: new(int64(1)), Limit: 10, MaxBytes: 4096},
+		{RootID: owner.ID, Backward: true, Before: new(int64(-1)), Limit: 10, MaxBytes: 4096},
+	} {
+		if _, err := s.TracePage(t.Context(), invalid); !errors.Is(err, session.ErrInvalid) {
+			t.Fatal("invalid direction bounds accepted", invalid, err)
+		}
 	}
 }

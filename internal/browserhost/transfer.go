@@ -62,6 +62,15 @@ func (h *Host) PrepareTransfer(ctx context.Context, parent, child Identity, ids 
 	return capture, nil
 }
 
+// Parents returns immutable source scope for durable permission presentation.
+func (c *TransferCapture) Parents() []Attachment {
+	out := make([]Attachment, len(c.snapshots))
+	for i, a := range c.snapshots {
+		out[i] = cloneAttachment(a)
+	}
+	return out
+}
+
 func (c *TransferCapture) Attachments() []Attachment {
 	out := make([]Attachment, len(c.children))
 	for i, a := range c.children {
