@@ -2251,16 +2251,16 @@ verified runtime and, when provided, process epoch before dependent requests.
 
 ## Authored design evidence and session controls
 
-Fresh schema48 adds display-only design provenance after schema46's workspace
-and run controls (schema47 is reserved for the separate browser integration).
-There is no old-schema reader or migration. Protocol remains4; host config18.
+Fresh schema 48 adds display-only design provenance after schema 46's workspace
+and run controls (schema 47 is reserved for the separate browser integration).
+There is no old-schema reader or migration. Protocol remains 4; host config 18.
 
 `sessions.submit.design_context` optionally identifies a unique text content
 reference and an optional unique image content reference in the submitted parts.
 References are resolved in the exact recipient's scope before admission. The
-immutable descriptor is part of the receipt digest. It is limited to8 element
-summaries,1,000 selected elements,160-byte labels,256-byte selectors/titles,
-2,048-byte page URLs and8KiB total. Human prompt inputs alone can carry it.
+immutable descriptor is part of the receipt digest. It is limited to 8 element
+summaries, 1,000 selected elements, 160-byte labels, 256-byte selectors/titles,
+2,048-byte page URLs and 8 KiB total. Human prompt inputs alone can carry it.
 Native transcript entries derive the descriptor from their input; imported fork
 entries retain it with their copied parts and owner references. Both history
 readers derive exact part indices, including leading authored text. Callers cannot
@@ -2281,7 +2281,7 @@ active turn inspection uses its captured configuration's directory.
 key settings with the same receipt/CAS/idle rules. Empty system text restores
 composed instructions; required turn-start hooks still run. Explicit zero max
 turns is uncapped; a positive limit permits that many tool rounds followed by one
-recorded request without tools. Absent run configuration keeps the ordinary32
+recorded request without tools. Absent run configuration keeps the ordinary 32
 round bound. Headless denies new human waits while existing standing/automatic
 authority remains effective. Cache keys do not replace execution identity and
 are mapped through provider-specific cache handling. Children do not inherit
