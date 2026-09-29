@@ -36,6 +36,16 @@ try {
       await page.addInitScript(() => {
         window.__cspErrors = [];
         document.addEventListener('securitypolicyviolation', event => window.__cspErrors.push(`${event.violatedDirective}: ${event.blockedURI}`));
+        window.__previewAnimations = [];
+        const animate = Element.prototype.animate;
+        Element.prototype.animate = function (...args) {
+          const animation = animate.apply(this, args);
+          if (window.__recordPreviewAnimations && this.hasAttribute('data-workspace-drag-preview')) {
+            if (window.__previewAnimations.length >= 16) throw new Error('Unbounded preview animations');
+            window.__previewAnimations.push(animation);
+          }
+          return animation;
+        };
       });
       const visit = async (theme = 'dark') => { await page.goto(`${origin}/?theme=${theme}`); await expect(page.getByRole('tabpanel')).toHaveCount(3); await expect(page.getByLabel('Compact layout')).toHaveText('false'); };
       const tab = value => page.locator(`[role="tab"][id="whip-workspace-tab-${value}"]`);
@@ -77,13 +87,20 @@ try {
       await expect(page.getByRole('menu')).toHaveCount(0);
       await expect(page.locator('[data-workspace-frame]')).toHaveCount(2);
       // This transfer prunes the source pane and remounts the surviving left header.
+      await page.evaluate(() => { window.__recordPreviewAnimations = true; });
       for (let attempt = 0; attempt < 3; attempt++) {
         const target = await tab('beta').boundingBox();
         await drag('delta', { x: target.x + 30, y: target.y + 12 });
         await expect(page.locator('[data-workspace-drop]')).toHaveCount(0);
         await page.keyboard.press('Escape'); await page.mouse.up();
-      await expect(page.locator('[data-dragging]')).toHaveCount(0);
+        await expect(page.locator('[data-dragging]')).toHaveCount(0);
+        await expect(page.locator('[data-workspace-drag-preview]')).toHaveCount(0);
+        assert.equal(await page.evaluate(() => {
+          const animations = window.__previewAnimations.splice(0);
+          return animations.length > 0 && animations.every(animation => animation.playState === 'idle');
+        }), true, 'Finished preview animations retained their fill after the drag ended');
       }
+      await page.evaluate(() => { window.__recordPreviewAnimations = false; });
       // Pointer transfer uses one shared drag context and retains the selected view.
       await visit();
       await page.evaluate(() => { window.__draft = document.querySelector('[aria-label="Draft alpha"]'); });
