@@ -529,7 +529,7 @@ func (b *Bridge) consumeEvent(s *acpSession, event daemon.ProtocolEvent) {
 		if input.name == "" {
 			input.name = stream.Name
 		}
-		_ = b.update(s.lifecycle, s.id, endToolCall(stream.ID, input.name, input.args, stream.Result))
+		_ = b.update(s.lifecycle, s.id, endToolCall(stream.ID, input.name, input.args, stream.Result, isErrorResult(stream.Result)))
 	case "stream.usage":
 		if usage := stream.Usage; usage != nil && usage.Size > 0 {
 			_ = b.update(s.lifecycle, s.id, acp.SessionUpdate{UsageUpdate: &acp.SessionUsageUpdate{

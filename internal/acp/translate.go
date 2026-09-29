@@ -19,11 +19,11 @@ import (
 // toolKind maps whipcode tool names to ACP tool kinds (protocol-notes.md §5).
 func toolKind(name string) acp.ToolKind {
 	switch name {
-	case "read":
+	case "read", "files.read":
 		return acp.ToolKindRead
-	case "write", "edit":
+	case "write", "edit", "files.write", "files.patch":
 		return acp.ToolKindEdit
-	case "bash", "shell_start", "workspace_process":
+	case "bash", "shell_start", "workspace_process", "execute", "shell.run":
 		return acp.ToolKindExecute
 	default:
 		// browser_exec, computer_exec, mcp__* tools: "other" is honest.
@@ -34,7 +34,7 @@ func toolKind(name string) acp.ToolKind {
 // pathArg extracts the file path a tool call touches, for the location list.
 func pathArg(name, args string) string {
 	switch name {
-	case "read", "write", "edit":
+	case "read", "write", "edit", "files.read", "files.write", "files.patch":
 	default:
 		return ""
 	}
@@ -50,11 +50,11 @@ func pathArg(name, args string) string {
 // toolTitle is the one-line human summary the client shows on the tool card.
 func toolTitle(name, args string) string {
 	if p := pathArg(name, args); p != "" {
-		verb := map[string]string{"read": "Read", "write": "Write", "edit": "Edit"}[name]
+		verb := map[string]string{"read": "Read", "write": "Write", "edit": "Edit", "files.read": "Read", "files.write": "Write", "files.patch": "Patch"}[name]
 		return verb + " " + p
 	}
 	switch name {
-	case "bash":
+	case "bash", "shell.run":
 		var a struct {
 			Command string `json:"command"`
 		}
@@ -103,14 +103,14 @@ func isErrorResult(result string) bool {
 
 // endToolCall builds the terminal `tool_call_update` for a finished call.
 // result is the exact string fed back to the model.
-func endToolCall(id, name, args, result string) acp.SessionUpdate {
+func endToolCall(id, name, args, result string, failed bool) acp.SessionUpdate {
 	status := acp.ToolCallStatusCompleted
-	if isErrorResult(result) {
+	if failed {
 		status = acp.ToolCallStatusFailed
 	}
 	return acp.UpdateToolCall(acp.ToolCallId(id),
 		acp.WithUpdateStatus(status),
-		acp.WithUpdateContent(toolCallContent(name, args, result)),
+		acp.WithUpdateContent(toolCallContent(name, args, result, failed)),
 	)
 }
 
@@ -118,9 +118,9 @@ func endToolCall(id, name, args, result string) acp.SessionUpdate {
 // for successful write/edit built from the call args (edit's old_text is the
 // exact replaced span; write to an existing file can't know the pre-image,
 // so oldText is left nil — the client renders it as a full-file diff).
-func toolCallContent(name, args, result string) []acp.ToolCallContent {
+func toolCallContent(name, args, result string, failed bool) []acp.ToolCallContent {
 	out := []acp.ToolCallContent{acp.ToolContent(acp.TextBlock(result))}
-	if isErrorResult(result) {
+	if failed {
 		return out
 	}
 	switch name {
@@ -229,7 +229,7 @@ func replayUpdates(msgs []llm.Message) []acp.SessionUpdate {
 			if !ok {
 				continue // orphaned result (e.g. post-compaction) — no card to close
 			}
-			out = append(out, endToolCall(m.ToolCallID, info.name, info.args, m.Content))
+			out = append(out, endToolCall(m.ToolCallID, info.name, info.args, m.Content, isErrorResult(m.Content)))
 		}
 	}
 	return out

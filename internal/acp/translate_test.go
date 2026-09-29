@@ -78,7 +78,7 @@ func TestStartToolCall(t *testing.T) {
 
 func TestEndToolCallContent(t *testing.T) {
 	// Successful edit: text + diff with old/new.
-	u := endToolCall("c1", "edit", `{"path":"/f.go","old_string":"a","new_string":"b"}`, "Replaced 1 occurrence(s) in /f.go")
+	u := endToolCall("c1", "edit", `{"path":"/f.go","old_string":"a","new_string":"b"}`, "Replaced 1 occurrence(s) in /f.go", false)
 	tu := u.ToolCallUpdate
 	if tu == nil {
 		t.Fatal("expected tool_call_update")
@@ -95,14 +95,14 @@ func TestEndToolCallContent(t *testing.T) {
 	}
 
 	// New-file write: diff with nil oldText.
-	u = endToolCall("c2", "write", `{"path":"/n.go","content":"package n"}`, "Wrote 9 bytes to /n.go")
+	u = endToolCall("c2", "write", `{"path":"/n.go","content":"package n"}`, "Wrote 9 bytes to /n.go", false)
 	d = u.ToolCallUpdate.Content[1].Diff
 	if d == nil || d.OldText != nil || d.NewText != "package n" {
 		t.Errorf("write diff = %+v", d)
 	}
 
 	// Failed call: failed status, text only.
-	u = endToolCall("c3", "bash", `{"command":"rm -rf /"}`, "Error: Permission denied: nope")
+	u = endToolCall("c3", "bash", `{"command":"rm -rf /"}`, "Error: Permission denied: nope", true)
 	if *u.ToolCallUpdate.Status != acp.ToolCallStatusFailed {
 		t.Errorf("status = %v, want failed", *u.ToolCallUpdate.Status)
 	}
