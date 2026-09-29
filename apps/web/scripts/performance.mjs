@@ -127,14 +127,18 @@ await page.addInitScript(({ desktop, rootId }) => {
   }).observe(document, { subtree: true, childList: true, characterData: true });
 }, { desktop, rootId: fixture.history.root_id });
 const rootRoute = `/h/${fixture.info.runtime_id}/s/${fixture.history.root_id}`;
-const requests = [];
+const requestCounts = Object.create(null);
+let requestTotal = 0, requestOverflow = false;
 page.on('pageerror', (error) => errors.push({ message: error.message, stack: error.stack }));
 page.on('websocket', (socket) =>
   socket.on('framesent', ({ payload }) => {
     try {
-      if (requests.length >= 8192) throw new Error('Performance request record limit exceeded');
-      requests.push(JSON.parse(String(payload)));
-    } catch (error) { if (requests.length >= 8192) errors.push({ message: error.message }); }
+      const { method } = JSON.parse(String(payload));
+      if (typeof method !== 'string' || method.length > 128 || requestTotal >= 1_000_000 ||
+          !Object.hasOwn(requestCounts, method) && Object.keys(requestCounts).length >= 256) throw new Error('Performance request counter limit exceeded');
+      requestCounts[method] = (requestCounts[method] ?? 0) + 1;
+      requestTotal++;
+    } catch { requestOverflow = true; }
   }),
 );
 const viewport = page.getByRole('region', {
@@ -693,12 +697,10 @@ const frame = () =>
     metrics.desktopTrafficProbe = { retainedRecords: traffic.requests.length, prunedRecords: traffic.prunedRequests, totalFrames: traffic.requestTotal, boundary: 'Full bounded per-method counters; at most 8192 recent metadata records. Timed probes require complete retained intervals.' };
     metrics.desktopAfterWork = await host.processMemory('after-streams-and-transfer');
   }
-  metrics.requestCounts ??= Object.fromEntries(
-    [...new Set(requests.map((request) => request.method))].map((method) => [
-      method,
-      requests.filter((request) => request.method === method).length,
-    ]),
-  );
+  assert.equal(requestOverflow, false, 'Performance request counters exceeded bounds');
+  metrics.requestCounts ??= requestCounts;
+  if (!desktop) metrics.browserTrafficProbe = { totalFrames: requestTotal,
+    boundary: 'Exact per-method counts for at most 256 method names and one million frames; no request bodies retained.' };
   metrics.checks.push(
     '32 near-limit drafts remain editable with 16 concurrent native roots using a local fake provider and visible stream updates',
   );
