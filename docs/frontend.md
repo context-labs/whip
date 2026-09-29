@@ -1450,7 +1450,8 @@ the shared Whip controls and theme tokens. Attachment and context controls remai
 disabled until a session exists; their backend operations require a root identity.
 The folder button opens the native system picker directly for the local machine
 and the host directory browser for remote hosts. If a local host has no native
-picker available, the existing host-browser fallback remains available.
+picker available, the existing host-browser fallback remains available. The desktop
+native chooser enables folder creation through Electron’s `createDirectory` option.
 
 `remote-directory-dialog.tsx` implements the remote picker from Paper FYQ-1,
 G8C-1 and GHR-1 using shared Dialog, Input, Checkbox, Menu and Button components.
@@ -1461,6 +1462,20 @@ Single-click selects; double-click, Enter or the trailing chevron opens a folder
 Arrow keys move selection, Cmd/Ctrl+Shift+G edits the path and Cmd/Ctrl+Enter
 confirms. Escape first leaves path editing, then closes the dialog. Confirmation
 updates only the draft folder; it never sends the first message.
+
+**New folder** creates one child of the currently displayed directory on the
+selected execution host. Its inline name form keeps filesystem errors visible
+without discarding the name. The SDK's `host.createDirectory` calls the host-scoped
+`host.directory.create` mutating RPC, not a session command or an agent tool.
+The daemon validates the absolute parent and single-component name and uses a
+non-recursive filesystem mkdir; it never overwrites or silently adopts an existing
+entry. Requests are not automatically retried. The advertised operation catalog
+gates the action for older hosts, with an update-host explanation and a hover/focus
+tooltip on **New folder**: “Host does not support folder creation. Please upgrade.”
+After success, the picker invalidates cached directory listings on the captured
+host, clears filtering/pagination and opens the created folder. **Choose folder**
+remains an explicit separate confirmation. Closing or changing the host does not
+undo creation; stale completions cannot navigate or choose on a different host.
 
 Listings use `client.host.directories` with a 64-entry page, a debounced filename
 prefix and hidden folders off by default. Next/First controls expose pagination;

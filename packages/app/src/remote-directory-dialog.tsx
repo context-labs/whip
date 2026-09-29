@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react';
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useWhipConnection } from '@whip/sdk/react';
 import type { WhipClient } from '@whip/sdk';
 import type { SessionListView } from '@whip/sdk/state';
-import { Button, Checkbox, Dialog, IconButton, Input, Menu, Spinner } from '@whip/ui';
-import { ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, Folder, HardDrive, Home, Pencil, Search, Server } from 'lucide-react';
+import { Button, Checkbox, Dialog, IconButton, Input, Menu, Spinner, Tooltip } from '@whip/ui';
+import { ArrowLeft, ArrowUp, Check, ChevronDown, ChevronRight, Folder, FolderPlus, HardDrive, Home, Pencil, Search, Server } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
 import { errorMessage } from './platform';
 import { layout } from './styles';
@@ -62,6 +62,22 @@ export function RemoteDirectoryDialog({ client, value, disabled, host, onClose, 
   const [actionError, setActionError] = useState('');
   const [confirming, setConfirming] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
+  const [createParent, setCreateParent] = useState('');
+  const [newName, setNewName] = useState('');
+  const [createError, setCreateError] = useState('');
+  const [createdPath, setCreatedPath] = useState('');
+  const [creating, setCreating] = useState(false);
+  const createVersion = useRef(0);
+  const pendingCreate = useRef<symbol | null>(null);
+  const createInput = useRef<HTMLInputElement>(null);
+  const newFolderButton = useRef<HTMLButtonElement>(null);
+  const restoreCreateFocus = useRef(false);
+  const createId = useId();
+  const supportsCreate = client.supports('rpc', 'host.directory.create');
+  const nameError = !newName.trim() ? 'Enter a folder name.'
+    : newName === '.' || newName === '..' || /[\\/\0]/.test(newName) || /^[a-z]:/i.test(newName)
+      ? 'Enter one folder name, not a path.'
+      : new TextEncoder().encode(newName).length > 255 ? 'Use a folder name of at most 255 bytes.' : '';
   const input = useRef<HTMLInputElement>(null);
   const editButton = useRef<HTMLButtonElement>(null);
   const rows = useRef<HTMLUListElement>(null);
@@ -88,7 +104,8 @@ export function RemoteDirectoryDialog({ client, value, disabled, host, onClose, 
   const ready = online && !disabled && !editing && filterValid && filter === prefix && query.isSuccess && !query.isFetching && !query.isPlaceholderData;
   // A child's own listing validates readability and can also serve its next open.
   const selectedFolder = useQuery({ ...directoryOptions(client, { path: selected }), enabled: ready && !!selected });
-  const canChoose = !confirming && ready && (!selected || (selectedFolder.isSuccess && !selectedFolder.isFetching));
+  const canCreate = supportsCreate && ready && !confirming && !creating && !!directoryCrumbs(query.data?.path ?? '').length;
+  const canChoose = !createParent && !creating && !confirming && ready && (!selected || (selectedFolder.isSuccess && !selectedFolder.isFetching));
   const chosen = selected ? selectedFolder.data?.path ?? selected : query.data?.path ?? path;
   const current = query.error ? path : query.data?.path ?? path;
   const crumbs = directoryCrumbs(current);
@@ -138,10 +155,56 @@ export function RemoteDirectoryDialog({ client, value, disabled, host, onClose, 
     const first = rows.current?.querySelector<HTMLButtonElement>('[data-folder-select]');
     (first ?? filterInput.current)?.focus();
   }, [ready, current]);
+  function retireCreate() {
+    createVersion.current++; pendingCreate.current = null;
+    setCreateParent(''); setNewName(''); setCreateError(''); setCreatedPath(''); setCreating(false);
+  }
+  useLayoutEffect(() => {
+    retireCreate();
+    return () => { createVersion.current++; };
+  }, [client, connection.info?.runtime_id, online, disabled]);
+  useLayoutEffect(() => {
+    if (createParent && !creating) createInput.current?.focus();
+    else if (restoreCreateFocus.current) { newFolderButton.current?.focus(); restoreCreateFocus.current = false; }
+  }, [createParent, creating]);
+  function cancelCreate() { restoreCreateFocus.current = true; retireCreate(); }
+  function close() { createVersion.current++; choiceVersion.current++; onClose(); }
+  function startCreate() {
+    if (!canCreate || pendingCreate.current) return;
+    resetSelection(); setCreatedPath(''); setNewName(''); setCreateError(''); setCreateParent(query.data!.path);
+  }
+  async function createFolder() {
+    if (!canCreate || !createParent || nameError || pendingCreate.current) return;
+    const parent = createParent, runtime = connection.info?.runtime_id;
+    const version = createVersion.current, request = Symbol();
+    pendingCreate.current = request; setCreating(true); setCreateError('');
+    cache.cancel(client);
+    const currentRequest = () => alive.current && version === createVersion.current
+      && pendingCreate.current === request && client.getSnapshot().state === 'connected'
+      && client.getSnapshot().info?.runtime_id === runtime;
+    let created: { path: string };
+    try {
+      // A lost response must never automatically repeat a filesystem mutation.
+      created = await client.host.createDirectory({ parent, name: newName });
+    } catch (error) {
+      if (currentRequest()) { setCreateError(errorMessage(error)); setCreating(false); pendingCreate.current = null; createInput.current?.focus(); }
+      return;
+    }
+    // Paths may be symlink aliases; invalidate this host's bounded directory cache
+    // rather than guessing filesystem identity. Do this even after the picker closes.
+    const hostListings = { queryKey: ['directories', runtime] };
+    await queries.cancelQueries(hostListings);
+    void queries.invalidateQueries({ ...hostListings, refetchType: currentRequest() ? 'none' : 'active' });
+    if (!currentRequest()) return;
+    filterInput.current?.focus(); focusAfterNavigation.current = true;
+    navigate(created.path); setHidden(false); setCreatedPath(created.path);
+  }
   function resetSelection() { choiceVersion.current++; setSelected(''); setActionError(''); }
   function selectFolder(target: string) { choiceVersion.current++; cache.cancel(client, { path: target }); setSelected(target); setActionError(''); }
   function navigate(target: string, back = false) {
     if (!online || disabled) return;
+    if (createParent) filterInput.current?.focus();
+    retireCreate();
     // Cached navigation can replace the focused row immediately. Move focus
     // before removal so the dialog's focus trap does not restore it afterward.
     if (rows.current?.contains(document.activeElement)) filterInput.current?.focus();
@@ -150,7 +213,7 @@ export function RemoteDirectoryDialog({ client, value, disabled, host, onClose, 
     cache.cancel(client, { path: target });
     setPath(target); setTyped(target); setEditing(false); setFilter(''); setPrefix(''); setAfter(undefined); resetSelection();
   }
-  function editPath() { choiceVersion.current++; setTyped(current || '~'); setEditing(true); setActionError(''); }
+  function editPath() { retireCreate(); choiceVersion.current++; setTyped(current || '~'); setEditing(true); setActionError(''); }
   function cancelEdit() { setEditing(false); setTyped(current); setActionError(''); }
   const choice = useRef('');
   choice.current = online && !disabled && !editing && !query.isPlaceholderData && filter === prefix ? chosen : '';
@@ -178,6 +241,8 @@ export function RemoteDirectoryDialog({ client, value, disabled, host, onClose, 
       event.preventDefault(); event.stopPropagation(); editPath();
     } else if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
       event.preventDefault(); event.stopPropagation(); choose();
+    } else if (event.key === 'Escape' && createParent && !creating) {
+      event.preventDefault(); event.stopPropagation(); cancelCreate();
     } else if (event.key === 'Escape' && editing) {
       event.preventDefault(); event.stopPropagation(); cancelEdit();
     }
@@ -199,7 +264,8 @@ export function RemoteDirectoryDialog({ client, value, disabled, host, onClose, 
     { id: 'root', label: 'File system', icon: <HardDrive size={14} />, onSelect: () => navigate(crumbs[0]?.path ?? '/'), disabled: !online || disabled },
     ...recent.map(folder => ({ id: folder, label: folderName(folder), icon: <Folder size={14} />, onSelect: () => navigate(folder), disabled: !online || disabled })),
   ];
-  return <Dialog open onOpenChange={open => { if (!open) onClose(); }} title="Choose a folder" initialFocus={filterInput}
+  const newFolderControl = <Button ref={newFolderButton} variant="ghost" disabled={!canCreate || !!createParent} xstyle={!supportsCreate && styles.unsupportedCreate} aria-describedby={!supportsCreate ? createId + '-unsupported' : undefined} onClick={startCreate}><FolderPlus size={14} />New folder</Button>;
+  return <Dialog open onOpenChange={open => { if (!open) close(); }} title="Choose a folder" initialFocus={filterInput}
     xstyle={styles.dialog} headerXstyle={styles.header} bodyXstyle={styles.body}
     description={<span {...stylex.props(styles.host)}><Server size={14} /><span title={hostName} {...stylex.props(styles.hostName)}>{hostName}</span>{host?.detail && host.detail.replace(/^https?:\/\//, '').replace(/\/$/, '') !== hostName && <span title={host.detail} {...stylex.props(styles.hostDetail)}>{host.detail}</span>}<span {...stylex.props(styles.connectionStatus)}><span {...stylex.props(styles.dot, online && styles.connected)} />{online ? 'Connected' : 'Disconnected'}</span></span>}>
     <div onKeyDownCapture={shortcuts} {...stylex.props(styles.body)}>
@@ -214,7 +280,16 @@ export function RemoteDirectoryDialog({ client, value, disabled, host, onClose, 
           <nav aria-label="Folder path" {...stylex.props(styles.breadcrumbs)}>{crumbs.length ? crumbs.map((crumb, index) => <span key={crumb.path} {...stylex.props(styles.crumb)}>{index > 0 && <ChevronRight size={12} />}<Button variant="ghost" title={crumb.path} aria-current={index === crumbs.length - 1 ? 'location' : undefined} disabled={!online || disabled} xstyle={styles.crumbButton} onPointerEnter={() => warm(crumb.path)} onFocus={() => warm(crumb.path)} onClick={() => navigate(crumb.path)}>{crumb.label}</Button></span>) : <span>{current || 'Home'}</span>}</nav>
           <Button ref={editButton} variant="ghost" onClick={editPath} disabled={!online || disabled}><Pencil size={14} /><span>Edit path</span></Button>
         </>}
+        {!editing && (supportsCreate ? newFolderControl : <Tooltip label="Host does not support folder creation. Please upgrade."><span tabIndex={0} {...stylex.props(styles.createTrigger)}>{newFolderControl}</span></Tooltip>)}
       </div>
+      {!supportsCreate && <p id={createId + '-unsupported'} {...stylex.props(styles.createNotice)}>Update this host to create folders here. You can still browse and choose a folder.</p>}
+      {createParent && <form aria-label="New folder" {...stylex.props(styles.createForm)} onSubmit={event => { event.preventDefault(); event.stopPropagation(); void createFolder(); }}>
+        <div id={createId + '-destination'} {...stylex.props(styles.createDestination)}><span {...stylex.props(styles.caption)}>Create in {hostName}</span><span {...stylex.props(styles.createPath)}>{createParent}</span></div>
+        <div {...stylex.props(styles.createControls)}><label htmlFor={createId} {...stylex.props(styles.caption, styles.createLabel)}>Folder name</label><Input id={createId} ref={createInput} value={newName} maxLength={256} disabled={!online || disabled || creating} autoComplete="off" aria-invalid={!!createError || (!!newName && !!nameError)} aria-describedby={createId + '-destination ' + createId + '-feedback'} xstyle={styles.createInput} onChange={event => { setNewName(event.target.value); setCreateError(''); }} />
+          <div {...stylex.props(styles.actions)}><Button type="submit" size="sm" disabled={!canCreate || !!nameError} loading={creating}>Create</Button><Button size="sm" variant="ghost" disabled={creating} onClick={cancelCreate}>Cancel</Button></div>
+        </div>
+        <span id={createId + '-feedback'} role={createError ? 'alert' : 'status'} {...stylex.props(styles.caption, (!!createError || (!!newName && !!nameError)) && styles.selectionError)}>{createError || (creating ? 'Creating folder… Closing this dialog won’t undo creation.' : newName ? nameError : 'Enter one folder name, not a path.')}</span>
+      </form>}
       <div {...stylex.props(styles.mobileLocations)}><Menu align="start" trigger={<Button variant="ghost"><Home size={14} />Locations<ChevronDown size={14} /></Button>} items={locations} /></div>
       <div {...stylex.props(styles.browser)}>
         <aside aria-label="Locations" {...stylex.props(styles.locations)}><p {...stylex.props(styles.locationLabel)}>Locations</p>
@@ -248,10 +323,10 @@ export function RemoteDirectoryDialog({ client, value, disabled, host, onClose, 
       </div>
       </div>
       <footer {...stylex.props(styles.footer)}><div aria-live="polite" {...stylex.props(styles.selection)}><span {...stylex.props(styles.caption)}>{selected ? 'Selected folder' : 'Current folder'}</span><span title={chosen} {...stylex.props(styles.selectedPath)}>{chosen || 'Home'}</span>
-        <div {...stylex.props(styles.selectionStatus)}>{(actionError || (selected && selectedFolder.error))
+        <div {...stylex.props(styles.selectionStatus)}>{createdPath && <span role="status" {...stylex.props(styles.caption)}>{query.error ? 'Folder created, but its contents could not be loaded. Retry the listing; do not create it again.' : 'Folder created. Choose folder to use it.'}</span>}{(actionError || (selected && selectedFolder.error))
           ? <span role="alert" {...stylex.props(styles.selectionError)}>{actionError || `Can’t use this folder: ${errorMessage(selectedFolder.error)}`}</span>
           : online && (confirming || (selected && selectedFolder.isFetching)) ? <span {...stylex.props(styles.caption)}>Checking folder…</span> : null}</div>
-      </div><div {...stylex.props(styles.actions)}><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!canChoose} onClick={choose}>Choose folder</Button></div></footer>
+      </div><div {...stylex.props(styles.actions)}><Button variant="ghost" onClick={close}>Cancel</Button><Button variant="primary" disabled={!canChoose} onClick={choose}>Choose folder</Button></div></footer>
     </div>
   </Dialog>;
 }

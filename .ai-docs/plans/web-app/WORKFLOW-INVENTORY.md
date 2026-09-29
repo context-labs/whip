@@ -36,6 +36,7 @@ The operation list is checked against the generated manifest by `packages/app/te
 | `rpc:history.page` | Web | Conversation pagination and inspector collections through the shared SDK view; bounded references remain explicit. |
 | `rpc:host.attention` | Web | Session sidebar/search and paged host attention; inactive roots are not opened. |
 | `rpc:host.directories.list` | Web | Welcome host directory picker and composer host completions. |
+| `rpc:host.directory.create` | Web | New folder creates one child in the current directory on the selected execution host, without starting a session; Choose folder remains explicit. |
 | `rpc:host.directory.pick` | Web | Welcome native OS folder picker; falls back to the web directory browser where the host has no desktop picker. |
 | `rpc:host.skills.complete` | Web | Read-only New Chat slash skill suggestions for the selected host and agent definition before a session exists: negotiated global-only discovery without a folder, or the selected project's initial scope plus globals. |
 | `rpc:host.themes.list` | Web | Appearance settings: shared builtin/custom host themes and bounded JSON import. |

@@ -12,7 +12,7 @@ function fixture() {
   const pickDirectory = vi.fn(() => new Promise<{ path: string }>(resolve => { finish = resolve; }));
   const directories = vi.fn(async ({ path }: { path?: string }) => ({ path: path || '/start', entries: [], has_more: false }));
   const connection = { state: 'connected', info: { runtime_id: 'local' } };
-  const client = { subscribe: () => () => {}, getSnapshot: () => connection, host: { pickDirectory, directories } } as unknown as WhipClient;
+  const client = { supports: () => false, subscribe: () => () => {}, getSnapshot: () => connection, host: { pickDirectory, directories } } as unknown as WhipClient;
   const onSelect = vi.fn(), submit = vi.fn();
   const query = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   const tree = (target = client, native = false, sessionTrigger = false) => <ThemeProvider initialTheme="light"><UIProvider><QueryClientProvider client={query}>

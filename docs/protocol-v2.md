@@ -641,6 +641,14 @@ scan ceiling is reached. It reads no file bodies. Symlinks to directories are
 navigable. Filesystem changes can alter later pages; refresh the directory to
 obtain a new listing.
 
+`host.directory.create` is a host-scoped mutating RPC available before a session
+exists. It takes an existing absolute `parent` and one child `name`, creates a
+single directory with the host process’s filesystem permissions, and returns its
+absolute `path`. It rejects nested/invalid names and existing entries rather than
+overwriting or adopting them. No parent directories are created and no session
+is started. Clients must not automatically retry a lost creation response; inspect
+the parent listing instead. Availability is advertised in the operation catalog.
+
 `host.attention` reads a lightweight live index without opening every root or
 spending root subscriptions. `limit` is 1–128 and `max_bytes` is 4–512 KiB. Items
 contain root identity/title, decimal-string active-agent and pending-permission

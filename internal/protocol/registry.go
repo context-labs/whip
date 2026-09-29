@@ -106,6 +106,7 @@ var rpcOperations = []Operation{
 	rpc[HostSkillCompletionParams, CompletionResult]("host.skills.complete", Query, "host-runtime", false),
 	rpc[HostDirectoryParams, HostDirectoryResult]("host.directories.list", Query, "host-runtime", false),
 	rpc[HostDirectoryPickParams, HostDirectoryPickResult]("host.directory.pick", Query, "host-runtime", false),
+	rpc[HostDirectoryCreateParams, HostDirectoryCreateResult]("host.directory.create", Ephemeral, "host-runtime", false),
 	rpc[HostAttentionParams, HostAttentionResult]("host.attention", Query, "host-runtime", false),
 	rpc[EmptyParams, theme.CatalogResult]("host.themes.list", Query, "host-runtime", false),
 	rpc[HostThemeResolveParams, theme.Resolved]("host.themes.resolve", Query, "host-runtime", false),
