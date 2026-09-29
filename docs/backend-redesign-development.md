@@ -3870,3 +3870,19 @@ frozen baseline and no vulnerabilities. Log:
 `/tmp/whip-observation-analysis-repaired.log`.
 Phases5–7 remain incomplete, including native TUI, final client/packaging gates,
 retired-core deletion, representative live-provider and release evidence.
+
+### Hosted CLI gate partition — 2026-09-29
+
+At `58ddcaf345da7905418cb9beaa13f390eb024bcf`, hosted run `36538731438`
+passed analysis and all build/race jobs on Linux and macOS, plus macOS clients.
+Linux clients hit the existing three-minute aggregate CLI deadline after native
+ACP/MCP increased that selection from115 to140 tests. The current test had run
+for nine seconds; there was no preceding assertion failure. The run and aggregate
+remain failed. The CLI gate now runs the115 existing CLI tests and25 protocol
+host tests separately, with the same three-minute deadline for each. Compared
+the actual discovered test names: their union exactly matches the old140-test
+selection and the groups are disjoint. No scenario or assertion was removed.
+
+Repaired `task check:native-cli` passes: CLI race48.797s, ACP/MCP race18.889s,
+compiled CLI integration21.284s, and vet. Log:
+`/tmp/whip-observation-cli-split.log`. Exact-head hosted rerun remains pending.
