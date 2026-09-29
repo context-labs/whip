@@ -40,9 +40,10 @@ export function fixtureExternalOrigin(value) {
 
 /** Owns the real production runtime, engines and gateway, a local fake HTTP
  * provider and one explicit fixture executor lease. No legacy runtime or DTOs. */
-export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 240_000, externalOrigin, managedDirectory = false, executeCode = false, agentResponses = false, performanceStreams = false, activityStreams = false, queueStreams = false, replStreams = false, chatPolishStreams = false, networkTerminals = false, workers = 4, rejectInput, rejectionMessage = 'Explicit fixture provider rejection' } = {}) {
+export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 240_000, externalOrigin, managedDirectory = false, executeCode = false, agentResponses = false, performanceStreams = false, activityStreams = false, queueStreams = false, replStreams = false, chatPolishStreams = false, networkTerminals = false, terminalProfile = false, workers = 4, rejectInput, rejectionMessage = 'Explicit fixture provider rejection' } = {}) {
   if (typeof chatPolishStreams !== 'boolean') throw new TypeError('chatPolishStreams must be a boolean');
   if (typeof replStreams !== 'boolean') throw new TypeError('replStreams must be a boolean');
+  if (typeof terminalProfile !== 'boolean') throw new TypeError('terminalProfile must be a boolean');
   if (typeof networkTerminals !== 'boolean') throw new TypeError('networkTerminals must be a boolean');
   if (!Number.isInteger(workers) || workers < 1 || workers > 16) throw new RangeError('Fixture workers must be within 1..16');
   if (rejectInput !== undefined && (typeof rejectInput !== 'string' || rejectInput.length < 1 || rejectInput.length > 256)) throw new RangeError('Rejected fixture input must contain 1..256 characters');
@@ -61,6 +62,7 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
   const runtimeEnvironment = { PATH: helperDirectory + ':/usr/bin:/bin:/usr/sbin:/sbin', SHELL: '/bin/sh',
     HOME: fixtureHome, ZDOTDIR: fixtureHome, XDG_CONFIG_HOME: join(fixtureHome, '.config'),
     TMPDIR: join(directory, 'tmp'), WHIPCODE_HOME: join(fixtureHome, '.whipcode') };
+  if (terminalProfile) Object.assign(runtimeEnvironment, { SHELL: '/bin/zsh', ZDOTDIR: join(fixtureHome, 'shell'), WHIP_FIXTURE_PROMPT_LABEL: 'fixture-human' });
   const lifetime = new AbortController(), holds = new Map();
   let runtime, exited, executor, local, info, output = '', closed = false, gatewayAddress = '127.0.0.1:0';
   let effectBytes = 0;
@@ -228,6 +230,11 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
   }
   try {
     await mkdir(fixtureHome); await mkdir(runtimeEnvironment.TMPDIR); await mkdir(helperDirectory);
+    if (terminalProfile) {
+      await mkdir(runtimeEnvironment.ZDOTDIR);
+      await writeFile(join(runtimeEnvironment.ZDOTDIR, '.zshrc'), "PROMPT='fixture-human> '\nalias whip_fixture_alias='printf fixture-alias-ok'\nexport WHIP_FIXTURE_PROFILE=fixture-profile-ok\nexport PATH=\"$HOME/profile-bin:$PATH\"\n", { mode: 0o600 });
+      await mkdir(join(fixtureHome, 'profile-bin'));
+    }
     // Never open a real OS chooser during browser checks. The production app
     // falls back to its real bounded host-directory browser on unavailable.
     for (const name of ['osascript', 'zenity', 'kdialog', 'powershell']) await writeFile(join(helperDirectory, name), '#!/bin/sh\nexit 2\n', { mode: 0o700 });
