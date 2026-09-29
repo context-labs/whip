@@ -107,14 +107,33 @@ async function questionFixture(batch = false, multiple = false) {
     ),
   };
 }
+it('keeps ordinary approval pending in place and shows the requested command and friendly requester', async () => {
+  const f = await providerFixture();
+  const op = { ...operation('operation', 'waiting', 'shell.run'), arguments: { command: 'git status --short' } };
+  f.data.handlers['operations.get'] = () => op;
+  let resolve!: () => void;
+  f.data.handlers['permissions.resolve'] = () => new Promise(done => { resolve = () => done({ ...permission, state: 'approved', resolved_at: at }); });
+  f.mount(<PermissionRequest permission={permission} operation={op} waiting="0" session={f.client.session('root')} disabled={false} refresh={async () => {}} />);
+  expect(screen.getByText('Root agent')).toBeTruthy();
+  expect(screen.getByLabelText('Requested operation').textContent).toBe('git status --short');
+  const button = screen.getByRole('button', { name: 'Allow once' });
+  fireEvent.click(button);
+  await waitFor(() => expect(f.count('permissions.resolve')).toBe(1));
+  expect(screen.getByRole('button', { name: 'Allow once' })).toBe(button);
+  expect(button).toHaveProperty('disabled', true);
+  expect(screen.queryByRole('button', { name: 'Retry same approval' })).toBeNull();
+  await act(async () => resolve());
+  expect(screen.queryByRole('button', { name: 'Retry same approval' })).toBeNull();
+});
+
 it.each(['browser.attach', 'shell.run', 'files.read'])(
   'shows exact %s resource and arguments with operation-only approval',
   async (capability) => {
     const f = await providerFixture(),
-      session = f.client.session('child'),
+      session = f.client.session('root'),
       op = {
         ...operation('operation', 'waiting', capability),
-        session_id: 'child',
+        session_id: 'root',
         arguments: {
           command: 'literal request',
           profile: 'recorded profile',
@@ -141,7 +160,7 @@ it.each(['browser.attach', 'shell.run', 'files.read'])(
     expect(screen.getByLabelText('Requested resource').textContent).toBe(
       op.resource,
     );
-    expect(screen.getByLabelText('Requested operation').textContent).toContain(
+    expect(screen.getByLabelText('Exact operation arguments').textContent).toContain(
       'literal request',
     );
     expect(screen.getByRole('status').textContent).toContain(
@@ -192,13 +211,13 @@ it('keeps an uncertain approval pinned and checks without switching or replaying
     { operation_id: 'operation', approved: false },
   ]);
 });
-it('uses native pending-only metadata and fetches only the selected operation, with root questions distinct from child approval', async () => {
+it('uses native pending-only metadata and fetches only the selected operation, with root questions and approvals', async () => {
   const f = await providerFixture(),
-    session = f.client.session('child');
+    session = f.client.session('root');
   f.data.handlers['permissions.list'] = () => ({ items: [permission] });
   f.data.handlers['operations.get'] = () => ({
     ...operation('operation', 'waiting'),
-    session_id: 'child',
+    session_id: 'root',
   });
   f.data.handlers['questions.list'] = () => ({ items: [question()] });
   f.mount(
@@ -214,13 +233,35 @@ it('uses native pending-only metadata and fetches only the selected operation, w
   await screen.findByText('Choose a direction');
   expect(
     f.calls.find((call) => call.method === 'permissions.list')?.params,
-  ).toEqual({ session_id: 'child', limit: 1, pending_only: true });
+  ).toEqual({ session_id: 'root', limit: 1, pending_only: true });
   expect(
     f.calls.find((call) => call.method === 'questions.list')?.params,
   ).toEqual({ session_id: 'root', limit: 4, pending_only: true });
   expect(f.count('operations.get')).toBe(1);
   expect(f.count('sessions.history_page')).toBe(0);
 });
+it('keeps child delegation separate from root-only human approval', async () => {
+  const f = await providerFixture();
+  f.data.handlers['permissions.list'] = () => ({ items: [permission] });
+  f.data.handlers['questions.list'] = () => ({ items: [question()] });
+  f.mount(<PendingRequests session={f.client.session('child')} rootId="root" disabled={false} refresh={async () => {}} />);
+  await screen.findByText('Choose a direction');
+  expect(screen.queryByRole('button', { name: 'Allow once' })).toBeNull();
+  expect(f.count('permissions.list')).toBe(0);
+  expect(f.count('operations.get')).toBe(0);
+  expect(f.count('permissions.resolve')).toBe(0);
+});
+it.each([{ session_id: 'foreign' }, { id: 'different-operation' }])('rejects mismatched approval evidence %j', async patch => {
+  const f = await providerFixture();
+  f.data.handlers['permissions.list'] = () => ({ items: [permission] });
+  f.data.handlers['questions.list'] = () => ({ items: [] });
+  f.data.handlers['operations.get'] = () => ({ ...operation('operation', 'waiting'), ...patch });
+  f.mount(<PendingRequests session={f.client.session('root')} rootId="root" disabled={false} refresh={async () => {}} />);
+  await screen.findByText('Operation belongs to another session or identity');
+  expect(screen.queryByRole('button', { name: 'Allow once' })).toBeNull();
+  expect(f.count('permissions.resolve')).toBe(0);
+});
+
 it('rejects foreign pending question evidence before exposing an answer control', async () => {
   const f = await providerFixture();
   f.data.handlers['permissions.list'] = () => ({ items: [] });

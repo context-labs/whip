@@ -69,6 +69,44 @@ export function fileOperationPath(
   return path;
 }
 
+/** Only identifying fields from the recorded operation are ordinary UI subjects.
+ * Match the reference's bounded display projection; arbitrary arguments stay in details. */
+export function operationSubject(host: DeepReadonly<HostOperation>): string {
+  const args = host.arguments;
+  const text = (key: string, limit: number) => {
+    if (!args || typeof args !== 'object' || Array.isArray(args)) return '';
+    const value = (args as Readonly<Record<string, unknown>>)[key];
+    if (typeof value !== 'string') return '';
+    const bytes = new TextEncoder().encode(value);
+    if (bytes.length <= limit) return value;
+    let end = limit;
+    while (end > 0 && (bytes[end]! & 0xc0) === 0x80) end--;
+    return new TextDecoder().decode(bytes.subarray(0, end)) + '…';
+  };
+  if (host.capability.startsWith('files.')) {
+    const path = fileOperationPath(host);
+    const pattern = host.capability === 'files.search' ? text('pattern', 512) : '';
+    return [path, pattern].filter(Boolean).join(' · ') || host.resource;
+  }
+  if (host.capability.startsWith('shell.')) return text('command', 512) || host.resource;
+  if (host.capability.startsWith('browser.')) return text('url', 1024) || text('query', 512) || host.resource;
+  if (host.capability === 'agents.spawn') return text('name', 160);
+  return host.resource;
+}
+
+export function operationStatus(state: HostOperation['state'], connected: boolean): string {
+  switch (state) {
+    case 'waiting': return 'Needs approval';
+    case 'ready': return connected ? 'Queued' : 'Updates paused';
+    case 'dispatched': return connected ? 'Running' : 'Paused';
+    case 'succeeded': return 'Done';
+    case 'denied': return 'Denied';
+    case 'failed': return 'Failed';
+    case 'cancelled': return 'Cancelled';
+    case 'uncertain': return 'Outcome uncertain';
+  }
+}
+
 /** One footer for a response to an authored input. Internal deliveries and tool
  * steps remain within that response; queued input does not finish active work.
  * This is a view of retained prose, not a second turn/event store.

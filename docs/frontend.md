@@ -314,6 +314,13 @@ owner, reference, client, connection, closed dialog or unmount cancels pending
 attachment downloads. An oversized transcript gap is inspected
 separately; ordinary paging does not enlarge the transcript budget.
 
+Activity subjects use a small allowlisted projection of recorded operation
+arguments: file path/search pattern, shell command, browser URL/query and agent
+name. Excerpts retain the reference's byte bounds and Unicode boundaries;
+arbitrary arguments and results stay under Operation details. Permission scope
+is separate from the subject. Native denied/uncertain outcomes never inherit a
+successful parent turn's status.
+
 ## Mutations, acceptance, and permissions
 
 Prepare a typed durable command with its immutable ID and exact payload, persist
@@ -333,6 +340,14 @@ account secrets and resource handles never enter the durable command journal.
 
 Native permission/question decisions preserve the selected operation/question,
 exact decision and original identity through an uncertain acknowledgement.
+Ordinary pending replies keep their original controls disabled in place; Check
+and Retry appear only after a failed/uncertain reply. The request dock reads
+human approvals only for the root. Child operations retain native delegation
+and denial behavior; they cannot be turned into directly approvable requests.
+The root card shows the requested command/path and a readable requester; exact
+resource/arguments remain available in details. Focus returns to the composer
+in the originating workspace pane. Broader historical Remember scopes are not
+silently mapped to exact native grants.
 The composer permission picker captures root tree-policy revision when opened;
 background reads never rebase an open choice. Child configuration cannot widen
 authority, and child model controls remain read-only in the current UI. Ask/Full

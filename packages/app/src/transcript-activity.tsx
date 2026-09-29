@@ -21,7 +21,8 @@ import { colors, scale, surface, typography } from '@whip/ui/tokens.stylex';
 import {
   activityItems,
   activitySummary,
-  fileOperationPath,
+  operationSubject,
+  operationStatus,
   spawnedSession,
   type ActivityGroup,
   type ActivityItem,
@@ -49,7 +50,7 @@ export function ActivityHeader({
   const preview = activityItems(group).at(-1);
   const snippet = (
     preview?.host?.result?.failure ||
-    (preview?.host && (fileOperationPath(preview.host) ?? preview.host.resource)) ||
+    (preview?.host && operationSubject(preview.host)) ||
     preview?.row?.text ||
     (preview?.cell
       ? cellOutput(preview.cell, connected).output
@@ -142,7 +143,7 @@ function operation(item: ActivityItem) {
             : Terminal;
   return {
     label, icon,
-    detail: item.host ? fileOperationPath(item.host) ?? item.host.resource : '',
+    detail: item.host ? operationSubject(item.host) : '',
   };
 }
 
@@ -206,7 +207,7 @@ export function ActivityStep({
               status === 'failed' && styles.error,
             )}
           >
-            {['running', 'waiting', 'ready', 'dispatched'].includes(status)
+            {item.host ? operationStatus(item.host.state, connected) : ['running', 'waiting', 'ready', 'dispatched'].includes(status)
               ? connected
                 ? 'Running'
                 : 'Paused'
@@ -361,6 +362,9 @@ export function ActivityDetail({
       )}
       {item.host && (
         <>
+          {operationSubject(item.host) && <pre {...stylex.props(styles.output)}>{operationSubject(item.host)}</pre>}
+          <details>
+            <summary>Operation details</summary>
           <p {...stylex.props(styles.muted)}>Permission scope: {item.host.resource}</p>
           <CodeBlock
             code={JSON.stringify(item.host.arguments, null, 2)}
@@ -384,6 +388,7 @@ export function ActivityDetail({
                 label="Host result"
               />
             ))}
+          </details>
           {item.host.result?.failure && (
             <p {...stylex.props(styles.error)}>
               <CircleAlert size={13} /> {item.host.result?.failure}
@@ -415,7 +420,7 @@ export function InlineAgent({
 }) {
   const [details, setDetails] = useState(false);
   const id = spawnedSession(row.agentHost);
-  const title = agent?.definition.id || id || 'Agent';
+  const title = operationSubject(row.agentHost) || agent?.definition.id || 'Agent';
   // This is launch evidence, not a second live roster. A child's later turn does
   // not change the outcome of the operation that launched it.
   const launchStatus =
@@ -425,6 +430,8 @@ export function InlineAgent({
         ? connected
           ? 'Launching'
           : 'Launch updates paused'
+        : row.agentHost.state === 'denied'
+          ? 'Launch denied'
         : row.agentHost.state === 'failed'
           ? 'Failed to launch'
           : row.agentHost.state === 'cancelled'
