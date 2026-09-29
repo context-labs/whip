@@ -673,3 +673,6 @@ export { BrowserProviderClient } from './browser-provider.js';
 export { browserProviderFramed } from './browser-framed.js';
 export { selectBrowserProvider } from './browser-selection.js';
 export type { BrowserProviderBridge, BrowserSelection, BrowserSelectionOptions } from './browser-selection.js';
+
+export { readHistoryMessage } from './history.js';
+export type { MessageReadOptions } from './history.js';

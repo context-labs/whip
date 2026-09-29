@@ -1,4 +1,4 @@
-import type { HistorySnapshot, Message, Operations } from '@whip/protocol';
+import type { AttemptPresentation, HistorySnapshot, Message, Operations } from '@whip/protocol';
 import type { Client } from './index.js';
 import type { Session } from './session.js';
 import { RemoteError } from './wire.js';
@@ -25,7 +25,7 @@ const isConflict = (error: unknown) => error instanceof RemoteError && error.kin
 
 /** A gap is explicit omitted evidence, never inferred from sequence arithmetic:
  * retired records may leave perfectly valid gaps between adjacent messages. */
-export interface HistoryGap { messageID: string; sequence: string; reason: 'message_too_large'; bytes: number }
+export interface HistoryGap { messageID: string; sequence: string; reason: 'message_too_large'; bytes: number; groupID?: string }
 type Row = { message: Message; gap?: never } | { gap: HistoryGap; message?: never };
 const sequence = (row: Row) => row.message ? row.message.sequence : row.gap!.sequence;
 export interface HistoryView {
@@ -45,6 +45,8 @@ export interface SessionViewSnapshot {
   history: HistoryView;
   preview: MessagePreview | null;
   previewUnavailable: boolean;
+  attemptPresentations?: AttemptPresentation[];
+  attemptPresentationsTruncated?: boolean;
   retainedBytes: number;
   truncated: boolean;
   unavailable: boolean;
@@ -80,7 +82,7 @@ export class SessionView {
     if (this.maxBytes < 4096) throw new RangeError('maxBytes must be at least 4096');
     this.pageSize = boundedInteger(options.pageSize ?? 100, 'pageSize', 100);
     this.interval = boundedInteger(options.pollIntervalMs ?? 250, 'pollIntervalMs', 60_000);
-    this.current = freeze({ status: 'idle', runtimeID: session.client.runtimeID, sessionID: session.id, epoch: null, activity: null, history: { snapshot: null, messages: [], gaps: [], olderCursor: null, latestMissing: false }, preview: null, previewUnavailable: false, retainedBytes: 0, truncated: false, unavailable: false });
+    this.current = freeze({ status: 'idle', runtimeID: session.client.runtimeID, sessionID: session.id, epoch: null, activity: null, history: { snapshot: null, messages: [], gaps: [], olderCursor: null, latestMissing: false }, preview: null, previewUnavailable: false, attemptPresentations: [], attemptPresentationsTruncated: false, retainedBytes: 0, truncated: false, unavailable: false });
   }
   getSnapshot = (): DeepReadonly<SessionViewSnapshot> => this.current;
   subscribe = (listener: () => void): (() => void) => {
@@ -118,7 +120,7 @@ export class SessionView {
   async dispose(): Promise<void> {
     if (this.closed) return;
     await this.suspend(); this.closed = true; this.rows = [];
-    this.patch({ status: 'closed', activity: null, preview: null, history: { snapshot: null, messages: [], gaps: [], olderCursor: null, latestMissing: false } });
+    this.patch({ status: 'closed', activity: null, preview: null, attemptPresentations: [], attemptPresentationsTruncated: false, history: { snapshot: null, messages: [], gaps: [], olderCursor: null, latestMissing: false } });
     this.listeners.clear();
   }
   refresh(): Promise<void> {
@@ -151,24 +153,45 @@ export class SessionView {
   private convert(messages: readonly Message[]): Row[] {
     return messages.map(message => {
       const size = bytes(message);
-      return size > this.maxBytes - 2048 ? { gap: { messageID: message.id, sequence: message.sequence, reason: 'message_too_large' as const, bytes: size } } : { message };
+      return size > this.maxBytes - 2048 ? { gap: { messageID: message.id, sequence: message.sequence, reason: 'message_too_large' as const, bytes: size, groupID: message.group_id } } : { message };
     });
   }
-  private window(snapshot: HistorySnapshot, rows: Row[], olderCursor: string | null, preview: MessagePreview | null, epoch: string | null, keep: 'older' | 'latest', activity: SessionActivity | null = this.current.activity as SessionActivity | null) {
+  private presentations(incoming: readonly AttemptPresentation[], previous: readonly DeepReadonly<AttemptPresentation>[] = this.current.attemptPresentations ?? []): AttemptPresentation[] {
+    const merged = new Map<string, AttemptPresentation>();
+    for (const attempt of [...previous, ...incoming]) {
+      if (attempt.attempt_id !== attempt.presentation.attempt_id || !attempt.source_session_id && attempt.group_id !== attempt.turn_id) throw new TypeError('Attempt presentation identity mismatch');
+      const key = JSON.stringify([attempt.group_id, attempt.source_session_id ?? this.session.id, attempt.attempt_id]);
+      const existing = merged.get(key);
+      if (existing && JSON.stringify(existing) !== JSON.stringify(attempt)) throw new TypeError('Immutable attempt presentation changed');
+      merged.set(key, attempt as AttemptPresentation);
+    }
+    return [...merged.values()];
+  }
+  private window(snapshot: HistorySnapshot, rows: Row[], olderCursor: string | null, preview: MessagePreview | null, epoch: string | null, keep: 'older' | 'latest', activity: SessionActivity | null = this.current.activity as SessionActivity | null, attempts: AttemptPresentation[] = [...(this.current.attemptPresentations ?? [])] as AttemptPresentation[], attemptsTruncated = this.current.attemptPresentationsTruncated ?? false) {
+    const retainAttempts = () => {
+      const groups = new Set(rows.map(row => row.message?.group_id ?? row.gap?.groupID));
+      attempts = attempts.filter(attempt => groups.has(attempt.group_id));
+    };
+    retainAttempts();
+    while (attempts.length > 64 || bytes(attempts) > Math.min(2 << 20, Math.floor(this.maxBytes / 4))) {
+      if (keep === 'latest') attempts.shift(); else attempts.pop();
+      attemptsTruncated = true;
+    }
     let latestMissing = keep === 'older' ? this.current.history.latestMissing : BigInt(this.after) < BigInt(snapshot.through_sequence);
     let previewUnavailable = false;
     if (preview && bytes(preview) > Math.floor(this.maxBytes / 4)) { preview = null; previewUnavailable = true; }
-    const make = (): SessionViewSnapshot => ({ status: 'live', runtimeID: this.current.runtimeID, sessionID: this.session.id, epoch, activity, history: { snapshot, messages: rows.flatMap(row => row.message ? [row.message] : []), gaps: rows.flatMap(row => row.gap ? [row.gap] : []), olderCursor, latestMissing }, preview, previewUnavailable, retainedBytes: 0, truncated: olderCursor !== null || latestMissing || rows.some(row => !!row.gap) || previewUnavailable, unavailable: false });
+    const make = (): SessionViewSnapshot => ({ status: 'live', runtimeID: this.current.runtimeID, sessionID: this.session.id, epoch, activity, history: { snapshot, messages: rows.flatMap(row => row.message ? [row.message] : []), gaps: rows.flatMap(row => row.gap ? [row.gap] : []), olderCursor, latestMissing }, preview, previewUnavailable, attemptPresentations: attempts, attemptPresentationsTruncated: attemptsTruncated, retainedBytes: 0, truncated: attemptsTruncated || olderCursor !== null || latestMissing || rows.some(row => !!row.gap) || previewUnavailable, unavailable: false });
     while (rows.length > this.maxMessages || bytes(make()) > this.maxBytes - 2048) {
       if (rows.length === 0) throw new RangeError('Session metadata exceeds view byte limit');
       if (rows.length === 1 && rows[0]!.message) {
         const message = rows[0]!.message!;
-        rows = [{ gap: { messageID: message.id, sequence: message.sequence, reason: 'message_too_large', bytes: bytes(message) } }];
+        rows = [{ gap: { messageID: message.id, sequence: message.sequence, reason: 'message_too_large', bytes: bytes(message), groupID: message.group_id } }];
         continue;
       }
       if (keep === 'latest') { rows.shift(); olderCursor = rows.length ? sequence(rows[0]!) : snapshot.through_sequence; }
       else { rows.pop(); latestMissing = true; }
     }
+    retainAttempts();
     this.rows = rows;
     const committed = new Set(rows.flatMap(row => row.message ? [row.message.id] : [row.gap.messageID]));
     if (preview && committed.has(preview.message_id)) preview = null;
@@ -178,7 +201,7 @@ export class SessionView {
     const page = await this.page();
     if (!this.valid(generation)) return;
     this.followLatest = true; this.after = page.snapshot.through_sequence;
-    this.window(page.snapshot, this.convert(page.messages), page.next_cursor, null, this.current.epoch, 'latest', activity);
+    this.window(page.snapshot, this.convert(page.messages), page.next_cursor, null, this.current.epoch, 'latest', activity, this.presentations(page.attempt_presentations ?? [], []), page.attempt_presentations_truncated ?? false);
   }
   private async read(generation: number): Promise<void> {
     if (!this.valid(generation)) return;
@@ -193,21 +216,23 @@ export class SessionView {
       if (observation.snapshot.revision !== revision || BigInt(observation.snapshot.through_sequence) < BigInt(this.after)) throw new TypeError('Observation history revision or boundary mismatch');
       this.validateMessages(observation.snapshot, observation.messages ?? [], this.after);
       const messages = observation.messages ?? [];
+      const attempts = this.presentations(observation.attempt_presentations ?? []);
+      const attemptsTruncated = (this.current.attemptPresentationsTruncated ?? false) || (observation.attempt_presentations_truncated ?? false);
       const last = messages.at(-1);
       if (last) this.after = last.sequence;
       if (this.followLatest) {
-        this.window(observation.snapshot, [...this.rows, ...this.convert(messages)], this.current.history.olderCursor, observation.preview, observation.epoch, 'latest', activity);
+        this.window(observation.snapshot, [...this.rows, ...this.convert(messages)], this.current.history.olderCursor, observation.preview, observation.epoch, 'latest', activity, attempts, attemptsTruncated);
       } else {
         if (messages.length) this.patch({ history: { ...this.current.history, latestMissing: true } as HistoryView });
         this.after = observation.snapshot.through_sequence; // Deliberately do not retain an off-screen suffix.
-        this.window(observation.snapshot, this.rows, this.current.history.olderCursor, observation.preview, observation.epoch, 'older', activity);
+        this.window(observation.snapshot, this.rows, this.current.history.olderCursor, observation.preview, observation.epoch, 'older', activity, attempts, attemptsTruncated);
       }
     } catch (error) {
       if (!isConflict(error) || !this.valid(generation)) throw error;
       // Rewind replaces the window using a fresh tail page. Never replay old
       // pages from zero or join two revisions into one presentation.
       this.rows = []; this.after = '0';
-      this.patch({ status: 'loading', preview: null, history: { snapshot: null, messages: [], gaps: [], olderCursor: null, latestMissing: false } });
+      this.patch({ status: 'loading', preview: null, attemptPresentations: [], attemptPresentationsTruncated: false, history: { snapshot: null, messages: [], gaps: [], olderCursor: null, latestMissing: false } });
       await this.seed(generation, activity);
     }
   }
@@ -226,10 +251,10 @@ export class SessionView {
         const page = await this.page(current.olderCursor, current.snapshot.revision);
         if (!this.valid(generation)) return;
         this.followLatest = false;
-        this.window(page.snapshot, [...this.convert(page.messages), ...this.rows], page.next_cursor, this.current.preview as MessagePreview | null, this.current.epoch, 'older');
+        this.window(page.snapshot, [...this.convert(page.messages), ...this.rows], page.next_cursor, this.current.preview as MessagePreview | null, this.current.epoch, 'older', undefined, this.presentations([...(this.current.attemptPresentations ?? [])] as AttemptPresentation[], page.attempt_presentations ?? []), (this.current.attemptPresentationsTruncated ?? false) || (page.attempt_presentations_truncated ?? false));
       })().catch(error => {
         if (!this.valid(generation)) return;
-        if (isConflict(error)) { this.rows = []; this.patch({ history: { snapshot: null, messages: [], gaps: [], olderCursor: null, latestMissing: false }, preview: null }); }
+        if (isConflict(error)) { this.rows = []; this.patch({ attemptPresentations: [], attemptPresentationsTruncated: false, history: { snapshot: null, messages: [], gaps: [], olderCursor: null, latestMissing: false }, preview: null }); }
         this.patch({ status: 'stale', error: describe(error) });
         throw error;
       });
@@ -383,3 +408,6 @@ export class TreeCatalogView {
   next(): Promise<void> { return this.navigate('next'); }
 }
 export const createTreeCatalogView = (client: Client, options?: TreeCatalogOptions) => new TreeCatalogView(client, options);
+
+export { executionCode, executionPresentationRows } from './execution-presentation.js';
+export type { ExecutionPresentationRow } from './execution-presentation.js';

@@ -10,7 +10,7 @@ const initial = { major: 4, minor: 0, runtime_id: 'runtime', process_epoch: 'boo
 const owner = 'session_child';
 const message = (sequence, text = 'body') => ({ ...fixture('Message'), id: 'message_' + sequence, session_id: owner, sequence: String(sequence), parts: [{ type: 'text', text }] });
 async function backend() {
-  const state = { activity: { ...fixture('SessionActivity'), session_id: owner, active_turn: null, active_input_id: null }, messages: [], revision: '1', epoch: 'boot_one', preview: null, calls: [], intercept: undefined, catalogRevision: '1', trees: [] };
+  const state = { activity: { ...fixture('SessionActivity'), session_id: owner, active_turn: null, active_input_id: null }, messages: [], attempts: [], attemptsTruncated: false, revision: '1', epoch: 'boot_one', preview: null, calls: [], intercept: undefined, catalogRevision: '1', trees: [] };
   const snapshot = () => ({ session_id: owner, revision: state.revision, through_sequence: state.messages.at(-1)?.sequence ?? '0', message_count: String(state.messages.length) });
   const client = await Client.connect(async request => {
     if (request.method === 'initialize') return { jsonrpc: '2.0', id: request.id, result: initial };
@@ -33,6 +33,12 @@ async function backend() {
       const all = state.trees.filter(value => (!p.after || value.tree.id > p.after) && (p.archived === undefined || p.archived === value.tree.metadata.archived) && (p.pinned === undefined || p.pinned === value.tree.metadata.pinned));
       const items = all.slice(0, p.limit); result = { revision: state.catalogRevision, items, next_cursor: all.length > items.length ? items.at(-1).tree.id : null };
     } else throw new Error(request.method);
+    if (request.method === 'sessions.history_page' || request.method === 'sessions.observe') {
+      const groups = new Set(result.messages.map(message => message.group_id));
+      if (request.method === 'sessions.observe') for (const message of state.messages) if (message.sequence === p.after) groups.add(message.group_id);
+      result.attempt_presentations = state.attempts.filter(attempt => groups.has(attempt.group_id));
+      result.attempt_presentations_truncated = state.attemptsTruncated;
+    }
     return { jsonrpc: '2.0', id: request.id, result: structuredClone(result) };
   }, { clientID: 'view' });
   return { state, client };
@@ -167,4 +173,41 @@ test('catalog search stays in every bounded host request without session hydrati
   assert.ok(pages.every(call => call.params.search === '100%_Ready'));
   assert.equal(pages[1].params.expected_revision, view.getSnapshot().revision);
   assert.ok(state.calls.every(call => call.method.startsWith('trees.')));
+});
+
+
+const failedDisplay = (group, id = 'failed_' + group, text = 'retained thought') => ({
+  group_id: group, turn_id: group, attempt_id: id, state: 'failed',
+  presentation: { version: 1, attempt_id: id, truncated: false, parts: [{ type: 'reasoning', id: 'p0', text }] },
+});
+test('attempt presentation follows bounded older history and revision replacement', async t => {
+  const { state, client } = await backend();
+  state.messages = Array.from({ length: 12 }, (_, i) => ({ ...message(i + 1), turn_id: 'turn_' + i, group_id: 'turn_' + i }));
+  state.attempts = state.messages.map(m => failedDisplay(m.group_id));
+  const view = viewFor(t, client, { maxMessages: 2, pageSize: 2 }); await view.start();
+  assert.deepEqual(view.getSnapshot().attemptPresentations.map(a => a.group_id), ['turn_10', 'turn_11']);
+  await view.loadOlder(); assert.deepEqual(view.getSnapshot().attemptPresentations.map(a => a.group_id), ['turn_8', 'turn_9']);
+  state.messages.push({ ...message(13), turn_id: 'turn_new', group_id: 'turn_new' }); state.attempts.push(failedDisplay('turn_new'));
+  await view.refresh(); assert.deepEqual(view.getSnapshot().attemptPresentations.map(a => a.group_id), ['turn_8', 'turn_9']);
+  state.revision = '2'; state.messages = state.messages.slice(0, 1); state.attempts = state.attempts.slice(0, 1);
+  await view.refresh(); assert.deepEqual(view.getSnapshot().attemptPresentations.map(a => a.group_id), ['turn_0']);
+  await view.dispose(); assert.deepEqual(view.getSnapshot().attemptPresentations, []);
+});
+test('attempt display retention counts bytes and distinguishes imported provenance', async t => {
+  const { state, client } = await backend(); state.messages = [{ ...message(1), group_id: 'imported', turn_id: null, source: { session_id: 'source', message_id: 'original', sequence: '1' } }];
+  state.attempts = [{ ...failedDisplay('source_turn'), group_id: 'imported', source_session_id: 'source' }];
+  const view = viewFor(t, client, { maxBytes: 4096 }); await view.start();
+  assert.equal(view.getSnapshot().attemptPresentations[0].source_session_id, 'source');
+  await view.dispose();
+  state.attempts[0].presentation.parts[0].text = 'x'.repeat(3000);
+  const small = viewFor(t, client, { maxBytes: 4096 }); await small.start();
+  assert.equal(small.getSnapshot().history.messages.length, 1); assert.deepEqual(small.getSnapshot().attemptPresentations, []);
+  assert.equal(small.getSnapshot().attemptPresentationsTruncated, true); assert.ok(small.getSnapshot().retainedBytes <= 4096);
+});
+test('mismatched or changed immutable attempt identity fails closed', async t => {
+  const { state, client } = await backend(); state.messages = [{ ...message(1), group_id: 'turn_fixture', turn_id: 'turn_fixture' }]; state.attempts = [failedDisplay('turn_fixture')];
+  const view = viewFor(t, client); await view.start(); assert.equal(view.getSnapshot().status, 'live');
+  state.attempts[0].presentation.parts[0].text = 'changed'; await view.refresh();
+  assert.equal(view.getSnapshot().status, 'stale'); assert.equal(view.getSnapshot().unavailable, true);
+  assert.equal(view.getSnapshot().attemptPresentations[0].presentation.parts[0].text, 'retained thought');
 });

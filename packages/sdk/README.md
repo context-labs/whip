@@ -13,6 +13,32 @@ with the same runtime's new client; suspension/disposal never cancel execution.
 copying the transcript or inventing execution for imported history. React's
 `useExecutionView` reads the immutable external-store snapshot.
 
+`executionPresentationRows(execution, sessionSnapshot)` adds display-only writing,
+committed, failed and imported call rows around those same records. Its IDs use
+session, attempt and presentation slot, remaining stable when a partial call ID
+becomes a committed call and then a cell. A null `cell` carries no execution
+authority. Canonical calls omitted from bounded presentation keep exact-call
+fallback IDs. `executionCode` parses bounded partial arguments for writing rows.
+
+`session.turns.cellPage(turnID, { before, limit })` pages newest first by stored
+cell ordinal, independently of opaque ID spelling. ExecutionView continues a
+partially retained turn before older turns; refresh keeps the selected older
+window. Exact call/result bodies absent from SessionView are read only for
+retained cells, deduplicated and charged to the same execution byte budget.
+The immutable `messages` field owns those bodies; disposal, history replacement
+and process-epoch changes release them. Oversized or unavailable bodies are
+explicit in `unavailableMessageIDs`, without fabricating empty outputs.
+
+`session.history.message(messageID, { maxBytes, sequence, turnID, groupID, role })`
+reads one exact canonical body in bounded chunks (default 1 MiB, maximum 4 MiB).
+Expected identity fields are optional; ownership, retirement, complete metadata,
+cursors, UTF-8, parts and timestamp are always checked. It retains no cache.
+SessionView retains up to 64 failed/interrupted attempt presentations in loaded
+history groups, within one quarter of its byte budget (at most 2 MiB). Imported
+presentation retains source provenance, without local attempt/turn authority.
+It follows the same older-window and revision invalidation rules as messages;
+`attemptPresentationsTruncated` reports omitted display evidence.
+
 `client.session(id).turns.page({ before, limit })` reads bounded canonical turn
 metadata, newest first, including direct human work with no transcript. The
 optional cursor is the last returned turn ID, scoped to that session; use
