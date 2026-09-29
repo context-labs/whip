@@ -235,7 +235,7 @@ tasks:
     desc: Native REPL, skill completion and chat presentation in Chromium and Firefox
     cmds:
       - task: web-assets
-      - node --test apps/web/scripts/native-safari-driver.test.mjs
+      - node --test apps/web/scripts/native-safari-driver.test.mjs apps/web/scripts/native-observation-probe.test.mjs
       # These maintained entrypoints require their native fixture ports at cutover.
       - node apps/web/scripts/repl-viewer.mjs
       - node apps/web/scripts/slash-skills.mjs
@@ -264,7 +264,7 @@ tasks:
   check:product-performance:
     desc: Native web performance measurement; run without competing builds or tests
     cmds:
-      - node --test apps/web/scripts/performance-retention.test.mjs apps/web/scripts/performance-keyboard.test.mjs
+      - node --test apps/web/scripts/performance-retention.test.mjs apps/web/scripts/performance-keyboard.test.mjs apps/web/scripts/performance-desktop.test.mjs
       - task: web-assets
       - node apps/web/scripts/performance.mjs
 

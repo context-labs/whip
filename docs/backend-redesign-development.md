@@ -5725,3 +5725,23 @@ leaves are exactly Linux dedicated Chrome, the REPL observation assertion and
 the Task trap in both client jobs. Full product-browser validation passes;
 Desktop supplies no hosted evidence because the parent workflow skipped it.
 The final remote record is `/tmp/whip-277-final-summary.md`.
+
+REPL diagnostics now retain bounded document/runtime/epoch/owner and raw socket
+overlap evidence before asserting, and their output directory matches hosted
+artifact collection. All original assertions and deadlines remain. Both local
+browsers pass ten workflow groups with one observation per owner; seven focused
+probe checks also cover refused sends/closes and lifecycle bounds. The hosted
+failure is not reproduced or declared fixed. These checks and the existing
+Desktop performance helper contracts now participate in their normal gates.
+All32 diagnostic contracts pass together in10.045s; injected Safari-driver tests
+required loopback access and never opened Safari or enabled Remote Automation.
+
+The measured long-draft parser fast path is integrated as `2c38fdfaa`. It preserves
+14,884 compared parsing cases and reduces the isolated 255,543-character ordinary
+text scan median from2.188ms to0.072ms; valid long-prose triggers are unchanged.
+Complete shared app types and1,388 tests across114 files pass in26.40s on the
+combined increment. The native50ms typing target remains open: the comparable
+baseline stopped before typing when a cached child jumped from its saved reading
+anchor to the tail after seven successful restores. Its retained failure and
+joined cleanup are recorded in the performance audit. No new UI-latency result
+or leak diagnosis is inferred from the parser microbenchmark.
