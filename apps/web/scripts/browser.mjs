@@ -35,7 +35,7 @@ function observe(page) {
   const acceptance = [];
   const outcomes = [];
   const rpcErrors = [];
-  page.on('pageerror', error => errors.push(error.message));
+  page.on('pageerror', error => errors.push({ message: error.message, stack: error.stack }));
   page.on('console', event => {
     if (event.type() === 'error' && /content.security.policy|violates.*directive|refused to (execute|apply|load)|unsafe-eval/i.test(event.text())) errors.push(event.text());
   });
@@ -321,7 +321,9 @@ try {
       const other = await fixture.createRoot(client);
       await peer.goto(origin() + route(other.root.id)); await ready(peer);
       const beforeParallel = [observed.requests.length, peerObserved.requests.length];
-      for (let index = 0; index < 8; index++) await Promise.all([send(page, `hold:Parallel A ${index}`), send(peer, `hold:Parallel B ${index}`)]);
+      // Both browser engines share this fixture; released holds are one-shot.
+      // Include the browser identity so the second run remains unfinished too.
+      for (let index = 0; index < 8; index++) await Promise.all([send(page, `hold:Parallel ${name} A ${index}`), send(peer, `hold:Parallel ${name} B ${index}`)]);
       const submitted = [...observed.requests.slice(beforeParallel[0]), ...peerObserved.requests.slice(beforeParallel[1])].filter(item => item.method === 'sessions.submit');
       assert.equal(submitted.length, 16);
       const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('whip.web.recovery.v4')).map(entry => entry.record));
@@ -330,8 +332,8 @@ try {
       for (const request of submitted) assert.ok(saved.some(record => record.runtimeID === fixture.info.runtime_id
         && record.clientID === request.params.identity.client_id
         && JSON.stringify(JSON.parse(record.request).params) === JSON.stringify(request.params)), 'Concurrent tabs lost an unfinished exact request');
-      for (let index = 0; index < 8; index++) for (const recipient of ['A', 'B']) fixture.release(`Parallel ${recipient} ${index}`);
-      for (const [target, prefix] of [[session, 'hold:Parallel A'], [client.session(other.root.id), 'hold:Parallel B']]) {
+      for (let index = 0; index < 8; index++) for (const recipient of ['A', 'B']) fixture.release(`Parallel ${name} ${recipient} ${index}`);
+      for (const [target, prefix] of [[session, `hold:Parallel ${name} A`], [client.session(other.root.id), `hold:Parallel ${name} B`]]) {
         const texts = await eventually(async () => {
           const messages = await messagesOf(target);
           const sent = messages.filter(message => message.role === 'user' && textOf(message).startsWith(prefix)).map(textOf);
