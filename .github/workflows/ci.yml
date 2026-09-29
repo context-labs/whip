@@ -23,7 +23,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-15]
-        gate: [build, race-store-first, race-store-rest, race-runtime-first, race-runtime-rest, race-other, clients]
+        gate: [build, race-store-first, race-store-rest, race-runtime-first, race-runtime-rest, race-other, clients, native-browser]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
@@ -36,14 +36,27 @@ jobs:
           cache-dependency-path: |
             go.sum
             Taskfile.yaml
-      - if: matrix.gate == 'clients'
+      - if: matrix.gate == 'clients' || matrix.gate == 'native-browser'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           cache: npm
       - run: go install github.com/go-task/task/v3/cmd/task@v3.48.0
-      - if: matrix.gate == 'clients'
+      - if: matrix.gate == 'clients' || matrix.gate == 'native-browser'
         run: npm ci --no-audit --no-fund
+      - name: Owned native Chrome fixture executable
+        if: matrix.gate == 'native-browser'
+        run: |
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            # The hosted system Chrome has the runner's sandbox policy. Never
+            # weaken the production launch arguments for downloaded Chromium.
+            native_browser_binary=$(command -v google-chrome)
+          else
+            npx playwright install chromium
+            native_browser_binary=$(node --input-type=module -e 'import { chromium } from "@playwright/test"; process.stdout.write(chromium.executablePath())')
+          fi
+          test -x "$native_browser_binary"
+          printf 'WHIP_BROWSER_NATIVE_TEST_BINARY=%s\n' "$native_browser_binary" >> "$GITHUB_ENV"
       - name: Required ${{ matrix.gate }} gate
         run: |
           # The native browser package exercises dedicated headed sessions.
@@ -203,6 +216,9 @@ jobs:
         run: |
           swift build -c release --package-path driver
           test -s driver/.build/release/whip-computer
+
+      - name: Safe Swift driver unit tests
+        run: swift test --package-path driver --scratch-path "$RUNNER_TEMP/whip-driver-tests"
 
       - name: Full build with the helper embedded
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7

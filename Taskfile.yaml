@@ -228,6 +228,7 @@ tasks:
     desc: Native REPL, skill completion and chat presentation in Chromium and Firefox
     cmds:
       - task: web-assets
+      - node --test apps/web/scripts/native-safari-driver.test.mjs
       # These maintained entrypoints require their native fixture ports at cutover.
       - node apps/web/scripts/repl-viewer.mjs
       - node apps/web/scripts/slash-skills.mjs
@@ -402,6 +403,26 @@ tasks:
       - task: check:race-runtime
       - task: check:race-other
       - task: check:clients
+      - task: check:native-browser
+
+  check:native-browser:
+    desc: Actual owned Chrome, both native drivers and both worker engines (install Playwright Chromium first)
+    cmds:
+      - mkdir -p test-results/go
+      - |
+        native_browser_binary="${WHIP_BROWSER_NATIVE_TEST_BINARY:-}"
+        if [ -z "$native_browser_binary" ]; then
+          native_browser_binary=$(node --input-type=module -e 'import { chromium } from "@playwright/test"; process.stdout.write(chromium.executablePath())') || exit $?
+        fi
+        case "$native_browser_binary" in
+          /*) ;;
+          *) echo 'Native browser gate requires an absolute Chrome executable path' >&2; exit 1 ;;
+        esac
+        if [ ! -x "$native_browser_binary" ]; then
+          echo 'Native browser gate requires an installed Chrome executable; run npx playwright install chromium' >&2
+          exit 1
+        fi
+        WHIP_BROWSER_NATIVE_TEST_BINARY="$native_browser_binary" go test -coverprofile=test-results/go/native-browser.out -p=2 -race -shuffle=on -count=1 -timeout=3m ./internal/browser ./internal/runtime -run '^Test(NativeHeadlessOwnedProcess|ExternalBrowserOwnedHeadlessUploadAndScreenshot|ExternalBrowserBothEnginesRestartKeepsValuesWithoutControl)$'
 
   check:fixture:
     desc: Production native runtime, SDK admission, crash recovery and process-lifetime checks
@@ -537,6 +558,7 @@ tasks:
       - task: check:product-docs
       - task: check:product-mobile
       - task: check:product-desktop
+      - task: driver-test
 
   hooks:
     desc: "Enable the repo's git hooks (sets core.hooksPath to scripts/git-hooks)"
@@ -575,6 +597,7 @@ tasks:
       - echo "driver built → internal/computer/bin/whip-computer (rebuild whip to re-embed)"
 
   driver-test:
+    platforms: [darwin]
     desc: "Run the Swift driver XCTest suite (needs full Xcode — XCTest isn't in CLT)"
     cmds:
       - swift test --package-path driver
