@@ -22,6 +22,9 @@ type Operation struct {
 
 func Operations() []Operation {
 	return []Operation{
+		{"sessions.reload", reflect.TypeFor[ReloadSessionParams](), reflect.TypeFor[ReloadEdit]()},
+		{"sessions.reload_edit", reflect.TypeFor[ReloadEditParams](), reflect.TypeFor[ReloadEdit]()},
+		{"sessions.cancel_reload", reflect.TypeFor[ReloadEditParams](), reflect.TypeFor[ReloadEdit]()},
 		{"host.status", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostStatus]()},
 		{"host.stop", reflect.TypeFor[StopHostParams](), reflect.TypeFor[HostStopAccepted]()},
 		{"workspace.complete", reflect.TypeFor[WorkspaceCompletionParams](), reflect.TypeFor[WorkspaceCompletionResult]()},

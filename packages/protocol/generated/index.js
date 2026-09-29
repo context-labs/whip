@@ -5,6 +5,21 @@ export const manifest = {
   "minor": 0,
   "operations": [
     {
+      "name": "sessions.reload",
+      "params": "ReloadSessionParams",
+      "result": "ReloadEdit"
+    },
+    {
+      "name": "sessions.reload_edit",
+      "params": "ReloadEditParams",
+      "result": "ReloadEdit"
+    },
+    {
+      "name": "sessions.cancel_reload",
+      "params": "ReloadEditParams",
+      "result": "ReloadEdit"
+    },
+    {
       "name": "host.status",
       "params": "EmptyParams",
       "result": "HostStatus"

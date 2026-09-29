@@ -1094,7 +1094,11 @@ export interface ControlEdit {
         cache_key: string;
       };
       mcp_servers: {
-        [k: string]: unknown;
+        all: boolean;
+        /**
+         * @maxItems 64
+         */
+        servers: string[];
       };
       /**
        * @maxItems 17
@@ -1304,15 +1308,13 @@ export interface CreateTreeParams {
     revision: string;
   };
   overrides: {
-    mcp_servers?: {
-      [k: string]: unknown;
-    } & (null | {
+    mcp_servers?: null | {
       all: boolean;
       /**
        * @maxItems 64
        */
       servers: string[];
-    });
+    };
     /**
      * @maxItems 17
      */
@@ -1428,7 +1430,11 @@ export interface CreateTreeResult {
         cache_key: string;
       };
       mcp_servers: {
-        [k: string]: unknown;
+        all: boolean;
+        /**
+         * @maxItems 64
+         */
+        servers: string[];
       };
       /**
        * @maxItems 17
@@ -1556,15 +1562,13 @@ export interface Definition {
     id: string;
     name: string;
     defaults: {
-      mcp_servers?: {
-        [k: string]: unknown;
-      } & (null | {
+      mcp_servers?: null | {
         all: boolean;
         /**
          * @maxItems 64
          */
         servers: string[];
-      });
+      };
       /**
        * @maxItems 17
        */
@@ -1649,15 +1653,13 @@ export interface DefinitionDocument {
   id: string;
   name: string;
   defaults: {
-    mcp_servers?: {
-      [k: string]: unknown;
-    } & (null | {
+    mcp_servers?: null | {
       all: boolean;
       /**
        * @maxItems 64
        */
       servers: string[];
-    });
+    };
     /**
      * @maxItems 17
      */
@@ -2270,7 +2272,11 @@ export interface ForkResult {
         cache_key: string;
       };
       mcp_servers: {
-        [k: string]: unknown;
+        all: boolean;
+        /**
+         * @maxItems 64
+         */
+        servers: string[];
       };
       /**
        * @maxItems 17
@@ -4283,7 +4289,11 @@ export interface ListSessionsResult {
             cache_key: string;
           };
           mcp_servers: {
-            [k: string]: unknown;
+            all: boolean;
+            /**
+             * @maxItems 64
+             */
+            servers: string[];
           };
           /**
            * @maxItems 17
@@ -8131,6 +8141,129 @@ export interface RecentTreesResult {
   }[];
   has_more: boolean;
 }
+export interface ReloadEdit {
+  id: string;
+  session_id: string;
+  tree_id: string;
+  expected_revision: string;
+  host_revision: string;
+  configuration: {
+    run: null | {
+      system: string;
+      max_turns: number;
+      headless: boolean;
+      cache_key: string;
+    };
+    mcp_servers: {
+      all: boolean;
+      /**
+       * @maxItems 64
+       */
+      servers: string[];
+    };
+    /**
+     * @maxItems 17
+     */
+    modules: (
+      | "agents"
+      | "artifacts"
+      | "browser"
+      | "computer"
+      | "context"
+      | "files"
+      | "goals"
+      | "mail"
+      | "mcp"
+      | "messages"
+      | "models"
+      | "permissions"
+      | "schedules"
+      | "shell"
+      | "skills"
+      | "state"
+      | "user"
+    )[];
+    tools_definition: null | {
+      id: string;
+      revision: string;
+    };
+    hooks_definition: null | {
+      id: string;
+      revision: string;
+    };
+    automatic_title: boolean;
+    goals_enabled: boolean;
+    compaction: {
+      model: null | {
+        provider: string;
+        name: string;
+        effort: string;
+        temperature?: null | number;
+        top_p?: null | number;
+      };
+      threshold_percent: number;
+    };
+    report_mode: "notice" | "inline" | "message";
+    model:
+      | {
+          provider: string;
+          name: string;
+          effort: string;
+          temperature?: null | number;
+          top_p?: null | number;
+        }
+      | {
+          provider: "";
+          name: "";
+          effort: "";
+          temperature?: null | number;
+          top_p?: null | number;
+        };
+    instructions: {
+      project_root: null | string;
+      text: string;
+      project_files: null | string[];
+      discover_skills: boolean;
+      standing_instructions: boolean;
+      skill_roots: null | string[];
+    };
+    tools: {
+      [k: string]: {
+        timeout_millis: number;
+        description: string;
+        input_schema: unknown;
+        output_schema: unknown;
+      };
+    } | null;
+    children: {
+      [k: string]: {
+        id: string;
+        revision: string;
+      };
+    } | null;
+    hooks: {
+      [k: string]: {
+        operations: null | string[];
+        optional: boolean;
+        timeout_millis: number;
+      };
+    } | null;
+    output_schema: unknown;
+  };
+  state: "pending" | "applied" | "conflicted" | "interrupted" | "unavailable";
+  revision: null | string;
+  created_at: string;
+  settled_at: null | string;
+}
+export interface ReloadEditParams {
+  session_id: string;
+  edit_id: string;
+}
+export interface ReloadSessionParams {
+  edit_id: string;
+  session_id: string;
+  expected_revision: string;
+}
 export interface RemoveProviderParams {
   revision: string;
   provider: string;
@@ -8511,7 +8644,11 @@ export interface Session {
       cache_key: string;
     };
     mcp_servers: {
-      [k: string]: unknown;
+      all: boolean;
+      /**
+       * @maxItems 64
+       */
+      servers: string[];
     };
     /**
      * @maxItems 17
@@ -9043,15 +9180,13 @@ export interface SpawnSessionParams {
     revision: string;
   };
   overrides: {
-    mcp_servers?: {
-      [k: string]: unknown;
-    } & (null | {
+    mcp_servers?: null | {
       all: boolean;
       /**
        * @maxItems 64
        */
       servers: string[];
-    });
+    };
     /**
      * @maxItems 17
      */
@@ -9202,7 +9337,11 @@ export interface SpawnSessionResult {
         cache_key: string;
       };
       mcp_servers: {
-        [k: string]: unknown;
+        all: boolean;
+        /**
+         * @maxItems 64
+         */
+        servers: string[];
       };
       /**
        * @maxItems 17
@@ -9545,9 +9684,7 @@ export interface StopHostParams {
   runtime_id: string;
   process_epoch: string;
 }
-export type SubmitParams = {
-  [k: string]: unknown;
-} & {
+export interface SubmitParams {
   delivery?: "queued" | "steer";
   target_turn_id?: null | string;
   design_context?: null | {
@@ -9595,7 +9732,7 @@ export type SubmitParams = {
         }
     )[]
   ];
-};
+}
 export interface SubscribeStateParams {
   subscription_id: string;
   session_id: string;
@@ -9931,15 +10068,13 @@ export interface UpdateConfigurationParams {
   session_id: string;
   expected_revision: string;
   patch: {
-    mcp_servers?: {
-      [k: string]: unknown;
-    } & (null | {
+    mcp_servers?: null | {
       all: boolean;
       /**
        * @maxItems 64
        */
       servers: string[];
-    });
+    };
     /**
      * @maxItems 17
      */
@@ -10396,6 +10531,9 @@ export interface ContractTypes {
   ReadWorkspaceActionParams: ReadWorkspaceActionParams;
   RecentTreesParams: RecentTreesParams;
   RecentTreesResult: RecentTreesResult;
+  ReloadEdit: ReloadEdit;
+  ReloadEditParams: ReloadEditParams;
+  ReloadSessionParams: ReloadSessionParams;
   RemoveProviderParams: RemoveProviderParams;
   Request: Request;
   RequestIdentity: RequestIdentity;
@@ -10489,6 +10627,9 @@ export interface ContractTypes {
   WriteStateParams: WriteStateParams;
 }
 export interface Operations {
+  "sessions.reload": { params: ReloadSessionParams; result: ReloadEdit };
+  "sessions.reload_edit": { params: ReloadEditParams; result: ReloadEdit };
+  "sessions.cancel_reload": { params: ReloadEditParams; result: ReloadEdit };
   "host.status": { params: EmptyParams; result: HostStatus };
   "host.stop": { params: StopHostParams; result: HostStopAccepted };
   "workspace.complete": { params: WorkspaceCompletionParams; result: WorkspaceCompletionResult };

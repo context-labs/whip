@@ -6,6 +6,14 @@ import ajvUnicodeLength from 'ajv/dist/runtime/ucs2length.js';
 import { validate, manifest } from '../generated/index.js';
 import { declarationSchema } from './declaration-schema.mjs';
 
+test('validation-only conditionals do not add open declaration index signatures', () => {
+  const condition = { if: { properties: { state: { const: 'applied' } } }, then: { properties: { revision: { type: 'string' } } }, else: { properties: { revision: { type: 'null' } } } };
+  const base = { type: 'object', properties: { state: { type: 'string' }, revision: { type: ['string', 'null'] } }, additionalProperties: false };
+  const source = { ...base, allOf: [condition] };
+  assert.deepEqual(declarationSchema(source), base);
+  assert.deepEqual(source.allOf, [condition], 'wire constraints stay unchanged');
+});
+
 test('declaration normalization preserves the independent wire schemas and JSON value types', () => {
   const source = { type: 'object', properties: { value: { not: { type: 'null' } } }, oneOf: [{ properties: { kind: { const: 'a' } } }] };
   const before = structuredClone(source);

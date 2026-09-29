@@ -51,6 +51,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return nil, ErrMethod
 	}
 	switch method {
+	case "sessions.reload", "sessions.reload_edit", "sessions.cancel_reload":
+		return dispatchReload(ctx, r, method, raw)
 	case "browser.tabs", "browser.attachments":
 		return dispatchBrowserRead(ctx, r, method, raw)
 	case "receipts.match":

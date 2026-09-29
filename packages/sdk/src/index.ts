@@ -145,6 +145,27 @@ export class Client {
     return this.call('providers.readiness', { selection }, options);
   }
 
+  /** Captures host defaults once; inspect the returned pending/applied outcome explicitly. */
+  async reloadSession(params: Omit<Operations['sessions.reload']['params'], 'edit_id'>, editID: string, options: CallOptions = {}): Promise<Operations['sessions.reload']['result']> {
+    const value = await this.call('sessions.reload', { ...params, edit_id: editID }, options);
+    this.validateReload(value, params.session_id, editID);
+    if (value.expected_revision !== params.expected_revision) throw new TypeError('Reload request revision mismatch');
+    return value;
+  }
+  async getReloadEdit(sessionID: string, editID: string, options: CallOptions = {}): Promise<Operations['sessions.reload_edit']['result']> {
+    const value = await this.call('sessions.reload_edit', { session_id: sessionID, edit_id: editID }, options);
+    return this.validateReload(value, sessionID, editID);
+  }
+  async cancelReload(sessionID: string, editID: string, options: CallOptions = {}): Promise<Operations['sessions.cancel_reload']['result']> {
+    const value = await this.call('sessions.cancel_reload', { session_id: sessionID, edit_id: editID }, options);
+    return this.validateReload(value, sessionID, editID);
+  }
+  private validateReload(value: Operations['sessions.reload']['result'], sessionID: string, editID: string) {
+    if (value.id !== editID || value.session_id !== sessionID) throw new TypeError('Reload scope or identity mismatch');
+    if (value.state === 'applied' && (value.revision === null || BigInt(value.revision) !== BigInt(value.expected_revision) + 1n)) throw new TypeError('Reload applied revision mismatch');
+    return value;
+  }
+
   getPermissionPolicy(sessionID: string, options: CallOptions = {}): Promise<Operations['permissions.policy']['result']> {
     return this.call('permissions.policy', { session_id: sessionID }, options);
   }

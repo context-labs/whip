@@ -60,6 +60,11 @@ func ControlEditFromDomain(value session.ControlEdit) (ControlEdit, error) {
 
 func controlsSchema(schema *jsonschema.Schema, t reflect.Type) {
 	switch t {
+	case reflect.TypeFor[ReloadEdit]():
+		schema.AllOf = append(schema.AllOf,
+			&jsonschema.Schema{If: &jsonschema.Schema{Properties: map[string]*jsonschema.Schema{"state": {Const: new(any("applied"))}}}, Then: &jsonschema.Schema{Properties: map[string]*jsonschema.Schema{"revision": {Type: "string"}}}, Else: &jsonschema.Schema{Properties: map[string]*jsonschema.Schema{"revision": {Type: "null"}}}},
+			&jsonschema.Schema{If: &jsonschema.Schema{Properties: map[string]*jsonschema.Schema{"state": {Const: new(any("pending"))}}}, Then: &jsonschema.Schema{Properties: map[string]*jsonschema.Schema{"settled_at": {Type: "null"}}}, Else: &jsonschema.Schema{Properties: map[string]*jsonschema.Schema{"settled_at": {Type: "string"}}}})
+
 	case reflect.TypeFor[RunConfiguration]():
 		schema.Properties["system"].MaxLength = new(session.MaxInstructionBytes / 2)
 		schema.Properties["cache_key"].MaxLength = new(4096)

@@ -14,6 +14,13 @@ export function declarationSchema(source) {
     for (const key of ['allOf', 'anyOf', 'oneOf', 'prefixItems']) {
       if (value[key]) value[key] = value[key].map(child => visit(child));
     }
+    // if/then/else clauses refine existing DTO fields at validation time. The
+    // declaration compiler cannot express them and invents an open index map,
+    // which destroys discriminated-union narrowing in otherwise closed DTOs.
+    if (value.allOf) {
+      value.allOf = value.allOf.filter(child => !child || typeof child !== 'object' || Object.keys(child).some(key => !['if', 'then', 'else'].includes(key)));
+      if (!value.allOf.length) delete value.allOf;
+    }
     // JSON's non-null values include primitives. The compiler incorrectly treats
     // this exact constraint as an object map; TS {} is the non-null value type.
     if (Object.keys(value).length === 1 && value.not && Object.keys(value.not).length === 1 && value.not.type === 'null') return { tsType: '{}' };

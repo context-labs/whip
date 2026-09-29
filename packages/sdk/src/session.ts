@@ -54,6 +54,12 @@ export class Session {
   configure(expectedRevision: string, patch: Params<'sessions.configure'>['patch'], options: CallOptions = {}) {
     return this.client.call('sessions.configure', { session_id: this.id, expected_revision: expectedRevision, patch }, options);
   }
+  readonly reloads = {
+    request: (expectedRevision: string, editID: string, options: CallOptions = {}) => this.client.reloadSession({ session_id: this.id, expected_revision: expectedRevision }, editID, options),
+    get: (editID: string, options: CallOptions = {}) => this.client.getReloadEdit(this.id, editID, options),
+    cancel: (editID: string, options: CallOptions = {}) => this.client.cancelReload(this.id, editID, options),
+    prepare: (expectedRevision: string, editID: string, options: { journal?: RecoveryJournal } = {}) => this.client.command('sessions.reload', { session_id: this.id, expected_revision: expectedRevision, edit_id: editID }, options),
+  };
   lifecycle(lifecycle: Params<'sessions.lifecycle'>['lifecycle'], options: CallOptions = {}) { return this.client.call('sessions.lifecycle', { session_id: this.id, lifecycle }, options); }
   delete(options: CallOptions = {}) { return this.client.call('sessions.delete', { session_id: this.id }, options); }
   submit(parts: Params<'sessions.submit'>['parts'], requestID: string, options: Parameters<Client['submit']>[3] = {}) { return this.client.submit(this.id, parts, requestID, options); }
