@@ -2,7 +2,7 @@
 
 This is the canonical starting point for coding agents working on WHIP's frontend.
 It explains the current design, why it exists, and how to extend it. Updated on
-2026-09-18 for bounded initial history warm-up and earlier chat scroll prefetch.
+2026-09-29 for native protocol-v4 SDK, shared renderer, desktop and mobile ownership.
 
 This is a maintained engineering guide, not a delivery checklist. Historical
 plans preserve research and past alternatives; they are not instructions to
@@ -72,9 +72,9 @@ Design from these principles:
   subject; move secondary actions into menus and inspectors without making them
   hover-only or hiding pending human requests.
 
-Current scope is a React web application with basic mobile support, designed to
-share its renderer with the macOS Electron host in `apps/desktop`. File editing,
-code review, and hosted authentication are separate milestones. Terminal tabs
+The React application shares its renderer with the macOS Electron host in
+`apps/desktop`; Expo mobile uses a separate native renderer and the same SDK.
+The feature map, rather than this architecture guide, records delivery scope. Terminal tabs
 are in scope as a human-only shell beside the conversation. Data-only agent definitions (persona, rules, discovery, modules,
 capabilities, surface flags) are authored in Settings and selected on the
 welcome page; agents with custom tools or hooks are authored with the SDK,
@@ -85,290 +85,37 @@ execution evidence; neither executes user-entered code or inspects raw VM global
 ## Packages and dependency direction
 
 All JavaScript packages are private ESM npm workspaces with one root lockfile.
-Use Node 24. Exact installed versions belong to the package manifests and
-`package-lock.json`; do not copy a historical plan's version list into a new setup.
+Use Node 24 and the versions in the manifests. The supported renderer, mobile,
+agent examples and client examples consume native `@whip/sdk` and generated
+`@whip/protocol` v4 directly. Retired packages still present during cutover are
+not an API for new work. Their final deletion and remaining client acceptance
+are tracked in [the redesign plan](backend-redesign-plan.md), not inferred from
+this guide. No source change upgrades an installed application or runtime.
 
-During the backend redesign, the retained product clients use
-`@whip/legacy-sdk` and `@whip/legacy-protocol`. The new `@whip/sdk` now talks
-directly to `@whip/protocol` v4 over its Node and browser transports. The
-browser entry point requires a pinned runtime ID, supports optional process-epoch
-pinning, and never reconnects or retries mutations automatically. Its scoped HTTP
-content adapter uses the same4MiB bound and owner/reference identity as RPC.
-These transport foundations do not imply product renderer adoption; the explicit
-v4 gateway has no packaged application assets yet. Its main entry point is
-transport-independent and validates generated request/response types. It keeps
-connection identity; its observation iterator retains only a history cursor and
-preview revision while reading bounded pages from Go. Provisional provider text
-and `preview.reasoning` are separate from committed messages: replace the entire
-preview by the matching message ID, and
-clear it on a null preview or changed process epoch. The iterator keeps no second
-transcript authority. Reasoning shares the 128 KiB preview budget with text and
-call fragments; `truncated` applies to their combined payload. It is disposable
-presentation, not assistant output or context, and has no persisted history.
-An aborted wait or observation does not cancel execution. See [its example and recovery
-contract](../packages/sdk/README.md) and [the backend domain contract](backend-domain.md).
-Model selections include nullable `temperature` (0–2) and `top_p` (0–1).
-Preserve explicit zero; null or omission means provider default. Configuration
-updates replace the entire model selection, and active turns keep their captured
-values. A model picker must send the intended full selection rather than keep a
-second per-route sampling cache. Chat routes support these preferences; API
-Responses and subscription routes reject explicit sampling before dispatch.
-Stateless helper attempts link to their host operation and zero-based batch item.
-Use `operation_id` and `batch_index` to group retries; helper attempts never add
-assistant messages. Operation results hold ordered bounded output, with scoped
-content references for large text. A settled charge may survive an interrupted
-operation whose aggregate output is unavailable; keep that distinction visible
-and never retry automatically to reconstruct a missing response.
-Reusable limits are session-scoped `resources.list/set` records, separate from
-permanent model budgets. Inspect all returned ancestor scopes before displaying
-available subtree capacity: a child's null local limit means inheritance. Queued
-inputs share ancestor capacity across siblings. Keep resource revisions for
-explicit compare-and-set edits; counters are exact decimal strings. Tree metadata
-contains no duplicate limit policy. Host defaults are captured into new root
-records and never silently change an existing conversation's limits.
-`runnable_descendants` counts execution permissions of proper descendants, excluding
-the scope owner. A turn stays running while a parent waits without permission;
-unfinished-turn counts do not represent runnable usage. Raising the scoped limit
-wakes scheduling, and a zero limit keeps child input queued.
-Permanent `logical_writes` and `logical_write_bytes` use the budget API. They count
-accepted logical actions and payload bytes, survive child deletion and never
-describe current disk usage. Their reserved/uncertain amounts are zero; rejected
-writes do not partially commit. Do not disable ordinary human submission or
-display execution as unrecordable merely because a write allowance is exhausted.
-Child creation in v4 is a durable `client.spawn` request: its receipt covers the
-child, initial input and delegated authority together. Keep its identity and exact
-payload for recovery just as for submissions.
-Mail uses a separate stable mail ID, and `mail.list`/`mail.read` are read-only
-inspection. They neither submit input nor acknowledge agent delivery. A transcript
-entry with `mail` provenance references an immutable mail revision and has no
-`input_id`; clients must preserve that distinction in views and recovery records.
-Ordinary mail accepts optional `evidence_ref`, naming content owned by its sender.
-Admission atomically creates a recipient-owned reference, returned as nullable
-`mail.evidence_ref` in admission, list and read responses. Keep the original send
-payload for retry; do not replace its sender reference with the returned recipient
-reference. An empty body is valid with evidence. Show attachments from metadata
-and load bytes explicitly through scoped content reads; inspection does not
-acknowledge delivery. The recipient reference survives sender deletion and restart.
-Content handles are unique within their owning session. Preserve both owner and
-reference ID in attachment state, cache keys and reads; two sessions may use the
-same opaque handle for different bytes. A shared body digest grants no access.
-Explicit state uses immutable version handles and revision-checked writes.
-Client state reads return bounded base64 JSON bytes, preserving exact numbers;
-list/history calls return metadata. Mail provenance distinguishes session senders, state subscriptions, and child
-completion reports. A completion source identifies the child; its parent owns
-the immutable attachment returned in `mail.evidence_ref`, just like authored
-mail. The completion JSON body contains outcome metadata and previews, so clients
-do not need a second attachment parser. `completions.list/read` inspect snapshots still awaiting
-publication and survive source-child deletion. Pin reads to the exact turn token,
-handle superseded-token conflicts by re-listing, and keep the 64 KiB JSON-byte
-pages in bounded consumer scope. These reads do not acknowledge mail. Subscriptions start from an explicit observed revision
-and deliver ordinary revisioned mail; their cursor does not acknowledge handling.
-Reconstruct requested values in bounded
-consumer scope rather than introducing a second authoritative state cache.
-`turns.output` derives validated JSON from a terminal turn's captured schema and
-assistant message. Its `data_base64` bytes preserve exact numbers; the SDK does
-not keep another mutable output value. A live turn reports busy. A null output
-record differs from a valid JSON-null payload. Contract corrections are normal
-recorded model rounds, and raw invalid replies remain in the transcript.
-`client.compact` admits a durable maintenance input with kind `compact`; its
-turn uses ordinary receipts, waits and cancellation but has no conversation reply.
-Keep summary selection separate from the displayed transcript. `context.head`
-owns the selected immutable summary and revision; `context.select` performs an
-idle revision-checked undo without changing history, files or REPL state.
-`context.snapshot/list/search/read` inspects raw history with a fixed sequence
-boundary and bounded exact byte reads. Follow search continuation even for empty
-match pages; concatenate bytes before decoding. Never replace client transcript
-history with a summary or acknowledge mail merely by inspecting it.
-Compaction settings are one revisioned configuration field. Send the complete
-`compaction` object when editing it: `model: null` uses the conversation model,
-and `threshold_percent: 0` captures the default 50 percent. Effective settings
-always expose 1–100. An active turn retains its captured policy; editing settings
-changes the next turn. Summary helpers have ordinary attempt billing but no
-conversation reply. Preserve a raw final answer even if a subsequent helper
-fails and the turn reports failure.
-`turns.instructions` returns the immutable source manifest for an ordinary turn.
-It is inspection metadata, not file contents or current filesystem authority.
-Null means no capture; a manifest with an empty source list still records captured
-base instructions. Display the saved paths/digests without rereading files or
-replacing the user's original input. Configuration edits refresh instructions on
-the next turn. Workspace project files and skill metadata require standing read
-authority; one-use file approvals do not enable automatic discovery.
-`skills.list` supplies current winner metadata for completion and source inspection,
-including explicitly invocable disabled skills. Use its case-sensitive `prefix`,
-exclusive name `after`, `limit` (1–100), and `next_after`; each page is a fresh
-filesystem view. It does not claim work or require a running session. The SDK
-retains no mutable catalog. Clients derive `$name` insertions and keep the user's
-literal input. Explicit bodies are frozen current-turn instructions, including
-when automatic discovery is disabled; they are not expanded into history or
-silently reread for later turns. `invoked_skill` manifest sources audit complete
-selected files, while `skill_metadata` sources audit frontmatter only.
-Instruction policy selects ordered logical `skill_roots` IDs; absolute registry
-paths remain host configuration. Listing/capture needs standing `skills.read`
-grants for those exact IDs. Configuration and selection do not create grants.
-Workspace sources expose null `root_id`, host sources a logical ID, and both use
-relative paths. Workspace names override host duplicates. Guest `skills.read`
-results are ordinary recorded operation evidence: bounded base64 byte pages with
-a full-file digest required for subsequent reads. A one-use approval enables only
-that call, not later discovery. Preserve this distinction in permission UI.
-`standing_instructions` selects an explicitly configured host file. Automatic
-reads need standing `instructions.read` on resource `standing`; unrelated read
-or one-use grants do not enable it. The audit source uses kind
-`standing_instructions`, host scope, root ID `standing` and a basename; its
-bytes/digest cover comments and blank lines omitted from model instructions.
-Disabled or ungranted sources are not probed. Never infer that skill inspection
-loaded this file or replace a historical audit by rereading it. There is no
-implicit HOME lookup or file creation; setup/editor flows must be explicit.
-Ancestor project instructions use nullable `instructions.project_root`, naming
-an explicit host boundary. A standing `instructions.read` grant on `project:<id>`
-authorizes only the verified boundary-to-cwd instruction/skill chain; arbitrary
-workspace file access remains separate. Project sources expose `scope: project`,
-a logical root ID and a boundary-relative path. `skills.read` requires explicit
-`scope` so project IDs and host skill-root IDs cannot be confused. An authorized
-project chain replaces the cwd-only scan; otherwise cwd sources still require
-independent workspace read authority. Child selection is copied, grants are
-delegated explicitly, and active turns retain their captured selection. Show the
-source scope in inspection and permission UI; never interpret a source locator as
-authority or an absolute host path.
-Product clients continue to use the explicitly retained packages until their
-cutover. The package map below describes those retained clients.
-
-The v4 goal API exposes immutable objectives with revisioned lifecycle and a
-durable continuation allowance. `currentGoal` can return a completed, cancelled
-or paused record; inspect `state` rather than treating selection as activity.
-Keep the caller-generated goal ID and exact create payload for uncertain retries,
-including the expected prior ID/revision. A retry returns the original goal and
-does not select it again. Initial goal work uses the returned receipt's full
-identity in the reserved `goal` namespace; `client.wait(requestID)` instead uses
-the client's own identity and applies to explicit resume requests. Disconnection
-or aborted observation does not cancel work. Explicit cancellation targets the
-goal's stable ID and only its exact active goal-owned turn, leaving a human turn
-that merely captured the goal independently owned. A successful guest completion
-operation accepts an intent; only successful final turn settlement completes the
-unchanged goal. Do not create a client-side continuation loop or decrement the
-server's allowance locally.
-`formulateGoal` uses a caller-owned durable maintenance receipt, so its exact
-payload and request ID use ordinary recovery and waiting. It does not append a
-conversation reply. Inspect `getGoalFormulation(sessionID, attemptID)` for the
-immutable candidate and activation decision: `accepted` remains true after later
-goal cancellation or deletion, and an interrupted maintenance turn may already
-have activated its goal. Semantic activation rejection can coexist with a
-successfully billed provider attempt. Show those distinct outcomes rather than
-inferring activation from the turn or attempt status. Preserve nullable
-`origin_formulation_attempt_id` on goal records; clients own no formulation cache.
-
-The v4 history API returns each bounded page with its atomic history snapshot.
-Keep `snapshot.revision` with cursors and pass `expected_revision` to subsequent
-history, metadata and search reads. Rewind retires a suffix and advances that
-revision; ordinary appends advance only the sequence. SDK observation owns cursor
-reset on revision conflict. A consumer replaces its history and provisional
-preview when the emitted revision changes, including an empty replacement page.
-Do not implement another app reconciliation loop or infer local execution from
-imported message provenance: `turn_id` can be null while `group_id` and
-`opening_input` still identify a complete exchange.
-
-Rewind is an explicit stable-ID mutation after stopping execution and resolving
-queued inputs. Preserve its exact snapshot/boundary for uncertain retries. The
-returned edit is immutable acknowledgement, not current state. Every new edit
-resets the REPL; repeated acknowledgements do not. Independent state, mail, goals,
-spend and external files remain retained. Product history-action adoption and
-separate workspace restoration remain open.
-
-Fork uses `client.fork` with an explicit stable fork ID, source history/configuration
-revisions, observed tail, terminal group boundary and nullable title. Retain the
-exact request for uncertain retries. Its immutable receipt survives source and
-destination deletion; a deleted destination returns null tree/root projections and
-must not be locally recreated. A fork is an independent root with an empty REPL,
-copied bounded history/content/configuration and no copied authority or spending.
-Working-directory reuse does not create a Git worktree. Imported messages expose
-null local execution links and source provenance; use group identity for exchanges.
-
-The v4 host account API is separate from session execution. Use the SDK's
-`beginOpenAILogin`, `getOpenAILogin`, `listOpenAILogins`, `cancelOpenAILogin`,
-`openAIAccountStatus`, `setupOpenAIAccount` and `logoutOpenAIAccount` methods.
-Keep flow observation scoped to its visible owner and bounded by expiry; the SDK
-adds no account cache, browser launch or automatic polling. A disconnected Begin
-can be recovered through list/get or the existing active flow. Old process IDs
-report interrupted. Cancel is explicit; navigation alone must not cancel login.
-Status reports local credential/route evidence, not verified model availability:
-show auth and route state separately, preserve exact expiry strings, and do not
-label stored expired credentials as a successful live connection. A saved login
-with failed route setup requires Setup retry, not another device approval.
-Storage failures show unavailable separately from provider sign-in-required.
-Explicit Setup can retry a known local credential publication without refreshing
-or requesting device approval. A failed logout stays unavailable until explicit
-logout retry; a later read must not make it appear successfully signed out.
-Terminal flows omit approval URL/code; absent public metadata is null. Account
-secrets never belong in browser storage, session configuration or transcript.
-Product UI adoption and model catalogs remain pending.
-
-| Package | Responsibility | Internal dependencies and boundary |
+| Package | Owns | May depend on |
 | --- | --- | --- |
-| `@whip/legacy-protocol` — `packages/legacy-protocol` | Generated wire types, operation metadata, schemas, standalone validators | Generated from the Go registry; no application behavior |
-| `@whip/legacy-sdk` — `packages/legacy-sdk` | Attachment, transports, typed services, durable commands, recovery, subscriptions | Protocol; optional `/state`, `/react`, and `/node` entry points |
-| `@whip/ui` — `packages/ui` | Tokens, themes, fonts, accessible controls, layout primitives, code highlighting, Storybook | No SDK, protocol, router, Query, host access, or product state |
-| `@whip/app` — `packages/app` | Shared React application, routes, feature UI, application state/lifetimes | UI, SDK, protocol types, TanStack tools |
-| `@whip/web` — `apps/web` | Browser bootstrap, platform adapters, Vite configuration, static release build | App and UI bootstrap exports |
-| `@whip/docs` — `apps/docs` | Public static site, Markdown content, app-owned component library | No app, UI, SDK, protocol, daemon or runtime-release dependencies |
-| `@whip/desktop` — `apps/desktop` | Electron main/preload, packaged runtimes, SSH, native effects and distribution | Consumes the web renderer artifact; native SDK imports stay outside the renderer |
-| `@whip/mobile` — `apps/mobile` | Expo/React Native companion, native UI, lifecycle and encrypted device storage | SDK; only `@whip/app/presentation` and `@whip/ui/theme-data` from web-facing packages |
-| `examples/client` | Small SDK usage example | Independent of the product application |
+| `@whip/protocol` | Generated Go-derived operations, DTOs, schemas and standalone validators | Portable contract utilities; no app, transport or execution owner |
+| `@whip/sdk` | Transports, verified identities, typed services, explicit durable recovery and bounded views | Protocol; Node-specific code only through explicit Node entry points |
+| `@whip/ui` | Accessible controlled primitives, semantic styles, themes and portable theme data | UI libraries; no SDK client or app behavior |
+| `@whip/app` | Product workflows, composition, routing, view leases and device presentation state | SDK, UI and app platform interfaces |
+| `apps/web` | Vite assets, bootstrap and browser/desktop platform adapters | App and UI; no second product state layer |
+| `apps/desktop` | Electron main/preload, native resources, local/SSH transport, packaging | Versioned, bounded bridge contracts; renderer gets no Electron objects |
+| `apps/mobile` | Expo native UI, lifecycle and encrypted device storage | SDK, `@whip/app/presentation`, `@whip/ui/theme-data` |
+| `apps/docs` | Public static documentation | Docs-local design system; no application SDK/runtime |
 
-```mermaid
-flowchart LR
-  Web["web shell"] --> App["shared React app"]
-  App --> UI["UI components and themes"]
-  App --> SDK["SDK and synchronized views"]
-  App -. "wire types" .-> Protocol["generated protocol"]
-  SDK --> Protocol
-  SDK <-->|"WebSocket / scoped HTTP content"| Gateway["web gateway process"]
-  Gateway <-->|"Unix-socket protocol"| Daemon["Go daemon"]
-  Native["desktop / local CLI"] <-->|"Unix socket"| Daemon
-  Scripts["Node scripts"] --> SDK
-```
-
-UI and app distribute TypeScript source, compiled by the consuming Vite build.
-SDK distributes built JavaScript; protocol distributes generated artifacts. Use
-package exports, not cross-package imports into private `src` paths. React is a
-peer dependency of reusable React packages. Heavy browser-only functionality
-such as tab dragging has an explicit subpath (`@whip/ui/workspace-tabs`).
-
-Generic controls belong in UI; domain components such as Composer, PendingRequests,
-Timeline, and agent inspectors belong in app. A UI button receives props and a
-callback; it does not know how to submit a daemon command. Avoid creating a
-package for every feature or a parallel set of app-specific base controls.
-
-Electron consumes the exact `apps/web` production build through `AppPlatform`.
-There is one Vite build, StyleX extraction and route tree. The sorted renderer
-manifest verifies the copied files in Go's embed input and Electron's staging
-directory. Desktop packaging must preserve those bytes in ASAR.
-For UI development, `npm run dev:desktop -- --attach` uses the same Vite renderer
-and the main installed daemon by default, without rebuilding or managing its
-native runtime. Explicit home/executable flags can select an isolated daemon. This unpackaged mode has separate GUI settings and uses the native
-Unix-socket bridge. See [desktop development](desktop.md#build-and-develop).
-Node APIs, Electron IPC, filesystem access, and `@whip/legacy-sdk/node` stay in
-`apps/desktop`; the Vite import-graph guard rejects them in the renderer.
-`@whip/app/desktop-bridge` exports only the serialized host contract. The desktop
-adapter calls that versioned bridge without importing Electron. Ordinary DOM,
-focus, layout, styling and file-input behavior remain shared.
-
-### New runtime schedule ownership
-
-The v4 SDK exposes `schedules.create/get/list/cancel`; `Client.createSchedule`
-retains a caller-chosen stable ID for uncertain retries. Schedule templates and
-pending slots belong to SQLite, while admitted work uses ordinary input receipts.
-Clients display `input.schedule` provenance and poll its exact receipt identity;
-they must not maintain a second fire ledger or infer a turn from a due time.
-Upcoming lists have an exact `(due,id)` cursor and bounded first-part previews;
-full templates use `schedules.get`. Cancellation retains already accepted inputs.
-These APIs are available in the new SDK; retained applications still use their
-legacy schedule surfaces until cutover. See [the implemented schedule contract](backend-domain.md#durable-schedules).
+The main SDK entry point is transport independent. Browser discovery and content
+adapters live in `@whip/sdk/browser`; Unix sockets in `@whip/sdk/node`; framed
+native bridges in the framed transport entry point. `@whip/sdk/state` owns
+SessionView, TreeCatalogView, ExecutionView and TraceView, and `@whip/sdk/react`
+only subscribes to their immutable snapshots. Do not create a compatibility
+facade around a retired snapshot or event API.
 
 ## Stack decisions and reasons
 
 | Tool | Use it for | Why this boundary exists |
 | --- | --- | --- |
 | React + TypeScript | Shared application and typed component composition | Web and desktop can share product behavior |
-| Vite | Static SPA build, development server, code splitting | The Go daemon already serves assets; no Node backend, SSR, or TanStack Start is needed |
+| Vite | Static SPA build, development server, code splitting | The Go gateway already serves assets; no Node backend, SSR, or TanStack Start is needed |
 | TanStack Router | File routes, validated search parameters, browser navigation | Shareable location has one authority: the URL |
 | TanStack Query | Bounded host/detail reads through SDK methods | Deduplicates reads and manages invalidation without replacing SDK session synchronization |
 | TanStack Virtual | Long session lists and variable-height transcript rows | Keeps rendered DOM work bounded; app still owns reading anchors and data budgets |
@@ -386,139 +133,477 @@ CSS framework, or a frontend provider/agent execution loop without a concrete
 architectural need. Existing tools are choices with defined jobs, not an excuse
 to route every piece of state through a framework.
 
-## Public documentation site
+## Runtime construction and lifetimes
 
-`apps/docs` is an independent React/TanStack Start site in the same Node 24/npm
-workspace. It follows the structural conventions of inference's `fast-web`, not
-its backend or deployment. Start renders during the build; only the generated
-`apps/docs/dist/client` HTML/assets and a small Cloudflare asset-routing Worker
-are deployed. There is no React runtime server,
-SDK, daemon connection, React Query, authentication, analytics or remote content.
-The root `/` and `/docs` redirect to `/docs/quickstart`; there is no landing page.
-Legacy entry/installation/CLI/permissions URLs retain redirects.
-The `/docs/...` articles are separate from the application renderer and must
-never be embedded by `pack:web` or included in desktop builds.
+[Bootstrap](../apps/web/src/bootstrap.tsx) creates one application outside React,
+applies saved appearance before first render, and wires the router, runtime,
+ThemeProvider, UIProvider and QueryClientProvider. The `whip-app://bundle` origin
+requires the versioned desktop bridge; it never falls back to treating that origin
+as a host endpoint. Platform disposal follows shared application disposal.
 
-The docs component library is app-owned under `apps/docs/src/components` and
-`src/features/docs/components`. It uses Base UI primitives with StyleX for
-component styles, but keeps its own **docs-local** tokens
-(`apps/docs/src/tokens.stylex.ts`) that reference the site's semantic custom
-properties — it never imports `@whip/ui` or the application theme catalog, so
-public-site styling stays independent. Global base styles, the Paper token
-custom properties, and MDX prose element styling remain plain CSS under
-`apps/docs/src/styles`. StyleX is configured with `runtimeInjection: false`
-and no CSS layers so prerendered pages stay fully styled with JavaScript
-disabled. The
-[Paper board](https://app.paper.design/file/01M3A92K3HM4T5QF90SJFKQR0A/p-1-0/1O0-0)
-and its Light counterpart are the visual reference; [brand-guide.md](brand-guide.md)
-documents the local contract. Explicit user requirements supersede the board:
-code fences use multicolour Carbonfox syntax tokens; prose links and inline code
-match whip's transcript (blue underlined links, green borderless inline code).
+[AppRuntime](../packages/app/src/runtime.ts) owns one window's connection owner,
+Query client, paired session/execution leases, trace leases, command observations,
+drafts, composition, reading positions and tabs. It does not own accepted work.
+Unmounting, hiding, local wait cancellation and detaching stop observations;
+execution cancellation always names an explicit native input or turn.
 
-Trusted checked-in MDX lives in `apps/docs/src/content/docs/<slug>/index.mdx`.
-It is executable source compiled at build time, never accepted from remote or
-untrusted input. Folder paths define URLs; frontmatter defines title,
-description, section and order; optional `navTitle` preserves a shorter sidebar
-label without changing the article title. Generated metadata provides navigation, heading
-anchors and the complete prerender URL list. Refractor tokenizes fenced code in
-the compiler; token spans reach the browser, but highlighter code and grammars
-do not. Keep raw snippets page-local for copying, not in a global content index.
-All articles include title-row copy/download actions. Their trusted MDX source
-is imported in page-local chunks, not the global manifest; Vite raw
-imports bypass the MDX compiler. Menus, theme preferences and selected code tabs
-use local component state. The public content currently consists of 21 V1 pages
-(Quickstart, Download and TypeScript SDK written, 18 other outlines) in five groups: Getting Started, Using whip, Configuration, Agents & RLM,
-and Developers. Group labels/order are shared between compiler and sidebar in
-`sections.ts`. Full-article library examples remain in Storybook, not production.
+Each visible selected root or child leases its exact session. Root navigation,
+tree identity and selected session identity are separate values. Two views of
+one session share a transcript and ExecutionView; independent panes retain their
+own reading anchors. Trace leases use `(runtimeID, rootID, viewID)`, so separate
+panes can select different trace filters and older windows. StrictMode cleanup
+must release only the lease it acquired. Start, suspend, reconnect and dispose
+remain with the owner, not every renderer using its snapshot.
 
-Use `npm run dev:docs`, `check:docs`, `test:docs`, `test:docs:dev`, `build:docs`,
-`preview:docs`, `test:docs:browser`, `storybook:docs` and
-`build:storybook:docs` from the workspace root. See the app README for the
-content contract, static preview, tests and publication procedure. Storybook
-exists for component/board review, not as a public production route.
+The startup splash holds native browser surfaces hidden as well as making the
+router inert. Initial Local connection settlement releases it; the bounded
+ceiling reveals recovery on a slow host. Saved remote hosts do not gate startup.
+It never replays on ordinary navigation. Reduced-motion preferences skip motion.
 
-Public docs deploy automatically from `main` to `https://inference.net/whipcode`
-(`whipcode-docs`) and from `development` to `https://inference.cool/whipcode`
-(`whipcode-docs-preview`). `DOCS_ENVIRONMENT=production|preview` selects fixed
-canonical URLs and indexing policy; a nonempty `DOCS_SITE_URL` alone never
-permits indexing. Preview emits noindex metadata and response headers,
-disallow robots and no sitemap; production publishes an article sitemap.
-Default local builds remain root-path noindex previews.
+### Host attachment and recovery
 
-`apps/docs/wrangler.jsonc` records only exact `/whipcode` and `/whipcode/*` routes;
-root websites, assets, robots and sitemaps remain untouched. The independent
-`docs-deploy.yml` workflow validates/builds a target-specific static package
-without credentials, then uploads/activates an exact Worker version using a
-branch-restricted environment's per-Worker Editor token. CI never changes zone
-routes and never deploys from PRs or called release workflows. Deploys serialize
-per branch and skip stale sources. See the app README for bootstrap, recovery
-and local/live `worker-smoke.mjs` checks. Vite/TanStack own the router/asset base;
-plain/MDX links use `sitePath`. No runtime rendering or backend state is added.
-Existing engineering
-docs remain engineering references; migrate user-facing material deliberately
-rather than exposing all of `docs/` or maintaining divergent installation claims.
+`HostConnections` now owns one v4 `Client` and SDK `TreeCatalogView` per attached
+host. The client has no connection event reducer. The app owns `closed`,
+`connecting`, `connected`, and `stale` attachment state; the SDK alone owns the
+bounded catalog and its revision reconciliation. The catalog exists in the
+published host record before the window receives its connected callback. Product consumers use these native objects directly.
+
+URL attachment first uses `discoverGateway`, then `browserSocket` pinned to the
+observed runtime and process epoch. Native connection resolution supplies an SDK
+`FramedConnector`; `framedTransport` verifies the runtime and captured epoch on
+every new unary connection. One host wait controller scopes all client calls.
+A caller abort stops only that read or wait; detaching aborts the whole client's
+observation lifetime. Native preparation has a separate lifetime so a dropped
+call cannot dispose the connection needed for read-only recovery.
+
+After a transport failure, the stale client is hidden from consumers, the catalog
+is suspended but retained, and the window receives `detached(..., {recovering:
+true})`. One bounded backoff timer per host rediscovers or reinitializes only the
+saved identity, reconnects the existing catalog, and publishes a fresh client.
+It never repeats a mutation, terminal input, account action, native preparation,
+or runtime start. Explicit Disconnect cancels recovery and disposes the prepared
+connection and catalog. A changed runtime identity stops automatic recovery and
+requires explicit acceptance. Explicit Connect retains the platform's normal
+user-requested native preparation contract. Local failure does not detach other
+hosts or cancel their accepted work.
+
+Saved URL profiles use `client.hosts.profiles()` and `setProfiles()` through the
+single host configuration revision. Profiles retain exact validated root HTTP(S)
+URLs and observed runtime pins, with at most 16 records. Input normalization can
+accept a WebSocket URL or either known WebSocket path before discovery; it never
+stores credentials, queries, fragments, or a proxy path. A display-only edit
+preserves the saved URL and live attachment. Uncertain writes and conflicts trigger
+read-only reconciliation, never an automatic write retry. Device-owned SSH/local
+profiles and legacy URL imports keep their existing explicit verification and
+storage boundaries. Host subscriptions and concurrent probes are bounded; SDK
+catalog retention remains independently bounded.
+
+## State ownership
+
+| State | One owner |
+| --- | --- |
+| Sessions, inputs, receipts, history, configuration, execution and accounts | Go host; protocol values are projections of those authorities |
+| Bounded history/catalog/execution/trace reconciliation | SDK views |
+| Scoped metadata and explicit content reads | Runtime Query client, keyed by runtime/client lifetime, owner and query inputs |
+| Connection state and recovery timer | HostConnections |
+| Authored text, staged files, target selection and upload progress | AppRuntime drafts and CompositionStore |
+| Tabs, panes, selected child, REPL/chat/trace mode | SessionTabs and URL integration |
+| Reading position and follow-tail intent | App ReadingPositions and each timeline |
+| Pending local delivery and exact recoverable request | SDK DurableCommand/RecoveryJournal, observed by the app |
+| Display preferences, theme and native resources | Device/platform owners; never session configuration by implication |
+
+Do not copy SDK snapshots into Query or React state, reduce old stream events,
+sum retained rows into whole-tree totals, or add a second transcript cache.
+Snapshot absence is unavailable, never evidence of an idle session.
+
+### Current retention budgets
+
+These are current defaults, not permission to grow a collection without review.
+[Source](../packages/app/src/runtime.ts) owns exact admission/cleanup behavior.
+
+| Collection | Bound / lifecycle |
+| --- | --- |
+| App session views | 16 leases; each 256 messages / 4 MiB, with explicit gaps; unused leases expire after 30 seconds |
+| SDK SessionView default outside app | 512 messages / 8 MiB |
+| ExecutionView beside a session | 16 turns / 128 cells / 512 operations / 4 MiB |
+| TraceView | 1,024 rows / 64 trace roots / 1 MiB; at most eight app leases, unused expiry 30 seconds |
+| Workspace | 32 tabs / four panes / 64 KiB saved layout; browser tabs additionally capped at eight |
+| Unsent text drafts | 32 / 1 MiB encoded total; storage conflicts and capacity remain visible |
+| Browser/desktop recovery journal | 64 records / 8 MiB total / 4 MiB per record; unresolved records are never evicted to send another request |
+| Query defaults | 10-second freshness, zero inactive retention, no automatic retry/focus/reconnect refresh |
+| New Chat host metadata | Explicit inventory/catalog/defaults/definition/import keys retain five minutes; host detach clears them |
+
+Counts and bytes are independent bounds. DOM virtualization alone does not bound
+history, attachments, drafts or model previews. APIs expose continuation,
+truncation, missing evidence and explicit older-page navigation.
+
+### Error ownership and canonical displays
+
+[ErrorNotice](../packages/app/src/error-feedback.tsx) supplies the shared visual
+contract; existing state owners retain and clear their own errors. Classify by
+what failed, not its technical cause. A timeout can belong to any of these owners.
+
+| Type | Owner and canonical location |
+| --- | --- |
+| Application | Application-wide startup, rendering or persistence failure; app error area or blocking recovery screen |
+| Host | One server connection; named host notice in app chrome |
+| Session | Session snapshot or transcript synchronization; top of that session pane |
+| Turn | Agent turn outcome; conversation outcome notice or matching REPL outcome |
+| Execution | One execution cell or host invocation; inside its recorded result |
+| Submission | User input admission or uncertain delivery; adjacent to its composer |
+| Resource | Read of a list, catalog, stored body or attachment; inside its owning component |
+| Action | Explicit mutation, recovery, copy or download; beside its control or inside its dialog |
+| Validation | Invalid input; at the field or immediately above form submission controls |
+
+In forms and action dialogs, place action errors after the fields and immediately
+above the submission controls, matching form-level validation errors.
+
+Show one primary error, with recovery controls and expandable technical details.
+Dependent surfaces show availability status instead of repeating a host failure.
+Do not send local failures to a global banner or a second toast. `runtime.run`
+records command outcomes but its caller owns presentation. Durable command
+acceptance does not prove that a child submission was enqueued or a turn started.
+Keep failure, cancellation, interruption, reconnecting and uncertain acceptance
+distinct; never retry uncertain input automatically.
+
+Clear current errors after successful recovery and retire late results when their
+owner changes. Recorded cell/operation failures stay with their canonical records.
+Turn notices use exact native session/turn evidence; do not infer historical
+placement or the failed turn's model from current configuration.
+
+## Data fetching and synchronization
+
+Use the SDK view for a synchronized transcript/catalog/execution/trace. Use a
+scoped, abortable Query for a bounded detail read. No feature starts another
+socket, hidden transcript crawl, view observer or client-side execution ledger.
+Query keys include the actual owner and client/epoch where evidence can expire.
+Warm metadata uses Query's own deduplication and error state; fire-and-forget
+prefetch must not leak cancellation as an unhandled rejection.
+
+SessionView starts at the actual tail, retains exact decimal sequences, and
+reconciles authoritative history independently from provisional preview text.
+`loadOlder()` stops following the tail until `latest()`; new work is signalled as
+missing latest history. Changed history revision or process epoch clears
+incompatible pages/previews. Canonical message parts are already in the snapshot:
+there is no legacy JSON-body fetch or stored-prose cache.
+
+Content identity is `(owner_session_id, reference_id)`, not a digest or filename.
+Metadata does not prove bytes are available. Explicit SDK `readBytes` verifies
+owner, length, canonical encoding and digest within the 4 MiB transfer ceiling.
+App content keys include runtime, exact owner, reference and digest; inactive
+byte queries have zero retention, image object URLs are revoked on unmount, and
+late owner-switched results are discarded. Attachment metadata reads inspect at
+most 128 references in batches of four. Text loads on disclosure; mounted image
+previews load their scoped bytes. An oversized transcript gap is inspected
+separately; ordinary paging does not enlarge the transcript budget.
+
+## Mutations, acceptance, and permissions
+
+Prepare a typed durable command with its immutable ID and exact payload, persist
+it before transmission, then observe its receipt. Transport loss is uncertain
+delivery, not rejection. A local abort stops the waiter and keeps unresolved
+tracking; it never submits a replacement request or cancels work implicitly.
+Explicit check/retry binds the original record to the same runtime and client.
+Different payload under the same identity conflicts. A changed host is not a
+recovery destination. Acceptance, application and terminal success are separate.
+
+Browser/desktop Saved commands read the existing RecoveryJournal. Opening that
+page only reads local storage. Checks distinguish exact acceptance, identity-only,
+missing and unavailable evidence. Retrying and forgetting are explicit; forgetting
+only removes local tracking. Workspace `claimed` and `uncertain` outcomes retain
+tracking and cannot complete a dependent UI action. Ephemeral terminal input,
+account secrets and resource handles never enter the durable command journal.
+
+Native permission/question decisions preserve the selected operation/question,
+exact decision and original identity through an uncertain acknowledgement.
+The composer permission picker captures root tree-policy revision when opened;
+background reads never rebase an open choice. Child configuration cannot widen
+authority, and child model controls remain read-only in the current UI. Ask/Full
+Access, standing grants, intrinsic questions and tool-denial policy are distinct.
+
+### Provider and model settings
+
+Provider screens use `Client.listProviders()` for explicit host routes and local
+credential evidence, with offline presets kept separate. Opening Settings or New
+Chat never discovers credentials, refreshes a provider catalog, starts sign-in,
+or changes a default. Cached and bundled model reads do not establish inference
+access. Unknown token prices remain null and display as unknown; exact decimal
+prices are formatted without passing through a JavaScript number. A current,
+successful empty provider catalog is not filled from the offline bundle.
+
+Model catalogs retain at most 4,096 choices and report truncation. A user can enter
+an exact model/provider in settings. Session model edits target the selected root
+or child using its exact configuration revision. Missing activity disables edits;
+it does not imply the session is idle. Model changes clear the old reasoning
+effort. Host model, compaction-model, and permission defaults have separate
+revisioned saves and affect future work only. Conflict or uncertain publication
+refreshes evidence without replaying the edit or adopting a fresh revision.
+
+Account flows retain their native Inference.net/OpenAI shapes. The UI polls only
+actively progressing flows, uses list/get to inspect lost acknowledgements, and
+exposes known persistence/setup/cleanup recovery explicitly. Uncertain project or
+key creation is never retried automatically. Pasted keys remain in the form only;
+an explicit retry of an unconfirmed publication retains the same key identity.
+Secrets never enter query data, saved commands, or the recovery journal.
+
+Provider removal is explicitly labeled **Remove configured route**. It is a CAS
+operation, preserves credential files and remote accounts, and rejects dangling
+defaults. The v4 route contract has no disabled-provider flag; the UI does not
+present removal as a reversible disable operation. Account logout reports local
+revocation and remote cleanup separately. Configuring an account leaves model
+defaults unchanged, and choosing a default never submits an existing chat draft.
+
+### Dedicated Settings workspace
+
+Settings owns form drafts and validation; native host configuration remains the
+single authority. Each save quotes the revision loaded into its form. Conflict
+or uncertain publication performs read-only reconciliation and preserves the
+draft, never an automatic rebase/retry. Explicit discard adopts current settings.
+Execution, permission, model and compaction defaults affect future captures, not
+existing sessions by accident.
+
+Definitions use immutable `{id, revision}` references, explicit 100-item pages,
+at most 1,000 retained revisions and visible truncation. Registering creates a
+new immutable revision. Preserve omitted fields when editing; module visibility
+is not an authority grant. Code handlers belong in authored SDK agents, not a
+renderer-created executor.
+
+MCP import captures host revision, fingerprint and optional root when opened.
+It lists unsupported/disabled/excluded sources separately. Publication does not
+start a connection or grant calls. A separate explicit refresh targets that
+captured root; a refresh failure does not undo or replay publication. Tool schemas
+and host diagnostics reuse native reads; inspection neither binds an executor nor
+starts/restarts a host.
+
+Session reload captures host defaults plus expected session revision at admission
+and applies at an idle tree boundary, preserving explicit overrides. Pending,
+conflicted, interrupted and unavailable receipts remain in the existing journal.
+Browser driver edits use host CAS; a live environment pin is visible and disables
+editing. Computer-helper bundle publication, enabled configuration and live
+connection are separate explicit actions.
+
+## Conversation and navigation patterns
+
+Conversation consumes canonical message parts and whole provisional preview values.
+Calls, results, cells and operations join by exact session/turn/message/call IDs;
+imported groups with no local turn do not invent local execution. Local authored
+previews retire only on exact admitted input identity. Mail and Design context
+use recorded provenance, never tagged text or filename guesses.
+
+Drafts, staged attachments, focus, pane selection and reading anchors belong to
+the app and survive observer refreshes/mode changes. Virtual rows preserve exact
+decimal bookmarks and selection. New data does not steal scroll position from
+someone reading earlier history. Waiting/failed/cancelled/interrupted states remain
+truthful, and running elapsed labels are display estimates that pause when hidden.
+
+Control pages are bounded independently of the transcript: 100 queued-input
+metadata rows, 16 children, 16 upcoming schedules, one pending permission with its
+operation and four root-owned questions. Queue pages replace each other; older
+pages and returning to the first are explicit. Authoritative activity counts never
+come from the number of retained messages. Promotion retains exact input/active-turn
+identity; cancellation names its actual input. A conflict never selects a replacement
+turn. Full input payloads load only when explicitly opened.
+
+Fork/rewind confirmation captures selected owner, immutable request ID, history
+revision, observed tail and whole exchange boundary before dispatch. A bounded
+backward lookup can locate an opening outside the current window; never subtract
+sequence numbers. Host conflicts do not silently capture a different edit.
+Workspace restoration is a separate durable effect with explicit uncertain states.
+
+New Chat's tab UUID is its tree-creation identity. Verify accepted native root,
+tree, definition and engine before moving the draft/staged files to it. Recovery
+of creation alone never submits a message, navigates, or reopens a closed tab.
+Saved unresolved creation blocks a new payload; explicit Saved commands recovery
+preserves newer authored text and rejects destination conflicts.
+
+### Saved-session navigation
+
+The sidebar consumes the host's TreeCatalogView, groups exact directory strings,
+and reads activity only for visible roots. Titles and off-page membership follow
+native catalog revision; a title hint is not a second mutable title store.
+Search retains one 64-row tree page per host with the matching revision and
+cursor, invalidates only the changed host, and discards transient pages on close.
+Dates describe tree creation, not inferred last activity.
+
+Open roots use bounded activity summaries without hydrating transcripts. Attention
+and notifications preserve exact child recipients. The notification index retains
+at most 256 sessions through four 64-row / 256 KiB pages and resets on uncertainty
+or Client replacement. Equal request counts do not establish a new question.
+Hidden-browser and opt-in desktop polling have distinct policies.
+
+### Split workspace
+
+SessionTabs owns descriptors, pane layout and explicit moves; routes identify the
+selected view without creating a second pane tree. Closing a tab releases
+observation, not execution. Split views share native session data while retaining
+independent mode, selected child, scroll and companion tabs. Tab/window storage
+holds bounded UI metadata, not runtime handles. Terminal and browser descriptors
+must be revalidated against their native process epochs before any effect.
+
+### Session REPL viewer
+
+REPL receives the selected session plus the shared SessionView and ExecutionView.
+It renders retained cells independently from whether their exact transcript
+messages fit the window. Live stdout comes from bounded native `cells.output`
+observation; committed results remain the canonical final authority. Provisional
+execute arguments never become a fake cell. The recorded result supplies output,
+explicit JSON null values, engine metrics, restart and checkpoint warnings.
+Formatting/collapsing never changes copied text; unsafe numeric JSON remains
+verbatim. Explicit text content reads cap at 1 MiB and downloads at 4 MiB.
+
+### Session trace viewer
+
+TraceView owns canonical descending rows and a separate trace-root picker at the
+same revision. Paging replaces bounded windows; refresh preserves an explicit
+older boundary. Empty filtered pages can still continue. Tombstones remain null
+span rows. Trace-window counts are not whole-tree usage.
+
+The renderer retains virtualized tree/waterfall, zoom/pan, pane sizes, raw evidence
+and explicit OTLP export. `observed_at_ns` plus monotonic local elapsed time
+advances display only; it never commits a span end. Subtract exact BigInt counters
+before converting relative geometry. Completed zero-duration spans remain complete;
+reversed/future clocks stay labelled. Hidden/detached/reduced-motion views pause
+animation. Raw detail preserves exact IDs, timestamps and attributes.
+
+### Prepared model instruction inspection
+
+Trace details perform an explicit `session.models.inspection(attemptID)` read, scoped to
+that span's canonical session and attempt. They show exact base instructions and appended
+notices captured at preparation, plus the prepared-request digest and bounded message/tool
+provenance. These descriptors do not reconstruct historical transcript bodies or provider wire
+requests. Private provider continuation, cache identity, credentials, and hydrated attachment
+bytes never enter the public capture. Existing attempts with no capture remain unavailable.
+
+Captured text retains at most 16 MiB per request in content chunks of at most 4 MiB. Publication
+and registration use the existing owner content quotas; unavailable oversized, quota, or storage
+captures are labeled explicitly and never replaced with current instructions. Reading verifies
+owner, individual chunk bytes/digests, and the complete text digest. The UI retains a preview of
+at most 1 MiB and renders a bounded excerpt; explicit downloads preserve the complete captured
+text. Selecting a different attempt, changing transport, disconnecting, or unmounting cancels
+pending reads without cancelling model work. Trace observers never hydrate these bodies.
+
+Compaction inspection follows the exact attempt's immutable summary metadata and reads its
+canonical text, even after context selection changes. It displays the original raw cutoff as an
+exact decimal counter. Trace export includes available captured instructions under the explicit
+`captured_instructions_only` scope, with the existing 1 MiB body and 4 MiB export limits, and
+includes committed compaction output as canonical text parts. It does not manufacture missing
+prompts, notices, summaries, or private request state.
+
+### Mermaid diagrams
+
+Web and desktop Markdown fences marked `mermaid` use the shared
+`MermaidBlock` (`packages/ui/src/mermaid-block.tsx`), backed by the exact reviewed
+`beautiful-mermaid` release. This is a **conservative Mermaid subset**, not full
+mermaid.js compatibility. Unknown types, unsupported statements, incomplete or
+truncated source, and render/size failures remain source with an explanation;
+never silently display a partial parse as a complete diagram. The supported
+statement policy and limits live in `mermaid-data.ts` with real-library fixtures.
+Basic flowchart, state, sequence, class, ER, and single-series XY diagrams are
+supported. Styling/configuration directives, HTML, external resources, actions,
+and unsupported advanced syntax are intentionally source-only.
+
+`packages/app/src/markdown-code-block.tsx` is the Markdown-only dispatch shared by
+`timeline.tsx`'s `Prose` path and `streaming-markdown.tsx`'s virtualized walker.
+Generic tool/REPL `CodeBlock` instances never opt into rendering. Message readiness
+is explicit: live responses remain source until settlement, even if the parser
+synthetically closes a fence. Truncated retained text never renders a diagram.
+Diagram/Source preferences are presentation state owned by each mounted Timeline,
+bounded to 128 choices / 512 KiB of keys and discarded with the conversation view.
+Static Markdown annotates TanStack's rendered tree with owner+structural-path
+identity, so identical nested fences retain independent preferences on remount. Original Markdown remains
+the response-copy/history authority. No SDK, protocol, or host state is added.
+
+The shared component uses resolved theme colors, accessible text/connector roles,
+and the UI font/size preference. Chrome uses StyleX tokens and existing controls.
+Source uses `CodeBlock` with its header hidden only because the enclosing diagram
+header supplies the same original-source copy action. The expanded Dialog offers
+Fit/100% and scrolling; focus returns to Expand. Source focus/selection prevents
+an automatic image swap. Theme replacement keeps the old image until its
+replacement decodes; row-size changes use existing reading-anchor measurement.
+
+The library and bundled fonts live in one lazy module worker, never React render.
+The scheduler bounds source (32 KiB), statements (250), queued work (16 / 512 KiB),
+SVG output (1 MiB including fonts), dimensions/pixels, and cache (32 / 8 MiB).
+Active layout has a two-second termination deadline, separate from a 15-second
+cold-worker startup deadline. Stale/abandoned requests are cancelled and URLs are
+revoked after replacement/unmount; cache entries are strings, not live URLs.
+
+Generated SVG is a **Blob-backed image only**, never injected markup, an object,
+iframe, or navigable document. The output adapter strips library remote font
+imports, embeds existing local Inter subsets when selected, and rejects active
+markup/external references. Source cannot supply theme CSS or URLs. SVG image
+isolation means page CSS/fonts are not implicitly inherited; the image is
+self-contained. A release-specific worker bootstrap selects ELK's FakeWorker
+export and warms it once before restoring worker globals; it never alters the
+window. This compatibility shim is covered by real production and development
+worker tests and must be revisited on dependency upgrades. Vite consumers include
+`beautiful-mermaid` in `optimizeDeps.include`: the engine remains lazy, but its
+transitive CommonJS dependency must be transformed even inside an installed UI
+package's worker. See `packages/ui/README.md` and the packed-consumer probe. The public
+`mermaid-NOTICE.txt` includes licenses and ELK source availability; desktop's
+existing dependency-notice/SBOM pipeline also includes the transitive packages.
+Production CSP is unchanged. Raw SVG export and interactive links
+are deliberately absent because they need a different security design.
+
+Coverage includes `packages/app/test/mermaid-markdown.test.tsx`, shared renderer
+tests and `npm run test:mermaid -w @whip/ui`. Native packed-app probe migration and
+exact browser evidence are tracked in the development log. Use actual production CSP, real
+library output, offline/local assets, theme changes, and reading-position checks;
+mocked component tests alone do not validate this rendering boundary.
+
+Every standalone shared `CodeBlock` owns one always-visible copy button in its top-right
+header, including chat, REPL source/output/return values, traces and detail views.
+`UIProvider copy` receives `text => platform.copy(text)` at application bootstrap;
+UI imports no app runtime or Electron APIs. `CopyButton` resolves an explicit
+callback before the provider and uses browser clipboard only as the standalone
+fallback. Nested UI providers retain the inherited clipboard adapter.
+
+Copy uses `copyText ?? code`, before visual byte limits or text decoration. REPL
+output supplies raw `row.output` while displaying its collapsed/formatted preview;
+there are no separate REPL copy controls. Copy does not fetch offloaded bodies or
+claim that unavailable text is present. Additional authorized actions use
+`headerActions`. Clipboard failures have one accessible local display at the
+copy control, cleared on successful retry or source change; stale asynchronous
+results cannot mark newer streaming text as copied. See the shared code-block,
+clipboard-provider and REPL tests, plus the UI CSP browser probe.
+
+### Slash skill suggestions
+
+Native `skills.list` uses the exact session. New-draft completion uses explicit
+host global/project scope and immutable definition revision. Warm metadata retains
+at most 1,024 records in eleven requests / 1 MiB; disabled skills are omitted.
+Truncation falls back to one debounced 32-item prefix request. Preserve IME,
+selection and focus, cancel obsolete scopes, and do not load skill bodies or
+admit work while completing a name. File mentions use native workspace discovery,
+not the skill catalog.
 
 ## Native Browser workspace boundary
 
-Browser tabs are enabled by default in desktop builds; main honors
-`WHIP_DESKTOP_BROWSER_TABS=0` as an explicit launch-time opt-out. Availability
-does not grant agent control or preview-network authority.
+Desktop Browser pages are human resources owned by Electron BrowserManager;
+BrowserWorkspace owns their app descriptors, routing and observations. Shared
+BrowserPlatform mutations quote native epoch/tab/generation. Restoring metadata
+never navigates or admits a page. Missing native support preserves unavailable
+descriptors. Browser tabs are enabled unless explicitly disabled at launch;
+availability grants neither model control nor preview-network access.
 
-Desktop Browser tabs use the same split-workspace descriptors and tab strip as
-sessions, files and terminals. [`BrowserWorkspace`](../packages/app/src/browser-workspace.ts)
-owns renderer observation/admission and pane routing; Electron
-[`BrowserManager`](../apps/desktop/src/browser-manager.ts) owns the actual
-`WebContentsView` pages, profile partitions and live inventory. A descriptor
-stores only its ID, URL, title hint and optional inert preview-environment ID—not
-a daemon, agent attachment or network grant. Missing native support preserves
-these descriptors as unavailable rather than erasing them. New Browser tabs are
-capped at eight (within 32 total workspace tabs), with four presented guests;
-otherwise-valid over-cap restore metadata remains available for recovery.
+Native WebContentsViews require actual hide acknowledgement before interactive
+overlays mount: CSS stacking cannot hide a native page. Geometry snapshots are
+monotonic and use CSS viewport coordinates. Full renderer navigation invalidates
+the outgoing epoch without publishing a replacement to that document.
 
-[`BrowserPlatform`](../packages/app/src/browser-types.ts) is the optional,
-versioned human-tab API. Mutations quote native epoch/tab/generation; presentation
-is a full monotonic CSS-viewport geometry snapshot. Shared overlay owner tokens
-must await native **hide acknowledgement before mounting interactive overlays**.
-Restoring metadata does not navigate, and creating a page requires explicit
-workspace admission before realization. Native snapshots are observations, never
-instructions to admit an unknown page. Model-created tabs enter the captured
-originating pane in the background.
+[BrowserAssociations](../packages/app/src/browser-provider.ts) separately offers
+an exact verified host/root/window/pane and optional human pages through native
+SDK provider selection. Inert availability shares no pages and grants no control.
+Only unambiguous destinations may be selected automatically; focus and connection
+order never choose one. Host permission/grant checks and selected executor
+bindings own model effects. Disconnect releases authority and does not replay an
+uncertain effect. Titles/URLs are untrusted data and do not enter prompts as an
+implicit page inventory. SSH previews require exact verified host/project/connection
+evidence and explicit preview authority.
 
-On a full renderer navigation, native invalidates the old browser epoch without
-broadcasting its replacement to the outgoing document. The incoming renderer
-learns the new epoch through its initial snapshot. This prevents a final
-visibility update from the old document consuming the new workspace's first
-presentation revision and blocking dialogs with a stale-presentation error.
-
-Agent control is deliberately separate:
-[`BrowserAssociations`](../packages/app/src/browser-provider.ts) advertises inert
-Browser v2 availability for an exact open conversation, verified execution host,
-native window and captured pane, even when no Browser tabs exist. It also records
-the user's explicit conversation/provider/tab/pane offers. Availability shares no
-human pages, creates no tab and grants no preview-network or control authority.
-The daemon promotes an unambiguous candidate only after create approval through
-the existing permission policy. Multiple candidate windows require explicit
-selection; connection order and focus never choose a destination.
-`browser.list_tabs()` requests bounded current metadata on demand, limited to
-root-offered pages, the caller's created pages and its live attachments. The
-native main process verifies provider epochs and tab generations; the daemon
-adds only the caller's attachment handles. Titles and URLs are untrusted data,
-not instructions. Neither tab inventories nor attachment inventories are injected
-into turn prompts.
-
-[`client.browser`](../packages/legacy-sdk/src/browser.ts) owns selected-holder transport,
-command IDs, cancellation, upload and teardown; the daemon owns durable scoped
-permission decisions. [`BrowserAgentBridge`](../packages/app/src/browser-agent-types.ts)
-is a trusted native adapter, not an arbitrary-CDP method on `BrowserPlatform`.
-The controlled page is the human's page. Reconnect may re-advertise inert
-availability, but never restores attachment grants or replays commands. Focus
-changes, restored IDs and copied attachment IDs never grant authority. Releasing
-an attachment does not close a human tab. Preview-network authority is separate
-again, bound to the verified SSH connection and tab environment; URL connections
-are not SSH preview providers. Standalone human preview admission uses a
-parented native confirmation sheet in Electron main, not the SSH authentication
-prompt flow; it cannot create agent authority. See [desktop Browser behavior](desktop.md#browser-tabs-experimental)
-and [agent operations](browser-computer-use.md#desktop-browser-tabs).
+Browser transport/executor contracts live in the [SDK guide](../packages/sdk/README.md)
+and [backend domain](backend-domain.md). Human-tab control, model delegation,
+Design selection and human terminals remain independent resource boundaries.
 
 ### Browser Design Mode
 
@@ -588,1971 +673,82 @@ silent retargeting. Inspecting/sending context grants no agent browser control.
 
 ## Native mobile companion
 
-[`apps/mobile`](../apps/mobile) is a separate Expo Router renderer for iOS and
-Android. It shares daemon truth and portable presentation with the web app, while
-native contextual sheets come from Expo UI. The native component library in
-`apps/mobile/src/ui` composes React Native text, input, press and switch primitives
-with explicit Whip semantic colors; a Compose seed palette is not a replacement
-for the selected Whip palette. React Native StyleSheet supplies
-layout; FlashList virtualizes conversation/catalog rows; Enriched Markdown renders
-selectable text; keyboard controller and safe-area providers own native insets.
-This is a development implementation; [mobile acceptance evidence](../.ai-docs/plans/mobile-ui/EVIDENCE.md)
-records the remaining native and release gates. Setup belongs in [mobile.md](mobile.md).
-
-Native imports must use `@whip/app/presentation` (pure conversation rows,
-submitted-input identity reconciliation and reading targets) and
-`@whip/ui/theme-data` (resolved catalog and portable contrast helpers). Neither
-entry point imports DOM controls, StyleX, web routing or browser providers.
-`timeline.tsx` remains the web renderer of the same projection. Do not import the
-web app/UI barrels into Metro or duplicate SDK stream reducers in mobile.
-
-The device `MobileWorkspace` owns up to four independent host runtimes and the
-shared encrypted storage connection. Each host runtime owns its SDK client,
-QueryClient, commands and selected root/child leases. Session routes resolve a
-verified host/runtime tuple through `RuntimeScope`; device Appearance stays with
-the settings owner. Renaming a connected host updates its profile without
-reconnecting. Removing or replacing one host leaves other hosts alone.
-Saved profiles pin persistent runtime IDs and stable human client IDs. Startup
-reconnects remembered profiles in pairs, prioritizing the last selected host.
-Backgrounding pauses all SDK clients and cancels reads; foreground resume
-reconciles durable identity before actions are enabled. Temporary `inactive`
-transitions do not detach. Only the workspace closes shared storage. Work
-continues on the daemon.
-
-The connection sheet owns its actionable errors so native modal presentation
-cannot hide the root layout's error banner. Its explicit Test Connection uses
-one temporary SDK client for HTTPS discovery, initialization/identity and a
-one-item session read, without saving or replacing the runtime's client. Each
-stage is limited to 15 seconds; discovery is streamed into an 8 KiB buffer through
-Expo fetch. Completion, failure, leaving the sheet or backgrounding closes the
-probe. Native close details are bounded in the shared SDK and remain ephemeral;
-the diagnostic export continues to omit raw errors and addresses.
-
-[`WorkspaceAttentionProvider`](../apps/mobile/src/features/workspace-index.tsx)
-above navigation owns one foreground query and 10-second poll. Home and Needs you
-consume the same context. Session and attention indexes share a two-read device
-lane. Each host retains one bounded page: 128 sessions / 256 KiB or 64 attention
-entries / 128 KiB. Next replaces that host's page; old query windows have zero
-cache lifetime. Thus each index has at most four retained host pages, not four
-pages per host. Partial failures keep healthy hosts visible. Counts describe
-loaded human requests and show `+` or `?` when incomplete or unavailable.
-Completed commands invalidate these indexes. Lists never subscribe to root
-transcripts. Session search is debounced, always includes active and archived
-sessions, and supports a host filter. Device pins are explicitly local, bounded by the settings quota and
-128 identities; host-provided pins remain visible.
-
-Use the private SQLCipher database for four saved hosts, bounded preferences,
-16 revisioned drafts (64 KiB per record, 512 KiB total), 64 reading bookmarks
-(64 KiB total), and 64 recovery/permission records sharing a 64 KiB budget.
-The SecureStore key uses device-only keychain accessibility; the database lives
-in a native backup-excluded directory. Failure to open or write durable storage
-must remain visible and must not silently switch to plaintext or allow an
-unrecorded send. Snapshots, query caches, prompts in recovery records, provider
-credentials and transcripts are not persisted. Draft text is a separate record.
-
-Runtime command metadata and its recipient/request/draft revision are committed
-atomically before sending. Permission decisions retain a separate typed record
-and use `client.permissions.status`; they are not generic runtime commands.
-A status failure is not evidence of non-admission. Retried runtime commands retain
-original bytes/identity and require an explicit action after authoritative missing
-status; restored records contain no payload and cannot replay automatically.
-Creation journals retain the created root across effort/input partial failures.
-They also retain the selected execution engine before creation. Native creation
-offers the host's advertised languages, locks that choice for a created root,
-and restores legacy workflows as Starlark without inheriting a newer default.
-
-Only an explicit full-message sheet fetches content, at most 256 KiB through SDK
-scope/hash checks. Recycled transcript rows cannot initiate reads. Native text
-pages contain at most 8,192 UTF-16 units, preserving surrogate pairs. Short messages
-keep Markdown rendering; larger messages use selectable source pages. Collapsed
-tool details use 512-unit previews, and explicit Copy retains the complete loaded
-text. Paging resets on recycled message identity and preserves the selected page
-during live appends. These bounds apply to combined tool arguments/output and
-explicitly inspected bodies as well as ordinary conversation text. Markdown with
-image syntax or raw HTML delimiters uses selectable source presentation so the
-native renderer cannot fetch embedded images; link previews are disabled, and
-links open only after a user tap through an external-scheme allowlist.
-Appearance has a dedicated native route with the generated theme catalog,
-preview/cancel, paired light/dark preferences, native text/code preferences,
-contrast and reduced motion. Custom JSON import uses the existing host resolver
-and the portable `themeFromHost` presentation helper, then shared validation.
-Resolved imports work offline. Schema v2 adds a separate 256 KiB `themes` bucket;
-one atomic record owns preferences and at most 16 custom themes so removing a
-selected import and repairing its selection cannot diverge. The v1 migration
-preserves existing device data and legacy appearance choices. Other storage quotas
-are unchanged. A development-only `/gallery` renders real controls for native
-theme/keyboard checks. Uploads in conversations, QR pairing, application auth and
-push notifications are deferred.
-
-## Runtime construction and lifetimes
-
-[`apps/web/src/main.tsx`](../apps/web/src/main.tsx) selects the browser adapter or
-the versioned desktop bridge adapter. The packaged `whip-app://bundle` origin
-requires a compatible bridge; it cannot become a daemon endpoint by fallback.
-[`bootstrap.tsx`](../apps/web/src/bootstrap.tsx) applies the saved theme before
-first render and creates one `createWhipApplication` instance outside React.
-That factory wires the router, runtime, ThemeProvider, UIProvider,
-QueryClientProvider, and runtime context. Both hosts share bootstrap/disposal.
-
-The adapters under `apps/web/src/platform` supply storage, Web Locks, clipboard,
-external links and awaitable downloads. `AppStorage` remains synchronous, with
-an optional `persistent` status; the visible memory fallback reports false after
-a persistent operation fails. Desktop `windowStorage` uses a namespaced
-localStorage record for relaunch restoration; browser window state uses
-sessionStorage. Native save operations transfer bounded chunks after selection;
-cancel returns a distinct outcome and does not claim that a file was saved.
-
-Optional [`AppPlatform`](../packages/app/src/platform.ts) capabilities supply
-typed native effects without exposing Electron objects or filesystem handles to
-components. New session uses `pickDirectory` only for a selected local profile;
-URL and SSH hosts retain the host-owned directory browser. The browser’s Local
-can use the daemon picker RPC. Picker requests retire when their client or route
-changes. Cancellation preserves the directory; unavailable native choosers fall
-back to browsing directories on the original host.
-Bootstrap calls `platform.dispose()` after the shared application unmounts.
-
-Browser and desktop bootstrap share a centered `WhipcodeWordmark` splash in
-[`startup-screen.tsx`](../packages/app/src/startup-screen.tsx). It uses HALO's
-logo rise, fade-out and content entrance with Whip theme colors. The mounted
-router is inert while covered; the initial Local connection settling releases the
-splash, with a three-second ceiling to expose recovery for slow/offline hosts.
-Saved remote connections continue in the background and never gate the splash.
-There is no minimum hold or replay on navigation/reconnection. System and saved
-reduced-motion preferences skip animation. Startup acquires the shared native-surface
-hold before showing the splash and retains it through content entrance: CSS visibility
-and stacking cannot hide Electron browser views. The hold releases when fully visible
-or unmounted. Native prompts remain outside the inert subtree, and desktop `ready()`
-still signals the mounted shell.
-
-The desktop window hides its native title bar on macOS (`titleBarStyle:
-'hiddenInset'` in [`main.ts`](../apps/desktop/src/main.ts)) and the renderer
-owns the top chrome. The bridge reports this as `chrome: 'inset'`
-([`desktop-bridge.ts`](../packages/app/src/desktop-bridge.ts)), surfaced as
-`AppPlatform.chrome`; the browser adapter leaves it undefined and is unaffected.
-The sidebar's 48px brand row and the 48px tab strip double as the window drag
-region via `-webkit-app-region` (the `windowDrag`/`windowNoDrag` entries in
-[`styles.ts`](../packages/app/src/styles.ts) and
-[`workspace-tabs.stylex.ts`](../packages/ui/src/workspace-tabs.stylex.ts));
-interactive children opt out — while idle, the tab list stays draggable so the
-strip's empty stretch moves the window. During a sidebar-session drag, only the
-usable tab list temporarily opts out so its empty stretch can accept a new view;
-the traffic-light inset remains excluded. Individual tabs and utility buttons
-always opt out to protect reordering and clicks. The traffic lights are
-vertically centered in
-that strip (`trafficLightPosition: {x: 12, y: 18}`); the sidebar carries the
-theme-colored `WhipcodeWordmark` (`@whip/ui`) in both shells — a home link in
-the browser's brand row, an inert mark below the empty traffic-light strip
-(aligned with the nav icons) when inset — and when the sidebar is hidden the
-leftmost tab strip reserves the light zone instead (`trafficLightInset`). Only the leftmost pane's strip is a drag region.
-Hiding the title bar removes the native double-click-to-zoom gesture.
-
-Desktop's optional `localRuntime` capability provides `test`, `choose`, `install`
-and `restart`. Electron main owns executable discovery, compatibility checks,
-installation and process effects through [`LocalRuntime`](../apps/desktop/src/runtime.ts).
-Its native `native-local-runtime.json` settings record contains the selected
-absolute executable path, optional management hash/channel, and a release-specific
-restart approval. React does not store another copy or derive sockets.
-The first connection discovers and validates `whipcode`, then persists the path
-so Finder and terminal launches use the same installation. A missing saved path
-does not fall back to another executable. Packaged backend bytes are an explicit
-installation/update payload; ordinary daemon execution uses the selected installed
-executable. A main-process synchronization gate verifies managed installations
-before local connection, coordinates restart with the Go maintenance lock, and
-consumes the existing update approval after matching readiness. Any running daemon
-requires explicit interruption approval; a UI status snapshot is not an idle fence.
-An explicitly chosen external binary is never automatically adopted or replaced.
-Local connection preparation owns startup synchronization; the window-ready
-event does not launch a second check. Synchronization and attachment share one
-shell environment and reuse a successful unchanged-runtime probe under the same
-mutation lock. Starting a stopped daemon or replacing an executable triggers a
-fresh readiness check. Results are discarded after the attempt; reconnect,
-diagnostics and restart reread the environment. Restart also shares one
-environment across its preflight, command and readiness checks.
-Normal stable and beta desktop channels share the default `~/.whipcode` runtime
-home. An explicit `WHIPCODE_HOME` can isolate a fixture; legacy `WHIP_HOME` never
-redirects local work. The canonical installation on the development Mac is
-`/usr/local/bin/whipcode`.
-
-**Settings → Servers → This Mac → Local server settings** exposes diagnostics
-even before the first successful connection. The focused dialog reuses
-[`LocalRuntimePanel`](../packages/app/src/host-dialog.tsx). Opening it and changes to
-the host's connection state refresh a read-only diagnostic snapshot; **Test
-Connection** repeats that check without starting a daemon, installing a binary,
-creating the runtime home or rewriting its configuration. Only the bounded
-`LocalRuntimeStatus` crosses the bridge: state, selected executable, home, client
-and daemon builds, an actionable message and installation availability. Paths
-and builds live in expandable diagnostics; raw logs and environment values do
-not enter the renderer. The panel owns its temporary busy/error/confirmation
-state and retires late results on close; it is not another SDK connection owner.
-
-**Choose executable** uses a native picker and validates the selected distribution.
-The empty workspace and New Chat reuse `LocalRuntimeSetup` for a native local host
-that is not connected. `HostConnections` first inspects `localRuntime.test()` before
-creating a transport. Its optional `HostConnection.localRuntime` is the latest
-successful read-only snapshot, not a second configuration store. Missing runtime
-is an expected setup requirement (`LocalRuntimeSetupRequiredError`), not `host.error`;
-real inspection and connection failures still belong to the host error surface.
-An actual error takes precedence over a previously cached missing snapshot.
-
-First launch shows **Welcome to WhipCode**, a primary **Get Started** action, a
-secondary **View GitHub** button, and one **Advanced** disclosure, collapsed by
-default. The shared setup view is vertically centered when it fits and scrolls
-when it does not. New Chat omits its host picker during local setup; the sidebar
-does not duplicate the setup/repair action. Native `repairRequired` identifies a
-missing saved installation; an unused default executable destination still shows
-setup, not repair. Advanced reuses the native picker,
-custom install action and read-only check, showing the install/data paths and local
-service state without another nested diagnostics disclosure. Settings retains its
-independent diagnostics panel. Setup observes shared readiness rather than starting
-a duplicate probe; its action results and busy/error state are local while mounted.
-After installation or selection, the normal connection owner re-inspects and connects.
-Successful setup from the empty workspace opens the existing New Chat/provider flow;
-installed Macs keep the normal front door. Remote hosts and stale-tab pages are unchanged.
-
-**Get Started** uses the optional
-`localRuntime.installDefault` capability, then connects through `HostConnections`.
-The native runtime probes first: a compatible executable is reused, and only a
-missing installation is filled with verified bundled bytes at the saved missing
-path or `~/.local/bin/whipcode`. This shortcut does not create a second daemon or
-connection owner. `LocalRuntimeSetup` owns cancellable UI observation; installation
-and accepted daemon work retain their native owners. Incompatibility and install
-failure stay visible with access to the existing diagnostics panel.
-
-**Install whipcode** requires an explicit action and installs verified packaged
-bytes without overwriting a different existing installation. Neither action starts
-work. The existing host **Connect** action attaches to a healthy daemon or starts
-the selected installation when stopped, with bounded progress through the existing
-connection resolver. **Restart daemon** explains the interruption to CLI, web and
-desktop work and requires a separate explicit confirmation. SDK reconnect and
-runtime-identity acceptance remain unchanged. Disconnecting, switching hosts and
-quitting the GUI do not stop accepted work. Browser adapters omit `localRuntime`;
-URL and SSH connections retain their existing transport paths.
-
-[`HostConnectionDialog`](../packages/app/src/host-connection-dialog.tsx) is the
-shared SSH connection surface for Add server and the saved server's Connect action.
-Configuration remains mounted but hidden while the same dialog presents progress,
-host-key verification, authentication, or failure. Cancel stops the attempt and
-returns a new connection to its preserved form; saved reconnects close. Error
-recovery offers retry and editing. Success closes only after `HostConnections`
-verifies the daemon and, for new profiles, saves it. The dialog observes that owner;
-it does not create another transport or persist connection state.
-
-The desktop adapter creates the bounded
-[`host-prompt-controller`](../packages/app/src/host-prompt-controller.ts) before
-startup, exposed through `AppPlatform.hostPrompts`. It registers each native attempt
-ID against its profile ID before preparation and retires prompts when that attempt
-is released. The foreground dialog claims its host's prompts; unrelated prompts
-remain queued rather than stacking dialogs. [`HostPrompts`](../packages/app/src/host-prompts.tsx)
-uses the Application child slot for background authentication, opening the same
-connection surface only when input is needed. Ordinary background connection
-progress does not open a dialog. Server rows retain status badges; detailed SSH
-progress and errors stay in the active dialog, with host error notices available
-after dismissal.
-
-[`HostPromptForm`](../packages/app/src/host-prompt-form.tsx) renders selectable
-host-key fingerprints with explicit confirmation and bounded authentication fields.
-Answers are ephemeral: clear inputs on submission, dismissal and unmount, and never
-put them in drafts, preferences or logs. The four-prompt queue identifies answers
-by serial and connection attempt, rejects stale completions, and leaves failed
-answers visible. Final teardown declines outstanding challenges. Subscription
-cleanup permits React StrictMode's immediate effect replay before disposal.
-
-The desktop adapter owns one disposable update listener and a referentially
-stable, immutable snapshot plus the installed GUI version. Device settings reads
-the optional `updates` capability with `useSyncExternalStore`; mounting settings
-does not trigger an update check. Checking and installation call the native host.
-Only a downloaded update offers Restart to update, which still uses the normal
-draft/attachment close handshake. Browser adapters omit this capability.
-
-[`AppRuntime`](../packages/app/src/runtime.ts) owns one window's connections,
-Query client, root-view leases, command observations, drafts, and tab/composition/
-reading stores. [`HostConnections`](../packages/app/src/hosts.ts) owns an independent
-SDK client and `SessionListView` for each attached daemon. Components subscribe
-using `useSyncExternalStore` through app hooks or `@whip/legacy-sdk/react`. Store
-snapshots remain immutable and referentially stable between changes.
-
-Optimistic intent lives in the SDK view that owns the data, not in component
-state: `SessionListView.setOptimisticArchived` hides or restores a row the
-moment the user acts, and every later server publish reconciles the overlay
-against the fetched catalog (server truth wins, agreeing entries are dropped).
-Callers revert by setting the opposite intent; they never filter server state
-themselves.
-
-Local is the daemon supplied by the browser launch endpoint, or the managed
-This Mac runtime in Electron. Its configuration
-owns the `remote_hosts` registry, shared by browsers using that local daemon:
-profile ID, display name, normalized URL, verified runtime ID, and connect-on-launch
-preference. These are attachment profiles, not copied sessions or credentials.
-The existing revision-checked configuration update persists the whole registry.
-Host management refreshes it on open, browser focus, and Local reconnect; conflicts
-surface rather than overwriting another browser's changes. Legacy browser-only
-addresses remain available for explicit import.
-
-**Settings → Servers** is the canonical management surface. Sidebar, command
-palette, and disconnected-session actions navigate there through the existing
-unsaved-edit guard; `section=connections` and `setting=hosts` remain compatible.
-[`ServerManager`](../packages/app/src/host-dialog.tsx) renders ordered rows with
-name, textual status, muted address, contextual errors/progress, and labeled
-shared overflow menus. A single Servers heading and Add server action sit above
-quiet bordered rows, using shared `SettingsRow` layout and theme tokens. There
-is no separate connection-method group or inline add form. Local cannot be
-removed. Removing another saved server
-requires confirmation and does not remove daemon sessions, host-owned tabs, or
-drafts. Diagnostics and legacy import/recovery tools are contextual, not an
-always-visible second management form.
-
-[`HostDialog`](../packages/app/src/host-dialog.tsx) is now only the reusable
-Add/Edit form. Onboarding opens it directly and retains its selection callback.
-URL is the default; the shared `Tabs` component exposes Server URL and SSH only
-on platforms that support SSH. Fields, alerts, and advanced/recovery disclosures
-use shared `@whip/ui` components. Blank names derive from the normalized URL
-host (including a non-default port), while SSH names derive from the host/alias. URL
-connect-on-launch and explicit replacement-identity acceptance remain collapsed
-under Advanced. New SSH connections show a searchable single-selection profile list from the
-viewing Mac’s configuration. `AppPlatform.listSSHProfiles` is an optional native
-capability; older desktop bridges retain manual entry. Discovery runs only while
-SSH setup is mounted, through one transient Query entry, never on app startup.
-Refresh retains the previous rows and fixed list viewport; failures, empty config,
-no matches, and truncated results remain distinct. Already verified SSH aliases
-show Added. Advanced switches to the manual form, with both drafts owned by the
-parent form so method/mode switches retain input. The shared RadioGroup card
-variant owns accessible selection; no app-specific radio controls are introduced.
-SSH overrides retain their existing meanings, with no auto-connect control. URL saves require Local's loaded shared registry; native
-SSH saves do not. Pending native saves can be cancelled through their scoped
-AbortSignal without detaching other hosts. Validation/save failures preserve the form. Native save verifies the connection before selecting the server and closing;
-progress and failures stay in the dialog, and retry reuses the form’s target ID.
-URL save selects and initiates connection before closing; subsequent connection
-failure remains on its server row. Dialogs restore focus to the
-originating Add button or row menu trigger. No additional controller or store
-owns these effects.
-
-Desktop connection profiles represent URL, local or SSH targets. Each host record
-owns asynchronous setup cancellation, progress, the resolved transport and its
-cleanup. Local/SSH resolution yields a bounded IPC `TransportFactory`; URL
-connections use ordinary SDK network transport. Selecting work never detaches
-other hosts. Native profiles and their verified identities remain in device
-storage (`whip.hosts.v2`); old desktop URL profiles remain available for explicit
-verified import into Local’s registry before their device copy is removed.
-The saved native selection reconnects on launch alongside This Mac. The focused
-profile ID is stored separately in `whip.selectedHost.v3`, so selecting a shared
-URL host does not create a second authoritative copy of its profile. A legacy URL
-selection produces an import notice and preserves its original identity and tabs.
-The native bridge admits at most 16 prepared connections and 32 transport handles,
-including overlap during reconnect; existing per-transport byte bounds still apply.
-
-Each client verifies its handshake runtime ID before exposing session reads or
-views. Duplicate runtime aliases are rejected. Rebinding an address to a replacement
-daemon requires explicit acceptance; existing tabs retain their original runtime
-identity. SDK reconnect belongs to each connection. An explicit detach aborts
-only that host's waits, disposes its observers/views, clears its Query data, and
-invalidates its attachment references. Healthy hosts, their panes, drafts and
-accepted work remain independent. Losing Local prevents registry edits while
-already attached remote hosts remain usable. Late reads and configuration replies
-must match their source connection and revision before changing current state.
-
-`flushDrafts()` returns `{ saved, error? }`; memory fallback is not durability.
-Bootstrap uses this result and in-memory attachment state for browser unload and
-desktop close/reload/update replies. A storage failure must keep a visible loss
-warning even for text-only drafts. Closing a native window can hide it while
-preserving its renderer; full quit uses the close handshake.
-Clearing a previously persisted draft remains unsaved if deleting its durable
-record fails; an in-memory tombstone does not authorize a successful close.
-
-Desktop Cmd-W invokes the existing focused-tab close action, preserving drafts
-and daemon work. Closing the final session or terminal tab opens a New Chat on that tab's host and
-folder, so the workspace always offers a place to type; closing a New Chat as the
-last tab empties the workspace, and Cmd-W with no active tab hides the window. It does not disconnect any
-SDK client. Stable and beta hosts format `whip://` and `whip-beta://` links
-respectively through the preload's channel capability; both use the same renderer.
-Native session links use
-[`createSessionNavigator`](../packages/app/src/session-tab-routing.ts) to select
-an already saved, verified runtime identity. A link cannot create a connection
-profile. Newer links, manual navigation, a changed host/profile, or disposal invalidate
-pending navigation; attachment must still be connected to the expected runtime before
-the shared router moves.
-
-`runtime.acquireView(runtimeId, rootId)` returns `{ view, release }`; release
-is idempotent and belongs in effect cleanup. Leases use both runtime and root
-identity, so equal root IDs on different hosts never share data. StrictMode and
-duplicate views of the same root share a lease. The four-root retention budget
-is window-wide, not multiplied by the number of connected hosts. Do not instantiate
-clients/views during render, open subscriptions on link hover, or hydrate tab
-roots to obtain labels. Inspect child history through
-`runtime.acquireAgent(view, agentId)` and release the consumer in cleanup; only
-the final consumer closes shared child history. The daemon caps root subscriptions
-at 16 per connection; do not open extra connections to bypass that limit.
-
-## State ownership
-
-| State | Owner | Persistence / lifetime |
-| --- | --- | --- |
-| Execution, commands, sessions, provider credentials, permissions, model context, scheduling | Daemon | Durable host truth; clients cannot replace it |
-| Native local/SSH profiles | Device storage | Bounded v2 profiles; URL profiles move to the shared registry only after verified import |
-| Canonical local executable selection | Electron main `LocalRuntime` | Native settings hold one absolute installed path; default home is `~/.whipcode` in both desktop channels |
-| Local runtime diagnostics and repair UI | Native probe / host dialog | Bounded serialized diagnostic snapshot and transient busy/error/confirmation state; no daemon state duplication |
-| Native notification deduplication | One app observer per attached runtime | Up to four pages / 256 roots, transient counts and question IDs; no transcript subscriptions |
-| Desktop updates and authentication prompts | Platform adapter / bootstrap | Native update snapshot and bounded ephemeral prompt queue |
-| Saved execution hosts | Local daemon configuration `remote_hosts` | Revision-checked file shared by browsers; remote daemon credentials stay remote |
-| Connection, request correlation, replay, command delivery/status | One SDK `WhipClient` per host / `CommandHandle` | Independent connections and runtime/client/command-scoped recovery |
-| Root snapshot, history, live presentation, agents, requests, history revision, root collections | SDK `SessionView` | Reconstructible bounded memory; app leases it |
-| Ordinary lightweight session lists | One SDK `SessionListView` per host | Observed catalogs; do not add duplicate Query list pollers |
-| Host catalogs/settings, search, attention, tab summaries, explicit detail reads | TanStack Query via SDK | Runtime-scoped keys; only the detached host’s data is cleared |
-| Focused root, child and shareable inspector section | TanStack Router | Validated URL/search; history carries a local view-ID hint |
-| Sidebar width, visibility and directory collapse | App shell | Window storage with memory fallback; host-scoped collapse |
-| Split tree, pane focus/selection, open/closed view order and locations | App `SessionTabs` | One v3 workspace spanning hosts: browser sessionStorage or desktop namespaced localStorage; v1/v2 recovery and memory fallback |
-| Terminal shells, replay ring, live attachment | Daemon `internal/terminal` | Host truth; the view keeps only its next expected cursor and reattaches after reload or reconnect |
-| Draft text | App runtime | Device storage, keyed by runtime/root/recipient |
-| Files, upload progress and submission locks | App `CompositionStore` | Window memory shared by runtime/root/recipient |
-| Composer caret selection | App `CompositionStore` | Window memory scoped by runtime/view/agent |
-| Reading anchors | App `ReadingPositions` | Bounded memory scoped by runtime/view/agent and history revision |
-| Theme, typography, wrapping, contrast and motion | UI theme provider through platform storage | Validated viewing-device preferences, applied at the document root before paint |
-| Keyboard preferences and tool density | AppRuntime preferences through platform storage | Viewing-device behavior; density never reads additional transcript/content data |
-| Settings return location | AppRuntime and window storage | One bounded return record with runtime/root/view/search/focus; cleared on exit |
-| Open popover, focused control, transient form edits | Local React/Base UI/Form state | Narrowest component lifetime that satisfies the workflow |
-
-Do not save snapshots, event streams, or Query caches to browser storage. Command
-recovery records contain identity metadata, not prompts, credentials, or file
-bytes. Draft text is deliberately a separate, application-owned persistence path.
-Storage denial/quota errors must visibly fall back to memory, not claim durability.
-
-### Current retention budgets
-
-These are implementation defaults, not new server guarantees. If changing them,
-update their source, boundary tests, and this table together.
-
-| Resource | Bound | Source |
-| --- | --- | --- |
-| SDK session view | 8 MiB retained payload; 512 history messages per opened agent | [state.ts](../packages/legacy-sdk/src/state.ts) |
-| Durable presentation | 64 KiB per transcript record, 128 ordered parts, 128 host operations per execution; inline content-handle summaries at most 8 KiB within page bounds | [presentation.go](../internal/llm/presentation.go) |
-| Markdown display cache | 512 documents / 2 MiB source, coalesced to 30 live parses/second; per-block fade chunks capped at 32 | [streaming-markdown.tsx](../packages/app/src/streaming-markdown.tsx) |
-| Transcript disclosures | 128 explicit choices, 512 member aliases per activity group | [timeline.tsx](../packages/app/src/timeline.tsx), [chat-activity-rows.ts](../packages/app/src/chat-activity-rows.ts) |
-| SDK execution evidence | 256 entries per root, 128 host calls per cell, 1 MiB within the session view budget | [executions.ts](../packages/legacy-sdk/src/executions.ts) |
-| SDK trace evidence | 4,096 spans and 2 MiB per root; the oldest traces are evicted whole and the view says so | [trace.ts](../packages/legacy-sdk/src/trace.ts) |
-| App root views | 4 retained roots across all hosts; unused views expire after 30 seconds; never evict an actively leased root | [runtime.ts](../packages/app/src/runtime.ts) |
-| New Chat host metadata | Provider inventory, runtime configuration, model catalogs, and definitions retained for five minutes after the last observer leaves; 10-second freshness unchanged; detach clears that host’s entries | [runtime.ts](../packages/app/src/runtime.ts) |
-| Tab layout | One workspace: 4 panes, 32 open views, 20 closed entries, 64 KiB metadata; unmigrated v1/v2 layouts remain in their original storage | [session-tabs.ts](../packages/app/src/session-tabs.ts) |
-| Terminals | 16 live or retained-exited shells per daemon, 1 MiB replay ring each, 16 KiB per write, 32 KiB per output chunk; the view keeps 10,000 scrollback lines | [terminal.go](../internal/terminal/terminal.go), [terminal-view.tsx](../packages/app/src/terminal-view.tsx) |
-| Sidebar layout preferences | 4 hosts, 64 collapsed directories per host, 64 KiB metadata; this does not limit connected hosts | [sidebar-state.ts](../packages/app/src/sidebar-state.ts) |
-| Draft text | 32 nonempty drafts, 256 KiB each, 1 MiB total | [runtime.ts](../packages/app/src/runtime.ts) |
-| Submission previews | 32 entries, 1 MiB total; confirmed entries evicted first | [input-presentation.ts](../packages/app/src/input-presentation.ts) |
-| Attachments | 16 files per recipient; 20 MiB across the window; serial uploads | [compositions.ts](../packages/app/src/compositions.ts) |
-| Reading bookmarks | 128 entries, 64 KiB | [reading-positions.ts](../packages/app/src/reading-positions.ts) |
-| Search | One 64-item / 256 KiB all-status page per included host while open, plus each host’s initial page cached for five minutes; catalog revisions invalidate results | [session-search-dialog.tsx](../packages/app/src/session-search-dialog.tsx) |
-| Attention | One 64-item / 256 KiB advisory page per connected host | [attention.tsx](../packages/app/src/attention.tsx) |
-| Agent mailbox pages | At most 4 bounded Query pages | [observation.tsx](../packages/app/src/details/observation.tsx) |
-| Visible stored chat messages | Automatic scoped reads up to 64 MiB per body; Query deduplication, cancellation and zero inactive cache lifetime; retained response-copy prose at most 256 Ki characters / 512 entries per timeline | [timeline.tsx](../packages/app/src/timeline.tsx) |
-| Explicit content inspection | 1 MiB text read; 64 MiB download; rendering has its own smaller caps | [shared.tsx](../packages/app/src/details/shared.tsx) |
-
-Payload limits do not equal total JavaScript heap limits. Preserve visible
-truncated/unavailable states, lazy content reads, and server pagination bounds.
-Draft admission also has cross-window limits: simultaneous additions can briefly
-exceed the aggregate storage budget; subsequent writes require clearing drafts.
-
-### Split workspace
-
-`SessionTabs` owns one immutable binary tree across all hosts: split nodes carry
-a direction and ratio; pane leaves carry ordered chat/REPL/New Chat/terminal descriptors, a selected
-view ID, and stable pane IDs. Terminal descriptors store runtime identity, the daemon's
-terminal ID and cwd; they move between panes but never duplicate, never enter Reopen
-history (their shell ended with the tab), and route to `/h/$runtimeId/t/$terminalId`, which
-selects an open tab and otherwise shows a missing state without starting a shell.
-`terminal-view.tsx` mounts ghostty-web once per shell identity, attaches from cursor 0 on
-mount and from its last cursor on reconnect, redraws on a cursor gap, forwards the command,
-composer and terminal shortcuts to the app, and offers Restart (a new shell behind the same
-tab) or Reattach when the daemon reports exit or a takeover. Session-backed descriptors store runtime/root identity;
-New Chat descriptors store an independent draft ID, optional host profile/runtime,
-working directory and optional permission mode, execution engine, agent definition,
-model/provider pair and reasoning effort selections. An omitted permission mode
-inherits the selected host's default; an explicit choice survives restoration.
-Prompt text and recovery payloads never enter the v3 layout. Draft tabs consume the same 32-view capacity but no root observation
-leases, summaries or session actions. Splitting a draft moves it rather than duplicating it.
-The global session view ID identifies one presentation of that host’s session. Duplicates share
-SDK data and recipient drafts/files/locks, but retain independent mode, agent, inspector,
-scroll and caret state. When a chat view becomes active on desktop, its composer
-receives focus without scrolling; compact layouts and open overlays retain their focus.
-New Chat uses the same post-layout focus timing: its first panel is hidden until
-measured, so mount-time `autoFocus` is too early. Metadata refreshes do not refocus
-an already visible composer.
-Only the focused view is reflected in the URL. Native
-links carry a validated `whipViewId` history hint so Back/Forward can distinguish
-two views with identical URLs. Sidebar/search reuse the selected matching view,
-then one in its pane, then another existing view before adding a new tab. Matching
-always includes runtime and root identity.
-
-Dragging a saved sidebar session into a tab strip or onto a pane's left/right/top/bottom
-split edge, or choosing **Open in new tab**,
-always opens a fresh root chat view, even when that conversation is already open.
-It does not create or fork a daemon session. Existing views retain their reading,
-agent and inspector state; ordinary sidebar clicks still reuse matching views.
-`SessionTabs.openChatView` validates identity, target pane and the unconditional
-32-view limit (and four-pane limit for an edge), inserts/selects/focuses and persists
-the fresh view and optional split in one immutable update. Sidebar sources reuse
-the attached-tab edge hit testing and split preview, including compact/minimum-size
-restrictions; pane centers never accept sidebar drops. Preview and release both
-recheck capacity and target validity. Cancellation leaves the layout untouched. A
-new item uses its insertion index directly (unlike transfer, there is no removed
-source index to adjust). The menu inserts after the focused pane's selected tab.
-Both paths use `openChatView` in routing and `tabDestination`'s exact `whipViewId`;
-routing failure is reported without retrying creation. Known offline hosts can
-open unavailable views locally; a removed host cannot.
-
-The v3 window record migrates the last-used v1/v2 host layout first. Other legacy
-layouts remain recoverable under **Settings → Servers → Restore previous host tabs**.
-Restoring merges panes and closed-tab history after checking the window-wide
-limits and remaps view/pane IDs to avoid collisions. If the complete layout cannot
-fit, **Open individual previous tabs** recovers either open or closed descriptors
-without consuming the original layout. Both initial migration and explicit restore
-validate the expanded v3 metadata before marking a layout migrated. Original v1/v2
-storage is retained, with restored/dismissed identities recorded in v3. Failed
-writes visibly use memory, leaving original layouts recoverable on reload.
-
-Each desktop tab strip has one plus-button menu, with **New session** first,
-followed by the available terminal, Browser, and pane actions. The compact mobile
-bar retains its direct New session button.
-
-`SessionTabStrip` coordinates the workspace and renders one selected session view
-per visible pane. `ConversationRoute` handles admission/host status only. The
-workspace reconciler releases obsolete root leases **before** acquiring new roots;
-it deduplicates selected `(runtimeId, rootId)` pairs and never mounts background
-tabs for labels. A disconnected host shows an unavailable state in its own panes;
-it does not replace the layout or release healthy hosts’ selected roots.
-New Chat routes (`/new/$draftId`) select the saved draft and render Welcome in its
-pane. Every explicit New session action allocates a fresh draft in the focused pane;
-modified links use `/?new=1` so only the destination window allocates. Ordinary `/`
-is a home/empty destination, not creation intent. Missing draft links never allocate
-a replacement. Settings retains the tree and releases visible consumers.
-`SessionContent` takes an explicit mode and view location; late actions verify the
-originating location and host before updating their view.
-
-`@whip/ui/workspace-layout` provides recursive geometry and one shared dnd-kit
-provider. `WorkspaceDragScope` (exported through `@whip/ui/workspace-tabs`)
-wraps the shell's sidebar and workspace; standalone layouts retain a local scope.
-The layout registers its current target resolver with that scope; a standalone
-strip on an unmatched/home route registers its own resolver instead. Existing view
-sources keep content-edge split/transfer targets; `WorkspaceExternalSource` uses
-opaque app-owned payloads and accepts usable tab strips and all four content split
-edges, excluding utility controls, traffic lights and content centers. It keeps the original row in place
-and reuses the contoured tab face, insertion gaps, cancellation, reduced-motion,
-click suppression and native Browser-surface occlusion path. Auto-scroll is
-horizontal only, avoiding sidebar/page vertical scrolling. The app validates
-capacity and destination again at release and returns the created view ID for
-preview settlement. No navigation, storage write or session work happens on hover
-or cancellation. Touch/compact navigation retains ordinary link/menu behavior.
-It accepts generic rendered content; chat/REPL and future terminal descriptors
-and renderers belong in app. WHIP owns tree edits, persistence and product limits.
-The only new dependency, `react-resizable-panels`, supplies keyboard/pointer
-resizing. It has no vendor theme CSS. Selected content uses stable, sorted sibling
-DOM nodes over measured pane slots, so moving a view across branches preserves
-its mounted state. Geometry may use inline positioning; authored styles remain
-extracted StyleX. The resize library's disabled cursor helper allocates an empty
-adopted stylesheet; CSP tests require zero injected rules and no violations.
-
-Split/move menus are alternatives to dragging. Edge previews respect the
-four-pane cap and minimum dimensions (320 × 240 px, plus separators). If available
-space cannot fit the tree, the focused pane fills the workspace; below 768 px the
-existing mobile picker replaces its strip. This changes presentation only. Saved
-ratios and the desktop tree return when space permits. Overflow within a very
-short pane remains scrollable so its composer and controls stay reachable.
-Committed resize operations persist; pointer movement does not write storage.
-Both split directions use one-pixel quiet dividers with transparent drag targets
-above the content layer. Pane focus does not add an accent border to the tab strip;
-keyboard controls retain their focus-visible outlines.
-
-### Error ownership and canonical displays
-
-[ErrorNotice](../packages/app/src/error-feedback.tsx) supplies the shared visual
-contract; existing state owners retain and clear their own errors. Classify by
-what failed, not its technical cause. A timeout can belong to any of these owners.
-
-| Type | Owner and canonical location |
-| --- | --- |
-| Application | Application-wide startup, rendering or persistence failure; app error area or blocking recovery screen |
-| Host | One server connection; named host notice in app chrome |
-| Session | Session snapshot or transcript synchronization; top of that session pane |
-| Turn | Agent turn outcome; conversation outcome notice or matching REPL outcome |
-| Execution | One execution cell or host invocation; inside its recorded result |
-| Submission | User input admission or uncertain delivery; adjacent to its composer |
-| Resource | Read of a list, catalog, stored body or attachment; inside its owning component |
-| Action | Explicit mutation, recovery, copy or download; beside its control or inside its dialog |
-| Validation | Invalid input; at the field or immediately above form submission controls |
-
-In forms and action dialogs, place action errors after the fields and immediately
-above the submission controls, matching form-level validation errors.
-
-Show one primary error, with recovery controls and expandable technical details.
-Dependent surfaces show availability status instead of repeating a host failure.
-Do not send local failures to a global banner or a second toast. `runtime.run`
-records command outcomes but its caller owns presentation. Durable command
-acceptance does not prove that a child submission was enqueued or a turn started.
-Keep failure, cancellation, interruption, reconnecting and uncertain acceptance
-distinct; never retry uncertain input automatically.
-
-Clear current errors after successful recovery, and guard asynchronous responses
-against changes of host, session, action or navigation. Recorded execution failures
-remain with their records. The current `last_turn` contract exposes only the latest
-agent outcome: a new turn hides it and a successful turn replaces it. Complete
-historical turn errors at exact transcript positions are not supported by this
-contract; event replay has no authoritative transcript-position linkage. Do not
-invent historical placement or claim complete turn-error history.
-
-### Session REPL viewer
-
-Each agent's optional `last_turn` is a bounded daemon-owned projection, separate
-from agent lifecycle: an idle agent can have a failed last turn. Lifecycle events
-use the SDK's existing coalesced snapshot refresh; app does not synthesize an
-execution or assistant message when a request fails before producing output.
-`agent-turn-notice.tsx` shares the named-agent outcome notice between chat and REPL,
-and the agent inspector displays a distinct last-turn failure badge. Starting a
-new turn hides the old notice; success replaces the failed outcome. Long errors
-have a 4 KiB preview and an explicitly opened scoped content reference. A selected
-agent outside the SDK's bounded agent page uses a cancellable detail read,
-invalidated with lifecycle snapshots rather than individual streaming deltas.
-Older compatible snapshots may omit the summary; absence means unknown.
-
-New root/session, fork, and child IDs are opaque 20-character lowercase base32
-identifiers. Existing IDs remain valid. Use `root_id`/`parent_id` for hierarchy;
-never parse an ID prefix or rely on a fixed legacy hex length.
-
-**Open REPL** creates a fresh view immediately to the right of its source in the
-same pane, preserving runtime, root and selected agent. The information bar,
-tab/context menus, mobile picker and conversation evidence use the same
-`openSessionView` helper and `SessionTabs.openRelated` operation. Repeated explicit
-opens create distinct views; ordinary tab selection returns to an existing view.
-**Open chat** selects the nearest same-agent chat in that pane (left wins ties),
-or creates one to the right. Neither action converts its source. The 32-view cap
-applies even when the root is already open; failure leaves the source intact.
-
-`sessionSearch` serializes REPL as `?view=repl`, while chat omits `view`.
-`whipViewId` in browser history selects the exact descriptor. Back/Forward,
-close/reopen and window restoration preserve each view's mode; expired history
-identities recreate a bounded view instead of converting another open chat.
-Copied links retain mode and agent. Each duplicate has its own reading bookmark.
-
-`SessionContent` owns connection feedback, agent leases, pending questions and
-permissions, cancellation, and inspectors for both modes. A batched
-`user.ask(questions=[...])` renders as a wizard card above the composer (same
-width): one question per page, Back/Skip/Next with Send on the last page,
-free text always allowed, and the agent's `recommended` option badged. Opening another view shares the existing root subscription.
-Drafts and attachments remain recipient-scoped; REPL displays no composer.
-
-`ReplView` consumes `executionRows(snapshot, agentId)` from SDK state. It shows
-code in the session's execution language, individual observed host calls, print output,
-return values, errors, engine-specific metrics and restart markers. The SDK reads
-legacy Starlark results and result format 2: `has_value` distinguishes an explicit
-null result from no result, and QuickJS completion never requires Starlark steps.
-Starlark steps and QuickJS jobs are distinct diagnostics. Root metadata supplies
-the language for unfinished cells and every descendant; recorded results retain
-their engine identity. No app-owned event cache or raw subscription
-is permitted. The SDK merges loaded history with bounded observed evidence,
-replaces cumulative output, and keeps live keys through history commits. Revision
-changes discard incompatible evidence. If a child was observed before its history
-was opened, an ambiguous call cannot safely be joined to an older record; the SDK
-retains it as separate observed evidence. Host traces and restart notices from
-before observation can be absent. Execution content starts directly below the shared
-session bar, without a separate language/count toolbar. Persistent notices are
-reserved for paused updates and known truncation. Any displayed elapsed duration is explicitly client-observed,
-never reconstructed historical timing.
-
-`ReadingList` shares TanStack Virtual, selection pinning, follow/Latest behavior,
-near-top scroll pagination and bounded anchor restoration between chat and REPL.
-Both modes use SDK-owned history and loading state. Chat prefetches on upward
-user input within two viewport heights of the top (clamped to 800–2,400 px),
-including upward input at the top when the offset cannot change. Nested scroll
-surfaces retain ownership until their input can chain to the transcript; zoom,
-pinch and already-prevented input do not authorize paging. After a page
-and its anchor restoration settle, that user-authorized episode may continue
-while the reader remains inside the buffer, up to three pages total. Raw history
-cursor progress, not rendered row count, determines progress. Requests remain
-shared per agent; changed reading intent, errors, exhaustion and lifecycle
-invalidation stop continuation. Programmatic compensation can finish an existing
-episode but never initiates a new one. REPL retains its 256 px, one-page-per-scroll
-policy. Pending reads and bookmark restoration suppress new automatic paging. The
-explicit older-history button remains available, including pages too short to scroll.
-Its measured space remains after exhaustion so the final prepend does not move
-the reader; the exhausted control is hidden, disabled, and excluded from accessibility.
-Transcript pages can contain no execution cells, so cell count does not determine
-exhaustion. The SDK keeps the older cursor and availability consistent with the
-retained history across refreshes, revision changes and cache eviction.
-
-Desktop/web `AppRuntime` enables `SessionViewOptions.initialHistoryWarmup` for
-shared root views. Once live and after recent-history/gap recovery, a fresh view
-may warm one older page without delaying snapshot interactivity. A user root
-older-read consumes the same opportunity. With a full snapshot this retains up
-to 192 initial raw records (64 plus a 128-record page), subject to existing byte
-limits; these are not visible message or turn counts. The opportunity is shared
-across mounted consumers and is not renewed by ordinary refreshes or remounts.
-Unresolved recovery suppresses speculation. Unopened children are not warmed;
-SDK defaults, native mobile and daemon snapshot limits are unchanged. Each page
-remains capped at 128 records / 256 KiB, within the existing 512-message-per-agent
-and 8 MiB-per-view retention limits. No viewport-fill or background retry loop
-is permitted.
-
-`SessionView` also tracks interior gaps in raw transcript sequence coverage.
-A snapshot boundary is not proof that every record before it is loaded. After
-resuming event consumption, the SDK automatically repairs pending gaps for the
-root and opened children through revision-pinned `history.page` requests. Reads
-are shared per agent; each automatic pass is capped at four sequential pages of
-128 records / 256 KiB. Requests are cancelled on refresh, disconnect, child closure
-and disposal. Errors stay local to the gap; exhausted passes expose an explicit
-one-page continuation. Ordinary refreshes do not restart failed/paused gaps;
-reconnection allows another bounded attempt. Gap descriptors (at most 511 per
-agent, with 512-character errors) count against the existing 8 MiB view budget.
-
-Chat, REPL and native mobile expose the same loading/retry boundary. It splits
-activity groups and marks available response copies incomplete; a body handle
-alone is not a gap. Recovered records reconcile existing execution identities
-and appear without arrival motion. The shared reading list preserves a surviving
-visible row when a gap control disappears, using its existing virtualizer and
-bounded restoration loop. Keyboard focus moves to recovered content only if the
-focused control disappears; selection and manual disclosures remain intact.
-Programmatic compensation never triggers history paging. Explicit gap navigation
-can evict a newer suffix; `latestMissing` keeps Latest available, and `loadLatest`
-reloads a recent window before scrolling. User scrolling cancels a pending jump.
-Memory pressure may evict an entire retained edge; ordinary older paging and
-Latest keep those edges reachable without an automatic refetch loop.
-
-REPL bookmarks use a mode suffix within the existing runtime/view/agent namespace;
-closing the view forgets both modes. Output previews show six lines, following
-the tail while running and the beginning after completion. Expanded output IDs
-are retained only while mounted, bounded to 128 and pruned with retained cells.
-RLM results contain one structured JSON payload with bounded output, return-value
-previews, and scratch/restore notices. Failed cells retain that payload after the
-tool error prefix; the SDK keeps their failed status and partial execution evidence
-through live observation and history replay. Checkpoint notices do not change a
-completed cell into a failed execution.
-
-Code and scoped large-body reads use existing UI/SDK limits and copy controls.
-
-### Session trace viewer
-
-The third session view kind, `trace` (`?view=trace`), shows one trace as an
-execution tree beside a waterfall, with a detail pane for the selected span. A
-trace is one root turn and everything it caused, including child turns, or one
-user command that called the model outside a turn (`/compact`, goal from
-context), named `compact` or `goal`; the toolbar's picker lists the session's
-traces newest first and offers the whole session. **Open trace** sits beside **Open REPL** in the info bar, tab context
-menu and picker, and uses the same `openSessionView` helper.
-
-The SDK owns the data. `SessionView.loadTrace()` pages the daemon's durable
-spans (`trace.page`) into bounded `state.trace` evidence, including inactive
-persisted sessions. Reads survive ordinary root snapshot refreshes, coalesce
-concurrent callers, and cancel on disconnect/disposal/runtime replacement. The
-view catches up from its durable page cursor on reconnect; failures expose Retry.
-Each load reads at most eight pages; `hasMore` exposes Load more spans rather than
-leaving the loading indicator running. The daemon bounds each page by span count
-and 512 KiB of serialized span data, leaving room under the shared connection’s
-1 MiB frame limit. A single oversized span returns a trace read error directing
-the caller to export, rather than disconnecting every view on that host. An empty
-completed read means no recorded spans, not a pending fetch: sessions predating tracing are not backfilled with
-invented timings. Live `span.started` / `span.ended` events upsert by id, so the
-root span appears the moment a turn is admitted and no snapshot refresh is
-needed per span. `traceSpans(state, traceId)`
-and `traceRoots(state)` are the only reads; the app adds selection, expansion,
-zoom and a requestAnimationFrame clock capped at about 30 fps while connected
-with open spans. Hidden documents, idle/disconnected views and OS/app reduced
-motion suspend animation; incoming span evidence still updates the view. Only
-selected views in visible workspace panes are mounted. Token/cost totals and
-descendant roll-ups are memoized independently of the animation clock. Timing is
-server-measured (nanosecond stamps taken on the daemon goroutine that saw the
-boundary) and open spans grow against the daemon's clock through the page's `server_time_ns`, so
-the view shows real historical durations, unlike the REPL's client-observed
-timer. Pure layout and roll-up math lives in `trace-math.ts`, ported from the
-HALO viewer: tree building, depth-first rows, domain and view clamping, ticks,
-roll-ups over descendants, display names. Header totals are sums over the
-loaded spans and are flagged when the evidence is truncated; cost only counts
-spans whose price Whip knew.
-
-The tree and waterfall are two columns of one virtualized row list at 28 px, so
-they never scroll apart. Full-height dividers resize the tree/timeline split and
-the details pane with pointer drag or arrow keys; double-click restores the
-default width. The timeline fills the remaining space. Widths stay local to the
-mounted view, survive pane toggles, and clamp to the available workspace. The detail pane shows Overview (duration, start and end
-offsets, cost rolled up for agent spans, tokens, model, children, agent, status)
-and Raw (the span JSON), with the bounded input/output/error excerpts the daemon
-kept in span attrs, and a Read action for the bodies it interned instead of
-excerpting: the system prompt and ephemeral notice each model call sent and the
-summary a compaction produced. Full bodies are in the export. Export from the CLI:
-`whip sessions export <root> [-o file] [-push URL]`.
-
-## Data fetching and synchronization
-
-First ask whether a value is already owned by a synchronized SDK view. If it is,
-subscribe to that view. Otherwise, use a typed SDK query through TanStack Query.
-[`useDetailQuery`](../packages/app/src/details/shared.tsx) is the existing pattern
-for runtime-operation inspector reads; directory and completion pickers show
-host RPC queries. SDK-owned collections use `view.loadCollection`.
-
-For new Query reads:
-
-- Include persistent runtime ID, root/agent scope, all filters/page parameters,
-  and relevant revision in the key. Host-scoped values must not leak across hosts.
-- Gate on connection and advertised operation/capability availability. Forward
-  Query's `signal` to the SDK. An unavailable operation is not an empty result.
-- Preserve the runtime defaults: `staleTime: 10_000`, `gcTime: 0`, `retry: false`,
-  `networkMode: 'always'`, and disabled automatic focus/reconnect refetching.
-  A local daemon can work without public internet; browser online heuristics
-  must not pause a mutation and send it later.
-- Refresh through relevant SDK events, successful actions, or bounded polling
-  where required. A new connection invalidates that runtime’s reads; host detach clears
-  only those keys. Overrides must have a workflow-specific reason and cleanup.
-- Bound pages and bytes as well as cache lifetime. Do not persist the cache or
-  create an independent interval in every component reading the same resource.
-
-The sidebar queries summaries only for rendered rows (including overscan), in
-batches of at most 32 roots. Those reads pause while the document is hidden and
-never hydrate session views.
-
-Tab summaries deliberately use one batched `sessions.summaries` query per host
-for its open IDs, every two visible connected seconds, with coalesced lifecycle
-invalidation.
-They require `session_summaries` negotiation and do not open roots. Ordinary
-session listing stays with `SessionListView`; filtered search and host attention
-are separate reads. Do not confuse agent mailbox messages with queued execution
-inputs in the root inbox.
-
-Session titles are daemon-owned metadata. The first accepted authored text supplies
-a deterministic title; eligible titles get one background compact-model request
-without waiting for the conversation turn. The existing `session.title.updated`
-root event updates an observed conversation. Connections negotiating
-`session_title_notifications` also receive `sessions.title.changed` with only a
-`root_id` after committed naming, manual renames, and fork creation. This is a
-best-effort invalidation hint, not a title value to apply.
-
-The SDK `SessionListView` owns its notification listener and reuses its coalesced
-catalog refresh. Desktop/web owns one additional listener per attached client in
-`AppRuntime`, invalidating only that host's existing tab/sidebar summaries, search,
-and attention queries. No per-conversation subscription or second title cache is
-created. Query results still supply tab title hints; notifications never overwrite
-unsent rename drafts. Reconnect replaces listeners; detach and disposal remove them.
-
-All existing polling intervals, observation/visibility gates, page bounds, and
-reconnect/focus recovery stay unchanged. They cover missed notifications and hosts
-without this capability. Off-page sessions get current titles when fetched. Search
-invalidation includes all cached terms for the host, because a rename can change
-result membership, not only visible text.
-
-The SDK owns snapshot/cursor consistency, replay, subscription IDs, duplicate/gap
-checks, resynchronization, and history revisions. It processes every event in
-order and batches notifications (normally 16 ms); it does not drop intermediate
-deltas. While recovering, retain the last view as stale. Components must not add
-their own reconnect loop or replace stale state with a misleading empty screen.
-
-An ordinary snapshot refresh updates metadata while preserving already-observed
-presentation for each agent still running the same turn, on the same connection
-and history revision. A healthy refresh keeps the view live so controls retain
-focus; a failed refresh or interrupted subscription becomes stale. Snapshots
-contain a bounded event suffix, so absence from
-that suffix cannot erase observed text or tool completion. Reconciliation filters
-raw events by the previous root cursor before grouping them; cumulative tool
-values replace earlier values and row identities remain stable. Partial snapshots
-do not join text across unverified gaps, including the boundary back to live
-delivery. Omission flags and the session view's memory budget still apply.
-Usage and host-operation updates do not split a continuous, identified text or
-reasoning part. Gaps and standalone notices still separate fragments; the chat
-projection gives each retained fragment a unique row key while keeping its
-durable part identity as a reading alias. React, Markdown caches and virtualizer
-measurements must never share a key between separate fragments.
-On reconnect or subscription failure/gaps, a retained view attempts one replay
-page (at most 1,000 events) from its last observed cursor when an agent is still
-running the same turn and history revision. Only a complete, contiguous,
-untruncated replay through the new snapshot cursor can preserve that agent's
-observed prefix. Replayed discard events invalidate failed output normally;
-inbox delivery boundaries and unverified presentation gaps never join text.
-An unchanged cursor needs no replay. Expired, incomplete, unavailable or oversized
-replay ranges fall back to snapshot replacement, with the existing omission
-indicators. Initial attachment, history revision changes, and an agent's ended
-or replaced turn also use snapshot replacement. This recovery cannot restore
-activity evicted from the view or missing from both its cache and the snapshot;
-completed turns recover through durable history instead.
-
-## Mutations, acceptance, and permissions
-
-Use typed SDK commands for durable mutations and `runtime.run(handle, label, ...)`
-for the application's command observation/recovery UI. The operation registry
-distinguishes queries, durable commands, and ephemeral invocations. Do not route
-everything through a generic mutation retry mechanism.
-
-A command handle's `accepted()` means the daemon committed admission;
-`result()` waits for its terminal outcome. A failed/cancelled/interrupted outcome
-is distinct from a transport failure. `runtime.run` presents these outcomes and
-refreshes Query reads after success. Use the composer as the reference for the
-more involved draft/attachment acceptance callback.
-
-Missing acknowledgement is uncertain delivery, not proof of failure. Preserve
-the original runtime/client/command identity and frozen request. Query status;
-only authoritative absence enables an explicit retry of that original request.
-A failed lookup remains unresolved. Never allocate a fresh command ID as an
-automatic recovery shortcut or resubmit a draft after reconnect.
-
-Clear only the submitted recipient's matching text and attachment IDs after
-acceptance; later edits must survive. Closing or switching a tab preserves drafts
-and upload state. Host changes interrupt uploads and mark them unavailable;
-reload requires reselecting files and warns while files remain in memory.
-Explicit removal, accepted submission, or discard clears the corresponding data.
-
-Keep these distinctions in labels and behavior:
-
-- Close tab / disconnect / abort wait: stop local observation, not daemon work.
-- Stop turn: explicit cancellation targeting the authoritative turn/command.
-- Stop subtree: a different, explicitly scoped action.
-- Command completed: that operation finished; descendants, mail, and schedules
-  may still be active. A quiet root is not whole-tree completion.
-
-Current clients operate locally or on a trusted network. Permission decisions
-require **no signer, enrollment, pairing, or connection-authentication flow**.
-The app identifies itself as a human client; client kind is not authenticated
-identity. The daemon still enforces tool permissions, root/content scope, and
-delegated MCP authority. Competing decisions resolve once. After an uncertain
-decision acknowledgement, refresh pending state before another attempt.
-Explicit permission retries retain the original decision `command_id`.
-
-Within each session pane, permission approvals appear one at a time above the
-composer, matching its constrained width and 20px corners. The theme's warning tint
-marks the card; transparent, lightly outlined decision buttons and the scope
-dropdown sit together in a wrapping action row. Agent names come from the
-existing root snapshot, with readable root/unnamed fallbacks. A waiting count
-describes the loaded pending requests and qualifies omitted results. The first
-pending request stays visible until authoritative
-state resolves it, including decisions made by another client. Advancing resets
-the scope choice to this request only; uncertain decisions keep their refresh
-flow. The daemon/SDK remain the queue owner.
-
-Provider onboarding, tokens, machine keys, and shared configuration writes remain
-host-owned. API-key entry is an ephemeral UI input: never place it in drafts,
-Query persistence, command-recovery storage, or logs. Configuration updates use
-revision checks; display conflicts instead of overwriting newer settings.
-`settings/provider-connections.tsx` reads the inexpensive `provider.list`
-inventory, scoped to the execution host, independently of model discovery.
-Opening setup and explicit Settings Refresh use the ephemeral `provider.discover`
-operation, which persists missing named-key references on that host and returns
-inventory. The shared action checks the host's capability and falls back to a
-read-only list on older hosts. It aborts on host changes and invalidates only that
-host's provider/default/model queries. Ordinary query polling never writes config.
-Optional `discovery_error` is shown in Settings; a failed save does not hide
-available effective routes.
-Rows and model controls share `ProviderLogo`, backed by bundled SVGs under
-`src/assets/` with source attribution. Unknown providers use the sparkle fallback.
-Color variants retain their source brand fills. OpenRouter uses its official
-purple or lime SVG according to the resolved Whip theme; OpenAI and xAI retain
-their monochrome primary marks. SVG viewBoxes are fitted to the artwork for
-consistent visible sizing, and provider connection rows use 20px icons.
-Connected Settings rows show credential-source badges; unconnected rows omit them
-because a configured environment variable does not mean a key is present.
-Rows use shared Dialog primitives. `ProviderConnectionList` owns the same compact
-connection-choice list for Settings and onboarding: Inference.net, OpenRouter,
-OpenAI, and ChatGPT subscription by default, with Show all/fewer providers.
-New Chat measures its centered column's top margin before expansion and retains
-that spacing while the additional providers flow downward; collapse or leaving
-provider setup restores normal centering. This inline style is measured geometry,
-not authored spacing. The expanded list's Refresh action stays below the rows.
-Settings keeps connected, disabled, and attention groups visible independently
-of this expansion; onboarding also keeps custom and attention/disabled choices
-accessible. A configured environment reference alone does not expand the list.
-API-key entry and replacement show the input first, followed by shared guidance
-for saving a key on the host or supplying its environment variable. The account
-status block is hidden during key entry; connected-account management retains
-source details and controls. Connected-account dialogs lead with connection status
-and a compact list of account details. A shared Connection options menu holds
-sign-in replacement, key replacement, rotation, enable/disable, and disconnect
-actions according to the credential source; Done is the only primary action.
-Inference.net account sign-in persists the selected team name with its ID, and
-provider status exposes the optional `team_name` for a Team row below Email.
-Older saved accounts without a name omit the row until the next sign-in;
-rendering account details does not make a network lookup or guess the name.
-First-time sign-in shows the browser/API-key choices without credential-source
-status controls. An empty environment definition belongs in Connect a provider,
-not Needs attention. Disabled providers have their own Settings group and an
-Enable on this host action. Enable/disable updates only the selected provider in
-the revision-checked disabled list; credentials, account details, and model defaults
-remain intact. Enabling reuses the existing connection without key entry or sign-in.
-Provider marks align with the title line; the Inference.net mark retains its
-monorepo brand colors, with the neutral bar following the active theme.
-The daemon owns readiness, default-provider resolution, environment discovery,
-and `disabledProviders` opt-outs. The renderer never probes environment
-variables or infers connection state from the existence of a config entry.
-Connect/disconnect and enable/disable invalidate that host's inventory, defaults and model queries.
-`provider.disconnect` requires the inventory's configuration revision. It clears
-Whip-owned credentials and legacy disable flags, restoring built-in environment
-references without changing custom endpoints or model defaults. The dialog
-reports when host-managed credentials still make a provider available. External
-credentials are removed at their source; opening the dialog never modifies them.
-The shared host API also exposes `provider.get/create/update/remove` for custom
-connection configuration. `get` returns editable endpoint metadata, credential
-source summaries and removal blockers without reading back secrets or executing
-credential commands. Create/update patch the same host configuration file with
-revision checks; they are sensitive ephemeral operations, never durable session
-commands. A lost reply requires rereading the stable provider ID before an
-explicit retry. The TUI currently supplies the custom form; web/desktop use the
-saved inventory without a second file editor or a database-backed provider store.
-The screen requires `provider.list`; it has no alternate editor for older hosts.
-The connection dialogs use `provider-login.tsx` for account login flows. Method
-choice, API-key entry, active browser sign-in, and connected-account management
-are mutually exclusive screens. API-key drafts survive rejected validation and
-temporary host disconnects; Back and Close ask before discarding a nonempty key.
-Closing a login dialog aborts only renderer requests, not the host-owned login.
-Explicit Cancel returns to method choice only when the host reports `cancelled`;
-interrupted provisioning retains recovery guidance because its outcome can be
-uncertain. Retry reconciles active host flows before beginning a replacement.
-Login mutation responses update the host-scoped `provider-login-flows` Query
-entry; polling remains the authority for asynchronous progress. Workspace and
-project choices stay local until Continue/Connect. Workspace changes are allowed
-from `choose_project`, clearing the old project inventory before discovery;
-loading and provisioning cannot accept a concurrent workspace change. Project
-creation validation errors retain the entered name, while terminal host failures
-require a new sign-in. Loading, provisioning, expiry, and host unavailability
-have separate presentations; no API-key form is shown beside an active login.
-Dialog bodies reserve progress/footer space and bound long choice lists using
-shared ScrollArea and RadioGroup components. Successful observed flows refresh
-that host's inventory before returning to setup; authentication never changes
-the user's default model.
-Unavailable provider descriptors are filtered from model choices while aliases
-and saved defaults remain intact; an unavailable default offers explicit repair.
-Provider defaults use the composer’s `CatalogModelPicker`: one choice sets both
-model and provider, including when the same model has multiple routes. The picker
-is bounded to a 420px content width and shrinks on narrow screens. Model names
-truncate while a separate provider column stays aligned at the right; the selected
-control shows the routing provider’s logo. Search and accessible names retain the
-full model/provider pair. The
-shared effort helper offers catalog-supported levels or the model default when
-capabilities are unknown. Selecting a different route resets an unsupported
-effort; background catalog refreshes never change saved defaults or dirty drafts.
-
-Welcome and Settings share `ProviderConnectionRow`, `SettingsGroup` and the existing
-connection/login dialogs. `provider-setup.tsx` owns onboarding and explicit default
-model confirmation. `provider.list` accepts optional model/provider inputs and returns an
-optional `selection` (resolved pair, local readiness and reason); provider entries
-carry `recommended`, `suggested_model`, `category`, `family` and `key_url`.
-These optional non-secret fields describe preset presentation; `family` never
-replaces a real execution provider ID. `key_source: "env_file"` and `"key_file"`
-identify named file sources. `environment_variable` and `credential_path` contain
-only the reference name and configured path; these are host metadata, never
-inputs to client-side file reads. Whip no longer imports OpenCode credentials. Optional
-`RuntimeConfiguration.discovery` distinguishes authenticated discovery from
-public/bundled model lists after key setup; clients must not call the latter a
-validated key. The host computes inventory from effective
-configuration and account-scoped cached catalogs. Inventory never runs credential
-commands or performs upstream calls. Readiness means a route can be attempted,
-not that a paid request has succeeded. `provider.catalogs` can target one provider
-when the user selects it, avoiding unrelated credential-command execution.
-An older compatible host that omits readiness metadata receives an explicit
-update-host message; clients do not invent routing policy or repeat setup writes.
-
-Clients retain host inventory order within available/setup groups. Inference.net
-comes first among comparable choices and has one subdued Recommended label in
-setup; disabled, configuration-error and custom-endpoint variants omit the label.
-Saved valid routes stay selected. Model confirmation explicitly updates the pair
-with the inventory revision; authentication by itself never changes defaults.
-Settings offers **Use for new sessions** after connecting. The daemon advances
-singleton team/project login choices under the existing flow owner; clients only
-observe states and present actual choices. Browser/device-code actions and keys
-remain ephemeral and host-pinned.
-
-`welcome.tsx` is a pre-session composer. Its ready state follows Paper EA1-0:
-a centered 620px column with a heading, composer, and compact host/folder buttons.
-The composer retains chat's control order: attachment/context on the left and
-permission, model, effort and send on the right, wrapping on narrow panes. It uses
-the shared Whip controls and theme tokens. Attachment and context controls remain
-disabled until a session exists; their backend operations require a root identity.
-The folder button opens the native system picker directly for the local machine
-and the host directory browser for remote hosts. If a local host has no native
-picker available, the existing host-browser fallback remains available.
-
-`remote-directory-dialog.tsx` implements the remote picker from Paper FYQ-1,
-G8C-1 and GHR-1 using shared Dialog, Input, Checkbox, Menu and Button components.
-It shows the selected host, breadcrumbs, an editable absolute or home-relative
-path, Home/File system locations and up to five distinct recent directories from
-that host's loaded session catalog. Recent folders are not separately persisted.
-Single-click selects; double-click, Enter or the trailing chevron opens a folder.
-Arrow keys move selection, Cmd/Ctrl+Shift+G edits the path and Cmd/Ctrl+Enter
-confirms. Escape first leaves path editing, then closes the dialog. Confirmation
-updates only the draft folder; it never sends the first message.
-
-Listings use `client.host.directories` with a 64-entry page, a debounced filename
-prefix and hidden folders off by default. Next/First controls expose pagination;
-counts describe the displayed page and host truncation remains visible. Navigation
-history is capped at 32 entries. `directory-queries.ts` shares listing reads across
-browsing, selection validation and prefetching, with abort signals and runtime,
-path, prefix, hidden-folder and page scope. Unlike ordinary detail queries, these
-reads stay fresh for 10 seconds and inactive results remain for up to 60 seconds
-to support Back and reopening. Inactive results share a 32-page / 2 MiB serialized
-UTF-16 data budget across hosts; eviction also removes saved scroll positions.
-Active listings remain bounded by the 64-entry API page. Nothing is persisted.
-The remote trigger warms its initial path on hover/focus. While open, the picker
-warms Home, parent, recent locations and the next page, plus hovered/focused rows.
-The shared prefetch queue holds at most eight destinations and runs at most two
-requests, yielding to observed reads. Navigation cancels unrelated speculative
-reads; closing or changing the host cancels pending unused reads.
-A selected child's own listing establishes readability and serves a subsequent
-open. Confirmation revalidates expired results. Loading, path editing, unreadable
-selections and disconnections disable confirmation; a late validation result
-cannot confirm a changed choice. Reconnect revalidates the listing and selection;
-changing client/runtime retires the picker.
-Rows and their breadcrumbs remain together during pending navigation, with
-interaction disabled until the destination is ready. Refreshes preserve rows,
-uncached initial reads use row-sized placeholders, and a delayed indicator avoids
-flashing on fast reads. Section borders use the theme's border color. The footer
-reserves a scrollable validation area so pending/error messages do not move its
-actions; long host labels truncate and Recent avoids repeating the host name.
-On phones, Locations moves into a menu and the selected path stacks above actions.
-The behavior is covered by `remote-directory-dialog.test.tsx`,
-`directory-queries.test.ts`, `directory-picker.test.tsx` and the welcome flow tests.
-
-The host menu shows names, endpoints and connection status,
-plus **Manage servers**. Switching hosts preserves the prompt and clears the
-host-specific folder, model/provider and effort choices. A folder, explicit send and a
-usable route are required before execution. The shared permission control uses
-the draft's explicit choice, otherwise the selected host's default permission
-mode, with Ask as the fallback for older hosts. An untouched draft cannot send
-until its host configuration is known; loading must not show Ask while silently
-creating a Full Access session. `session.create.permission_mode` saves the visible
-mode atomically with creation and command acceptance. Retrying creation never
-resets a later session choice. Model, effort and permission choices belong to
-the draft and never write host defaults.
-An unavailable saved effort remains visible and requires an explicit replacement.
-When no ready route exists, automatic provider setup appears below the draft
-composer so typing, project selection and slash skill discovery remain available;
-Send stays disabled until a route is ready. The explicit Connect a provider action
-switches to setup without the composer. Setup uses the Paper ELF-0 layout in the
-same centered column: the 24px heading, 16px heading gap,
-12px panel inset, rows at least 64px tall, 8px row/footer gaps and shared buttons.
-The initial list shows common providers (including OpenRouter) plus configured connections needing
-attention, preserving host inventory order. **Show all providers** reveals the
-remaining inventory and Refresh. **Connect Remote** opens the shared Add server
-dialog for local setup; remote setup retains its execution-host selector.
-Provider rows grow for wrapped labels and mobile touch targets. Connection and
-model confirmation reuse the existing flows; completing setup returns focus to
-the preserved draft composer without sending it.
-
-Sending the first message is two commands through the runtime's command
-runner: `sessions.create`, carrying `effort` when the draft chose one (the
-daemon otherwise resolves the configured default against the model, protocol
-6.9), then `submit`. Acceptance of the submit
-promotes the New Chat tab in place into the session's tab (`SessionTabs.promoteNew`);
-the router follows only when that draft route is still focused, so a background
-pane never steals focus. The draft is cleared only if its text is still what was
-sent; a failure before acceptance keeps the text and shows the error under the
-composer. An uncertain or absent delivery shows the command runner's notice with
-Check status and Send again, the same handling ordinary messages get. There is no
-separate first-message journal: a reload during the few seconds of a first send
-can leave a created session in the sidebar beside the retained draft, an accepted
-trade for the recovery layer and its UI that used to cover it. Storage from that
-layer (`whip.web.welcome*` records and frozen `:submission` draft copies) is
-removed at startup.
-
-Welcome offers **Session options** in the model picker's footer for the agent
-definition and **Execution language**, keeping them out of the initial composer.
-Execution language is available only before session creation, using the
-host's advertised `execution_engines`. Starlark is the initial default; JavaScript
-(QuickJS) is opt-in. The selected value survives draft navigation and is sent as
-an explicit `execution_engine` with the create command.
-The host owns the immutable session selection, inherited by all descendants.
-Execution settings change `default_execution_engine` for future sessions only,
-through the existing revisioned configuration query and editor. Missing discovery
-disables creation instead of assuming a language is supported. Neither reconnect,
-host switching nor auth completion silently submits the draft.
-
-Provider and runtime settings share `HostSelector`:
-the dropdown shows the host name and connection dot, followed by a status badge.
-The initial selection follows the last session's host or Local. Pin the resolved host for the Settings visit: disappearance or
-identity replacement preserves the old form disabled, rather than silently
-retargeting it. Wait for saved profile discovery before falling back to Local.
-Appearance and keyboard preferences remain viewing-device settings.
-
-### Dedicated Settings workspace
-
-`/settings` takes over the app window with its own category navigation and
-independently scrolling content. It hides conversation navigation and the tab
-strip; it never inserts a Settings tab or rebuilds the saved split tree. Runtime,
-connection management, notifications and global dialogs remain
-mounted above the route. Visible session consumers release their leases while
-Settings is open; daemon work continues.
-
-`settings/navigation.ts` owns the seven-category registry, bounded local search
-index and validated `section`, `host`, and `setting` search parameters. Search
-navigates to and focuses the actual control, opening any enclosing disclosure.
-Native-only controls are absent from browser search. Providers & models includes
-Default permission level alongside model and effort under Defaults for new work.
-It reuses `PermissionModeControl` and the existing guarded, revision-checked host
-configuration form; selecting a mode edits the draft, and Save host defaults
-persists it. Older hosts without the field cannot save an unsupported permission
-default. Below 768px, navigation uses
-a Sheet; desktop retains its inset traffic-light and draggable regions.
-
-On entry, `bindSettingsNavigation` records the exact runtime, root, duplicate view,
-child/inspector/REPL location and focus target in window storage. Category changes
-replace the route without overwriting that record. Back and native Cmd-W return to
-that view; a missing view falls back to the selected workspace or Home. A successful
-exit clears the record. Composer drafts, attachments, split layout and reading
-positions retain their existing owners.
-
-The category modules live under `settings/`: General, Appearance, Providers &
-models, Agents & execution, Servers, and About & updates. Agents &
-execution also hosts the agent editor (`settings/agents.tsx`): it lists the
-host's definitions from `definitions.list`, derives the module and capability
-catalog from the built-in coding definition, builds the canonical document with
-the SDK's `defineAgent`, and registers it; registering an existing id adds a
-revision and never changes running sessions. The welcome page's Agent picker
-reads the same query (`definitions.ts`) and sends `definition` with
-`session.create`; hosts that do not advertise the registry hide the picker. Every category
-uses the Settings heading and shared groups; no category shows the Attention
-button. Dialog and AlertDialog bodies use the configurable size13 typography
-token, with size17 titles and size12 supporting text.
-
-Server renaming changes only the display label and never reconnects a client.
-Disconnect appears last in each connected server’s menu and requires confirmation
-through the shared AlertDialog; cancelling leaves the connection intact.
-Remote URL names live in Local’s revision-checked server configuration; native
-Local and SSH names use the existing device profiles. Browser Local’s name is a
-viewing-device preference (`whip.localHostName`). Host forms
-submit category-scoped revision-checked patches. `SettingsEditsProvider` guards
-category/host/Back navigation with Save, Discard, or Stay; secret inputs allow only
-Discard or Stay and never enter persisted recovery. Reverting fields to their
-original values makes the form clean. Provider polling exists only during an
-active login flow and is aborted on cleanup.
-
-Subscription login uses the same host-scoped daemon flow as API-provider
-onboarding: the optional `provider` selects `openai-codex`, with omission retaining
-Inference.net behavior. Settings renders safe `auth_state`, account and plan
-metadata, never access or refresh tokens. A subscription route can be configured
-while signed out; only connected auth state is shown as connected. Successful
-login invalidates configuration, status and catalog queries for that host.
-
-## Conversation and navigation patterns
-
-Desktop and web chat use the richer `conversationRows(..., true)` display projection;
-native mobile retains the portable default. The daemon's turn journal captures
-version-1 presentation metadata even without a connected client. Ordered parts
-reference canonical prose and tool bodies; exposed reasoning and typed host
-operation fields are retained separately. Metadata is committed on success,
-failure and cancellation, preserved by raw-history paging/fork/rewind/compaction,
-and excluded from provider requests, continuation data and token accounting.
-An interrupted attempt's pending evidence follows its last journal record.
-Records cap metadata at 64 KiB, 128 parts and 128 operations per execution.
-Oversized message handles retain a compact identity/outcome summary inline;
-full details require the existing scoped content read. Omission is visible as
-**Partial activity**, never a complete count. Old transcripts use generic execution
-rows; no source-code parsing invents operations.
-
-`conversationActivityRows` is one chronological pass over those parts and the
-SDK's execution projection. Reasoning and ordinary operations form quiet trees.
-Prose, images, authored input, notices, mailbox delivery boundaries, scratch
-restarts, different known turns and agent launches end the group. Failed host
-operations stay in place, even if their enclosing execution catches the error.
-Summary counts count invocations and deduplicate edits only by exact typed file
-target. The enclosing execution is not counted again. SDK reconciliation scopes
-identities to root, agent, revision, turn, part, tool and invocation; the UI does
-not replay events or fetch traces. Executions without a matching transcript row
-may appear at the chat tail only while their known turn is active. Older unplaced
-evidence remains available in the REPL; it must not drift under later responses
-or move their copy footers. Matched activity stays at its recorded position.
-
-Group headers, operation steps, expanded details and top-level Markdown blocks
-are individual rows in the existing virtual list. There is no six-cell or
-three-operation display cap; DOM virtualization is separate from data retention.
-Only the streaming tail automatically opens. Compact and Comfortable settle
-closed (Comfortable retains its small loaded preview); Detailed remains open.
-Manual disclosure choices take precedence, are capped at 128 and survive ordinary
-virtual remounts and live/history reconciliation. Stable member aliases are capped
-at 512 per group. Automatic folding waits for entrance motion and for selection
-or focus to leave the group. Live reasoning shows its last 24 lines; settled
-reasoning begins at the start. Available larger reasoning, execution code/output,
-and raw mailbox messages remain behind explicit disclosures and content reads.
-**Open in REPL** shares the existing execution evidence and opens an adjacent tab.
-
-Typed `agents.spawn` child IDs produce compact chronological launch records,
-not duplicate live roster cards. Launch outcome stays distinct from subsequent
-child turns; failed/cancelled launches and expandable execution evidence remain
-available even without a child ID. Names may use existing snapshot metadata.
-
-`AgentDock` occupies the composer's agents slot, immediately above the message
-queue (when present) and input surface, outside the transcript scroller. Pending
-human requests and submission notices sit above this stack, never between its
-overlapping surfaces. Composer alone owns the responsive horizontal gutters. The
-dock projects direct children of this pane's selected agent from the existing
-snapshot. It starts collapsed as a single-line disclosure with
-working, queued, not-started, attention-needed and finished counts. The heading
-uses the plain transcript disclosure treatment: no filled hover/pressed surface,
-with the shared keyboard-only focus indicator. Expanding it
-reveals one row per available child in a height-bounded scroller: waiting/failed
-work first, then active/queued and not-started work, then settled children. Opening a child only
-highlights its row; it never promotes it out of its lifecycle group or expands
-the disclosure. Rows reuse the sidebar spinner for live running/queued work and
-quiet selected rows. Agent and queue panels share an inset, rounded-top bordered
-surface, each tucking 12px of empty bottom padding behind the next surface. Queue
-recovery actions and errors remain inside its surface, above that padding. Agent
-and queue scrollers are capped at 20dvh/200px and 16dvh/144px respectively, bounding
-the combined stack on narrow/short screens. Like transcript activity rows,
-each unboxed row aligns the agent name on the left, state in the middle, and
-latest-turn model-call count and duration on the right (when known, including
-zero). Narrow panes place status/calls on a second line within the same agent row.
-Durations use recorded latest-turn start/end timestamps, never mount time or
-agent lifetime. Active turns tick while expanded, connected and document-visible;
-completed durations stay fixed. Missing/invalid timing, mismatched active turn
-IDs and queued work never borrow an earlier turn's duration. Unknown duration is
-a quiet dash; disconnected live timing is unavailable rather than still ticking.
-Tooltips and accessible names distinguish model calls from tools; compaction counts stay
-in details. The heading summarizes counts only when connected with complete
-roster metadata. There are no trailing split icons or top-right All agents button.
-The single roster disclosure replaces the earlier More/Finished footer; the
-full-directory action appears only for partial metadata. Finished requires a
-recorded settled outcome, not merely an idle agent. Child-scoped queued inbox work takes precedence over a previous
-turn's outcome; new idle/ready children with no recorded turn show Not started
-and remain outside the finished count. Unknown states also remain outside that
-count. Finished rows retain their explicit outcome and known call counts. Status
-updates defer regrouping while a row is focused or hovered to preserve its target.
-The roster and disclosure are height-bounded. Stopped children retain truthful
-status; deleted children lose their actions. Offline updates are labeled
-paused and omitted metadata never produces a false complete count. The inspector
-remains the paged full agent directory. No roster-only child history subscriptions,
-polling, parallel SDK collections or duplicate approval controls are added.
-
-Root chats show upcoming scheduled wake-ups as a quiet, collapsed disclosure
-inside that same composer-width region, before the agent and queue panels. The
-heading gives the next wake time in the viewer's local timezone (with a date when
-needed); expansion reveals plain, wrapping prompt text in a height-bounded area.
-Multiple schedules share one disclosure. Recurring schedules display their next
-unclaimed occurrence; fired one-shots disappear even while their admitted input
-is queued or running. Schedule inbox entries never use the generic accepted-input
-panel. Child chats, REPL and trace panes do not display the root's wake notice.
-
-The host supplies the optional bounded `upcoming_schedules` snapshot projection
-and exact `upcoming_schedule_count`, independently of historical schedule paging.
-The scheduler and projection share the same anchored occurrence calculation.
-The SDK reconciles `schedule.fired` by schedule identity and occurrence slot, then
-uses its existing snapshot refresh to obtain the next occurrence. Local time never
-claims or advances work. Overdue unclaimed slots are labeled as due; stale or
-disconnected state does not present a confident upcoming-wake claim. Older hosts
-without the projection simply omit this notice. If all occurrence details are
-omitted but the host confirms a positive pending count, a count-only disclosure
-links to schedule inspection without inventing a wake time. Empty, unknown-count
-state after a fire remains hidden until refreshed. Prompt previews and omitted rows
-are explicit: the existing Schedules inspector provides paged collection/content
-reads for full inspection and management, without a second schedule cache or
-subscription.
-
-Both dock and inline child links use `openChildChat`: focus an already-visible
-matching child chat, reuse this source's still-valid right-hand companion view,
-or atomically create a child chat in a right split. A view-local ownership receipt
-prevents replacing unrelated, moved or repurposed views. Root transcript, composer
-recipient, drafts, attachments and reading position stay untouched. Child drafts
-remain recipient-scoped and reading/caret state view/agent-scoped. Geometry guards
-and the four-pane/32-tab limits apply before allocation, not before valid reuse.
-When a split cannot be created, an action-local notice offers explicit Open in tab;
-there is no silent root replacement or hidden split on narrow screens.
-`CurrentActivity` remains the single polite live status in the information bar;
-no per-row or per-token announcements are added.
-
-`TranscriptWorking` renders a quiet activity line below the transcript, inside
-the same reading scroller. It immediately bridges local submission previews as
-**Sending…**, then uses the existing SDK turn/operation status. Queued and
-uncertain delivery stay explicit; permission/question waits and disconnected
-views stop the animation. Completed, failed and cancelled turns remove the
-trailer, leaving existing outcome notices responsible for errors. Empty active
-conversations also render the trailer before their first response event.
-
-The generic UI `ActivityIndicator` matrix variant uses a theme-colored 3×3 dot
-wave with a 750ms opacity cycle and no entrance delay. Its existing compact dots
-remain unchanged in the information bar. Generic working/thinking captions rotate
-every 7 seconds; known tool and response phases retain their specific labels.
-The elapsed clock starts with the current turn, using its recorded start when
-available and otherwise the client observation time. Sending has no clock;
-an older turn's timestamp is never reused. Only the trailer's local clock updates
-once per second, and hidden/waiting/settled views leave no ticking interval.
-Shared reduced-motion settings stop the wave and caption rotation. The trailer
-adds no live region, requests, retained history, or SDK event reconciliation.
-
-`streaming-markdown.tsx` retains TanStack Markdown and safe app renderers. Live
-changes are coalesced to at most 30 parses/second, with stable unchanged block
-ASTs and a 512-document / 2 MiB source cache. This is not an incremental parser.
-Conservative trailing inline delimiter completion affects display only. One
-response-copy footer uses original retained assistant prose before display splits;
-reasoning, tool output and mailbox deliveries are excluded. Partial history reads
-say **Copy visible response**, with the existing 256K-character bound. Selected
-Markdown blocks preserve their DOM until selection ends, then display the latest
-source; other blocks continue streaming. Code decoration receives original token
-offsets and never changes its source or copy semantics.
-
-### Mermaid diagrams
-
-Web and desktop Markdown fences marked `mermaid` use the shared
-`MermaidBlock` (`packages/ui/src/mermaid-block.tsx`), backed by the exact reviewed
-`beautiful-mermaid` release. This is a **conservative Mermaid subset**, not full
-mermaid.js compatibility. Unknown types, unsupported statements, incomplete or
-truncated source, and render/size failures remain source with an explanation;
-never silently display a partial parse as a complete diagram. The supported
-statement policy and limits live in `mermaid-data.ts` with real-library fixtures.
-Basic flowchart, state, sequence, class, ER, and single-series XY diagrams are
-supported. Styling/configuration directives, HTML, external resources, actions,
-and unsupported advanced syntax are intentionally source-only.
-
-`packages/app/src/markdown-code-block.tsx` is the Markdown-only dispatch shared by
-`timeline.tsx`'s `Prose` path and `streaming-markdown.tsx`'s virtualized walker.
-Generic tool/REPL `CodeBlock` instances never opt into rendering. Message readiness
-is explicit: live responses remain source until settlement, even if the parser
-synthetically closes a fence. Truncated retained text never renders a diagram.
-Diagram/Source preferences are presentation state owned by each mounted Timeline,
-bounded to 128 choices / 512 KiB of keys and discarded with the conversation view.
-Static Markdown annotates TanStack's rendered tree with owner+structural-path
-identity, so identical nested fences retain independent preferences on remount. Original Markdown remains
-the response-copy/history authority. No SDK, protocol, or host state is added.
-
-The shared component uses resolved theme colors, accessible text/connector roles,
-and the UI font/size preference. Chrome uses StyleX tokens and existing controls.
-Source uses `CodeBlock` with its header hidden only because the enclosing diagram
-header supplies the same original-source copy action. The expanded Dialog offers
-Fit/100% and scrolling; focus returns to Expand. Source focus/selection prevents
-an automatic image swap. Theme replacement keeps the old image until its
-replacement decodes; row-size changes use existing reading-anchor measurement.
-
-The library and bundled fonts live in one lazy module worker, never React render.
-The scheduler bounds source (32 KiB), statements (250), queued work (16 / 512 KiB),
-SVG output (1 MiB including fonts), dimensions/pixels, and cache (32 / 8 MiB).
-Active layout has a two-second termination deadline, separate from a 15-second
-cold-worker startup deadline. Stale/abandoned requests are cancelled and URLs are
-revoked after replacement/unmount; cache entries are strings, not live URLs.
-
-Generated SVG is a **Blob-backed image only**, never injected markup, an object,
-iframe, or navigable document. The output adapter strips library remote font
-imports, embeds existing local Inter subsets when selected, and rejects active
-markup/external references. Source cannot supply theme CSS or URLs. SVG image
-isolation means page CSS/fonts are not implicitly inherited; the image is
-self-contained. A release-specific worker bootstrap selects ELK's FakeWorker
-export and warms it once before restoring worker globals; it never alters the
-window. This compatibility shim is covered by real production and development
-worker tests and must be revisited on dependency upgrades. Vite consumers include
-`beautiful-mermaid` in `optimizeDeps.include`: the engine remains lazy, but its
-transitive CommonJS dependency must be transformed even inside an installed UI
-package's worker. See `packages/ui/README.md` and the packed-consumer probe. The public
-`mermaid-NOTICE.txt` includes licenses and ELK source availability; desktop's
-existing dependency-notice/SBOM pipeline also includes the transitive packages.
-Production CSP is unchanged. Raw SVG export and interactive links
-are deliberately absent because they need a different security design.
-
-Coverage: `packages/app/test/mermaid-markdown.test.tsx`, shared renderer tests,
-`npm run test:mermaid -w @whip/ui`, and the packed-app
-`apps/web/scripts/mermaid-diagrams.mjs` probe (after `npm run pack:web`; use
-`WHIP_WEB_BROWSERS=electron` after desktop staging for the packaged custom-protocol
-check). Use actual production CSP, real
-library output, offline/local assets, theme changes, and reading-position checks;
-mocked component tests alone do not validate this rendering boundary.
-
-Every standalone shared `CodeBlock` owns one always-visible copy button in its top-right
-header, including chat, REPL source/output/return values, traces and detail views.
-`UIProvider copy` receives `text => platform.copy(text)` at application bootstrap;
-UI imports no app runtime or Electron APIs. `CopyButton` resolves an explicit
-callback before the provider and uses browser clipboard only as the standalone
-fallback. Nested UI providers retain the inherited clipboard adapter.
-
-Copy uses `copyText ?? code`, before visual byte limits or text decoration. REPL
-output supplies raw `row.output` while displaying its collapsed/formatted preview;
-there are no separate REPL copy controls. Copy does not fetch offloaded bodies or
-claim that unavailable text is present. Additional authorized actions use
-`headerActions`. Clipboard failures have one accessible local display at the
-copy control, cleared on successful retry or source change; stale asynchronous
-results cannot mark newer streaming text as copied. See the shared code-block,
-clipboard-provider and REPL tests, plus the UI CSP browser probe.
-
-`transcript-motion.tsx` adapts Zeron's MIT-licensed motion with native Web Animations
-and static StyleX styles. Text fades are opacity-only, use the 160ms gap seed,
-70/30 moving average and 120–400ms clamp, with acceleration for concurrent chunks.
-Rows reveal over 360ms, connectors over 480ms, first rows wait 90ms and simultaneous
-rows stagger by 65ms. Activity content fades with a 4px lift; folds and chevrons use
-140ms ease-out. Active summaries sweep muted-to-normal text over 3.4 seconds.
-Entrance reveals clip the measured row while reserving its layout space; delayed
-zero-height rows would defeat virtualization by mounting every waiting operation.
-Initial history, reattachment and virtual remounts do not replay entrance motion.
-Hidden documents and reduced motion stop animations and use final states.
-
-Chat enables `ReadingList.chatFollow`; REPL keeps its existing following behavior.
-Following is explicit user intent, independent of distance after a layout change.
-TanStack owns end anchoring and ordinary resize/prepend compensation. An exact
-end correction on append, layout and container/viewport resize accounts for
-surrounding padding, turn feedback and composer height. Indexed `followOnAppend`
-is disabled: its pending target can keep reconciling after a user interruption.
-There is no streaming scroll animation loop. CSS `overflow-anchor: none` keeps
-browser anchoring from competing with virtual measurements.
-
-Chat's scrolling viewport has a static alpha mask: a short 20px fade at the top
-and a softer 40px fade toward the composer. The theme shows through without a
-colored overlay or pointer interception. Bottom content padding keeps the newest
-message and activity footer clear of the fade when pinned; scroll padding keeps
-keyboard-revealed content inside the readable area. Composer and Latest controls
-sit outside the mask. REPL uses the same 20px top fade without a bottom fade;
-trace is unaffected. Forced-colors and print turn the masks off; the fades add
-no animation or scroll listeners.
-
-Upward wheel, touch movement, scrollbar drag, scroll-navigation keys or text
-selection detach immediately, even within the old 70px proximity threshold.
-Ordinary row clicks, Tab and Enter do not detach. A downward user scroll reaching
-the actual bottom (2px rounding tolerance), **Latest**, or an accepted composer
-send resumes following. Composer admission (including queued and child messages)
-jumps immediately to latest in the sending view only, via a view-local
-`ReadingList` action. It reuses Latest's missing-suffix recovery and cancellation;
-upward input during recovery cancels the pending jump. Rejected or delivery-uncertain
-sends do not move the reading position; admission need not wait for turn completion.
-Unmounted composers cannot scroll another recipient. Background activity, content
-growth and incidental programmatic scrolls never resume following or load history.
-Only **Latest** uses native smooth scrolling, which new scroll input cancels;
-reduced motion uses an immediate jump. TanStack's default resize predicate keeps
-a growing block spanning the viewport stationary while reading it. Existing
-bookmark, attachment, permission, question and authored-input ownership remains.
-Pointer presses pause automatic movement until the click completes so a growing
-transcript cannot move an action away from the pointer between down and up.
-
-The composer is a compact, theme-derived surface with an automatically growing
-textarea (40–220 px), accessible recipient label, attachment/context actions,
-model/effort trigger, permission-mode toggle, and Send. It omits a visible
-heading and shortcut hints. Autosizing reserves the composer's current height
-while measuring the collapsed textarea, then releases it after applying the new
-height. The measurement must not temporarily enlarge the transcript viewport and
-clamp its scroll position on each keystroke. Toolbar controls wrap in narrow panes so Send/Pause
-stays reachable. `model-selection.tsx` provides separate model and
-reasoning popovers that apply the selected option immediately; the inspector
-retains explicit Apply actions and exact model/provider entry. The controls
-share the host-scoped provider-catalog query while connected. New-session and
-conversation model menus union configured and discovered models using
-`model-options.ts`; each option identifies a model/provider pair, preserving
-configured aliases and making billing-route selection explicit. Effort choices
-use the selected provider's list when multiple routes advertise the same
-model ID. Root changes
-require an idle session, including options in an already-open popover; child composers display their own
-model without changing the root. `permission-mode.tsx` toggles the root
-session's access mode (`permission.mode` with `external_permissions`) from a
-composer popover. The mode belongs to the root session and is saved in SQLite;
-fresh sessions inherit the host's default permission level (Ask for approval
-unless explicitly changed). Forks retain their separate Ask default; upgrades
-and changes to host defaults preserve saved session choices.
-Full Access allows paths outside the project on the execution host and approves
-actions automatically. Explicit delegated path/operation limits remain enforced.
-Ask keeps the original project file boundary; it does not sandbox shell commands.
-The current directory and project-instruction roots are separate from filesystem
-authority. The daemon commits the
-choice and `session.permission_mode.updated` event together, reports it on the
-root snapshot as `permission_mode`, and restores it before resumed work or child
-agents start. The SDK applies the event to the root snapshot. Reconnects and
-switching clients preserve the saved choice. The toggle is root-only and applies
-while idle, matching the daemon's refusal to change mode during an active turn.
-Downgrading with an external cwd preserves the visible directory but denies new
-out-of-scope operations; navigation back into the project remains available.
-Drafts remain untouched by model selection, and host defaults are not changed.
-Standard text inputs use a single neutral focus border. The composer keeps its
-quiet outer border unchanged on focus and has no separate textarea outline.
-
-Composer image attachments use local object URLs owned by `CompositionStore`.
-The original file's bytes remain counted in the 20 MiB window attachment budget
-until the draft releases it; previews do not add base64 copies or content reads.
-URLs survive view unmounts and upload settlement, and are revoked on removal,
-accepted submission (only its captured attachment IDs), root deletion, host
-invalidation, and store disposal. Failed or uncertain submissions keep their
-previews. These window-local URLs never enter submitted payloads or persistence.
-`composer-attachments.tsx` renders 120 px square, cropped image tiles above the
-textarea, wrapping in selection order within a bounded scroll area. Each tile
-reserves its size while decoding, shows a small decode/upload spinner, exposes
-removal independently of previewing, and opens the original in the shared Dialog.
-Upload and decode failures remain distinct; ordinary files keep filename rows.
-Picker, paste, and drop share the same attachment path. Image loading must not
-resize the composer or disturb transcript reading anchors.
-
-`chat-file-drop.tsx` widens file dropping to each visible chat body, including
-transcript, blank space, queue and composer. The composer supplies its existing
-attachment callback and availability; New Chat supplies local staging. Native
-listeners bind to that pane's DOM container, so portaled dialogs and other panes
-cannot accidentally route files to it. File objects are captured synchronously
-on drop and admitted once. Hover never changes focus, recipient or scroll state.
-The theme-derived overlay is positioned outside layout, ignores pointer events,
-and updates only on entry/exit. Nested drag boundaries do not flicker; a short
-one-shot expiry handles OS cancellation that emits no final page event. Listeners
-and the expiry are removed when the recipient/view disappears. A renderer-level
-file-only guard prevents unhandled shell drops from navigating away, without
-attaching them or intercepting text/link/tab drags or native Browser uploads.
-Unavailable targets explain why a drop cannot be accepted; existing attachment
-bounds, upload ownership and errors stay in the composition path.
-
-New Chat uses the same previews and attachment budgets. `CompositionStore.stage`
-retains local files under the stable welcome draft key without creating a session,
-reading file bodies, or uploading. Switching hosts is safe before Send because no
-content references exist yet. Once Send creates the root, `adopt` transfers the
-files and preview identities into that root's composer, and uploads through the
-normal scoped SDK path. The tab promotes at creation for an attached first message;
-upload or effort failures leave its draft in that session, so correcting them does
-not create another root. The shared admission path clears only accepted attachment
-IDs and matching text. Image-only first messages are supported. Closed/reopened
-draft tabs retain their files in window memory; dropping them from closed-tab
-history releases the files. Reload still requires reselecting local attachments.
-
-User messages use right-aligned, theme-derived bubbles. Timestamps and existing
-copy/history actions appear below the bubble on hover or keyboard focus; touch
-keeps the controls available. Show recorded `sent_at` values when supplied, and
-never invent timestamps for historical messages that lack them.
-Agent responses omit a repeated author heading and show one left-aligned copy
-control in the completed response footer, with no per-paragraph copy control.
-
-A large image attachment must not replace its message with a “Read stored message”
-button. Mounted user/assistant rows automatically fetch referenced transcript
-bodies through the existing SDK content API and render their text and embedded
-images inline. Reads are keyed by runtime/root/agent, history revision and immutable
-content identity, cancelled on unmount, and released from Query when no row uses
-them. They do not expand the SDK history window or subscribe to additional agents.
-A failed transfer exposes an in-place Retry; a disconnected host shows a reconnect
-status. User image attachments sit above the text bubble in a right-aligned,
-wrapping strip of 80 px square thumbnails. Each reserves its space during native
-lazy loading/decoding and shows its own small spinner until ready, or an inline
-failure if decoding fails. Clicking a thumbnail opens the original in the shared
-accessible dialog; image-only messages have no empty text bubble. Assistant/tool
-images retain their larger inline presentation. External image URLs retain the
-existing explicit-link behavior. Full tool outputs still require disclosure.
-
-The desktop/web projection distinguishes the provider's `user` role from actual
-authored input using `authored` on the message or its bounded history entry.
-Unauthored deliveries, including browser/computer screenshots and MCP images,
-stay in collapsed **Activity details**, never user bubbles or attachment strips.
-They do not split response-copy boundaries. Referenced internal bodies use the
-same scoped content reader only while their details are explicitly open; closing
-the disclosure cancels the read and releases its inactive cache. The portable
-mobile projection is unchanged. Do not identify internal images by caption text
-or associate them with a particular tool invocation without a recorded identity.
-
-Committed history only includes a turn's messages after that turn finishes.
-`input-presentation.ts` therefore owns window-local submission previews (at most
-32 entries / 1 MiB, scoped to runtime/root/recipient), created before sending.
-`AppRuntime.run` reconciles command receipts with the exact inbox sequence,
-including explicit uncertainty checks/retries. The SDK's queued/running inbox
-supplies accepted messages during execution and after reload. Do not deduplicate
-by text: identical authored prompts are distinct submissions. A fresh existing
-session view hands over to authoritative inbox/history; this opens no additional
-root views. Confirmed previews are evicted first under the bound, and admission
-fails visibly rather than evicting an unresolved preview. Host detach clears them.
-Prompt bodies are not added to persistent command recovery records.
-
-Supported desktop/web composers show waiting client inputs once, in the queue
-strip above the draft, instead of pending transcript bubbles. Send/Enter during
-an active turn enqueues normally. The composer has one primary action: Send when
-there is text or an attachment, otherwise Stop while a turn is active. Steer promotes that
-exact inbox entry into the current turn's next safe model-loop boundary. Remove
-only cancels waiting input. It cannot stop a claimed turn. Both controls use
-`runtime.run` and the original control command's recovery identity. The draft
-and its newer attachments are independent of these controls. Older daemons
-without both `inbox.steer` and `inbox.remove` keep the delivery dropdown and
-legacy pending bubbles. Native mobile keeps its existing presentation.
-
-The daemon records client origin, originating command identity, a pending
-steer's target turn and the delivery event position on the existing inbox.
-Completion, failure, cancellation and recovery clear obsolete steering intent;
-unclaimed input remains in ordinary FIFO order. A claimed steer's `inbox.running`
-event separates live prose fragments, and `delivery_seq` places its authored
-input between them until committed history takes over. Internal agent inputs
-and legacy entries with unproven provenance never acquire queue controls.
-
-`inboxItems` in the SDK merges snapshot and paged evidence by agent/sequence.
-Collection revision and event cursor determine freshness. Partial snapshots
-retain at most 128 previously observed waiting inputs as unverified evidence;
-their controls stay disabled until a fresh snapshot/page or lifecycle event
-resolves them. Pages and this evidence count against the existing 8 MiB session
-budget. The UI exposes incomplete coverage through Load more and never treats
-absence from a partial snapshot as delivery. Queue controls add no subscriptions.
-
-Stored previews contain at most 2 KiB of UTF-8 text and 16 attachment descriptors
-within 16 KiB total; counts and truncation remain explicit. Full bodies stay in
-existing scoped content storage. The strip shows roughly three rows and
-virtualizes queues over 16 entries. Mounted image previews use scoped content
-reads, reserve their geometry and release object URLs/cache on unmount. Full
-message/file inspection uses the shared dialog, retaining all available attachment
-references. Claimed input keeps its attachment thumbnails in the transcript.
-
-Keep Sending, Queued and Checking delivery distinct. Definitive rejection removes
-the local preview and preserves an unaccepted draft; uncertain input remains
-visible and follows the existing explicit retry flow. This presentation must not
-change daemon history commits or duplicate command execution.
-
-[`timeline.tsx`](../packages/app/src/timeline.tsx) projects SDK history and live
-presentation into rows. Preserve stable message/tool identity. Text deltas append
-within a row; cumulative tool-call payloads update that call rather than append
-the whole payload again. A protocol event is not a new chat message. Keep live
-presentation separate from persisted history so completion/reconnect cannot
-duplicate streamed text. History rewind/clear invalidates old revision pages and
-reading anchors; it does not undo filesystem effects.
-
-TanStack Virtual bounds rendered rows. Follow its measurement/anchor integration
-when changing variable-height Markdown, code, or tool output. Preserve the
-reader's position while paging or streaming; show Jump to latest when away from
-live output. A replaced/evicted anchor should degrade visibly to retained history,
-not fetch unlimited history to recover an exact pixel. Code rendering is lazy,
-bounded, copyable text; do not inject untrusted HTML or treat model output as UI
-instructions. Keep URL/content checks in the existing rendering paths.
-
-`ReadingList` includes its older-history control as a measured leading row,
-kept mounted for keyboard access. When the final page removes the control,
-TanStack compensates for its height change along with the prepended messages;
-the control must not introduce an unmeasured offset outside the virtual list.
-In chat, a visible selected/focused row becomes the resize anchor: delayed
-message/image growth before it is compensated through the same virtualizer,
-including a loading row that spans the viewport edge. REPL keeps its default
-measurement behavior.
-
-Browser reading-position checks must let scrolling and row measurement settle
-before recording an anchor. Touch scrolling can defer a size correction beyond
-two stationary frames; comparing that temporary position with a later snapshot
-misattributes the correction to incoming output. The focused
-[reading-position check](../apps/web/scripts/reading-position.mjs) exercises the
-packaged app against an isolated daemon in Chromium and Firefox.
-
-The URL is authoritative for `/h/$runtimeId/s/$rootId` and validated `agent` /
-`panel` / `view=repl` search state. `session-tab-routing.ts` synchronizes tab metadata with it.
-The sidebar is the saved-session catalog; tabs are the current window's working
-set. Children remain within a root tab. Only the selected view in each visible pane mounts.
-Tab creation, selection, reorder, close, and reopen are local navigation actions.
-
-Desktop tabs retain their original rounded upper corners and curved lower
-shoulders in the 48px strip; selected tabs join the content canvas. Theme tokens
-also style the matching contoured drag preview. Tabs keep readable widths in a horizontal scroller; the picker handles
-overflow and secondary actions. On phones, use the current-session selector and
-searchable sheet. Preserve browser Back/Forward, modified link clicks, keyboard
-activation, and explicit touch/menu alternatives to dragging. Do not hijack the
-browser's new-tab or close-tab shortcuts.
-
-Desktop alone maps File > New session (`CmdOrCtrl+T`) through the typed native
-`new-session` event and `AppPlatform.onNewSession` to `openNewChat`. The menu
-reveals the window and focuses the shared renderer, including when an embedded
-website has focus; guest
-content must not intercept T and suppress the menu accelerator. This creates a
-fresh draft in the focused pane, not a Browser tab or an immediate daemon session.
-Open dialogs block the action. Web has no dedicated New session shortcut; its
-sidebar and command palette actions remain unchanged.
-
-Desktop File > Reopen closed tab (`CmdOrCtrl+Shift+T`) follows the same native menu
-path via `reopen-closed-tab` / `AppPlatform.onReopenClosedTab`. It reuses
-`reopenClosedTab` in `session-tab-routing.ts`, shared with the tab strip's Reopen
-action, so Settings can restore tabs even while the strip is unmounted. Existing
-bounded closed history, pane placement, tab limits and error reporting remain
-owned by the workspace; no history or session state is duplicated. The menu
-reveals/focuses the window, dialogs guard the action, and no web hotkey is installed.
-
-### Saved-session navigation
-
-[`session-sidebar.tsx`](../packages/app/src/session-sidebar.tsx) projects the SDK's
-bounded per-host catalogs into host sections, virtual directory headers and compact
-session rows in one scroll area. Group within each host by exact `cwd`: worktrees remain separate, directories with matching names show
-a distinguishing parent suffix, and full paths remain available in labels and
-titles. Groups follow their first catalog occurrence; sessions retain server
-pin/recency order. Only loaded pages are grouped; Load more retains the SDK's
-existing page/cache limits. Each directory initially shows at most seven sessions;
-More reveals seven additional loaded sessions per click. Only once all loaded
-sessions in the directory are visible does Less replace More; Less resets to seven.
-Expansion is local to the mounted host list (up to 64 directory preferences);
-route navigation reveals an older selected session by expanding its directory.
-Sidebar labels never lease root views.
-
-New session, Search sessions and Settings are the top destinations; execution-host
-management stays at the end of the scrollable content. The brand/window controls
-and New session remain pinned; Search, Settings, host sections, and Servers share
-one scroll area. A theme-derived hairline and 12 px soft fade appear below the
-pinned header only after scrolling, with a reduced-motion-aware opacity transition.
-Host headings show connection status and collapse independently. Each pane's tab strip sits above the shared [`SessionTopBar`](../packages/app/src/session-top-bar.tsx): host/project, selected
-agent, current activity and scoped actions. Chat, REPL and trace/span views use
-this same component, including loading and unavailable states. It owns the
-fixed-position Chat / REPL / Trace single-selection view controls and a separate
-Details toggle. Session view choices and the span viewer's Panes and Overview/Raw
-controls share the UI `ToggleGroup`: compact 2px spacing, a quiet secondary fill
-for selected choices, and transparent ghost buttons when inactive. Panes enables
-multiple selection; session views and detail mode retain exactly one selection.
-The compact shared `ToggleGroup` uses arrow-key focus and
-Enter/Space activation; selecting the current view cannot deselect it. Top-bar
-navigation switches the current tab's view in place, preserving its ID, pane,
-selected agent and inspector state; it never opens or selects another tab.
-The route binding commits the mode after navigation and restores it on Back/Forward.
-Explicit tab-menu opening still creates a fresh REPL/Trace. View identity, reading positions and inspector state
-remain owned by the workspace. Details reflects the inspector's open state,
-independently of the selected view. The overflow menu uses the same callbacks;
-callers provide identity, activity and callbacks
-rather than assembling their own top bars. Full host/path identity is available
-on focus through a tooltip. Agent selection opens the existing paginated inspector;
-child views can return to Root. REPL keeps only language, loaded-cell count and
-history help in its local toolbar. New Chat shows its chosen host/project and
-**Not started**, without session actions. Loading or unavailable views retain
-identity chrome; detailed errors remain in their existing notices.
-
-Narrow panes shorten the identity trail, keep an accessible activity indicator,
-and move Details into the menu while retaining the three view controls. The bar shares existing session action
-and inspector owners; it adds no subscriptions, context audits or polling. Models
-and permissions stay beside the composer, along with child activity and requests.
-Session details also opens from the tab menu or command palette.
-
-Search opens a centered dialog with an automatically focused search field, host
-labels/filter, and active and archived sessions together, with no status selector.
-Empty and typed searches use an independent 64-item / 256 KiB Query page and
-cursor per host. Typing debounces 200 ms.
-A failed or offline host shows its own status while healthy results remain usable.
-Enter opens the highlighted result, arrow keys move the highlight, and Escape/close
-restores focus. Highlight identity includes the runtime/root pair, so a later
-response from another host cannot change which session Enter opens. On mobile,
-opening search closes the navigation Sheet and returns focus to its toggle.
-Search retains native modified links, remembered inspector locations and
-background-tab actions. Its catalog/query observers only mount while open;
-closing releases pending reads and typed-search/cursor pages. Each host's initial
-all-status page remains cached for five minutes after its last observer unmounts,
-so reopening shows cached results immediately and refreshes them in the background
-on every mount. Host connection/reconnection prefetches this same initial page
-into the dialog's Query cache, including active and archived sessions, without
-waiting for the dialog to open. The prefetch uses the verified connection client
-directly, before the host snapshot is published. A cold open before prefetch
-finishes (or after cache expiry) still loads normally; there is no background poller.
-
-Attention aggregates one lightweight advisory page per connected host, polling
-every three seconds without leasing roots. Its sheet labels hosts, supports a
-host filter and independent pagination, and opens the owning session to answer
-requests. The badge counts requests on loaded pages, not all host work; pagination,
-truncation and unavailable hosts keep that incompleteness explicit. Unsupported
-attention reads stop automatic polling until retry or reconnect.
-
-Desktop row menus appear on hover/focus (and remain visible
-while open); touch keeps them visible. Trailing directory carets appear while
-that directory or its visible children are hovered, or its heading is focused.
-The leading indicator shows live activity from a bounded
-`sessions.summaries` query (same predicate helpers as the tab strip,
-`session-status.ts`): a spinner while agents run or queue, a warning icon
-when permissions or questions await input; pinned sessions keep the pin and
-unsupported/stale summaries fall back to the plain dot.
-Directory headings have no hover fill; session hover uses `colors.element` and
-selection uses `colors.hover` for the reference design’s stronger selected fill.
-Session links retain native modified clicks and saved
-agent/inspector locations; sibling menus use the shared conversation actions.
-
-Directory + links carry validated `cwd` and `runtimeId` home-route search values.
-New session first selects Local or Remote, then a saved host or Add remote host,
-then the working directory and that host's model/default. A directory + link
-preselects its source host and directory; changing host resets folder/model
-choices. Only Local offers the native OS folder picker; Remote always browses the
-daemon's directory API or accepts a typed path. Browsing a directory does not
-submit the creation form. Submission pins the source client, and late completion
-cannot redirect a different route or target another host. These links take
-precedence over startup tab restoration.
-
-The desktop sidebar defaults to 320 px, resizes between 256 and 420 px while
-leaving 480 px for the main pane. Its collapse button sits beside the WHIP brand;
-when hidden, the first visible tab strip holds the restore button. Focus follows
-the toggle between those locations. The mobile session selector keeps its
-navigation opener for the existing Sheet. The desktop keyboard separator
-supports arrows, Home/End and Enter to hide; double-click
-resets width. Width/visibility are window-local. Collapse preferences retain at
-most four hosts and 64 directories per host within 64 KiB; oldest preferences
-revert to expanded when evicted. Storage failure visibly falls back to memory.
-Catalog refresh preserves the visible anchor; explicit session navigation
-expands/reveals its loaded directory without polling undoing manual collapse.
-Below 768 px the existing Sheet uses the same pinned header and bounded scroll area, uses >=44 px
-targets, and has no resize handle. Colors remain theme-derived.
-
-### Conversation row actions
-
-[`session-actions.tsx`](../packages/app/src/session-actions.tsx) owns the shared
-Open in, Rename, Fork, Archive/Restore, and Delete flows used by sidebar rows,
-search results, and Session details. Its provider lives in `AppShell`, above
-virtualized rows, so dialogs retain the clicked runtime/root and client identity
-when a row moves or disappears. Opening a menu never creates a SessionView.
-Exact titles, directories, archive state, and history revisions come from the
-bounded `sessions.get` query; catalog abbreviations are presentation only.
-
-All mutations use existing SDK command handles and `AppRuntime.run`. Fork copies
-committed root history in the same directory using the freshly read history
-revision; late completion does not steal navigation. Delete confirms first,
-then `AppRuntime.forgetSession` purges the root's views, closed-tab history,
-drafts, uploads, and local previews without touching other hosts. It navigates
-only when the current route displays the deleted root.
-
-Archive is durable metadata, independent of execution and recency. Active SDK
-catalogs exclude archived roots; explicit root reads and Attention include them.
-Archiving never closes tabs, clears drafts, or stops work. Archived sessions are
-always included in Search sessions; there is no separate archived-only sidebar
-entry. Undo issues a restore command. Search observes the existing catalogs'
-revision changes to refresh affected hosts and invalidate old page cursors,
-including changes from another client; it adds no background catalog poller.
-
-Desktop exposes the optional typed `AppPlatform.projectEditors` capability.
-Electron discovers a fixed set of installed applications and validates the
-connected runtime before launching a full directory with argument arrays.
-URL/Tailscale hosts require an explicit, device-local runtime-to-SSH-alias
-preference; native SSH hosts can reuse a simple alias. Finder is local-only.
-The browser offers Copy directory. Shared UI never imports Electron or launches
-arbitrary commands, and generic `openExternal` remains restricted to web/mail URLs.
-
-### Slash skill suggestions
-
-The existing and first-message composers share
-[`use-skill-completion.tsx`](../packages/app/src/use-skill-completion.tsx), with
-pure token-range/replacement helpers in
-[`skill-completion.ts`](../packages/app/src/skill-completion.ts). Draft text and
-selection remain with their existing composer owners. Menu visibility, active
-item, dismissal and the current caret token are ephemeral, not persisted state.
-Selecting `/name` inserts the canonical `$name` reference; it does not submit.
-Completion handles Enter before the normal send handler and preserves IME,
-multiline input, attachments and the existing Add context dialog.
-
-Existing conversations use `workspace.complete` with `kind: 'skill'`; New Chat
-uses `host.skills.complete`, negotiated independently through
-`host_skill_completion`. New Chat with no CWD additionally requires
-`host_global_skill_completion` and sends `scope: 'global'` without cwd. That
-variant reads only the execution host's existing user-global roots, never the
-renderer filesystem or an implicit project. With a chosen CWD, keep the legacy
-cwd request shape (omit scope) for project-plus-global discovery, including on
-older hosts. Global support and `skill_catalog_completion` are independent
-capabilities. Unsupported global discovery shows a choose-folder/update-host
-status without making a request or guessing a folder.
-
-Both New Chat scopes require a connection and resolved effective permission
-mode, but the metadata API does not require model/provider readiness. The New
-Chat UI still shows provider setup before exposing the composer and skill picker.
-Preserve the explicit tab override or
-await the runtime configuration default; do not guess a permission mode while
-configuration is pending. The selected definition remains authoritative. Queries
-preview metadata without creating a session, calling a model, or granting access.
-Send still requires a project and the normal first-message readiness checks.
-
-With `skill_catalog_completion` and the applicable endpoint capability, focus
-preloads one scope-keyed Query using `prefix: ''`, `limit: 1024`. Readiness arriving
-while physically focused starts that same read; a merely selected pane or hidden
-mounted composer does not eagerly warm. The key includes runtime/client lifetime,
-composer owner, root/agent or planned global/project scope with
-CWD/definition/effective permission mode, and limit—not the typed prefix. Never
-reuse previous project rows across a scope change or merge global/project
-catalogs in the renderer. Keep the catalog observed for the mounted context
-across blur/Escape, with the runtime's
-10-second freshness and zero inactive retention. No disk cache, polling, or
-browser filesystem scan is involved. A new focus/picker-open boundary refreshes
-stale metadata in the background; typing never refreshes, even after freshness
-expires. Runtime reconnect invalidation uses the existing host-scoped lifecycle.
-Scope/client changes and disposal abort obsolete reads and release unobserved
-entries; disconnected or unresolved-authority contexts cannot offer candidates.
-Escape blocks late results from opening a panel but permits an in-scope preload
-to finish.
-
-Filter the full metadata collection synchronously with case-sensitive name
-`startsWith(prefix)` before rendering at most 32 rows, preserving host order and
-Unicode without normalization. Successful results omit count/insertion and
-narrowing helper text; loading, empty, error, and host warnings remain. Warm edits
-have no debounce, loading flash, or per-key RPC. Cold reads reserve an empty status line and delay only the loading
-label by 150 ms. Background refresh preserves the same-scope list; failures keep
-cached matches visible with an explicit stale/failed status and Retry.
-
-Older hosts without the catalog capability retain the debounced 32-result
-server-prefix path. A catalog response marked `truncated` (including warning
-overflow) switches that context to the same fallback and preserves its warnings;
-never infer a definitive local no-match from incomplete metadata. Arbitrary RPC
-errors are not compatibility signals. Host count/byte bounds remain authoritative
-(1,024 skill results and a 1 MiB serialized response). Inserted references remain
-ordinary draft text when setup changes; actual invocation re-resolves and
-authorizes them when the user sends. Lifecycle/filtering tests live in
-`packages/app/test/skill-catalog.test.tsx`, with both composer integrations covered
-by their existing component suites.
-
-[`useTextareaSuggestions`](../packages/ui/src/textarea-suggestions.tsx) owns the
-generic attached listbox and keyboard/active-descendant adapter. Base UI's
-single-line Autocomplete input is not used as a substitute for a multiline
-textarea. The native textbox retains focus and native editing semantics; Base UI
-owns non-modal popup positioning/dismissal, and `useNativeOverlay` coordinates
-native Browser surface hiding. Styling uses existing StyleX tokens. The popup
-must not resize the transcript or steal focus on dismissal. Browser interaction
-coverage lives in `packages/ui/tests/textarea-suggestions.mjs`; automated Axe
-coverage excludes only Base UI's generated focus-guard sentinels, not authored
-controls, and is not a substitute for manual screen-reader verification.
+[Expo mobile](../apps/mobile) is a separate iOS/Android renderer using native
+contextual sheets and semantic Whip colors. React Native StyleSheet owns layout,
+FlashList bounds rows, Enriched Markdown renders selectable text, and safe-area/
+keyboard providers own insets. Only the portable `@whip/app/presentation` and
+`@whip/ui/theme-data` entry points cross from shared packages; Metro must not load
+web controls, routing, StyleX or browser providers.
+
+MobileWorkspace owns four host runtimes and shared SQLCipher storage. Each host
+owns one native Client, Query client, command/decision owners and selected-session
+leases. Profiles pin persistent runtime and human client identities. Backgrounding
+suspends views/cancels reads; foreground reconciles identity before enabling
+actions. Temporary inactive transitions do not detach. One host's removal does
+not close another or shared storage. The host keeps executing accepted work.
+
+The connection sheet owns action errors and an explicit temporary probe. It
+performs bounded HTTPS discovery, native identity verification and a one-item
+catalog read without replacing/saving the runtime client. Leaving/backgrounding
+closes it; diagnostics never export secrets or raw host errors. Workspace indexes
+share a two-read lane and one foreground poll; each host retains one bounded page,
+not a growing page cache. Lists never subscribe to transcripts.
+
+Encrypted storage keeps four hosts, 16 drafts (64 KiB each / 512 KiB total),
+64 bookmarks (64 KiB total), and 64 recovery/decision records sharing 64 KiB.
+The device-only SecureStore key and backup-excluded database have visible failure
+states; never fall back to plaintext or an unrecorded send. Appearance has its
+own bounded 256 KiB bucket. Transcripts/query snapshots are not persisted.
+
+Mobile deliberately persists recovery **metadata**, fingerprints and acceptance
+markers rather than prompt-bearing request payloads. Exact requests remain only
+in bounded process memory (64 / 8 MiB). An explicit same-lifetime recovery can
+verify/retry those bytes. After app restart, identity-only evidence cannot prove
+the original payload and cannot reconstruct/retry it from a current draft.
+This differs from browser/desktop's exact-request journal and must remain visible
+in the UI. Decisions use native permission/question APIs and the same explicit
+uncertainty distinctions; reconnect never answers or resubmits automatically.
+
+Full-message sheets explicitly fetch at most 256 KiB through scoped/hash-checked
+SDK reads. Recycled rows never initiate reads. Large native text pages retain at
+most 8,192 UTF-16 units without splitting surrogate pairs; tool previews are
+512 units. Copy preserves complete loaded text. Image syntax/raw HTML stay as
+source so Markdown cannot fetch embedded resources; links open only on a user
+tap through the scheme allowlist.
+
+Use [mobile setup](mobile.md) and exact evidence in the development log. Passing
+Expo exports and backend lifecycle fixtures does not establish physical-device,
+VoiceOver, signed release or App Store coverage. Unsupported product capabilities
+remain in the feature ledger rather than being implied by this shared architecture.
+
+### Desktop native services
+
+[AppPlatform](../packages/app/src/platform.ts) exposes optional typed capabilities,
+not filesystem handles or Electron objects. Main owns local runtime discovery,
+verified executable installation/update and explicit restart. Renderer diagnostics
+are bounded read-only snapshots; opening Settings never installs, starts or
+restarts a runtime. Setup and connection preparation have one owner and preserve
+explicit interruption approval. Disconnecting/quitting the GUI stops observation,
+not accepted daemon work. Never use an installed runtime as an acceptance fixture.
+
+Native local/SSH transports are bounded framed connections with runtime/epoch
+verification. SSH key/authentication prompts quote exact attempts and serials;
+answers are ephemeral and never enter drafts/storage/logs. A focused connection
+dialog owns progress/errors while background prompts queue. Selected binaries,
+profiles and native resources retain their platform-owned records; components do
+not derive socket paths or silently adopt a different executable.
+
+Terminal descriptors quote process epoch. Missing/replaced epochs cannot read,
+write, resize or close a shell; restart is a new explicit shell action. Reads use
+32 KiB pages and exact decimal byte cursors, resetting only for explicit truncation.
+Input has a 256 KiB pending bound and one write in flight. Error/overflow/disposal
+discards uncertain bytes; reconnect never replays keystrokes. Native browser,
+terminal, editor and shell effects remain behind their separate bridge owners.
+
+Source and packaging contracts are in [desktop releases](desktop-releases.md),
+[LocalRuntime](../apps/desktop/src/runtime.ts),
+[desktop bridge](../packages/app/src/desktop-bridge.ts) and the staged native
+acceptance scripts. An ad-hoc packaged fixture is not a signed installed release.
 
 ## Component and styling contract
 
@@ -2731,7 +927,8 @@ most three lines/512 characters of already-loaded content, and Detailed initiall
 opens available tool details. Manual disclosure state wins for the mounted row.
 Density does not auto-open reasoning or mailbox details and never dereferences a
 tool/reasoning body handle; full tool content still requires an explicit user action.
-Ordinary user/assistant message bodies load automatically when their virtual rows mount.
+Ordinary user/assistant canonical message parts are already supplied by SessionView;
+mounted image previews use explicit owner-scoped bytes.
 
 Increased contrast adapts semantic foregrounds and control/focus boundaries while
 preserving the chosen palette. System contrast uses the browser media query, with
@@ -2742,864 +939,6 @@ system mode continues to follow the OS. Appearance reset restores display/theme
 and density defaults but keeps imported themes. Persistence failures remain visible.
 
 ## Usage and execution limits
-
-New sessions have unlimited cumulative model cost, tokens, and elapsed usage.
-Children inherit this policy unless an agent explicitly caps a subtree. The
-existing concurrency, recursion, and storage limits remain enforced. Model output
-ceilings and request deadlines are separate from cumulative budgets.
-
-The inspector is read-only for budgets; do not add budget editing or unlimited
-switches. `limit` and `remaining` are nullable decimal strings (`null` means
-unlimited). Keep `used`, `reserved`, and `uncertain` separate and preserve exact
-integer formatting. `incomplete` means some usage or pricing is unknown; an
-estimate reserved for an interrupted call is not known spend. Ancestor totals
-include descendants and must not be summed with them.
-
-The Usage inspector shows the entire session tree's optional `accounting` summary:
-provider-reported cost, catalog-estimated cost, unknown-cost calls, calls missing
-token usage, and in-flight requests. A reported zero charge is known cost even
-when token usage is missing. Missing accounting remains unavailable rather than
-becoming a zero total; existing budgets still render. With accounting available,
-token totals come from budget rows; legacy `meta.usage_*` counters are not shown
-as tree totals. Selecting a child does not
-turn this tree summary into the child's own usage or add either total twice.
-
-The existing SDK `SessionView` replaces `root.accounting` from correctly scoped
-`stream.accounting` summaries whose revision is not older. Ignored summaries
-still advance the event cursor; accounting never enters chat/REPL presentation.
-Model-call lifecycle events use the existing coalesced snapshot refresh for
-budgets, and reconnect uses the authoritative snapshot. There is no new poll or
-attempt-history cache. `session.agents.inspect(id)` exposes optional own-agent
-accounting for explicit consumers; its totals are separate from tree totals.
-
-## Protocol and build boundaries
-
-The current wire protocol is JSON-RPC major **6**, minor **0**. The major upgrade
-adds session execution-engine identity, discovery and engine-neutral result format 2;
-older clients are rejected during initialization. Legacy persisted Starlark result
-bodies remain readable by the SDK.
-The older filename [`protocol-v2.md`](protocol-v2.md) is retained for
-the reference; it does not mean the app should speak v2. Capabilities and protocol
-compatibility determine availability, not matching build strings. Do not restore
-older-major fallbacks, signer code, or build-mismatch daemon restarts.
-
-Use the generated Go-derived operation maps and SDK services. SDK method/options
-names are camelCase; wire payloads stay snake_case. Decimal-string 64-bit counters
-must not pass through JavaScript Number; use BigInt-aware helpers. Never invent
-a parallel DTO/operation registry in the app. A new host capability starts in the
-Go protocol/handler and SDK, then the UI consumes it.
-
-MCP import persists host configuration first. Settings then uses the advertised
-`mcp.refresh` session command only for the focused session on that same host,
-captured when import starts. Welcome and imports targeting another host do not
-create or choose a session. Saved imports and live-refresh failures have separate
-outcomes; an older daemon keeps the saved configuration without an unsupported
-command. Integrations offers the same explicit refresh for external additions.
-Refresh is additive, not a restart: existing connections and session-disabled
-servers stay intact, changed existing configurations require a runtime reload,
-and accepted new connections may still be starting. SDK command recovery and
-the existing MCP status query own delivery and live status respectively.
-
-Protocol validators are generated ahead of time; do not compile Ajv schemas at
-runtime or require `unsafe-eval`. The SDK validates outgoing requests strictly,
-accepts additive incoming fields, and surfaces unknown event kinds explicitly.
-Malformed known messages are protocol errors. Feature components must not create
-their own WebSocket clients or handwritten JSON-RPC envelopes.
-
-The browser uses the gateway's WebSocket API and scoped HTTP content transfers.
-The gateway relays the existing protocol to the socket-only daemon; it owns no
-execution engine, store, or independent HTTP business API.
-Content references remain references until a bounded consumer reads them. Visible
-user/assistant chat rows automatically read their stored message bodies through
-the SDK; tool output, reasoning and inspector content still require disclosure.
-The daemon validates root/agent/reference association; a browser URL must not
-bypass that scope. Web serving has host/origin checks despite the absence of
-connection authentication. SDK Node scripts may use Unix sockets with networking
-disabled; the browser renderer cannot.
-
-[`apps/web/vite.config.ts`](../apps/web/vite.config.ts) is the build contract:
-TanStack route generation/splitting, the official StyleX plugin before React,
-CSS layers and extraction with runtime injection disabled, and explicit
-prebundling of Base UI/TanStack's CommonJS store shims. App/UI source must be
-compiled even when installed from package archives. Do not rely only on workspace
-symlinks to prove package correctness. Generated routes are not edited by hand.
-In development, a pre-middleware transforms `packages/ui/src/tokens.stylex.ts`
-before serving StyleX's virtual CSS. This ensures `defineConsts` values (including
-media queries) are available even when the browser requests CSS before importing
-the token module. Use Vite's transform cache so token edits still invalidate normally.
-`apps/web/scripts/stylex-dev.test.mjs` reproduces that cold partial-module graph and
-runs in `task web`; production extraction remains unchanged.
-
-The standalone `whipcode` CLI and Desktop embed this same application. Complete
-releases share one immutable source/version and verified renderer artifact; the
-CLI/TUI binaries and signed Desktop packages publish together. Desktop still owns
-updates of its bundled backend. See [release operations](releases.md).
-The renderer is built once and packaged in the executable; serving it requires
-no Node runtime or production Vite server. `whipcode` owns `~/.whipcode` and uses
-`WHIPCODE_*` settings. Build with `task build`; start the daemon explicitly, then
-run `whipcode web`. Package names and wire identifiers stay shared. See
-[source installation](setup.md).
-
-### Gateway and daemon ownership
-
-The daemon always serves only its Unix-socket protocol. Desktop and local CLI
-connections do not need a gateway; ordinary startup opens no TCP listener.
-[`internal/webgateway`](../internal/webgateway) is the single HTTP/WebSocket
-implementation: static assets, `/api/v3/web`, `/api/v3/ws`, and
-`/api/v3/content/`, with the existing exact Host/Origin checks. These are not
-authentication; remote clients require a trusted network or authenticated proxy.
-
-[`whip web`](../cmd/whip/web.go) owns a foreground gateway, opens the browser by
-default, and waits until stopped. `--no-open` skips the browser but still waits;
-`--url <origin>` is check/open-existing mode and needs no local daemon or new
-server. Foreground serving requires a running compatible daemon and never
-starts or restarts it. It tries
-`127.0.0.1:4444`, falling back to an ephemeral loopback port only on
-address-in-use; an explicit `WHIP_LISTEN` never silently falls back.
-
-`WHIP_NETWORK=1` opts daemon launch paths into the same gateway as an owned child,
-after socket readiness. Unset or `0` means no automatic web startup, not a ban
-on explicit `whip web`; `WHIP_LISTEN` alone does not opt in. Managed status lives
-in the daemon generation: `gateway.status` reports its state and
-`init.network_endpoint` advertises only a ready managed endpoint. Foreground
-instances report their own URLs and never overwrite it. Gateway failure does
-not cancel daemon work and has no automatic restart loop. Daemon loss stops
-the gateway rather than reconnecting it to a replacement runtime.
-
-Each browser WebSocket has its own upstream socket connection. The gateway
-forces the restrict-only `network-client-v1` initialization capability and
-requires the daemon's negotiated acknowledgement before forwarding further
-traffic; old daemons fail closed. Network-terminal policy stays in
-[`terminal_rpc.go`](../internal/daemon/terminal_rpc.go), not in the gateway.
-The socket hop must never turn a browser into a trusted local terminal client.
-HTTP content uses the existing bounded upload/read RPCs and daemon-owned grants,
-not direct store access. Disconnecting clients or stopping a gateway detaches
-observation without cancelling accepted execution.
-
-The launch gateway defines Local's daemon; saved profiles attach to additional
-existing gateways over independent browser connections. The app does not start,
-restart, or reconfigure them. Exact browser Origin configuration and handling
-local port changes remain explicit; allowlists are not relaxed. The local Vite
-development proxy validates loopback clients and exact dev Host/Origin before
-forwarding Local's HTTP/WebSocket API requests with the gateway origin.
-Production and direct remote connections retain the gateway's normal checks.
-[`apps/web/dev-proxy.ts`](../apps/web/dev-proxy.ts) owns that development boundary,
-with HTTP and upgrade regression coverage in `dev-proxy.test.mjs`. Vite needs an
-explicitly running gateway. See [web setup](web-app.md#develop-against-an-existing-daemon);
-building frontend assets alone cannot upgrade a running daemon.
-
-## Working on a change
-
-1. Locate the relevant workflow in the [feature map](features.md) and identify its
-   state owner above. Check host support before inventing a backend capability.
-2. Read the nearest implementation and UI story. Reuse the actual pattern, not
-   just its visual shape. Decide what survives navigation and what must clean up.
-3. For a new read, use the SDK view or a scoped/cancellable Query. For a mutation,
-   use the correct command or ephemeral operation and preserve acceptance rules.
-4. Build app behavior from UI primitives. Promote generic controls to UI only
-   when there is a concrete reusable responsibility; add the appropriate story.
-5. Exercise loading, empty, error, stale, unavailable, long content, and concurrent
-   changes. Check keyboard and narrow layouts, not only the happy-path screenshot.
-6. Run the checks affected by the change. Update this guide if an ownership,
-   package, style, or lifecycle decision changes. Update feature/reference docs
-   when product behavior changes. Record evidence, not an unverified completion claim.
-
-Useful starting files:
-
-| Change | Read first |
-| --- | --- |
-| Application lifetime / host changes | [hosts.ts](../packages/app/src/hosts.ts), [host-dialog.tsx](../packages/app/src/host-dialog.tsx), [runtime.ts](../packages/app/src/runtime.ts), [context.tsx](../packages/app/src/context.tsx), [concurrency](concurrency.md#react-application-lifetimes) |
-| Host/detail query | [details/shared.tsx](../packages/app/src/details/shared.tsx), [directory-picker.tsx](../packages/app/src/directory-picker.tsx) |
-| Durable input and drafts | [composer.tsx](../packages/app/src/composer.tsx), [compositions.ts](../packages/app/src/compositions.ts) |
-| Permissions and questions | [requests.tsx](../packages/app/src/requests.tsx), [attention.tsx](../packages/app/src/attention.tsx) |
-| Transcript / scroll / execution | [timeline.tsx](../packages/app/src/timeline.tsx), [details/observation.tsx](../packages/app/src/details/observation.tsx), [SDK state](../packages/legacy-sdk/src/state.ts) |
-| Tabs and routing | [session-tab-routing.ts](../packages/app/src/session-tab-routing.ts), [session-tab-strip.tsx](../packages/app/src/session-tab-strip.tsx), [UI workspace tabs](../packages/ui/src/workspace-tabs.tsx) |
-| UI component and visual roles | [UI README](../packages/ui/README.md), [tokens.stylex.ts](../packages/ui/src/tokens.stylex.ts), [stories](../packages/ui/stories) |
-| Theme behavior | [themes.tsx](../packages/ui/src/themes.tsx), [theme-contrast.ts](../packages/ui/src/theme-contrast.ts), [theme generator](../cmd/themegen) |
-| New protocol/SDK capability | [SDK README](../packages/legacy-sdk/README.md), [protocol reference](protocol-v2.md), [registry.go](../internal/legacy/protocol/registry.go) |
-
-## Development and validation
-
-Work on the backend replacement branch uses the scoped checks and disposable
-runtime in [backend-redesign-development.md](backend-redesign-development.md).
-That guide records which client targets are active in each phase; the ordinary
-product validation below continues to apply outside that branch.
-
-Run from the repository root with Node 24 and the Go toolchain in `go.mod`.
-
-```sh
-npm ci
-npm run build                  # SDK artifacts used by the app
-# In another terminal, run a gateway for the intended compatible daemon:
-# WHIPCODE_LISTEN=127.0.0.1:4444 whipcode web --no-open
-# Attaches through the local dev proxy; no daemon restart.
-npm run dev:web
-```
-
-The development app is on port 3000; Vite forwards `/api` HTTP and WebSocket
-requests to the gateway at `http://127.0.0.1:4444` by default. Set
-`WHIP_WEB_DAEMON` to the actual printed origin if the gateway uses another port,
-including implicit-4444 fallback. Production keeps same-origin attachment.
-The proxy accepts only local requests from the exact dev origin, then rewrites
-the upstream origin for HTTP content and WebSockets. It does not start or
-reconfigure a gateway or daemon. Shared app/UI source edits use React Fast Refresh;
-SDK source edits still require `npm run build`.
-Use [web-app.md](web-app.md) for daemon/gateway
-setup, production assets, trusted-network access, and troubleshooting. A daemon
-restart interrupts work; do not restart or reset a developer's runtime as a
-casual frontend test fixture.
-
-Choose meaningful checks for the changed layer:
-
-| Change | Checks |
-| --- | --- |
-| App types, behavior, production compilation | `npm run check:web`, `npm run test:web` |
-| UI controls / tokens | `npm run check -w @whip/ui`, `npm run test -w @whip/ui`, affected Storybook/browser/CSP checks |
-| Split workspace | `npm run test:layout -w @whip/ui`; after packing assets, `node apps/web/scripts/workspace-layout.mjs` |
-| Tab behavior / theming | `npm run test:tabs -w @whip/ui`; after packing assets, `node apps/web/scripts/session-tabs.mjs` |
-| Visual changes | Inspect actual light/dark/narrow browser output; `npm run test:visual -w @whip/ui` for existing baselines; review diffs before updating them |
-| Theme catalog changes | `npm run check:themes` and all-theme browser checks |
-| Package/build boundaries | `npm run build:storybook`, `npm run test:packed -w @whip/ui` |
-| SDK / contract changes | `npm run check`, `npm test`, generated-contract drift and SDK acceptance/package checks |
-| Integrated release work | `task check`, affected Go race suites, `task acceptance`, product browser suites |
-
-For production application browser tests, build and pack first:
-
-```sh
-npm run pack:web
-node apps/web/scripts/browser.mjs
-node apps/web/scripts/snapshot-refresh.mjs
-node apps/web/scripts/session-tabs.mjs
-node apps/web/scripts/workspace-layout.mjs
-node apps/web/scripts/sidebar.mjs
-node apps/web/scripts/session-search.mjs
-node apps/web/scripts/performance.mjs
-# Actual Safari on macOS, distinct from Playwright WebKit:
-node apps/web/scripts/safari.mjs
-```
-
-The product fixtures use isolated fake-provider daemons. Cover disconnect and
-restart, uncertain admission, multiple clients answering requests, history
-revision changes, large outputs, slow consumers, and StrictMode cleanup when
-touching those paths. Measure latency, retained data, subscriptions, and polling
-volume before optimizing. Never weaken daemon durability to improve a UI number.
-
-`WHIP_CHAT_MESSAGES_ONLY=1 node apps/web/scripts/chat-activity.mjs` checks real
-image uploads, referenced history, automatic inline rendering, failed transfers,
-reopening, long-history paging, narrow panes and delayed-image selection anchors
-in Chromium and Firefox. After `npm run build:desktop`, include Electron with
-`WHIP_WEB_BROWSERS=chromium,firefox,electron`. These fixtures use isolated runtimes.
-
-`WHIP_CHAT_COMPOSER_ONLY=1 node apps/web/scripts/chat-activity.mjs` isolates the
-composer image-preview checks (also included in the messages-only run): local
-loading, real uploads/admission, multiple and mixed files, removal and URL cleanup,
-preview keyboard focus, failure states, paste/drop, bounded 16-file layout,
-light/dark/narrow/large-text output, reduced motion, and composer reading-position
-regressions. It accepts the same browser selection and results-directory options.
-
-Automated viewport, Axe, and WebKit tests do not establish physical-mobile,
-VoiceOver, or actual Safari coverage. State the exact coverage and remaining
-checks. Documentation-only edits need link/consistency checks, not a fresh runtime
-acceptance run.
-
-`node apps/web/scripts/permission-requests.mjs` builds an isolated fixture with
-the shared permission card and composer. It checks the request queue, scope reset,
-keyboard controls and light/dark/narrow geometry in Chromium and Firefox without
-starting a daemon or executing the displayed commands.
-
-## Maintaining one canonical resource
-
-This file owns frontend philosophy, architectural decisions, and extension rules.
-[UI README](../packages/ui/README.md) owns detailed component APIs;
-[SDK README](../packages/legacy-sdk/README.md) owns client APIs;
-[web-app.md](web-app.md) owns operational setup and dated validation evidence;
-[protocol reference](protocol-v2.md) and [concurrency](concurrency.md) own wire and
-runtime detail. Link to those references instead of copying their full inventories.
-
-Historical [web](../.ai-docs/plans/web-app/README.md),
-[SDK](../.ai-docs/plans/typescript-client/README.md), and
-[tab](../.ai-docs/plans/session-tabs/README.md) plans retain rationale and acceptance
-history. Do not implement an old proposal merely because its checkbox is open.
-If source and this guide disagree, trace the behavior and resolve the discrepancy
-explicitly; do not quietly create another implementation to satisfy both.
-
-
-### V4 executor and interactive-shell observations
-
-`executor.activity` is a disposable active-turn projection keyed by its epoch,
-turn and revision: at most eight hook decisions plus one2KiB progress preview.
-Discard it when the turn changes or the projection is null; ordinary operation
-and cell evidence supplies committed outcomes. Do not save leases or replay
-pending executor invocations after reconnect.
-
-Interactive agent shell input uses shell.interaction/shell.input. Preserve the
-exact operation and decimal input sequence while delivery is uncertain. A queue
-acknowledgement does not prove child consumption; only the current prompt accepts
-input, and closing it clears queued bytes. Preview cursors are exact decimal byte
-offsets with explicit truncation. Keep these controls distinct from independently
-owned human terminal tabs and from explicit execution cancellation.
-
-### V4 MCP, terminals and browser executor transport
-
-The v4 SDK now exposes native MCP configuration/import/status/connection controls,
-process-epoch human terminals and `browserDuplex` for persistent executor peers.
-These are available backend/SDK contracts; retained product screens still use
-legacy services until their explicit cutover. An MCP status read does not connect
-a server; show unavailable/unsupported/import-gated states and preserve declared
-trust independently from connection state. Captured child server selection and
-live grant filtering remain backend authority.
-
-Human terminal tabs keep only a bounded reading cursor and transient input.
-Preserve the terminal's process epoch; a new runtime process cannot restore it.
-Show ring truncation, resolve uncertain opens through listing, and expose
-uncertain writes without replaying their bytes. A view detach is observation
-cleanup; explicit close terminates the terminal. Browser network-terminal policy
-comes from the runtime, not local UI state. Use browserDuplex with ExecutorClient
-for explicitly registered browser handlers and discard revoked lease state on
-connection loss. These handlers have no reconnect or automatic rebind policy.
-
-### V4 session services and reconstructible views
-
-The uniform `client.session(id)` handle works for roots and children; constructing
-it does no I/O. `@whip/sdk/state` owns SessionView and TreeCatalogView snapshots,
-subscriptions, bounded retention and reconciliation. `@whip/sdk/react` subscribes
-to those exact snapshots. App code owns view leases, drafts, tabs, selection and
-reading anchors; it must not copy the transcript into Query or another reducer.
-
-SessionView seeds from the actual history tail and uses exclusive revision-checked
-pages for older messages. Its byte/count limits produce explicit gaps for
-oversized messages, an older cursor and latest-missing state when reading a
-bounded older window. History replacement clears incompatible retained pages;
-process-epoch changes clear previews. Observation status is distinct from the
-SQL activity projection: lack of streaming text never implies execution stopped.
-Suspend/dispose joins observation and clears stale activity, without cancelling
-accepted work. Reconnect is explicit and preserves runtime identity.
-
-TreeCatalogView watches the global revision to refresh off-page titles and
-membership. Bounded next windows remain traversable at capacity; a changed
-revision replaces a traversal rather than combining generations. Queue controls
-use `session.inputs.page` for bounded metadata and `.get` for explicit full
-payload, including another client's input. Human decisions remain scoped to their
-actual session, including deep children.
-
-DurableCommand retains the exact authored method, payload and identity. The
-optional RecoveryJournal uses the fresh `whip.v4.commands` namespace and bounded
-caller-owned storage; overflow rejects before sending and unresolved records
-are never evicted automatically. Checking, retrying, waiting and forgetting are
-separate explicit actions. A local persistence failure after host acknowledgement
-retains acceptance evidence. Identity-only receipts cannot prove payload equality;
-use `receipts.match` where supported before treating a recovered input as accepted.
-Account flows, terminal bytes and other transient effects are outside this journal.
-Product renderer migration remains in progress; these APIs replace the retained
-SDK boundary when each supported client is cut over.
-
-
-During the v4 product cutover, gateway discovery supplies identity metadata to
-the SDK browser transport; saved profile edits remain explicit host-file CAS.
-The host service never connects to saved URLs. Native framed transports require
-a confined Unix bridge and verify v4 identity on every call. Window connection
-status/lifetimes belong to app; session/catalog truth stays in SDK views. Shared
-recovery storage must lock cross-window writes, reject before sending on capacity
-or durability failure, preserve known acceptance, and never silently evict an
-unresolved command. The old product paths remain until their actual migration.
-
-
-During v4 adoption, authored design selections travel as optional
-`sessions.submit.design_context` metadata beside the original parts. Keep exact
-content reference IDs in the selected recipient's scope. Message projections
-return `design_context` with server-derived part indices; do not infer design
-presentation by parsing tagged text or accept client-generated indices. The SDK
-`Session.submission` and `Session.submit` accept `designContext` in their options;
-the durable command retains the exact metadata for recovery. The app still owns
-the unsent selection and its local preview lifetime. A fork's copied message and
-references belong to its new owner even after the source is deleted.
-
-V4 input delivery distinguishes `queued` from `steer`. Preserve the exact target
-turn and stable edit ID when promoting an already queued input through
-`session.inputs.promotion`; checking the receipt is a read and never reissues the
-promotion. `input.steering.consumed` reports actual boundary consumption, not just
-accepted routing. An untaken input can later start its own turn. A final-step
-ceiling leaves new steering queued. The guest default remains steering; ordinary
-human submission defaults queued unless the caller explicitly chooses otherwise.
-
-Native browser provider selection binds one explicit live peer, pinned to runtime
-and process epoch. Offered tabs are discovery metadata, not agent authority.
-Provider disconnect or exact scope retirement clears live control; reconnect does
-not restore or replay it. Public screenshot uploads belong only to their pending
-command. The product desktop/browser bridge migration remains in progress.
-
-
-V4 tree catalogs include the root working directory as navigation metadata.
-Optional `search` is a bounded literal substring over titles, tree/root identities
-and root directories (SQLite ASCII case folding); `%` and `_` are ordinary text.
-Search stays on the host and uses the same revision-pinned keyset pages. Root
-workspace edits invalidate that catalog within their existing transaction; exact
-receipt retries do not invalidate it again. Reading a catalog never hydrates
-configuration bodies or opens a session view.
-
-`trees.summaries` reads up to 64 explicitly selected root IDs in one bounded
-SQL snapshot. Native tree metadata, root directories and tree-wide activity
-counts include deep children; missing IDs are explicit and child IDs never alias
-a root. These are current facts, not catalog-revision-cached values or a replay
-of connection events. Navigation polls only while visible and connected.
-`content.get` reads owner/reference metadata only. Canonical message attachment
-rows inspect at most 128 references in batches of four, with zero inactive Query
-retention. Text bytes load on disclosure; images load through their mounted
-preview. Inspecting metadata does not claim that stored bytes are available or
-verified; the separate SDK byte read performs that verification.
-
-The v4 conversation projection consumes canonical `Message.parts` and the SDK's
-whole `preview` value. It has no stream-event reducer or independent history
-cache. Sequence values remain decimal strings, including reading bookmarks.
-Tool output matches only the recorded exchange ID plus call ID; imported messages
-retain their group even with a null local turn. Mail styling follows explicit
-mail provenance. Design grouping verifies unique reference identities at the
-server-derived part indices and never parses tagged transcript text. Local input
-previews retire on exact input identity, not prose similarity or queue disappearance.
-### V4 execution, definitions, imports, and command recovery
-
-Execution settings read and save `client.hosts.executionDefaults()` using the
-same host revision as provider, profile, and MCP settings. The explicit save
-captures the revision the form loaded; conflicts refresh the read while retaining
-the draft, and adopting current settings requires an explicit discard. Execution
-language affects future roots. Maximum attempts includes the initial model
-request (1–5, default 3); uncertain output is never regenerated automatically.
-Goal continuation counts remain decimal strings, including zero for no additional
-continuations. Compaction zero captures the native default of 50%. Reasoning effort
-belongs to the saved default model, not a parallel preference.
-
-Definition selectors retain immutable `{id, revision}` pairs. Metadata uses
-explicit 100-item pages, up to 1,000 retained revisions with visible truncation;
-there is no latest-by-ID alias or implicit full listing. Editing an existing
-revision preserves omitted defaults, tools, hooks, output policy, model, and exact
-child references unless that field is edited. Registering publishes a new
-immutable revision. Module visibility is not an authority grant. Switching editor
-targets requires saving or explicitly discarding the current draft.
-
-MCP import reads capture an optional root session, use host-issued fingerprints
-and the host configuration revision, and display excluded/disabled/unsupported
-sources separately. Importing publishes selected native declarations without
-starting connections or granting calls. Settings offers a separate explicit
-refresh of the root captured when import opened; changing tabs cannot retarget
-that action. A failed refresh does not undo publication or repeat it. Source and
-logo preferences use host CAS. Host theme listing is lazy; cancelled theme
-resolution cannot install a late result, and installed themes remain device-local.
-
-Saved commands in General Settings read the existing bounded `RecoveryJournal`
-(64 records / 8 MiB by default). Opening the page reads local storage only.
-Explicit checks distinguish exact accepted requests, identity-only evidence,
-missing receipts, and unavailable evidence. Workspace `claimed` and `uncertain`
-states are shown as such. Retrying requires confirmation and recovers the complete
-original SDK record with its runtime/client identity; neither the UI nor a
-reconnect reconstructs or automatically replays it. A replacement host cannot
-receive the request. Forgetting requires a separate explicit action explaining
-that it removes local tracking and neither cancels nor undoes remote work.
-
-Execution inspection shares one SDK `ExecutionView` beside each observed session
-view. It holds canonical `Turn`, `Cell`, and `HostOperation` DTOs, bounded by
-16/128/512 records and 4 MiB by default, with explicit truncation. The transcript
-remains in `SessionView`; `cellExecutionRows` joins exact local session/turn,
-message and call IDs to that existing window. Imported messages without local
-links never imply a local cell. Direct human work has ordinary turn metadata and
-operations with `origin: host_operation` and null `cell_id`, so inspectors do not
-need fake cells or a tree-wide trace scan. `sessions.turns` pages canonical turn
-metadata newest first with an owner-scoped opaque cursor. Each page reads current
-states; it does not claim work or promise a frozen multi-page execution snapshot.
-The application owns the shared execution observer lifetime and passes it into
-chat, REPL and inspectors. Suspend/reconnect alongside the transcript view; a
-changed history revision or process epoch clears pending execution evidence.
-Older/focused turn inspection is explicit, and navigation never replays effects.
-
-
-Native Tools & host diagnostics reuses `tool.schemas` (at most 142 declarations) and
-`host.status`. Direct-call built-ins are qualified by module; captured custom input/output
-schemas remain separate. Search displays at most 64 matches and never registers a tool,
-binds an executor, or grants authority. Host diagnostics verify the runtime identity through
-the SDK and reject a replacement process epoch before presenting its PID, build, startup
-or gateway metadata. Reading diagnostics never starts or stops a host.
-
-Native trace rendering takes the SDK's root-scoped `TraceView` from
-`@whip/sdk/state` and subscribes with `useTraceView`. The app owns its shared
-start/suspend/reconnect/dispose lifetime separately from selected-session views.
-`createTraceView(client, rootID)` keeps one canonical descending row page and a
-separate trace-root picker page at the same exact revision. Defaults are 1,024
-rows, 64 roots and a 1 MiB total budget; each backend read is at most 512 KiB and
-scans at most 2,048 index entries. Tombstones stay canonical null-span rows, and
-an empty filtered page may still have an explicit continuation. No background
-history crawl or client-side execution ledger is created.
-
-`trace.page` requires exactly one direction: `after` retains forward reads;
-`before: null` starts at the newest captured change and `before: Counter` reads
-strictly older changes. Backward pages end with `next: "0"`; otherwise `next` is
-the last examined exact sequence, including filtered entries. `loadOlder` and
-`latest` replace the row window; `loadOlderRoots` and `latestRoots` independently
-replace the picker. `selectTrace` changes the native trace filter (empty means
-all traces). Refresh preserves an explicitly selected older boundary instead of
-jumping to current work. Both pages publish only after their revisions agree;
-conflict retains stale evidence until a later read succeeds. Reconnection never
-replays effects, and a changed process epoch clears prior pages and cursors.
-Trace-window counts are not whole-tree usage totals.
-### V4 window host ownership
-
-`HostConnections` now owns one v4 `Client` and SDK `TreeCatalogView` per attached
-host. The client has no connection event reducer. The app owns `closed`,
-`connecting`, `connected`, and `stale` attachment state; the SDK alone owns the
-bounded catalog and its revision reconciliation. The catalog exists in the
-published host record before the window receives its connected callback. Other
-product consumers are being migrated separately; they must consume these v4
-objects directly rather than introduce a legacy-client facade.
-
-URL attachment first uses `discoverGateway`, then `browserSocket` pinned to the
-observed runtime and process epoch. Native connection resolution supplies an SDK
-`FramedConnector`; `framedTransport` verifies the runtime and captured epoch on
-every new unary connection. One host wait controller scopes all client calls.
-A caller abort stops only that read or wait; detaching aborts the whole client's
-observation lifetime. Native preparation has a separate lifetime so a dropped
-call cannot dispose the connection needed for read-only recovery.
-
-After a transport failure, the stale client is hidden from consumers, the catalog
-is suspended but retained, and the window receives `detached(..., {recovering:
-true})`. One bounded backoff timer per host rediscovers or reinitializes only the
-saved identity, reconnects the existing catalog, and publishes a fresh client.
-It never repeats a mutation, terminal input, account action, native preparation,
-or runtime start. Explicit Disconnect cancels recovery and disposes the prepared
-connection and catalog. A changed runtime identity stops automatic recovery and
-requires explicit acceptance. Explicit Connect retains the platform's normal
-user-requested native preparation contract. Local failure does not detach other
-hosts or cancel their accepted work.
-
-Saved URL profiles use `client.hosts.profiles()` and `setProfiles()` through the
-single host configuration revision. Profiles retain exact validated root HTTP(S)
-URLs and observed runtime pins, with at most 16 records. Input normalization can
-accept a WebSocket URL or either known WebSocket path before discovery; it never
-stores credentials, queries, fragments, or a proxy path. A display-only edit
-preserves the saved URL and live attachment. Uncertain writes and conflicts trigger
-read-only reconciliation, never an automatic write retry. Device-owned SSH/local
-profiles and legacy URL imports keep their existing explicit verification and
-storage boundaries. Host subscriptions and concurrent probes are bounded; SDK
-catalog retention remains independently bounded.
-### V4 provider and model settings
-
-Provider screens use `Client.listProviders()` for explicit host routes and local
-credential evidence, with offline presets kept separate. Opening Settings or New
-Chat never discovers credentials, refreshes a provider catalog, starts sign-in,
-or changes a default. Cached and bundled model reads do not establish inference
-access. Unknown token prices remain null and display as unknown; exact decimal
-prices are formatted without passing through a JavaScript number. A current,
-successful empty provider catalog is not filled from the offline bundle.
-
-Model catalogs retain at most 4,096 choices and report truncation. A user can enter
-an exact model/provider in settings. Session model edits target the selected root
-or child using its exact configuration revision. Missing activity disables edits;
-it does not imply the session is idle. Model changes clear the old reasoning
-effort. Host model, compaction-model, and permission defaults have separate
-revisioned saves and affect future work only. Conflict or uncertain publication
-refreshes evidence without replaying the edit or adopting a fresh revision.
-
-Account flows retain their native Inference.net/OpenAI shapes. The UI polls only
-actively progressing flows, uses list/get to inspect lost acknowledgements, and
-exposes known persistence/setup/cleanup recovery explicitly. Uncertain project or
-key creation is never retried automatically. Pasted keys remain in the form only;
-an explicit retry of an unconfirmed publication retains the same key identity.
-Secrets never enter query data, saved commands, or the recovery journal.
-
-Provider removal is explicitly labeled **Remove configured route**. It is a CAS
-operation, preserves credential files and remote accounts, and rejects dangling
-defaults. The v4 route contract has no disabled-provider flag; the UI does not
-present removal as a reversible disable operation. Account logout reports local
-revocation and remote cleanup separately. Configuring an account leaves model
-defaults unchanged, and choosing a default never submits an existing chat draft.
-
-
-V4 attachment reads use `session.content.read/readBytes` with the exact selected
-session and reference ID. The SDK verifies returned ownership, immutable metadata,
-canonical base64, byte length and SHA-256 within a caller limit of at most 4 MiB.
-Known oversized or foreign references fail before transport. App preview queries
-include runtime, selected owner, reference and digest, retain no inactive byte
-cache, and revoke image object URLs on unmount. Design context is the recorded
-`SubmitParams.design_context` descriptor; filenames never establish provenance.
-
-`content.get` reads owner/reference metadata only. Canonical message attachment
-rows inspect at most 128 references in batches of four, with zero inactive Query
-retention. Text bytes load on disclosure; images load through their mounted
-preview. Inspecting metadata does not claim that stored bytes are available or
-verified; the separate SDK byte read performs that verification.
-
-The v4 conversation projection consumes canonical `Message.parts` and the SDK's
-whole `preview` value. It has no stream-event reducer or independent history
-cache. Sequence values remain decimal strings, including reading bookmarks.
-Tool output matches only the recorded exchange ID plus call ID; imported messages
-retain their group even with a null local turn. Mail styling follows explicit
-mail provenance. Design grouping verifies unique reference identities at the
-server-derived part indices and never parses tagged transcript text. Local input
-previews retire on exact input identity, not prose similarity or queue disappearance.
-
-Transcript attachment rendering uses native metadata and owner-scoped content
-reads, including explicit design-context disclosure. Canonical messages contain
-parts directly, so the renderer no longer loads legacy JSON message bodies or
-keeps a second stored-prose cache. An SDK `message_too_large` gap names one exact
-message and offers separate inspection; it does not pretend another ordinary
-page request can enlarge the bounded transcript. Reading coordinates remain exact
-decimal strings through the virtualized timeline.
-### V4 execution, definitions, imports, and command recovery
-
-Execution settings read and save `client.hosts.executionDefaults()` using the
-same host revision as provider, profile, and MCP settings. The explicit save
-captures the revision the form loaded; conflicts refresh the read while retaining
-the draft, and adopting current settings requires an explicit discard. Execution
-language affects future roots. Maximum attempts includes the initial model
-request (1–5, default 3); uncertain output is never regenerated automatically.
-Goal continuation counts remain decimal strings, including zero for no additional
-continuations. Compaction zero captures the native default of 50%. Reasoning effort
-belongs to the saved default model, not a parallel preference.
-
-Definition selectors retain immutable `{id, revision}` pairs. Metadata uses
-explicit 100-item pages, up to 1,000 retained revisions with visible truncation;
-there is no latest-by-ID alias or implicit full listing. Editing an existing
-revision preserves omitted defaults, tools, hooks, output policy, model, and exact
-child references unless that field is edited. Registering publishes a new
-immutable revision. Module visibility is not an authority grant. Switching editor
-targets requires saving or explicitly discarding the current draft.
-
-MCP import reads capture an optional root session, use host-issued fingerprints
-and the host configuration revision, and display excluded/disabled/unsupported
-sources separately. Importing publishes selected native declarations without
-starting connections or granting calls. Settings offers a separate explicit
-refresh of the root captured when import opened; changing tabs cannot retarget
-that action. A failed refresh does not undo publication or repeat it. Source and
-logo preferences use host CAS. Host theme listing is lazy; cancelled theme
-resolution cannot install a late result, and installed themes remain device-local.
-
-Saved commands in General Settings read the existing bounded `RecoveryJournal`
-(64 records / 8 MiB by default). Opening the page reads local storage only.
-Explicit checks distinguish exact accepted requests, identity-only evidence,
-missing receipts, and unavailable evidence. Workspace `claimed` and `uncertain`
-states are shown as such. Retrying requires confirmation and recovers the complete
-original SDK record with its runtime/client identity; neither the UI nor a
-reconnect reconstructs or automatically replays it. A replacement host cannot
-receive the request. Forgetting requires a separate explicit action explaining
-that it removes local tracking and neither cancels nor undoes remote work.
-
-App command tracking distinguishes accepted workspace effects from successful
-completion. A `claimed` or `uncertain` workspace result retains its recovery
-record and displays that state; it does not continue a dependent UI action or
-forget tracking. Only a reported `succeeded` result completes that workflow.
-
-A dropped connection can abort the local submission waiter before delivery failure
-is reported. The app retains that exact command as unresolved, keeps authored
-input and completed attachment references during same-runtime recovery, and
-blocks a fresh send from that draft. Reconnection itself does not check or resend
-the command. An explicit recovery action binds the immutable record to the
-replacement client only when both runtime and client identities match.
-The native REPL renderer receives the selected `Session`, shared `SessionView`
-and shared `ExecutionView` explicitly. It renders recorded cell state independently
-of whether the exact call/result message fits the current transcript window, and
-keeps provisional execute arguments separate from committed cells. The recorded
-execute-result envelope supplies output, optional value (including explicit JSON
-null), engine metrics, restart information and checkpoint warnings. Unsafe numeric
-JSON remains verbatim. Copying output preserves its original text, while collapsed
-previews and JSON formatting are presentation only. Native scoped content reads
-are explicit, verify owner/reference/digest, limit text reads to 1 MiB and downloads
-to the shared 4 MiB contract, and discard late results after owner selection changes.
-
-Queued-message controls receive the explicit native selected session and root
-navigation identity. Promotion preserves the input ID, exact active turn and
-stable steering edit in the shared recovery journal. A conflicting target never
-selects a replacement turn. Removal reads the owner-scoped input before explicit
-cancellation; rows remain until authoritative refresh. Full input parts load only
-when the preview opens, with metadata and verified content reads kept separate.
-The queue renderer owns neither an inbox cache nor another session view; its
-caller supplies bounded canonical pages and explicit pagination/refresh actions.
-
-Native navigation reads bounded `trees.summaries` only for open roots while the
-window is visible and its host is connected. Titles and directories come from
-canonical tree/catalog metadata; missing roots remain distinct from idle roots.
-Tree metadata edits capture the exact tree revision and preserve unrelated
-metadata. A conflict retains the authored title until an explicit metadata reload;
-no implicit rebase or resend occurs. Fork controls preserve the captured history
-revision, through-sequence and root configuration revision in the recovery journal.
-Deletion removes local tabs and drafts only after the native deletion acknowledges.
-`trees.summaries` reads up to 64 explicitly selected root IDs in one bounded
-SQL snapshot. Native tree metadata, root directories and tree-wide activity
-counts include deep children; missing IDs are explicit and child IDs never alias
-a root. These are current facts, not catalog-revision-cached values or a replay
-of connection events. Navigation polls only while visible and connected.
-
-### Native inspector metadata and controls
-
-The native inspectors receive explicit `Client`, selected `Session`, immutable tree/session
-metadata, and the runtime-owned paired `SessionView`/`ExecutionView`. They never reach into a
-view’s private session or assemble a legacy root snapshot. Read-only metadata uses one bounded
-Query page keyed by runtime ID, process epoch, selected session, operation, and parameters,
-with immediate collection when unused. Agent pages retain at most 16 records; mailbox,
-shared-state and grant pages retain at most 32. Next replaces the current page, including
-short byte-limited pages; First resets its cursor. These metadata reads do not admit work.
-
-Mail bodies, scheduled prompts and immutable shared values are explicit reads. Mail is not
-acknowledged by inspection. Shared values read exact 64 KiB byte pages, verify owner/version,
-size and digest, and decode UTF-8 only after joining bytes. Text preview is capped at 1 MiB;
-explicit state downloads retain the existing 64 MiB value bound. This is separate from the
-4 MiB scoped content contract. Selection changes and unmount abort local reads.
-
-Goals, schedules, compaction, mode edits, workspace changes and run configuration use the
-runtime’s journaled durable command path. An uncertain action disables its original button
-and points to Command recovery; it does not mint a replacement request. Configuration drafts
-retain the revision captured on first edit. Non-durable host configuration conflicts refresh
-read-only evidence without retrying the mutation. Compaction overrides are selected-session
-configuration; shared host defaults stay in Settings. Ask/Full Access is edited from the root,
-including a stopped root, and never substitutes for a child’s exact grants.
-
-This adoption checkpoint does not complete retained parity: detailed provider-reported,
-estimated and unknown usage totals and live worker stdout are still open. Captured host-settings reload (`session.reload`), the
-separate interactive deny policy (`tool.configure deny_permissions`), and Rod/ChromeDP driver
-selection also remain explicit obligations. The UI must not invent those effects or infer
-whole-tree usage from a retained execution window. Trace rendering remains a separate native
-adoption increment. Computer policy changes use the explicit saved host policy endpoint;
-MCP refresh is additive while explicit reload retires existing connections.
-
-`content.get` reads owner/reference metadata only. Canonical message attachment
-rows inspect at most 128 references in batches of four, with zero inactive Query
-retention. Text bytes load on disclosure; images load through their mounted
-preview. Inspecting metadata does not claim that stored bytes are available or
-verified; the separate SDK byte read performs that verification.
-
-The v4 conversation projection consumes canonical `Message.parts` and the SDK's
-whole `preview` value. It has no stream-event reducer or independent history
-cache. Sequence values remain decimal strings, including reading bookmarks.
-Tool output matches only the recorded exchange ID plus call ID; imported messages
-retain their group even with a null local turn. Mail styling follows explicit
-mail provenance. Design grouping verifies unique reference identities at the
-server-derived part indices and never parses tagged transcript text. Local input
-previews retire on exact input identity, not prose similarity or queue disappearance.
-### V4 execution, definitions, imports, and command recovery
-
-Execution settings read and save `client.hosts.executionDefaults()` using the
-same host revision as provider, profile, and MCP settings. The explicit save
-captures the revision the form loaded; conflicts refresh the read while retaining
-the draft, and adopting current settings requires an explicit discard. Execution
-language affects future roots. Maximum attempts includes the initial model
-request (1–5, default 3); uncertain output is never regenerated automatically.
-Goal continuation counts remain decimal strings, including zero for no additional
-continuations. Compaction zero captures the native default of 50%. Reasoning effort
-belongs to the saved default model, not a parallel preference.
-
-Definition selectors retain immutable `{id, revision}` pairs. Metadata uses
-explicit 100-item pages, up to 1,000 retained revisions with visible truncation;
-there is no latest-by-ID alias or implicit full listing. Editing an existing
-revision preserves omitted defaults, tools, hooks, output policy, model, and exact
-child references unless that field is edited. Registering publishes a new
-immutable revision. Module visibility is not an authority grant. Switching editor
-targets requires saving or explicitly discarding the current draft.
-
-MCP import reads capture an optional root session, use host-issued fingerprints
-and the host configuration revision, and display excluded/disabled/unsupported
-sources separately. Importing publishes selected native declarations without
-starting connections or granting calls. Settings offers a separate explicit
-refresh of the root captured when import opened; changing tabs cannot retarget
-that action. A failed refresh does not undo publication or repeat it. Source and
-logo preferences use host CAS. Host theme listing is lazy; cancelled theme
-resolution cannot install a late result, and installed themes remain device-local.
-
-Saved commands in General Settings read the existing bounded `RecoveryJournal`
-(64 records / 8 MiB by default). Opening the page reads local storage only.
-Explicit checks distinguish exact accepted requests, identity-only evidence,
-missing receipts, and unavailable evidence. Workspace `claimed` and `uncertain`
-states are shown as such. Retrying requires confirmation and recovers the complete
-original SDK record with its runtime/client identity; neither the UI nor a
-reconnect reconstructs or automatically replays it. A replacement host cannot
-receive the request. Forgetting requires a separate explicit action explaining
-that it removes local tracking and neither cancels nor undoes remote work.
-
-Execution inspection shares one SDK `ExecutionView` beside each observed session
-view. It holds canonical `Turn`, `Cell`, and `HostOperation` DTOs, bounded by
-16/128/512 records and 4 MiB by default, with explicit truncation. The transcript
-remains in `SessionView`; `cellExecutionRows` joins exact local session/turn,
-message and call IDs to that existing window. Imported messages without local
-links never imply a local cell. Direct human work has ordinary turn metadata and
-operations with `origin: host_operation` and null `cell_id`, so inspectors do not
-need fake cells or a tree-wide trace scan. `sessions.turns` pages canonical turn
-metadata newest first with an owner-scoped opaque cursor. Each page reads current
-states; it does not claim work or promise a frozen multi-page execution snapshot.
-The application owns the shared execution observer lifetime and passes it into
-chat, REPL and inspectors. Suspend/reconnect alongside the transcript view; a
-changed history revision or process epoch clears pending execution evidence.
-Older/focused turn inspection is explicit, and navigation never replays effects.
-
-
-Native Tools & host diagnostics reuses `tool.schemas` (at most 142 declarations) and
-`host.status`. Direct-call built-ins are qualified by module; captured custom input/output
-schemas remain separate. Search displays at most 64 matches and never registers a tool,
-binds an executor, or grants authority. Host diagnostics verify the runtime identity through
-the SDK and reject a replacement process epoch before presenting its PID, build, startup
-or gateway metadata. Reading diagnostics never starts or stops a host.
-
-The composer permission picker reads the selected root's canonical tree policy
-and captures its revision when its menu opens. Background refresh never rebases
-an open choice; unresolved delivery blocks another edit until explicit recovery.
-The picker validates tree identity and child sessions cannot change shared policy.
-Automatic mode approves eligible root actions while child grants, resource scopes
-and intrinsic validation continue to apply. Canonical failed/cancelled/interrupted
-turn notices use exact session/turn ownership and copy the recorded failure text.
-A changed current configuration is never presented as the failed turn's model.
-
-Native trace rendering takes the SDK's root-scoped `TraceView` from
-`@whip/sdk/state` and subscribes with `useTraceView`. The app owns its shared
-start/suspend/reconnect/dispose lifetime separately from selected-session views.
-`createTraceView(client, rootID)` keeps one canonical descending row page and a
-separate trace-root picker page at the same exact revision. Defaults are 1,024
-rows, 64 roots and a 1 MiB total budget; each backend read is at most 512 KiB and
-scans at most 2,048 index entries. Tombstones stay canonical null-span rows, and
-an empty filtered page may still have an explicit continuation. No background
-history crawl or client-side execution ledger is created.
-
-`trace.page` requires exactly one direction: `after` retains forward reads;
-`before: null` starts at the newest captured change and `before: Counter` reads
-strictly older changes. Backward pages end with `next: "0"`; otherwise `next` is
-the last examined exact sequence, including filtered entries. `loadOlder` and
-`latest` replace the row window; `loadOlderRoots` and `latestRoots` independently
-replace the picker. `selectTrace` changes the native trace filter (empty means
-all traces). Refresh preserves an explicitly selected older boundary instead of
-jumping to current work. Both pages publish only after their revisions agree;
-conflict retains stale evidence until a later read succeeds. Reconnection never
-replays effects, and a changed process epoch clears prior pages and cursors.
-Trace-window counts are not whole-tree usage totals.
-
-Trace leases use `(runtimeId, rootId, viewId)` because each pane owns independent
-filter and older-page navigation. Repeated mounts of the same pane share its
-observer; selecting another child does not change the root trace identity. At
-most eight trace observers coexist, independently bounded by the SDK. Workspace
-reconciliation releases obsolete pane leases before admitting replacements and
-only visible trace panes acquire them. Host recovery suspends and reconnects
-existing owners; exact-root deletion and app disposal retire them, including
-when the app closes after its transport has already detached for recovery.
-
-Slash skill completion uses native `skills.list` for an exact selected session,
-or `host.skills.complete` with explicit global/project scope and an immutable
-definition reference for a new draft. Session warming reads at most 1,024
-metadata records in eleven requests and retains at most 1 MiB of display text;
-disabled skills are never suggestions. A truncated warm catalog falls back to
-one debounced 32-item prefix request. The app preserves focus/selection/IME
-behavior, cancels old scopes, and never reloads catalog metadata on warm typing.
-No skill body is read and discovery never admits work.
-Trace observers are leased per `(runtimeID, rootID, viewID)`: repeated mounts of
-one pane share its observer, but separate panes keep independent filters and
-older windows. The trace renderer subscribes without starting another read loop.
-It retains the virtualized tree/waterfall, zoom, pan, pane sizes, overview/raw
-inspection, explicit paging and explicit bounded OTLP export. Export pins the
-visible revision and downloads verified bytes through the root's content scope;
-failed delivery is never replayed automatically.
-
-Each trace page carries the host's actual `observed_at_ns`. The SDK pairs that
-exact counter with local monotonic receipt time; `traceNowNS` advances display
-only, never a committed span end. Geometry subtracts native nanoseconds with
-`BigInt` before converting relative durations to numbers. Completed zero-duration
-spans remain completed; reversed or future clock evidence is labelled instead
-of showing negative durations. Motion reduction, hidden documents and detached
-panes pause display animation. Cost and token arithmetic stays exact and labels
-loaded-window totals and missing evidence explicitly. Raw details preserve the
-canonical row, including source IDs, exact timestamps and native attributes.
-Historical model prompts absent from native request snapshots remain unavailable;
-they are not reconstructed from current configuration or transcript history.
 
 Whole-tree usage is a separate native `usage.get` / `session.usage()` projection,
 not a sum of loaded turns, trace spans or overlapping budget rows. A read of the
@@ -3621,92 +960,166 @@ is not zero. Saturated counters carry an overflow flag and display as lower boun
 Reasoning and cache detail fields must not be added to input/output totals. The
 selected agent's budget limits and reserved/uncertain exposure remain separate.
 
-New-chat drafts select immutable native definition references (including the host's verified builtin reference); retained mutable names require explicit revision selection. Native permission and execution defaults are scoped by runtime and process epoch. Provider readiness, bounded skill/definition metadata, MCP import and folder selection use the native SDK. The draft tab UUID is its durable tree-creation identity. Exact accepted creation evidence moves the current draft and staged attachments to the accepted root before the first input; creation recovery never submits a message by itself. A saved creation from a previous app lifetime blocks a new payload and directs the user to Saved commands. A failed upload or first input keeps the accepted session and authored draft.
+## Protocol and build boundaries
 
-Terminal descriptors retain their native process epoch. A descriptor without an epoch, or from a replaced process, cannot read, write, resize or close a shell; restart is an explicit new-shell action. Visible terminal renderers read one validated 32KiB replay page at a time with exact decimal byte cursors and reset only on explicit truncation. Unmounting or disconnecting cancels observation, leaving host shells alone. Input has a 256KiB pending bound, one write in flight, and is discarded after errors, overflow or disposal; uncertain keystrokes are never replayed. Native session links verify the attached host record and Client runtime identity before navigation.
+The active development wire protocol is **major 4**, generated from Go's native
+registry. This is a deliberate fresh-store/runtime cutover, not negotiation with
+retired protocol majors. Explicit schema/config versions live in the backend
+contracts. Compatible build strings do not establish identity; transports verify
+runtime and process epoch. Feature code uses typed services/generated validators,
+not handwritten envelopes, duplicate DTOs or a private WebSocket.
 
-### Native catalog and attention navigation
+Decimal counters/revisions remain strings; use BigInt-aware comparisons and
+arithmetic. Preserve null versus zero versus absent. Generate standalone validators
+ahead of time for strict CSP; never compile schemas with runtime eval. Read
+[SDK APIs](../packages/sdk/README.md) and [native ownership](backend-domain.md).
 
-The sidebar observes the host-owned native TreeCatalogView directly, groups exact working-directory strings, and reads activity summaries only for visible root rows. Its bounded window exposes continuation at capacity. Search opens at most one 64-row native tree page per host, carries the exact catalog revision with its cursor, and discards transient pages on close. Catalog revision changes invalidate only that host's search and cursor. Query and cursor identities include the actual Client lifetime; replacement transports cannot reuse prior reads. Search dates describe tree creation, not inferred last activity.
+### Gateway and daemon ownership
 
-Attention consumes native per-session activity metadata. Child entries and desktop notification links retain the exact child recipient. Notifications compare exact decimal request counts, keep at most 256 sessions, scan at most four 64-row/256-KiB pages and reset after uncertainty or Client replacement. The advisory index contains counts rather than question identities or bodies; equal counts do not establish a new question or completion. No navigation or notification observer hydrates transcripts. Hidden browser polling and opt-in desktop polling retain their separate policies. Canonical HostConnection records own connection notices and startup readiness; the SDK Client itself has no connection snapshot.
+The runtime owns durable work and its Unix socket. The native gateway owns static
+assets, bounded discovery, `/api/v4/ws` and scoped content transport with exact
+Host/Origin checks; those checks are not authentication. Network trust remains
+explicit. Browser requests cannot become trusted local terminal clients through
+the socket hop. Gateway loss detaches observation and never cancels accepted work.
+A replacement runtime is not silently substituted.
 
-### Prepared model instruction inspection
+The shared Vite renderer is packed into CLI/desktop release artifacts; it needs
+no Node or Vite server in production. Desktop consumes its versioned native bridge,
+not a browser-origin fallback. Dev proxying requires an explicitly running matching
+gateway; building frontend assets never upgrades or restarts a daemon.
 
-Trace details perform an explicit `session.models.inspection(attemptID)` read, scoped to
-that span's canonical session and attempt. They show exact base instructions and appended
-notices captured at preparation, plus the prepared-request digest and bounded message/tool
-provenance. These descriptors do not reconstruct historical transcript bodies or provider wire
-requests. Private provider continuation, cache identity, credentials, and hydrated attachment
-bytes never enter the public capture. Existing attempts with no capture remain unavailable.
+[Vite configuration](../apps/web/vite.config.ts) owns route generation/splitting,
+StyleX extraction before React, CSS layers and the required CommonJS prebundling.
+Compile app/UI source even from package archives. The dev token pre-middleware
+uses Vite's transform cache so StyleX constants exist before virtual CSS requests.
+Generated routes/themes/contracts are never hand edited.
 
-Captured text retains at most 16 MiB per request in content chunks of at most 4 MiB. Publication
-and registration use the existing owner content quotas; unavailable oversized, quota, or storage
-captures are labeled explicitly and never replaced with current instructions. Reading verifies
-owner, individual chunk bytes/digests, and the complete text digest. The UI retains a preview of
-at most 1 MiB and renders a bounded excerpt; explicit downloads preserve the complete captured
-text. Selecting a different attempt, changing transport, disconnecting, or unmounting cancels
-pending reads without cancelling model work. Trace observers never hydrate these bodies.
+## Public documentation site
 
-Compaction inspection follows the exact attempt's immutable summary metadata and reads its
-canonical text, even after context selection changes. It displays the original raw cutoff as an
-exact decimal counter. Trace export includes available captured instructions under the explicit
-`captured_instructions_only` scope, with the existing 1 MiB body and 4 MiB export limits, and
-includes committed compaction output as canonical text parts. It does not manufacture missing
-prompts, notices, summaries, or private request state.
+`apps/docs` is an independent React/TanStack Start site in the same Node 24/npm
+workspace. It follows the structural conventions of inference's `fast-web`, not
+its backend or deployment. Start renders during the build; only the generated
+`apps/docs/dist/client` HTML/assets and a small Cloudflare asset-routing Worker
+are deployed. There is no React runtime server,
+SDK, daemon connection, React Query, authentication, analytics or remote content.
+The root `/` and `/docs` redirect to `/docs/quickstart`; there is no landing page.
+Legacy entry/installation/CLI/permissions URLs retain redirects.
+The `/docs/...` articles are separate from the application renderer and must
+never be embedded by `pack:web` or included in desktop builds.
 
+The docs component library is app-owned under `apps/docs/src/components` and
+`src/features/docs/components`. It uses Base UI primitives with StyleX for
+component styles, but keeps its own **docs-local** tokens
+(`apps/docs/src/tokens.stylex.ts`) that reference the site's semantic custom
+properties — it never imports `@whip/ui` or the application theme catalog, so
+public-site styling stays independent. Global base styles, the Paper token
+custom properties, and MDX prose element styling remain plain CSS under
+`apps/docs/src/styles`. StyleX is configured with `runtimeInjection: false`
+and no CSS layers so prerendered pages stay fully styled with JavaScript
+disabled. The
+[Paper board](https://app.paper.design/file/01M3A92K3HM4T5QF90SJFKQR0A/p-1-0/1O0-0)
+and its Light counterpart are the visual reference; [brand-guide.md](brand-guide.md)
+documents the local contract. Explicit user requirements supersede the board:
+code fences use multicolour Carbonfox syntax tokens; prose links and inline code
+match whip's transcript (blue underlined links, green borderless inline code).
 
-### Native conversation controls and activity
+Trusted checked-in MDX lives in `apps/docs/src/content/docs/<slug>/index.mdx`.
+It is executable source compiled at build time, never accepted from remote or
+untrusted input. Folder paths define URLs; frontmatter defines title,
+description, section and order; optional `navTitle` preserves a shorter sidebar
+label without changing the article title. Generated metadata provides navigation, heading
+anchors and the complete prerender URL list. Refractor tokenizes fenced code in
+the compiler; token spans reach the browser, but highlighter code and grammars
+do not. Keep raw snippets page-local for copying, not in a global content index.
+All articles include title-row copy/download actions. Their trusted MDX source
+is imported in page-local chunks, not the global manifest; Vite raw
+imports bypass the MDX compiler. Menus, theme preferences and selected code tabs
+use local component state. The public content currently consists of 21 V1 pages
+(Quickstart, Download and TypeScript SDK written, 18 other outlines) in five groups: Getting Started, Using whip, Configuration, Agents & RLM,
+and Developers. Group labels/order are shared between compiler and sidebar in
+`sections.ts`. Full-article library examples remain in Storybook, not production.
 
-The conversation consumes the workspace's paired `SessionView` and `ExecutionView`
-and its pane's optional `TraceView`. The selected session and tree root are explicit,
-separate identities; a tree ID is never substituted for either. The renderer does not
-create another transcript observer or reduce legacy stream events. Activity joins
-canonical calls, cells and operations by exact message, turn and call IDs. Provisional
-model text stays provisional; missing execution evidence is shown as unavailable.
-Completed durations use recorded endpoints, while running elapsed labels are display
-estimates that pause while detached or hidden.
+Use `npm run dev:docs`, `check:docs`, `test:docs`, `test:docs:dev`, `build:docs`,
+`preview:docs`, `test:docs:browser`, `storybook:docs` and
+`build:storybook:docs` from the workspace root. See the app README for the
+content contract, static preview, tests and publication procedure. Storybook
+exists for component/board review, not as a public production route.
 
-Control reads remain bounded and separate from transcript history: one queue page of
-100 metadata rows, at most 16 child agents, 16 upcoming schedules, one pending permission
-with its exact operation, and four root-owned questions. The SDK's authoritative activity
-counts never come from counting retained transcript rows. Queue pages replace one another;
-older page selection and returning to the first page are explicit. Local delivery previews
-close only when the exact admitted input is observed. Approval and question retries retain
-the original decision; uncertain responses offer an explicit read/check and exact retry.
+Public docs deploy automatically from `main` to `https://inference.net/whipcode`
+(`whipcode-docs`) and from `development` to `https://inference.cool/whipcode`
+(`whipcode-docs-preview`). `DOCS_ENVIRONMENT=production|preview` selects fixed
+canonical URLs and indexing policy; a nonempty `DOCS_SITE_URL` alone never
+permits indexing. Preview emits noindex metadata and response headers,
+disallow robots and no sitemap; production publishes an article sitemap.
+Default local builds remain root-path noindex previews.
 
-Fork and rewind confirmations capture the selected session, immutable request ID, history
-revision, observed tail and actual preceding exchange boundary before dispatch. A bounded
-backward lookup can find an exchange opening outside the visible window without sequence
-arithmetic. Changing history causes the host to reject the captured request; the UI never
-silently refreshes it into a different edit. Large omitted messages are inspected separately
-with owner, sequence, size and cursor checks, a 1 MiB preview and 4 MiB download ceiling;
-reading them does not enlarge the SDK transcript window. App-owned drafts, companion panes,
-keyboard focus and reading anchors survive observer refreshes and mode switches.
+`apps/docs/wrangler.jsonc` records only exact `/whipcode` and `/whipcode/*` routes;
+root websites, assets, robots and sitemaps remain untouched. The independent
+`docs-deploy.yml` workflow validates/builds a target-specific static package
+without credentials, then uploads/activates an exact Worker version using a
+branch-restricted environment's per-Worker Editor token. CI never changes zone
+routes and never deploys from PRs or called release workflows. Deploys serialize
+per branch and skip stale sources. See the app README for bootstrap, recovery
+and local/live `worker-smoke.mjs` checks. Vite/TanStack own the router/asset base;
+plain/MDX links use `sitePath`. No runtime rendering or backend state is added.
+Existing engineering
+docs remain engineering references; migrate user-facing material deliberately
+rather than exposing all of `docs/` or maintaining divergent installation claims.
 
-Remaining retained parity obligations are explicit: captured host-settings reload, remembered
-permission rules and tool denial editing, Rod/ChromeDP driver selection, per-turn model-call
-and compaction counts, and live REPL stdout. Native canonical substitutions do not waive
-these workflows; current UI does not manufacture their missing evidence.
+## Working on a change
 
-Saved root creation recovery offers an explicit restore only after a fresh SDK check verifies the exact previously acknowledged request. Identity-only evidence remains unconfirmed; an explicit exact retry can obtain acknowledgement without submitting a first message. Restore uses the original creation/tab identity, preserves current unsent text, validates the native root/tree/definition/engine, and rejects changed hosts or conflicting destination drafts. A closed descriptor stays closed. The same handover serves initial creation and saved recovery; no alternate session creation or input replay occurs.
+1. Read the [feature map](features.md), locate the existing state owner and nearest
+   implementation, and decide what survives navigation and what must be disposed.
+2. Add a native host/SDK capability only where the current contract cannot express
+   the behavior. Reuse typed services, views and controlled UI primitives.
+3. Preserve loading, unavailable, conflict, uncertain delivery, long content,
+   concurrent changes, keyboard, selection, focus and narrow-layout behavior.
+4. Run meaningful checks at the changed boundary. Keep exact passed/failed evidence
+   and retained test disposition in the development log; update this guide when
+   an architectural decision changes.
 
-Before the first New Chat opens, the connected host warms provider inventory/presets/readiness/catalogs, permission/execution defaults and MCP import status through native read-only APIs. Only these bounded host metadata queries retain five minutes of inactive data, allowing a ready form after the last tab closes. Detach removes the host queries and prevents retired clients from continuing warmup. Session history and observations retain their existing ownership and limits.
+| Area | Starting source |
+| --- | --- |
+| Host and window lifetime | [hosts.ts](../packages/app/src/hosts.ts), [runtime.ts](../packages/app/src/runtime.ts) |
+| Durable recovery | [SDK command.ts](../packages/sdk/src/command.ts), [app storage](../packages/app/src/recovery-storage.ts) |
+| Composition and submission | [compositions.ts](../packages/app/src/compositions.ts), [chat-submission.ts](../packages/app/src/chat-submission.ts) |
+| Transcript/execution/trace | [SDK state](../packages/sdk/src/state.ts), [execution](../packages/sdk/src/execution-state.ts), [trace](../packages/sdk/src/trace-state.ts), [timeline](../packages/app/src/timeline.tsx) |
+| Workspace and reading | [session-tabs.ts](../packages/app/src/session-tabs.ts), [reading-positions.ts](../packages/app/src/reading-positions.ts) |
+| Generic UI and themes | [UI inventory](../packages/ui/README.md), [tokens](../packages/ui/src/tokens.stylex.ts), [theme generator](../cmd/themegen) |
+| Mobile ownership | [runtime](../apps/mobile/src/runtime/runtime.ts), [commands](../apps/mobile/src/runtime/commands.ts), [storage](../apps/mobile/src/runtime/storage.ts) |
+| New protocol contract | [native registry](../internal/protocol/schema.go), [SDK guide](../packages/sdk/README.md) |
 
-Native session reload controls preserve the distinction between accepted and applied.
-A reload captures the current host defaults and expected session revision at admission;
-it applies at an idle tree boundary and preserves explicit overrides. The app retains
-pending, conflicted, interrupted and unavailable receipts in the existing bounded
-recovery journal. Reopening Settings reads local records; checking or cancelling an
-exact reload is explicit, and neither action resends it. Interactive permission denial
-is a separate root-controlled tree policy, independent from Ask/Full Access, standing
-grants and intrinsic questions. Both policy forms retain their captured revision when
-another client changes the policy.
+## Development and validation
 
-The native browser inspector saves the host driver through revision-checked CAS.
-Running-host environment pins are visible and disable edits. A changed host revision
-never rebases an in-progress choice silently; accepted batches retain their captured
-driver. Computer controls keep bundled-program publication, enabled configuration,
-and live connection as separate explicit actions. After uncertain publication, read
-current configuration before another edit; neither inspection nor selecting a bundle
-connects a helper.
+Use Node 24, the pinned Go toolchain and the existing npm lockfile. Active required
+checks are defined in [Taskfile](../Taskfile.yaml) and the
+[redesign workflow](../.github/workflows/backend-redesign.yml): native contract/SDK/
+process/CLI gates plus product web, Chromium/Firefox browser, mobile, Apple Silicon
+desktop and examples. Read their actual commands rather than inferring coverage
+from a generic test name. Build/pack assets before production browser fixtures.
+
+`task check:product-web` checks shared app/UI and assets.
+`task check:product-browser` uses disposable native hosts and production assets.
+`task check:product-mobile` includes native backend fixtures and both Expo exports.
+`task check:product-desktop` validates staged native bridges and ad-hoc packaging.
+`task check:product-examples` runs real native agent and browser/Node examples.
+Public docs use their separate `check:docs`, `test:docs` and `build:docs` commands.
+No gate modifies an installed runtime or real account.
+
+Several retained specialized browser/performance probes are still being migrated;
+a historical filename or old green run does not establish native coverage. The
+[development log](backend-redesign-development.md) records exact source, failures,
+repairs and remaining acceptance. Actual Safari, physical mobile, VoiceOver,
+remote SSH and signed packaging claims require their own evidence. Measure retained
+bytes/subscriptions and real latency without weakening host durability or replacing
+canonical provider work with injected frontend events.
+
+## Maintaining one canonical resource
+
+This guide owns frontend architecture and design. The UI README owns component
+APIs; the SDK README owns public client APIs; backend-domain owns native durable
+contracts; feature and development records own disposition/evidence. Link to these
+rather than append duplicate architecture sections. Historical plans retain research,
+not competing current implementation requirements. Reconcile disagreements with
+actual source and record the chosen behavior; never silently retire a feature by
+removing its prose from this architecture guide.
