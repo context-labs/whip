@@ -85,7 +85,8 @@ try {
       assert.equal(await earlyText.getAttribute('data-message-id'), earlyId);
       // Native execute calls have their own committed model message, followed by
       // one completion answer and the queued answer. Never duplicate the earlier prose.
-      const assistantHistory = page.locator('[data-message-id^="message:"][data-message-role="assistant"]');
+      // Ordered presentation slots keep attempt-scoped IDs through settlement.
+      const assistantHistory = page.locator('[data-message-id][data-message-role="assistant"]');
       await expect(assistantHistory).toHaveCount(3);
       await expect(assistantHistory.filter({ hasText: prompt })).toHaveCount(1);
       await expect(assistantHistory.filter({ hasText: 'Continue after snapshot refresh' })).toHaveCount(1);
