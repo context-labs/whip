@@ -86,7 +86,7 @@ exec /bin/sleep 30
 			if err := os.WriteFile(script, []byte(content), 0o700); err != nil {
 				t.Fatal(err)
 			}
-			args := []string{"-F", "/dev/null", "-o", "BatchMode=yes", "-o", "ProxyCommand=exec " + desktopShellQuote(script), "fixture"}
+			args := []string{"-F", "/dev/null", "-o", "BatchMode=yes", "-o", "ProxyCommand=" + desktopShellQuote(script), "fixture"}
 			process, parent, _ := desktopSSHFixture(t, args)
 			group := desktopReadPIDs(t, pids, 2)
 			if pgid, err := syscall.Getpgid(group[0]); err != nil || pgid != group[1] {
@@ -144,7 +144,7 @@ exit 0
 		t.Fatal(err)
 	}
 	process, _, _ := desktopSSHFixture(t, []string{
-		"-F", "/dev/null", "-o", "BatchMode=yes", "-o", "ProxyCommand=exec " + desktopShellQuote(script), "fixture",
+		"-F", "/dev/null", "-o", "BatchMode=yes", "-o", "ProxyCommand=" + desktopShellQuote(script), "fixture",
 	})
 	pid := desktopReadPIDs(t, pids, 1)[0]
 	if err := desktopWaitFixture(process, 5*time.Second); err == nil {
@@ -167,7 +167,7 @@ exit 0
 	t.Setenv("WHIP_TEST_PRESERVED", "preserved")
 	t.Setenv("SSH_ASKPASS", "/invalid/caller/override")
 	process, parent, _ := desktopSSHFixture(t, []string{
-		"-F", "/dev/null", "-o", "ProxyCommand=exec " + desktopShellQuote(script), "fixture",
+		"-F", "/dev/null", "-o", "ProxyCommand=" + desktopShellQuote(script), "fixture",
 	})
 	if _, err := io.WriteString(parent, "not an SSH input stream\n"); err != nil {
 		t.Fatal(err)
@@ -239,6 +239,9 @@ func desktopSSHFixture(t *testing.T, args []string) (*exec.Cmd, *os.File, string
 	process.Env = append(os.Environ(),
 		"WHIP_TEST_DESKTOP_SSH=1",
 		"WHIP_TEST_DESKTOP_ARGS="+string(encoded),
+		// OpenSSH prefixes ProxyCommand with exec. Use a POSIX shell so a
+		// redundant fixture exec cannot pass only because the caller uses zsh.
+		"SHELL=/bin/sh",
 		// Hidden dispatch must take priority over an inherited askpass marker.
 		"WHIP_DESKTOP_ASKPASS=1",
 	)
@@ -247,7 +250,22 @@ func desktopSSHFixture(t *testing.T, args []string) (*exec.Cmd, *os.File, string
 		t.Fatal(err)
 	}
 	_ = reader.Close()
-	t.Cleanup(func() { _ = writer.Close(); _ = process.Process.Kill() })
+	t.Cleanup(func() {
+		_ = writer.Close()
+		if process.ProcessState == nil {
+			_ = desktopWaitFixture(process, 5*time.Second)
+		}
+		if t.Failed() {
+			file, err := os.Open(output.Name())
+			if err != nil {
+				t.Logf("SSH fixture output unavailable: %v", err)
+				return
+			}
+			defer file.Close()
+			data, err := io.ReadAll(io.LimitReader(file, 16*1024))
+			t.Logf("SSH fixture output (first 16 KiB, read error %v): %s", err, data)
+		}
+	})
 	return process, writer, output.Name()
 }
 
