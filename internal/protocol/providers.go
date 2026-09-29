@@ -49,7 +49,7 @@ type ProviderModelSettings struct {
 	ContextWindowTokens *Counter    `json:"context_window_tokens"`
 	MaxOutputTokens     Counter     `json:"max_output_tokens"`
 	TimeoutMillis       Counter     `json:"timeout_millis"`
-	MaxAttempts         int         `json:"max_attempts" min:"0" max:"5"`
+	MaxAttempts         int         `json:"max_attempts" min:"0" max:"9007199254740991"`
 }
 
 type ProviderCredentialStatus struct {
@@ -60,6 +60,7 @@ type ProviderCredentialStatus struct {
 }
 type ProviderRoute struct {
 	ID         ID                               `json:"id"`
+	Disabled   bool                             `json:"disabled"`
 	Kind       string                           `json:"kind" enum:"openai-chat,openai-responses,openai-codex"`
 	BaseURL    string                           `json:"base_url"`
 	Credential ProviderCredentialStatus         `json:"credential"`
@@ -70,6 +71,7 @@ type ProviderInventory struct {
 	Routes          []ProviderRoute `json:"routes"`
 	Defaults        *ModelSelection `json:"defaults"`
 	CompactionModel *ModelSelection `json:"compaction_model"`
+	PermissionMode  string          `json:"permission_mode" enum:"prompt,automatic"`
 }
 
 // Credential commands and pasted keys occur only in explicit transient inputs.
@@ -118,6 +120,12 @@ type ProviderDefaultsParams struct {
 	Revision string           `json:"revision" pattern:"^[a-f0-9]{64}$"`
 	Defaults ProviderDefaults `json:"defaults"`
 }
+
+type ProviderPreferencesParams struct {
+	Revision       string           `json:"revision" pattern:"^[a-f0-9]{64}$"`
+	Defaults       ProviderDefaults `json:"defaults"`
+	PermissionMode string           `json:"permission_mode" enum:"prompt,automatic"`
+}
 type RemoveProviderParams struct {
 	Revision    string            `json:"revision" pattern:"^[a-f0-9]{64}$"`
 	Provider    ID                `json:"provider"`
@@ -138,15 +146,45 @@ type ProviderReadinessParams struct {
 }
 type ProviderReadiness struct {
 	Configured      bool   `json:"configured"`
+	Disabled        bool   `json:"disabled"`
 	CredentialState string `json:"credential_state" enum:"unavailable,unchecked,not_required,missing,available,refresh_required"`
 	CatalogState    string `json:"catalog_state" enum:"missing,scope_changed,cached"`
 	ModelState      string `json:"model_state" enum:"unknown,configured,catalogued"`
 	InferenceState  string `json:"inference_state" enum:"not_tested"`
 }
 
+type SetProviderEnabledParams struct {
+	Revision string `json:"revision" pattern:"^[a-f0-9]{64}$"`
+	Provider ID     `json:"provider"`
+	Enabled  bool   `json:"enabled"`
+}
+
+type ProviderCandidate struct {
+	Provider        ID     `json:"provider"`
+	Source          string `json:"source" enum:"env,inference-net,openai-codex"`
+	Environment     string `json:"environment" maxLength:"256"`
+	CredentialState string `json:"credential_state" enum:"available,refresh_required"`
+}
+
+type ProviderCandidates struct {
+	Revision string              `json:"revision" pattern:"^[a-f0-9]{64}$"`
+	Items    []ProviderCandidate `json:"items" maxItems:"24"`
+}
+
+type UseProviderCandidateParams struct {
+	Revision    string `json:"revision" pattern:"^[a-f0-9]{64}$"`
+	Provider    ID     `json:"provider"`
+	Source      string `json:"source" enum:"env,inference-net,openai-codex"`
+	Environment string `json:"environment" maxLength:"256"`
+}
+
 func providerSchema(schema *jsonschema.Schema, t reflect.Type) {
 	arrays, texts := map[string]int{}, map[string]int{}
 	switch t {
+	case reflect.TypeFor[ProviderCandidates]():
+		arrays["items"] = 24
+	case reflect.TypeFor[ProviderCandidate](), reflect.TypeFor[UseProviderCandidateParams]():
+		texts["environment"] = 256
 	case reflect.TypeFor[ProviderPresetsResult]():
 		arrays["items"] = 11
 	case reflect.TypeFor[ProviderPreset]():

@@ -28,6 +28,23 @@ func dispatchProvider(ctx context.Context, service *providerhost.Service, method
 			values, err := providerhost.BundledModels(string(p.Provider))
 			return protocol.ProviderModelsResult{Items: providerModels(values)}, err
 		})
+	case "providers.candidates":
+		value, err := service.Candidates(ctx)
+		result := protocol.ProviderCandidates{Revision: value.Revision, Items: []protocol.ProviderCandidate{}}
+		for _, candidate := range value.Items {
+			result.Items = append(result.Items, protocol.ProviderCandidate{Provider: protocol.ID(candidate.Provider), Source: candidate.Source, Environment: candidate.Environment, CredentialState: candidate.CredentialState})
+		}
+		return result, err
+	case "providers.use_candidate":
+		return decode(raw, func(p protocol.UseProviderCandidateParams) (any, error) {
+			value, err := service.UseCandidate(ctx, p.Revision, providerhost.Candidate{Provider: string(p.Provider), Source: p.Source, Environment: p.Environment})
+			return providerInventory(value), err
+		})
+	case "providers.set_enabled":
+		return decode(raw, func(p protocol.SetProviderEnabledParams) (any, error) {
+			value, err := service.SetEnabled(ctx, p.Revision, string(p.Provider), p.Enabled)
+			return providerInventory(value), err
+		})
 	case "providers.list":
 		value, err := service.List(ctx)
 		return providerInventory(value), err
@@ -68,6 +85,20 @@ func dispatchProvider(ctx context.Context, service *providerhost.Service, method
 			value, err := service.Remove(ctx, p.Revision, string(p.Provider), replacement)
 			return providerInventory(value), err
 		})
+	case "providers.set_preferences":
+		return decode(raw, func(p protocol.ProviderPreferencesParams) (any, error) {
+			value, err := service.SetPreferences(ctx, p.Revision, providerDefaults(p.Defaults), session.PermissionMode(p.PermissionMode))
+			return providerInventory(value), err
+		})
+	case "host.set_execution_preferences":
+		return decode(raw, func(p protocol.SetExecutionPreferencesParams) (any, error) {
+			d := p.Preferences
+			value, err := service.SetExecutionPreferences(ctx, p.ExpectedRevision, providerhost.ExecutionPreferences{
+				Engine: session.Engine(d.Engine), CompactionPercent: d.CompactionPercent, CompactionModel: providerDefaults(d.CompactionModel),
+				GoalMaxContinuations: providerInt(d.GoalMaxContinuations), MaxAttempts: d.MaxAttempts, ImportClaude: d.ImportClaude, ImportCodex: d.ImportCodex,
+			})
+			return executionDefaults(value), err
+		})
 	case "providers.defaults", "providers.compaction":
 		return decode(raw, func(p protocol.ProviderDefaultsParams) (any, error) {
 			var value providerhost.Inventory
@@ -102,7 +133,7 @@ func dispatchProvider(ctx context.Context, service *providerhost.Service, method
 				return nil, providerhost.ErrInvalid
 			}
 			value, err := service.Readiness(ctx, selection)
-			return protocol.ProviderReadiness{Configured: value.Configured, CredentialState: value.CredentialState, CatalogState: value.CatalogState, ModelState: value.ModelState, InferenceState: value.InferenceState}, err
+			return protocol.ProviderReadiness{Configured: value.Configured, Disabled: value.Disabled, CredentialState: value.CredentialState, CatalogState: value.CatalogState, ModelState: value.ModelState, InferenceState: value.InferenceState}, err
 		})
 	default:
 		return nil, ErrMethod
@@ -112,7 +143,7 @@ func dispatchProvider(ctx context.Context, service *providerhost.Service, method
 func nonNilStrings(values []string) []string { return append([]string{}, values...) }
 
 func providerInventory(value providerhost.Inventory) protocol.ProviderInventory {
-	result := protocol.ProviderInventory{Revision: value.Revision, Routes: []protocol.ProviderRoute{}}
+	result := protocol.ProviderInventory{Revision: value.Revision, PermissionMode: string(value.PermissionMode), Routes: []protocol.ProviderRoute{}}
 	if value.Defaults.Name != "" {
 		selected := selectionProjection(value.Defaults)
 		result.Defaults = &selected
@@ -126,7 +157,7 @@ func providerInventory(value providerhost.Inventory) protocol.ProviderInventory 
 		for id, settings := range route.Models {
 			models[id] = settingsProjection(settings)
 		}
-		result.Routes = append(result.Routes, protocol.ProviderRoute{ID: protocol.ID(route.ID), Kind: route.Kind, BaseURL: route.BaseURL, Credential: protocol.ProviderCredentialStatus{Source: route.Credential.Source, State: route.Credential.State, Environment: route.Credential.Environment, File: route.Credential.File}, Models: models})
+		result.Routes = append(result.Routes, protocol.ProviderRoute{ID: protocol.ID(route.ID), Disabled: route.Disabled, Kind: route.Kind, BaseURL: route.BaseURL, Credential: protocol.ProviderCredentialStatus{Source: route.Credential.Source, State: route.Credential.State, Environment: route.Credential.Environment, File: route.Credential.File}, Models: models})
 	}
 	return result
 }

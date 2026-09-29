@@ -36,7 +36,7 @@ func TestProviderContractsPreserveUnknownZeroAndExactCounters(t *testing.T) {
 }
 
 func TestProviderPublicStatusRejectsSecretFields(t *testing.T) {
-	value := ProviderInventory{Revision: strings.Repeat("a", 64), Routes: []ProviderRoute{{ID: "custom", Kind: "openai-chat", BaseURL: "https://example.test/v1", Credential: ProviderCredentialStatus{Source: "command", State: "unchecked"}, Models: map[string]ProviderModelSettings{}}}}
+	value := ProviderInventory{PermissionMode: "prompt", Revision: strings.Repeat("a", 64), Routes: []ProviderRoute{{ID: "custom", Kind: "openai-chat", BaseURL: "https://example.test/v1", Credential: ProviderCredentialStatus{Source: "command", State: "unchecked"}, Models: map[string]ProviderModelSettings{}}}}
 	raw, _ := json.Marshal(value)
 	if err := Validate("ProviderInventory", raw); err != nil {
 		t.Fatal(err)

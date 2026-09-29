@@ -33,6 +33,7 @@ type catalogEntry struct {
 
 type Readiness struct {
 	Configured      bool   `json:"configured"`
+	Disabled        bool   `json:"disabled"`
 	CredentialState string `json:"credential_state"`
 	CatalogState    string `json:"catalog_state"`
 	ModelState      string `json:"model_state"`
@@ -83,6 +84,7 @@ func (s *Service) Readiness(ctx context.Context, selection session.ModelSelectio
 		return value, nil
 	}
 	value.Configured = true
+	value.Disabled = p.Disabled
 	status, _, _ := s.inspect(ctx, p)
 	value.CredentialState = status.State
 	catalog, err := s.Catalog(ctx, selection.Provider)
@@ -113,6 +115,9 @@ func (s *Service) Refresh(ctx context.Context, id string) (Catalog, error) {
 	p, ok := snapshot.Host.Providers[id]
 	if !ok {
 		return Catalog{}, ErrMissing
+	}
+	if p.Disabled {
+		return Catalog{}, ErrDisabled
 	}
 	s.mu.Lock()
 	if s.closed {

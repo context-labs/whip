@@ -102,7 +102,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return terminalDispatch(ctx, r, host, method, raw)
 	case "workspace.capture", "workspace.restore", "workspace.release", "workspace.action", "workspace.snapshot", "workspace.snapshots":
 		return dispatchWorkspace(ctx, r, method, raw)
-	case "providers.presets", "providers.bundled", "providers.list", "providers.setup_key", "providers.create", "providers.update", "providers.remove", "providers.defaults", "providers.compaction", "providers.catalog", "providers.refresh", "providers.readiness":
+	case "host.set_execution_preferences", "providers.set_preferences", "providers.candidates", "providers.use_candidate", "providers.set_enabled", "providers.presets", "providers.bundled", "providers.list", "providers.setup_key", "providers.create", "providers.update", "providers.remove", "providers.defaults", "providers.compaction", "providers.catalog", "providers.refresh", "providers.readiness":
 		return dispatchProvider(ctx, host.ProviderHost, method, raw)
 	case "lsp.status":
 		return decode(raw, func(p protocol.SessionParams) (any, error) {
@@ -544,6 +544,7 @@ func wireError(err error) *protocol.RPCError {
 		{shell.ErrClosed, -32013, "CLOSED"},
 		{providerhost.ErrInvalid, -32602, "INVALID"},
 		{providerhost.ErrMissing, -32004, "NOT_FOUND"},
+		{providerhost.ErrDisabled, -32030, "PROVIDER_CREDENTIALS"},
 		{providerhost.ErrExists, -32009, "CONFLICT"},
 		{providerhost.ErrBusy, -32010, "BUSY"},
 		{providerhost.ErrClosed, -32013, "CLOSED"},

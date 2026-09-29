@@ -25,6 +25,9 @@ func configuredProvider(directory string, auth model.SubscriptionAuth, inference
 		if !ok {
 			return model.Route{}, fmt.Errorf("provider route %q is not configured", selection.Provider)
 		}
+		if provider.Disabled {
+			return model.Route{}, fmt.Errorf("provider route %q is disabled", selection.Provider)
+		}
 		settings := provider.Models[selection.Name]
 		if settings.MaxAttempts == 0 {
 			settings.MaxAttempts = host.ExecutionDefaults().MaxAttempts

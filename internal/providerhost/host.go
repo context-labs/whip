@@ -21,6 +21,7 @@ import (
 var (
 	ErrInvalid     = errors.New("invalid provider setup operation")
 	ErrMissing     = errors.New("provider route is not configured")
+	ErrDisabled    = errors.New("provider route is disabled")
 	ErrExists      = errors.New("provider route already exists")
 	ErrClosed      = errors.New("provider host service is closed")
 	ErrBusy        = errors.New("provider catalog refresh is already active or at capacity")
@@ -41,6 +42,7 @@ type CredentialStatus struct {
 // credential captures are intentionally absent from public inspection.
 type Route struct {
 	ID         string                  `json:"id"`
+	Disabled   bool                    `json:"disabled"`
 	Kind       string                  `json:"kind"`
 	BaseURL    string                  `json:"base_url"`
 	Credential CredentialStatus        `json:"credential"`
@@ -52,6 +54,7 @@ type Inventory struct {
 	Routes          []Route                 `json:"routes"`
 	Defaults        session.ModelSelection  `json:"defaults"`
 	CompactionModel *session.ModelSelection `json:"compaction_model"`
+	PermissionMode  session.PermissionMode  `json:"permission_mode"`
 }
 
 // KeyPublication is a transient input, never a saved host declaration. Reuse ID
@@ -138,9 +141,10 @@ func (s *Service) List(ctx context.Context) (Inventory, error) {
 		return Inventory{}, err
 	}
 	result := Inventory{Revision: value.Revision, Routes: []Route{}, Defaults: value.Host.Defaults.Model.Clone(), CompactionModel: value.Host.Defaults.Compaction.Model}
+	result.PermissionMode, _ = session.ResolvePermissionMode(value.Host.DefaultPermissionMode)
 	for id, provider := range value.Host.Providers {
 		status, _, _ := s.inspect(ctx, provider)
-		result.Routes = append(result.Routes, Route{ID: id, Kind: provider.Kind, BaseURL: provider.BaseURL, Credential: status, Models: provider.Models})
+		result.Routes = append(result.Routes, Route{ID: id, Disabled: provider.Disabled, Kind: provider.Kind, BaseURL: provider.BaseURL, Credential: status, Models: provider.Models})
 	}
 	slices.SortFunc(result.Routes, func(a, b Route) int { return strings.Compare(a.ID, b.ID) })
 	s.mu.Lock()
@@ -180,6 +184,9 @@ func (s *Service) save(ctx context.Context, change Change, creating bool) (Inven
 		return Inventory{}, ErrMissing
 	}
 	provider := change.Provider
+	if exists {
+		provider.Disabled = previous.Disabled
+	}
 	if change.KeepCredential {
 		if creating || change.Key != nil || previous.BaseURL != provider.BaseURL || previous.Kind != provider.Kind {
 			return Inventory{}, ErrInvalid

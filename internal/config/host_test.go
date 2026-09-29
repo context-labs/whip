@@ -97,7 +97,7 @@ func TestProviderDispatchLimitsAndUnknownPrices(t *testing.T) {
 		{TimeoutMillis: -1},
 		{TimeoutMillis: 600001},
 		{MaxAttempts: -1},
-		{MaxAttempts: 6},
+		{MaxAttempts: session.MaxModelAttempts + 1},
 		{ContextWindowTokens: new(int64(0))},
 		{ContextWindowTokens: new(int64(-1))},
 		{ContextWindowTokens: new(int64(1000000001))},

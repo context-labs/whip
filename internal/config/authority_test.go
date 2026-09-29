@@ -243,7 +243,7 @@ func TestAuthoritySubscriptionConflictsAndMalformedFile(t *testing.T) {
 	for _, invalid := range []Provider{
 		{Kind: "openai-codex", BaseURL: "https://custom.test"},
 		{Kind: "openai-codex", CredentialEnv: "CUSTOM"},
-		{Kind: "openai-codex", Models: map[string]Model{"model": {MaxAttempts: 6}}},
+		{Kind: "openai-codex", Models: map[string]Model{"model": {MaxAttempts: session.MaxModelAttempts + 1}}},
 	} {
 		host.Providers["openai-codex"] = invalid
 		if err := host.EnsureSubscription(); !errors.Is(err, session.ErrInvalid) {
