@@ -3453,3 +3453,20 @@ above establish this checkpoint. The subsequent merge brings in #257's separate
 race-runner CI repair (`4d3b155cb`) without changing Go runtime behavior. Hosted
 checks for this new checkpoint remain pending. Phases 5–6 remain in progress and
 Phase 7 remains pending; no installed runtime was modified.
+
+
+## Input-controls hosted build deadline correction
+
+Draft #258 at c5850730c failed Linux build in run 36519493581 because
+the complete runtime package exhausted the shared 120-second package deadline.
+The sole active test (turn-permit blocked resumption/deadline) had run for just
+2 seconds and remained within its existing 5-second scenario wait. All six
+Linux/macOS race jobs, both client jobs, macOS build and analysis passed.
+
+The fast gate now runs the complete runtime package separately with a 5-minute
+aggregate deadline. Every other fast package retains 2 minutes. No tests or
+scenario assertions were removed, individual operation waits remain unchanged,
+and race package/job deadlines remain unchanged. This targets the growing
+package's cumulative cost rather than extending a stalled scenario. The full
+local build check and new hosted result are pending below. Failed-run evidence:
+`/tmp/whip-pr258-linux-build-failure.log`.
