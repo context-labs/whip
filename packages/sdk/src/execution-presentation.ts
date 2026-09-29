@@ -16,6 +16,7 @@ export interface ExecutionPresentationRow {
   code: string;
   cell: CellExecutionRow | null;
   call: CellExecutionRow['call'];
+  result: CellExecutionRow['result'];
   preview: DeepReadonly<CallPreview> | null;
   attempt: DeepReadonly<AttemptPresentation> | null;
   part: DeepReadonly<PresentationPart> | null;
@@ -48,19 +49,41 @@ export function executionPresentationRows(execution: DeepReadonly<ExecutionViewS
   for (const cell of [...cells].reverse()) {
     const p = cell.call?.message.presentation;
     const part = p?.parts.find(part => part.type === 'tool_call' && part.call_id === cell.cell.call_id) ?? null;
-    rows.set(cell.displayID, { id: cell.displayID, kind: 'cell', state: cell.cell.state, code: codeOf(cell.call), cell, call: cell.call, preview: null, attempt: null, part,
+    rows.set(cell.displayID, { id: cell.displayID, kind: 'cell', state: cell.cell.state, code: codeOf(cell.call), cell, call: cell.call, result: cell.result, preview: null, attempt: null, part,
       messageID: cell.cell.call_message_id, turnID: cell.cell.turn_id, startedAt: cell.cell.created_at, truncated: (p?.truncated ?? false) || codeTruncated(cell.call) });
   }
   const active = source.activity?.active_turn?.id;
+  const orderedMessages = [...messages].sort((a, b) => BigInt(a.sequence) < BigInt(b.sequence) ? -1 : 1);
+  const recordedResult = (call: DeepReadonly<Message>, callID: string): CellExecutionRow['result'] => {
+    // Imported history deliberately has no cell authority. Within the retained
+    // group, match the result before any later reuse of the provider call ID.
+    let result: CellExecutionRow['result'] = null;
+    for (const message of orderedMessages) {
+      if (message.group_id !== call.group_id || BigInt(message.sequence) <= BigInt(call.sequence)) continue;
+      if (message.parts?.some(part => part.type === 'tool_call' && part.call.id === callID)) break;
+      const part = message.role === 'tool' ? message.parts?.find(part => part.type === 'tool_result' && part.result.call_id === callID) : undefined;
+      if (part?.type !== 'tool_result') continue;
+      if (result || source.history.gaps?.some(gap => BigInt(gap.sequence) > BigInt(call.sequence) && BigInt(gap.sequence) < BigInt(message.sequence))) return null;
+      result = { message, value: part.result };
+    }
+    return result;
+  };
   for (const message of messages) {
     const imported = message.turn_id === null;
-    if (!imported && (execution.windowBefore === message.turn_id || execution.olderCellCursor?.turnID === message.turn_id || !execution.turns.some(turn => turn.id === message.turn_id)) && (!latest || message.turn_id !== active)) continue;
+    if (!imported) {
+      const partialTurn = execution.windowBefore === message.turn_id || execution.olderCellCursor?.turnID === message.turn_id;
+      if (partialTurn) {
+        const retainedSequences = cells.filter(row => row.cell.turn_id === message.turn_id && row.call).map(row => BigInt(row.call!.message.sequence));
+        const newerThanRetained = retainedSequences.length > 0 && retainedSequences.every(sequence => BigInt(message.sequence) > sequence);
+        if (!latest || !newerThanRetained) continue;
+      } else if (!latest && !execution.turns.some(turn => turn.id === message.turn_id)) continue;
+    }
     for (const part of message.parts ?? []) {
       if (part.type !== 'tool_call' || part.call.name !== 'execute' || seenCalls.has(callKey(owner, message.id, part.call.id))) continue;
       const presentation = message.presentation, slot = presentation?.parts.find(p => p.type === 'tool_call' && p.call_id === part.call.id) ?? null;
       const id = slot && presentation ? key(owner, presentation.attempt_id, slot.id) : callKey(owner, message.id, part.call.id);
       const call = { message, value: part.call };
-      rows.set(id, { id, kind: imported ? 'imported' : 'call', state: !imported && latest && message.turn_id === active ? 'pending' : 'recorded', code: codeOf(call), cell: null, call, preview: null, attempt: null, part: slot,
+      rows.set(id, { id, kind: imported ? 'imported' : 'call', state: !imported && latest && message.turn_id === active ? 'pending' : 'recorded', code: codeOf(call), cell: null, call, result: recordedResult(message, part.call.id), preview: null, attempt: null, part: slot,
         messageID: message.id, turnID: message.turn_id, startedAt: null, truncated: (presentation?.truncated ?? false) || codeTruncated(call) });
     }
   }
@@ -68,7 +91,7 @@ export function executionPresentationRows(execution: DeepReadonly<ExecutionViewS
     for (const part of attempt.presentation.parts) {
       if (part.type !== 'tool_call' || !part.call || part.call.name !== 'execute') continue;
       const id = key(owner, attempt.attempt_id, part.id);
-      rows.set(id, { id, kind: 'attempt', state: attempt.state, code: executionCode(part.call.arguments), cell: null, call: null, preview: part.call, attempt, part,
+      rows.set(id, { id, kind: 'attempt', state: attempt.state, code: executionCode(part.call.arguments), cell: null, call: null, result: null, preview: part.call, attempt, part,
         messageID: attempt.message_id ?? null, turnID: attempt.source_session_id ? null : attempt.turn_id, startedAt: null, truncated: attempt.presentation.truncated });
     }
   }
@@ -81,7 +104,7 @@ export function executionPresentationRows(execution: DeepReadonly<ExecutionViewS
       const slot = presentation?.parts.find(part => part.type === 'tool_call' && part.call_index === call.index) ?? null;
       const id = key(owner, preview.attempt_id, slot?.id ?? `call_${call.index}`);
       if (rows.has(id)) continue;
-      rows.set(id, { id, kind: 'preview', state: 'writing', code: executionCode(call.arguments), cell: null, call: null, preview: call, attempt: null, part: slot,
+      rows.set(id, { id, kind: 'preview', state: 'writing', code: executionCode(call.arguments), cell: null, call: null, result: null, preview: call, attempt: null, part: slot,
         messageID: preview.message_id, turnID: preview.turn_id, startedAt: null, truncated: preview.truncated });
     }
   }

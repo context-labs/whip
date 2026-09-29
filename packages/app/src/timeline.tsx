@@ -18,6 +18,7 @@ import {
 import { renderMarkdownReact } from '@tanstack/markdown/react';
 import { streamingMarkdownExtension } from '@tanstack/markdown/extensions/streaming';
 import type { Client } from '@whip/sdk';
+import { executionCode as partialExecutionCode } from '@whip/sdk/state';
 import { Button, CodeBlock, CopyButton, Dialog, IconButton, Menu, Spinner } from '@whip/ui';
 import {
   ChevronRight,
@@ -114,6 +115,8 @@ export function ImageAttachment({ image, thumbnail, label = 'Image attachment' }
   );
 }
 export function executionCode(args: string): string {
+  const partial = partialExecutionCode(args);
+  if (partial) return partial;
   try {
     const value = JSON.parse(args);
     return typeof value.code === 'string'

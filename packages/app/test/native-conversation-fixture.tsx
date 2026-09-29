@@ -118,6 +118,7 @@ export function cellRow(
     parts: [{ type: 'tool_call', call }],
   };
   return {
+    displayID: JSON.stringify(['root', message.id, call.id]),
     output: null,
     cell: {
       id,
@@ -274,6 +275,7 @@ export async function conversationFixture(owner = 'root') {
     next_cursor: null,
   });
   f.data.handlers['turns.cells'] = () => ({ items: [] });
+  f.data.handlers['turns.cells_page'] = () => ({ items: [], next_cursor: null });
   f.data.handlers['turns.operations'] = () => ({ items: [] });
   const snapshot = () => ({
     session_id: owner,

@@ -186,6 +186,30 @@ agent and recency tests pass (12); folder/workflow checks pass (35).
 
 Providers/settings is draft [#294](https://github.com/context-labs/whip/pull/294).
 
+## Increment 9 — ordered conversation and REPL handover (A7–A9)
+
+SDK follow-up `8bde7417e` and reference-card restoration `624d18e7d` are
+integrated. Writing→call→cell→result uses one stable REPL article, partial code,
+the existing live clock and retained output expansion/selection. Imported
+canonical results remain visible without inventing a local cell or clock.
+Ordinary provisional/JSON/checkpoint banners are removed; actual unavailable or
+uncertain evidence remains explicit.
+
+Chat consumes retained presentation as a pure projection. Interleaved reasoning,
+Unicode prose and calls retain slot identity after commit. Truncated/overlapping
+display metadata cannot drop or duplicate canonical text/calls. Failed attempts
+retain labeled partial display, outside canonical copy/history authority. The
+normal older-execution window no longer produces a warning in every transcript.
+
+Combined focused ordered-presentation, transcript, REPL, activity, footer and
+history-confirmation checks pass (77 tests); app types pass. The REPL leaf tests
+verify the same article and selected code through partial ID/commit/cell/result,
+persisted expansion, failed reseed and imported output. Comparative browser runs
+are in progress. Inspection also found an immediate source-eviction body-retention
+hole; that bounded SDK follow-up is being fixed before final acceptance.
+
+Projects/polish is draft [#295](https://github.com/context-labs/whip/pull/295).
+
 ## Remaining work
 
 Backend/provider/settings/terminal and durable presentation prerequisites are
