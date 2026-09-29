@@ -52,6 +52,7 @@ var nativeCommandChoices = []nativeCommandChoice{
 	{"/newer", "Read newer canonical history", true},
 	{"/older", "Read older canonical history", true},
 	{"/panel", "Expand the agents, context, or LSP sidebar", false},
+	{"/pending", "Inspect saved local input intents, including deleted owners", true},
 	{"/permissions", "Inspect permission policy and grants", true},
 	{"/pwd", "Show this owner's host directory", true},
 	{"/queue", "Queue a prompt instead of steering", false},

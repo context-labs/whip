@@ -560,6 +560,7 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if value.err == nil {
 			m.stageRedraft(value.redraft)
+			m.clearPendingMemory(value.recoveryCleared)
 		}
 	case nativeCancelled:
 		if value.generation != m.generation {
@@ -701,8 +702,19 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *nativeModel) submit() tea.Cmd {
 	text := m.input.Value()
-	if strings.TrimSpace(text) == "" || !m.ready || m.sending || m.controlling {
+	if strings.TrimSpace(text) == "" || m.sending || m.controlling {
 		return nil
+	}
+	if !m.ready {
+		// A deleted/unavailable owner cannot trap its local recovery record.
+		// These explicit reads/local actions never resend an uncertain input.
+		switch strings.Fields(text)[0] {
+		case "/pending", "/check", "/sessions", "/resume", "/quit", "/exit", "/q":
+			return m.command(text)
+		default:
+			m.status = "Current owner unavailable. /pending inspects saved inputs; /sessions opens another owner. Your draft is kept."
+			return nil
+		}
 	}
 	if strings.HasPrefix(strings.TrimSpace(text), "/") {
 		return m.command(strings.TrimSpace(text))

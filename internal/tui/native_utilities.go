@@ -25,7 +25,8 @@ History: /older · /newer · /latest · /export [local path] · /copy [last|repl
 Edits: /stop · /start · /clear · /rewind [sequence] · /fork <title> · /fork-at <sequence> <title>
 Input: /queue <text> · /steer <text> · !<shell command>
 Images: /attach <client-local path> · /attach clipboard|check|retry|discard · Ctrl+V reads a clipboard image
-Recovery: /check · /retry · /rejected restore|discard · /redraft restore|replace|discard|clear-context
+Recovery: /pending list|inspect <owner>|check <owner>|forget <owner> <client ID> <request ID> <digest>
+/check · /retry · /rejected restore|discard · /redraft restore|replace|discard|clear-context
 Configuration: /model · /model-for-session · /effort [level|default] · /setup · /settings · /theme
 Context: /context-doctor [attempt ID] · /compact · /compact log|retry|off|model <model>|provider <provider>
 Goals: /goal [text|status|resume|clear] · /goal-from-context [2..100]

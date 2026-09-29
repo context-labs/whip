@@ -14,21 +14,22 @@ import (
 )
 
 type nativeControlResult struct {
-	redraft        *nativeRedraft
-	input          *client.InputCommand
-	generation     uint64
-	attach         *protocol.Session
-	picker         *nativeSessionPicker
-	label          string
-	mutation       bool
-	owner          *protocol.Session
-	policy         *protocol.PermissionPolicy
-	reset          bool
-	err            error
-	retry          tea.Cmd
-	inspectOnError bool
-	notice         string
-	decisionID     protocol.ID
+	recoveryCleared *client.InputCommand
+	redraft         *nativeRedraft
+	input           *client.InputCommand
+	generation      uint64
+	attach          *protocol.Session
+	picker          *nativeSessionPicker
+	label           string
+	mutation        bool
+	owner           *protocol.Session
+	policy          *protocol.PermissionPolicy
+	reset           bool
+	err             error
+	retry           tea.Cmd
+	inspectOnError  bool
+	notice          string
+	decisionID      protocol.ID
 }
 
 // control owns only this UI request. Its retry closure captures the original
@@ -75,6 +76,8 @@ func (m *nativeModel) command(text string) tea.Cmd {
 		return nil
 	}
 	switch name {
+	case "/pending":
+		return m.pendingCommand(args)
 	case "/panel":
 		return m.panelCommand(args)
 	case "/redraft":
