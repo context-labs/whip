@@ -100,6 +100,17 @@ export class Session {
     },
   };
   readonly turns = {
+    page: async (params: Page<'sessions.turns'> = {}, options: CallOptions = {}) => {
+      const limit = params.limit ?? 50;
+      const result = await this.client.call('sessions.turns', { ...params, limit, session_id: this.id }, options);
+      const ids = new Set<string>();
+      for (const turn of result.items) {
+        if (turn.session_id !== this.id || turn.id === params.before || ids.has(turn.id)) throw new TypeError('Turn page scope or identity mismatch');
+        ids.add(turn.id);
+      }
+      if (result.items.length > limit || result.next_cursor !== null && (result.items.length !== limit || result.next_cursor !== result.items.at(-1)?.id)) throw new TypeError('Turn page continuation mismatch');
+      return result;
+    },
     get: async (turnID: string, options: CallOptions = {}) => {
       const result = await this.client.call('turns.get', { turn_id: turnID }, options);
       if (result.session_id !== this.id) throw new TypeError('Turn belongs to another session');

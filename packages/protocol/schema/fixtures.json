@@ -2995,6 +2995,36 @@
     "valid": true
   },
   {
+    "type": "TurnPageParams",
+    "value": {
+      "session_id": "session_child",
+      "before": "turn_cursor",
+      "limit": 100
+    },
+    "valid": true
+  },
+  {
+    "type": "TurnPageResult",
+    "value": {
+      "items": [
+        {
+          "history_revision": "9007199254740993",
+          "goal": null,
+          "id": "turn_direct",
+          "session_id": "session_child",
+          "kind": "host_operation",
+          "config_revision": "9007199254740993",
+          "state": "succeeded",
+          "failure": null,
+          "started_at": "2026-09-27T12:00:00.123456Z",
+          "finished_at": "2026-09-27T12:00:00.123456Z"
+        }
+      ],
+      "next_cursor": "turn_direct"
+    },
+    "valid": true
+  },
+  {
     "type": "InputPageResult",
     "value": {
       "items": [

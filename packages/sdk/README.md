@@ -1,5 +1,12 @@
 # WHIP SDK v4
 
+`client.session(id).turns.page({ before, limit })` reads bounded canonical turn
+metadata, newest first, including direct human work with no transcript. The
+optional cursor is the last returned turn ID, scoped to that session; use
+`next_cursor` for another page. Reads do not claim queued inputs or hydrate their
+payloads. Each page reads current turn states, rather than promising one frozen
+execution snapshot across pages.
+
 This SDK talks directly to the new Go runtime. The retained product applications
 currently use `@whip/legacy-sdk`; their later cutover is tracked in
 [the redesign plan](../../docs/backend-redesign-plan.md).

@@ -409,6 +409,15 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 			value, err := r.Turn(ctx, session.TurnID(p.TurnID))
 			return protocol.TurnFromDomain(value), err
 		})
+	case "sessions.turns":
+		return decode(raw, func(p protocol.TurnPageParams) (any, error) {
+			var before session.TurnID
+			if p.Before != nil {
+				before = session.TurnID(*p.Before)
+			}
+			value, err := r.TurnPage(ctx, session.SessionID(p.SessionID), before, p.Limit)
+			return protocol.TurnPageFromDomain(value), err
+		})
 	case "turns.attempts":
 		return decode(raw, func(p protocol.ModelAttemptsParams) (any, error) {
 			var after session.ModelAttemptID

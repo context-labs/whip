@@ -9463,6 +9463,32 @@ export interface TurnOutputResult {
     data_base64: string;
   };
 }
+export interface TurnPageParams {
+  session_id: string;
+  before?: null | string;
+  limit: number;
+}
+export interface TurnPageResult {
+  /**
+   * @maxItems 100
+   */
+  items: {
+    history_revision: string;
+    goal: null | {
+      id: string;
+      revision: string;
+    };
+    id: string;
+    session_id: string;
+    kind: "prompt" | "compact" | "goal_formulation" | "automatic_title" | "host_operation";
+    config_revision: string;
+    state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
+    failure: null | string;
+    started_at: string;
+    finished_at: null | string;
+  }[];
+  next_cursor: null | string;
+}
 export interface TurnParams {
   turn_id: string;
 }
@@ -9925,6 +9951,8 @@ export interface ContractTypes {
   TreeSummariesResult: TreeSummariesResult;
   Turn: Turn;
   TurnOutputResult: TurnOutputResult;
+  TurnPageParams: TurnPageParams;
+  TurnPageResult: TurnPageResult;
   TurnParams: TurnParams;
   UnsubscribeStateParams: UnsubscribeStateParams;
   UpdateConfigurationParams: UpdateConfigurationParams;
@@ -10124,6 +10152,7 @@ export interface Operations {
   "sessions.lifecycle": { params: LifecycleParams; result: Session };
   "sessions.delete": { params: SessionParams; result: DeleteResult };
   "turns.get": { params: TurnParams; result: Turn };
+  "sessions.turns": { params: TurnPageParams; result: TurnPageResult };
   "turns.attempts": { params: ModelAttemptsParams; result: ModelAttemptsResult };
   "turns.cancel": { params: TurnParams; result: Turn };
   "sessions.activity": { params: SessionParams; result: SessionActivity };

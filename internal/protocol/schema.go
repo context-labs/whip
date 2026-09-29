@@ -208,6 +208,7 @@ func Operations() []Operation {
 		{"sessions.lifecycle", reflect.TypeFor[LifecycleParams](), reflect.TypeFor[Session]()},
 		{"sessions.delete", reflect.TypeFor[SessionParams](), reflect.TypeFor[DeleteResult]()},
 		{"turns.get", reflect.TypeFor[TurnParams](), reflect.TypeFor[Turn]()},
+		{"sessions.turns", reflect.TypeFor[TurnPageParams](), reflect.TypeFor[TurnPageResult]()},
 		{"turns.attempts", reflect.TypeFor[ModelAttemptsParams](), reflect.TypeFor[ModelAttemptsResult]()},
 		{"turns.cancel", reflect.TypeFor[TurnParams](), reflect.TypeFor[Turn]()},
 		{"sessions.activity", reflect.TypeFor[SessionParams](), reflect.TypeFor[SessionActivity]()},

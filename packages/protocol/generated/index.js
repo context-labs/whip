@@ -920,6 +920,11 @@ export const manifest = {
       "result": "Turn"
     },
     {
+      "name": "sessions.turns",
+      "params": "TurnPageParams",
+      "result": "TurnPageResult"
+    },
+    {
       "name": "turns.attempts",
       "params": "ModelAttemptsParams",
       "result": "ModelAttemptsResult"

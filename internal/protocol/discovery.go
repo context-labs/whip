@@ -66,7 +66,7 @@ func discoverySchema(schema *jsonschema.Schema, t reflect.Type) {
 	if t == reflect.TypeFor[TreeSummary]() {
 		schema.Properties["working_directory"].MaxLength = new(4096)
 	}
-	if t == reflect.TypeFor[ListTreesResult]() || t == reflect.TypeFor[ListDefinitionsResult]() {
+	if t == reflect.TypeFor[ListTreesResult]() || t == reflect.TypeFor[ListDefinitionsResult]() || t == reflect.TypeFor[TurnPageResult]() {
 		schema.Properties["items"].Type = "array"
 		schema.Properties["items"].Types = nil
 		schema.Properties["items"].MaxItems = new(100)

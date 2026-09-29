@@ -100,7 +100,7 @@ CREATE TABLE turns (
  CHECK(state <> 'succeeded' OR failure IS NULL)
 ) STRICT;
 CREATE INDEX goal_turns ON turns(goal_id,id) WHERE goal_id IS NOT NULL;
-CREATE INDEX turns_by_session_start ON turns(session_id,started_at DESC);
+CREATE INDEX turns_by_session_start ON turns(session_id,started_at DESC,id DESC);
 CREATE UNIQUE INDEX one_active_turn ON turns(session_id) WHERE state IN ('running','cancelling');
 CREATE TRIGGER turn_history_snapshot BEFORE INSERT ON turns
  WHEN NOT EXISTS(SELECT 1 FROM sessions WHERE id=NEW.session_id AND history_revision=NEW.history_revision)
