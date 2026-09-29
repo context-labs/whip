@@ -220,7 +220,14 @@ func (scope Scope) Forget(parent context.Context, number int, expected string) (
 	if err := ctx.Err(); err != nil {
 		return Snapshot{}, err
 	}
-	lock, err := scope.store.root.OpenFile(".write.lock", os.O_CREATE|os.O_RDWR, 0o600)
+	// Concurrent non-exclusive O_CREATE can return ENOENT on Darwin while
+	// another opener creates the same name. Elect one creator; other writers
+	// open its existing inode. NONBLOCK also prevents a substituted FIFO from
+	// blocking before the regular-file and identity checks below.
+	lock, err := scope.store.root.OpenFile(".write.lock", os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
+	if errors.Is(err, os.ErrExist) {
+		lock, err = scope.store.root.OpenFile(".write.lock", os.O_RDWR|syscall.O_NONBLOCK, 0)
+	}
 	if err != nil {
 		return Snapshot{}, err
 	}

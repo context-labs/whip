@@ -124,6 +124,12 @@ func TestForgetPreservesMarkdownAndRequiresTheListedRevision(t *testing.T) {
 }
 
 func TestConcurrentStoresCannotOverwriteTheSameListedRevision(t *testing.T) {
+	for range 16 {
+		t.Run("first_use", concurrentStores)
+	}
+}
+
+func concurrentStores(t *testing.T) {
 	home, first := fixture(t)
 	second, err := Open(home)
 	if err != nil {
@@ -241,5 +247,42 @@ func TestClientNamespaceDoesNotFollowARetiredDirectoryLink(t *testing.T) {
 	files, err := os.ReadDir(retired)
 	if err != nil || len(files) != 0 {
 		t.Fatal("retired runtime changed", files, err)
+	}
+}
+
+func TestExistingLockMustBeARegularFile(t *testing.T) {
+	for _, kind := range []string{"symlink", "fifo"} {
+		t.Run(kind, func(t *testing.T) {
+			_, store := fixture(t)
+			scope := store.Installation()
+			before, err := scope.Read(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := "- [ ] preserve\n"
+			if err := os.WriteFile(before.Path, []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			before, err = scope.Read(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			lockPath := filepath.Join(store.directory, ".write.lock")
+			if kind == "symlink" {
+				err = os.Symlink("installation.md", lockPath)
+			} else {
+				err = syscall.Mkfifo(lockPath, 0o600)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := scope.Forget(t.Context(), 1, before.Revision); err == nil {
+				t.Fatal("unsafe lock accepted")
+			}
+			raw, err := os.ReadFile(before.Path)
+			if err != nil || string(raw) != body {
+				t.Fatal("notes changed", string(raw), err)
+			}
+		})
 	}
 }
