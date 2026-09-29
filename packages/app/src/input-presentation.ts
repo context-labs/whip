@@ -145,7 +145,7 @@ export function queuedInputRows(
   const rows: QueuedInputRow[] = inbox.filter(({ item }) => item.source === 'user' && item.state === 'queued').map(({ item, stale }) => {
     const local = submitted.find(input => matchesInput(input, item));
     return { id: inboxInputId(item, local), text: local?.preview?.text ?? local?.text ?? admittedText(item),
-      status: stale ? 'Checking queue…' : 'Queued', item, preview: local?.preview, stale };
+      status: stale ? 'Checking queue…' : item.steering ? 'Steering' : 'Queued', item, preview: local?.preview, stale };
   });
   for (const input of submitted) {
     if (!input.queued || input.confirmed || inbox.some(({ item }) => matchesInput(input, item))) continue;
