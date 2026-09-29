@@ -595,3 +595,6 @@ export { Session } from './session.js';
 export { Trees, Sessions, Hosts } from './services.js';
 
 export type { Session as SessionRecord } from '@whip/protocol';
+
+export { framedTransport } from './framed.js';
+export type { FramedConnection, FrameHandlers, FramedConnector } from './framed.js';
