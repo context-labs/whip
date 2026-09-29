@@ -17,7 +17,8 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/buildinfo"
-	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/localruntime"
+	"golang.org/x/sys/unix"
 )
 
 const desktopBinaryLimit = 512 << 20
@@ -65,6 +66,9 @@ func desktopRuntimeSyncCLI(args []string, output io.Writer) error {
 
 func syncDesktopRuntime(ctx context.Context, source string, options desktopSyncOptions) (desktopSyncResult, error) {
 	result := desktopSyncResult{BuildID: version, Executable: options.executable}
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
 	if !filepath.IsAbs(options.executable) || strings.ContainsAny(options.executable, "\x00\r\n") || len(options.executable) > 2048 {
 		return result, errors.New("choose an absolute canonical executable path")
 	}
@@ -84,11 +88,16 @@ func syncDesktopRuntime(ctx context.Context, source string, options desktopSyncO
 		return result, err
 	}
 	defer func() { _ = os.Remove(staged) }()
-	paths, err := daemonRuntimePaths()
+	paths, err := nativeRuntimePaths()
 	if err != nil {
 		return result, err
 	}
-	maintenance, err := daemon.AcquireMaintenance(paths)
+	launch, err := nativeRuntimeLaunch()
+	if err != nil {
+		return result, err
+	}
+	launch.Executable = options.executable
+	maintenance, err := localruntime.AcquireMaintenance(ctx, paths)
 	if err != nil {
 		return result, err
 	}
@@ -100,68 +109,79 @@ func syncDesktopRuntime(ctx context.Context, source string, options desktopSyncO
 	if actual != options.expected && actual != options.digest {
 		return result, errors.New("the installed executable changed outside this update; choose or reinstall it explicitly")
 	}
-	status, client := probeDaemon(paths, time.Second)
-	if client != nil {
-		_ = client.Close()
+	status := localruntime.Inspect(ctx, paths)
+	if status.State == "unhealthy" {
+		return result, fmt.Errorf("cannot update an unverified native runtime: %s", status.Error)
 	}
-	if actual == options.digest && status.State == "running" && status.BuildMatch {
+	if actual == options.digest && status.Process != nil && status.Process.Build == version {
 		result.State = "ready"
 		return result, nil
 	}
-	_, owned, err := daemon.ActiveOwnerPID(paths.Lock)
-	if err != nil {
-		return result, err
-	}
-	if owned && !options.interrupt {
+	if status.Process != nil && !options.interrupt {
 		result.State = "approval-required"
 		return result, nil
 	}
-	if err := stopDesktopOwner(ctx, paths); err != nil {
-		return result, err
+	if status.Process != nil && status.Process.PID == os.Getpid() {
+		return result, errors.New("refusing to stop the updater itself")
+	}
+	if status.Process != nil {
+		if err := maintenance.Stop(ctx, *status.Process); err != nil {
+			return result, err
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
+	if current := localruntime.Inspect(ctx, paths); current.State != "stopped" {
+		return result, errors.New("native runtime owner changed while stopping; no replacement was made")
+	}
+	if current, err := desktopBinaryDigest(options.executable); err != nil || current != actual {
+		return result, errors.New("canonical executable changed while stopping; no replacement was made")
+	}
 	if actual != options.digest {
-		// The source was copied, verified and fsynced before stopping any work.
-		// Every supported starter/updater is excluded until readiness below.
+		// Payload integrity and launch exclusion are established before shutdown.
 		if err := os.Rename(staged, options.executable); err != nil {
 			return result, fmt.Errorf("replace canonical executable: %w", err)
 		}
+		fd, err := unix.Open(parent, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		if err != nil {
+			return result, err
+		}
+		directory := os.NewFile(uintptr(fd), parent)
+		if err := errors.Join(directory.Sync(), directory.Close()); err != nil {
+			return result, err
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	if err := daemon.LaunchInstalledDaemon(paths, options.executable, maintenance); err != nil {
-		return result, fmt.Errorf("start updated backend: %w", err)
+	status, err = maintenance.Start(ctx, launch)
+	if err != nil {
+		return result, fmt.Errorf("updated backend readiness is unconfirmed; inspect %s and retry explicitly: %w", paths.Log, err)
 	}
-	for {
-		status, client := probeDaemon(paths, 250*time.Millisecond)
-		if client != nil {
-			_ = client.Close()
-			if !status.BuildMatch {
-				return result, errors.New("updated backend reported an unexpected build")
-			}
-			result.State = "ready"
-			return result, nil
-		}
-		select {
-		case <-ctx.Done():
-			return result, fmt.Errorf("updated backend did not become ready; inspect %s and retry: %w", status.Log, ctx.Err())
-		case <-time.After(50 * time.Millisecond):
-		}
+	if status.Process == nil || status.Process.Build != version {
+		return result, errors.New("updated backend reported an unexpected build")
 	}
+	result.State = "ready"
+	return result, nil
+}
+
+func openDesktopBinary(name string) (*os.File, os.FileInfo, error) {
+	fd, err := unix.Open(name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	file := os.NewFile(uintptr(fd), name)
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() < 1 || info.Size() > desktopBinaryLimit {
+		_ = file.Close()
+		return nil, nil, errors.Join(err, errors.New("backend must be a bounded regular file, not a symlink"))
+	}
+	return file, info, nil
 }
 
 func desktopBinaryDigest(name string) (string, error) {
-	info, err := os.Lstat(name)
-	if err != nil {
-		return "", err
-	}
-	if !info.Mode().IsRegular() || info.Size() < 1 || info.Size() > desktopBinaryLimit {
-		return "", errors.New("backend must be a bounded regular file, not a symlink")
-	}
-	file, err := os.Open(name) //nolint:gosec // explicit canonical/source path validated above.
+	file, info, err := openDesktopBinary(name)
 	if err != nil {
 		return "", err
 	}
@@ -179,7 +199,7 @@ func stageDesktopRuntime(ctx context.Context, source, parent, expected string) (
 	if err != nil || actual != expected {
 		return "", errors.New("bundled backend failed integrity verification")
 	}
-	input, err := os.Open(source) //nolint:gosec // verified bundled executable.
+	input, _, err := openDesktopBinary(source)
 	if err != nil {
 		return "", err
 	}
@@ -213,37 +233,4 @@ func stageDesktopRuntime(ctx context.Context, source, parent, expected string) (
 	}
 	success = true
 	return name, nil
-}
-
-func stopDesktopOwner(ctx context.Context, paths daemon.RuntimePaths) error {
-	pid, owned, err := daemon.ActiveOwnerPID(paths.Lock)
-	if err != nil || !owned {
-		return err
-	}
-	if pid == os.Getpid() {
-		return errors.New("refusing to stop the updater itself")
-	}
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return err
-	}
-	// SIGTERM follows the daemon's normal graceful shutdown even when the new
-	// release changes the application protocol. Never escalate to SIGKILL here.
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := process.Signal(syscall.SIGTERM); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return fmt.Errorf("stop backend owner: %w", err)
-	}
-	for {
-		_, owned, err := daemon.ActiveOwnerPID(paths.Lock)
-		if err != nil || !owned {
-			return err
-		}
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("backend is still stopping; no binary was replaced: %w", ctx.Err())
-		case <-time.After(25 * time.Millisecond):
-		}
-	}
 }

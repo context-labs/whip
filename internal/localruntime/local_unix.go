@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -95,33 +96,65 @@ type Launch struct {
 func Start(ctx context.Context, paths Paths, launch Launch) (Status, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	if err := ctx.Err(); err != nil {
+	if err := validateLaunch(launch); err != nil {
 		return Status{}, err
 	}
-	if err := validatePaths(paths); err != nil {
+	maintenance, err := AcquireMaintenance(ctx, paths)
+	if err != nil {
 		return Status{}, err
 	}
+	defer func() { _ = maintenance.Close() }()
+	return maintenance.Start(ctx, launch)
+}
+
+func validateLaunch(launch Launch) error {
 	if !filepath.IsAbs(launch.Executable) || len(launch.Arguments) > 64 || len(launch.Build) > 256 {
-		return Status{}, errors.New("invalid runtime launch")
+		return errors.New("invalid runtime launch")
 	}
 	size := 0
 	for _, arg := range launch.Arguments {
 		size += len(arg)
 	}
 	if size > 32<<10 {
-		return Status{}, errors.New("runtime arguments exceed 32 KiB")
+		return errors.New("runtime arguments exceed 32 KiB")
+	}
+	return nil
+}
+
+// Maintenance excludes other supported starters while a staged replacement is
+// inspected and activated. It grants no authority to stop an unverifiable host.
+// Close releases the launch lease; concurrent Close waits for Start to settle.
+type Maintenance struct {
+	mu    sync.Mutex
+	paths Paths
+	file  *os.File
+}
+
+func AcquireMaintenance(ctx context.Context, paths Paths) (*Maintenance, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := validatePaths(paths); err != nil {
+		return nil, err
 	}
 	if err := os.MkdirAll(paths.Directory, 0o700); err != nil {
-		return Status{}, err
+		return nil, err
 	}
 	if err := validateDirectory(paths.Directory); err != nil {
-		return Status{}, err
+		return nil, err
 	}
 	lock, err := privateFile(filepath.Join(paths.Directory, "launch.lock"), unix.O_CREAT|unix.O_RDWR)
 	if err != nil {
-		return Status{}, err
+		return nil, err
 	}
-	defer func() { _ = lock.Close() }()
+	locked := false
+	defer func() {
+		if !locked {
+			_ = lock.Close()
+		}
+	}()
 	ticker := time.NewTicker(25 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -130,15 +163,60 @@ func Start(ctx context.Context, paths Paths, launch Launch) (Status, error) {
 			break
 		}
 		if !errors.Is(err, unix.EWOULDBLOCK) {
-			return Status{}, err
+			return nil, err
 		}
 		select {
 		case <-ctx.Done():
-			return Status{}, ctx.Err()
+			return nil, ctx.Err()
 		case <-ticker.C:
 		}
 	}
-	defer func() { _ = unix.Flock(int(lock.Fd()), unix.LOCK_UN) }()
+	locked = true
+	return &Maintenance{paths: paths, file: lock}, nil
+}
+
+func (m *Maintenance) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.file == nil {
+		return nil
+	}
+	err := m.file.Close()
+	m.file = nil
+	return err
+}
+
+// Stop stops exactly the previously inspected runtime epoch while retaining
+// launch exclusion. A replacement owner must be observed and selected anew.
+func (m *Maintenance) Stop(ctx context.Context, selected protocol.HostStatus) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.file == nil {
+		return errors.New("native runtime maintenance lease is closed")
+	}
+	_, err := stopSelected(ctx, m.paths, selected)
+	return err
+}
+
+// Start uses the held launch lease. A failed readiness observation never
+// terminates the detached process or launches a second process automatically.
+func (m *Maintenance) Start(ctx context.Context, launch Launch) (Status, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.file == nil {
+		return Status{}, errors.New("native runtime maintenance lease is closed")
+	}
+	if err := ctx.Err(); err != nil {
+		return Status{}, err
+	}
+	if err := validateLaunch(launch); err != nil {
+		return Status{}, err
+	}
+	paths := m.paths
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
 	status := Inspect(ctx, paths)
 	if status.State == "running" {
 		return status, nil
@@ -190,6 +268,9 @@ func Start(ctx context.Context, paths Paths, launch Launch) (Status, error) {
 func Stop(ctx context.Context, paths Paths) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	status := Inspect(ctx, paths)
 	if status.State == "stopped" {
 		return false, nil
@@ -197,7 +278,15 @@ func Stop(ctx context.Context, paths Paths) (bool, error) {
 	if status.Process == nil {
 		return false, fmt.Errorf("cannot safely stop an unverified native runtime: %s", status.Error)
 	}
-	selected := *status.Process
+	return stopSelected(ctx, paths, *status.Process)
+}
+
+func stopSelected(ctx context.Context, paths Paths, selected protocol.HostStatus) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	c, err := client.Connect(ctx, paths.Socket, &selected.RuntimeID)
 	if err != nil {
 		return true, err
