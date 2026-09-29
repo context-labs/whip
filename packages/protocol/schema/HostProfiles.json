@@ -1,0 +1,54 @@
+{
+  "type": "object",
+  "properties": {
+    "revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "profiles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "name": {
+            "type": "string",
+            "pattern": "^[^\\x00-\\x1f\\x7f]{1,256}$"
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 2048,
+            "pattern": "^https?://[A-Za-z0-9._:\\[\\]-]+/?$"
+          },
+          "runtime_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "connect_on_launch": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "url",
+          "runtime_id",
+          "connect_on_launch"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 16
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/HostProfiles",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HostProfiles",
+  "required": [
+    "revision",
+    "profiles"
+  ],
+  "additionalProperties": false
+}

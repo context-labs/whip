@@ -1,5 +1,29 @@
 [
   {
+    "type": "HostProfiles",
+    "value": {
+      "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "profiles": [
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test:8443/",
+          "runtime_id": "runtime_remote",
+          "connect_on_launch": true
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "type": "SetHostProfilesParams",
+    "value": {
+      "expected_revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "profiles": []
+    },
+    "valid": true
+  },
+  {
     "type": "Input",
     "value": {
       "host_operation": {
@@ -3381,6 +3405,158 @@
       "finished_at": null
     },
     "valid": true
+  },
+  {
+    "type": "SetHostProfilesParams",
+    "value": {
+      "expected_revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "profiles": null
+    },
+    "valid": false
+  },
+  {
+    "type": "SetHostProfilesParams",
+    "value": {
+      "expected_revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "profiles": [
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        },
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://example.test",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "type": "SetHostProfilesParams",
+    "value": {
+      "expected_revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "profiles": [
+        {
+          "id": "remote",
+          "name": "Remote",
+          "url": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "runtime_id": "runtime",
+          "connect_on_launch": false
+        }
+      ]
+    },
+    "valid": false
   },
   {
     "type": "UpdateConfigurationParams",

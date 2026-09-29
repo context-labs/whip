@@ -3,7 +3,7 @@ import type { Admission, InitializeResult, Operations, RequestIdentity, SessionO
 import { delay } from './value.js';
 import { Session } from './session.js';
 import { Agents } from './agents.js';
-import { Trees, Sessions } from './services.js';
+import { Trees, Sessions, Hosts } from './services.js';
 import { DurableCommand } from './command.js';
 import type { DurableMethod, RecoveryJournal } from './command.js';
 import { decodeResponse, operation, RemoteError } from './wire.js';
@@ -18,6 +18,7 @@ export class Client {
   private sequence = 0;
   readonly trees = new Trees(this);
   readonly agents = new Agents(this);
+  readonly hosts = new Hosts(this);
   readonly sessions = new Sessions(this);
   session(sessionID: string): Session { return this.sessions.handle(sessionID); }
   private constructor(private readonly transport: Transport, private readonly initial: InitializeResult, readonly clientID: string) {}
@@ -591,6 +592,6 @@ export { DurableCommand, RecoveryJournal, RecoveryError, RecoveryPersistenceErro
 export type { DurableMethod, RecoveryRecord, RecoveryStorage, RecoveryCheck, RecoveryEvidence } from './command.js';
 
 export { Session } from './session.js';
-export { Trees, Sessions } from './services.js';
+export { Trees, Sessions, Hosts } from './services.js';
 
 export type { Session as SessionRecord } from '@whip/protocol';

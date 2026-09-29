@@ -161,6 +161,8 @@ func Operations() []Operation {
 		{"permissions.policy", reflect.TypeFor[SessionParams](), reflect.TypeFor[PermissionPolicy]()},
 		{"permissions.set_mode", reflect.TypeFor[SetPermissionModeParams](), reflect.TypeFor[PermissionModeEdit]()},
 		{"permissions.mode_edit", reflect.TypeFor[PermissionModeEditParams](), reflect.TypeFor[PermissionModeEdit]()},
+		{"host.profiles", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostProfiles]()},
+		{"host.set_profiles", reflect.TypeFor[SetHostProfilesParams](), reflect.TypeFor[HostProfiles]()},
 		{"host.permission_default", reflect.TypeFor[EmptyParams](), reflect.TypeFor[DefaultPermissionMode]()},
 		{"host.set_permission_default", reflect.TypeFor[SetDefaultPermissionModeParams](), reflect.TypeFor[DefaultPermissionMode]()},
 		{"questions.get", reflect.TypeFor[QuestionParams](), reflect.TypeFor[Question]()},
@@ -290,6 +292,14 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 			refs.Types = nil
 			refs.MaxItems = new(session.MaxOperationAttachments)
 			refs.UniqueItems = true
+		}
+		if t == reflect.TypeFor[HostProfiles]() || t == reflect.TypeFor[SetHostProfilesParams]() {
+			schema.Properties["profiles"].Type = "array"
+			schema.Properties["profiles"].Types = nil
+			schema.Properties["profiles"].MaxItems = new(16)
+		}
+		if t == reflect.TypeFor[HostProfile]() {
+			schema.Properties["url"].MaxLength = new(2048)
 		}
 		accountSchema(schema, t)
 		if t == reflect.TypeFor[WorkspaceSnapshotsResult]() {

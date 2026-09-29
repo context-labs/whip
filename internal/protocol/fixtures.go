@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/context-labs/whip/internal/session"
@@ -68,6 +69,8 @@ func Fixtures() ([]Fixture, error) {
 		name  string
 		value any
 	}{
+		{"HostProfiles", HostProfiles{Revision: ref.Revision, Profiles: []HostProfile{{ID: "remote", Name: "Remote", URL: "https://example.test:8443/", RuntimeID: "runtime_remote", ConnectOnLaunch: true}}}},
+		{"SetHostProfilesParams", SetHostProfilesParams{ExpectedRevision: ref.Revision, Profiles: []HostProfile{}}},
 		{"Input", directInput},
 		{"HostAttentionParams", HostAttentionParams{Limit: 100, MaxBytes: 524288}},
 		{"TracePageParams", TracePageParams{RootID: "session_root", After: 9007199254740993, ExpectedRevision: new(Counter(9007199254740999)), Limit: 2048, MaxBytes: 524288}},
@@ -267,6 +270,20 @@ func Fixtures() ([]Fixture, error) {
 			return nil, err
 		}
 		result = append(result, Fixture{Type: value.name, Value: raw, Valid: true})
+	}
+	profile := HostProfile{ID: "remote", Name: "Remote", URL: "https://example.test", RuntimeID: "runtime"}
+	tooMany := make([]HostProfile, 17)
+	for index := range tooMany {
+		tooMany[index] = profile
+	}
+	badURL := profile
+	badURL.URL = "https://" + strings.Repeat("a", 2048)
+	for _, profiles := range [][]HostProfile{nil, tooMany, {badURL}} {
+		raw, err := json.Marshal(SetHostProfilesParams{ExpectedRevision: ref.Revision, Profiles: profiles})
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, Fixture{Type: "SetHostProfilesParams", Value: raw, Valid: false})
 	}
 	for _, test := range []struct {
 		raw   string

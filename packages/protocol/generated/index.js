@@ -685,6 +685,16 @@ export const manifest = {
       "result": "PermissionModeEdit"
     },
     {
+      "name": "host.profiles",
+      "params": "EmptyParams",
+      "result": "HostProfiles"
+    },
+    {
+      "name": "host.set_profiles",
+      "params": "SetHostProfilesParams",
+      "result": "HostProfiles"
+    },
+    {
       "name": "host.permission_default",
       "params": "EmptyParams",
       "result": "DefaultPermissionMode"

@@ -2583,6 +2583,19 @@ export interface HostOperationsResult {
           }
       )[];
 }
+export interface HostProfiles {
+  revision: string;
+  /**
+   * @maxItems 16
+   */
+  profiles: {
+    id: string;
+    name: string;
+    url: string;
+    runtime_id: string;
+    connect_on_launch: boolean;
+  }[];
+}
 export interface HostSkillsParams {
   scope: "global" | "project";
   cwd: string;
@@ -7353,6 +7366,19 @@ export interface SetDefaultPermissionModeParams {
   expected_revision: string;
   mode: "prompt" | "automatic";
 }
+export interface SetHostProfilesParams {
+  expected_revision: string;
+  /**
+   * @maxItems 16
+   */
+  profiles: {
+    id: string;
+    name: string;
+    url: string;
+    runtime_id: string;
+    connect_on_launch: boolean;
+  }[];
+}
 export interface SetPermissionModeParams {
   edit_id: string;
   session_id: string;
@@ -8386,6 +8412,7 @@ export interface ContractTypes {
   HostOperationParams: HostOperationParams;
   HostOperationsParams: HostOperationsParams;
   HostOperationsResult: HostOperationsResult;
+  HostProfiles: HostProfiles;
   HostSkillsParams: HostSkillsParams;
   HostSkillsResult: HostSkillsResult;
   HostThemeResolveParams: HostThemeResolveParams;
@@ -8503,6 +8530,7 @@ export interface ContractTypes {
   SessionParams: SessionParams;
   SetBudgetParams: SetBudgetParams;
   SetDefaultPermissionModeParams: SetDefaultPermissionModeParams;
+  SetHostProfilesParams: SetHostProfilesParams;
   SetPermissionModeParams: SetPermissionModeParams;
   SetResourceParams: SetResourceParams;
   ShellInputParams: ShellInputParams;
@@ -8691,6 +8719,8 @@ export interface Operations {
   "permissions.policy": { params: SessionParams; result: PermissionPolicy };
   "permissions.set_mode": { params: SetPermissionModeParams; result: PermissionModeEdit };
   "permissions.mode_edit": { params: PermissionModeEditParams; result: PermissionModeEdit };
+  "host.profiles": { params: EmptyParams; result: HostProfiles };
+  "host.set_profiles": { params: SetHostProfilesParams; result: HostProfiles };
   "host.permission_default": { params: EmptyParams; result: DefaultPermissionMode };
   "host.set_permission_default": { params: SetDefaultPermissionModeParams; result: DefaultPermissionMode };
   "questions.get": { params: QuestionParams; result: Question };

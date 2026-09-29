@@ -141,6 +141,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return dispatchBudget(ctx, r, method, raw)
 	case "sessions.observe":
 		return dispatchObservation(ctx, r, raw)
+	case "host.profiles", "host.set_profiles":
+		return dispatchHostProfiles(ctx, r, method, raw)
 	case "permissions.policy", "permissions.set_mode", "permissions.mode_edit", "host.permission_default", "host.set_permission_default":
 		return dispatchPermissionMode(ctx, r, method, raw)
 	case "questions.get", "questions.list", "questions.answer":
