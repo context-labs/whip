@@ -3,12 +3,13 @@ import type { RecoveryRecord } from '@whip/sdk';
 
 export const mobileDurableMethods = ['trees.create', 'sessions.submit', 'sessions.compact', 'sessions.spawn', 'sessions.fork', 'sessions.rewind', 'permissions.set_mode', 'inputs.steer'] as const;
 export type MobileDurableMethod = typeof mobileDurableMethods[number];
+export type MobileMetadataMethod = MobileDurableMethod | 'permissions.resolve' | 'questions.answer';
 export interface RecoveryMetadata {
   version: 4;
   runtimeId: string;
   clientId: string;
   commandId: string;
-  operation: MobileDurableMethod;
+  operation: MobileMetadataMethod;
   requestHash: string;
   rootId?: string;
   sessionId?: string;
@@ -46,7 +47,7 @@ function id(value: unknown): asserts value is string {
 export function validateMetadata(value: StoredMetadata): StoredMetadata {
   if (!value || typeof value !== 'object' || Object.keys(value).sort().join() !== 'intent,knownAccepted,record' || typeof value.knownAccepted !== 'boolean') throw new TypeError('Invalid mobile recovery envelope');
   const { record, intent } = value;
-  if (!record || record.version !== 4 || Object.keys(record).some(field => !(fields as readonly string[]).includes(field)) || !mobileDurableMethods.includes(record.operation)) throw new TypeError('Unsupported mobile recovery metadata');
+  if (!record || record.version !== 4 || Object.keys(record).some(field => !(fields as readonly string[]).includes(field)) || ![...mobileDurableMethods, 'permissions.resolve', 'questions.answer'].includes(record.operation)) throw new TypeError('Unsupported mobile recovery metadata');
   for (const field of ['runtimeId', 'clientId', 'commandId'] as const) id(record[field]);
   for (const field of ['rootId', 'sessionId', 'inputId', 'turnId'] as const) if (record[field] !== undefined) id(record[field]);
   if (typeof record.requestHash !== 'string' || !/^[a-f0-9]{64}$/.test(record.requestHash)) throw new TypeError('Invalid mobile recovery fingerprint');

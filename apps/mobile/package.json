@@ -9,8 +9,6 @@
     "@shopify/flash-list": "2.0.2",
     "@tanstack/react-query": "5.102.8",
     "@whip/app": "0.1.0",
-    "@whip/legacy-protocol": "3.0.0",
-    "@whip/legacy-sdk": "0.1.0",
     "@whip/ui": "0.1.0",
     "expo": "~57.0.20",
     "expo-clipboard": "~57.0.1",
@@ -49,7 +47,7 @@
     "typescript": "6.0.3"
   },
   "scripts": {
-    "eas-build-post-install": "npm run build -w @whip/sdk && npm run build -w @whip/legacy-sdk",
+    "eas-build-post-install": "npm run build -w @whip/sdk",
     "start": "expo start --dev-client",
     "ios": "expo run:ios",
     "android": "expo run:android",

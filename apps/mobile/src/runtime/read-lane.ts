@@ -8,6 +8,7 @@ export class ReadLane {
       const start = () => { signal.removeEventListener('abort', abort); this.active++; resolve(); };
       const abort = () => { this.queue = this.queue.filter(entry => entry !== start); reject(new Error('Read cancelled')); };
       if (this.active < 2) start();
+      else if (this.queue.length >= 16) reject(new Error('Too many pending host reads. Try again after the current reads finish.'));
       else { this.queue.push(start); signal.addEventListener('abort', abort, { once: true }); }
     });
     try { if (signal.aborted) throw new Error('Read cancelled'); return await read(); }

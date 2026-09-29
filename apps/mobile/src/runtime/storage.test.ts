@@ -1,7 +1,7 @@
 /// <reference types="node" />
 /** @jest-environment node */
 import { DatabaseSync } from 'node:sqlite';
-import type { RecoveryRecord } from '@whip/legacy-sdk';
+import type { RetiredRecoveryRecord as RecoveryRecord } from './storage';
 import { SqliteMobileStorage, type StorageDatabase, type Draft } from './storage';
 
 function fixture() {

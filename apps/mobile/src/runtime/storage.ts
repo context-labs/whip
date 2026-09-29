@@ -1,5 +1,10 @@
-import type { RecoveryRecord, RecoveryStorage } from '@whip/legacy-sdk';
 import { metadataKey, validateMetadata, type MetadataStorage, type RecoveryMetadata, type StoredMetadata } from './recovery-metadata';
+
+/** Opaque metadata from the retired mobile journal. Preserved for explicit local
+ * inspection/removal only; no native command is ever reconstructed from it. */
+export interface RetiredRecoveryRecord { readonly version: 1; readonly runtimeId: string; readonly clientId: string; readonly commandId: string; readonly operation: string; readonly rootId?: string }
+interface RetiredRecoveryStorage { list(): Promise<readonly RetiredRecoveryRecord[]>; put(record: RetiredRecoveryRecord): Promise<void>; delete(record: RetiredRecoveryRecord): Promise<void> }
+
 
 export type StorageBucket = 'hosts' | 'settings' | 'drafts' | 'bookmarks' | 'themes';
 export interface Draft { text: string; revision: string }
@@ -11,9 +16,9 @@ export interface CommandIntent {
   workflowId?: string;
   step?: string;
 }
-export type PermissionRecoveryRecord = Omit<RecoveryRecord, 'operation'> & { operation: 'permission.decide' };
-type DurableRecord = RecoveryRecord | PermissionRecoveryRecord;
-export interface StoredRecovery<R extends DurableRecord = RecoveryRecord> {
+export type PermissionRecoveryRecord = Omit<RetiredRecoveryRecord, 'operation'> & { operation: 'permission.decide' };
+type DurableRecord = RetiredRecoveryRecord | PermissionRecoveryRecord;
+export interface StoredRecovery<R extends DurableRecord = RetiredRecoveryRecord> {
   record: R;
   intent?: CommandIntent;
   knownAccepted: boolean;
@@ -27,7 +32,7 @@ export interface MobileStorage {
   clearDraft(key: string, expectedRevision: string): Promise<boolean>;
   prepareIntent(commandId: string, intent: CommandIntent): void;
   discardIntent(commandId: string): void;
-  recoveryStorage: RecoveryStorage;
+  recoveryStorage: RetiredRecoveryStorage;
   nativeRecovery: MetadataStorage;
   listRecovery(): Promise<StoredRecovery[]>;
   markAccepted(record: DurableRecord): Promise<void>;
@@ -119,7 +124,7 @@ export class SqliteMobileStorage implements MobileStorage {
   private closing?: Promise<void>;
   private failure?: StorageError;
   private intents = new Map<string, CommandIntent>();
-  readonly recoveryStorage: RecoveryStorage = {
+  readonly recoveryStorage: RetiredRecoveryStorage = {
     list: async () => (await this.listRecovery()).map(({ record }) => record),
     put: (record) => this.putRecovery(record),
     delete: (record) => this.deleteRecovery(record),

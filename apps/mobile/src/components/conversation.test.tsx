@@ -5,11 +5,11 @@ import { BodyInspector, ConversationRow } from './conversation';
 import { TEXT_PAGE_SIZE, TEXT_PREVIEW_SIZE } from './paged-text';
 
 const mockReport = jest.fn();
-const mockReadJSON = jest.fn(async () => ({}));
-const mockContent = jest.fn(() => ({ readJSON: mockReadJSON }));
+const mockContent = jest.fn(async () => '');
+jest.mock('../features/content', () => ({ readMobileContent: (...args: unknown[]) => mockContent(...args as []) }));
 const mockUseQuery = jest.fn();
 jest.mock('../runtime/context', () => ({ useRuntime: () => ({ report: mockReport }),
-  useRuntimeState: () => ({ client: { content: mockContent }, host: { runtimeId: 'runtime' }, ready: true, active: true }) }));
+  useRuntimeState: () => ({ client: { runtimeID: 'runtime' }, host: { runtimeId: 'runtime', url: 'https://host.example' }, ready: true, active: true }) }));
 jest.mock('@tanstack/react-query', () => ({ useQuery: (options: unknown) => mockUseQuery(options) }));
 jest.mock('expo-clipboard', () => ({ setStringAsync: jest.fn(async () => {}) }));
 jest.mock('../theme/theme', () => jest.requireActual('../theme/theme'));
@@ -41,7 +41,7 @@ test('collapsed and expanded tool arguments/output stay bounded while explicit C
 });
 
 test('a completed body-only tool says retained on host and opening stays explicit', async () => {
-  const row = { id: 'retained', role: 'tool', text: '', body: { reference_id: 'body' } } as TimelineRow;
+  const row = { id: 'retained', role: 'tool', text: '', body: { id: 'body', session_id: 'agent', digest: 'a'.repeat(64), size: '0', media_type: 'text/plain', created_at: '' } } as TimelineRow;
   const inspect = jest.fn();
   const screen = await render(<ConversationRow row={row} onInspect={inspect} />);
   expect(screen.getByText('Full message retained on host. Open full message to inspect.')).toBeOnTheScreen();
@@ -49,23 +49,23 @@ test('a completed body-only tool says retained on host and opening stays explici
   expect(screen.getByLabelText('Copy message')).toBeDisabled();
   await fireEvent.press(screen.getByText('Show details'));
   expect(mockContent).not.toHaveBeenCalled();
-  await fireEvent.press(screen.getByText('Open full message'));
+  await fireEvent.press(screen.getByText('Inspect retained content'));
   expect(inspect).toHaveBeenCalledWith(row);
 });
 
 test('explicit body inspection pages its bounded response, preserves full Copy and resets for a new body', async () => {
   const text = 'retained body '.repeat(12_000);
-  mockUseQuery.mockReturnValue({ data: { content: text }, isFetching: false });
-  const row = { id: 'retained', role: 'assistant', text: '', body: { reference_id: 'body' } } as TimelineRow;
+  mockUseQuery.mockReturnValue({ data: text, isFetching: false });
+  const row = { id: 'retained', role: 'assistant', text: '', body: { id: 'body', session_id: 'agent', digest: 'a'.repeat(64), size: '0', media_type: 'text/plain', created_at: '' } } as TimelineRow;
   const screen = await render(<BodyInspector row={row} rootId="root" agentId="agent" />);
   expect(screen.getByTestId('source-text-page').props.children.length).toBeLessThanOrEqual(TEXT_PAGE_SIZE);
   const query = mockUseQuery.mock.calls[0][0];
   const signal = new AbortController().signal;
   await act(async () => { await query.queryFn({ signal }); });
-  expect(mockReadJSON).toHaveBeenCalledWith({ maxBytes: 256 << 10, signal });
+  expect(mockContent).toHaveBeenCalledWith(expect.anything(), 'https://host.example', 'agent', row.body, signal);
   await fireEvent.press(screen.getByLabelText('Next text page'));
-  await fireEvent.press(screen.getByText('Copy message'));
+  await fireEvent.press(screen.getByText('Copy content'));
   expect(Clipboard.setStringAsync).toHaveBeenLastCalledWith(text);
-  await screen.rerender(<BodyInspector row={{ ...row, body: { ...row.body!, reference_id: 'replacement' } }} rootId="root" agentId="agent" />);
+  await screen.rerender(<BodyInspector row={{ ...row, body: { ...row.body!, id: 'replacement' } }} rootId="root" agentId="agent" />);
   expect(screen.getByLabelText('Previous text page')).toBeDisabled();
 });

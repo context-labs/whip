@@ -1,152 +1,53 @@
 /** @jest-environment node */
-import type { CommandOutcome } from '@whip/legacy-sdk';
 import type { CommandState, MobileRuntime } from '../runtime/runtime';
-import { advanceCreation, creationDraftKey, creationModels, creationResultRecorded, nextCreationStep, reconcileCreation, validateWorkflow, type CreationWorkflow } from './creation';
-
-const workflow = (): CreationWorkflow => ({ version: 1, id: 'workflow', runtimeId: 'runtime', clientId: 'client', cwd: '/host/project', model: 'model', provider: 'provider', effort: 'high', effortDone: false, promptSent: false });
-function outcome(operation: string, result: unknown, status = 'succeeded'): CommandOutcome {
-  return { operation, command_id: `id-${operation}`, ingress_seq: '1', status, result } as CommandOutcome;
-}
-function command(step: 'create' | 'effort' | 'submit', result: unknown, status = 'succeeded'): CommandState {
-  const operation = step === 'create' ? 'session.create' : step === 'effort' ? 'session.effort' : 'submit';
-  return {
-    record: { version: 1, runtimeId: 'runtime', clientId: 'client', commandId: `id-${step}`, operation, ...(step === 'create' ? {} : { rootId: 'root' }) },
-    intent: { workflowId: 'workflow', step }, status, accepted: true, outcome: outcome(operation, result, status),
-  };
+import { advanceCreation, creationModels, creationResultRecorded, nextCreationStep, reconcileCreation, validateWorkflow, type CreationWorkflow } from './creation';
+const workflow = (): CreationWorkflow => ({ version: 2, id: 'workflow', runtimeId: 'runtime', clientId: 'phone', cwd: '/host/project', definition: { id: 'assistant', revision: 'a'.repeat(64) }, model: { name: 'model', provider: 'provider', effort: 'high' }, executionEngine: 'quickjs', promptSent: false });
+const result = { creation: { root_id: 'root', tree_id: 'tree' }, root: { id: 'root' }, deleted: false };
+function command(step: 'create' | 'submit', knownAccepted = true): CommandState {
+  return { record: { version: 4, runtimeId: 'runtime', clientId: 'phone', commandId: step, operation: step === 'create' ? 'trees.create' : 'sessions.submit', requestHash: 'b'.repeat(64), ...(step === 'submit' ? { rootId: 'root', sessionId: 'root' } : {}) }, intent: { workflowId: 'workflow', step }, status: knownAccepted ? 'accepted' : 'identity_only', knownAccepted, retryable: false, ...(step === 'create' ? { destination: { rootId: 'root', treeId: 'tree', deleted: false } } : {}) };
 }
 function runner() {
-  const saves: CreationWorkflow[] = [];
-  const operations: string[] = [];
   let current = true;
-  let failStep: string | undefined;
-  let failSave = false;
-  let saveCount = 0;
-  const run = jest.fn(async (operation: string) => {
-    operations.push(operation);
-    return outcome(operation, operation === 'session.create' ? { root_id: 'root' } : {}, operation === failStep ? 'failed' : 'succeeded');
-  });
-  const save = jest.fn(async (next: CreationWorkflow) => {
-    saveCount++;
-    if (failSave) throw new Error('disk full');
-    saves.push({ ...next });
-  });
-  return {
-    operations, saves, run, save,
-    deps: { run: run as MobileRuntime['run'], save, saveDraft: async () => {}, current: () => current, draft: () => ({ text: 'First message', revision: 'revision-1' }) },
-    detach: () => { current = false; },
-    fail: (step: string) => { failStep = step; },
-    failSave: () => { failSave = true; },
-    get saveCount() { return saveCount; },
-  };
+  const saves: CreationWorkflow[] = [];
+  const run = jest.fn(async () => result);
+  const save = jest.fn(async (next: CreationWorkflow) => { saves.push(structuredClone(next)); });
+  const deps = { run: run as unknown as MobileRuntime['run'], save, current: () => current, saveDraft: jest.fn(async () => {}), draft: () => ({ text: 'First message', revision: 'r1' }) };
+  return { run, save, saves, deps, leave() { current = false; } };
 }
-
-test('creates, applies nondefault-persisting effort, and submits with independent journaled intents', async () => {
-  const fixture = runner();
-  const result = await advanceCreation(workflow(), fixture.deps);
-  expect(fixture.operations).toEqual(['session.create', 'session.effort', 'submit']);
-  expect(fixture.saves.map(save => [save.pendingStep, save.rootId])).toEqual([
-    ['create', undefined], [undefined, 'root'], ['effort', 'root'], [undefined, 'root'], ['submit', 'root'], [undefined, 'root'],
-  ]);
-  expect(fixture.run).toHaveBeenNthCalledWith(1, 'session.create', { cwd: '/host/project', kind: 'agent', model: 'model', provider: 'provider', execution_engine: 'starlark' }, { intent: { workflowId: 'workflow', step: 'create' } });
-  expect(fixture.run).toHaveBeenNthCalledWith(2, 'session.effort', { effort: 'high', persist_default: false }, { rootId: 'root', intent: { workflowId: 'workflow', step: 'effort', agentId: 'root' } });
-  expect(fixture.run).toHaveBeenNthCalledWith(3, 'submit', { text: 'First message' }, {
-    rootId: 'root', intent: { workflowId: 'workflow', step: 'submit', agentId: 'root', draftKey: creationDraftKey(workflow()), draftRevision: 'revision-1' },
-    preview: { agentId: 'root', text: 'First message', queued: false },
-  });
-  expect(result).toMatchObject({ rootId: 'root', effortDone: true, promptSent: true, pendingStep: undefined });
+test('one immutable creation captures definition, engine and complete model before independently journaled first input', async () => {
+  const f = runner(); const value = await advanceCreation(workflow(), f.deps);
+  expect(value).toMatchObject({ rootId: 'root', promptSent: true });
+  expect(f.saves.map(s => [s.pendingStep, s.rootId])).toEqual([['create', undefined], [undefined, 'root'], ['submit', 'root'], [undefined, 'root']]);
+  expect(f.run).toHaveBeenNthCalledWith(1, 'trees.create', expect.objectContaining({ creation_id: 'workflow', definition: workflow().definition, engine: 'quickjs', overrides: { model: workflow().model } }), { intent: { workflowId: 'workflow', step: 'create' } });
+  expect(f.run).toHaveBeenNthCalledWith(2, 'sessions.submit', expect.objectContaining({ session_id: 'root', identity: { client_id: 'phone', request_id: 'workflow:input' }, parts: [{ type: 'text', text: 'First message' }] }), expect.objectContaining({ rootId: 'root', intent: expect.objectContaining({ draftRevision: 'r1' }) }));
 });
-
-test('structured failure after creation retains its root and never proceeds to first input', async () => {
-  const fixture = runner(); fixture.fail('session.effort');
-  await expect(advanceCreation(workflow(), fixture.deps)).rejects.toThrow('Reasoning selection failed');
-  expect(fixture.operations).toEqual(['session.create', 'session.effort']);
-  expect(fixture.saves.at(-1)).toMatchObject({ rootId: 'root', pendingStep: 'effort', promptSent: false });
-  const resume = runner();
-  await expect(advanceCreation(fixture.saves.at(-1)!, resume.deps)).rejects.toThrow('Resolve the previous');
-  expect(resume.run).not.toHaveBeenCalled();
-  const resumed = await advanceCreation({ ...fixture.saves.at(-1)!, pendingStep: undefined }, resume.deps);
-  expect(resume.operations).toEqual(['session.effort', 'submit']);
-  expect(resumed.rootId).toBe('root');
+test('failed or deleted creation never fabricates a root or advances input', async () => {
+  for (const deleted of [false, true]) { const f = runner(); if (deleted) f.run.mockResolvedValue({ ...result, root: null, deleted: true } as never); else f.run.mockRejectedValue(new Error('lost acknowledgement'));
+    await expect(advanceCreation(workflow(), f.deps)).rejects.toThrow(); expect(f.run).toHaveBeenCalledTimes(1); expect(f.saves.at(-1)?.rootId).toBeUndefined(); }
 });
-
-test('create failure and successful outcome without root identity cannot manufacture a session', async () => {
-  const failure = runner(); failure.fail('session.create');
-  await expect(advanceCreation(workflow(), failure.deps)).rejects.toThrow('Session creation failed');
-  expect(failure.operations).toEqual(['session.create']);
-  expect(failure.saves.at(-1)?.rootId).toBeUndefined();
-  const missing = runner(); missing.run.mockImplementation(async op => outcome(op, {}));
-  await expect(advanceCreation(workflow(), missing.deps)).rejects.toThrow('without a session identity');
-  expect(missing.operations).toEqual([]);
-  expect(missing.run).toHaveBeenCalledTimes(1);
+test('saved root survives failed first message and recovery never advances another mutation', async () => {
+  const f = runner(); f.run.mockResolvedValueOnce(result).mockRejectedValueOnce(new Error('lost input'));
+  await expect(advanceCreation(workflow(), f.deps)).rejects.toThrow('lost input'); expect(f.saves.at(-1)).toMatchObject({ rootId: 'root', pendingStep: 'submit' });
+  const recovered = reconcileCreation(f.saves.at(-1)!, [command('submit')]); expect(recovered).toMatchObject({ rootId: 'root', promptSent: true, pendingStep: undefined }); expect(f.run).toHaveBeenCalledTimes(2);
 });
-
-test('every step waits for durable preparation and leaving during a step prevents the next mutation', async () => {
-  const failure = runner(); failure.failSave();
-  await expect(advanceCreation(workflow(), failure.deps)).rejects.toThrow('disk full');
-  expect(failure.run).not.toHaveBeenCalled();
-  const departed = runner();
-  departed.run.mockImplementation(async op => { departed.detach(); return outcome(op, { root_id: 'root' }); });
-  const result = await advanceCreation(workflow(), departed.deps);
-  expect(result.rootId).toBe('root');
-  expect(departed.run).toHaveBeenCalledTimes(1);
-  expect(departed.saves.at(-1)?.rootId).toBe('root');
+test('durable preparation and original draft precede every effect; leaving during create only saves its known result', async () => {
+  const f = runner(); f.deps.saveDraft.mockRejectedValueOnce(new Error('unsaved draft')); await expect(advanceCreation(workflow(), f.deps)).rejects.toThrow('unsaved draft'); expect(f.run).not.toHaveBeenCalled();
+  const g = runner(); g.save.mockRejectedValueOnce(new Error('disk full')); await expect(advanceCreation(workflow(), g.deps)).rejects.toThrow('disk full'); expect(g.run).not.toHaveBeenCalled();
+  const h = runner(); h.run.mockImplementationOnce(async () => { h.leave(); return result; }); expect(await advanceCreation(workflow(), h.deps)).toMatchObject({ rootId: 'root', promptSent: false }); expect(h.run).toHaveBeenCalledTimes(1);
 });
-
-test('restart reconciliation recovers root and completed steps but never runs more work or clears failures', () => {
-  const pending = { ...workflow(), pendingStep: 'create' as const };
-  const recovered = reconcileCreation(pending, [command('create', { root_id: 'root' })]);
-  expect(recovered).toMatchObject({ rootId: 'root', pendingStep: undefined, effortDone: false, promptSent: false });
-  expect(nextCreationStep(recovered, { text: 'draft', revision: 'r' })).toBe('effort');
-  const failed = { ...recovered, pendingStep: 'effort' as const };
-  expect(reconcileCreation(failed, [command('effort', {}, 'failed')])).toBe(failed);
-  const completed = reconcileCreation(failed, [command('effort', {}), command('submit', {})]);
-  expect(completed).toMatchObject({ rootId: 'root', effortDone: true, promptSent: true, pendingStep: undefined });
+test('metadata-only inspection cannot turn an identity into payload proof; scope and conflicting roots are checked', () => {
+  expect(reconcileCreation(workflow(), [command('create', false)])).toEqual(workflow());
+  const accepted = reconcileCreation(workflow(), [command('create')]); expect(accepted.rootId).toBe('root');
+  expect(creationResultRecorded(workflow(), command('create'))).toBe(false); expect(creationResultRecorded(accepted, command('create'))).toBe(true);
+  expect(() => reconcileCreation({ ...workflow(), rootId: 'different' }, [command('create')])).toThrow('conflicting');
+  for (const field of ['runtimeId', 'clientId'] as const) { const c = command('create'); c.record[field] = 'other'; expect(reconcileCreation(workflow(), [c])).toEqual(workflow()); }
+  const child = command('submit'); child.record.sessionId = 'child'; expect(reconcileCreation(accepted, [child]).promptSent).toBe(false);
 });
-
-test('recovery rejects root conflicts and ignores another client, runtime, workflow, or child root', () => {
-  const initial = workflow();
-  for (const foreign of [
-    { ...command('create', { root_id: 'wrong' }), intent: { workflowId: 'other', step: 'create' } },
-    { ...command('create', { root_id: 'wrong' }), record: { ...command('create', {}).record, clientId: 'other' } },
-    { ...command('create', { root_id: 'wrong' }), record: { ...command('create', {}).record, runtimeId: 'other' } },
-  ]) expect(reconcileCreation(initial, [foreign])).toBe(initial);
-  const created = { ...initial, rootId: 'root' };
-  expect(() => reconcileCreation(created, [command('create', { root_id: 'wrong' })])).toThrow('conflicting session');
-  expect(reconcileCreation(created, [{ ...command('effort', {}), record: { ...command('effort', {}).record, rootId: 'other-root' } }])).toBe(created);
+test('older workflows are preserved without normalization, exact definition revision and model fields validated', () => {
+  for (const patch of [{ version: 1 }, { definition: { id: 'assistant', revision: '' } }, { executionEngine: 'unknown' }, { model: { name: 'incomplete' } }]) expect(() => validateWorkflow({ ...workflow(), ...patch } as CreationWorkflow, 'runtime', 'phone')).toThrow();
+  expect(nextCreationStep({ ...workflow(), rootId: 'root' }, { text: '', revision: '' })).toBeUndefined();
 });
-
-test('host defaults omit optional steps and only catalog-supported reasoning levels appear', async () => {
-  const fixture = runner();
-  await advanceCreation({ ...workflow(), model: undefined, provider: undefined, effort: undefined }, { ...fixture.deps, draft: () => ({ text: '', revision: '' }) });
-  expect(fixture.run).toHaveBeenCalledTimes(1);
-  expect(fixture.run).toHaveBeenCalledWith('session.create', { cwd: '/host/project', kind: 'agent', model: '', provider: '', execution_engine: 'starlark' }, expect.anything());
-  expect(creationModels({ models: { model: { providers: ['provider'] } }, providers: {}, catalogs: { provider: { fetched_at: '', base_url: '', models: [{ id: 'model', reasoning_efforts: ['low', 'high', 'high'] }] } } })).toEqual([{ model: 'model', provider: 'provider', efforts: ['low', 'high'] }]);
-  expect(creationModels({ models: { model: { providers: ['provider'] } }, providers: { provider: { base_url: '', available: false } }, catalogs: { provider: { fetched_at: '', base_url: '', models: [{ id: 'model' }] } } })).toEqual([]);
-  expect(() => validateWorkflow(workflow(), 'another-runtime', 'client')).toThrow('unavailable identity');
-});
-
-test('persists the selected engine before creation and retains it when resuming a failed workflow', async () => {
-  const fixture = runner(); fixture.fail('session.create');
-  await expect(advanceCreation({ ...workflow(), executionEngine: 'quickjs' }, fixture.deps)).rejects.toThrow('Session creation failed');
-  expect(fixture.saves[0].executionEngine).toBe('quickjs');
-  const saved = validateWorkflow(fixture.saves[0], 'runtime', 'client');
-  const resumed = runner();
-  await advanceCreation({ ...saved, pendingStep: undefined }, resumed.deps);
-  expect(resumed.run).toHaveBeenNthCalledWith(1, 'session.create', expect.objectContaining({ execution_engine: 'quickjs' }), expect.anything());
-  expect(validateWorkflow(workflow(), 'runtime', 'client').executionEngine).toBe('starlark');
-  expect(() => validateWorkflow({ ...workflow(), executionEngine: 'unknown' }, 'runtime', 'client')).toThrow('unsupported');
-});
-
-
-test('unsaved first drafts block creation and successful recovery cannot be forgotten before its journal', async () => {
-  const fixture = runner();
-  await expect(advanceCreation(workflow(), { ...fixture.deps, saveDraft: async () => { throw new Error('draft quota'); } })).rejects.toThrow('draft quota');
-  expect(fixture.run).not.toHaveBeenCalled();
-  const created = command('create', { root_id: 'root' });
-  expect(creationResultRecorded(workflow(), created)).toBe(false);
-  expect(creationResultRecorded({ ...workflow(), rootId: 'root' }, created)).toBe(true);
-  expect(creationResultRecorded({ ...workflow(), rootId: 'root' }, command('effort', {}))).toBe(false);
-  expect(creationResultRecorded({ ...workflow(), rootId: 'root', effortDone: true }, command('effort', {}))).toBe(true);
-  expect(creationResultRecorded({ ...workflow(), rootId: 'root' }, command('submit', {}))).toBe(false);
-  expect(creationResultRecorded({ ...workflow(), rootId: 'root', promptSent: true }, command('submit', {}))).toBe(true);
+test('uncatalogued configured models remain selectable and null pricing never enters model choice arithmetic', () => {
+  const data = { inventory: { routes: [{ id: 'provider', models: { configured: {} } }], defaults: { provider: 'provider', name: 'default' } }, catalogs: [{ provider: 'provider', models: [{ id: 'catalogued', reasoning_efforts: ['low', 'high'], prices: { input: null, output: '9007199254740993' } }] }] };
+  expect(creationModels(data as never)).toEqual([{ model: 'catalogued', provider: 'provider', efforts: ['low', 'high'] }, { model: 'configured', provider: 'provider', efforts: [] }, { model: 'default', provider: 'provider', efforts: [] }]);
 });

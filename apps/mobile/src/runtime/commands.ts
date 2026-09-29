@@ -1,11 +1,12 @@
 import { Client, DurableCommand, RemoteError, type Operations, type RecoveryRecord } from '@whip/sdk';
-import { metadataKey, projectRecovery, type MetadataStorage, type MobileDurableMethod, type RecoveryIntent, type RecoveryMetadata, type StoredMetadata } from './recovery-metadata';
+import { mobileDurableMethods, metadataKey, projectRecovery, type MetadataStorage, type MobileDurableMethod, type RecoveryIntent, type RecoveryMetadata, type StoredMetadata } from './recovery-metadata';
 
 export type DeliveryStatus = 'sending' | 'unknown' | 'missing' | 'accepted' | 'identity_only' | 'failed' | 'unavailable';
 export interface DeliveryState extends StoredMetadata {
   status: DeliveryStatus;
   retryable: boolean;
   message?: string;
+  inputId?: string;
   destination?: { rootId: string; treeId: string; deleted: boolean };
 }
 const terminalTransfer = new Set(['TRANSFER_FAILED', 'TRANSFER_UNCERTAIN', 'TRANSFER_INTERRUPTED', 'TRANSFER_CANCELLED', 'TRANSFER_DELETED']);
@@ -51,10 +52,10 @@ export class MobileCommands {
       if (revision === this.revision) break;
     }
     const previous = new Map(this.state.map(item => [metadataKey(item.record), item]));
-    this.publish(values.filter(value => sameScope(value.record, client)).map(value => {
+    this.publish(values.filter(value => sameScope(value.record, client) && (mobileDurableMethods as readonly string[]).includes(value.record.operation)).map(value => {
       const current = previous.get(metadataKey(value.record));
       const knownAccepted = value.knownAccepted || current?.knownAccepted || this.originals.get(metadataKey(value.record))?.accepted || false;
-      return { ...value, ...current, status: knownAccepted ? 'accepted' : current?.status ?? 'unknown', retryable: !knownAccepted && (current?.retryable ?? false), knownAccepted };
+      return { ...value, ...current, status: value.knownAccepted ? 'accepted' : current?.status ?? 'unknown', retryable: !knownAccepted && (current?.retryable ?? false), knownAccepted };
     }));
   }
   /** Detach cancels no work and keeps originals for an explicit same-host
@@ -110,7 +111,8 @@ export class MobileCommands {
     const key = metadataKey(value.record);
     const original = this.originals.get(key);
     if (original) this.originals.set(key, { ...original, accepted: true });
-    this.put({ ...value, knownAccepted: true, status: 'accepted', retryable: false, destination: this.destination(result) });
+    const inputId = value.record.operation === 'sessions.submit' && result && typeof result === 'object' && 'input' in result ? (result as Operations['sessions.submit']['result']).input?.id : undefined;
+    this.put({ ...value, knownAccepted: true, status: 'accepted', retryable: false, destination: this.destination(result), inputId });
     await this.storage.accept(value.record);
     this.originals.delete(key);
   }

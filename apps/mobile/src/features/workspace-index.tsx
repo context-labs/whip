@@ -1,15 +1,15 @@
-import { createContext, useContext, useEffect, useState, type PropsWithChildren } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { HostAttentionResult, SessionCatalogPage } from '@whip/legacy-protocol';
+import { createContext, useContext, useState, type PropsWithChildren } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import type { HostAttentionResult, ListTreesResult, RecentTreesResult } from '@whip/protocol';
 import { useWorkspace, useWorkspaceState } from '../runtime/workspace-context';
 import type { SavedHost } from '../runtime/runtime';
 
-type Page = { host: SavedHost; sessions?: SessionCatalogPage; attention?: HostAttentionResult; error?: string };
-type Cursor = NonNullable<SessionCatalogPage['next_cursor']> | string;
+type Page = { host: SavedHost; sessions?: ListTreesResult; recent?: RecentTreesResult; attention?: HostAttentionResult; error?: string };
+type Cursor = { kind: 'catalog'; after?: string; revision?: string } | { kind: 'attention'; after: NonNullable<HostAttentionResult['next_cursor']> };
 export function useWorkspaceIndex(kind: 'sessions' | 'attention', search = '', status: 'active' | 'archived' = 'active', focused = true) {
   const workspace = useWorkspace(); const state = useWorkspaceState();
   const [cursors, setCursors] = useState<Record<string, Cursor>>({});
-  const key = state.connections.map(runtime => { const s = runtime.getSnapshot(); return [s.host?.id, s.host?.runtimeId, workspace.connectionKey(s.host?.id ?? ''), s.ready]; });
+  const key = state.connections.map(runtime => { const s = runtime.getSnapshot(); return [s.host?.id, s.host?.runtimeId, s.client?.processEpoch, workspace.connectionKey(s.host?.id ?? ''), s.ready]; });
   const enabled = state.active && focused && state.connections.some(r => r.getSnapshot().ready);
   const result = useQuery({ queryKey: ['workspace-index', kind, key, search, status, cursors], enabled,
     gcTime: 0, staleTime: 10_000, refetchInterval: enabled ? 10_000 : false,
@@ -19,16 +19,20 @@ export function useWorkspaceIndex(kind: 'sessions' | 'attention', search = '', s
       try {
         return await workspace.reads.run(signal, async () => {
           if (!runtime.getSnapshot().active || !runtime.getSnapshot().ready || runtime.getSnapshot().client !== client) throw new Error('Host connection changed');
-          if (kind === 'sessions') return { host, sessions: await client.sessions.list({ search: search || undefined, status, cursor: typeof cursors[host.id] === 'object' ? cursors[host.id] as NonNullable<SessionCatalogPage['next_cursor']> : undefined, limit: 128, max_bytes: 256 << 10 }, { signal }) };
-          if (!client.supports('rpc', 'host.attention')) throw new Error('Attention is not supported by this host');
-          return { host, attention: await client.host.attention({ after_id: typeof cursors[host.id] === 'string' ? cursors[host.id] as string : undefined, limit: 64, max_bytes: 128 << 10 }, { signal }) };
+          const cursor = cursors[host.id]; let page: Page;
+          if (kind === 'attention') page = { host, attention: await client.call('host.attention', { after: cursor?.kind === 'attention' ? cursor.after : null, limit: 64, max_bytes: 128 << 10 }, { signal }) };
+          else if (!search && status === 'active' && !cursor) page = { host, recent: await client.trees.recent(64, { signal }) };
+          else page = { host, sessions: await client.trees.list({ search: search || undefined, archived: status === 'archived', limit: 64,
+            ...(cursor?.kind === 'catalog' ? { after: cursor.after, expected_revision: cursor.revision } : {}) }, { signal }) };
+          if (new TextEncoder().encode(JSON.stringify(page)).byteLength > 256 << 10) throw new Error('This host page exceeds the 256 KiB mobile limit. Narrow the search.');
+          return page;
         });
       } catch (error) { return { host, error: error instanceof Error ? error.message : String(error) }; }
     })),
   });
   const pages = result.data ?? [];
   const unavailable = state.hosts.filter(host => !state.connections.some(r => r.getSnapshot().host?.id === host.id && r.getSnapshot().ready));
-  const partial = unavailable.length > 0 || pages.some(p => p.error || p.sessions?.has_more || p.attention?.has_more || p.attention?.truncated || p.attention?.items?.some(i => i.truncated)) || Object.keys(cursors).length > 0;
+  const partial = unavailable.length > 0 || pages.some(p => p.error || p.sessions?.next_cursor || p.recent?.has_more || p.attention?.next_cursor) || Object.keys(cursors).length > 0;
   return { ...result, pages, partial, unavailable, enabled,
     next: (hostId: string, cursor: Cursor) => setCursors(current => ({ ...current, [hostId]: cursor })),
     first: () => setCursors({}), hasPrevious: Object.keys(cursors).length > 0,
@@ -36,10 +40,7 @@ export function useWorkspaceIndex(kind: 'sessions' | 'attention', search = '', s
 }
 function useOwner() {
   const result = useWorkspaceIndex('attention');
-  const workspace = useWorkspace(); const state = useWorkspaceState(); const query = useQueryClient();
-  const identity = state.connections.map(r => `${workspace.connectionKey(r.getSnapshot().host?.id ?? '')}:${r.getSnapshot().ready}`).join(',');
-  useEffect(() => { const stops = state.connections.map(r => r.getSnapshot().client?.onCommand(outcome => { if (['succeeded', 'failed', 'cancelled', 'interrupted'].includes(outcome.status)) void query.invalidateQueries({ queryKey: ['workspace-index'] }); })); return () => stops.forEach(stop => stop?.()); }, [identity, query]);
-  const items = result.pages.flatMap(page => (page.attention?.items ?? []).filter(item => BigInt(item.pending_permissions) > 0n || item.questions?.length).map(item => ({ ...item, host: page.host })));
+  const items = result.pages.flatMap(page => (page.attention?.items ?? []).filter(item => BigInt(item.activity.pending_permission_count) > 0n || BigInt(item.activity.pending_question_count) > 0n).map(item => ({ ...item, host: page.host })));
   const count = items.length; const incomplete = result.partial || !result.enabled || result.isError;
   return { ...result, items, count, badge: result.isPending && result.enabled ? '…' : incomplete ? `${count || '?'}${count ? '+' : ''}` : count ? String(count) : undefined };
 }

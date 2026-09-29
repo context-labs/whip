@@ -1,58 +1,58 @@
 import { QueryClient } from '@tanstack/react-query';
 import * as Crypto from 'expo-crypto';
-import { createWhipClient, RpcError, WhipError, isTerminal, type WhipClient, type CommandHandle, type CommandOutcome, type RecoveryRecord } from '@whip/legacy-sdk';
-import { createSessionListView, createSessionView, type SessionView, type SessionListView } from '@whip/legacy-sdk/state';
+import { Client, RemoteError, type Operations, type Question } from '@whip/sdk';
+import { createSessionView, createExecutionView, type SessionView, type ExecutionView } from '@whip/sdk/state';
 import { SubmittedInputs } from '@whip/app/presentation';
-import type { CommandOperation, RuntimeOperations } from '@whip/legacy-protocol';
 import { serverOrigin } from './address';
-import type { CommandIntent, Draft, MobileStorage } from './storage';
+import type { Draft, MobileStorage } from './storage';
 import { defaultAppearance, appearanceRecord, type Appearance, type AppearanceRecord } from '../theme/preferences';
 import { validateTheme, type ThemeDefinition } from '@whip/ui/theme-data';
+import { creationResultRecorded, creationSettingsKey, type CreationWorkflow } from '../features/creation';
+import { connectMobile } from './connection';
 import { DecisionStore } from './decisions';
-import { creationResultRecorded, type CreationWorkflow } from '../features/creation';
+import { MobileCommands, type DeliveryState } from './commands';
+import type { MobileDurableMethod, RecoveryIntent } from './recovery-metadata';
 
 export type SavedHost = { id: string; name: string; url: string; clientId: string; runtimeId?: string };
-export type CommandState = { record: RecoveryRecord; intent?: CommandIntent; status: string; message?: string; accepted: boolean; retryable?: boolean; outcome?: CommandOutcome };
-type RuntimeSnapshot = {
-  hosts: readonly SavedHost[]; host?: SavedHost; client?: WhipClient; list?: SessionListView;
+export type CommandState = DeliveryState;
+export interface SessionLease { view: SessionView; execution: ExecutionView; release(): void }
+export type RuntimeSnapshot = {
+  hosts: readonly SavedHost[]; host?: SavedHost; client?: Client;
   active: boolean; ready: boolean; connecting: boolean; error?: string; appearance: Appearance; customThemes?: readonly ThemeDefinition[];
   commands: readonly CommandState[]; revision: number; lastSync?: string; lastErrorCode?: string;
 };
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
-const namespace = (r: RecoveryRecord) => JSON.stringify([r.runtimeId, r.clientId, r.commandId]);
 
-/** Owns native lifetimes; SDK views remain the sole session-state authority. */
+/** Owns mobile lifetimes and local drafts. Native SDK views are the only owners
+ * of transcript and execution state; Query is reserved for bounded read metadata. */
 export class MobileRuntime {
   readonly query = new QueryClient({ defaultOptions: { queries: {
     staleTime: 10_000, gcTime: 0, retry: false, networkMode: 'always',
     refetchOnWindowFocus: false, refetchOnReconnect: false,
   }, mutations: { retry: false, networkMode: 'always' } } });
   readonly submitted = new SubmittedInputs();
+  readonly commands: MobileCommands;
   readonly decisions = new DecisionStore(this);
   private state: RuntimeSnapshot = { hosts: [], active: true, ready: false, connecting: false, appearance: defaultAppearance, commands: [], revision: 0 };
   private listeners = new Set<() => void>();
   private epoch = 0;
   private lifetime = new AbortController();
-  private stopConnection?: () => void;
-  private connectingClient?: WhipClient;
-  private reconciliation?: { connectionId: string; promise: Promise<void> };
   private disposed = false;
-  private view?: { rootId: string; view: SessionView; users: number; stop: () => void; syncInputs: () => Promise<void> };
+  private viewTransition: Promise<unknown> = Promise.resolve();
+  private view?: { sessionId: string; view: SessionView; execution: ExecutionView; users: number };
   private drafts = new Map<string, Draft>();
   private draftWrites = new Map<string, { revision: string; promise: Promise<void>; status: 'saving' | 'saved' | 'failed' }>();
-  private child?: { view: SessionView; agentId: string; users: number };
-  private handles = new Map<string, CommandHandle>();
-  private locks = new Map<string, string>();
-  private originalPayloads = new Set<string>();
-  private observers = new Map<string, Promise<CommandOutcome>>();
-  constructor(readonly storage: MobileStorage, private readonly createClient = createWhipClient) {}
+  constructor(readonly storage: MobileStorage, private readonly createClient = connectMobile) {
+    this.commands = new MobileCommands(storage.nativeRecovery, request => Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, request));
+    this.commands.subscribe(() => this.update({ commands: this.commands.getSnapshot() }));
+  }
   getSnapshot = () => this.state;
   subscribe = (fn: () => void) => { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; };
   private update(patch: Partial<RuntimeSnapshot>) {
     this.state = Object.freeze({ ...this.state, ...patch, revision: this.state.revision + 1 });
     for (const fn of this.listeners) fn();
   }
-  report = (error: unknown) => this.update({ error: message(error), lastErrorCode: error instanceof WhipError && /^[a-z_]{1,64}$/.test(error.kind) ? error.kind : 'local_error' });
+  report = (error: unknown) => this.update({ error: message(error), lastErrorCode: error instanceof RemoteError ? error.kind : 'local_error' });
   clearError = () => this.update({ error: undefined });
   async start(connectSaved = true) {
     const [hosts, appearance, drafts, selected] = await Promise.all([
@@ -65,7 +65,7 @@ export class MobileRuntime {
     catch { record = appearanceRecord(defaultAppearance); this.report(new Error('Saved appearance is unavailable. Using the default themes; saved data has been preserved.')); }
     this.update({ hosts: hosts.map(item => item.value), appearance: record.appearance, customThemes: record.themes });
     const host = this.state.hosts.find(h => h.id === selected);
-    if (host && connectSaved) await this.connect(host).catch(this.report);
+    if (host && connectSaved && this.state.active) await this.connect(host).catch(this.report);
   }
   setHostProfiles(hosts: readonly SavedHost[]) {
     const host = hosts.find(h => h.id === this.state.host?.id && h.url === this.state.host.url && h.runtimeId === this.state.host.runtimeId && h.clientId === this.state.host.clientId);
@@ -78,95 +78,106 @@ export class MobileRuntime {
       id: Crypto.randomUUID(), name: name.trim() || new URL(origin).hostname, url: origin, clientId: Crypto.randomUUID(),
     };
   }
-  async connect(host: SavedHost, options: { select?: boolean; list?: boolean } = {}) {
-    if (this.disposed) throw new WhipError('closed', 'Mobile runtime is closed');
-    const url = serverOrigin(host.url, __DEV__);
-    const cleanup = this.detach();
-    const epoch = this.epoch;
-    await cleanup;
-    this.assertEpoch(epoch);
-    host = { ...host, url };
+  async connect(host: SavedHost, options: { select?: boolean; list?: boolean; recovering?: boolean } = {}) {
+    if (this.disposed) throw new Error('Mobile runtime is closed');
+    if (!this.state.active) throw new Error('Open Whip before connecting');
+    host = { ...host, url: serverOrigin(host.url, __DEV__) };
+    const retained = options.recovering && this.state.host?.runtimeId === host.runtimeId && this.state.host?.clientId === host.clientId;
+    const cleanup = this.detach({ recovering: retained });
+    const epoch = this.epoch; await cleanup; this.assertEpoch(epoch);
     this.update({ host, connecting: true, error: undefined });
-    let client: WhipClient | undefined;
     try {
-      // Persist the client namespace before even initialization can use it.
-      await this.storage.set('hosts', host.id, host);
-      this.assertEpoch(epoch);
+      // Persist the caller namespace before initialization can use it.
+      await this.storage.set('hosts', host.id, host); this.assertEpoch(epoch);
       this.update({ hosts: [...this.state.hosts.filter(h => h.id !== host.id), host] });
-      client = this.createClient({ endpoint: url, clientId: host.clientId, clientKind: 'human', expectedRuntimeId: host.runtimeId, buildId: '@whip/mobile:0.1.0',
-        connectTimeoutMs: 15_000, recoveryStorage: this.storage.recoveryStorage, randomUUID: Crypto.randomUUID,
-        sha256: async bytes => new Uint8Array(await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, bytes)),
-      });
-      this.connectingClient = client;
-      if (!this.state.active) client.pause();
-      else {
-        try { await client.connect({ signal: this.lifetime.signal }); }
-        catch (error) { if (!(error instanceof WhipError) || error.kind !== 'paused') throw error; }
-      }
-      const info = await client.whenConnected(this.lifetime.signal);
-      this.assertEpoch(epoch);
-      host = { ...host, runtimeId: info.runtime_id };
-      await this.storage.set('hosts', host.id, host);
-      this.assertEpoch(epoch);
+      const client = await this.createClient(host, this.lifetime.signal); this.assertEpoch(epoch);
+      if (host.runtimeId && client.runtimeID !== host.runtimeId) throw new Error('Host identity changed');
+      host = { ...host, runtimeId: client.runtimeID };
+      await this.storage.set('hosts', host.id, host); this.assertEpoch(epoch);
       if (options.select !== false) await this.storage.set('settings', 'selectedHost', host.id);
       this.assertEpoch(epoch);
-      const list = options.list === false ? undefined : createSessionListView(client, { maxBytes: 256 << 10 });
-      const attached = client;
-      this.connectingClient = undefined;
-      this.update({ client, host, hosts: [...this.state.hosts.filter(h => h.id !== host.id), host], list, connecting: false });
-      this.stopConnection = client.subscribe(() => {
-        if (epoch !== this.epoch) return;
-        this.update({ ready: false });
-        if (attached.getSnapshot().state === 'connected' && this.state.active)
-          void this.reconcile(epoch).catch(error => { if (epoch === this.epoch && this.state.active) this.report(error); });
-      });
-      await list?.start();
-      await this.reconcile(epoch);
-    } catch (error) {
-      if (error instanceof WhipError && error.kind === 'runtime_changed')
-        error = new WhipError('runtime_changed', 'This address now serves a different Whip runtime. Verify this host before removing and adding its saved entry. Existing drafts and delivery records are retained.');
-      if (epoch === this.epoch && client && this.state.client === client && client.getSnapshot().state === 'paused') return;
-      client?.close();
-      if (epoch === this.epoch) {
-        this.connectingClient = undefined;
-        this.stopConnection?.(); this.stopConnection = undefined;
-        await this.state.list?.dispose();
-        if (epoch === this.epoch) { this.update({ client: undefined, list: undefined, connecting: false, ready: false }); this.report(error); }
+      await this.commands.bind(client); this.assertEpoch(epoch);
+      this.update({ client, host, hosts: [...this.state.hosts.filter(h => h.id !== host.id), host], connecting: true, ready: false, lastSync: new Date().toISOString() });
+      await this.decisions.reconcile(); this.assertEpoch(epoch);
+      const held = this.view;
+      if (held) {
+        const transition = this.viewTransition.catch(() => {}).then(async () => {
+          this.assertEpoch(epoch); if (this.view !== held) return;
+          await held.view.reconnect(client); this.assertEpoch(epoch);
+          await held.execution.reconnect(client); this.assertEpoch(epoch);
+        });
+        this.viewTransition = transition; await transition;
       }
+      this.assertEpoch(epoch); this.update({ ready: true, connecting: false });
+    } catch (error) {
+      if (epoch === this.epoch) { this.update({ connecting: false, ready: false }); this.report(error); }
       throw error;
     }
   }
-  private assertEpoch(epoch: number) { if (epoch !== this.epoch) throw new WhipError('closed', 'Host changed; observation was detached.'); }
-  async detach() {
-    ++this.epoch;
-    this.lifetime.abort(); this.lifetime = new AbortController();
-    this.stopConnection?.(); this.stopConnection = undefined;
-    const view = this.view; this.view = undefined;
-    const list = this.state.list;
-    const client = this.state.client ?? this.connectingClient;
-    this.connectingClient = undefined;
-    this.child = undefined;
-    view?.stop(); client?.close();
-    this.reconciliation = undefined;
-    this.handles.clear(); this.locks.clear(); this.originalPayloads.clear(); this.observers.clear(); this.submitted.clear();
-    this.decisions.reset();
+  private assertEpoch(epoch: number) { if (epoch !== this.epoch || this.disposed) throw new Error('Host changed; observation was detached'); }
+  async detach(options: { recovering?: boolean } = {}) {
+    ++this.epoch; this.lifetime.abort(); this.lifetime = new AbortController(); this.commands.detach(); this.decisions.reset();
+    const view = this.view;
+    if (!options.recovering) { this.view = undefined; this.submitted.clear(); }
     const queries = this.query.cancelQueries();
-    this.query.clear();
-    // Clear owned state synchronously: an older detach must never clear a new host.
-    this.update({ client: undefined, list: undefined, host: undefined, commands: [], ready: false, connecting: false, lastSync: undefined, lastErrorCode: undefined });
-    await Promise.all([view?.view.dispose(), list?.dispose(), queries]);
+    if (options.recovering) void this.query.invalidateQueries({ refetchType: 'none' }); else this.query.clear();
+    this.update({ client: undefined, ...(options.recovering ? {} : { host: undefined }), ready: false, connecting: false });
+    if (view) {
+      const transition = this.viewTransition.catch(() => {}).then(async () => {
+        await (options.recovering ? view.execution.suspend() : view.execution.dispose());
+        await (options.recovering ? view.view.suspend() : view.view.dispose());
+      });
+      this.viewTransition = transition; await transition;
+    }
+    await queries;
   }
   async removeHost(id: string) {
     let epoch = this.epoch;
     if (this.state.host?.id === id) { const cleanup = this.detach(); epoch = this.epoch; await cleanup; }
-    this.assertEpoch(epoch);
-    await this.storage.delete('hosts', id);
-    this.assertEpoch(epoch);
-    const selected = await this.storage.get('settings', 'selectedHost');
-    this.assertEpoch(epoch);
-    if (selected === id) await this.storage.delete('settings', 'selectedHost');
-    this.assertEpoch(epoch);
-    this.update({ hosts: this.state.hosts.filter(h => h.id !== id) });
+    this.assertEpoch(epoch); await this.storage.delete('hosts', id); this.assertEpoch(epoch);
+    if (await this.storage.get('settings', 'selectedHost') === id) await this.storage.delete('settings', 'selectedHost');
+    this.assertEpoch(epoch); this.update({ hosts: this.state.hosts.filter(host => host.id !== id) });
+  }
+  setActive(active: boolean) {
+    if (active === this.state.active) return;
+    this.update({ active, ready: false });
+    if (!active) {
+      ++this.epoch;
+      this.lifetime.abort(new Error('Mobile observation is suspended'));
+      void this.view?.execution.suspend(); void this.view?.view.suspend();
+      void this.query.cancelQueries(); void this.storage.flush().catch(this.report);
+    } else if (this.state.host) void this.reconnect().catch(this.report);
+  }
+  async reconnect() {
+    if (!this.state.active) throw new Error('Open Whip before reconnecting');
+    if (!this.state.host) throw new Error('Choose a Whip host first');
+    return this.connect(this.state.host, { select: false, recovering: true });
+  }
+  requireReady(): Client {
+    if (!this.state.ready || !this.state.active || !this.state.client) throw new Error('Reconnect to Whip before sending. Your draft is saved.');
+    return this.state.client;
+  }
+  acquireView(sessionId: string, runtimeId: string): SessionLease {
+    const client = this.state.client;
+    if (!client || client.runtimeID !== runtimeId) throw new Error('This session belongs to another host runtime');
+    if (this.view && this.view.sessionId !== sessionId) {
+      const old = this.view; this.view = undefined; void old.execution.dispose().then(() => old.view.dispose()).catch(this.report);
+    }
+    if (!this.view) {
+      const session = client.session(sessionId);
+      const view = createSessionView(session, { maxBytes: 8 << 20, maxMessages: 512, pollIntervalMs: 1000 });
+      const execution = createExecutionView(session, view, { maxBytes: 2 << 20, maxTurns: 8, maxCells: 64, maxOperations: 128 });
+      this.view = { sessionId, view, execution, users: 0 };
+      if (this.state.active) void view.start().then(() => { if (this.view?.view === view && this.state.active) return execution.start(); }).catch(error => { if (this.view?.view === view) this.report(error); });
+    }
+    const held = this.view; held.users++; let released = false;
+    return { view: held.view, execution: held.execution, release: () => {
+      if (released) return; released = true;
+      if (--held.users === 0) {
+        if (this.view === held) this.view = undefined;
+        void held.execution.dispose().then(() => held.view.dispose()).catch(this.report);
+      }
+    } };
   }
   private appearanceWrites: Promise<void> = Promise.resolve();
   private saveAppearance(change: () => AppearanceRecord) {
@@ -177,113 +188,6 @@ export class MobileRuntime {
   addTheme(input: unknown) { const theme = validateTheme(input); return this.saveAppearance(() => appearanceRecord(this.state.appearance, [...(this.state.customThemes ?? []).filter(t => t.id !== theme.id), theme])); }
   removeTheme(id: string) { return this.saveAppearance(() => appearanceRecord({ ...this.state.appearance, ...(this.state.appearance.light === id ? { light: defaultAppearance.light } : {}), ...(this.state.appearance.dark === id ? { dark: defaultAppearance.dark } : {}) }, (this.state.customThemes ?? []).filter(t => t.id !== id))); }
 
-  setActive(active: boolean) {
-    if (active === this.state.active) return;
-    this.update({ active, ready: false });
-    const epoch = this.epoch;
-    const client = this.state.client ?? this.connectingClient;
-    if (!active) {
-      void this.storage.flush().catch(error => { if (epoch === this.epoch) this.report(error); });
-      void this.query.cancelQueries();
-      client?.pause();
-    } else if (client) {
-      void client.resume({ signal: this.lifetime.signal }).then(() => {
-        if (epoch === this.epoch) return this.reconcile(epoch);
-      }).catch(error => { if (epoch === this.epoch && this.state.active) this.report(error); });
-    }
-  }
-  async reconnect() {
-    const epoch = this.epoch;
-    const client = this.state.client ?? this.connectingClient;
-    if (!this.state.active) throw new Error('Open Whip before reconnecting.');
-    if (!client) {
-      if (!this.state.host) throw new Error('Choose a Whip server first.');
-      return this.connect(this.state.host);
-    }
-    await client.resume({ signal: this.lifetime.signal });
-    this.assertEpoch(epoch);
-    await this.reconcile(epoch);
-  }
-  requireReady(): WhipClient {
-    if (!this.state.ready || !this.state.active || !this.state.client) throw new Error('Reconnect to Whip before sending. Your draft is saved.');
-    this.state.client.requireConnected();
-    return this.state.client;
-  }
-  acquireView(rootId: string, runtimeId: string) {
-    const client = this.state.client;
-    if (!client || this.state.host?.runtimeId !== runtimeId || client.getSnapshot().info?.runtime_id !== runtimeId) throw new Error('This session belongs to another host runtime.');
-    if (this.view && this.view.rootId !== rootId) {
-      this.view.stop(); void this.view.view.dispose(); this.view = undefined; this.child = undefined;
-    }
-    if (!this.view) {
-      const epoch = this.epoch;
-      const view = createSessionView(client.session(rootId), { maxBytes: 8 << 20, maxMessages: 512, notificationIntervalMs: 16 });
-      let stopped = false;
-      let syncing: Promise<void> | undefined;
-      const current = () => !stopped && epoch === this.epoch && this.view?.view === view && this.state.active && client.getSnapshot().state === 'connected';
-      const pending = () => this.submitted.getSnapshot().filter(input => input.runtimeId === runtimeId && input.rootId === rootId && input.accepted && !input.confirmed);
-      const report = (error: unknown) => { if (current()) this.report(error); };
-      const syncInputs = (): Promise<void> => {
-        if (!current()) return Promise.resolve();
-        const inbox = view.getSnapshot().root?.inbox;
-        this.submitted.confirm(pending().filter(input => inbox?.some(item => item.agent_id === input.agentId && item.seq === input.inboxSeq)).map(input => input.id));
-        if (syncing) return syncing;
-        if (!pending().length) return Promise.resolve();
-        const promise = (async () => {
-          // Install the coalescing promise before a refresh publishes state.
-          await Promise.resolve();
-          while (current()) {
-            const inputs = pending();
-            if (!inputs.length) return;
-            // The first refresh can join a snapshot started before admission.
-            // The second hands these exact commands to authoritative inbox/history.
-            await view.refresh();
-            if (!current()) return;
-            await view.refresh();
-            const snapshot = view.getSnapshot();
-            if (!current() || snapshot.status !== 'live' || snapshot.root?.omitted?.inbox) return;
-            this.submitted.confirm(inputs.map(input => input.id));
-          }
-        })();
-        syncing = promise;
-        void promise.finally(() => { if (syncing === promise) syncing = undefined; }).catch(() => {});
-        return promise;
-      };
-      const changed = () => { void syncInputs().catch(report); };
-      const stopInputs = this.submitted.subscribe(changed);
-      const stopView = view.subscribe(() => { if (view.getSnapshot().status === 'live') changed(); });
-      const stop = () => { stopped = true; stopInputs(); stopView(); };
-      this.view = { rootId, view, users: 0, stop, syncInputs };
-      void view.start().then(syncInputs).catch(report);
-    }
-    const held = this.view; held.users++;
-    let released = false;
-    return { view: held.view, release: () => {
-      if (released) return; released = true;
-      if (--held.users === 0) { held.stop(); void held.view.dispose(); if (this.view === held) { this.view = undefined; this.child = undefined; } }
-    } };
-  }
-  acquireAgent(view: SessionView, agentId: string) {
-    if (this.view?.view !== view) throw new Error('The selected session has changed.');
-    if (agentId === this.view.rootId) {
-      if (this.child) { this.child.view.closeAgent(this.child.agentId); this.child = undefined; }
-      return { release() {} };
-    }
-    if (this.child && (this.child.view !== view || this.child.agentId !== agentId)) {
-      this.child.view.closeAgent(this.child.agentId); this.child = undefined;
-    }
-    if (!this.child) {
-      const held = { view, agentId, users: 0 };
-      this.child = held;
-      void view.openAgent(agentId).catch(error => { if (this.child === held) this.report(error); });
-    }
-    const held = this.child; held.users++;
-    let released = false;
-    return { release: () => {
-      if (released) return; released = true;
-      if (--held.users === 0 && this.child === held) { held.view.closeAgent(held.agentId); this.child = undefined; }
-    } };
-  }
   draft(key: string): Draft { return this.drafts.get(key) ?? { text: '', revision: '' }; }
   draftStatus(key: string) { return this.draftWrites.get(key)?.status ?? 'saved'; }
   draftEntries() { return [...this.drafts].map(([key, value]) => ({ key, value })); }
@@ -323,7 +227,7 @@ export class MobileRuntime {
     });
     return draft;
   }
-  private async clearSubmittedDraft(intent: CommandIntent | undefined, epoch: number) {
+  private async clearSubmittedDraft(intent: RecoveryIntent | undefined, epoch: number) {
     if (!intent?.draftKey || !intent.draftRevision || this.drafts.get(intent.draftKey)?.revision !== intent.draftRevision) return;
     await this.draftWrites.get(intent.draftKey)?.promise;
     this.assertEpoch(epoch);
@@ -335,231 +239,56 @@ export class MobileRuntime {
       }
     }
   }
-  private putCommand(command: CommandState) {
-    this.update({ commands: [...this.state.commands.filter(item => namespace(item.record) !== namespace(command.record)), Object.freeze(command)] });
-  }
-  private command(record: RecoveryRecord) { return this.state.commands.find(item => namespace(item.record) === namespace(record)); }
-  isBlocked(rootId: string, agentId = rootId, requestId?: string) {
-    return this.state.commands.some(c => {
-      if (c.record.rootId !== rootId || isTerminal(c.status) || c.status === 'not_found') return false;
-      if (c.accepted && ['queued', 'running', 'waiting'].includes(c.status)) return false;
-      if (!c.intent) return true;
-      if (!requestId && c.intent.requestId) return false;
-      return requestId ? c.intent.requestId === requestId : !c.intent.agentId || c.intent.agentId === agentId;
-    });
-  }
-  async run<O extends CommandOperation>(operation: O, payload: RuntimeOperations[O]['params'], options: { rootId?: string; intent?: CommandIntent; preview?: { agentId: string; text: string; queued: boolean } } = {}): Promise<CommandOutcome<O>> {
-    const client = this.requireReady();
-    const runtimeId = client.requireConnected().runtime_id;
-    options = structuredClone(options);
-    payload = structuredClone(payload);
-    const input = ['submit', 'steer', 'agent.submit'].includes(operation);
-    const target = options.intent?.requestId ? ['request', options.intent.requestId]
-      : input ? ['input', options.intent?.agentId ?? options.rootId] : [operation, options.intent?.agentId];
-    const lock = JSON.stringify([runtimeId, options.rootId, target]);
-    if (this.locks.has(lock) || (input || options.intent?.requestId) && options.rootId && this.isBlocked(options.rootId, options.intent?.agentId, options.intent?.requestId))
-      throw new Error('Check the previous delivery before sending again.');
-    if (this.state.commands.length >= 64) throw new Error('Resolve or clear saved command records before sending more.');
-    const epoch = this.epoch;
-    const id = client.createId();
-    this.locks.set(lock, id);
-    try {
-      if (options.intent?.draftKey) await this.draftWrites.get(options.intent.draftKey)?.promise;
-      this.assertEpoch(epoch);
-      if (this.requireReady() !== client) throw new Error('Host changed before submission.');
-      this.storage.prepareIntent(id, options.intent ?? {});
-      if (options.preview && options.rootId) this.submitted.add({ runtimeId, rootId: options.rootId, agentId: options.preview.agentId }, options.preview.text, options.preview.queued, id);
-      const handle = client.submit(operation, payload, { rootId: options.rootId, commandId: id });
-      this.handles.set(id, handle); this.originalPayloads.add(id);
-      this.putCommand({ record: handle.record, intent: options.intent, status: 'sending', accepted: false });
-      return await this.observe(handle, options.intent, epoch, true);
-    } finally {
-      if (this.locks.get(lock) === id) this.locks.delete(lock);
-      this.storage.discardIntent(id);
-      if (!this.handles.has(id)) this.submitted.remove(id);
-    }
-  }
-  private async applyOutcome<O extends CommandOperation>(record: RecoveryRecord<O>, intent: CommandIntent | undefined, outcome: CommandOutcome<O>, epoch: number): Promise<CommandOutcome<O>> {
-    this.assertEpoch(epoch);
-    const previous = this.command(record);
-    if (!previous) return outcome;
-    if (previous?.outcome && isTerminal(previous.status) && !isTerminal(outcome.status)) return previous.outcome as CommandOutcome<O>;
-    this.putCommand({ record, intent, status: outcome.status, accepted: true, outcome });
-    try {
-      await this.storage.markAccepted(record);
-      this.assertEpoch(epoch);
-      const clear = intent?.workflowId ? intent.step === 'submit' && outcome.status === 'succeeded'
-        : ['submit', 'steer'].includes(record.operation) || outcome.status === 'succeeded';
-      if (clear) await this.clearSubmittedDraft(intent, epoch);
-    } catch (error) {
-      if (epoch === this.epoch) this.putCommand({ record, intent, accepted: true, status: 'checking', outcome, message: message(error) });
+  isBlocked(_rootId: string, sessionId = _rootId) { return this.commands.isBlocked(sessionId); }
+  async run<M extends MobileDurableMethod>(method: M, params: Operations[M]['params'], options: { rootId?: string; intent?: RecoveryIntent } = {}): Promise<Operations[M]['result']> {
+    const client = this.requireReady(); const epoch = this.epoch;
+    if (options.intent?.draftKey) await this.draftWrites.get(options.intent.draftKey)?.promise;
+    this.assertEpoch(epoch); if (this.requireReady() !== client) throw new Error('Host changed before submission');
+    const input = method === 'sessions.submit' ? params as Operations['sessions.submit']['params'] : undefined;
+    if (input && options.rootId) this.submitted.add({ runtimeId: client.runtimeID, rootId: options.rootId, agentId: input.session_id, clientId: client.clientID }, input.parts.filter(part => part.type === 'text').map(part => part.text).join('\n'), !!this.view?.view.getSnapshot().activity?.active_turn, input.identity.request_id);
+    let result: Operations[M]['result'];
+    try { result = await this.commands.run(client.command(method, params), options); }
+    catch (error) {
+      const delivery = input && this.commands.getSnapshot().find(value => value.record.commandId === input.identity.request_id && value.record.runtimeId === client.runtimeID);
+      if (input && (!delivery || delivery.status === 'failed' || delivery.status === 'missing')) this.submitted.remove(input.identity.request_id, client.runtimeID);
       throw error;
     }
+    this.assertEpoch(epoch); if (method === 'sessions.submit') { this.submitted.acknowledge(result as Operations['sessions.submit']['result'], client.runtimeID); await this.clearSubmittedDraft(options.intent, epoch); }
+    await this.view?.view.refresh().catch(this.report); void this.query.invalidateQueries();
+    return result;
+  }
+  async checkCommand(command: CommandState) {
+    this.requireReady(); const epoch = this.epoch;
+    const value = await this.commands.check(command.record, this.lifetime.signal);
     this.assertEpoch(epoch);
-    for (const [lock, commandId] of this.locks) if (commandId === record.commandId) this.locks.delete(lock);
-    // Child command failure ends admission; root turn failure can retain history.
-    if (record.operation === 'agent.submit' && isTerminal(outcome.status) && outcome.status !== 'succeeded') this.submitted.remove(record.commandId);
-    else this.submitted.acknowledge(outcome, record.runtimeId);
-    if (isTerminal(outcome.status)) this.originalPayloads.delete(record.commandId);
-    return outcome;
-  }
-  private lookupFailed(record: RecoveryRecord, intent: CommandIntent | undefined, error: unknown, epoch: number) {
-    this.assertEpoch(epoch);
-    const previous = this.command(record);
-    if (!previous) return;
-    if (previous && isTerminal(previous.status)) return;
-    const accepted = previous?.accepted ?? false;
-    const missing = error instanceof RpcError && error.kind === 'command_not_found' && !accepted;
-    this.putCommand({ record, intent, accepted, status: missing ? 'not_found' : 'checking', message: message(error),
-      retryable: missing && this.originalPayloads.has(record.commandId),
-    });
-    if (missing) this.submitted.remove(record.commandId);
-  }
-  private observe<O extends CommandOperation>(handle: CommandHandle<O>, intent: CommandIntent | undefined, epoch: number, initial = false): Promise<CommandOutcome<O>> {
-    const existing = this.observers.get(handle.commandId);
-    if (existing) return existing as Promise<CommandOutcome<O>>;
-    const observing = (async () => {
-      const signal = this.lifetime.signal;
-      let outcome: CommandOutcome<O> | undefined;
-      if (initial) {
-        try { outcome = await handle.accepted({ signal }); }
-        catch (error) {
-          this.assertEpoch(epoch);
-          if (!(error instanceof WhipError) || error.kind !== 'delivery_uncertain') {
-            this.putCommand({ record: handle.record, intent, accepted: false, status: 'failed', message: message(error) });
-            this.submitted.remove(handle.commandId); this.originalPayloads.delete(handle.commandId);
-            throw error;
-          }
-          this.lookupFailed(handle.record, intent, error, epoch);
-        }
-        if (outcome) await this.applyOutcome(handle.record, intent, outcome, epoch);
-      }
-      try {
-        // A fresh status observer never rereads a rejected admission promise.
-        const recovered = handle.client.recover(handle.record);
-        if (!outcome) {
-          for (;;) {
-            await handle.client.whenConnected(signal);
-            try { outcome = await recovered.status({ signal }); break; }
-            catch (error) {
-              if (signal.aborted || error instanceof RpcError || !['reconnecting', 'paused'].includes(handle.client.getSnapshot().state)) throw error;
-            }
-          }
-          // Record recovered admission before waiting for execution to finish.
-          outcome = await this.applyOutcome(handle.record, intent, outcome, epoch);
-        }
-        if (!isTerminal(outcome.status)) {
-          outcome = await recovered.result({ signal });
-          await this.applyOutcome(handle.record, intent, outcome, epoch);
-        }
-        if (this.state.active && handle.client.getSnapshot().state === 'connected') {
-          try {
-            const view = this.view;
-            if (view && view.rootId === handle.record.rootId) await view.view.refresh();
-            this.assertEpoch(epoch);
-            if (this.state.active && handle.client.getSnapshot().state === 'connected') await this.query.invalidateQueries();
-          } catch (error) {
-            this.assertEpoch(epoch);
-            if (this.state.active) this.report(error);
-          }
-        }
-        return outcome;
-      } catch (error) {
-        if (epoch === this.epoch) this.lookupFailed(handle.record, intent, error, epoch);
-        throw error;
-      }
-    })();
-    this.observers.set(handle.commandId, observing);
-    void observing.finally(() => { if (this.observers.get(handle.commandId) === observing) this.observers.delete(handle.commandId); }).catch(() => {});
-    return observing;
-  }
-  private async lookup(record: RecoveryRecord, intent: CommandIntent | undefined, epoch: number, signal: AbortSignal) {
-    const client = this.state.client!;
-    let outcome: CommandOutcome;
-    try { outcome = await client.recover(record).status({ signal }); }
-    catch (error) { this.lookupFailed(record, intent, error, epoch); return undefined; }
-    if (!this.command(record)) return undefined;
-    await this.applyOutcome(record, intent, outcome, epoch);
-    if (!isTerminal(outcome.status)) {
-      const handle = this.handles.get(record.commandId) ?? client.recover(record);
-      this.handles.set(record.commandId, handle);
-      void this.observe(handle, intent, epoch).catch(error => { if (epoch === this.epoch && this.state.active) this.report(error); });
-    }
-    return outcome;
-  }
-  async reconcile(epoch = this.epoch): Promise<void> {
-    const client = this.state.client;
-    if (!client || !this.state.active || client.getSnapshot().state !== 'connected') return;
-    const info = client.requireConnected();
-    if (this.reconciliation?.connectionId === info.connection_id) return this.reconciliation.promise;
-    const signal = client.lifetimeSignal;
-    const promise = (async () => {
-      this.update({ ready: false });
-      let entries: Awaited<ReturnType<MobileStorage['listRecovery']>>;
-      for (;;) {
-        const commands = this.state.commands;
-        entries = (await this.storage.listRecovery()).filter(entry => entry.record.clientId === client.clientId && entry.record.runtimeId === info.runtime_id);
-        this.assertEpoch(epoch);
-        if (commands === this.state.commands) break;
-      }
-      for (const entry of entries) {
-        const previous = this.command(entry.record);
-        this.putCommand({ ...previous, record: entry.record, intent: entry.intent, status: previous?.status ?? 'checking', accepted: entry.knownAccepted || previous?.accepted || false });
-      }
-      for (let i = 0; i < entries.length; i += 4) {
-        signal.throwIfAborted();
-        await Promise.all(entries.slice(i, i + 4).map(entry => this.lookup(entry.record, entry.intent, epoch, signal)));
-      }
-      signal.throwIfAborted(); this.assertEpoch(epoch);
-      await this.decisions.reconcile();
-      signal.throwIfAborted(); this.assertEpoch(epoch);
-      await this.view?.view.refresh();
-      signal.throwIfAborted(); this.assertEpoch(epoch);
-      await this.view?.syncInputs();
-      signal.throwIfAborted(); this.assertEpoch(epoch);
-      const child = this.child;
-      if (child) await child.view.openAgent(child.agentId).catch(error => { if (this.child === child && epoch === this.epoch && this.state.active) this.report(error); });
-      signal.throwIfAborted(); this.assertEpoch(epoch);
-      await this.query.invalidateQueries();
-      signal.throwIfAborted(); this.assertEpoch(epoch);
-      if (this.state.active && client.getSnapshot().info?.connection_id === info.connection_id && client.getSnapshot().state === 'connected') this.update({ ready: true, lastSync: new Date().toISOString() });
-    })();
-    this.reconciliation = { connectionId: info.connection_id, promise };
-    try { await promise; }
-    finally { if (this.reconciliation?.promise === promise) this.reconciliation = undefined; }
-  }
-  async checkCommand(command: CommandState): Promise<CommandOutcome> {
-    const client = this.requireReady();
-    if (command.record.runtimeId !== client.requireConnected().runtime_id || command.record.clientId !== client.clientId) throw new Error('This command belongs to another host.');
-    const outcome = await this.lookup(command.record, this.command(command.record)?.intent ?? command.intent, this.epoch, client.lifetimeSignal);
-    if (!outcome) throw new WhipError('recovery_required', this.command(command.record)?.message ?? 'Command status is unavailable.');
-    return outcome;
+    if (value.knownAccepted && value.record.operation === 'sessions.submit') { if (value.inputId) this.submitted.accept(value.record.commandId, value.inputId, value.record.runtimeId); await this.clearSubmittedDraft(value.intent, epoch); }
+    return value;
   }
   async retryCommand(command: CommandState) {
-    const client = this.requireReady();
-    const epoch = this.epoch;
-    const saved = (await this.storage.listRecovery()).find(entry => namespace(entry.record) === namespace(command.record));
-    this.assertEpoch(epoch);
-    const current = this.command(command.record);
-    const handle = this.handles.get(command.record.commandId);
-    if (saved?.knownAccepted || current?.accepted || !current?.retryable || !this.originalPayloads.has(command.record.commandId) || !handle || handle.client !== client)
-      throw new Error('The original request is unavailable or already accepted. Check its status before sending anything again.');
-    await handle.retry({ signal: this.lifetime.signal });
-    return this.observe(handle, current.intent, epoch, true);
+    this.requireReady(); const epoch = this.epoch;
+    const result = await this.commands.retry(command.record);
+    this.assertEpoch(epoch); await this.clearSubmittedDraft(command.intent, epoch);
+    await this.view?.view.refresh().catch(this.report); void this.query.invalidateQueries(); return result;
+  }
+  async answerQuestion(rootId: string, params: Operations['questions.answer']['params'], intent: RecoveryIntent, expected: Question['request']) {
+    const client = this.requireReady(); const epoch = this.epoch;
+    if (intent.draftKey) await this.draftWrites.get(intent.draftKey)?.promise;
+    this.assertEpoch(epoch); if (this.requireReady() !== client) throw new Error('Host changed before answering');
+    await this.decisions.answer(rootId, params.session_id, params.operation_id, params.answers, intent, expected);
+    this.assertEpoch(epoch); await this.clearSubmittedDraft(intent, epoch);
   }
   async forgetCommand(command: CommandState) {
-    const epoch = this.epoch;
-    const current = this.command(command.record);
-    if (!current || !isTerminal(current.status) && current.status !== 'not_found') throw new Error('Check delivery before clearing this record.');
-    if (current.status === 'succeeded' && current.intent?.workflowId) {
-      const workflow = this.state.host && await this.storage.get<CreationWorkflow>('settings', `creation:${this.state.host.id}`);
-      this.assertEpoch(epoch);
-      if (!workflow || !creationResultRecorded(workflow, current)) throw new Error('Open New session to save this workflow result before clearing its command.');
+    if (command.intent.workflowId && command.knownAccepted) {
+      const host = this.state.host;
+      const workflow = host && await this.storage.get<CreationWorkflow>('settings', creationSettingsKey(host.id));
+      if (!workflow || !creationResultRecorded(workflow, command)) throw new Error('Save the recovered creation result before clearing its delivery record.');
     }
-    await this.storage.recoveryStorage.delete(current.record);
-    this.assertEpoch(epoch);
-    this.handles.delete(command.record.commandId); this.originalPayloads.delete(command.record.commandId); this.submitted.remove(command.record.commandId);
-    this.update({ commands: this.state.commands.filter(c => namespace(c.record) !== namespace(command.record)) });
+    await this.commands.forget(command.record);
+    if (!command.knownAccepted) this.submitted.remove(command.record.commandId, command.record.runtimeId);
   }
-  async dispose(closeStorage = true) { this.disposed = true; await this.detach(); this.listeners.clear(); if (closeStorage) await this.storage.close(); }
+  async dispose(closeStorage = true) {
+    if (this.disposed) return; this.disposed = true;
+    await this.detach(); this.commands.dispose(); this.decisions.reset(); this.listeners.clear();
+    if (closeStorage) await this.storage.close();
+  }
 }
