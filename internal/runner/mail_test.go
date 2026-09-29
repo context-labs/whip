@@ -23,9 +23,9 @@ func (mailExecutor) Instructions(_ context.Context, _ session.Turn, policy sessi
 	return policy.Text + "\nexecution instructions", nil
 }
 
-func (e mailExecutor) Execute(_ context.Context, _ session.Turn, _ session.MessageID, call session.ToolCall) (session.ToolResult, error) {
+func (e mailExecutor) Execute(_ context.Context, _ session.Turn, _ session.MessageID, call session.ToolCall) ([]session.Part, error) {
 	*e.events = append(*e.events, call.ID)
-	return session.ToolResult{CallID: call.ID, Output: "settled"}, nil
+	return []session.Part{{Type: "tool_result", Result: &session.ToolResult{CallID: call.ID, Output: "settled"}}}, nil
 }
 
 func TestMailBoundaryFollowsAllToolResultsBeforeNextModelRequest(t *testing.T) {

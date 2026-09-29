@@ -2367,6 +2367,9 @@
       "state": "succeeded",
       "grant_id": "grant_fixture",
       "result": {
+        "content_references": [
+          "image_ref"
+        ],
         "state": "succeeded",
         "value": {
           "output": "1: hello"
@@ -3058,6 +3061,39 @@
         "output": "1",
         "is_error": false
       }
+    },
+    "valid": true
+  },
+  {
+    "type": "Message",
+    "value": {
+      "group_id": "turn_fixture",
+      "opening_input": false,
+      "source": null,
+      "retired_by": null,
+      "retired_revision": null,
+      "id": "message_image",
+      "session_id": "session_child",
+      "turn_id": "turn_fixture",
+      "input_id": null,
+      "mail": null,
+      "sequence": "9007199254740996",
+      "role": "tool",
+      "parts": [
+        {
+          "type": "tool_result",
+          "result": {
+            "call_id": "image_call",
+            "output": "unchanged output",
+            "is_error": false
+          }
+        },
+        {
+          "type": "content",
+          "reference_id": "image_ref"
+        }
+      ],
+      "created_at": "2026-09-27T12:00:00.123456Z"
     },
     "valid": true
   },

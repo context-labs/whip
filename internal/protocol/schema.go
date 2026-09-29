@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/context-labs/whip/internal/hostmodule"
+	"github.com/context-labs/whip/internal/session"
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
@@ -270,6 +271,13 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 				child.MaxItems = new(128)
 			}
 		}
+		if t == reflect.TypeFor[HostOperationResult]() {
+			refs := schema.Properties["content_references"]
+			refs.Type = "array"
+			refs.Types = nil
+			refs.MaxItems = new(session.MaxOperationAttachments)
+			refs.UniqueItems = true
+		}
 		accountSchema(schema, t)
 		if t == reflect.TypeFor[WorkspaceSnapshotsResult]() {
 			schema.Properties["items"].Type = "array"
@@ -355,13 +363,16 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 				case "assistant":
 					items = partSchema("text", "content", "tool_call")
 				case "tool":
-					items, maxItems = partSchema("tool_result"), 1
+					items, maxItems = partSchema("tool_result"), 1+session.MaxOperationAttachments
 				}
 				// Keep common required fields in each variant. Conditional-only
 				// branches validate in JSON Schema but lose those fields in TS unions.
 				variant := schema.CloneSchemas()
 				variant.Properties["role"] = &jsonschema.Schema{Type: "string", Enum: []any{role}}
 				variant.Properties["parts"] = &jsonschema.Schema{Type: "array", MinItems: new(1), MaxItems: &maxItems, Items: items}
+				if role == "tool" {
+					variant.Properties["parts"] = &jsonschema.Schema{Type: "array", MinItems: new(1), MaxItems: &maxItems, ItemsArray: []*jsonschema.Schema{partSchema("tool_result")}, AdditionalItems: partSchema("content"), UniqueItems: true}
+				}
 				variants = append(variants, variant)
 			}
 			*schema = jsonschema.Schema{OneOf: variants}

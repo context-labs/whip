@@ -75,10 +75,16 @@ type Operation struct {
 	FinishedAt         *time.Time
 }
 
+const (
+	MaxOperationAttachments           = 8
+	MaxOperationAttachmentBytes int64 = 16 << 20
+)
+
 type OperationResult struct {
-	State   OperationState  `json:"state"`
-	Value   json.RawMessage `json:"value,omitempty"`
-	Failure *string         `json:"failure,omitempty"`
+	ContentReferences []string        `json:"content_references,omitempty"`
+	State             OperationState  `json:"state"`
+	Value             json.RawMessage `json:"value,omitempty"`
+	Failure           *string         `json:"failure,omitempty"`
 }
 
 type Permission struct {
@@ -163,6 +169,17 @@ func (s OperationState) Terminal() bool {
 }
 
 func (r OperationResult) Validate() error {
+	if len(r.ContentReferences) > MaxOperationAttachments {
+		return fmt.Errorf("%w: operation attachment count exceeds limit", ErrInvalid)
+	}
+	seen := map[string]bool{}
+	for _, id := range r.ContentReferences {
+		if ValidateID(id) != nil || seen[id] {
+			return fmt.Errorf("%w: invalid or duplicate operation attachment", ErrInvalid)
+		}
+		seen[id] = true
+	}
+
 	if !r.State.Terminal() || (r.State == OperationSucceeded && r.Failure != nil) {
 		return fmt.Errorf("%w: invalid operation result", ErrInvalid)
 	}
@@ -177,7 +194,7 @@ func (r OperationResult) Validate() error {
 			return err
 		}
 	}
-	if (r.State == OperationDenied || r.State == OperationCancelled) && len(r.Value) != 0 {
+	if (r.State == OperationDenied || r.State == OperationCancelled) && (len(r.Value) != 0 || len(r.ContentReferences) != 0) {
 		return fmt.Errorf("%w: an undispatched operation cannot have output", ErrInvalid)
 	}
 	raw, err := json.Marshal(r)

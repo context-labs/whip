@@ -173,6 +173,13 @@ func (s *Store) SettleCell(ctx context.Context, id session.CellID, state session
 			return ErrConflict
 		}
 		draft := session.MessageDraft{ID: session.MessageID(string(id) + "_result"), Role: session.Tool, Parts: []session.Part{{Type: "tool_result", Result: &output}}}
+		attachments, err := cellOperationAttachments(ctx, tx, id, cell.SessionID)
+		if err != nil {
+			return err
+		}
+		for _, reference := range attachments {
+			draft.Parts = append(draft.Parts, session.Part{Type: "content", ReferenceID: reference})
+		}
 		if cell.State != session.CellRunning {
 			if cell.State != state || !reflect.DeepEqual(cell.Checkpoint, checkpoint) {
 				return ErrConflict
@@ -275,7 +282,7 @@ func validateCallOrder(ctx context.Context, tx *sql.Tx, turn session.TurnID, dra
 		}
 		return nil
 	}
-	if len(draft.Parts) != 1 || draft.Parts[0].Result == nil {
+	if len(draft.Parts) == 0 || draft.Parts[0].Result == nil {
 		return fmt.Errorf("%w: tool result required", session.ErrInvalid)
 	}
 	if _, ok := pending[draft.Parts[0].Result.CallID]; !ok {
@@ -312,6 +319,15 @@ func reconcileCalls(ctx context.Context, tx *sql.Tx, turn session.Turn, reason s
 			return err
 		}
 		draft := session.MessageDraft{ID: id, Role: session.Tool, Parts: []session.Part{{Type: "tool_result", Result: &session.ToolResult{CallID: call.ID, Output: text, IsError: true}}}}
+		if cell.ID != "" {
+			ids, err := cellOperationAttachments(ctx, tx, cell.ID, cell.SessionID)
+			if err != nil {
+				return err
+			}
+			for _, id := range ids {
+				draft.Parts = append(draft.Parts, session.Part{Type: "content", ReferenceID: id})
+			}
+		}
 		if _, err := appendMessage(ctx, tx, turn, draft); err != nil {
 			return err
 		}

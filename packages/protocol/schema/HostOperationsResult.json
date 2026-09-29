@@ -80,6 +80,15 @@
               "object"
             ],
             "properties": {
+              "content_references": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                },
+                "maxItems": 8,
+                "uniqueItems": true
+              },
               "state": {
                 "type": "string",
                 "enum": [
@@ -99,6 +108,7 @@
               }
             },
             "required": [
+              "content_references",
               "state"
             ],
             "additionalProperties": false

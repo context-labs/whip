@@ -42,7 +42,8 @@ type Executor interface {
 	// Instructions resolves the complete base instructions once from this turn's
 	// captured policy. Later model requests reuse the returned text.
 	Instructions(context.Context, session.Turn, session.Instructions) (string, error)
-	Execute(context.Context, session.Turn, session.MessageID, session.ToolCall) (session.ToolResult, error)
+	// Execute returns the exact committed tool-message parts, including trusted images.
+	Execute(context.Context, session.Turn, session.MessageID, session.ToolCall) ([]session.Part, error)
 }
 
 // Progress is ephemeral presentation, never transcript or execution authority.
@@ -235,13 +236,22 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 			if call.Name != "execute" {
 				return Failure(errors.New("unsupported tool call")), nil
 			}
-			result, err := r.executor.Execute(ctx, turn, completed.messageID, call)
+			parts, err := r.executor.Execute(ctx, turn, completed.messageID, call)
 			if err != nil {
 				return Outcome{}, err
 			}
-			if err := r.appendTurnContext(&request, session.Tool, []session.Part{{Type: "tool_result", Result: &result}}, &size); err != nil {
+			if err := session.ValidateMessage(session.Tool, parts); err != nil {
+				return Outcome{}, err
+			}
+			if parts[0].Result.CallID != call.ID {
+				return Outcome{}, errors.New("committed tool result does not match executed call")
+			}
+			if err := r.appendTurnContext(&request, session.Tool, parts, &size); err != nil {
 				return Failure(err), nil
 			}
+		}
+		if err := r.hydrate(ctx, &request); err != nil {
+			return Failure(err), nil
 		}
 	}
 	return Failure(errors.New("turn exceeded the 32 model-call limit")), nil

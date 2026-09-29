@@ -147,3 +147,21 @@ test('binding configuration preserves explicit none and rejects caller-supplied 
   assert.equal(session.configuration.tools_definition, null);
   assert.equal(session.configuration.hooks_definition, null);
 });
+
+test('tool image parts keep first result and exact bounded structural uniqueness under CSP', () => {
+  const value = structuredClone(fixtures.find(f => f.type === 'Message' && f.value.id === 'message_image').value);
+  assert.equal(validate('Message', value), true);
+  const result = value.parts[0];
+  const image = value.parts[1];
+  for (const parts of [
+    [image, result], [result, result], [result, image, { reference_id: image.reference_id, type: 'content' }],
+    [result, ...Array.from({ length: 9 }, (_, i) => ({ type: 'content', reference_id: 'image_' + i }))],
+  ]) assert.equal(validate('Message', { ...value, parts }), false);
+  assert.equal(validate('Message', { ...value, parts: [result, ...Array.from({ length: 8 }, (_, i) => ({ type: 'content', reference_id: 'image_' + i }))] }), true);
+  const operation = structuredClone(fixtures.find(f => f.type === 'HostOperation').value);
+  assert.deepEqual(operation.result.content_references, ['image_ref']);
+  for (const refs of [null, ['image_ref', 'image_ref'], Array.from({ length: 9 }, (_, i) => 'ref_' + i)]) {
+    operation.result.content_references = refs;
+    assert.equal(validate('HostOperation', operation), false);
+  }
+});

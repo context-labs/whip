@@ -30,6 +30,10 @@ func responseScope(route, credential, model string) string {
 }
 
 func encodeResponses(request Request, scope string, maxTokens int64) ([]byte, error) {
+	sourceMessages, err := providerMessages(request.Messages)
+	if err != nil {
+		return nil, err
+	}
 	if len(request.Messages) > 100 {
 		return nil, errors.New("model message count exceeds limit")
 	}
@@ -40,7 +44,7 @@ func encodeResponses(request Request, scope string, maxTokens int64) ([]byte, er
 	}
 	instructions := []string{request.Instructions}
 	input := []any{}
-	for _, message := range request.Messages {
+	for _, message := range sourceMessages {
 		if err := session.ValidateMessage(message.Role, message.Parts); err != nil {
 			return nil, err
 		}

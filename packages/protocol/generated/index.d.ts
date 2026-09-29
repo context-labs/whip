@@ -2141,7 +2141,7 @@ export interface HistoryPageResult {
             role: "tool";
             /**
              * @minItems 1
-             * @maxItems 1
+             * @maxItems 9
              */
             parts: [
               {
@@ -2151,7 +2151,11 @@ export interface HistoryPageResult {
                   output: string;
                 };
                 type: "tool_result";
-              }
+              },
+              ...{
+                reference_id: string;
+                type: "content";
+              }[]
             ];
             created_at: string;
           }
@@ -2364,7 +2368,7 @@ export interface HistoryResult {
             role: "tool";
             /**
              * @minItems 1
-             * @maxItems 1
+             * @maxItems 9
              */
             parts: [
               {
@@ -2374,7 +2378,11 @@ export interface HistoryResult {
                   output: string;
                 };
                 type: "tool_result";
-              }
+              },
+              ...{
+                reference_id: string;
+                type: "content";
+              }[]
             ];
             created_at: string;
           }
@@ -2400,6 +2408,10 @@ export type HostOperation = {
   state: "waiting" | "ready" | "dispatched" | "succeeded" | "failed" | "denied" | "cancelled" | "uncertain";
   grant_id: null | string;
   result: null | {
+    /**
+     * @maxItems 8
+     */
+    content_references: string[];
     state: "succeeded" | "failed" | "denied" | "cancelled" | "uncertain";
     value?: unknown;
     failure?: null | string;
@@ -3648,7 +3660,7 @@ export type Message =
       role: "tool";
       /**
        * @minItems 1
-       * @maxItems 1
+       * @maxItems 9
        */
       parts: [
         {
@@ -3658,7 +3670,11 @@ export type Message =
             output: string;
           };
           type: "tool_result";
-        }
+        },
+        ...{
+          reference_id: string;
+          type: "content";
+        }[]
       ];
       created_at: string;
     };
@@ -7050,7 +7066,7 @@ export interface SessionObservation {
             role: "tool";
             /**
              * @minItems 1
-             * @maxItems 1
+             * @maxItems 9
              */
             parts: [
               {
@@ -7060,7 +7076,11 @@ export interface SessionObservation {
                   output: string;
                 };
                 type: "tool_result";
-              }
+              },
+              ...{
+                reference_id: string;
+                type: "content";
+              }[]
             ];
             created_at: string;
           }

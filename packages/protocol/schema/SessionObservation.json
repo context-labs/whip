@@ -757,49 +757,76 @@
               },
               "parts": {
                 "type": "array",
-                "items": {
+                "items": [
+                  {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "result": {
+                            "type": "object",
+                            "properties": {
+                              "call_id": {
+                                "type": "string",
+                                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                              },
+                              "is_error": {
+                                "type": "boolean"
+                              },
+                              "output": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "call_id",
+                              "output",
+                              "is_error"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "tool_result"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "type",
+                          "result"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                ],
+                "minItems": 1,
+                "maxItems": 9,
+                "additionalItems": {
                   "oneOf": [
                     {
                       "type": "object",
                       "properties": {
-                        "result": {
-                          "type": "object",
-                          "properties": {
-                            "call_id": {
-                              "type": "string",
-                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
-                            },
-                            "is_error": {
-                              "type": "boolean"
-                            },
-                            "output": {
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "call_id",
-                            "output",
-                            "is_error"
-                          ],
-                          "additionalProperties": false
+                        "reference_id": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
                         },
                         "type": {
                           "type": "string",
                           "enum": [
-                            "tool_result"
+                            "content"
                           ]
                         }
                       },
                       "required": [
                         "type",
-                        "result"
+                        "reference_id"
                       ],
                       "additionalProperties": false
                     }
                   ]
                 },
-                "minItems": 1,
-                "maxItems": 1
+                "uniqueItems": true
               },
               "created_at": {
                 "type": "string"

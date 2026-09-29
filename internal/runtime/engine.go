@@ -171,12 +171,15 @@ func (r *Runtime) discardKernel(id session.SessionID, entry *sessionKernel) {
 // Execute is called only after the assistant's call is durably committed. It
 // holds capacity through SQL settlement, then releases it before another model
 // request or child wait can consume the turn's lifetime.
-func (r *Runtime) Execute(ctx context.Context, turn session.Turn, messageID session.MessageID, call session.ToolCall) (session.ToolResult, error) {
-	result, err := r.executeCell(ctx, turn, messageID, call)
+func (r *Runtime) Execute(ctx context.Context, turn session.Turn, messageID session.MessageID, call session.ToolCall) ([]session.Part, error) {
+	_, err := r.executeCell(ctx, turn, messageID, call)
 	if err == nil {
 		err = r.waitAfterCell(ctx, turn, cellID(messageID, call.ID))
 	}
-	return result, err
+	if err != nil {
+		return nil, err
+	}
+	return r.store.CellResultParts(ctx, turn.SessionID, cellID(messageID, call.ID))
 }
 
 func cellID(message session.MessageID, call string) session.CellID {

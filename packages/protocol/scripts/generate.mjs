@@ -2,6 +2,7 @@ import { readFile, readdir, mkdir, writeFile } from 'node:fs/promises';
 import { compile } from 'json-schema-to-typescript';
 import Ajv from 'ajv';
 import standaloneCode from 'ajv/dist/standalone/index.js';
+import equalRuntime from 'ajv/dist/runtime/equal.js';
 import { _ } from 'ajv/dist/compile/codegen/index.js';
 
 const check = process.argv.includes('--check');
@@ -69,7 +70,11 @@ function unicodeLength(value) {
   for (const _ of value) count++;
   return count;
 }
-const validators = standaloneCode(ajv, exports).replaceAll('require("ajv/dist/runtime/ucs2length").default', unicodeLength.toString());
+// Bounded tool-image arrays use structural uniqueness. Embed the exact pinned
+// Ajv equality implementation; do not add a browser dependency or dynamic code.
+const validators = standaloneCode(ajv, exports)
+  .replaceAll('require("ajv/dist/runtime/ucs2length").default', unicodeLength.toString())
+  .replaceAll('require("ajv/dist/runtime/equal").default', equalRuntime.default.toString());
 if (/\brequire\s*\(/.test(validators)) throw new Error('Generated validator contains an unresolved runtime dependency');
 const files = { 'index.d.ts': declarations, 'index.js': runtime, 'validators.js': validators };
 if (!check) await mkdir('generated', { recursive: true });

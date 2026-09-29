@@ -215,6 +215,10 @@ func (d *Dispatcher) callPrepared(ctx context.Context, call Invocation, prepared
 		return nil, id, callErr
 	}
 	result := session.OperationResult{State: session.OperationSucceeded}
+	if output, ok := value.(Output); ok {
+		value = output.Value
+		result.ContentReferences = slices.Clone(output.ContentReferences)
+	}
 	if callErr != nil {
 		result.State = session.OperationFailed
 		if !isSettledFailure(callErr) && (prepared.Mutating || ctx.Err() != nil || errors.Is(callErr, context.Canceled) || errors.Is(callErr, context.DeadlineExceeded)) {

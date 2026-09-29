@@ -454,6 +454,18 @@ func settleOperation(ctx context.Context, tx *sql.Tx, operation session.Operatio
 	} else if outcome.State != session.OperationCancelled && outcome.State != session.OperationDenied {
 		return session.Operation{}, ErrConflict
 	}
+	if _, err := validateOperationAttachments(ctx, tx, operation.SessionID, outcome.ContentReferences); err != nil {
+		return session.Operation{}, err
+	}
+	if operation.CellID != "" && len(outcome.ContentReferences) > 0 {
+		existing, err := cellOperationAttachments(ctx, tx, operation.CellID, operation.SessionID)
+		if err != nil {
+			return session.Operation{}, err
+		}
+		if _, err := validateOperationAttachments(ctx, tx, operation.SessionID, append(existing, outcome.ContentReferences...)); err != nil {
+			return session.Operation{}, err
+		}
+	}
 	var pending bool
 	if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM model_attempts WHERE operation_id=? AND finished_at IS NULL)", operation.ID).Scan(&pending); err != nil {
 		return session.Operation{}, err
