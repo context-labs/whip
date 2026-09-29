@@ -11,7 +11,7 @@ func TestBindingDefinitionAndConfigurationSocketContract(t *testing.T) {
 	_, client := fixture(t)
 	doc := protocol.DefinitionDocument{ID: "bound", Name: "Bound", Defaults: protocol.ConfigPatch{Modules: []protocol.ID{"files"}, Tools: map[string]protocol.ToolDeclaration{"lookup": {TimeoutMillis: 900000, InputSchema: json.RawMessage(`{"type":"object"}`)}}, Hooks: map[string]protocol.HookDeclaration{"before_tool": {Operations: []protocol.ID{"files.read"}, TimeoutMillis: 0}}}}
 	registered := call[protocol.Definition](t, client, "definitions.register", doc)
-	result := call[protocol.CreateTreeResult](t, client, "trees.create", protocol.CreateTreeParams{Engine: "quickjs", Definition: registered.Ref, WorkingDirectory: t.TempDir(), Overrides: protocol.ConfigPatch{Model: &protocol.ModelSelection{Provider: "scripted", Name: "scripted"}}})
+	result := call[protocol.CreateTreeResult](t, client, "trees.create", protocol.CreateTreeParams{CreationID: "bindings-root", Engine: "quickjs", Definition: registered.Ref, WorkingDirectory: t.TempDir(), Overrides: protocol.ConfigPatch{Model: &protocol.ModelSelection{Provider: "scripted", Name: "scripted"}}})
 	config := result.Root.Configuration
 	if config.ToolsDefinition == nil || *config.ToolsDefinition != registered.Ref || config.HooksDefinition == nil || *config.HooksDefinition != registered.Ref || len(config.Modules) != 1 || config.Tools["lookup"].TimeoutMillis != 900000 {
 		t.Fatal("lost captured binding contract", config)

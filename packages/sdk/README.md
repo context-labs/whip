@@ -843,3 +843,22 @@ across model changes while the host checks each call against its captured turn.
 references derived from registered immutable definitions. They are excluded from
 configuration patches. Declaring tools/hooks alone does not connect an executor;
 at this checkpoint custom calls reject unavailable execution before admission.
+
+
+### Recoverable root creation and metadata discovery
+
+`createTree(params, creationID)` requires a caller-preserved stable ID. Save the
+ID and exact request before sending. After uncertain delivery, call
+`getTreeCreation(creationID)` or explicitly resend the same payload. Results
+include immutable `creation`, nullable current `tree`/`root`, and `deleted`;
+original IDs remain recoverable after deletion, without recreating the root.
+Changing the request while reusing its ID conflicts, and host-default changes
+do not change an accepted retry.
+
+`treeCatalog()` reads the global metadata revision, including off-page changes.
+`listTrees` returns at most100 summaries and their snapshot revision; passing
+`expected_revision` rejects a changed catalog. `treePages` carries the first
+revision across its bounded pages and surfaces conflicts without silently
+restarting or deduplicating rows. Restart a traversal deliberately after a
+conflict. `listDefinitions` pages only immutable revision metadata. These reads
+never load workers or introduce another client cache.

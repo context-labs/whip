@@ -960,6 +960,15 @@ This progress does not narrow Phases 5–7.
 
 ### Phase 6 — Complete SDK and client adoption
 
+Foundation available, milestone still pending: public root creation now requires
+stable caller identity with receipt/tombstone recovery before mutable host reads.
+A transactionally revisioned global tree catalog and bounded metadata pages
+support unopened/off-page title and membership refresh. SDK methods and a
+revision-checked bounded page iterator expose these contracts without a second
+cache or automatic replay. Product client reconciliation and adoption remain
+required below; this foundation alone does not complete Phase6.
+
+
 Finish the uniform services and views, shared app, web gateway, desktop native
 bridges, mobile, Go client, CLI/TUI and ACP. Update examples and canonical docs.
 Preserve app-owned drafts, selection and reading behavior without duplicating

@@ -1946,3 +1946,45 @@ This checkpoint pins syntax, policy and provenance. Live custom execution and
 hook invocation are a separate following increment; declarations alone grant no
 execution, and custom calls currently report executor unavailable before an
 operation or effect is admitted.
+
+
+## Root creation receipts and catalog revisions
+
+Fresh schema39 adds caller-identified root creation and one global tree-catalog
+revision. `trees.create` requires a stable `creation_id`; the caller persists
+that identity and exact request before delivery. Its digest includes the caller’s
+request, not mutable host defaults. Exact retries resolve before reading current
+host configuration and are checked again in the admission transaction. The
+receipt, tree, root, resolved defaults, policy, budgets/resources and catalog
+increment commit atomically. Different-payload identity reuse conflicts.
+
+A creation receipt is immutable, retained without foreign keys to live owners,
+and records the original tree/root identities and timestamp. Creation and
+`trees.creation` return the receipt plus nullable current tree/root projections
+and `deleted`. A retry never resurrects a deleted root. These are admission
+receipts, not synthetic execution inputs or attempts. Trusted in-process
+`CreateTree` is a fresh-identity convenience over the same transaction; public
+delivery uses the explicit caller identity. Host defaults cannot attach forged
+custom-executor provenance through either path.
+
+The positive int64 catalog head increments in the same transaction as root
+creation/fork/deletion, metadata edits, authored fallback titles and applied
+helper titles. Exact creation/fork retries and failed CAS leave it unchanged.
+Same-value manual metadata edits keep their established revision/ownership
+semantics and therefore increment the head. A helper whose title cannot apply
+because the catalog counter is exhausted still settles incurred billing and
+records an unapplied candidate; SQL failure rolls back the transaction.
+
+`trees.catalog` is a lightweight invalidation head for every root, including
+roots outside loaded pages. `trees.list` reads that revision and at most100
+metadata summaries in one SQL snapshot, without hydrating configuration or
+history. Each summary includes its root identity. Optional archived/pinned
+filters preserve false versus omitted. Keyset pages return `next`; an optional
+`expected_revision` rejects changed membership or metadata rather than mixing
+snapshots. A conflict requires a deliberate new traversal. `definitions.list`
+returns bounded immutable-revision metadata, never full declaration bodies.
+
+The SDK exposes explicit creation, receipt/head/page reads and a bounded
+revision-aware `treePages` iterator. It does not create a catalog cache, poller
+or retry policy. Full SDK view ownership and product sidebar adoption remain
+Phase6 work; this foundation does not mark those clients migrated.
