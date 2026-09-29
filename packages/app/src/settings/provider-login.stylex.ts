@@ -10,7 +10,7 @@ export const loginStyles = stylex.create({
   text: { color: surface.secondaryText, fontSize: typography.size13, lineHeight: '20px', margin: 0, overflowWrap: 'anywhere' },
   footer: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: scale.space2, marginTop: 'auto', flexWrap: 'wrap', flexShrink: 0 },
   submit: { minWidth: 132 },
-  full: { width: '100%' },
+  full: { width: '100%', whiteSpace: 'normal', overflowWrap: 'anywhere' },
   codePanel: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: scale.space3, padding: scale.space4, backgroundColor: colors.panel, border: '1px solid', borderColor: surface.quietBorder, borderRadius: scale.radiusControl },
   code: { fontFamily: typography.mono, fontSize: 22, letterSpacing: '0.08em', overflowWrap: 'anywhere' },
   choices: { maxHeight: 180, minHeight: 0, flexShrink: 1, padding: scale.space3, border: '1px solid', borderColor: surface.quietBorder, borderRadius: scale.radiusControl },

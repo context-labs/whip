@@ -278,7 +278,7 @@ export function ProviderConnectionDialog({ client, entry, enabled, revision, hos
         {base.revision !== revision && <p role="status">Provider settings changed. Your key is kept here. <Button disabled={busy} onClick={() => setBase({ revision, route: entry.route })}>Review current connection and keep this key</Button></p>}
         <div {...stylex.props(loginStyles.footer)}><Button variant="ghost" disabled={busy} onClick={() => leave('back')}>Back</Button><Button variant="primary" xstyle={loginStyles.submit} type="submit" disabled={!enabled || busy || !key.trim() || base.revision !== revision}>{busy ? 'Connecting…' : 'Connect'}</Button></div>
       </form> : !advanced ? <>
-        {initialConnection && managed && <div {...stylex.props(loginStyles.content)}><h3 {...stylex.props(loginStyles.title)}>How would you like to connect?</h3><p {...stylex.props(loginStyles.text)}>Sign in with your {entry.id === 'inference-net' ? 'Inference.net' : 'ChatGPT'} account{canKey ? ', or use an API key.' : '.'}</p></div>}
+        {initialConnection && managed && <div {...stylex.props(layout.column)}><h3 {...stylex.props(loginStyles.title)}>How would you like to connect?</h3><p {...stylex.props(loginStyles.text)}>Sign in with your {entry.id === 'inference-net' ? 'Inference.net' : 'ChatGPT'} account{canKey ? ', or use an API key.' : '.'}</p></div>}
         {!initialConnection && <div {...stylex.props(styles.account)}><div {...stylex.props(styles.nameLine)}><Badge tone={entry.route?.disabled ? 'neutral' : locallyAvailable(entry) ? 'success' : 'warning'}>{entry.route?.disabled ? 'Disabled on this host' : locallyAvailable(entry) ? 'Connected' : stateLabel(entry)}</Badge></div>
           <dl {...stylex.props(styles.metadata)}>
             {sourceLabel(entry) && <><dt {...stylex.props(styles.description)}>Connection method</dt><dd {...stylex.props(styles.value)}>{sourceLabel(entry)}</dd></>}
@@ -292,7 +292,7 @@ export function ProviderConnectionDialog({ client, entry, enabled, revision, hos
         {entry.route?.credential.source === 'command' && <p {...stylex.props(styles.description)}>The host runs your configured credential command when it needs a key. Opening this page does not run the command.</p>}
         {entry.id === 'openai-codex' && <p {...stylex.props(styles.description)}>Uses your ChatGPT account’s Codex access. Enable device code authorization in ChatGPT Security settings before signing in. Subscription usage is separate from API billing.</p>}
         <ErrorNotice type="resource" owner={`${entry.id}:account`} title="Account needs attention" error={account.error || account.data?.value.failure} />
-        {initialConnection ? <div {...stylex.props(loginStyles.content)}>
+        {initialConnection ? <div {...stylex.props(layout.column)}>
           {managed && <Button variant="primary" xstyle={loginStyles.full} disabled={!enabled || busy} onClick={start}>{entry.id === 'inference-net' ? 'Sign in with Inference.net' : 'Sign in'}</Button>}
           {canKey && <Button xstyle={loginStyles.full} disabled={!enabled || busy} onClick={editKey}>Use an API key</Button>}
           {detected && <Button xstyle={loginStyles.full} disabled={!enabled || busy} onClick={useDetected}>Use detected credentials</Button>}
@@ -345,5 +345,5 @@ const styles = stylex.create({
   metadata: { display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', columnGap: scale.space4, rowGap: scale.space3, margin: 0, alignItems: 'baseline' },
   value: { margin: 0, overflowWrap: 'anywhere' },
   actionButton: { maxWidth: '100%', whiteSpace: 'normal' },
-  accountFooter: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: scale.space2, borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: surface.quietBorder, paddingTop: scale.space4 },
+  accountFooter: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: scale.space2, borderTopWidth: 1, borderTopStyle: 'solid', borderTopColor: surface.quietBorder, paddingTop: scale.space4 },
 });
