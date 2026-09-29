@@ -10,7 +10,7 @@ import { errorMessage } from '../platform';
 import { layout } from '../styles';
 import { ErrorNotice } from '../error-feedback';
 import { ProviderLogo } from '../provider-logo';
-import { recallProviderReady, rememberProviderReady } from '../provider-readiness';
+import { providerReady, recallProviderReady, rememberProviderReady } from '../provider-readiness';
 import { ProviderDefaultsSettings } from './provider-defaults';
 import { SettingsGroup } from './section-layout';
 import { LoginFlow, readLoginFlows, pollingLoginStates, terminalLoginStates, type AccountFlow } from './provider-login';
@@ -26,7 +26,7 @@ export function sourceLabel(entry: ProviderEntry) {
   const source = entry.route?.credential.source;
   return source ? ({ env: 'Environment', file: 'Key file', command: 'Command', none: 'No authentication', 'inference-net': 'Inference.net account', 'openai-codex': 'ChatGPT subscription' })[source] : '';
 }
-export function locallyAvailable(entry: ProviderEntry) { return ['available', 'not_required'].includes(entry.route?.credential.state ?? ''); }
+export function locallyAvailable(entry: ProviderEntry) { return !!entry.route && providerReady({ configured: true, credential_state: entry.route.credential.state }) === true; }
 export function stateLabel(entry: ProviderEntry) {
   if (!entry.route) return 'Not configured';
   return ({ available: 'Credentials available', not_required: 'No authentication required', missing: 'Credentials missing', unavailable: 'Credential source unavailable', unchecked: 'Credential command not checked', refresh_required: 'Account refresh required' })[entry.route.credential.state];
@@ -46,7 +46,7 @@ export function useProviderConnections(client: Client, enabled: boolean) {
     if (!selection) throw new Error('Choose a default model first');
     return client.providerReadiness(selection, { signal });
   }, enabled: enabled && !!selection });
-  const ready = !inventory.data ? undefined : !selection ? false : !readiness.data ? undefined : readiness.data.configured && ['available', 'not_required'].includes(readiness.data.credential_state);
+  const ready = !inventory.data ? undefined : !selection ? false : providerReady(readiness.data);
   useEffect(() => { if (ready !== undefined && (!selection || readiness.data)) rememberProviderReady(runtime.platform.storage, host, ready); }, [ready, selection, readiness.data, runtime.platform.storage, host]);
   const flows = useQuery({ queryKey: ['provider-login-flows', host], queryFn: ({ signal }) => readLoginFlows(client, signal), enabled,
     refetchInterval: query => enabled && query.state.data?.some(flow => pollingLoginStates.includes(flow.value.state)) ? 2000 : false });

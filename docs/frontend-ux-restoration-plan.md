@@ -1,7 +1,9 @@
 # Restore frontend UX over the native SDK
 
-Status: researched proposal, 2026-09-29. This PR changes documentation only.
-Implementation and comparative product acceptance have not started.
+Status: implementation in progress, 2026-09-29. The planning checkpoint was
+draft #287. See the [implementation record](frontend-ux-restoration-progress.md)
+for completed slices, exact validation and remaining acceptance. Comparative
+product acceptance is not yet complete.
 
 The goal is the latest development frontend's experience over the current native
 backend and SDK. Restore established markup, interactions, loading treatment and

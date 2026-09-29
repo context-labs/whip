@@ -6,6 +6,89 @@ import { revision } from './provider-fixture';
 import { wire } from './welcome-fixture';
 import { fixture } from './welcome-fixture';
 
+it('keeps provider controls neutral while configured readiness is pending', async () => {
+  const f = await fixture();
+  f.runtime.queries.removeQueries({ queryKey: ['provider-readiness'] });
+  let resolve!: (value: unknown) => void;
+  f.on(
+    'providers.readiness',
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  f.render();
+  const input = await screen.findByRole('textbox', {
+    name: 'Your first message',
+  });
+  fireEvent.change(input, {
+    target: { value: 'Keep my draft while the host answers' },
+  });
+  await waitFor(() =>
+    expect(f.rpc['providers.readiness']).toHaveBeenCalled(),
+  );
+  expect(
+    screen.queryByRole('button', { name: 'Connect a provider', exact: true }),
+  ).toBeNull();
+  expect(screen.queryByRole('region', { name: 'Provider setup' })).toBeNull();
+  expect(
+    screen.getByRole('button', { name: 'Send first message' }),
+  ).toHaveProperty('disabled', true);
+  await act(async () =>
+    resolve({
+      configured: true,
+      credential_state: 'available',
+      catalog_state: 'missing',
+      model_state: 'configured',
+      inference_state: 'not_tested',
+    }),
+  );
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'Send first message' }),
+    ).toHaveProperty('disabled', false),
+  );
+  expect(screen.getByRole('textbox', { name: 'Your first message' })).toBe(
+    input,
+  );
+  expect(input).toHaveProperty(
+    'value',
+    'Keep my draft while the host answers',
+  );
+  expect(f.rpc['trees.create']).not.toHaveBeenCalled();
+});
+
+it.each(['unchecked', 'refresh_required'] as const)(
+  'allows first use of a configured %s credential without a setup detour',
+  async (credential_state) => {
+    const f = await fixture();
+    f.runtime.queries.removeQueries({ queryKey: ['provider-readiness'] });
+    f.on('providers.readiness', () => ({
+      configured: true,
+      credential_state,
+      catalog_state: 'missing',
+      model_state: 'configured',
+      inference_state: 'not_tested',
+    }));
+    f.render();
+    const input = await screen.findByRole('textbox', {
+      name: 'Your first message',
+    });
+    fireEvent.change(input, {
+      target: { value: 'Use my configured provider' },
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Send first message' }),
+      ).toHaveProperty('disabled', false),
+    );
+    expect(
+      screen.queryByRole('region', { name: 'Provider setup' }),
+    ).toBeNull();
+    expect(f.rpc['trees.create']).not.toHaveBeenCalled();
+  },
+);
+
 it.each([
   { desktop: true, focused: true, overlay: false, shouldFocus: true },
   { desktop: false, focused: true, overlay: false, shouldFocus: false },

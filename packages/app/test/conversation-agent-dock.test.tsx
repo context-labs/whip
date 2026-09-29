@@ -56,13 +56,14 @@ vi.mock('../src/composer', () => ({
     notice,
     agents,
     queue,
+    connected,
   }: ComponentProps<typeof import('../src/composer').Composer>) => (
     <>
       {notice}
       {agents}
       {queue}
       <textarea aria-label={`Draft for ${session.id}`} defaultValue="" />
-      <button onClick={onAccepted}>Accept send in {viewId}</button>
+      <button disabled={!connected} onClick={onAccepted}>Accept send in {viewId}</button>
     </>
   ),
 }));
@@ -120,6 +121,53 @@ async function fixture(width = 1000) {
     ...rendered,
   };
 }
+
+it('keeps an observed conversation usable while its tree details load or fail', async () => {
+  const f = await conversationFixture();
+  let reject!: (error: Error) => void;
+  f.data.handlers['trees.get'] = () =>
+    new Promise((_resolve, fail) => {
+      reject = fail;
+    });
+  const rendered = f.mount(
+    <SessionContent
+      client={f.client}
+      session={f.session}
+      rootId="root"
+      kind="chat"
+      view={f.view}
+      execution={f.execution}
+      expectedRuntimeId="host"
+      agentId="root"
+      viewId="test"
+    />,
+  );
+  const draft = await screen.findByRole('textbox', {
+    name: 'Draft for root',
+  });
+  fireEvent.change(draft, { target: { value: 'Keep my place' } });
+  draft.focus();
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'Accept send in test' }),
+    ).toHaveProperty('disabled', false),
+  );
+  expect(
+    rendered.container.querySelector('[data-current-activity]')?.textContent,
+  ).toContain('Idle');
+  expect(screen.queryByLabelText('Opening session')).toBeNull();
+  await act(async () => reject(new Error('Tree details are unavailable')));
+  await screen.findByText('Tree details are unavailable');
+  expect(
+    screen.getByRole('button', { name: 'Accept send in test' }),
+  ).toHaveProperty('disabled', false);
+  expect(screen.getByRole('textbox', { name: 'Draft for root' })).toBe(draft);
+  expect(draft).toHaveProperty('value', 'Keep my place');
+  expect(document.activeElement).toBe(draft);
+  expect(
+    rendered.container.querySelector('[data-current-activity]')?.textContent,
+  ).toContain('Idle');
+});
 
 it('an accepted send scrolls only its own chat view, not another view of the same session', async () => {
   const first = await fixture();
