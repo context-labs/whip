@@ -5,15 +5,9 @@
 package acp
 
 import (
-	"encoding/base64"
 	"encoding/json"
-	"fmt"
-	"strings"
 
 	acp "github.com/coder/acp-go-sdk"
-
-	"github.com/context-labs/whip/internal/imageutil"
-	"github.com/context-labs/whip/internal/llm"
 )
 
 // toolKind maps whipcode tool names to ACP tool kinds (protocol-notes.md §5).
@@ -82,25 +76,6 @@ func startToolCall(id, name, args string) acp.SessionUpdate {
 	return acp.StartToolCall(acp.ToolCallId(id), toolTitle(name, args), opts...)
 }
 
-// todoStatusToACP maps whip's todo statuses onto ACP plan entry statuses
-// (whipcode has an extra "cancelled" state; ACP doesn't — it maps to pending,
-// the honest "not done" reading).
-func todoStatusToACP(s string) acp.PlanEntryStatus {
-	switch s {
-	case "in_progress":
-		return acp.PlanEntryStatusInProgress
-	case "completed":
-		return acp.PlanEntryStatusCompleted
-	default:
-		return acp.PlanEntryStatusPending
-	}
-}
-
-// isErrorResult matches the loop's error-as-output convention (tools.Execute).
-func isErrorResult(result string) bool {
-	return strings.HasPrefix(result, "Error: ")
-}
-
 // endToolCall builds the terminal `tool_call_update` for a finished call.
 // result is the exact string fed back to the model.
 func endToolCall(id, name, args, result string, failed bool) acp.SessionUpdate {
@@ -140,96 +115,6 @@ func toolCallContent(name, args, result string, failed bool) []acp.ToolCallConte
 		}
 		if json.Unmarshal([]byte(args), &a) == nil && a.Path != "" {
 			out = append(out, acp.ToolDiffContent(a.Path, a.NewString, a.OldString))
-		}
-	}
-	return out
-}
-
-// promptFromBlocks flattens ACP prompt content blocks into the user-message
-// text plus multimodal parts for the agent loop. vision reports whether the
-// resolved model accepts images; without it images degrade to a placeholder
-// note (the client shouldn't send them — promptCapabilities gates that).
-func promptFromBlocks(blocks []acp.ContentBlock, vision bool) (text string, parts []llm.ContentPart) {
-	var sb strings.Builder
-	sep := func() {
-		if sb.Len() > 0 {
-			sb.WriteString("\n\n")
-		}
-	}
-	for _, b := range blocks {
-		switch {
-		case b.Text != nil:
-			sep()
-			sb.WriteString(b.Text.Text)
-		case b.ResourceLink != nil:
-			// Mirror whip's @file convention: name the path, the agent reads
-			// it with its own tools.
-			sep()
-			fmt.Fprintf(&sb, "@%s", b.ResourceLink.Uri)
-		case b.Resource != nil:
-			sep()
-			r := b.Resource.Resource
-			switch {
-			case r.TextResourceContents != nil:
-				fmt.Fprintf(&sb, "File: %s\n```\n%s\n```", r.TextResourceContents.Uri, r.TextResourceContents.Text)
-			case r.BlobResourceContents != nil:
-				fmt.Fprintf(&sb, "[binary resource: %s]", r.BlobResourceContents.Uri)
-			}
-		case b.Image != nil:
-			if vision {
-				if data, err := base64.StdEncoding.DecodeString(b.Image.Data); err == nil {
-					ext, data := imageutil.NormalizeImage(mimeExt(b.Image.MimeType), data) // same caps as paste/@mention
-					parts = append(parts, llm.ImagePart(ext, data))
-					continue
-				}
-			}
-			sep()
-			fmt.Fprintf(&sb, "[image: %s]", b.Image.MimeType)
-		case b.Audio != nil:
-			sep()
-			fmt.Fprintf(&sb, "[audio: %s — not supported]", b.Audio.MimeType)
-		}
-	}
-	return sb.String(), parts
-}
-
-// mimeExt maps an image MIME type to the extension llm.ImagePart wants for
-// its data URL (it re-derives the mime from the extension).
-func mimeExt(mime string) string {
-	return strings.TrimPrefix(mime, "image/")
-}
-
-// replayUpdates converts stored conversation messages into the session/update
-// stream session/load must send before responding: user/agent message chunks
-// plus tool-call cards in their terminal state (protocol-notes.md §3.4).
-func replayUpdates(msgs []llm.Message) []acp.SessionUpdate {
-	var out []acp.SessionUpdate
-	// tool call args by id, so the paired result can build its card content.
-	argsByID := map[string]struct{ name, args string }{}
-	for _, m := range msgs {
-		switch m.Role {
-		case "user":
-			if t := strings.TrimSpace(m.TextContent()); t != "" {
-				out = append(out, acp.UpdateUserMessageText(t))
-			}
-		case "assistant":
-			if t := m.Content; t != "" {
-				out = append(out, acp.UpdateAgentMessageText(t))
-			}
-			for _, tc := range m.ToolCalls {
-				argsByID[tc.ID] = struct{ name, args string }{tc.Function.Name, tc.Function.Arguments}
-				out = append(out, acp.StartToolCall(acp.ToolCallId(tc.ID),
-					toolTitle(tc.Function.Name, tc.Function.Arguments),
-					acp.WithStartKind(toolKind(tc.Function.Name)),
-					acp.WithStartStatus(acp.ToolCallStatusInProgress),
-				))
-			}
-		case "tool":
-			info, ok := argsByID[m.ToolCallID]
-			if !ok {
-				continue // orphaned result (e.g. post-compaction) — no card to close
-			}
-			out = append(out, endToolCall(m.ToolCallID, info.name, info.args, m.Content, isErrorResult(m.Content)))
 		}
 	}
 	return out

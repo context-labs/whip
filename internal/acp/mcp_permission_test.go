@@ -1,44 +1,53 @@
 package acp
 
 import (
-	"encoding/json"
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+
+	acpsdk "github.com/coder/acp-go-sdk"
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func TestBridgeMCPPermissionKeepsConcreteArguments(t *testing.T) {
-	backend := newFakeBackend(t)
-	client := &fakeACPClient{answer: optAllowAlways}
-	fixture := newACPFixture(t, backend, client)
-	fixture.initialize(t)
-	id := fixture.newSession(t)
-	detail := "MCP server \"billing\", tool \"delete.invoice\", source \"ACP attachment\"\nArguments: {\"invoice\":\"TARGET42\"}"
-	payload, _ := json.Marshal(pendingPermission{PermissionID: "mcp-permission", OperationID: "operation", Operation: "mcp.call", Command: detail, Rule: "opaque-definition-rule"})
-	fixture.bridge.mu.Lock()
-	current := fixture.bridge.sessions[id]
-	fixture.bridge.mu.Unlock()
-	fixture.bridge.handlePermission(current, payload)
-	client.mu.Lock()
-	defer client.mu.Unlock()
-	if len(client.perms) != 1 {
-		t.Fatalf("prompts=%d", len(client.perms))
+	var calls atomic.Int32
+	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "billing", Version: "1"}, nil)
+	sdkmcp.AddTool(server, &sdkmcp.Tool{Name: "delete_invoice", Description: "delete invoice"}, func(context.Context, *sdkmcp.CallToolRequest, map[string]any) (*sdkmcp.CallToolResult, any, error) {
+		calls.Add(1)
+		return &sdkmcp.CallToolResult{Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: "deleted"}}}, nil, nil
+	})
+	httpServer := httptest.NewServer(sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server { return server }, nil))
+	t.Cleanup(httpServer.Close)
+	f := nativeFixture(t, codeProvider(`mcp.list_tools(server="billing")`+"\n"+`print(mcp.call(server="billing",tool="delete_invoice",arguments={"invoice":"TARGET42"}))`), &fakeACPClient{answer: optAllowAlways})
+	created, err := f.conn.NewSession(t.Context(), acpsdk.NewSessionRequest{Cwd: f.cwd, McpServers: []acpsdk.McpServer{{Http: &acpsdk.McpServerHttpInline{Type: "http", Name: "billing", Url: httpServer.URL, Headers: []acpsdk.HttpHeader{}}}}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	request := client.perms[0]
-	if request.ToolCall.Title == nil || !strings.Contains(*request.ToolCall.Title, "delete.invoice") || strings.Contains(*request.ToolCall.Title, "Arguments:") {
-		t.Fatalf("title=%v", request.ToolCall.Title)
+	if calls.Load() != 0 {
+		t.Fatal("attachment executed a tool")
 	}
-	if len(request.ToolCall.Content) != 1 || request.ToolCall.Content[0].Content == nil || request.ToolCall.Content[0].Content.Content.Text == nil || request.ToolCall.Content[0].Content.Content.Text.Text != detail {
-		t.Fatalf("concrete request content=%+v", request.ToolCall.Content)
+	if _, err := f.conn.SetSessionMode(t.Context(), acpsdk.SetSessionModeRequest{SessionId: created.SessionId, ModeId: ModeAuto}); err != nil {
+		t.Fatal(err)
 	}
-	if len(request.Options) != 3 || request.Options[2].Name != "Always allow this MCP tool and server definition in this tree" {
-		t.Fatalf("options=%+v", request.Options)
+	f.prompt(t, created.SessionId, "MCP call")
+	if calls.Load() != 1 {
+		t.Fatalf("MCP calls=%d", calls.Load())
 	}
-	backend.mu.Lock()
-	root := backend.roots[string(id)]
-	backend.mu.Unlock()
-	root.mu.Lock()
-	defer root.mu.Unlock()
-	if root.decisions != 1 || root.remember != "tree" {
-		t.Fatalf("decisions=%d remember=%q", root.decisions, root.remember)
+	f.editor.mu.Lock()
+	defer f.editor.mu.Unlock()
+	sawCall := false
+	for _, request := range f.editor.perms {
+		if strings.Contains(*request.ToolCall.Title, "mcp.call") {
+			sawCall = true
+			if len(request.ToolCall.Content) != 1 || !strings.Contains(request.ToolCall.Content[0].Content.Content.Text.Text, "TARGET42") || len(request.Options) != 3 {
+				t.Fatalf("lost concrete intent: %+v", request)
+			}
+		}
+	}
+	if !sawCall {
+		t.Fatalf("Full Access bypassed untrusted MCP approvals: %+v", f.editor.perms)
 	}
 }

@@ -2,10 +2,14 @@ package acp
 
 import (
 	"context"
-	"encoding/json"
-	"strings"
+	"errors"
+	"fmt"
+	"time"
 
 	acp "github.com/coder/acp-go-sdk"
+
+	"github.com/context-labs/whip/internal/protocol"
+	"github.com/google/uuid"
 )
 
 const (
@@ -14,89 +18,257 @@ const (
 	optReject      = "reject"
 )
 
-type pendingPermission struct {
-	PermissionID  string `json:"permission_id"`
-	OperationID   string `json:"operation_id"`
-	Operation     string `json:"operation"`
-	CanonicalPath string `json:"canonical_path"`
-	Command       string `json:"command"`
-	Rule          string `json:"rule"`
+type decisionWork struct {
+	cancel   context.CancelFunc
+	answered bool
 }
 
-func (b *Bridge) handlePermission(s *acpSession, payload []byte) {
-	var pending pendingPermission
-	if json.Unmarshal(payload, &pending) != nil || pending.PermissionID == "" {
+func (b *Bridge) controls(s *acpSession) error {
+	var policy protocol.PermissionPolicy
+	if err := b.client.Call(s.lifecycle, "permissions.policy", protocol.SessionParams{SessionID: s.handle.ID()}, &policy); err != nil {
+		return err
+	}
+	if err := b.applyPermissionMode(s, policy); err != nil {
+		return err
+	}
+	var tree protocol.Tree
+	if err := b.client.Call(s.lifecycle, "trees.get", protocol.TreeParams{TreeID: s.tree}, &tree); err != nil {
+		return err
+	}
+	title := ""
+	if tree.Metadata.Title != nil {
+		title = *tree.Metadata.Title
+	}
+	if s.title != title {
+		s.title = title
+		if err := b.update(s.lifecycle, s.id, acp.SessionUpdate{SessionInfoUpdate: &acp.SessionSessionInfoUpdate{SessionUpdate: "session_info_update", Title: new(title)}}); err != nil {
+			return err
+		}
+	}
+	var summary protocol.TreeSummariesResult
+	if err := b.client.Call(s.lifecycle, "trees.summaries", protocol.TreeSummariesParams{RootIDs: []protocol.ID{s.handle.ID()}}, &summary); err != nil {
+		return err
+	}
+	if len(summary.Items) != 1 {
+		return errors.New("attached root no longer exists")
+	}
+	counts := summary.Items[0].Activity
+	seen := map[protocol.ID]bool{}
+	if counts.PendingPermissionCount != 0 || counts.PendingQuestionCount != 0 {
+		if counts.PendingPermissionCount+counts.PendingQuestionCount > 128 {
+			return errors.New("ACP tree has more than 128 pending decisions; resolve them through native controls")
+		}
+		var after *protocol.ID
+		for pages := 0; ; pages++ {
+			if pages >= 11 {
+				return errors.New("ACP tree decision scan exceeds 1024 sessions")
+			}
+			var sessions protocol.ListSessionsResult
+			if err := b.client.Call(s.lifecycle, "sessions.list", protocol.ListSessionsParams{TreeID: s.tree, After: after, Limit: 100}, &sessions); err != nil {
+				return err
+			}
+			for _, owner := range sessions.Items {
+				if owner.TreeID != s.tree {
+					return errors.New("session list crossed tree ownership")
+				}
+				if err := b.ownerDecisions(s, owner, seen); err != nil {
+					return err
+				}
+			}
+			if len(sessions.Items) < 100 {
+				break
+			}
+			next := sessions.Items[len(sessions.Items)-1].ID
+			if after != nil && next <= *after {
+				return errors.New("session cursor did not advance")
+			}
+			after = &next
+		}
+	}
+	s.mu.Lock()
+	for id, work := range s.pending {
+		if !seen[id] {
+			work.cancel()
+			delete(s.pending, id)
+		}
+	}
+	s.mu.Unlock()
+	return nil
+}
+
+func (b *Bridge) ownerDecisions(s *acpSession, owner protocol.Session, seen map[protocol.ID]bool) error {
+	handle, err := b.client.Session(owner.ID)
+	if err != nil {
+		return err
+	}
+	activity, err := handle.Activity(s.lifecycle)
+	if err != nil {
+		return err
+	}
+	if activity.PendingPermissionCount > 0 {
+		var after *protocol.ID
+		for {
+			var page protocol.PermissionsResult
+			if err := b.client.Call(s.lifecycle, "permissions.list", protocol.PermissionsParams{SessionID: owner.ID, PendingOnly: true, After: after, Limit: 100}, &page); err != nil {
+				return err
+			}
+			for _, permission := range page.Items {
+				if permission.State != "pending" {
+					return errors.New("pending permission query returned a terminal decision")
+				}
+				if len(seen) >= 128 {
+					return errors.New("ACP pending decision capacity exceeded")
+				}
+				seen[permission.OperationID] = true
+				b.startDecision(s, permission.OperationID, func(ctx context.Context) { b.handlePermission(ctx, s, owner, permission.OperationID) })
+			}
+			if len(page.Items) < 100 {
+				break
+			}
+			next := page.Items[len(page.Items)-1].OperationID
+			if after != nil && next <= *after {
+				return errors.New("permission cursor did not advance")
+			}
+			after = &next
+		}
+	}
+	if activity.PendingQuestionCount > 0 {
+		var after *protocol.ID
+		for {
+			var page protocol.QuestionsResult
+			if err := b.client.Call(s.lifecycle, "questions.list", protocol.QuestionsParams{SessionID: owner.ID, PendingOnly: true, After: after, Limit: 100}, &page); err != nil {
+				return err
+			}
+			for _, question := range page.Items {
+				if question.SessionID != owner.ID || question.State != "pending" {
+					return errors.New("question ownership or state mismatch")
+				}
+				if len(seen) >= 128 {
+					return errors.New("ACP pending decision capacity exceeded")
+				}
+				seen[question.OperationID] = true
+				b.startDecision(s, question.OperationID, func(ctx context.Context) { b.handleQuestion(ctx, s, question) })
+			}
+			if len(page.Items) < 100 {
+				break
+			}
+			next := page.Items[len(page.Items)-1].OperationID
+			if after != nil && next <= *after {
+				return errors.New("question cursor did not advance")
+			}
+			after = &next
+		}
+	}
+	return nil
+}
+
+func (b *Bridge) startDecision(s *acpSession, id protocol.ID, handle func(context.Context)) {
+	if b.conn == nil {
 		return
 	}
 	s.mu.Lock()
-	mode := s.mode
-	s.mu.Unlock()
-	if mode != ModeAsk {
+	defer s.mu.Unlock()
+	if s.closed || s.lifecycle.Err() != nil || s.pending[id] != nil || len(s.pending) >= 128 {
 		return
 	}
-	if b.conn == nil {
-		b.decidePermission(s, pending, false, "permission client is unavailable", "")
-		return
-	}
-	name := pending.Operation
-	if pending.Command != "" {
-		name += " " + pending.Command
-	}
-	options := []acp.PermissionOption{
-		{OptionId: optAllowOnce, Name: "Allow once", Kind: acp.PermissionOptionKindAllowOnce},
-		{OptionId: optReject, Name: "Reject", Kind: acp.PermissionOptionKindRejectOnce},
-	}
-	if pending.Rule != "" {
-		label := "Always allow " + pending.Operation + " " + pending.Rule + " in this tree"
-		if pending.Operation == "mcp.call" {
-			label = "Always allow this MCP tool and server definition in this tree"
+	running := 0
+	for _, work := range s.pending {
+		if !work.answered {
+			running++
 		}
-		options = append(options, acp.PermissionOption{
-			OptionId: optAllowAlways, Name: label, Kind: acp.PermissionOptionKindAllowAlways,
-		})
 	}
-	toolCall := acp.ToolCallUpdate{
-		ToolCallId: acp.ToolCallId("perm-" + pending.PermissionID),
-		Title:      new(name), Kind: new(toolKind(pending.Operation)),
+	if running >= 8 {
+		return
 	}
-	if pending.Operation == "mcp.call" {
-		title, _, _ := strings.Cut(name, "\n")
-		toolCall.Title = &title
-		toolCall.Content = []acp.ToolCallContent{acp.ToolContent(acp.TextBlock(pending.Command))}
+	select {
+	case b.decisions <- struct{}{}:
+	default:
+		return
 	}
-	response, err := b.conn.RequestPermission(s.lifecycle, acp.RequestPermissionRequest{
-		SessionId: s.id,
-		ToolCall:  toolCall,
-		Options:   options,
+	ctx, cancel := context.WithCancel(s.lifecycle)
+	work := &decisionWork{cancel: cancel}
+	s.pending[id] = work
+	s.workers.Go(func() {
+		defer func() { cancel(); <-b.decisions; s.mu.Lock(); work.answered = true; s.mu.Unlock() }()
+		handle(ctx)
 	})
-	if err != nil || response.Outcome.Selected == nil {
-		reason := "the user cancelled the permission prompt"
-		if err != nil && s.lifecycle.Err() == nil {
-			reason = "permission request failed: " + err.Error()
-		}
-		b.decidePermission(s, pending, false, reason, "")
+}
+
+func (b *Bridge) handlePermission(ctx context.Context, s *acpSession, owner protocol.Session, id protocol.ID) {
+	var operation protocol.HostOperation
+	if b.client.Call(ctx, "operations.get", protocol.HostOperationParams{OperationID: id}, &operation) != nil || operation.SessionID != owner.ID || operation.State != "waiting" {
 		return
 	}
-	switch string(response.Outcome.Selected.OptionId) {
-	case optAllowOnce:
-		b.decidePermission(s, pending, true, "approved by ACP client", "")
-	case optAllowAlways:
-		if pending.Rule == "" {
-			b.decidePermission(s, pending, false, "allow-always requires a rule", "")
+	options := []acp.PermissionOption{{OptionId: optAllowOnce, Name: "Allow once", Kind: acp.PermissionOptionKindAllowOnce}, {OptionId: optReject, Name: "Reject", Kind: acp.PermissionOptionKindRejectOnce}}
+	if owner.ParentID == nil {
+		options = append(options, acp.PermissionOption{OptionId: optAllowAlways, Name: "Always allow this exact capability and resource for this root", Kind: acp.PermissionOptionKindAllowAlways})
+	}
+	title := operation.Capability + " · " + operation.Resource
+	if owner.ID != s.handle.ID() {
+		title = "Child " + string(owner.ID) + ": " + title
+	}
+	request := acp.RequestPermissionRequest{SessionId: s.id, ToolCall: acp.ToolCallUpdate{ToolCallId: acp.ToolCallId("perm-" + id), Title: new(title), Kind: new(toolKind(operation.Capability)), Content: []acp.ToolCallContent{acp.ToolContent(acp.TextBlock(string(operation.Arguments)))}}, Options: options}
+	response, err := b.awaitDecision(ctx, request, func(ctx context.Context) bool {
+		var current protocol.HostOperation
+		return b.client.Call(ctx, "operations.get", protocol.HostOperationParams{OperationID: id}, &current) == nil && current.SessionID == owner.ID && current.State == "waiting"
+	})
+	if ctx.Err() != nil || err != nil {
+		return
+	} // Closing an editor is not a deny action.
+	approved := err == nil && response.Outcome.Selected != nil && response.Outcome.Selected.OptionId == optAllowOnce
+	if err == nil && response.Outcome.Selected != nil && response.Outcome.Selected.OptionId == optAllowAlways && owner.ParentID == nil {
+		var grant protocol.Grant
+		err = b.client.Call(ctx, "grants.create", protocol.CreateGrantParams{ID: protocol.ID(uuid.NewString()), SessionID: owner.ID, Capability: operation.Capability, Resource: operation.Resource}, &grant)
+		if err != nil {
+			b.decisionError(s, "grant outcome is uncertain; inspect native grants before retrying", err)
 			return
 		}
-		b.decidePermission(s, pending, true, "approved by ACP client for this tree", "tree")
-	default:
-		b.decidePermission(s, pending, false, "the user rejected this action", "")
+		approved = true
+	}
+	// Full Access does not suppress explicitly required connection grants.
+	var result protocol.Permission
+	if err := b.client.Call(ctx, "permissions.resolve", protocol.ResolvePermissionParams{OperationID: id, Approved: approved}, &result); err != nil {
+		b.decisionError(s, "permission outcome requires inspection", err)
 	}
 }
 
-func (b *Bridge) decidePermission(s *acpSession, pending pendingPermission, allow bool, reason, remember string) {
-	ctx, cancel := context.WithCancel(s.lifecycle)
+// awaitDecision owns and joins its one ACP request. Canonical settlement in a
+// different client or cancellation closes the editor prompt, without replaying
+// an answer. Read failures fail closed and never grant permission.
+func (b *Bridge) awaitDecision(parent context.Context, request acp.RequestPermissionRequest, pending func(context.Context) bool) (acp.RequestPermissionResponse, error) {
+	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
-	action, err := s.root.NewAction("permission.decide", struct{}{})
-	if err != nil {
-		return
+	type result struct {
+		response acp.RequestPermissionResponse
+		err      error
 	}
-	_, _ = s.root.DecidePermission(ctx, action, pending.PermissionID, allow, reason, remember)
+	done := make(chan result, 1)
+	go func() { response, err := b.conn.RequestPermission(ctx, request); done <- result{response, err} }()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case response := <-done:
+			if !pending(ctx) {
+				return acp.RequestPermissionResponse{}, context.Canceled
+			}
+			return response.response, response.err
+		case <-ctx.Done():
+			cancel()
+			<-done
+			return acp.RequestPermissionResponse{}, ctx.Err()
+		case <-ticker.C:
+			if !pending(ctx) {
+				cancel()
+				<-done
+				return acp.RequestPermissionResponse{}, context.Canceled
+			}
+		}
+	}
+}
+
+func (b *Bridge) decisionError(s *acpSession, action string, err error) {
+	if s.lifecycle.Err() == nil {
+		_ = b.update(s.lifecycle, s.id, updateThoughtText(fmt.Sprintf("%s: %v\n", action, err)))
+	}
 }

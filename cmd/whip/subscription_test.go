@@ -6,10 +6,12 @@ import (
 	"testing"
 	"time"
 
+	nativeconfig "github.com/context-labs/whip/internal/config"
 	"github.com/context-labs/whip/internal/daemon"
 	"github.com/context-labs/whip/internal/legacy/config"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/openaiauth"
+	"github.com/context-labs/whip/internal/session"
 )
 
 func TestResolveSubscriptionRouteUsesHostCredentialsAndLimits(t *testing.T) {
@@ -65,16 +67,14 @@ func TestResolveSubscriptionRouteUsesHostCredentialsAndLimits(t *testing.T) {
 }
 
 func TestACPSubscriptionDoesNotRequireAnAPIKey(t *testing.T) {
-	t.Setenv("WHIPCODE_HOME", t.TempDir())
-	cfg := config.Default()
-	if err := cfg.UpsertOpenAICodex(); err != nil {
-		t.Fatal(err)
-	}
-	cfg.DefaultModel, cfg.DefaultProvider = "gpt-5.5", openaiauth.Provider
-	cfg.Models["gpt-5.5"] = config.Model{Providers: []string{openaiauth.Provider}}
-	if err := cfg.Save(); err != nil {
-		t.Fatal(err)
-	}
+	useNativeAuth(t, func(directory string) {
+		host := nativeconfig.Default()
+		host.Providers["subscription"] = nativeconfig.Provider{Kind: "openai-codex"}
+		host.Defaults.Model = session.ModelSelection{Provider: "subscription", Name: "gpt-6-astra"}
+		if err := nativeconfig.Save(directory, host); err != nil {
+			t.Fatal(err)
+		}
+	})
 	input, writer, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
