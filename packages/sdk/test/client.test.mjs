@@ -228,7 +228,7 @@ test('formulation preserves receipt identity and historical acceptance independe
   const calls = [];
   const created = '2026-09-28T12:00:00Z';
   const request = { goal_id: 'goal', expected_current: null, max_continuations: '9007199254740993', start: false };
-  const input = { id: 'input', session_id: 'session', source: 'user', kind: 'goal_formulation', parts: [], state: 'claimed', turn_id: 'turn', goal: null, schedule: null, created_at: created };
+  const input = { host_operation: null, id: 'input', session_id: 'session', source: 'user', kind: 'goal_formulation', parts: [], state: 'claimed', turn_id: 'turn', goal: null, schedule: null, created_at: created };
   const turn = { id: 'turn', session_id: 'session', kind: 'goal_formulation', goal: null, history_revision: '1', config_revision: '1', state: 'interrupted', failure: 'runtime stopped', started_at: created, finished_at: created };
   const admission = { receipt: { identity: { client_id: 'test', request_id: 'stable' }, digest: 'a'.repeat(64), input_id: 'input', deleted_at: null, created_at: created }, input, turn };
   const candidate = { history_revision: '1', input_id: 'input', session_id: 'session', request: { ...request, tail_messages: 8 }, after_sequence: '9007199254740993', through_sequence: '9007199254740994', turn_id: 'turn', attempt_id: 'attempt', text: 'Accepted objective', accepted: true, rejection: null, created_at: created };

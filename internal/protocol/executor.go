@@ -29,6 +29,7 @@ type ExecutorPendingParams struct {
 
 // JSON payloads are bytes so the same exact numbers cross Go and JavaScript.
 type ExecutorInvocation struct {
+	Origin          string        `json:"origin" enum:"cell,host_operation,turn"`
 	InvocationID    ID            `json:"invocation_id"`
 	Lease           ExecutorLease `json:"lease"`
 	Kind            string        `json:"kind" enum:"tool,hook"`

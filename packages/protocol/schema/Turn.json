@@ -42,7 +42,8 @@
         "prompt",
         "compact",
         "goal_formulation",
-        "automatic_title"
+        "automatic_title",
+        "host_operation"
       ]
     },
     "config_revision": {

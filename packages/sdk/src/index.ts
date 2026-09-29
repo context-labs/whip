@@ -292,6 +292,21 @@ export class Client {
     return this.call('accounts.openai.logout', {}, options);
   }
 
+  /** Fixed declared host surface; listing never starts a resource or grants authority. */
+  hostToolSchemas(sessionID: string, options: CallOptions = {}): Promise<Operations['tool.schemas']['result']> {
+    return this.call('tool.schemas', { session_id: sessionID }, options);
+  }
+
+  /** Accepts direct human work. Keep requestID and exact bytes for receipt recovery; abort only stops observation. */
+  callTool(sessionID: string, operation: Operations['tool.call']['params']['operation'], requestID: string, options: CallOptions = {}): Promise<Admission> {
+    return this.call('tool.call', { session_id: sessionID, identity: this.identity(requestID), operation }, options);
+  }
+
+  runShell(sessionID: string, command: string, requestID: string, options: CallOptions & { timeout?: number; interactive?: boolean } = {}): Promise<Admission> {
+    const { timeout, interactive = false, ...callOptions } = options;
+    return this.call('shell.run', { session_id: sessionID, identity: this.identity(requestID), command, interactive, ...(timeout === undefined ? {} : { timeout }) }, callOptions);
+  }
+
   /** Keep this requestID and exact payload until admission is known, including after a lost acknowledgement. */
   submit(sessionID: string, parts: Operations['sessions.submit']['params']['parts'], requestID: string, options: CallOptions = {}): Promise<Admission> {
     return this.call('sessions.submit', { session_id: sessionID, source: 'user', parts, identity: this.identity(requestID) }, options);

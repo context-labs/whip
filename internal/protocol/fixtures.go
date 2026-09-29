@@ -60,11 +60,18 @@ func Fixtures() ([]Fixture, error) {
 	titleAttempt.MessageID = nil
 
 	executorLease := ExecutorLease{Epoch: "executor_fixture", Definition: DefinitionRef{ID: "custom", Revision: ref.Revision}, Generation: 9007199254740993, Tools: []ID{"lookup"}, Hooks: []ID{}}
-	executorInvocation := ExecutorInvocation{InvocationID: "invocation_fixture", Lease: executorLease, Kind: "tool", Name: "lookup", SessionID: "session_root", TurnID: "turn_fixture", CellID: new(ID("cell_fixture")), OperationID: new(ID("operation_fixture")), Operation: "tools.lookup", ArgumentsBase64: new(base64.StdEncoding.EncodeToString([]byte(`{"count":9007199254740993}`))), DeadlineMillis: Counter(created.UnixMilli())}
+	executorInvocation := ExecutorInvocation{Origin: "cell", InvocationID: "invocation_fixture", Lease: executorLease, Kind: "tool", Name: "lookup", SessionID: "session_root", TurnID: "turn_fixture", CellID: new(ID("cell_fixture")), OperationID: new(ID("operation_fixture")), Operation: "tools.lookup", ArgumentsBase64: new(base64.StdEncoding.EncodeToString([]byte(`{"count":9007199254740993}`))), DeadlineMillis: Counter(created.UnixMilli())}
+	directInput := InputFromDomain(session.Input{ID: "direct_input", SessionID: "session_root", Source: session.UserInput, Kind: session.HostOperationInputKind, State: session.Queued, Parts: []session.Part{}, HostOperation: &session.HostOperation{Module: "shell", Name: "run", Arguments: json.RawMessage(`{"command":"printf direct"}`)}, CreatedAt: created})
+	modelFree := root
+	modelFree.Configuration.Model = ModelSelection{}
 	values := []struct {
 		name  string
 		value any
 	}{
+		{"Input", directInput},
+		{"CallHostToolParams", CallHostToolParams{Identity: RequestIdentity{ClientID: "human", RequestID: "direct"}, SessionID: "session_root", Operation: *directInput.HostOperation}},
+		{"RunShellParams", RunShellParams{Identity: RequestIdentity{ClientID: "human", RequestID: "direct"}, SessionID: "session_root", Command: "printf direct"}},
+		{"HostToolSchemasResult", HostToolSchemasResult{Items: []HostToolSchema{{Module: "files", Name: "read", Description: "Read", InputSchema: json.RawMessage(`{"type":"object"}`)}}}},
 		{"ExecutorActivityResult", ExecutorActivityResult{Activity: &ExecutorActivity{Epoch: "executor_fixture", TurnID: "turn_fixture", Revision: 9007199254740993, Decisions: []HookDecision{{Hook: "before_tool", Operation: "files.read", Decision: "skipped", Reason: "unavailable"}}}}},
 		{"ExecutorBindParams", ExecutorBindParams{Definition: executorLease.Definition, Tools: []ID{"lookup"}, Hooks: []ID{}}},
 		{"ExecutorLease", executorLease},
@@ -225,6 +232,7 @@ func Fixtures() ([]Fixture, error) {
 		{"Session", child},
 		{"HistoryPageParams", HistoryPageParams{SessionID: child.ID, Direction: "backward", Cursor: new(Counter(9007199254740995)), ExpectedRevision: new(Counter(9007199254740993)), Limit: 10}},
 		{"HistoryPageResult", HistoryPageResult{Snapshot: HistorySnapshot{Revision: 9007199254740993, SessionID: child.ID, ThroughSequence: 9007199254740995, MessageCount: 3}, Messages: []Message{message}, NextCursor: new(Counter(9007199254740993))}},
+		{"Session", modelFree},
 		{"HistoryResult", HistoryResult{Snapshot: HistorySnapshot{Revision: 9007199254740993, SessionID: child.ID, ThroughSequence: 9007199254740995, MessageCount: 3}, Items: []Message{message, callMessage, toolMessage}}},
 		{"Part", callMessage.Parts[0]},
 		{"Part", toolMessage.Parts[0]},

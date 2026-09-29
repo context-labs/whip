@@ -50,16 +50,17 @@ type Grant struct {
 }
 
 type OperationSpec struct {
-	ID         OperationID
-	CellID     CellID
-	RequestID  string
-	Capability string
-	Resource   string
-	Arguments  json.RawMessage
+	ID           OperationID
+	CellID       CellID
+	DirectTurnID TurnID
+	RequestID    string
+	Capability   string
+	Resource     string
+	Arguments    json.RawMessage
 }
 
 // Operation owns host-effect evidence; its session and turn are projections of
-// its cell. A dispatched but unsettled operation is never automatically replayed.
+// its cell or accepted direct host turn. A dispatched but unsettled operation is never automatically replayed.
 type Operation struct {
 	OperationSpec
 	SessionID SessionID
@@ -125,10 +126,20 @@ func (g Grant) Validate() error {
 }
 
 func (s OperationSpec) Validate() error {
-	for _, id := range []string{string(s.ID), string(s.CellID), s.RequestID} {
+	for _, id := range []string{string(s.ID), s.RequestID} {
 		if err := ValidateID(id); err != nil {
 			return err
 		}
+	}
+	if (s.CellID == "") == (s.DirectTurnID == "") {
+		return fmt.Errorf("%w: exactly one operation execution owner is required", ErrInvalid)
+	}
+	owner := string(s.CellID)
+	if s.DirectTurnID != "" {
+		owner = string(s.DirectTurnID)
+	}
+	if err := ValidateID(owner); err != nil {
+		return err
 	}
 	if err := validateOperationScope(s.Capability, s.Resource); err != nil {
 		return err

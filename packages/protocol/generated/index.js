@@ -5,6 +5,21 @@ export const manifest = {
   "minor": 0,
   "operations": [
     {
+      "name": "tool.schemas",
+      "params": "SessionParams",
+      "result": "HostToolSchemasResult"
+    },
+    {
+      "name": "tool.call",
+      "params": "CallHostToolParams",
+      "result": "Admission"
+    },
+    {
+      "name": "shell.run",
+      "params": "RunShellParams",
+      "result": "Admission"
+    },
+    {
       "name": "executor.activity",
       "params": "SessionParams",
       "result": "ExecutorActivityResult"

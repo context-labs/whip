@@ -142,6 +142,9 @@ func createSchedule(ctx context.Context, tx *sql.Tx, owner session.SessionID, id
 	if current.Lifecycle != session.Active {
 		return session.ScheduleAdmission{}, ErrStopped
 	}
+	if err := current.Config.Model.Validate(); err != nil {
+		return session.ScheduleAdmission{}, fmt.Errorf("%w: scheduled prompts require a configured model", session.ErrInvalid)
+	}
 	if err := validateContentReferences(ctx, tx, owner, spec.Parts); err != nil {
 		return session.ScheduleAdmission{}, err
 	}

@@ -1,0 +1,53 @@
+{
+  "type": "object",
+  "properties": {
+    "identity": {
+      "type": "object",
+      "properties": {
+        "client_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        }
+      },
+      "required": [
+        "client_id",
+        "request_id"
+      ],
+      "additionalProperties": false
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "command": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 65536
+    },
+    "timeout": {
+      "type": [
+        "null",
+        "number"
+      ],
+      "minimum": 0.001,
+      "maximum": 120
+    },
+    "interactive": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/RunShellParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RunShellParams",
+  "required": [
+    "identity",
+    "session_id",
+    "command",
+    "interactive"
+  ],
+  "additionalProperties": false
+}

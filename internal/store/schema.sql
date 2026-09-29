@@ -228,7 +228,7 @@ CREATE TABLE inputs (
  ordinal INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
  source TEXT NOT NULL CHECK(source IN ('user','agent','schedule','goal')),
- kind TEXT NOT NULL DEFAULT 'prompt' CHECK(kind IN ('prompt','compact','goal_formulation','automatic_title')),
+ kind TEXT NOT NULL DEFAULT 'prompt' CHECK(kind IN ('prompt','compact','goal_formulation','automatic_title','host_operation')),
  parts TEXT NOT NULL CHECK(json_valid(parts)), turn_id TEXT UNIQUE, cancelled_at INTEGER, created_at INTEGER NOT NULL,
  schedule_id TEXT, scheduled_for TEXT, goal_id TEXT, goal_revision INTEGER,
  CHECK((goal_id IS NOT NULL) = (source='goal')),
@@ -405,7 +405,8 @@ CREATE TRIGGER cell_transition BEFORE UPDATE ON cells
  BEGIN SELECT RAISE(ABORT, 'invalid cell transition'); END;
 
 CREATE TABLE operations (
- id TEXT PRIMARY KEY, cell_id TEXT NOT NULL REFERENCES cells(id) ON DELETE CASCADE,
+ id TEXT PRIMARY KEY, cell_id TEXT REFERENCES cells(id) ON DELETE CASCADE,
+ direct_turn_id TEXT REFERENCES turns(id) ON DELETE CASCADE,
  request_id TEXT NOT NULL, capability TEXT NOT NULL, resource TEXT NOT NULL,
  arguments TEXT NOT NULL CHECK(json_valid(arguments) AND json_type(arguments)='object'),
  state TEXT NOT NULL CHECK(state IN ('waiting','ready','dispatched','succeeded','failed','denied','cancelled','uncertain')),
@@ -414,6 +415,8 @@ CREATE TABLE operations (
  result TEXT CHECK(result IS NULL OR json_valid(result)),
  created_at INTEGER NOT NULL, dispatched_at INTEGER, finished_at INTEGER,
  UNIQUE(cell_id,request_id),
+ UNIQUE(direct_turn_id,request_id),
+ CHECK((cell_id IS NULL) <> (direct_turn_id IS NULL)),
  CHECK((state IN ('waiting','ready','dispatched')) = (finished_at IS NULL)),
  CHECK((result IS NULL) = (finished_at IS NULL)),
  CHECK(result IS NULL OR json_extract(result,'$.state') IS state),
@@ -427,6 +430,7 @@ CREATE INDEX operations_by_grant ON operations(grant_id,id) WHERE state='ready';
 CREATE INDEX operations_unfinished ON operations(id) WHERE finished_at IS NULL;
 CREATE TRIGGER operation_transition BEFORE UPDATE ON operations
  WHEN NEW.id IS NOT OLD.id OR NEW.cell_id IS NOT OLD.cell_id OR NEW.request_id IS NOT OLD.request_id
+ OR NEW.direct_turn_id IS NOT OLD.direct_turn_id
  OR NEW.capability IS NOT OLD.capability OR NEW.resource IS NOT OLD.resource
  OR NEW.arguments IS NOT OLD.arguments OR NEW.created_at IS NOT OLD.created_at
  OR NEW.permission_revision IS NOT OLD.permission_revision
@@ -752,3 +756,16 @@ CREATE TRIGGER tree_catalog_revision BEFORE UPDATE ON tree_catalog
  WHEN NEW.singleton<>OLD.singleton OR NEW.revision<>OLD.revision+1
  BEGIN SELECT RAISE(ABORT,'invalid catalog revision'); END;
 CREATE TRIGGER tree_catalog_retained BEFORE DELETE ON tree_catalog BEGIN SELECT RAISE(ABORT,'retained tree catalog'); END;
+
+CREATE TABLE host_operation_inputs (
+ input_id TEXT PRIMARY KEY REFERENCES inputs(id) ON DELETE CASCADE,
+ module TEXT NOT NULL, name TEXT NOT NULL, arguments TEXT NOT NULL CHECK(json_valid(arguments) AND json_type(arguments)='object')
+) STRICT;
+CREATE TRIGGER host_operation_input_insert BEFORE INSERT ON host_operation_inputs
+ WHEN NOT EXISTS(SELECT 1 FROM inputs WHERE id=NEW.input_id AND kind='host_operation' AND source='user' AND parts='[]')
+ BEGIN SELECT RAISE(ABORT, 'invalid host operation input'); END;
+CREATE TRIGGER host_operation_input_immutable BEFORE UPDATE ON host_operation_inputs
+ BEGIN SELECT RAISE(ABORT, 'immutable host operation input'); END;
+CREATE TRIGGER direct_operation_insert BEFORE INSERT ON operations
+ WHEN NEW.direct_turn_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM inputs i JOIN host_operation_inputs h ON h.input_id=i.id WHERE i.turn_id=NEW.direct_turn_id)
+ BEGIN SELECT RAISE(ABORT, 'invalid direct operation owner'); END;

@@ -12,6 +12,7 @@ export interface Admission {
   };
   input:
     | {
+        host_operation: null;
         goal: null | {
           id: string;
           revision: string;
@@ -55,6 +56,7 @@ export interface Admission {
         };
       }
     | {
+        host_operation: null;
         goal: null | {
           id: string;
           revision: string;
@@ -63,6 +65,32 @@ export interface Admission {
         session_id: string;
         source: "user" | "agent" | "schedule" | "goal";
         kind: "compact" | "goal_formulation" | "automatic_title";
+        /**
+         * @maxItems 0
+         */
+        parts: [];
+        state: "queued" | "claimed" | "cancelled";
+        turn_id: null | string;
+        created_at: string;
+        schedule: null | {
+          schedule_id: string;
+          scheduled_for: string;
+        };
+      }
+    | {
+        host_operation: {
+          module: "shell" | "files" | "tools";
+          name: string;
+          arguments_base64: string;
+        };
+        goal: null | {
+          id: string;
+          revision: string;
+        };
+        id: string;
+        session_id: string;
+        source: "user";
+        kind: "host_operation";
         /**
          * @maxItems 0
          */
@@ -84,7 +112,7 @@ export interface Admission {
     };
     id: string;
     session_id: string;
-    kind: "prompt" | "compact" | "goal_formulation" | "automatic_title";
+    kind: "prompt" | "compact" | "goal_formulation" | "automatic_title" | "host_operation";
     config_revision: string;
     state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
     failure: null | string;
@@ -186,6 +214,18 @@ export interface BudgetsResult {
         uncertain: string;
         incomplete: boolean;
       }[];
+}
+export interface CallHostToolParams {
+  identity: {
+    client_id: string;
+    request_id: string;
+  };
+  session_id: string;
+  operation: {
+    module: "shell" | "files" | "tools";
+    name: string;
+    arguments_base64: string;
+  };
 }
 export interface Cell {
   id: string;
@@ -702,13 +742,21 @@ export interface CreateTreeResult {
         threshold_percent: number;
       };
       report_mode: "notice" | "inline" | "message";
-      model: {
-        provider: string;
-        name: string;
-        effort: string;
-        temperature?: null | number;
-        top_p?: null | number;
-      };
+      model:
+        | {
+            provider: string;
+            name: string;
+            effort: string;
+            temperature?: null | number;
+            top_p?: null | number;
+          }
+        | {
+            provider: "";
+            name: "";
+            effort: "";
+            temperature?: null | number;
+            top_p?: null | number;
+          };
       instructions: {
         project_root: null | string;
         text: string;
@@ -1012,6 +1060,7 @@ export type ExecutorEvent = {
   generation: string;
   invocation_id: string;
   invocation: null | {
+    origin: "cell" | "host_operation" | "turn";
     invocation_id: string;
     lease: {
       epoch: string;
@@ -1100,6 +1149,7 @@ export interface ExecutorPendingResult {
     | []
     | [
         {
+          origin: "cell" | "host_operation" | "turn";
           invocation_id: string;
           lease: {
             epoch: string;
@@ -1133,6 +1183,7 @@ export interface ExecutorPendingResult {
       ]
     | [
         {
+          origin: "cell" | "host_operation" | "turn";
           invocation_id: string;
           lease: {
             epoch: string;
@@ -1164,6 +1215,7 @@ export interface ExecutorPendingResult {
           deadline_millis: string;
         },
         {
+          origin: "cell" | "host_operation" | "turn";
           invocation_id: string;
           lease: {
             epoch: string;
@@ -1197,6 +1249,7 @@ export interface ExecutorPendingResult {
       ]
     | [
         {
+          origin: "cell" | "host_operation" | "turn";
           invocation_id: string;
           lease: {
             epoch: string;
@@ -1228,6 +1281,7 @@ export interface ExecutorPendingResult {
           deadline_millis: string;
         },
         {
+          origin: "cell" | "host_operation" | "turn";
           invocation_id: string;
           lease: {
             epoch: string;
@@ -1259,6 +1313,7 @@ export interface ExecutorPendingResult {
           deadline_millis: string;
         },
         {
+          origin: "cell" | "host_operation" | "turn";
           invocation_id: string;
           lease: {
             epoch: string;
@@ -1292,6 +1347,7 @@ export interface ExecutorPendingResult {
       ]
     | [
         {
+          origin: "cell" | "host_operation" | "turn";
           invocation_id: string;
           lease: {
             epoch: string;
@@ -1323,6 +1379,7 @@ export interface ExecutorPendingResult {
           deadline_millis: string;
         },
         {
+          origin: "cell" | "host_operation" | "turn";
           invocation_id: string;
           lease: {
             epoch: string;
@@ -1354,6 +1411,7 @@ export interface ExecutorPendingResult {
           deadline_millis: string;
         },
         {
+          origin: "cell" | "host_operation" | "turn";
           invocation_id: string;
           lease: {
             epoch: string;
@@ -1385,6 +1443,7 @@ export interface ExecutorPendingResult {
           deadline_millis: string;
         },
         {
+          origin: "cell" | "host_operation" | "turn";
           invocation_id: string;
           lease: {
             epoch: string;
@@ -1521,13 +1580,21 @@ export interface ForkResult {
         threshold_percent: number;
       };
       report_mode: "notice" | "inline" | "message";
-      model: {
-        provider: string;
-        name: string;
-        effort: string;
-        temperature?: null | number;
-        top_p?: null | number;
-      };
+      model:
+        | {
+            provider: string;
+            name: string;
+            effort: string;
+            temperature?: null | number;
+            top_p?: null | number;
+          }
+        | {
+            provider: "";
+            name: "";
+            effort: "";
+            temperature?: null | number;
+            top_p?: null | number;
+          };
       instructions: {
         project_root: null | string;
         text: string;
@@ -1635,6 +1702,7 @@ export interface GoalAdmission {
     };
     input:
       | {
+          host_operation: null;
           goal: null | {
             id: string;
             revision: string;
@@ -1678,6 +1746,7 @@ export interface GoalAdmission {
           };
         }
       | {
+          host_operation: null;
           goal: null | {
             id: string;
             revision: string;
@@ -1686,6 +1755,32 @@ export interface GoalAdmission {
           session_id: string;
           source: "user" | "agent" | "schedule" | "goal";
           kind: "compact" | "goal_formulation" | "automatic_title";
+          /**
+           * @maxItems 0
+           */
+          parts: [];
+          state: "queued" | "claimed" | "cancelled";
+          turn_id: null | string;
+          created_at: string;
+          schedule: null | {
+            schedule_id: string;
+            scheduled_for: string;
+          };
+        }
+      | {
+          host_operation: {
+            module: "shell" | "files" | "tools";
+            name: string;
+            arguments_base64: string;
+          };
+          goal: null | {
+            id: string;
+            revision: string;
+          };
+          id: string;
+          session_id: string;
+          source: "user";
+          kind: "host_operation";
           /**
            * @maxItems 0
            */
@@ -1707,7 +1802,7 @@ export interface GoalAdmission {
       };
       id: string;
       session_id: string;
-      kind: "prompt" | "compact" | "goal_formulation" | "automatic_title";
+      kind: "prompt" | "compact" | "goal_formulation" | "automatic_title" | "host_operation";
       config_revision: string;
       state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
       failure: null | string;
@@ -2291,12 +2386,13 @@ export interface HistorySnapshot {
   through_sequence: string;
   message_count: string;
 }
-export interface HostOperation {
+export type HostOperation = {
   permission_revision: null | string;
   id: string;
   session_id: string;
   turn_id: string;
-  cell_id: string;
+  cell_id: null | string;
+  origin: "cell" | "host_operation";
   request_id: string;
   capability: string;
   resource: string;
@@ -2311,7 +2407,20 @@ export interface HostOperation {
   created_at: string;
   dispatched_at: null | string;
   finished_at: null | string;
-}
+} & (
+  | {
+      cell_id?: {
+        [k: string]: unknown;
+      };
+      origin?: "cell";
+      [k: string]: unknown;
+    }
+  | {
+      cell_id?: null;
+      origin?: "host_operation";
+      [k: string]: unknown;
+    }
+);
 export interface HostOperationParams {
   operation_id: string;
 }
@@ -2323,27 +2432,31 @@ export interface HostOperationsParams {
 export interface HostOperationsResult {
   items:
     | null
-    | {
-        permission_revision: null | string;
-        id: string;
-        session_id: string;
-        turn_id: string;
-        cell_id: string;
-        request_id: string;
-        capability: string;
-        resource: string;
-        arguments: unknown;
-        state: "waiting" | "ready" | "dispatched" | "succeeded" | "failed" | "denied" | "cancelled" | "uncertain";
-        grant_id: null | string;
-        result: null | {
-          state: "succeeded" | "failed" | "denied" | "cancelled" | "uncertain";
-          value?: unknown;
-          failure?: null | string;
-        };
-        created_at: string;
-        dispatched_at: null | string;
-        finished_at: null | string;
-      }[];
+    | (
+        | {
+            cell_id?: {
+              [k: string]: unknown;
+            };
+            origin?: "cell";
+            [k: string]: unknown;
+          }
+        | {
+            cell_id?: null;
+            origin?: "host_operation";
+            [k: string]: unknown;
+          }
+      )[];
+}
+export interface HostToolSchemasResult {
+  /**
+   * @maxItems 135
+   */
+  items: {
+    module: "shell" | "files" | "tools";
+    name: string;
+    description: string;
+    input_schema: unknown;
+  }[];
 }
 export interface InferenceAccountStatus {
   management_state: "absent" | "stored" | "expired" | "unavailable";
@@ -2527,6 +2640,7 @@ export interface InitializeResult {
 }
 export type Input =
   | {
+      host_operation: null;
       goal: null | {
         id: string;
         revision: string;
@@ -2570,6 +2684,7 @@ export type Input =
       };
     }
   | {
+      host_operation: null;
       goal: null | {
         id: string;
         revision: string;
@@ -2578,6 +2693,32 @@ export type Input =
       session_id: string;
       source: "user" | "agent" | "schedule" | "goal";
       kind: "compact" | "goal_formulation" | "automatic_title";
+      /**
+       * @maxItems 0
+       */
+      parts: [];
+      state: "queued" | "claimed" | "cancelled";
+      turn_id: null | string;
+      created_at: string;
+      schedule: null | {
+        schedule_id: string;
+        scheduled_for: string;
+      };
+    }
+  | {
+      host_operation: {
+        module: "shell" | "files" | "tools";
+        name: string;
+        arguments_base64: string;
+      };
+      goal: null | {
+        id: string;
+        revision: string;
+      };
+      id: string;
+      session_id: string;
+      source: "user";
+      kind: "host_operation";
       /**
        * @maxItems 0
        */
@@ -2773,13 +2914,21 @@ export interface ListSessionsResult {
             threshold_percent: number;
           };
           report_mode: "notice" | "inline" | "message";
-          model: {
-            provider: string;
-            name: string;
-            effort: string;
-            temperature?: null | number;
-            top_p?: null | number;
-          };
+          model:
+            | {
+                provider: string;
+                name: string;
+                effort: string;
+                temperature?: null | number;
+                top_p?: null | number;
+              }
+            | {
+                provider: "";
+                name: "";
+                effort: "";
+                temperature?: null | number;
+                top_p?: null | number;
+              };
           instructions: {
             project_root: null | string;
             text: string;
@@ -6310,6 +6459,16 @@ export interface RewindParams {
   observed_through: string;
   keep_through: string;
 }
+export interface RunShellParams {
+  identity: {
+    client_id: string;
+    request_id: string;
+  };
+  session_id: string;
+  command: string;
+  timeout?: null | number;
+  interactive: boolean;
+}
 export interface ScheduleAdmission {
   id: string;
   schedule: null | {
@@ -6576,13 +6735,21 @@ export interface Session {
       threshold_percent: number;
     };
     report_mode: "notice" | "inline" | "message";
-    model: {
-      provider: string;
-      name: string;
-      effort: string;
-      temperature?: null | number;
-      top_p?: null | number;
-    };
+    model:
+      | {
+          provider: string;
+          name: string;
+          effort: string;
+          temperature?: null | number;
+          top_p?: null | number;
+        }
+      | {
+          provider: "";
+          name: "";
+          effort: "";
+          temperature?: null | number;
+          top_p?: null | number;
+        };
     instructions: {
       project_root: null | string;
       text: string;
@@ -7127,13 +7294,21 @@ export interface SpawnSessionResult {
         threshold_percent: number;
       };
       report_mode: "notice" | "inline" | "message";
-      model: {
-        provider: string;
-        name: string;
-        effort: string;
-        temperature?: null | number;
-        top_p?: null | number;
-      };
+      model:
+        | {
+            provider: string;
+            name: string;
+            effort: string;
+            temperature?: null | number;
+            top_p?: null | number;
+          }
+        | {
+            provider: "";
+            name: "";
+            effort: "";
+            temperature?: null | number;
+            top_p?: null | number;
+          };
       instructions: {
         project_root: null | string;
         text: string;
@@ -7182,6 +7357,7 @@ export interface SpawnSessionResult {
     };
     input:
       | {
+          host_operation: null;
           goal: null | {
             id: string;
             revision: string;
@@ -7225,6 +7401,7 @@ export interface SpawnSessionResult {
           };
         }
       | {
+          host_operation: null;
           goal: null | {
             id: string;
             revision: string;
@@ -7233,6 +7410,32 @@ export interface SpawnSessionResult {
           session_id: string;
           source: "user" | "agent" | "schedule" | "goal";
           kind: "compact" | "goal_formulation" | "automatic_title";
+          /**
+           * @maxItems 0
+           */
+          parts: [];
+          state: "queued" | "claimed" | "cancelled";
+          turn_id: null | string;
+          created_at: string;
+          schedule: null | {
+            schedule_id: string;
+            scheduled_for: string;
+          };
+        }
+      | {
+          host_operation: {
+            module: "shell" | "files" | "tools";
+            name: string;
+            arguments_base64: string;
+          };
+          goal: null | {
+            id: string;
+            revision: string;
+          };
+          id: string;
+          session_id: string;
+          source: "user";
+          kind: "host_operation";
           /**
            * @maxItems 0
            */
@@ -7254,7 +7457,7 @@ export interface SpawnSessionResult {
       };
       id: string;
       session_id: string;
-      kind: "prompt" | "compact" | "goal_formulation" | "automatic_title";
+      kind: "prompt" | "compact" | "goal_formulation" | "automatic_title" | "host_operation";
       config_revision: string;
       state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
       failure: null | string;
@@ -7497,7 +7700,7 @@ export interface Turn {
   };
   id: string;
   session_id: string;
-  kind: "prompt" | "compact" | "goal_formulation" | "automatic_title";
+  kind: "prompt" | "compact" | "goal_formulation" | "automatic_title" | "host_operation";
   config_revision: string;
   state: "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "interrupted";
   failure: null | string;
@@ -7706,6 +7909,7 @@ export interface ContractTypes {
   AutomaticTitleResultParams: AutomaticTitleResultParams;
   Budget: Budget;
   BudgetsResult: BudgetsResult;
+  CallHostToolParams: CallHostToolParams;
   Cell: Cell;
   CellParams: CellParams;
   CellsParams: CellsParams;
@@ -7767,6 +7971,7 @@ export interface ContractTypes {
   HostOperationParams: HostOperationParams;
   HostOperationsParams: HostOperationsParams;
   HostOperationsResult: HostOperationsResult;
+  HostToolSchemasResult: HostToolSchemasResult;
   InferenceAccountStatus: InferenceAccountStatus;
   InferenceCleanupResult: InferenceCleanupResult;
   InferenceCreateProjectParams: InferenceCreateProjectParams;
@@ -7859,6 +8064,7 @@ export interface ContractTypes {
   Response: Response;
   ResumeGoalParams: ResumeGoalParams;
   RewindParams: RewindParams;
+  RunShellParams: RunShellParams;
   ScheduleAdmission: ScheduleAdmission;
   ScheduleParams: ScheduleParams;
   ScheduleResult: ScheduleResult;
@@ -7920,6 +8126,9 @@ export interface ContractTypes {
   WriteStateParams: WriteStateParams;
 }
 export interface Operations {
+  "tool.schemas": { params: SessionParams; result: HostToolSchemasResult };
+  "tool.call": { params: CallHostToolParams; result: Admission };
+  "shell.run": { params: RunShellParams; result: Admission };
   "executor.activity": { params: SessionParams; result: ExecutorActivityResult };
   "executor.bind": { params: ExecutorBindParams; result: ExecutorLease };
   "executor.pending": { params: ExecutorPendingParams; result: ExecutorPendingResult };

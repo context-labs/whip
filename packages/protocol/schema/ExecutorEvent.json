@@ -33,6 +33,14 @@
         "object"
       ],
       "properties": {
+        "origin": {
+          "type": "string",
+          "enum": [
+            "cell",
+            "host_operation",
+            "turn"
+          ]
+        },
         "invocation_id": {
           "type": "string",
           "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
@@ -161,6 +169,7 @@
         }
       },
       "required": [
+        "origin",
         "invocation_id",
         "lease",
         "kind",

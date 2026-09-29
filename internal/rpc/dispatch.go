@@ -49,6 +49,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return nil, ErrMethod
 	}
 	switch method {
+	case "tool.schemas", "tool.call", "shell.run":
+		return dispatchHostOperation(ctx, r, method, raw)
 	case "executor.activity":
 		return decode(raw, func(p protocol.SessionParams) (any, error) {
 			value, err := r.ExecutorActivity(ctx, session.SessionID(p.SessionID))

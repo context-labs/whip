@@ -128,7 +128,7 @@ func (s *Store) ApplyPermissionMode(ctx context.Context, request session.Permiss
 // automatic authority retires only before dispatch; grants and dispatched work
 // retain their ordinary validation and settlement paths.
 func retirePolicyOperations(ctx context.Context, tx *sql.Tx, owner session.SessionID) error {
-	rows, err := tx.QueryContext(ctx, `SELECT o.id FROM operations o JOIN cells c ON c.id=o.cell_id JOIN turns t ON t.id=c.turn_id
+	rows, err := tx.QueryContext(ctx, `SELECT o.id FROM operations o LEFT JOIN cells c ON c.id=o.cell_id JOIN turns t ON t.id=COALESCE(c.turn_id,o.direct_turn_id)
  WHERE t.session_id=? AND (o.state='waiting' OR (o.state='ready' AND o.permission_revision IS NOT NULL)) ORDER BY o.id`, owner)
 	if err != nil {
 		return err

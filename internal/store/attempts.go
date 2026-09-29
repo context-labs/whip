@@ -86,6 +86,9 @@ func (s *Store) ReserveModelAttempt(ctx context.Context, p session.ModelAttemptS
 		if err != nil {
 			return err
 		}
+		if turn.Kind == session.HostOperationInputKind {
+			return session.ErrInvalid
+		}
 		if turn.State != session.Running {
 			return ErrStopped
 		}

@@ -23,12 +23,9 @@ func (r *Runtime) BeforeTool(ctx context.Context, current session.Session, call 
 	if len(current.Config.Hooks) == 0 {
 		return call, nil
 	}
-	cell, err := r.store.Cell(ctx, call.CellID)
+	turn, err := r.invocationTurn(ctx, current.ID, call)
 	if err != nil {
 		return call, err
-	}
-	if cell.SessionID != current.ID {
-		return call, store.ErrConflict
 	}
 	name := call.Module + "." + call.Name
 	if hook, ok := current.Config.Hooks["before_tool"]; ok && (hook.Operations == nil || slices.Contains(hook.Operations, name)) {
@@ -40,7 +37,7 @@ func (r *Runtime) BeforeTool(ctx context.Context, current session.Session, call 
 		if err != nil {
 			return call, err
 		}
-		request := executor.Request{SessionID: current.ID, TurnID: cell.TurnID, CellID: call.CellID, Operation: name, Arguments: raw}
+		request := executor.Request{SessionID: current.ID, TurnID: turn, CellID: call.CellID, HostOperation: call.DirectTurnID != "", Operation: name, Arguments: raw}
 		result, err := r.askHook(ctx, current, "before_tool", hook, request)
 		if err != nil {
 			return call, err
@@ -51,8 +48,8 @@ func (r *Runtime) BeforeTool(ctx context.Context, current session.Session, call 
 				return call, err
 			}
 			call.Arguments = rewritten
-			r.hookDecision(current.ID, cell.TurnID, HookDecision{InvocationID: result.InvocationID, Hook: "before_tool", Operation: name, Decision: "rewrite", Reason: result.Reason})
-			r.hookNotice(current.ID, cell.TurnID, "Hook before_tool rewrote "+name+" arguments to "+boundedHookText(string(result.Arguments), 512))
+			r.hookDecision(current.ID, turn, HookDecision{InvocationID: result.InvocationID, Hook: "before_tool", Operation: name, Decision: "rewrite", Reason: result.Reason})
+			r.hookNotice(current.ID, turn, "Hook before_tool rewrote "+name+" arguments to "+boundedHookText(string(result.Arguments), 512))
 		}
 	}
 	if call.Module != "agents" || call.Name != "spawn" {
@@ -77,7 +74,7 @@ func (r *Runtime) BeforeTool(ctx context.Context, current session.Session, call 
 	if err != nil {
 		return call, err
 	}
-	result, err := r.askHook(ctx, current, "before_spawn", hook, executor.Request{SessionID: current.ID, TurnID: cell.TurnID, CellID: call.CellID, Operation: "agents.spawn", Spawn: preview})
+	result, err := r.askHook(ctx, current, "before_spawn", hook, executor.Request{SessionID: current.ID, TurnID: turn, CellID: call.CellID, Operation: "agents.spawn", Spawn: preview})
 	if err != nil {
 		return call, err
 	}
@@ -94,8 +91,8 @@ func (r *Runtime) BeforeTool(ctx context.Context, current session.Session, call 
 			return call, fmt.Errorf("hook before_spawn rewrite rejected: %w", err)
 		}
 		call.Arguments = rewritten
-		r.hookDecision(current.ID, cell.TurnID, HookDecision{InvocationID: result.InvocationID, Hook: "before_spawn", Operation: "agents.spawn", Decision: "rewrite", Reason: result.Reason})
-		r.hookNotice(current.ID, cell.TurnID, "Hook before_spawn rewrote the child request to "+boundedHookText(string(result.Spawn), 512))
+		r.hookDecision(current.ID, turn, HookDecision{InvocationID: result.InvocationID, Hook: "before_spawn", Operation: "agents.spawn", Decision: "rewrite", Reason: result.Reason})
+		r.hookNotice(current.ID, turn, "Hook before_spawn rewrote the child request to "+boundedHookText(string(result.Spawn), 512))
 	}
 	return call, nil
 }

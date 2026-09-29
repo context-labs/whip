@@ -52,6 +52,9 @@ func (s *Store) AdmitGoalFormulation(ctx context.Context, identity session.Reque
 		if !current.Config.GoalsEnabled {
 			return fmt.Errorf("%w: goals are disabled for session", session.ErrInvalid)
 		}
+		if err := requireNoDirectWork(ctx, tx, owner); err != nil {
+			return err
+		}
 		after, through, err := formulationWindow(ctx, tx, owner, resolved.TailMessages)
 		if err != nil {
 			return err

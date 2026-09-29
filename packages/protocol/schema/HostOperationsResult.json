@@ -30,8 +30,18 @@
             "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
           },
           "cell_id": {
-            "type": "string",
+            "type": [
+              "null",
+              "string"
+            ],
             "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "cell",
+              "host_operation"
+            ]
           },
           "request_id": {
             "type": "string",
@@ -115,6 +125,7 @@
           "session_id",
           "turn_id",
           "cell_id",
+          "origin",
           "request_id",
           "capability",
           "resource",
@@ -126,7 +137,35 @@
           "dispatched_at",
           "finished_at"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "properties": {
+              "cell_id": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "origin": {
+                "enum": [
+                  "cell"
+                ]
+              }
+            }
+          },
+          {
+            "properties": {
+              "cell_id": {
+                "type": "null"
+              },
+              "origin": {
+                "enum": [
+                  "host_operation"
+                ]
+              }
+            }
+          }
+        ]
       }
     }
   },

@@ -33,12 +33,13 @@ type Coordination interface {
 }
 
 type Invocation struct {
-	SessionID session.SessionID
-	CellID    session.CellID
-	RequestID string
-	Module    string
-	Name      string
-	Arguments map[string]any
+	SessionID    session.SessionID
+	CellID       session.CellID
+	DirectTurnID session.TurnID
+	RequestID    string
+	Module       string
+	Name         string
+	Arguments    map[string]any
 }
 
 type Dispatcher struct {
@@ -53,7 +54,7 @@ func NewDispatcher(ledger Ledger, sessions Sessions, coordination Coordination) 
 }
 
 func (d *Dispatcher) Call(ctx context.Context, call Invocation) (any, session.OperationID, error) {
-	current, err := d.sessions.CellSession(ctx, call.SessionID, call.CellID)
+	current, err := d.invocationSession(ctx, call)
 	if err != nil {
 		return nil, "", err
 	}
@@ -131,9 +132,13 @@ func (d *Dispatcher) callPrepared(ctx context.Context, call Invocation, prepared
 		return nil, "", fmt.Errorf("%w: invalid host effect timeout", session.ErrInvalid)
 	}
 
-	digest := sha256.Sum256([]byte(string(call.CellID) + "\x00" + call.RequestID))
+	owner := string(call.CellID)
+	if call.DirectTurnID != "" {
+		owner = "host_turn:" + string(call.DirectTurnID)
+	}
+	digest := sha256.Sum256([]byte(owner + "\x00" + call.RequestID))
 	id := session.OperationID("operation_" + hex.EncodeToString(digest[:]))
-	spec := session.OperationSpec{ID: id, CellID: call.CellID, RequestID: call.RequestID, Capability: prepared.Capability, Resource: prepared.Resource, Arguments: prepared.Arguments}
+	spec := session.OperationSpec{ID: id, CellID: call.CellID, DirectTurnID: call.DirectTurnID, RequestID: call.RequestID, Capability: prepared.Capability, Resource: prepared.Resource, Arguments: prepared.Arguments}
 	var admitted session.Operation
 	var err error
 	if standingOnly {
@@ -332,4 +337,20 @@ func failureText(err error) string {
 		}
 	}
 	return text
+}
+
+func (d *Dispatcher) invocationSession(ctx context.Context, call Invocation) (session.Session, error) {
+	if call.DirectTurnID == "" {
+		return d.sessions.CellSession(ctx, call.SessionID, call.CellID)
+	}
+	if call.CellID != "" {
+		return session.Session{}, session.ErrInvalid
+	}
+	direct, ok := d.sessions.(interface {
+		HostTurnSession(context.Context, session.SessionID, session.TurnID) (session.Session, error)
+	})
+	if !ok {
+		return session.Session{}, errors.New("direct host execution unavailable")
+	}
+	return direct.HostTurnSession(ctx, call.SessionID, call.DirectTurnID)
 }

@@ -392,7 +392,13 @@ func (r *Runtime) execute(ctx context.Context, claim store.Claim) error {
 	}
 	outcome := runner.Outcome{State: session.Cancelled}
 	if err == nil && current.State != session.Cancelling {
-		outcome, err = r.runner.Run(ctx, claim.Turn, claim.Configuration)
+		if claim.Turn.Kind == session.HostOperationInputKind {
+			outcome, err = r.runHostOperation(ctx, claim)
+		} else if modelErr := claim.Configuration.Model.Validate(); modelErr != nil {
+			outcome = runner.Failure(fmt.Errorf("session has no configured model: %w", modelErr))
+		} else {
+			outcome, err = r.runner.Run(ctx, claim.Turn, claim.Configuration)
+		}
 	}
 	if err != nil && ctx.Err() == nil {
 		return r.settle(ctx, claim.Turn.ID, runner.Failure(err))

@@ -207,23 +207,24 @@ type GoalRef struct {
 	Revision Counter `json:"revision"`
 }
 type Input struct {
-	Goal      *GoalRef            `json:"goal"`
-	ID        ID                  `json:"id"`
-	SessionID ID                  `json:"session_id"`
-	Source    string              `json:"source" enum:"user,agent,schedule,goal"`
-	Kind      string              `json:"kind" enum:"prompt,compact,goal_formulation,automatic_title"`
-	Parts     []Part              `json:"parts"`
-	State     string              `json:"state" enum:"queued,claimed,cancelled"`
-	TurnID    *ID                 `json:"turn_id"`
-	CreatedAt string              `json:"created_at"`
-	Schedule  *ScheduleOccurrence `json:"schedule"`
+	HostOperation *DirectHostInput    `json:"host_operation"`
+	Goal          *GoalRef            `json:"goal"`
+	ID            ID                  `json:"id"`
+	SessionID     ID                  `json:"session_id"`
+	Source        string              `json:"source" enum:"user,agent,schedule,goal"`
+	Kind          string              `json:"kind" enum:"prompt,compact,goal_formulation,automatic_title,host_operation"`
+	Parts         []Part              `json:"parts"`
+	State         string              `json:"state" enum:"queued,claimed,cancelled"`
+	TurnID        *ID                 `json:"turn_id"`
+	CreatedAt     string              `json:"created_at"`
+	Schedule      *ScheduleOccurrence `json:"schedule"`
 }
 type Turn struct {
 	HistoryRevision Counter  `json:"history_revision"`
 	Goal            *GoalRef `json:"goal"`
 	ID              ID       `json:"id"`
 	SessionID       ID       `json:"session_id"`
-	Kind            string   `json:"kind" enum:"prompt,compact,goal_formulation,automatic_title"`
+	Kind            string   `json:"kind" enum:"prompt,compact,goal_formulation,automatic_title,host_operation"`
 	ConfigRevision  Counter  `json:"config_revision"`
 	State           string   `json:"state" enum:"running,cancelling,succeeded,failed,cancelled,interrupted"`
 	Failure         *string  `json:"failure"`

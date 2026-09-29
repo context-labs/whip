@@ -101,6 +101,7 @@ type InputKind string
 
 const (
 	PromptInput              InputKind = "prompt"
+	HostOperationInputKind   InputKind = "host_operation"
 	CompactInput             InputKind = "compact"
 	GoalFormulationInputKind InputKind = "goal_formulation"
 	AutomaticTitleInputKind  InputKind = "automatic_title"
@@ -117,16 +118,17 @@ const (
 // Input owns the accepted payload. Its execution outcome is the linked Turn;
 // terminal turn states are never copied onto input or receipt rows.
 type Input struct {
-	Goal      *GoalRef
-	Schedule  *ScheduleOccurrence
-	ID        InputID
-	SessionID SessionID
-	Source    InputSource
-	Kind      InputKind
-	Parts     []Part
-	State     InputState
-	TurnID    *TurnID
-	CreatedAt time.Time
+	HostOperation *HostOperation
+	Goal          *GoalRef
+	Schedule      *ScheduleOccurrence
+	ID            InputID
+	SessionID     SessionID
+	Source        InputSource
+	Kind          InputKind
+	Parts         []Part
+	State         InputState
+	TurnID        *TurnID
+	CreatedAt     time.Time
 }
 
 type RequestIdentity struct {

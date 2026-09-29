@@ -21,6 +21,9 @@ type Operation struct {
 
 func Operations() []Operation {
 	return []Operation{
+		{"tool.schemas", reflect.TypeFor[SessionParams](), reflect.TypeFor[HostToolSchemasResult]()},
+		{"tool.call", reflect.TypeFor[CallHostToolParams](), reflect.TypeFor[Admission]()},
+		{"shell.run", reflect.TypeFor[RunShellParams](), reflect.TypeFor[Admission]()},
 		{"executor.activity", reflect.TypeFor[SessionParams](), reflect.TypeFor[ExecutorActivityResult]()},
 		{"executor.bind", reflect.TypeFor[ExecutorBindParams](), reflect.TypeFor[ExecutorLease]()},
 		{"executor.pending", reflect.TypeFor[ExecutorPendingParams](), reflect.TypeFor[ExecutorPendingResult]()},
@@ -276,6 +279,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 		languageServerSchema(schema, t)
 		mcpSchema(schema, t)
 		terminalSchema(schema, t)
+		hostOperationSchema(schema, t)
 		discoverySchema(schema, t)
 		if t == reflect.TypeFor[GoalFormulationRequest]() {
 			schema.Properties["tail_messages"] = &jsonschema.Schema{OneOf: []*jsonschema.Schema{
@@ -314,11 +318,19 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 			prompt := schema.CloneSchemas()
 			prompt.Type, prompt.Types = "object", nil
 			prompt.Properties["kind"] = &jsonschema.Schema{Type: "string", Enum: []any{"prompt"}}
+			prompt.Properties["host_operation"] = &jsonschema.Schema{Type: "null"}
 			compact := schema.CloneSchemas()
 			compact.Type, compact.Types = "object", nil
 			compact.Properties["kind"] = &jsonschema.Schema{Type: "string", Enum: []any{"compact", "goal_formulation", "automatic_title"}}
 			compact.Properties["parts"] = &jsonschema.Schema{Type: "array", MaxItems: new(0), Items: partSchema("text", "content")}
-			*schema = jsonschema.Schema{OneOf: []*jsonschema.Schema{prompt, compact}}
+			compact.Properties["host_operation"] = &jsonschema.Schema{Type: "null"}
+			direct := schema.CloneSchemas()
+			direct.Type, direct.Types = "object", nil
+			direct.Properties["kind"] = &jsonschema.Schema{Type: "string", Enum: []any{"host_operation"}}
+			direct.Properties["source"] = &jsonschema.Schema{Type: "string", Enum: []any{"user"}}
+			direct.Properties["parts"] = compact.Properties["parts"].CloneSchemas()
+			direct.Properties["host_operation"].Type, direct.Properties["host_operation"].Types = "object", nil
+			*schema = jsonschema.Schema{OneOf: []*jsonschema.Schema{prompt, compact, direct}}
 			if nullable {
 				schema.OneOf = append(schema.OneOf, &jsonschema.Schema{Type: "null"})
 			}

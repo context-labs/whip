@@ -45,7 +45,8 @@ type HostOperation struct {
 	ID                 ID                   `json:"id"`
 	SessionID          ID                   `json:"session_id"`
 	TurnID             ID                   `json:"turn_id"`
-	CellID             ID                   `json:"cell_id"`
+	CellID             *ID                  `json:"cell_id"`
+	Origin             string               `json:"origin" enum:"cell,host_operation"`
 	RequestID          ID                   `json:"request_id"`
 	Capability         string               `json:"capability"`
 	Resource           string               `json:"resource"`
@@ -99,7 +100,12 @@ func GrantFromDomain(value session.Grant) Grant {
 }
 
 func OperationFromDomain(value session.Operation) HostOperation {
-	result := HostOperation{ID: ID(value.ID), SessionID: ID(value.SessionID), TurnID: ID(value.TurnID), CellID: ID(value.CellID), RequestID: ID(value.RequestID), Capability: value.Capability, Resource: value.Resource, Arguments: append(json.RawMessage(nil), value.Arguments...), State: string(value.State), CreatedAt: value.CreatedAt.Format(time.RFC3339Nano), DispatchedAt: timeString(value.DispatchedAt), FinishedAt: timeString(value.FinishedAt)}
+	result := HostOperation{ID: ID(value.ID), SessionID: ID(value.SessionID), TurnID: ID(value.TurnID), Origin: "cell", RequestID: ID(value.RequestID), Capability: value.Capability, Resource: value.Resource, Arguments: append(json.RawMessage(nil), value.Arguments...), State: string(value.State), CreatedAt: value.CreatedAt.Format(time.RFC3339Nano), DispatchedAt: timeString(value.DispatchedAt), FinishedAt: timeString(value.FinishedAt)}
+	if value.CellID != "" {
+		result.CellID = new(ID(value.CellID))
+	} else {
+		result.Origin = "host_operation"
+	}
 	if value.GrantID != nil {
 		result.GrantID = new(ID(*value.GrantID))
 	}
