@@ -212,3 +212,47 @@ Implementation: [runtime computer controls](../internal/runtime/computer.go),
 [helper controller](../internal/computer/controller.go), and
 [batch validation](../internal/computer/batch.go). Screen and page contents remain
 untrusted evidence, never instructions to the host.
+
+## Native browser test ownership
+
+The retired `Manager`/`Session.Do`, implicit `Open` entry points, profile/port scans,
+process-global relay, live-to-dedicated fallback and launch takeover/quarantine
+paths are removed. They have no supported production caller. Rod and ChromeDP
+now execute only over an explicitly owned native or Desktop transport; the
+backend primitives cannot discover a new connection or repeat a failed batch.
+
+The retained browser tests are mapped to those owners:
+
+| Retained behavior | Native evidence |
+| --- | --- |
+| Port-file parsing and destination safety | Pure parser/URL tests remain; explicit endpoint/profile tests reject redirects, changed authorities and oversized records. Ambient scans/fallback assertions are replaced by refusal without launch. |
+| Driver choice, bounded status and concurrent lifetimes | NativeHost configuration/generation tests, root retirement capacity test and host driver CAS/pin tests replace the unbounded manager tests. |
+| Cookies, AX, click, screenshot, Unicode fill/key input and wheel dispatch | E2E and parity tests execute both drivers through `OpenNative`; every recorded parity failure fails the test. |
+| Live detach and existing-profile protection | A separately owned private Chrome survives both live-driver detach paths; a second native launch refuses its live profile without takeover. |
+| Three parallel sessions, ten launch/close cycles, fifty calls and immediate evaluation | Retained workloads run through private native owners; failed callback recovery requires explicit fresh generation and proves no replay. |
+| Extension and Desktop behavior | Authenticated relay/worker tests and exact scoped Desktop tests remain. The headed real-extension fixture is separately opt-in. |
+
+Real Chrome tests use only `WHIP_BROWSER_NATIVE_TEST_BINARY`, an absolute path to
+an explicitly supplied testing binary. They do not discover installed browsers
+or user profiles. The default real-browser matrix is headless. A private visible
+dedicated window additionally requires `WHIP_BROWSER_NATIVE_TEST_HEADED=1`; the
+headed extension fixture requires `WHIP_BROWSER_NATIVE_TEST_EXTENSION=1` and a
+Chrome-for-Testing binary that permits unpacked extensions. Missing prerequisites
+are reported skips, never evidence that those platform workflows passed. Existing
+production Desktop and extension permissions are not changed by these fixtures.
+
+On macOS, native `dedicated` and `headless` launches use Chromium’s
+`--use-mock-keychain` flag for their private automation profiles. This avoids
+consulting the user’s Keychain or waiting for its permission dialog. These
+profiles rely on their private filesystem permissions, not a user-specific
+Keychain encryption key; do not treat them as the user’s existing Chrome profile.
+The backend never adds this flag to an attached `live` or `extension` browser.
+The flag is also part of the retained Rod launcher’s defaults; see
+[Google’s automation flag guidance](https://github.com/GoogleChrome/chrome-launcher/blob/main/docs/chrome-flags-for-tools.md).
+
+The driver parity regression also exercises trusted Unicode replacement, clearing,
+character keys and a following wheel event. Both drivers use the existing
+Desktop text-input implementation; ASCII values are never sent as native macOS
+hardware key codes. ChromeDP navigation uses `Page.navigate` on the captured
+executor instead of an allocator-dependent helper, preserving one dispatch and
+no automatic retry on rejection or connection failure.

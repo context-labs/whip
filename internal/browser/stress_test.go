@@ -1,169 +1,159 @@
-// stress_test.go — the rigorous tier: concurrency, churn, and crash
-// recovery, driver-parameterized (WHIP_BROWSER_DRIVER selects; the default
-// run exercises rod, CI/env flips to chromedp). These tests exist to fail
-// under interleaving, not to pass politely.
-
 package browser
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/context-labs/whip/internal/browserconfig"
 )
 
-// TestConcurrentSessionsDriveIsolatedBrowsers — N named sessions work
-// simultaneously; calls on one session serialize (the channel semaphore)
-// while different sessions run in parallel. Fails under -race if the
-// per-session isolation breaks.
+func realNativeHost(t *testing.T, driver string) *NativeHost {
+	t.Helper()
+	options := nativeOptions(t, browserconfig.Config{Mode: "headless", Executable: chromiumPath(t)}, driver)
+	host := NewNativeHost(options.Directory, options.Processes)
+	t.Cleanup(func() { _ = host.Close() })
+	if err := host.Update(options.Config, driver); err != nil {
+		t.Fatal(err)
+	}
+	return host
+}
+
+func nativeTestBatch(ctx context.Context, host *NativeHost, name string, fn func(context.Context, Backend) error) error {
+	capture, err := host.Capture("root", "root", name)
+	if err != nil {
+		return err
+	}
+	lease, err := capture.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer lease.Close()
+	return lease.Run(ctx, allowedNative, fn)
+}
+
 func TestConcurrentSessionsDriveIsolatedBrowsers(t *testing.T) {
-	_ = chromiumPath(t)
-	t.Setenv("HOME", t.TempDir())
-	url := testPage(t)
-
-	m := NewManager(ModeHeadless)
-	defer m.CloseAll()
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	host := realNativeHost(t, DriverRod)
+	page := testPage(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
-
 	const sessions = 3
-	var wg sync.WaitGroup
-	errs := make(chan error, sessions)
+	var group sync.WaitGroup
+	failures := make(chan error, sessions)
 	for i := range sessions {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			sess, err := m.Session(fmt.Sprintf("s%d", i))
-			if err != nil {
-				errs <- err
-				return
-			}
-			// Each session navigates to a page bearing its own marker, then
-			// reads it back — a cross-session leak shows the wrong marker.
+		group.Go(func() {
 			marker := fmt.Sprintf("session-%d", i)
-			out, err := sess.Do(ctx, func(b Backend) (string, error) {
-				if err := b.Navigate(ctx, url+"/marker/"+marker); err != nil {
-					return "", err
+			failures <- nativeTestBatch(ctx, host, marker, func(ctx context.Context, b Backend) error {
+				if err := b.Navigate(ctx, page+"/marker/"+marker); err != nil {
+					return err
 				}
-				return b.Eval(ctx, "document.title")
+				title, err := b.Eval(ctx, "document.title")
+				if err == nil && !strings.Contains(title, marker) {
+					return fmt.Errorf("cross-session title %s", title)
+				}
+				return err
 			})
-			if err != nil {
-				errs <- fmt.Errorf("s%d: %w", i, err)
-				return
-			}
-			if !strings.Contains(out, marker) {
-				errs <- fmt.Errorf("s%d: session leaked — got title %s, want marker %s", i, out, marker)
-			}
-		}(i)
+		})
 	}
-	wg.Wait()
-	close(errs)
-	for err := range errs {
-		t.Error(err)
-	}
-}
-
-// TestChurnOpenClose — open/work/close 10× in a row. Catches goroutine
-// leaks, leaked Chrome processes, and profile-dir poisoning across restarts
-// (the stale-profile wedge class).
-func TestChurnOpenClose(t *testing.T) {
-	_ = chromiumPath(t)
-	t.Setenv("HOME", t.TempDir())
-	url := testPage(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
-	defer cancel()
-
-	for i := range 10 {
-		b, err := Open(ctx, ModeHeadless)
+	group.Wait()
+	close(failures)
+	for err := range failures {
 		if err != nil {
-			t.Fatalf("iter %d open: %v", i, err)
-		}
-		if err := b.Navigate(ctx, url); err != nil {
-			t.Fatalf("iter %d navigate: %v", i, err)
-		}
-		if _, err := b.Eval(ctx, "document.title"); err != nil {
-			t.Fatalf("iter %d eval: %v", i, err)
-		}
-		if err := b.Close(); err != nil {
-			t.Fatalf("iter %d close: %v", i, err)
+			t.Error(err)
 		}
 	}
 }
 
-// TestRecoverFromClosedBrowser — work, kill the browser out from under the
-// session, then verify the next call reopens cleanly (Session.Do's
-// stale-connection reopen path).
-func TestRecoverFromClosedBrowser(t *testing.T) {
-	_ = chromiumPath(t)
-	t.Setenv("HOME", t.TempDir())
-	url := testPage(t)
-
-	m := NewManager(ModeHeadless)
-	defer m.CloseAll()
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+// Ten real launch/close cycles retain the original churn workload, with joined
+// native process ownership and one explicit private profile instead of fallback.
+func TestChurnOpenClose(t *testing.T) {
+	options := nativeOptions(t, browserconfig.Config{Mode: "headless", Executable: chromiumPath(t)}, DriverRod)
+	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
+	page := testPage(t)
+	for i := range 10 {
+		browser, err := OpenNative(ctx, t.Context(), options)
+		if err != nil {
+			t.Fatal(i, err)
+		}
+		if err := browser.Navigate(ctx, page); err != nil {
+			_ = browser.Close()
+			t.Fatal(i, err)
+		}
+		if _, err := browser.Eval(ctx, "document.title"); err != nil {
+			_ = browser.Close()
+			t.Fatal(i, err)
+		}
+		if err := browser.Close(); err != nil {
+			t.Fatal(i, err)
+		}
+	}
+}
 
-	sess, err := m.Session("crashy")
+func TestRecoverFromClosedBrowserRequiresExplicitGeneration(t *testing.T) {
+	host := realNativeHost(t, DriverRod)
+	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
+	defer cancel()
+	page := testPage(t)
+	if err := nativeTestBatch(ctx, host, "crashy", func(ctx context.Context, b Backend) error { return b.Navigate(ctx, page) }); err != nil {
+		t.Fatal(err)
+	}
+	old := host.List("root")[0]
+	calls := 0
+	dropped := errors.New("delivered connection lost")
+	err := nativeTestBatch(ctx, host, "crashy", func(_ context.Context, b Backend) error { calls++; _ = b.Close(); return dropped })
+	if !errors.Is(err, dropped) || calls != 1 {
+		t.Fatal("failed effect replayed", calls, err)
+	}
+	if _, err := host.Capture("root", "root", "crashy"); !errors.Is(err, ErrNativeStale) {
+		t.Fatal("capture silently reopened", err)
+	}
+	fresh, err := host.Reconnect("root", "crashy", old.Generation)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = sess.Do(ctx, func(b Backend) (string, error) {
-		return "", b.Navigate(ctx, url)
-	})
-	if err != nil {
-		t.Fatalf("initial: %v", err)
+	if fresh.Generation == old.Generation || fresh.Resource == old.Resource || fresh.State != "prepared" {
+		t.Fatal(fresh)
 	}
-	// Kill the browser behind the session's back.
-	sess.drop() // closes the backend without clearing expectations; next Do reopens
-	out, err := sess.Do(ctx, func(b Backend) (string, error) {
-		if err := b.Navigate(ctx, url); err != nil {
-			return "", err
+	if err := nativeTestBatch(ctx, host, "crashy", func(ctx context.Context, b Backend) error {
+		if err := b.Navigate(ctx, page); err != nil {
+			return err
 		}
-		return b.Eval(ctx, "document.title")
-	})
-	if err != nil {
-		t.Fatalf("after crash: %v", err)
+		title, err := b.Eval(ctx, "document.title")
+		if err == nil && !strings.Contains(title, "whipcode e2e") {
+			return fmt.Errorf("post-reconnect title %s", title)
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(out, "whipcode e2e") {
-		t.Fatalf("post-crash eval: %s", out)
+	if calls != 1 {
+		t.Fatal("failed callback was replayed", calls)
 	}
 }
 
-// TestManySequentialCalls — 50 sequential ops on one session (the agent's
-// real shape: a long multi-step task). Catches state drift and slow leaks.
 func TestManySequentialCalls(t *testing.T) {
-	_ = chromiumPath(t)
-	t.Setenv("HOME", t.TempDir())
-	url := testPage(t)
-
-	m := NewManager(ModeHeadless)
-	defer m.CloseAll()
-	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
+	host := realNativeHost(t, DriverChromedp)
+	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
-
-	sess, err := m.Session("longhaul")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = sess.Do(ctx, func(b Backend) (string, error) {
-		return "", b.Navigate(ctx, url)
-	})
-	if err != nil {
+	page := testPage(t)
+	if err := nativeTestBatch(ctx, host, "longhaul", func(ctx context.Context, b Backend) error { return b.Navigate(ctx, page) }); err != nil {
 		t.Fatal(err)
 	}
 	for i := range 50 {
-		_, err := sess.Do(ctx, func(b Backend) (string, error) {
-			r, err := b.Eval(ctx, fmt.Sprintf("%d+1", i))
-			if err == nil && r != strconv.Itoa(i+1) {
-				return "", fmt.Errorf("iter %d: got %s", i, r)
+		if err := nativeTestBatch(ctx, host, "longhaul", func(ctx context.Context, b Backend) error {
+			value, err := b.Eval(ctx, fmt.Sprintf("%d+1", i))
+			if err == nil && value != strconv.Itoa(i+1) {
+				return fmt.Errorf("iteration %d: %s", i, value)
 			}
-			return "", err
-		})
-		if err != nil {
-			t.Fatalf("iter %d: %v", i, err)
+			return err
+		}); err != nil {
+			t.Fatal(i, err)
 		}
 	}
 }

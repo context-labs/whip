@@ -2,47 +2,22 @@ package browser
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
-	"net/http"
-	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/context-labs/whip/internal/browserconfig"
 )
 
 // TestDriverParity runs the core Backend ops against BOTH drivers on one
-// page and records works/latency per op — the spike's decision data.
-// Runs whichever drivers are available; rod is always present, chromedp
-// joins when its import built (always, post-spike).
+// private page. Any failed operation fails the test; logged durations are
+// diagnostic only. Both drivers use the explicit native transport and owner.
 func TestDriverParity(t *testing.T) {
-	home, _ := os.UserHomeDir()
-	bin := home + "/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell"
-	if _, err := os.Stat(bin); err != nil {
-		bin = home + "/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome"
-	}
-	if _, err := os.Stat(bin); err != nil {
-		t.Skip("no chromium")
-	}
-	t.Setenv("ROD_BROWSER_BIN", bin)
-	if _, err := os.Stat("/tmp/chromelibs/usr/lib/x86_64-linux-gnu"); err == nil {
-		t.Setenv("LD_LIBRARY_PATH", "/tmp/chromelibs/usr/lib/x86_64-linux-gnu:"+os.Getenv("LD_LIBRARY_PATH"))
-	}
-
-	ln, _ := net.Listen("tcp", "0.0.0.0:0")
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, `<!doctype html><title>parity-page</title><h1 id="h">hello</h1><div id="q" contenteditable="true"></div><div id="b" onclick="document.title='clicked'" style="padding:8px">go</div>`)
-	})
-	go http.Serve(ln, mux)
-	defer ln.Close()
-	ip := "127.0.0.1"
-	if conn, err := net.Dial("udp", "8.8.8.8:80"); err == nil {
-		ip = conn.LocalAddr().(*net.UDPAddr).IP.String()
-		conn.Close()
-	}
-	url := fmt.Sprintf("http://%s:%d", ip, ln.Addr().(*net.TCPAddr).Port)
+	bin := chromiumPath(t)
+	url := testPage(t)
 
 	drivers := []string{"rod", "chromedp"}
 	type result struct {
@@ -54,24 +29,28 @@ func TestDriverParity(t *testing.T) {
 
 	for _, drv := range drivers {
 		table[drv] = map[string]result{}
-		t.Setenv("HOME", t.TempDir())
-		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+		t.Cleanup(cancel)
 
-		b, err := openNamedWithOptions(ctx, ModeHeadless, "default", drv, nil, nil, "")
+		b, err := OpenNative(ctx, t.Context(), nativeOptions(t, browserconfig.Config{Mode: "headless", Executable: bin}, drv))
 		if err != nil {
 			t.Fatalf("%s open: %v", drv, err)
 		}
 
+		t.Cleanup(func() { _ = b.Close() })
 		op := func(name string, fn func() error) {
 			start := time.Now()
 			err := fn()
+			if err != nil {
+				t.Errorf("%s %s: %v", drv, name, err)
+			}
 			table[drv][name] = result{ok: err == nil, ms: time.Since(start).Milliseconds(), err: errStr(err)}
 		}
 
 		op("Navigate", func() error { return b.Navigate(ctx, url) })
 		op("Eval", func() error {
 			r, err := b.Eval(ctx, "document.title")
-			if err == nil && r != `"parity-page"` {
+			if err == nil && r != `"whipcode e2e"` {
 				return fmt.Errorf("title %q", r)
 			}
 			return err
@@ -116,12 +95,45 @@ func TestDriverParity(t *testing.T) {
 			return err
 		})
 		op("Fill-focus", func() error {
-			if err := b.Fill(ctx, "#q", "x"); err != nil {
+			if err := b.Fill(ctx, "#q", "x hé🌿"); err != nil {
 				return err
 			}
 			v, err := b.Eval(ctx, "document.activeElement.id")
 			if err == nil && v != `"q"` {
 				return fmt.Errorf("focus %q", v)
+			}
+			if err != nil {
+				return err
+			}
+			value, err := b.Eval(ctx, `document.getElementById("q").textContent`)
+			if err != nil {
+				return err
+			}
+			var actual string
+			if err = json.Unmarshal([]byte(value), &actual); err != nil {
+				return err
+			}
+			if actual != "x hé🌿" {
+				return fmt.Errorf("fill text %s", value)
+			}
+			if err = b.Fill(ctx, "#q", ""); err != nil {
+				return err
+			}
+			if err = b.PressKey(ctx, "x"); err != nil {
+				return err
+			}
+			if err = b.PressKey(ctx, "🌿"); err != nil {
+				return err
+			}
+			value, err = b.Eval(ctx, `document.getElementById("q").textContent`)
+			if err != nil {
+				return err
+			}
+			if err = json.Unmarshal([]byte(value), &actual); err != nil {
+				return err
+			}
+			if actual != "x🌿" {
+				return fmt.Errorf("key text %s", value)
 			}
 			return err
 		})
@@ -140,7 +152,7 @@ func TestDriverParity(t *testing.T) {
 			}
 			return err
 		})
-		b.Close()
+		_ = b.Close()
 		cancel()
 	}
 	// Emit the decision table.

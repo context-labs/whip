@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -20,6 +21,9 @@ var (
 	ErrNativeStale = errors.New("external browser generation ended; explicit reconnect required")
 	ErrNativeBusy  = errors.New("external browser capacity is full")
 )
+
+// Session names form private profile identifiers, never arbitrary paths.
+var sessionNameRe = regexp.MustCompile(`\A[A-Za-z0-9_-]{1,64}\z`)
 
 // NativeHost owns external browser lifetimes. It borrows the host's one process
 // manager. Capture only reserves bounded metadata; Run is the sole launch path

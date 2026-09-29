@@ -3,6 +3,7 @@ package browser
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 )
 
 // TestBackendThroughRelay drives whip's real *Browser (the Backend methods
-// browser_exec calls — Navigate, ClickAt, TypeText, Screenshot, AXTree, Eval)
+// native batches call — Navigate, ClickAt, TypeText, Screenshot, AXTree, Eval)
 // through the extension relay, with a fake extension answering CDP the way
 // chrome.debugger does. Proves the rod Backend is reused unchanged end-to-end.
 func TestBackendThroughRelay(t *testing.T) {
@@ -26,14 +27,20 @@ func TestBackendThroughRelay(t *testing.T) {
 	defer ext.close()
 	ext.send(t, `{"method":"whip.attached","params":{"tabId":7,"title":"Example","url":"https://example.com/"}}`)
 	time.Sleep(100 * time.Millisecond)
-	go ext.answerLoop(t)
+	var group sync.WaitGroup
+	group.Go(func() { ext.answerLoop(t) })
+	defer func() { ext.close(); group.Wait() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	// Same construction openExtension uses, against the test relay.
-	b := &Browser{mode: ModeExtension, obtained: ObtainedLive}
-	b.browser = rod.New().ControlURL(rel.CDPURL())
+	// Same explicit transport construction OpenNative uses, against the test relay.
+	wire, err := dialNativeWire(ctx, ctx, rel.CDPURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := &Browser{mode: ModeExtension, closeTransport: wire.Close}
+	b.browser = rod.New().Context(ctx).Client(wire)
 	if err := b.browser.Connect(); err != nil {
 		t.Fatalf("connect: %v", err)
 	}

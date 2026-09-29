@@ -1,83 +1,48 @@
-// e2e_test.go exercises the real browser path against Playwright's
-// Chromium (present on this machine; tests skip cleanly without it).
-// Three modes: headless, dedicated, and live-attach via an explicit CDP
-// endpoint (the user's everyday-Chrome flow, minus the profile scan,
-// which browser_test.go covers against fake profile dirs).
-
 package browser
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/go-rod/rod/lib/launcher"
+	"github.com/context-labs/whip/internal/browserconfig"
 )
 
-var chromiumCandidates = []string{
-	"~/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome",
-	"~/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell",
-	// macOS dev boxes: rod launches these headed/headless itself.
-	"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-	"/Applications/Chromium.app/Contents/MacOS/Chromium",
-	"/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-}
-
-// chromeForTestingPath returns Playwright's full Chrome-for-Testing build —
-// the only locally-available build that honors --load-extension (branded
-// Google Chrome ignores it). Used by the extension E2E; "" when absent.
-func chromeForTestingPath() string {
-	home, _ := os.UserHomeDir()
-	p := filepath.Join(home, "Library/Caches/ms-playwright/chromium-1234/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing")
-	if _, err := os.Stat(p); err == nil {
-		return p
-	}
-	return ""
-}
-
+// Every real browser test needs an explicitly supplied private testing binary.
+// No installed browser, user profile, conventional port or executable PATH is scanned.
 func chromiumPath(t *testing.T) string {
 	t.Helper()
-	// Unpacked Ubuntu debs for Chrome's shared libs (no sudo on this box).
-	libs := "/tmp/chromelibs/usr/lib/x86_64-linux-gnu"
-	if _, err := os.Stat(libs); err == nil {
-		t.Setenv("LD_LIBRARY_PATH", libs+":"+os.Getenv("LD_LIBRARY_PATH"))
+	path := os.Getenv("WHIP_BROWSER_NATIVE_TEST_BINARY")
+	if path == "" {
+		t.Skip("set WHIP_BROWSER_NATIVE_TEST_BINARY to private test Chromium")
 	}
-	home, _ := os.UserHomeDir()
-	for _, c := range chromiumCandidates {
-		p := strings.Replace(c, "~", home, 1)
-		if _, err := os.Stat(p); err == nil {
-			t.Setenv("ROD_BROWSER_BIN", p)
-			return p
-		}
+	if !filepath.IsAbs(path) {
+		t.Fatal("test Chromium path must be absolute")
 	}
-	for _, name := range []string{"google-chrome", "chromium", "chromium-browser"} {
-		if p, err := exec.LookPath(name); err == nil {
-			t.Setenv("ROD_BROWSER_BIN", p)
-			return p
-		}
+	if info, err := os.Stat(path); err != nil || info.IsDir() {
+		t.Fatal("test Chromium unavailable", err)
 	}
-	t.Skip("no chromium-family binary found")
-	return ""
+	return path
 }
 
-// testPage serves a page with a cookie check + a known element to click.
+func chromeForTestingPath() string {
+	if os.Getenv("WHIP_BROWSER_NATIVE_TEST_EXTENSION") != "1" {
+		return ""
+	}
+	return os.Getenv("WHIP_BROWSER_NATIVE_TEST_BINARY")
+}
+
 func testPage(t *testing.T) string {
 	t.Helper()
-	ln, err := net.Listen("tcp", "0.0.0.0:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if after, ok := strings.CutPrefix(r.URL.Path, "/marker/"); ok {
-			marker := after
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if marker, ok := strings.CutPrefix(r.URL.Path, "/marker/"); ok {
 			fmt.Fprintf(w, `<!doctype html><title>marker-%s</title><h1>%s</h1>`, marker, marker)
 			return
 		}
@@ -86,40 +51,35 @@ func testPage(t *testing.T) string {
 			http.SetCookie(w, &http.Cookie{Name: "whip-e2e", Value: "real-session-42", Path: "/"})
 			http.Redirect(w, r, "/", http.StatusFound)
 		case "/":
-			c, err := r.Cookie("whip-e2e")
-			cookie := "none"
-			if err == nil {
-				cookie = c.Value
+			value := "none"
+			if cookie, err := r.Cookie("whip-e2e"); err == nil {
+				value = cookie.Value
 			}
 			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprintf(w, `<!doctype html><html><head><title>whipcode e2e</title></head><body>
-<h1 id="h">hello</h1><div id="q" contenteditable="true"></div><div id="b" onclick="document.title='clicked'" style="padding:8px">go</div>
-<div id="cookie">%s</div></body></html>`, cookie)
+			fmt.Fprintf(w, `<!doctype html><title>whipcode e2e</title><h1 id="h">hello</h1><div id="q" contenteditable="true"></div><div id="b" onclick="document.title='clicked'" style="padding:8px">go</div><div id="cookie">%s</div>`, value)
 		default:
 			http.NotFound(w, r)
 		}
-	})}
-	go srv.Serve(ln)
-	t.Cleanup(func() { srv.Close() })
-	// Chrome in this sandboxed env can't reach the test server's 127.0.0.1;
-	// give the URL on the box's LAN IP instead (bound on 0.0.0.0 above).
-	ip := "127.0.0.1"
-	if conn, err := net.Dial("udp", "8.8.8.8:80"); err == nil {
-		ip = conn.LocalAddr().(*net.UDPAddr).IP.String()
-		conn.Close()
-	}
-	return fmt.Sprintf("http://%s:%d", ip, ln.Addr().(*net.TCPAddr).Port)
+	}))
+	t.Cleanup(server.Close)
+	return server.URL
 }
 
+func jsonUnmarshal(s string, v any) error { return json.Unmarshal([]byte(s), v) }
+
 func TestE2EHeadless(t *testing.T) {
-	_ = chromiumPath(t)           // rod's launcher finds the playwright cache itself
-	t.Setenv("HOME", t.TempDir()) // isolated profile: a reused profile dir
-	// from a crashed run poisons the launch (renderer wedges on first nav)
+	for _, driver := range []string{DriverRod, DriverChromedp} {
+		t.Run(driver, func(t *testing.T) { testNativeHelpers(t, driver) })
+	}
+}
+
+func testNativeHelpers(t *testing.T, driver string) {
+	t.Helper()
 	url := testPage(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	b, err := Open(ctx, ModeHeadless)
+	b, err := OpenNative(ctx, t.Context(), nativeOptions(t, browserconfig.Config{Mode: "headless", Executable: chromiumPath(t)}, driver))
 	if err != nil {
 		t.Fatalf("open headless: %v", err)
 	}
@@ -179,276 +139,107 @@ func TestE2EHeadless(t *testing.T) {
 	}
 }
 
+// This visible-window check remains explicitly opt-in, separate from required
+// headless CI. It uses only a private profile and the selected testing binary.
 func TestE2EDedicated(t *testing.T) {
-	_ = chromiumPath(t)
-	url := testPage(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	if os.Getenv("WHIP_BROWSER_NATIVE_TEST_HEADED") != "1" {
+		t.Skip("explicit private headed Chrome fixture required")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-
-	// Dedicated uses the whip-owned profile dir.
-	home := t.TempDir() // don't touch the real ~/.whipcode during tests
-	t.Setenv("HOME", home)
-
-	b, err := Open(ctx, ModeDedicated)
+	options := nativeOptions(t, browserconfig.Config{Mode: "dedicated", Executable: chromiumPath(t)}, DriverRod)
+	connection, err := OpenNative(ctx, t.Context(), options)
 	if err != nil {
-		t.Fatalf("open dedicated: %v", err)
-	}
-	cleanupTestBrowser(t, b)
-	if err := b.Navigate(ctx, url); err != nil {
 		t.Fatal(err)
 	}
-	// Fill dispatches real key events; in this sandboxed headless build the
-	// text doesn't land on form controls (renderer quirk — see the doc's
-	// gotchas), so verify the call succeeds and focuses, not the payload.
-	if err := b.Fill(ctx, "#q", "paper towels"); err != nil {
+	defer connection.Close()
+	if err := connection.Navigate(ctx, testPage(t)); err != nil {
 		t.Fatal(err)
 	}
-	v, err := b.Eval(ctx, `document.activeElement.id`)
-	if err != nil || v != `"q"` {
-		t.Fatalf("fill focus: %s %v", v, err)
+	if err := connection.Fill(ctx, "#q", "paper towels"); err != nil {
+		t.Fatal(err)
 	}
-	// The whip-owned profile dir must exist (separate from the user's).
-	if _, err := os.Stat(filepath.Join(home, ".whipcode", "browser", "dedicated-profile")); err != nil {
-		t.Fatalf("dedicated profile dir missing: %v", err)
+	if value, err := connection.Eval(ctx, "document.activeElement.id"); err != nil || value != `"q"` {
+		t.Fatal(value, err)
+	}
+	if _, err := os.Stat(filepath.Join(options.Directory, "browser", "profiles", options.Profile)); err != nil {
+		t.Fatal(err)
 	}
 }
 
-// TestE2ELiveAttach covers the user's-running-Chrome flow: a separately
-// launched Chrome with a debug port (what the profile scan resolves to),
-// attached via WHIP_CDP_URL. Real cookies, and Close must NOT kill it.
+// The separately owned private Chrome stands in for a human browser. Both live
+// drivers must detach without closing that process, changing modes or replaying.
 func TestE2ELiveAttach(t *testing.T) {
-	bin := chromiumPath(t)
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("WHIP_CDP_WS", "") // the fixture URL must win over any ambient endpoint
-	url := testPage(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
-
-	// Launch a "user's Chrome" with remote debugging on a fixed port.
-	portLn, err := net.Listen("tcp", "127.0.0.1:0")
+	options := nativeOptions(t, browserconfig.Config{Mode: "headless", Executable: chromiumPath(t)}, DriverRod)
+	human, err := OpenNative(ctx, t.Context(), options)
 	if err != nil {
 		t.Fatal(err)
 	}
-	port := portLn.Addr().(*net.TCPAddr).Port
-	portLn.Close()
-	profile := t.TempDir()
-	l := launcher.New().Bin(bin).UserDataDir(profile).
-		RemoteDebuggingPort(port).HeadlessNew(true).Leakless(true)
-	if _, err := l.Launch(); err != nil {
+	defer human.Close()
+	page := testPage(t)
+	if err := human.Navigate(ctx, page+"/set-cookie"); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { stopTestChrome(t, l) })
-
-	// Seed a cookie INSIDE that browser (simulating the user's session):
-	// attach, navigate to /set-cookie, detach — then the test browser must
-	// see the cookie.
-	t.Setenv("WHIP_CDP_URL", fmt.Sprintf("http://127.0.0.1:%d", port))
-	deadline := time.Now().Add(30 * time.Second)
-	var b Backend
-	for time.Now().Before(deadline) {
-		b, err = Open(ctx, ModeLive)
-		if err == nil {
-			break
+	profile := filepath.Join(options.Directory, "browser", "profiles", options.Profile)
+	for _, driver := range []string{DriverRod, DriverChromedp} {
+		liveOptions := nativeOptions(t, browserconfig.Config{Mode: "live", LiveProfile: profile}, driver)
+		live, err := OpenNative(ctx, t.Context(), liveOptions)
+		if err != nil {
+			t.Fatal(err)
 		}
-		time.Sleep(500 * time.Millisecond)
+		if live.Mode() != ModeLive {
+			t.Fatal("live mode changed")
+		}
+		if cookie, err := live.Eval(ctx, `document.getElementById("cookie").textContent`); err != nil || cookie != `"real-session-42"` {
+			t.Fatal(cookie, err)
+		}
+		tabs, err := live.Tabs(ctx)
+		if err != nil || len(tabs) == 0 {
+			t.Fatal(tabs, err)
+		}
+		if err := live.UseTab(ctx, tabs[0].TargetID); err != nil {
+			t.Fatal(err)
+		}
+		if err := live.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := human.Info(ctx); err != nil {
+			t.Fatal("live detach killed independent Chrome", err)
+		}
 	}
-	if err != nil {
-		t.Fatalf("attach to live chrome: %v", err)
+	// Native launch refuses a live profile holder; no takeover or quarantine.
+	if duplicate, err := OpenNative(ctx, t.Context(), options); err == nil {
+		_ = duplicate.Close()
+		t.Fatal("live profile holder was replaced")
 	}
-	t.Cleanup(func() { _ = b.Close() })
-	if b.Obtained() != ObtainedLive {
-		t.Fatalf("expected the fixture's live browser, got %v", b.Obtained())
+	if _, err := human.Info(ctx); err != nil {
+		t.Fatal("refused launch changed holder", err)
 	}
-	if err := b.Navigate(ctx, url+"/set-cookie"); err != nil {
-		t.Fatal(err)
-	}
-	cookie, err := b.Eval(ctx, `document.getElementById("cookie").textContent`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cookie != `"real-session-42"` {
-		t.Fatalf("live cookie: %s", cookie)
-	}
-	// Tabs + tab switch flow.
-	tabs, err := b.Tabs(ctx)
-	if err != nil || len(tabs) == 0 {
-		t.Fatalf("tabs: %v %v", tabs, err)
-	}
-	// Close detaches only — the "user's Chrome" must survive.
-	b.Close()
-	ws, err := DiscoverLiveWS(ctx)
-	if err != nil {
-		t.Fatalf("browser died with our Close: %v", err)
-	}
-	if !strings.Contains(ws, "devtools/browser") {
-		t.Fatalf("ws url: %q", ws)
+	if _, err := os.Stat(profile); err != nil {
+		t.Fatal("profile moved", err)
 	}
 }
 
-func jsonUnmarshal(s string, v any) error {
-	return json.Unmarshal([]byte(s), v)
-}
-
-// Regression: eval right after attach must not hang (a Page.enable settle
-// race was reported against an earlier build). No settle sleeps — a race
-// here shows up as a hang. 5 iterations to catch flakiness.
 func TestEvalImmediatelyAfterAttach(t *testing.T) {
-	_ = chromiumPath(t)
-	t.Setenv("HOME", t.TempDir())
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
+	options := nativeOptions(t, browserconfig.Config{Mode: "headless", Executable: chromiumPath(t)}, DriverRod)
 	for i := range 5 {
-		b, err := Open(ctx, ModeHeadless)
+		browser, err := OpenNative(ctx, t.Context(), options)
 		if err != nil {
-			t.Fatalf("iter %d open: %v", i, err)
+			t.Fatal(i, err)
 		}
-		// zero settle: eval the instant we're attached
-		res, err := b.Eval(ctx, "1+1")
-		if err != nil {
-			t.Fatalf("iter %d eval: %v", i, err)
+		value, err := browser.Eval(ctx, "1+1")
+		if err != nil || value != "2" {
+			t.Fatal(i, value, err)
 		}
-		if res != "2" {
-			t.Fatalf("iter %d: got %s", i, res)
+		if err := browser.Close(); err != nil {
+			t.Fatal(err)
 		}
-		b.Close()
-	}
-}
-
-// TestE2ELiveFallsBackToLaunched exercises the hermes-style fallback: live
-// discovery finds nothing debuggable (HOME is a bare temp dir, no explicit
-// endpoint) and Open(ModeLive) transparently lands on a launched dedicated
-// Chrome instead of erroring.
-func TestE2ELiveFallsBackToLaunched(t *testing.T) {
-	if os.Getenv("WHIP_CDP_WS") != "" || os.Getenv("WHIP_CDP_URL") != "" {
-		t.Skip("explicit CDP endpoint set — fallback bypassed")
-	}
-	// Hermeticity: DiscoverLiveWS's last-resort probe of 9222/9223 could hit
-	// a real debug browser on this machine even with an empty HOME, which
-	// would attach live instead of falling back. Skip when one answers.
-	for _, p := range []int{9222, 9223} {
-		if portLive(p) {
-			t.Skipf("ambient browser on %d — fallback would not trigger", p)
+		if _, err := browser.Eval(ctx, "1+1"); err == nil {
+			t.Fatal("closed connection reopened")
 		}
 	}
-	_ = chromiumPath(t)
-	t.Setenv("HOME", t.TempDir()) // no profiles at all → live discovery fails
-	url := testPage(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	b, err := Open(ctx, ModeLive)
-	if err != nil {
-		t.Fatalf("live fallback must not error: %v", err)
-	}
-	cleanupTestBrowser(t, b)
-	if b.Obtained() != ObtainedLaunched {
-		t.Fatalf("fallback should have launched, got obtained=%v", b.Obtained())
-	}
-	if err := b.Navigate(ctx, url); err != nil {
-		t.Fatal(err)
-	}
-	info, err := b.Info(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(info.URL, url) {
-		t.Fatalf("url: %q", info.URL)
-	}
-}
-
-// TestE2EDedicatedReattach verifies a still-running whipcode Chrome is reused:
-// close the backend's CDP connection (simulating a dead/stale backend)
-// while keeping the browser process alive, then Open again — it must
-// reattach to the SAME browser rather than spawn a duplicate, and the
-// profile's cookies survive.
-func TestE2EDedicatedReattach(t *testing.T) {
-	_ = chromiumPath(t)
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	url := testPage(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-
-	b1, err := Open(ctx, ModeDedicated)
-	if err != nil {
-		t.Fatalf("launch dedicated: %v", err)
-	}
-	// Keep the first launcher's ownership through all detach/reattach cycles.
-	cleanupTestBrowser(t, b1)
-	prof := dedicatedProfileDir(home, "default")
-	if b1.Obtained() != ObtainedLaunched {
-		t.Fatalf("first open should launch, got %v", b1.Obtained())
-	}
-	if err := b1.Navigate(ctx, url+"/set-cookie"); err != nil {
-		t.Fatal(err)
-	}
-
-	// Detach: with the new Close semantics, b1.Close() severs our CDP
-	// connection without killing Chrome (b1 owns the launcher, but a
-	// detached live/reattached backend leaves the process alive — that's
-	// the point of reattach).
-	b1.Close()
-	if _, ok := DiscoverWSForProfile(ctx, prof); !ok {
-		t.Fatal("Close must leave the dedicated Chrome alive for reattach")
-	}
-
-	// Second open must reattach: same profile, cookie intact, no new launch.
-	b2, err := Open(ctx, ModeDedicated)
-	if err != nil {
-		t.Fatalf("reattach: %v", err)
-	}
-	t.Cleanup(func() { _ = b2.Close() })
-	if b2.Obtained() != ObtainedReattached {
-		t.Fatalf("second open should reattach, got %v", b2.Obtained())
-	}
-	if b2.(*Browser).launcher != nil {
-		t.Fatal("reattach must not own a launcher (that would be a new process)")
-	}
-	if err := b2.Navigate(ctx, url+"/"); err != nil {
-		t.Fatal(err)
-	}
-	cookie, err := b2.Eval(ctx, `document.getElementById("cookie").textContent`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cookie != `"real-session-42"` {
-		t.Fatalf("reattached browser lost profile cookies: %s", cookie)
-	}
-
-	// Closing the reattached backend detaches (Chrome survives); a third
-	// open reattaches again rather than stacking a second process.
-	b2.Close()
-	if _, ok := DiscoverWSForProfile(ctx, prof); !ok {
-		t.Fatal("reattached Close must leave Chrome alive")
-	}
-	b3, err := Open(ctx, ModeDedicated)
-	if err != nil {
-		t.Fatalf("third open: %v", err)
-	}
-	t.Cleanup(func() { _ = b3.Close() })
-	if b3.Obtained() != ObtainedReattached {
-		t.Fatalf("third open should reattach the surviving Chrome, got %v", b3.Obtained())
-	}
-	b3.Close()
-	// Chrome is killed by the t.Cleanup registered after the first Open.
-}
-
-// Dedicated Close intentionally leaves Chrome alive for reattach. The test
-// still owns its launch and must join shutdown before TempDir removes profiles.
-func cleanupTestBrowser(t *testing.T, b Backend) {
-	t.Helper()
-	t.Cleanup(func() {
-		_ = b.Close()
-		if owned, ok := b.(*Browser); ok && owned.launcher != nil {
-			stopTestChrome(t, owned.launcher)
-		}
-	})
-}
-
-func stopTestChrome(t *testing.T, l *launcher.Launcher) {
-	t.Helper()
-	if err := stopLauncher(l); err != nil {
-		t.Error(err)
-	}
-	l.Cleanup() // joins the launcher's Wait before removing the owned profile
 }
