@@ -4573,7 +4573,7 @@ same 2MiB bound and three real uploads totaling9,437,346 bytes. Profiled draft
 serialization fell203→17.8ms and setDraft185→47.4ms over12 upload keys. Native
 keyboard EventTiming p95 fell144±4→112±4ms during uploads and104±4→88±4ms during
 40 streams. Peak sampled RSS increased1,689,424→1,715,440KiB; post-work RSS fell
-1,436,720→1,391,280KiB. The50ms target and memory acceptance remain open. Evidence:
+1,436,720→1,391,280KiB. The 50 ms target and memory acceptance remain open. Evidence:
 /tmp/whip-desktop-transfer-linear-drafts/run-dVPZIA/performance.json. This is a
 measured improvement, not completion of Phases5–7 or performance acceptance.
 
@@ -5052,7 +5052,7 @@ snapshot; actual draft presence, eviction and errors still publish changes. The
 unchanged seven-group staged desktop workload passes. Compared with the prior
 untraced encoder build, input-handler-to-rAF p95 improves30.5→11ms and native
 keydown-to-paint p95 remains72ms (68–76ms bound;40 samples), with maximum104→88ms.
-Peak app RSS changes1,638,848→1,589,680KiB in this single pair. The50ms input and
+Peak app RSS changes1,638,848→1,589,680KiB in this single pair. The 50 ms input and
 memory acceptance remain open. Fix renderer
 `9263204a384a0329076691cb30f572e14353fa43baeb9ba6c98368f649b50c41` and artifact
 `/tmp/whip-performance-draft-notification/run-9TMoFW/performance.json` retain the
@@ -5193,3 +5193,14 @@ actual archived-search behavior. Combined pinned lint for terminal, CLI, MCP and
 runtime reports zero issues. `task --list` parses the expanded required gates.
 The input-recall API and further shell/keyboard work are separate subsequent
 checkpoints; this branch makes no claim to include them.
+
+Performance evidence correction (same day): the subsequent owned-window control
+at `/tmp/whip-native-input-control-36zQu7/results.json` confirmed native Electron
+content was 1200×800 while the browser page emulated 1360×960. The short composer's
+y=834–891 was outside that content, and the near-limit composer was partially
+clipped. Focus, hit tests and accepted text did not establish actual visible paint.
+Therefore the earlier 72 ms readings, including the quiet run above, are diagnostic
+only and do not establish fully visible native input acceptance. The 50 ms target
+remains unverified. A following bounded fixture change must set the actual native
+content size, assert viewport/composer containment and rerun the unchanged workload.
+No product timing workaround or performance completion is claimed.
