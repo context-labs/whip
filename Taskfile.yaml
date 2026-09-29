@@ -270,6 +270,7 @@ tasks:
       - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(Daemon|Desktop|ForcedDaemon)'
       - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(Run|Native|Web|Headless|Sessions|TruncAndAgo|PushOTLP|MainDispatchesHeadlessCommands|ClientEntryPaths|DistributionMalformed)'
       - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(MCP|Acp|ACP)'
+      - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(Update|DistributionUpdate)'
       - go test -tags=integration -count=1 -timeout=2m ./cmd/whip -run '^TestNativeCompiledCLI'
       - go test -race -shuffle=on -count=1 -timeout=3m ./internal/tui
       - go vet ./cmd/whip

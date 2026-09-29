@@ -4170,3 +4170,31 @@ The canonical frontend guide now describes current native state/recovery owners
 and actual app retention limits, removing repeated appendices and stale legacy
 APIs. Relative links and unique headings were checked against source; feature
 obligations remain in the plan/audit and are not retired by this consolidation.
+
+### Client checkpoint rebased onto repaired backend — 2026-09-29
+
+Client commits were replayed onto backend`239f76152` with a backup at
+`codex/backend-redesign-renderer-before-cli-repair`. The entire source-tree diff
+against that backup contains only the intended native CLI family split, ACP
+provider-context fixture binding and desktop readiness fixture, plus progress-log
+ordering. Duplicate backend patches were omitted; no client implementation was
+reconstructed or discarded.
+
+The first combined CLI run then failed in the retained main update-dispatch test:
+its long macOS testing directory exceeded the native Unix socket bound. That
+fixture now uses an explicitly owned short temporary home (the real installer is
+still replaced by its existing inert shell), matching other native CLI fixtures.
+The production path bound is unchanged. Separately, updater-only scenarios are
+now required instead of relying on test-name prefixes to happen to select them.
+Final full native CLI gate passes: auth12.623s, lifecycle6.399s,
+run/catalog36.953s, ACP/MCP20.229s, updater2.822s, actual compiled CLI20.522s,
+full retained/native TUI race21.184s, and vet. Earlier failed run is retained at
+`/tmp/whip-renderer-cli-integration-final.log`; repaired evidence is
+`/tmp/whip-renderer-cli-integration-repaired.log`.
+
+Hosted backend run36543645270 at exact`239f76152261484e4bc2c61dc1e8e7141fcb5f94`
+is in progress. The new client checkpoint still requires all hosted native and
+product jobs. Specialized Settings/provider/conversation and desktop performance
+harnesses continue independently. Distribution acceptance still exposes the
+retained long-home socket-fallback contract and managed-gateway failure semantics
+for explicit reconciliation; they are not waived by short-path fixture success.
