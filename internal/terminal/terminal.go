@@ -130,7 +130,7 @@ func NewManager(ctx context.Context) *Manager { return newManager(ctx, MaxTermin
 
 func newManager(ctx context.Context, limit, ringBytes int) *Manager {
 	ctx, cancel := context.WithCancel(ctx)
-	return &Manager{ctx: ctx, cancel: cancel, terminals: make(map[string]*Terminal), limit: limit, ringBytes: ringBytes, processes: capability.NewProcessManager()}
+	return &Manager{ctx: ctx, cancel: cancel, terminals: make(map[string]*Terminal), limit: limit, ringBytes: ringBytes, processes: capability.NewHumanTerminalProcessManager()}
 }
 
 // Terminal is one shell on one PTY.
@@ -154,6 +154,7 @@ type Terminal struct {
 	done     chan struct{} // closed by the waiter after exit status and reader are settled
 
 	mu        sync.Mutex
+	changed   chan struct{} // replaced under mu after output or lifecycle changes
 	attachMu  sync.Mutex
 	retired   bool
 	cols      uint16
@@ -213,7 +214,7 @@ func (m *Manager) Open(options Options) (*Terminal, error) {
 	ctx, cancel := context.WithCancel(context.WithoutCancel(m.ctx))
 	t := &Terminal{
 		ID: "term-" + strings.ToLower(rand.Text()), createdAt: time.Now().UTC(), manager: m, cancel: cancel, ring: newRing(m.ringBytes), options: options,
-		cols: options.Cols, rows: options.Rows, readDone: make(chan struct{}), done: make(chan struct{}), writeSlot: make(chan struct{}, 1), contextDone: make(chan struct{}),
+		cols: options.Cols, rows: options.Rows, changed: make(chan struct{}), readDone: make(chan struct{}), done: make(chan struct{}), writeSlot: make(chan struct{}, 1), contextDone: make(chan struct{}),
 	}
 	options.Args, options.Env = slices.Clone(options.Args), maps.Clone(options.Env)
 	ptmx, tty, err := openPTY(options.Cols, options.Rows)
@@ -259,6 +260,7 @@ func (m *Manager) evictExitedLocked() bool {
 		return false
 	}
 	oldest.retired = true
+	oldest.notifyLocked()
 	delete(m.terminals, oldest.ID)
 	oldest.cancel()
 	return true
@@ -389,6 +391,7 @@ func (m *Manager) Close(id string) error {
 	if ok {
 		t.mu.Lock()
 		t.retired = true
+		t.notifyLocked()
 		t.mu.Unlock()
 	}
 	m.mu.Unlock()
@@ -415,6 +418,7 @@ func (m *Manager) Shutdown() {
 		for _, t := range m.terminals {
 			t.mu.Lock()
 			t.retired = true
+			t.notifyLocked()
 			t.mu.Unlock()
 			terminals = append(terminals, t)
 		}
@@ -441,6 +445,7 @@ func (t *Terminal) hangup() {
 	t.hangupOnce.Do(func() {
 		t.mu.Lock()
 		t.closing = true
+		t.notifyLocked()
 		t.foreground = foregroundGroup(t.ptmx, t.process.PID())
 		attached := t.attached
 		foreground := t.foreground
@@ -570,6 +575,7 @@ func (t *Terminal) read() {
 			t.mu.Lock()
 			cursor := t.ring.end
 			t.ring.append(data)
+			t.notifyLocked()
 			attached := t.attached
 			t.mu.Unlock()
 			if attached != nil {
@@ -622,6 +628,7 @@ func (t *Terminal) wait() {
 	}
 	t.mu.Lock()
 	t.exit, t.exitedAt = &status, time.Now()
+	t.notifyLocked()
 	t.mu.Unlock()
 	close(t.done)
 }

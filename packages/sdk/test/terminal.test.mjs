@@ -16,3 +16,26 @@ test('terminal write uncertainty remains explicit and is never retried',async()=
  let calls=0;const client=await Client.connect(async request=>request.method==='initialize'?{jsonrpc:'2.0',id:request.id,result:initial}:(calls++,{jsonrpc:'2.0',id:request.id,error:{code:-32016,kind:'TERMINAL_WRITE_UNCERTAIN',message:'input may have been written'}}),{clientID:'human'});
  await assert.rejects(client.writeTerminal(terminal,new Uint8Array([65])),error=>error instanceof RemoteError&&error.kind==='TERMINAL_WRITE_UNCERTAIN');assert.equal(calls,1);
 });
+
+test('terminal output wait is optional, bounded and carries observer cancellation', async () => {
+  const calls = [];
+  const client = await Client.connect(async (request, _runtimeID, options) => {
+    calls.push({ request: structuredClone(request), options });
+    return { jsonrpc: '2.0', id: request.id, result: request.method === 'initialize' ? initial
+      : { terminal, from: terminal.start, next: terminal.end, end: terminal.end, truncated: false, data_base64: 'AAH/' } };
+  }, { clientID: 'human' });
+  await client.readTerminal(terminal, terminal.start, 3);
+  assert.equal(Object.hasOwn(calls.at(-1).request.params, 'wait_ms'), false);
+  const controller = new AbortController();
+  await client.readTerminal(terminal, terminal.start, 3, { waitMs: 5000, signal: controller.signal });
+  const observed = calls.at(-1);
+  assert.deepEqual(observed.request.params, { process_epoch: terminal.process_epoch, id: terminal.id, cursor: terminal.start, limit: 3, wait_ms: 5000 });
+  assert.equal(Object.hasOwn(observed.options, 'waitMs'), false);
+  controller.abort();
+  assert.equal(observed.options.signal.aborted, true);
+  const count = calls.length;
+  for (const waitMs of [-1, 5001, 1.5, NaN]) {
+    await assert.rejects(client.readTerminal(terminal, terminal.start, 3, { waitMs }), TypeError);
+  }
+  assert.equal(calls.length, count);
+});

@@ -86,3 +86,46 @@ func TestHumanTerminalsAreEphemeralHostResources(t *testing.T) {
 		t.Fatal("human terminal created a session")
 	}
 }
+
+func TestTerminalReadWaitWakesAcrossRPC(t *testing.T) {
+	manager := terminal.NewManager(t.Context())
+	defer manager.Shutdown()
+	term, err := manager.Open(terminal.Options{Shell: "/bin/sh", Args: []string{"-c", "stty -echo; printf ready; read line; printf '%s' \"$line\"; read line"}, Cwd: t.TempDir(), Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, c := fixtureHost(t, rpc.HostServices{Terminals: manager})
+	params := protocol.TerminalReadParams{ProcessEpoch: protocol.ID(r.ProcessEpoch()), ID: protocol.ID(term.ID), Limit: terminal.ChunkBytes, WaitMillis: 5000}
+	for params.Cursor < 5 {
+		page := call[protocol.TerminalPage](t, c, "terminal.read", params)
+		params.Cursor = page.Next
+		if page.Terminal.Exited {
+			t.Fatal("shell exited before ready")
+		}
+	}
+	type result struct {
+		page protocol.TerminalPage
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		var page protocol.TerminalPage
+		err := c.Call(t.Context(), "terminal.read", params, &page)
+		done <- result{page, err}
+	}()
+	select {
+	case got := <-done:
+		t.Fatalf("read returned before output: %+v", got)
+	case <-time.After(20 * time.Millisecond):
+	}
+	call[protocol.TerminalAccepted](t, c, "terminal.write", protocol.TerminalWriteParams{ProcessEpoch: params.ProcessEpoch, ID: params.ID, DataBase64: base64.StdEncoding.EncodeToString([]byte("wake\n"))})
+	select {
+	case got := <-done:
+		data, err := base64.StdEncoding.DecodeString(got.page.DataBase64)
+		if got.err != nil || err != nil || string(data) != "wake" || got.page.From != params.Cursor || got.page.Next != params.Cursor+4 {
+			t.Fatalf("waiting read = %+v, %v", got, err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("terminal output did not wake the RPC read")
+	}
+}
