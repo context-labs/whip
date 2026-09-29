@@ -1,19 +1,12 @@
 import { QueryClient } from '@tanstack/react-query';
 import { rememberProviderReady } from './provider-readiness';
 import {
-  DeliveryUncertainError,
-  RpcError,
-  type WhipClient,
-  type RecoveryRecord,
-  type RecoveryStorage,
-  type CommandHandle,
-  type CommandOutcome,
-} from '@whip/legacy-sdk';
-import {
-  createSessionView,
-  type SessionView,
-} from '@whip/legacy-sdk/state';
-import type { CommandOperation } from '@whip/legacy-protocol';
+  DeliveryError, RecoveryError, RecoveryJournal, RecoveryPersistenceError,
+  type Client, type DurableCommand, type DurableMethod, type Operations,
+  type Admission,
+} from '@whip/sdk';
+import { createSessionView, type SessionView } from '@whip/sdk/state';
+import { recoveryStorage } from './recovery-storage';
 import { errorMessage, readPreference, type AppPlatform } from './platform';
 import { parseSettingsReturn, settingsReturnKey, type SettingsReturn } from './settings/navigation';
 import { isSessionTab, SessionTabs, welcomeDraftKey } from './session-tabs';
@@ -25,8 +18,9 @@ import { SubmittedInputs } from './input-presentation';
 import { HostConnections, type HostConnection } from './hosts';
 
 interface ViewLease {
-  client: WhipClient;
+  client: Client;
   runtimeId: string;
+  rootId: string;
   view: SessionView;
   users: number;
   timer?: ReturnType<typeof setTimeout>;
@@ -42,7 +36,7 @@ export interface CommandNotice {
   delivery?: 'uncertain' | 'absent';
 }
 interface PendingCommand {
-  client: WhipClient;
+  client: Client;
   check(): Promise<unknown>;
   retry(): Promise<unknown>;
 }
@@ -93,7 +87,7 @@ export class AppRuntime {
   readonly browserAssociations: BrowserAssociations;
   readonly connections: HostConnections;
   readonly tabs: SessionTabs;
-  readonly compositions = new CompositionStore();
+  readonly compositions = new CompositionStore(client => this.connections.isAttached(client));
   readonly readingPositions = new ReadingPositions();
   readonly submittedInputs = new SubmittedInputs();
   readonly queries = new QueryClient({
@@ -112,11 +106,11 @@ export class AppRuntime {
   private state: RuntimeSnapshot;
   private readonly listeners = new Set<() => void>();
   private readonly views = new Map<string, ViewLease>();
-  private readonly titleListeners = new Map<WhipClient, () => void>();
+  private readonly titleListeners = new Map<Client, () => void>();
   private readonly drafts = new Map<string, string>();
   private readonly draftRevisions = new Map<string, string>();
   private readonly draftListeners = new Map<string, Set<() => void>>();
-  private readonly agentReaders = new WeakMap<SessionView, Map<string, { users: number }>>();
+  readonly recovery: RecoveryJournal;
   private readonly draftIdentities = new Set<string>();
   private readonly durableDrafts = new Set<string>();
   private readonly pending = new Map<string, PendingCommand>();
@@ -173,6 +167,7 @@ export class AppRuntime {
         desktopNotifications: preferences?.desktopNotifications === true,
       },
     };
+    this.recovery = new RecoveryJournal(recoveryStorage(platform.storage));
     this.tabs = new SessionTabs(platform.windowStorage, message => this.report(message), this.lastSession()?.runtimeId);
     this.browser = new BrowserWorkspace(platform.browser, this.tabs, error => this.reportWorkspace(error));
     let previousTabs = this.tabs.getSnapshot();
@@ -203,28 +198,24 @@ export class AppRuntime {
       for (const key of platform.storage.keys())
         if (key.startsWith(draftRevisionPrefix) && !saved.has(key.slice(draftRevisionPrefix.length))) platform.storage.removeItem(key);
     } catch (error) { this.report(error); }
-    this.connections = new HostConnections(platform, this.recoveryStorage(), {
+    this.connections = new HostConnections(platform, recoveryStorage(platform.storage), {
       connected: (runtimeId, client) => {
         this.observeSessionTitles(runtimeId, client);
         void this.queries.invalidateQueries({ predicate: query => query.queryKey[1] === runtimeId });
         void this.primeProviders(runtimeId, client);
-        void this.queries.prefetchQuery({ queryKey: ['runtime-configuration', runtimeId],
-          queryFn: ({ signal }) => client.configuration.get({ signal }) });
-        void this.queries.prefetchQuery({ queryKey: ['provider-catalogs', runtimeId],
-          queryFn: ({ signal }) => client.providers.catalogs({ signal }) });
-        // Match the dialog's landing-page key, including its absent cursor.
-        void this.queries.prefetchQuery({
-          queryKey: ['session-search', runtimeId, '', 'all', undefined],
-          queryFn: ({ signal }) => client.sessions.list({ search: '', status: 'all', limit: 64, max_bytes: 256 << 10 }, { signal }),
-          gcTime: 5 * 60_000,
-        });
+        for (const lease of this.views.values()) if (lease.runtimeId === runtimeId && lease.client !== client) {
+          lease.client = client;
+          void lease.view.reconnect(client).catch(error => this.report(error));
+        }
       },
-      detached: (client, runtimeId) => {
+      detached: (client, runtimeId, options?: { recovering: boolean }) => {
         this.titleListeners.get(client)?.();
         this.titleListeners.delete(client);
         if (runtimeId) this.compositions.invalidateRuntime(runtimeId);
         for (const [id, pending] of this.pending) if (pending.client === client) this.pending.delete(id);
-        for (const [id, lease] of this.views) if (lease.client === client) this.dropView(id, lease);
+        for (const [id, lease] of this.views) if (lease.client === client) {
+          if (options?.recovering) void lease.view.suspend(); else this.dropView(id, lease);
+        }
         if (runtimeId) this.queries.removeQueries({ predicate: query => query.queryKey[1] === runtimeId });
       },
     });
@@ -292,37 +283,35 @@ export class AppRuntime {
     )
       return { runtimeId: saved.runtimeId, rootId: saved.rootId };
   }
-  private observeSessionTitles(runtimeId: string, client: WhipClient) {
+  private observeSessionTitles(runtimeId: string, client: Client) {
     this.titleListeners.get(client)?.();
-    this.titleListeners.delete(client);
-    if (!client.getSnapshot().info?.negotiated_capabilities?.includes('session_title_notifications')) return;
-    let retired = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const attached = () => !retired && !this.closed && this.connections.isAttached(client)
-      && client.getSnapshot().state === 'connected';
-    const filters = { predicate: (query: { queryKey: readonly unknown[] }) => query.queryKey[1] === runtimeId
-      && ['session-tab-summaries', 'session-sidebar-summaries', 'session-search', 'host-attention'].includes(query.queryKey[0] as string) };
-    const off = client.onNotification('sessions.title.changed', () => {
-      if (!attached() || timer) return;
-      timer = setTimeout(() => {
-        timer = undefined;
-        if (!attached()) return;
-        // Explicit cancellation also covers first loads (invalidate alone can reuse their stale result).
-        void this.queries.cancelQueries(filters).then(() => {
-          if (attached()) return this.queries.invalidateQueries(filters);
-        });
-      }, 250);
+    const catalog = this.connections.host(runtimeId)?.list;
+    if (!catalog) return;
+    let revision = catalog.getSnapshot().revision;
+    const off = catalog.subscribe(() => {
+      const next = catalog.getSnapshot();
+      if (next.revision === null || next.revision === revision) return;
+      revision = next.revision;
+      // The SDK catalog head includes changes outside the visible page.
+      const filters = { predicate: (query: { queryKey: readonly unknown[] }) => query.queryKey[1] === runtimeId
+        && ['session-tab-summaries', 'session-sidebar-summaries', 'session-search', 'host-attention'].includes(query.queryKey[0] as string) };
+      void this.queries.cancelQueries(filters).then(() => {
+        if (this.connections.isAttached(client)) return this.queries.invalidateQueries(filters);
+      });
     });
-    this.titleListeners.set(client, () => { retired = true; clearTimeout(timer); off(); });
+    this.titleListeners.set(client, off);
   }
-  /** Warm provider readiness using the verified client, even before its host snapshot is published. */
+  /** Warm host metadata; readiness remains a separate local-evidence query. */
   primeProviders(runtimeId?: string, client = runtimeId ? this.connections.host(runtimeId)?.client : undefined): Promise<void> {
     if (!runtimeId || !client) return Promise.resolve();
-    // Query owns deduplication and freshness; a failed or expired prefetch can be tried again.
-    return this.queries.prefetchQuery({ queryKey: ['provider-list', runtimeId], queryFn: ({ signal }) => client.providers.list({ signal }) })
-      .then(() => {
-        const inventory = this.queries.getQueryData<{ selection?: { ready?: boolean } | null }>(['provider-list', runtimeId]);
-        if (inventory) rememberProviderReady(this.platform.storage, runtimeId, inventory.selection?.ready === true);
+    return this.queries.prefetchQuery({ queryKey: ['provider-list', runtimeId], queryFn: ({ signal }) => client.listProviders({ signal }) })
+      .then(async () => {
+        const inventory = this.queries.getQueryData<Operations['providers.list']['result']>(['provider-list', runtimeId]);
+        if (!inventory) return;
+        if (!inventory.defaults) { rememberProviderReady(this.platform.storage, runtimeId, false); return; }
+        const ready = await this.queries.fetchQuery({ queryKey: ['provider-readiness', runtimeId, inventory.defaults],
+          queryFn: ({ signal }) => client.providerReadiness(inventory.defaults!, { signal }) });
+        if (this.connections.isAttached(client)) rememberProviderReady(this.platform.storage, runtimeId, ready.configured && ['available', 'not_required'].includes(ready.credential_state));
       });
   }
   /** Remove local state only after deletion has succeeded on this runtime. */
@@ -333,9 +322,7 @@ export class AppRuntime {
     const viewIds = [...workspace.tabs, ...workspace.closed.map(item => item.tab)].filter(tab => tab.kind !== 'browser' && matches(tab)).map(tab => tab.id);
     this.compositions.clearSession(runtimeId, rootId, viewIds);
     this.tabs.purge(runtimeId, rootId);
-    const viewKey = JSON.stringify([runtimeId, rootId]);
-    const lease = this.views.get(viewKey);
-    if (lease) this.dropView(viewKey, lease);
+    for (const [key, lease] of this.views) if (lease.runtimeId === runtimeId && lease.rootId === rootId) this.dropView(key, lease);
     this.queries.removeQueries({ predicate: query => query.queryKey[1] === runtimeId && query.queryKey[2] === rootId });
     for (const input of this.submittedInputs.getSnapshot())
       if (matches(input)) this.submittedInputs.remove(input.id, runtimeId);
@@ -537,49 +524,6 @@ export class AppRuntime {
       }
     }
   }
-  private recoveryStorage(): RecoveryStorage {
-    const key = 'whip.web.recovery.v1';
-    const read = (): RecoveryRecord[] => {
-      const records = readPreference<unknown>(this.platform.storage, key, []);
-      if (!Array.isArray(records)) return [];
-      return records.filter(
-        (record): record is RecoveryRecord =>
-          !!record &&
-          record.version === 1 &&
-          typeof record.runtimeId === 'string' &&
-          typeof record.clientId === 'string' &&
-          typeof record.commandId === 'string' &&
-          typeof record.operation === 'string',
-      );
-    };
-    const same = (a: RecoveryRecord, b: RecoveryRecord) =>
-      a.runtimeId === b.runtimeId &&
-      a.clientId === b.clientId &&
-      a.commandId === b.commandId;
-    const update = (write: () => void) =>
-      this.platform.storage.transaction
-        ? this.platform.storage.transaction(key, write)
-        : Promise.resolve().then(write);
-    return {
-      list: async () => read(),
-      put: (record) =>
-        update(() => {
-          const records = read().filter((item) => !same(item, record));
-          // Bounded silently: the earliest identities go first; nobody manages these by hand.
-          this.platform.storage.setItem(
-            key,
-            JSON.stringify([...records.slice(-1023), record]),
-          );
-        }),
-      delete: (record) =>
-        update(() =>
-          this.platform.storage.setItem(
-            key,
-            JSON.stringify(read().filter((item) => !same(item, record))),
-          ),
-        ),
-    };
-  }
   async connect(): Promise<void> {
     try { await this.connections.connect(); }
     catch (error) {
@@ -587,21 +531,21 @@ export class AppRuntime {
       throw error;
     }
   }
-  acquireView(runtimeId: string, rootId: string): { view: SessionView; release(): void } {
+  acquireView(runtimeId: string, rootId: string, sessionId = rootId): { view: SessionView; release(): void } {
     const client = this.connections.host(runtimeId)?.client;
     if (!client) throw new Error('Connect to a host first');
-    const key = JSON.stringify([runtimeId, rootId]);
+    const key = JSON.stringify([runtimeId, sessionId]);
     let lease = this.views.get(key);
     if (!lease) {
       for (const [id, candidate] of this.views) {
-        if (this.views.size < 4) break;
+        if (this.views.size < 16) break;
         if (!candidate.users) this.dropView(id, candidate);
       }
-      if (this.views.size >= 4)
+      if (this.views.size >= 16)
         throw new Error(
-          'Four session views are already open. Close a view before opening another.',
+          'Sixteen session views are already open. Close a view before opening another.',
         );
-      lease = { client, runtimeId, view: createSessionView(client.session(rootId), { initialHistoryWarmup: true }), users: 0 };
+      lease = { client, runtimeId, rootId, view: createSessionView(client.session(sessionId), { maxBytes: 4 << 20, maxMessages: 256 }), users: 0 };
       this.views.set(key, lease);
       // Snapshot and history failures belong to the view's scoped error state.
       void lease.view.start().catch(() => {});
@@ -625,33 +569,6 @@ export class AppRuntime {
             30_000,
           );
       },
-    };
-  }
-  /** A child's history remains open until its last visible consumer leaves. */
-  acquireAgent(view: SessionView, agentId: string): () => void {
-    if (agentId === view.session.rootId) return () => {};
-    let readers = this.agentReaders.get(view);
-    if (!readers) { readers = new Map(); this.agentReaders.set(view, readers); }
-    let reader = readers.get(agentId);
-    if (!reader) {
-      reader = { users: 0 };
-      readers.set(agentId, reader);
-      void view.openAgent(agentId).catch(() => {});
-    }
-    reader.users++;
-    const retained = reader;
-    let released = false;
-    return () => {
-      if (released) return;
-      released = true;
-      retained.users--;
-      // StrictMode and pane transfers can release/reacquire in the same commit.
-      queueMicrotask(() => {
-        if (!retained.users && readers.get(agentId) === retained) {
-          readers.delete(agentId);
-          view.closeAgent(agentId);
-        }
-      });
     };
   }
   private dropView(id: string, lease: ViewLease) {
@@ -698,129 +615,94 @@ export class AppRuntime {
       );
     return pending.retry();
   }
-  run<O extends CommandOperation>(
-    handle: CommandHandle<O>,
-    label: string,
-    onAccepted?: () => void,
-    draftKey?: string,
-  ): Promise<CommandOutcome<O>> {
-    const { runtimeId, clientId } = handle.record;
-    const signal = this.connections.signal(handle.client);
-    const id = JSON.stringify([runtimeId, clientId, handle.commandId]);
-    const attached = () => this.connections.isAttached(handle.client);
-    let accepted = false;
-    let uncertain = false;
-    let work: Promise<CommandOutcome<O>> | undefined;
-    const notice = (
-      status: string,
-      extra: Pick<CommandNotice, 'error' | 'delivery'> = {},
-    ) =>
-      this.commandNotice({
-        id,
-        commandId: handle.commandId,
-        runtimeId,
-        label,
-        draftKey,
-        status,
-        ...extra,
-      });
-    const lookup = async () => {
-      for (;;) {
-        await handle.client.whenConnected(signal);
-        try {
-          return await handle.status({ signal });
-        } catch (error) {
-          if (
-            signal.aborted ||
-            handle.client.getSnapshot().state !== 'reconnecting'
-          )
-            throw error;
-        }
-      }
+  /** App mutations share the durable journal; constructing a handle sends nothing. */
+  command<M extends DurableMethod>(client: Client, method: M, params: Operations[M]['params']) {
+    return client.command(method, params, { journal: this.recovery });
+  }
+  run<M extends DurableMethod>(
+    handle: DurableCommand<M>, label: string, onAccepted?: () => void, draftKey?: string,
+  ): Promise<Operations[M]['result']> {
+    const { runtimeID: runtimeId, clientID } = handle.record;
+    const client = this.connections.host(runtimeId)?.client;
+    if (!client || client.clientID !== clientID) return Promise.reject(new Error('Reconnect the original host before sending this command'));
+    const signal = this.connections.signal(client);
+    const id = JSON.stringify([runtimeId, clientID, handle.id]);
+    const attached = () => this.connections.isAttached(client);
+    let accepted = false, uncertain = false;
+    let work: Promise<Operations[M]['result']> | undefined;
+    const notice = (status: string, extra: Pick<CommandNotice, 'error' | 'delivery'> = {}) =>
+      this.commandNotice({ id, commandId: handle.id, runtimeId, label, draftKey, status, ...extra });
+    const accept = (value: unknown) => {
+      if (value && typeof value === 'object' && 'receipt' in value) this.submittedInputs.acknowledge(value as Admission, runtimeId);
+      if (!accepted) { accepted = true; onAccepted?.(); }
     };
-    const observe = async (
-      mode: 'initial' | 'check' | 'retry',
-    ): Promise<CommandOutcome<O>> => {
+    const check = async (): Promise<Operations[M]['result']> => {
+      const result = await handle.check({ signal });
+      if (result.state === 'missing') {
+        notice('Not accepted · explicit retry available', { delivery: 'absent' });
+        throw new RecoveryError('The host has no receipt for this command');
+      }
+      if (result.state !== 'found' || !('receipt' in result.evidence)) {
+        notice('Acceptance unresolved', { delivery: 'uncertain' });
+        throw new RecoveryError('The available receipt does not establish the exact original request; inspect the saved recovery record');
+      }
+      return result.evidence as Operations[M]['result'];
+    };
+    const observe = async (mode: 'initial' | 'check' | 'retry'): Promise<Operations[M]['result']> => {
       let terminal = false;
       try {
-        let receipt: CommandOutcome<O>;
+        let result: Operations[M]['result'];
         try {
-          receipt = await (mode === 'initial'
-            ? handle.accepted({ signal })
-            : mode === 'retry'
-              ? handle.retry({ signal })
-              : lookup());
+          result = await (mode === 'initial' ? handle.send({ signal }) : mode === 'retry' ? handle.retry({ signal }) : check());
         } catch (error) {
-          if (!(error instanceof DeliveryUncertainError)) throw error;
+          if (error instanceof RecoveryPersistenceError && error.accepted) {
+            // The host acknowledged; a local disk failure must not restore a sent draft or resend.
+            accept(error.acknowledgement);
+            notice('Accepted · recovery storage needs attention', { error: errorMessage(error) });
+            throw error;
+          }
+          if (!(error instanceof DeliveryError)) throw error;
+          uncertain = true; this.pending.set(id, pending);
+          notice('Checking acceptance', { delivery: 'uncertain' });
+          result = await check();
+        }
+        signal.throwIfAborted();
+        if (!attached()) throw new Error('Host changed while submitting');
+        accept(result); this.pending.delete(id);
+        notice('Accepted');
+        if ('identity' in handle.params) {
+          const outcome = await handle.wait({ signal });
           signal.throwIfAborted();
-          if (!attached())
-            throw new Error('Host changed while submitting');
-          uncertain = true;
-          this.pending.set(id, pending);
-          if (!signal.aborted && attached())
-            notice('Checking acceptance', { delivery: 'uncertain' });
-          receipt = await lookup();
-        }
-        signal.throwIfAborted();
-        if (!attached())
-          throw new Error('Host changed while submitting');
-        this.pending.delete(id);
-        this.submittedInputs.acknowledge(receipt, runtimeId);
-        notice(receipt.status);
-        if (!accepted) {
-          accepted = true;
-          onAccepted?.();
-        }
-        const outcome = await handle.result({ signal });
-        signal.throwIfAborted();
-        if (!attached()) throw new Error('Host changed while awaiting the command');
-        this.submittedInputs.acknowledge(outcome, runtimeId);
-        terminal = true;
-        const removed = outcome.status === 'cancelled' && outcome.failure?.data?.kind === 'queue_removed';
-        notice(outcome.status, outcome.failure && !removed ? { error: outcome.failure.message } : {});
-        if (removed) { this.submittedInputs.remove(handle.commandId, runtimeId); return outcome; }
-        if (outcome.status !== 'succeeded')
-          throw new Error(
-            outcome.failure?.message ?? `${label}: ${outcome.status}`,
-          );
+          if (!attached()) throw new Error('Host changed while observing the command');
+          this.submittedInputs.acknowledge(outcome, runtimeId);
+          terminal = true;
+          const status = outcome.receipt.deleted_at ? 'deleted' : outcome.input?.state === 'cancelled' ? 'cancelled' : outcome.turn?.state ?? 'unavailable';
+          notice(status, outcome.turn?.failure ? { error: outcome.turn.failure } : {});
+          await handle.forget();
+          if (status !== 'succeeded') throw new Error(outcome.turn?.failure ?? `${label}: ${status}`);
+          result = outcome as Operations[M]['result'];
+        } else { terminal = true; notice('Succeeded'); await handle.forget(); }
         await this.queries.invalidateQueries({ predicate: query => query.queryKey[1] === runtimeId });
         signal.throwIfAborted();
-        if (!attached()) throw new Error('Host changed while refreshing the command result');
-        return outcome;
+        if (!attached()) throw new Error('Host changed while refreshing command results');
+        return result;
       } catch (error) {
         if (!signal.aborted && attached()) {
-          if (!uncertain || accepted) this.submittedInputs.remove(handle.commandId, runtimeId);
           if (uncertain && !accepted) {
             this.pending.set(id, pending);
-            const absent =
-              error instanceof RpcError && error.kind === 'command_not_found';
-            notice(
-              absent
-                ? 'Not accepted · explicit retry available'
-                : 'Acceptance unresolved',
-              {
-                delivery: absent ? 'absent' : 'uncertain',
-                error: errorMessage(error),
-              },
-            );
-          } else if (!terminal)
-            notice('Needs attention', { error: errorMessage(error) });
+            if (this.state.commands.find(item => item.id === id)?.delivery !== 'absent')
+              notice('Acceptance unresolved', { delivery: 'uncertain', error: errorMessage(error) });
+          } else if (!terminal) notice(accepted ? 'Accepted · needs attention' : 'Needs attention', { error: errorMessage(error) });
+          if (!uncertain || accepted) this.submittedInputs.remove(handle.id, runtimeId);
         }
         throw error;
       }
     };
     const start = (mode: 'initial' | 'check' | 'retry') => {
-      if (!work)
-        work = observe(mode).finally(() => {
-          work = undefined;
-        });
+      work ??= observe(mode).finally(() => { work = undefined; });
       return work;
     };
-    const pending: PendingCommand = {
-      client: handle.client,
-      check: () => start('check'),
-      retry: () => start('retry'),
-    };
+    const pending: PendingCommand = { client, check: () => start('check'), retry: () => start('retry') };
     notice('Submitting');
     return start('initial');
   }

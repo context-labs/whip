@@ -3935,3 +3935,21 @@ the required aggregate failed; every other Linux/macOS build/race/client and
 analysis job passed. Those are historical outcomes, not repaired-head evidence.
 This publication includes the complete family/readiness changes and ACP repair;
 all required hosted checks must rerun at the new head. Phases5–7 remain incomplete.
+
+Shared app adoption checkpoint (not yet a complete product build): runtime owns
+uniform root/child SDK view leases,16 views with256messages/4MiB each, revision
+invalidation from the SDK catalog, a locked v4 recovery journal and explicit
+command acceptance/status presentation. Immutable content upload preserves exact
+owner/reference/digest; retained composition tests now use v4 content references.
+App draft and reading ownership remains unchanged. Focused runtime/recovery/input/
+composition tests pass52; SDK binary upload/identity additions pass107. Logs:
+`/tmp/whip-app-core-v4.log`, `/tmp/whip-content-sdk-tests.log`.
+
+Runtime test disposition: draft/storage/StrictMode/deletion behavior is retained;
+legacy root-vs-child reader methods are replaced by uniform session leases;
+legacy connection internals move to real v4 HostConnections tests; old silent
+journal eviction is deliberately replaced by cross-window capacity rejection.
+Lost ACK, absence, identity-only evidence, concurrent checks, explicit retry,
+accepted-but-unsaved recovery, authoritative interruption, disposal and late
+navigation have v4 replacement coverage. Full renderer types/component suites
+remain pending while surrounding legacy consumers are ported.

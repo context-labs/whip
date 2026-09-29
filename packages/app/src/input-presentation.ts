@@ -1,6 +1,11 @@
-import type { DeepReadonly } from '@whip/legacy-sdk/state';
-import type { RootSnapshot } from '@whip/legacy-protocol';
-import type { CommandOutcome } from '@whip/legacy-sdk';
+import type { Admission, ContentReference, Input, InputPageResult } from '@whip/protocol';
+import type { DesignContext } from './browser-design-presentation';
+export interface InputPreview {
+  readonly text: string;
+  readonly attachment_count: number;
+  readonly attachments?: readonly ContentReference[];
+  readonly design_context?: DesignContext;
+}
 
 export interface SubmittedInput {
   readonly id: string;
@@ -10,11 +15,11 @@ export interface SubmittedInput {
   readonly clientId?: string;
   readonly text: string;
   readonly sentAt: string;
-  readonly inboxSeq?: string;
+  readonly inputId?: string;
   readonly accepted: boolean;
   readonly confirmed: boolean;
   readonly queued: boolean;
-  readonly preview?: NonNullable<InboxInput["preview"]>;
+  readonly preview?: InputPreview;
 }
 
 /** Small, window-local submission previews; authoritative input stays in the SDK. */
@@ -42,7 +47,7 @@ export class SubmittedInputs {
     text: string,
     queued = false,
     id: string = crypto.randomUUID(),
-    preview?: NonNullable<InboxInput["preview"]>,
+    preview?: InputPreview,
   ) {
     const input = Object.freeze({
       ...scope,
@@ -68,22 +73,19 @@ export class SubmittedInputs {
     this.publish(next);
     return input.id;
   }
-  accept(id: string, inboxSeq?: string, runtimeId?: string) {
+  accept(id: string, inputId?: string, runtimeId?: string) {
     this.publish(
       this.snapshot.map((item) =>
-        item.id === id && (!runtimeId || item.runtimeId === runtimeId) && (!item.accepted || item.inboxSeq !== inboxSeq)
-          ? Object.freeze({ ...item, accepted: true, inboxSeq })
+        item.id === id && (!runtimeId || item.runtimeId === runtimeId) && (!item.accepted || item.inputId !== inputId)
+          ? Object.freeze({ ...item, accepted: true, inputId })
           : item,
       ),
     );
   }
-  acknowledge(receipt: CommandOutcome, runtimeId: string) {
-    const input = this.snapshot.find((item) => item.id === receipt.command_id && item.runtimeId === runtimeId);
-    if (!input) return;
-    if (input.agentId === input.rootId)
-      this.accept(input.id, receipt.ingress_seq, runtimeId);
-    else if (receipt.result && 'inbox_seq' in receipt.result)
-      this.accept(input.id, receipt.result.inbox_seq, runtimeId);
+  acknowledge(receipt: Admission, runtimeId: string) {
+    const input = this.snapshot.find(item => item.id === receipt.receipt.identity.request_id && item.runtimeId === runtimeId
+      && (!item.clientId || item.clientId === receipt.receipt.identity.client_id));
+    if (input && (!receipt.input || receipt.input.session_id === input.agentId)) this.accept(input.id, receipt.receipt.input_id ?? undefined, runtimeId);
   }
   confirm(ids: readonly string[], runtimeId?: string) {
     const confirmed = new Set(ids);
@@ -103,85 +105,42 @@ export class SubmittedInputs {
   }
 }
 
-export type InboxInput = NonNullable<
-  DeepReadonly<RootSnapshot>['inbox']
->[number];
+export type InboxInput = NonNullable<InputPageResult['items']>[number];
 
 export function matchesInput(input: SubmittedInput, item: InboxInput) {
-  return input.agentId === item.agent_id && (input.inboxSeq === item.seq
-    || !!input.clientId && input.clientId === item.command_client_id && input.id === item.command_id);
+  return input.agentId === item.session_id && input.inputId === item.id;
 }
-
 export function submittedInputId(input: SubmittedInput) {
   return `input:${input.clientId ? JSON.stringify([input.clientId, input.id]) : input.id}`;
 }
-
 export function inboxInputId(item: InboxInput, local?: SubmittedInput) {
-  if (item.command_client_id && item.command_id) return `input:${JSON.stringify([item.command_client_id, item.command_id])}`;
-  return local ? submittedInputId(local) : `inbox:${item.agent_id}:${item.seq}`;
+  return local ? submittedInputId(local) : `input:${item.session_id}:${item.id}`;
 }
-export const isChatInput = (item: InboxInput) =>
-  /^(submit|steer)(\.parts)?$/.test(item.kind);
-
-// Scheduled occurrences have their own pending-wake projection, not an inbox notice.
-export const isAcceptedInputNotice = (item: InboxInput) =>
-  !isChatInput(item) && item.kind !== 'schedule';
-
-export function admittedText(
-  kind: string,
-  payload: InboxInput['payload'],
-): string {
-  let text = payload.text ?? '';
-  if (payload.binary) {
-    try {
-      text = new TextDecoder('utf-8', { fatal: true }).decode(
-        Uint8Array.from(atob(payload.binary), (char) => char.charCodeAt(0)),
-      );
-    } catch {
-      return 'Input preview is unavailable.';
-    }
-  }
-  if (kind.endsWith('.parts')) {
-    try {
-      const input = JSON.parse(text);
-      return `${typeof input.text === 'string' ? input.text : ''}${input.attachments?.length ? `\n${input.attachments.length} attached files` : ''}`;
-    } catch {
-      return 'Structured input preview is unavailable.';
-    }
-  }
-  return (
-    text ||
-    (payload.reference_id
-      ? 'Large input stored on the host.'
-      : payload.inline
-        ? JSON.stringify(payload.inline)
-        : 'Input accepted.')
-  );
+export const isChatInput = (item: InboxInput) => item.kind === 'prompt' && (item.source === 'user' || item.source === 'agent');
+export const isAcceptedInputNotice = (item: InboxInput) => !isChatInput(item) && item.source !== 'schedule';
+export function admittedText(input: InboxInput | Input): string {
+  if ('text_preview' in input) return input.text_preview || (input.attachment_count !== '0' ? `${input.attachment_count} attached files` : 'Input accepted.');
+  const text = input.parts.flatMap(part => part.type === 'text' ? [part.text] : []).join('\n');
+  const attachments = input.parts.filter(part => part.type === 'content').length;
+  return text + (attachments ? `\n${attachments} attached files` : '') || 'Input accepted.';
 }
-
 export interface QueuedInputRow {
   id: string;
   text: string;
   status: string;
   item?: InboxInput;
-  preview?: NonNullable<InboxInput['preview']>;
+  preview?: InputPreview;
   stale?: boolean;
 }
-
 /** Display projection only: lifecycle/replay and paging belong to the SDK. */
 export function queuedInputRows(
-  inbox: readonly { item: InboxInput; stale: boolean }[],
-  submitted: readonly SubmittedInput[],
+  inbox: readonly { item: InboxInput; stale: boolean }[], submitted: readonly SubmittedInput[],
   deliveries: ReadonlyMap<string, string> = new Map(),
 ): QueuedInputRow[] {
-  const rows: QueuedInputRow[] = inbox.filter(({ item }) => item.origin === 'client' && item.status === 'queued').map(({ item, stale }) => {
+  const rows: QueuedInputRow[] = inbox.filter(({ item }) => item.source === 'user' && item.state === 'queued').map(({ item, stale }) => {
     const local = submitted.find(input => matchesInput(input, item));
-    return {
-      id: inboxInputId(item, local),
-      text: item.preview?.text ?? local?.preview?.text ?? local?.text ?? admittedText(item.kind, item.payload),
-      status: stale ? 'Checking queue…' : item.steer_turn_id || item.kind.startsWith('steer') ? 'Steering…' : 'Queued',
-      item, preview: item.preview ?? local?.preview, stale,
-    };
+    return { id: inboxInputId(item, local), text: local?.preview?.text ?? local?.text ?? admittedText(item),
+      status: stale ? 'Checking queue…' : 'Queued', item, preview: local?.preview, stale };
   });
   for (const input of submitted) {
     if (!input.queued || input.confirmed || inbox.some(({ item }) => matchesInput(input, item))) continue;
