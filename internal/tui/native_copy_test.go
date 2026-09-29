@@ -30,7 +30,7 @@ func nativeCopyWaitFile(t *testing.T, path, want string) string {
 	defer cancel()
 	for {
 		body, err := os.ReadFile(path)
-		if err == nil && (want == "" && len(body) > 0 || string(body) == want) {
+		if err == nil && (want == "" && len(body) > 0 || want != "" && string(body) == want) {
 			return string(body)
 		}
 		select {
@@ -52,7 +52,7 @@ func TestNativeCopyForegroundOfferIsReplacedAndJoinedOnDetach(t *testing.T) {
 			if helper == "xclip" {
 				arguments = "-selection clipboard -quiet"
 			}
-			writeNativeCopyHelper(t, directory, helper, "[ \"$*\" = '"+arguments+"' ] || exit 7\n[ -z \"$INFERENCE_API_KEY\" ] || exit 8\n[ \"$DISPLAY\" = fixture-display ] || exit 9\n/bin/cat > offered\n/bin/sleep 30 &\nprintf '%s' \"$!\" > child.pid\nwait\n")
+			writeNativeCopyHelper(t, directory, helper, "[ \"$*\" = '"+arguments+"' ] || exit 7\n[ -z \"$INFERENCE_API_KEY\" ] || exit 8\n[ \"$DISPLAY\" = fixture-display ] || exit 9\n/bin/cat > offered\n/bin/sleep 30 &\nprintf '%s' \"$!\" > child.pid.tmp\n/bin/mv child.pid.tmp child.pid\nwait\n")
 			owner := newNativeClipboardOwner(t.Context())
 			t.Cleanup(owner.close)
 			ctx, cancel := context.WithCancel(t.Context())
@@ -103,7 +103,7 @@ func TestNativeCopyBoundsFailureAndConcurrentDetach(t *testing.T) {
 	if _, err := owner.offer(t.Context(), directory, strings.Repeat("x", nativeCopyLimit+1)); err == nil {
 		t.Fatal("unbounded copy accepted")
 	}
-	writeNativeCopyHelper(t, directory, "pbcopy", "printf started > started\n/bin/sleep 30 &\nprintf '%s' \"$!\" > child.pid\nwait\n")
+	writeNativeCopyHelper(t, directory, "pbcopy", "printf started > started\n/bin/sleep 30 &\nprintf '%s' \"$!\" > child.pid.tmp\n/bin/mv child.pid.tmp child.pid\nwait\n")
 	done := make(chan error, 1)
 	go func() {
 		_, err := owner.offer(t.Context(), directory, strings.Repeat("x", nativeCopyLimit))
