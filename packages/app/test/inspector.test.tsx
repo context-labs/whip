@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { ReactNode } from 'react';
@@ -147,6 +147,9 @@ async function fixture() {
           break;
         case 'schedules.list':
           result = { items: [], next_after: null, next_cursor: null };
+          break;
+        case 'usage.get':
+          result = sample<Operations['usage.get']['result']>('Usage');
           break;
         case 'context.compactions':
         case 'grants.list':
@@ -713,4 +716,29 @@ it('does not present diagnostics from a replacement process as belonging to the 
   expect(screen.queryByText('Process 777')).toBeNull();
   expect(screen.queryByText('Build foreign-build')).toBeNull();
   expect(f.count('host.status')).toBe(1);
+});
+
+it('whole-tree usage is independent of selected child and preserves exact, missing and overflow evidence', async () => {
+  const f = await fixture();
+  const usage = sample<Operations['usage.get']['result']>('Usage');
+  usage.reported_cost.overflow = true;
+  usage.reported_cost.value = '9223372036854775807';
+  f.handlers['usage.get'] = (request) => {
+    expect(params(request, 'usage.get').session_id).toBe('session_root');
+    return usage;
+  };
+  render(f.wrap(<Limits {...f.props} />));
+  const provider = await screen.findByRole('group', { name: 'Provider-reported cost' });
+  expect(provider.textContent).toContain('At least $9223372036.854775807');
+  const input = screen.getByRole('group', { name: 'Input tokens' });
+  expect(input.textContent).toContain('9,007,199,254,740,993');
+  expect(input.textContent).toContain('missing from 1');
+  expect(
+    within(screen.getByRole('group', { name: 'Output tokens' })).getByText('Not reported'),
+  ).toBeDefined();
+  expect(screen.getByText(/1 settled attempts have unknown cost/)).toBeDefined();
+  expect(screen.getByText(/1 in flight/)).toBeDefined();
+  expect(
+    f.calls.filter((call) => call.method === 'trace.page' || call.method === 'turns.attempts'),
+  ).toHaveLength(0);
 });

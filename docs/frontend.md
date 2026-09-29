@@ -3600,3 +3600,23 @@ loaded-window totals and missing evidence explicitly. Raw details preserve the
 canonical row, including source IDs, exact timestamps and native attributes.
 Historical model prompts absent from native request snapshots remain unavailable;
 they are not reconstructed from current configuration or transcript history.
+
+Whole-tree usage is a separate native `usage.get` / `session.usage()` projection,
+not a sum of loaded turns, trace spans or overlapping budget rows. A read of the
+root includes all original descendant attempts through immutable captured budget
+ancestry, including deleted children; a fork starts fresh accounting. The backend
+reads only scalar fields in one read transaction, with constant memory, a five
+second deadline and a one-million-attempt ceiling. It returns a limit error rather
+than partial totals. No second accounting ledger or mutable cache is introduced.
+
+The Usage inspector reads the root even while a child is selected, sharing a
+metadata query keyed by runtime, process epoch and root. It refreshes every ten
+seconds while connected and offers an explicit refresh. Provider-reported and
+captured-price estimates remain separate, with unknown settled cost counted
+explicitly. Reserved, in-flight, settled, uncertain-outcome and cancelled-before-
+dispatch counts are distinct; uncertain outcomes are a subset of settled attempts.
+Input/output, reasoning, cached input/output and elapsed totals each carry known
+and missing attempt counts. Explicit zero remains reported zero; missing evidence
+is not zero. Saturated counters carry an overflow flag and display as lower bounds.
+Reasoning and cache detail fields must not be added to input/output totals. The
+selected agent's budget limits and reserved/uncertain exposure remain separate.

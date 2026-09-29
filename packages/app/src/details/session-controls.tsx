@@ -11,6 +11,7 @@ import * as stylex from '@stylexjs/stylex';
 import { useRuntime } from '../context';
 import { layout } from '../styles';
 import { ModelSelection } from '../model-selection';
+import { WholeTreeUsage } from './usage';
 import {
   Action,
   ContentRead,
@@ -313,9 +314,10 @@ export function Limits(props: InspectorProps) {
     resources = useDetailQuery(props, 'resources.list', { session_id: props.session.id }, true);
   return (
     <>
+      <WholeTreeUsage {...props} />
       <Section
-        title="Usage"
-        description="These are authoritative budget aggregates. Ancestor and descendant usage can overlap; never add them together. Detailed provider-reported, estimated, and unknown cost accounting is not yet available in this inspector."
+        title="Selected agent budgets"
+        description="These budget aggregates include this agent and its descendants. Ancestor and descendant usage can overlap; never add them together. Reserved and uncertain exposure is separate from reported whole-tree usage."
       >
         <QueryFeedback query={query} connected={props.connected} />
         {query.data?.items?.map((item) => (
