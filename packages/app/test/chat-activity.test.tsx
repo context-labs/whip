@@ -261,6 +261,18 @@ it('splits at gaps and never attaches an old unplaced cell below a later respons
       .map((row) => row.cell.id),
   ).not.toContain('missing');
 });
+it('keeps the canonical execute row key when delayed cell evidence creates its activity group', () => {
+  const cell = cellRow();
+  const row = { ...tool(cell), id: JSON.stringify(['root', 'attempt', 'p0']) };
+  const before = conversationActivityRows([row], []);
+  const after = conversationActivityRows([row], [cell]);
+  expect(before[0]!.id).toBe(row.id);
+  expect(isActivityGroup(after[0]!)).toBe(true);
+  expect(after[0]!.id).toBe(row.id);
+  expect(readingTarget(after, '1', { messageId: row.id, revision: '1', offset: 2, follow: false }))
+    .toEqual({ index: 0, offset: 2, fallback: false });
+});
+
 it('retains group and bookmark identity as active missing-prefix work becomes recorded', () => {
   const pending = cellRow('current', undefined, 'running');
   const before = conversationActivityRows([], [pending], [], 'turn').filter(

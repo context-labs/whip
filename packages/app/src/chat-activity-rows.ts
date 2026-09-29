@@ -248,7 +248,9 @@ export function conversationActivityRows(
       ),
     ];
     const prior = overlaps.find((group) => !reused.has(group.id));
-    const id = prior?.id ?? `activity:${pending[0]!.id}`;
+    // A committed execute row can precede its separately observed cell. Keep
+    // that display slot when native evidence turns it into an activity group.
+    const id = prior?.id ?? (members[0]?.role === 'tool' ? members[0].id : `activity:${pending[0]!.id}`);
     reused.add(id);
     const aliases = new Set([
       id,
