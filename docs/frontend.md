@@ -3620,3 +3620,5 @@ and missing attempt counts. Explicit zero remains reported zero; missing evidenc
 is not zero. Saturated counters carry an overflow flag and display as lower bounds.
 Reasoning and cache detail fields must not be added to input/output totals. The
 selected agent's budget limits and reserved/uncertain exposure remain separate.
+
+New-chat drafts select immutable native definition references (including the host's verified builtin reference); retained mutable names require explicit revision selection. Native permission and execution defaults are scoped by runtime and process epoch. Provider readiness, bounded skill/definition metadata, MCP import and folder selection use the native SDK. The draft tab UUID is its durable tree-creation identity. Exact accepted creation evidence moves the current draft and staged attachments to the accepted root before the first input; creation recovery never submits a message by itself. A saved creation from a previous app lifetime blocks a new payload and directs the user to Saved commands. A failed upload or first input keeps the accepted session and authored draft.

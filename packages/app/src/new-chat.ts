@@ -1,0 +1,59 @@
+import type { Client, CreateTreeResult, Operations } from '@whip/sdk';
+import type { AppRuntime } from './runtime';
+import { compositionKey } from './compositions';
+import { submitChatInput } from './chat-submission';
+import { welcomeDraftKey } from './session-tabs';
+
+/** Creation acceptance moves the authored draft once. Explicit receipt recovery
+ * can finish that handover, but never starts a first message by itself. */
+export async function startNewChat(runtime: AppRuntime, client: Client, tabId: string,
+  params: Omit<Operations['trees.create']['params'], 'creation_id'>) {
+  const source = welcomeDraftKey(tabId), runtimeId = client.runtimeID;
+  if (!runtime.connections.isAttached(client) || runtime.getSnapshot().commands.some(command => command.draftKey === source && command.delivery)) return;
+  const token = runtime.compositions.beginSubmission(source);
+  if (!token) return;
+  const text = runtime.draft(source);
+  const attachments = runtime.compositions.get(source).attachments;
+  const creationId = tabId;
+  let handover: { rootId: string; destination: string; uploading: Promise<void> } | undefined;
+  function accept(created: CreateTreeResult) {
+    if (handover) return;
+    const { root, tree, creation } = created;
+    if (creation.id !== creationId || created.deleted || !root || !tree || root.parent_id !== null
+      || root.id !== creation.root_id || root.tree_id !== tree.id || creation.tree_id !== tree.id
+      || root.definition.id !== params.definition.id || root.definition.revision !== params.definition.revision)
+      throw new Error('The accepted session does not match this creation. Inspect its saved receipt.');
+    const destination = compositionKey(runtimeId, root.id, root.id);
+    const currentDraft = runtime.draft(source);
+    if (runtime.draft(destination) && runtime.draft(destination) !== currentDraft)
+      throw new Error('The created session already has a different draft. Both drafts are preserved.');
+    runtime.setDraft(source, '');
+    try { runtime.setDraft(destination, currentDraft); }
+    catch (error) { if (!runtime.draft(source)) runtime.setDraft(source, currentDraft); throw error; }
+    const upload = runtime.compositions.adopt(source, client.session(root.id), runtimeId);
+    const uploadToken = runtime.compositions.beginSubmission(destination);
+    const uploading = upload.finally(() => { if (uploadToken) runtime.compositions.finishSubmission(destination, uploadToken); });
+    // Recovery can hand over after this invocation has returned its initial error.
+    void uploading.catch(() => {});
+    handover = { rootId: root.id, destination, uploading };
+    runtime.tabs.promoteNew(tabId, runtimeId, root.id);
+  }
+  try {
+    const saved = (await runtime.recovery.list()).find(record => {
+      const request = JSON.parse(record.request);
+      return record.runtimeID === runtimeId && request.method === 'trees.create' && request.params.creation_id === creationId;
+    });
+    if (saved) throw new Error('This draft has a saved session creation. Review its receipt in Settings → Saved commands before sending again.');
+    const created = await runtime.run(runtime.command(client, 'trees.create', { ...params, creation_id: creationId }), 'Create session', accept, source);
+    accept(created);
+    const { rootId, destination, uploading } = handover!;
+    await uploading;
+    if (!runtime.connections.isAttached(client)) return;
+    const ready = runtime.compositions.get(destination).attachments;
+    if (ready.length !== attachments.length || ready.some((item, index) => item.id !== attachments[index]?.id || !item.value)) return;
+    const result = await submitChatInput({ runtime, session: client.session(rootId), runtimeId, rootId, agentId: rootId,
+      compositionKey: destination, connected: true, text, attachments: ready, delivery: 'queued',
+      onAccepted: () => { if (runtime.draft(destination) === text) runtime.setDraft(destination, ''); } });
+    if (result.status === 'failed' && !result.delivery) runtime.report(result.error);
+  } finally { runtime.compositions.finishSubmission(source, token); }
+}

@@ -678,7 +678,7 @@ export class AppRuntime {
     return client.command(method, params, { journal: this.recovery });
   }
   run<M extends DurableMethod>(
-    handle: DurableCommand<M>, label: string, onAccepted?: () => void, draftKey?: string,
+    handle: DurableCommand<M>, label: string, onAccepted?: (value: Operations[M]['result']) => void, draftKey?: string,
   ): Promise<Operations[M]['result']> {
     const { runtimeID: runtimeId, clientID } = handle.record;
     let client = this.connections.host(runtimeId)?.client;
@@ -692,7 +692,7 @@ export class AppRuntime {
       this.commandNotice({ id, commandId: handle.id, runtimeId, label, draftKey, status, ...extra });
     const accept = (value: unknown) => {
       if (value && typeof value === 'object' && 'receipt' in value) this.submittedInputs.acknowledge(value as Admission, runtimeId);
-      if (!accepted) { accepted = true; onAccepted?.(); }
+      if (!accepted) { accepted = true; onAccepted?.(value as Operations[M]['result']); }
     };
     const check = async (): Promise<Operations[M]['result']> => {
       const result = await handle.check({ signal });
