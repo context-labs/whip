@@ -212,3 +212,16 @@ it.each([
   await screen.findByText(text => text.includes(expected));
   expect(f.count('providers.disconnect')).toBe(1); expect(f.count('providers.remove')).toBe(0); expect(f.count('accounts.inference.logout')).toBe(0); expect(f.data.inventory.defaults?.name).toBe('fixture');
 });
+
+
+it('keeps existing custom route lifecycle actions in the everyday connection view', async () => {
+  const f = await providerFixture(); f.data.inventory.routes.push(route('custom'));
+  f.mount(<ProvidersSettings client={f.client} />); const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name: 'Manage custom', exact: true }));
+  expect(screen.queryByLabelText('Endpoint')).toBeNull();
+  await user.click(screen.getByRole('button', { name: /Connection options/ }));
+  expect(await screen.findByRole('menuitem', { name: 'Disable on this host' })).toBeTruthy();
+  expect(screen.getByRole('menuitem', { name: 'Disconnect provider' })).toBeTruthy();
+  await user.click(screen.getByRole('menuitem', { name: /Advanced configuration/ }));
+  expect(await screen.findByLabelText('Endpoint')).toBeTruthy();
+});

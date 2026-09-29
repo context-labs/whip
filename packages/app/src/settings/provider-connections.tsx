@@ -145,7 +145,7 @@ export function ProviderConnectionDialog({ client, entry, enabled, revision, hos
   const [base, setBase] = useState({ revision, route: entry.route });
   const [key, setKey] = useState('');
   const keyInput = useRef<HTMLInputElement>(null);
-  const [advanced, setAdvanced] = useState(!entry.preset);
+  const [advanced, setAdvanced] = useState(!entry.preset && !entry.route);
   const [showKey, setShowKey] = useState(!entry.route && !preferredCandidate(entry) && !entry.preset?.methods.some(method => method === 'login') && !!entry.preset?.methods.some(method => method === 'api_key'));
   const [discardDestination, setDiscardDestination] = useState<'back' | 'close'>('close');
   const publication = useRef<{ key: string; id: string } | null>(null);
