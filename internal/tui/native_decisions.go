@@ -136,7 +136,7 @@ func (m *nativeModel) applyDecisions(page *nativeDecisionPage) {
 	if m.decision != nil && !slices.ContainsFunc(m.decisions, func(value nativeDecision) bool { return value.id == m.decision.value.id }) {
 		m.decision = nil // Canonical settlement closes presentation, never answers it.
 	}
-	if m.decision == nil && !m.decisionsHidden && len(m.decisions) > 0 && strings.TrimSpace(m.input.Value()) == "" && !m.sending && !m.controlling {
+	if m.picker == nil && m.decision == nil && !m.decisionsHidden && len(m.decisions) > 0 && strings.TrimSpace(m.input.Value()) == "" && !m.sending && !m.controlling {
 		m.decision = newNativeDecision(m.decisions[0], m.width)
 	}
 }

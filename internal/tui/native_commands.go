@@ -13,6 +13,9 @@ import (
 )
 
 type nativeControlResult struct {
+	generation     uint64
+	attach         *protocol.Session
+	picker         *nativeSessionPicker
 	label          string
 	mutation       bool
 	owner          *protocol.Session
@@ -29,14 +32,16 @@ type nativeControlResult struct {
 func (m *nativeModel) control(label string, mutate bool, call func(context.Context) nativeControlResult) tea.Cmd {
 	m.controlling = true
 	m.input.Reset()
+	generation := m.generation
 	var command tea.Cmd
 	command = func() tea.Msg {
 		ctx, done, err := m.work.begin()
 		if err != nil {
-			return nativeControlResult{label: label, err: err}
+			return nativeControlResult{label: label, generation: generation, err: err}
 		}
 		defer done()
 		value := call(ctx)
+		value.generation = generation
 		if value.label == "" || value.err != nil {
 			value.label = label
 		}
@@ -133,6 +138,8 @@ func (m *nativeModel) command(text string) tea.Cmd {
 		return nil
 	}
 	switch name {
+	case "/resume", "/sessions":
+		return m.resumeSession(args)
 	case "/stop", "/start":
 		if args != "" {
 			m.status = "usage: " + name

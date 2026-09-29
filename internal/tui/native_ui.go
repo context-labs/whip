@@ -63,6 +63,9 @@ type nativeModel struct {
 	handle                          *client.Session
 	owner                           protocol.Session
 	observer                        *client.Observer
+	readCancel                      context.CancelFunc
+	picker                          *nativeSessionPicker
+	navigationRequest               uint64
 	history                         nativeTranscript
 	activity                        protocol.SessionActivity
 	usage                           protocol.Usage
@@ -120,8 +123,9 @@ type nativeSubmission struct {
 	uncertain bool
 }
 type nativeCancelled struct {
-	turn protocol.ID
-	err  error
+	generation uint64
+	turn       protocol.ID
+	err        error
 }
 
 func newNativeModel(ctx context.Context, c *client.Client, owner protocol.Session) (*nativeModel, error) {
@@ -146,15 +150,25 @@ func (m *nativeModel) read() tea.Cmd {
 		return nil
 	}
 	m.reading = true
+	readScope, readStop := context.WithCancel(m.work.ctx)
+	m.readCancel = readStop
 	observer, handle, generation, owner := m.observer, m.handle, m.generation, m.owner
 	evidence := m.polls%5 == 0
 	m.polls++
 	return func() tea.Msg {
+		defer readStop()
 		ctx, done, err := m.work.begin()
 		if err != nil {
 			return nativeRead{generation: generation, err: err}
 		}
 		defer done()
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		stop := context.AfterFunc(readScope, cancel)
+		defer stop()
+		if err := readScope.Err(); err != nil {
+			return nativeRead{generation: generation, err: err}
+		}
 		result := nativeRead{generation: generation, observer: observer}
 		if observer == nil || evidence {
 			owner, err := handle.Get(ctx)
@@ -225,6 +239,11 @@ func nativeTick() tea.Cmd {
 
 func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch value := message.(type) {
+	case nativeNavigationResult:
+		if value.request != m.navigationRequest {
+			return m, nil
+		}
+		return m.Update(value.value)
 	case tea.WindowSizeMsg:
 		m.width, m.height = max(value.Width, 8), max(value.Height, 4)
 		m.input.SetWidth(max(m.width-2, 1))
@@ -234,10 +253,10 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case nativePoll:
 		return m, m.read()
 	case nativeRead:
-		m.reading = false
 		if value.generation != m.generation {
 			return m, nativeTick()
 		}
+		m.reading = false
 		if value.err != nil {
 			m.ready = false
 			m.status = "Connection read failed: " + value.err.Error()
@@ -259,7 +278,7 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nativeTick()
 		}
 		m.ready, m.observer, m.activity = true, value.observer, value.activity
-		if value.owner != nil && value.owner.ConfigRevision >= m.owner.ConfigRevision {
+		if value.owner != nil && value.owner.ID == m.owner.ID && value.owner.ConfigRevision >= m.owner.ConfigRevision {
 			m.owner = *value.owner
 		}
 		m.history.output(value.output)
@@ -328,6 +347,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.refresh()
 		}
 	case nativeControlResult:
+		if value.generation != m.generation {
+			return m, nil
+		}
 		m.controlling = false
 		if value.mutation {
 			m.retryControl = nil
@@ -342,6 +364,16 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		} else {
 			m.status = value.label
+			if value.attach != nil {
+				if err := m.attachSession(*value.attach); err != nil {
+					m.status = "Session attachment failed: " + err.Error()
+					return m, nil
+				}
+				return m, m.read()
+			}
+			if value.picker != nil {
+				m.picker = value.picker
+			}
 			if value.decisionID != "" {
 				m.decision = nil
 				m.applyDecisions(&nativeDecisionPage{items: slices.DeleteFunc(m.decisions, func(item nativeDecision) bool { return item.id == value.decisionID })})
@@ -350,11 +382,11 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.notice = nativeBoundedNotice(value.notice)
 				m.refresh()
 			}
-			if value.owner != nil && value.owner.ConfigRevision >= m.owner.ConfigRevision {
+			if value.owner != nil && value.owner.ID == m.owner.ID && value.owner.ConfigRevision >= m.owner.ConfigRevision {
 				m.owner = *value.owner
 			}
 			if value.reset {
-				m.generation++
+				m.invalidateRead()
 				m.browseRequest++
 				m.browse, m.browsing = nil, false
 				m.history = nativeTranscript{owner: m.handle.ID()}
@@ -363,6 +395,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case nativeCancelled:
+		if value.generation != m.generation {
+			return m, nil
+		}
 		m.cancelling = false
 		if value.err != nil {
 			m.status = "Cancel " + string(value.turn) + ": " + value.err.Error()
@@ -370,6 +405,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "Cancellation requested for turn " + string(value.turn)
 		}
 	case tea.KeyPressMsg:
+		if m.picker != nil && value.String() != "ctrl+c" {
+			return m, m.pickerKey(value)
+		}
 		if m.decision != nil && value.String() != "ctrl+c" {
 			return m, m.decisionKey(value)
 		}
@@ -418,6 +456,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.follow = m.browse == nil && m.vp.AtBottom()
 		}
 	case tea.PasteMsg:
+		if m.picker != nil {
+			return m, nil
+		}
 		if m.decision != nil {
 			if m.decision.form != nil && m.decision.form.editing {
 				var cmd tea.Cmd
@@ -512,15 +553,15 @@ func (m *nativeModel) sendInput(command *client.InputCommand, action string) tea
 
 func (m *nativeModel) cancelTurn(id protocol.ID) tea.Cmd {
 	m.cancelling = true
-	handle := m.handle
+	handle, generation := m.handle, m.generation
 	return func() tea.Msg {
 		ctx, done, err := m.work.begin()
 		if err != nil {
-			return nativeCancelled{turn: id, err: err}
+			return nativeCancelled{generation: generation, turn: id, err: err}
 		}
 		defer done()
 		_, err = handle.CancelTurn(ctx, id)
-		return nativeCancelled{turn: id, err: err}
+		return nativeCancelled{generation: generation, turn: id, err: err}
 	}
 }
 
@@ -584,6 +625,11 @@ func (m *nativeModel) refresh() {
 }
 
 func (m *nativeModel) View() tea.View {
+	if m.picker != nil {
+		view := tea.NewView(m.picker.view(m.width, m.height) + "\n" + ansi.Truncate(nativeDisplayText(m.status), m.width, "…"))
+		view.AltScreen = true
+		return view
+	}
 	if m.decision != nil {
 		view := tea.NewView(m.decision.view(m.width, m.height) + "\n" + ansi.Truncate(nativeDisplayText(m.status), m.width, "…"))
 		view.AltScreen = true
