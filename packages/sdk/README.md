@@ -25,14 +25,93 @@ handshake, and `client.call(method, params)` uses generated v4 types and validat
 runtime ID, client ID, request ID, session ID and exact payload before submitting
 when the application needs crash recovery. Reuse that identity and payload on an
 uncertain retry. A `DeliveryError` cannot establish whether work was accepted;
-`recover(requestID)` reads its receipt. Reusing an identity with different input
+`recover(requestID)` reads identity/outcome evidence. Use a prepared command's
+`check()` to verify the original payload before treating an unacknowledged
+request as accepted. Reusing an identity with different input
 returns `RemoteError` with kind `CONFLICT`.
 
 `wait(requestID, {signal})` polls durable state until the input is cancelled,
 deleted, or its turn finishes. It returns failed/interrupted outcomes as data.
 Aborting the wait only stops observation; `inputs.cancel` or `turns.cancel`
 explicitly cancels execution. History uses bounded pages and exact decimal-string
-cursors. The client keeps no transcript cache or second execution state machine.
+cursors. The base client keeps no transcript cache. The optional SDK views below own
+bounded observation and reconciliation; applications subscribe to their snapshots.
+
+## Sessions, commands and views
+
+`client.session(id)` creates an inert handle with the same API for roots and
+children. Its scoped history, inputs, questions, permissions, operations, turns,
+mail, goals, schedules, content, budgets and resources services use the generated
+contracts. Constructing a handle never reads history or starts a worker.
+
+```ts
+import { DurableCommand, RecoveryJournal } from '@whip/sdk';
+import { SessionView, TreeCatalogView } from '@whip/sdk/state';
+
+const session = client.session(sessionID);
+const journal = new RecoveryJournal(recoveryStorage); // Explicit caller-owned storage.
+const command = session.submission([{ type: 'text', text: 'Explain this project' }],
+  crypto.randomUUID(), { journal });
+await command.send(); // The journal saves the exact request before transmission.
+const result = await command.wait({ signal }); // Abort stops this wait, not execution.
+await command.forget(); // Explicitly release a resolved recovery record.
+
+// After reopening, first read the exact original request's acceptance evidence.
+for (const record of await journal.list()) {
+  if (record.runtimeID !== client.runtimeID || record.clientID !== client.clientID) continue;
+  const recovered = DurableCommand.recover(client, record, { journal });
+  const check = await recovered.check();
+  // found: payload verified; missing: no receipt; identity_only/unavailable: unresolved.
+  // Retry only on explicit intent, through recovered.retry(), retaining the same request.
+}
+
+const transcript = new SessionView(session);
+const catalog = new TreeCatalogView(client);
+await Promise.all([transcript.start(), catalog.start()]);
+const unsubscribe = transcript.subscribe(() => render(transcript.getSnapshot()));
+await transcript.loadOlder(); // Exclusive cursor; never subtract sequence numbers.
+await transcript.latest();
+await transcript.suspend(); // Hidden/suspended client: join observation only.
+await transcript.resume();
+unsubscribe();
+await Promise.all([transcript.dispose(), catalog.dispose()]);
+```
+
+A journal defaults to64 records/8MiB, with a4MiB per-record ceiling. It refuses
+new sends at capacity and never evicts unresolved requests. Storage implementations
+must bound reads and durably replace individual keyed records; use a private
+namespace and one journal writer. Persisted requests contain user text. Local
+persistence failure after acknowledgement retains `accepted: true` and the
+acknowledgement in `RecoveryPersistenceError`. Account flows, terminal bytes and
+other ephemeral effects cannot be journaled. Neither recovery nor reconnection
+sends a request automatically.
+
+Ordinary input commands (submit, compact, spawn, goal formulate/resume and direct
+shell/tool actions) check the original payload through `receipts.match`; Go owns
+digest normalization. A conflicting request fails without transmission. Other
+receipt types may provide only identity evidence until acknowledgement, and some
+have no independent lookup. Those cases remain explicit rather than claiming
+acceptance from a matching ID alone.
+
+SessionView defaults to512 messages/8MiB and starts from the actual history tail.
+Its immutable snapshot distinguishes observation status from durable `activity`;
+a null activity value is unavailable, not idle. Oversized history yields explicit
+gaps. Loading older content stops following the tail until `latest()`; new work
+is indicated by `history.latestMissing`. History replacement and process-epoch
+changes discard incompatible pages/previews. TreeCatalogView uses the global
+catalog revision, keeps metadata only, and exposes bounded `loadMore()`/`next()`
+windows for off-page titles and membership. Apps retain drafts, selection and
+reading anchors without copying these snapshots into another state store.
+
+React consumers use `useSessionView(view)` and `useTreeCatalogView(view)` from
+`@whip/sdk/react`. These hooks only subscribe: the application owns shared leases,
+visibility, suspension, explicit reconnection and disposal.
+
+Queued work is independently discoverable through `session.inputs.page()` and
+owner-scoped `.get(inputID)`, including requests admitted by another client.
+`session.activity()` reports exact queue/decision counts and active execution
+permit ownership without loading a worker. Explicit input/turn cancellation is
+separate from closing a tab or aborting a local read.
 
 `sessions.history` returns `items` and an atomic `snapshot` containing
 `revision`, `through_sequence` and `message_count`. Keep that revision with the
@@ -906,7 +985,6 @@ An uncertain open can be inspected by listing. Input writes have no receipt;
 report uncertain delivery and never retry their bytes automatically. Reads use
 exact byte cursors with visible truncation; view disposal is independent of close.
 
-packaging and persistent executor browser support are separate increments.
 
 
 React consumers import `useSessionView` and `useTreeCatalogView` from

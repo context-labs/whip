@@ -960,13 +960,15 @@ This progress does not narrow Phases 5–7.
 
 ### Phase 6 — Complete SDK and client adoption
 
-Foundation available, milestone still pending: public root creation now requires
-stable caller identity with receipt/tombstone recovery before mutable host reads.
-A transactionally revisioned global tree catalog and bounded metadata pages
-support unopened/off-page title and membership refresh. SDK methods and a
-revision-checked bounded page iterator expose these contracts without a second
-cache or automatic replay. Product client reconciliation and adoption remain
-required below; this foundation alone does not complete Phase6.
+SDK services and views are implemented; product-client adoption and the milestone
+remain in progress. Roots and children use one inert session handle, bounded
+history/activity/input services, exact command recovery and SDK-owned immutable
+views. The global tree catalog revision refreshes unopened/off-page titles and
+membership; React subscriptions consume those same snapshots. SQL receipt
+matching verifies original input payloads before acceptance is inferred from a
+lost acknowledgement. Recovery storage has a fresh namespace and explicit
+count/byte limits. These SDK checks do not stand in for supported renderer,
+native bridge, CLI/TUI or ACP adoption below.
 
 
 Finish the uniform services and views, shared app, web gateway, desktop native
@@ -982,7 +984,7 @@ Acceptance:
 
 - [ ] Every supported client builds against the new generated contract and
       exercises submission, observation and explicit cancellation.
-- [ ] Uniform session handles/history/views work for roots and children. SDK
+- [x] Uniform session handles/history/views work for roots and children. SDK
       recovery distinguishes acceptance, outcome and local observation errors.
 - [ ] Snapshot/subscription handoff, dropped events, expired replay, restart and
       lost acknowledgement recover without duplicate work or presentation.

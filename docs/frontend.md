@@ -3057,3 +3057,38 @@ cleanup; explicit close terminates the terminal. Browser network-terminal policy
 comes from the runtime, not local UI state. Use browserDuplex with ExecutorClient
 for explicitly registered browser handlers and discard revoked lease state on
 connection loss. These handlers have no reconnect or automatic rebind policy.
+
+### V4 session services and reconstructible views
+
+The uniform `client.session(id)` handle works for roots and children; constructing
+it does no I/O. `@whip/sdk/state` owns SessionView and TreeCatalogView snapshots,
+subscriptions, bounded retention and reconciliation. `@whip/sdk/react` subscribes
+to those exact snapshots. App code owns view leases, drafts, tabs, selection and
+reading anchors; it must not copy the transcript into Query or another reducer.
+
+SessionView seeds from the actual history tail and uses exclusive revision-checked
+pages for older messages. Its byte/count limits produce explicit gaps for
+oversized messages, an older cursor and latest-missing state when reading a
+bounded older window. History replacement clears incompatible retained pages;
+process-epoch changes clear previews. Observation status is distinct from the
+SQL activity projection: lack of streaming text never implies execution stopped.
+Suspend/dispose joins observation and clears stale activity, without cancelling
+accepted work. Reconnect is explicit and preserves runtime identity.
+
+TreeCatalogView watches the global revision to refresh off-page titles and
+membership. Bounded next windows remain traversable at capacity; a changed
+revision replaces a traversal rather than combining generations. Queue controls
+use `session.inputs.page` for bounded metadata and `.get` for explicit full
+payload, including another client's input. Human decisions remain scoped to their
+actual session, including deep children.
+
+DurableCommand retains the exact authored method, payload and identity. The
+optional RecoveryJournal uses the fresh `whip.v4.commands` namespace and bounded
+caller-owned storage; overflow rejects before sending and unresolved records
+are never evicted automatically. Checking, retrying, waiting and forgetting are
+separate explicit actions. A local persistence failure after host acknowledgement
+retains acceptance evidence. Identity-only receipts cannot prove payload equality;
+use `receipts.match` where supported before treating a recovered input as accepted.
+Account flows, terminal bytes and other transient effects are outside this journal.
+Product renderer migration remains in progress; these APIs replace the retained
+SDK boundary when each supported client is cut over.
