@@ -138,6 +138,14 @@ func (m *nativeModel) command(text string) tea.Cmd {
 		return m.standing(args)
 	case "/memory":
 		return m.memory(args)
+	case "/agents":
+		return m.agentsCommand(args)
+	case "/dock", "/sidebar":
+		if args != "" {
+			m.status = "usage: " + name
+			return nil
+		}
+		return m.layoutCommand(strings.TrimPrefix(name, "/"))
 	case "/mcp":
 		return m.mcpCommand(args)
 	case "/lsp":

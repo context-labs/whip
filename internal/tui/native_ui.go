@@ -59,6 +59,10 @@ func (w *nativeWork) close() { w.mu.Lock(); w.closed = true; w.stop(); w.mu.Unlo
 // nativeModel is the native chat composition. Commands and menus are added
 // directly over typed host operations; it does not adapt retired RootActions.
 type nativeModel struct {
+	agents                          *nativeAgentTree
+	agentSelection                  protocol.ID
+	agentsFocus, dock               bool
+	drafts                          map[protocol.ID]string
 	work                            nativeWork
 	connection                      *client.Client
 	handle                          *client.Session
@@ -110,6 +114,7 @@ type nativeModel struct {
 type (
 	nativePoll struct{}
 	nativeRead struct {
+		agents        *nativeAgentTree
 		generation    uint64
 		owner         *protocol.Session
 		activity      protocol.SessionActivity
@@ -169,6 +174,7 @@ func (m *nativeModel) read() tea.Cmd {
 	m.readCancel = readStop
 	observer, handle, generation, owner := m.observer, m.handle, m.generation, m.owner
 	evidence := m.polls%5 == 0
+	agentsVisible, selectedAgent := m.agentsVisible(), m.agentSelection
 	m.polls++
 	return func() tea.Msg {
 		defer readStop()
@@ -237,6 +243,10 @@ func (m *nativeModel) read() tea.Cmd {
 			} else {
 				result.evidenceError = errors.Join(result.evidenceError, err)
 			}
+			if agentsVisible {
+				result.agents, err = readNativeAgents(ctx, m.connection, owner, selectedAgent)
+				result.evidenceError = errors.Join(result.evidenceError, err)
+			}
 			value, err := handle.ContextUsage(ctx)
 			if err == nil {
 				result.context = &value
@@ -264,7 +274,6 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m.Update(value.value)
 	case tea.WindowSizeMsg:
 		m.width, m.height = max(value.Width, 8), max(value.Height, 4)
-		m.input.SetWidth(max(m.width-2, 1))
 		m.refresh()
 	case nativeBrowseResult:
 		m.applyBrowse(value)
@@ -312,6 +321,13 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if value.evidenceError != nil {
 			m.status = "Some live evidence is unavailable: " + value.evidenceError.Error()
+		}
+		if value.agents != nil && value.agents.tree == m.owner.TreeID {
+			m.agents = value.agents
+			if m.agentSelection == "" {
+				m.agentSelection = m.owner.ID
+			}
+			renderChanged = true
 		}
 		if value.decisions != nil {
 			m.applyDecisions(value.decisions)
@@ -472,6 +488,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.decision = newNativeDecision(m.decisions[0], m.width)
 			}
 			return m, nil
+		}
+		if command, handled := m.agentKey(value); handled {
+			return m, command
 		}
 		switch value.String() {
 		case "ctrl+c":
@@ -659,9 +678,11 @@ func (m *nativeModel) cancelTurn(id protocol.ID) tea.Cmd {
 }
 
 func (m *nativeModel) refresh() {
+	width := m.transcriptWidth()
+	m.input.SetWidth(max(width-2, 1))
 	var rows []string
 	appendText := func(text string) {
-		rows = append(rows, nativePlainRows(text, max(m.width-2, 1), false)...)
+		rows = append(rows, nativePlainRows(text, max(width-2, 1), false)...)
 	}
 	v := &m.history
 	if m.browse != nil {
@@ -670,7 +691,7 @@ func (m *nativeModel) refresh() {
 	} else if v.earlier {
 		rows = append(rows, "Older messages: /older or Page Up at the top.", "")
 	}
-	m.renderCache.prepare(v.messages, max(m.width-2, 1), m.expandTools)
+	m.renderCache.prepare(v.messages, max(width-2, 1), m.expandTools)
 	size := nativeRowBytes(rows)
 	for _, message := range v.messages {
 		block := m.renderCache.message(message)
@@ -690,7 +711,7 @@ func (m *nativeModel) refresh() {
 			}
 			rows = append(rows, "assistant · provisional")
 			text, cut := nativeTextPrefix(p.Text, nativeRenderInput)
-			rows = append(rows, strings.Split(nativeMarkdown(text, max(m.width-2, 1)), "\n")...)
+			rows = append(rows, strings.Split(nativeMarkdown(text, max(width-2, 1)), "\n")...)
 			if p.Truncated || cut {
 				rows = append(rows, "Preview truncated; committed content will replace it.")
 			}
@@ -709,8 +730,8 @@ func (m *nativeModel) refresh() {
 	}
 	m.rows = boundNativeRows(rows, nativeRenderBytes, nativeRenderRows)
 	m.vp.rows = func(y int) string { return m.rows[y] }
-	m.vp.SetWidth(m.width)
-	m.vp.SetHeight(max(m.height-m.input.Height()-4, 1))
+	m.vp.SetWidth(width)
+	m.vp.SetHeight(max(m.height-m.input.Height()-4-m.dockHeight(), 1))
 	m.vp.setTotal(len(m.rows))
 	if m.follow && m.browse == nil {
 		m.vp.GotoBottom()
@@ -738,7 +759,13 @@ func (m *nativeModel) View() tea.View {
 		state = m.activity.ActiveTurn.State
 	}
 	footer := fmt.Sprintf("%s · queued %d · permissions %d · questions %d", state, m.activity.QueuedInputCount, m.activity.PendingPermissionCount, m.activity.PendingQuestionCount)
-	view := tea.NewView(m.vp.View() + "\n" + ansi.Truncate(nativeDisplayText(m.status), m.width, "…") + "\n" + m.input.View() + "\n" + ansi.Truncate(nativeContextLabel(m.contextUsage), m.width, "…") + "\n" + ansi.Truncate(footer, m.width, "…"))
+	width := m.transcriptWidth()
+	main := m.vp.View() + "\n" + ansi.Truncate(nativeDisplayText(m.status), width, "…") + "\n" + m.input.View()
+	if height := m.dockHeight(); height > 0 {
+		main += "\n" + nativeFixedRows("Agents · Ctrl+T focuses\n"+m.agentRows(width, height-1), width, height)
+	}
+	main += "\n" + ansi.Truncate(nativeContextLabel(m.contextUsage), width, "…") + "\n" + ansi.Truncate(footer, width, "…")
+	view := tea.NewView(m.layoutFrame(main))
 	view.AltScreen = true
 	if nativePreferenceLabel(m.preferences.Mouse, true) == "on" {
 		view.MouseMode = tea.MouseModeCellMotion

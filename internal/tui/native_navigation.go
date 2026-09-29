@@ -27,7 +27,11 @@ type nativeNavigationResult struct {
 func (m *nativeModel) navigationRead(label string, call func(context.Context) nativeControlResult) tea.Cmd {
 	m.navigationRequest++
 	request := m.navigationRequest
+	draft := m.input.Value()
 	command := m.control(label, false, call)
+	if !strings.HasPrefix(strings.TrimSpace(draft), "/") {
+		m.input.SetValue(draft)
+	}
 	return func() tea.Msg {
 		return nativeNavigationResult{request: request, value: command().(nativeControlResult)}
 	}
@@ -156,9 +160,17 @@ func (m *nativeModel) attachSession(owner protocol.Session) error {
 			return err
 		}
 	}
+	draft, err := m.switchDraft(owner.ID)
+	if err != nil {
+		return err
+	}
 	m.closeMenu()
 	m.invalidateRead()
 	m.navigationRequest++
+	if m.owner.TreeID != owner.TreeID {
+		m.agents = nil
+		m.agentSelection = owner.ID
+	}
 	m.handle, m.owner = handle, owner
 	m.permissionPolicy = nil
 	m.uncertain, m.recoveryCheck = retained, retained != nil
@@ -172,7 +184,7 @@ func (m *nativeModel) attachSession(owner protocol.Session) error {
 	m.picker, m.decision, m.hiddenDecision = nil, nil, nil
 	m.decisions, m.decisionsHidden = nil, false
 	m.notice, m.noteRevisions = "", [2]string{}
-	m.input.Reset()
+	m.input.SetValue(draft)
 	m.initialPrompt = ""
 	m.polls = 0
 	m.status = "Attached to " + string(owner.ID) + ". Other host work continues."
