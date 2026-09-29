@@ -193,9 +193,16 @@ export async function exerciseDesktopTransfer({ host, fixture, client, metrics, 
     data.writeUInt16LE(1, 26); data.writeUInt16LE(32, 28); data.writeUInt32LE(pixels, 34);
     return data;
   };
+  // Real owned files exercise the native file chooser. Buffer payloads make
+  // Playwright manufacture Files via a large renderer-side base64 conversion,
+  // which would measure test-driver CPU and memory as application upload cost.
+  const inputDirectory = join(directory, 'transfer-inputs');
+  await mkdir(inputDirectory, { mode: 0o700 });
   const oversized = bitmap(2048, 1024, 0x7f);
+  const oversizedPath = join(inputDirectory, 'oversized.bmp');
+  await writeFile(oversizedPath, oversized);
   const beforeRejected = (await host.traffic()).requestCounts['content.put'] ?? 0;
-  await page.locator('input[type=file]').setInputFiles({ name: 'oversized.bmp', mimeType: 'image/bmp', buffer: oversized });
+  await page.locator('input[type=file]').setInputFiles(oversizedPath);
   const rejected = page.locator('[data-error-type=resource]').filter({ hasText: 'oversized.bmp could not upload' });
   await rejected.locator('summary').click();
   await rejected.getByText('Attachments are limited to 4 MiB per file.', { exact: true }).waitFor();
@@ -203,10 +210,11 @@ export async function exerciseDesktopTransfer({ host, fixture, client, metrics, 
   await page.getByRole('button', { name: 'Remove oversized.bmp', exact: true }).click();
   const files = Array.from({ length: 3 }, (_, index) => ({ name: `desktop-performance-${index}.bmp`,
     mimeType: 'image/bmp', buffer: bitmap(1024, 768, 0x70 + index) }));
+  const inputPaths = await Promise.all(files.map(async file => { const path = join(inputDirectory, file.name); await writeFile(path, file.buffer); return path; }));
   const uploads = files.map(file => ({ name: file.name, bytes: file.buffer.length,
     digest: createHash('sha256').update(file.buffer).digest('hex') }));
   const samples = [];
-  metrics.desktopTransfer = { rejectedSingleFileBytes: oversized.length,
+  metrics.desktopTransfer = { inputBoundary: 'Native file input over actual files in the disposable fixture; no Playwright buffer-to-File injection.', rejectedSingleFileBytes: oversized.length,
     uploadedBytes: uploads.reduce((sum, item) => sum + item.bytes, 0), uploads, memorySamples: samples };
   assert(metrics.desktopTransfer.uploadedBytes > 8 << 20);
   const capture = phase => host.processMemory(phase).then(sample => {
@@ -220,7 +228,7 @@ export async function exerciseDesktopTransfer({ host, fixture, client, metrics, 
   let uploadMs, downloadMs, scheduleID;
   const typing = [], session = client.session(fixture.history.root_id);
   try {
-    const upload = page.locator('input[type=file]').setInputFiles(files)
+    const upload = page.locator('input[type=file]').setInputFiles(inputPaths)
       .then(() => eventually(async () => {
         const handles = await page.evaluate(() => window.__performanceContentHandles);
         return uploads.every(item => handles.some(handle => handle.digest === item.digest && handle.size === String(item.bytes)));
