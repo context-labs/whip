@@ -5651,3 +5651,20 @@ of the normal performance gate. No new performance result or target pass is
 claimed until a quiet run of the corrected workload. Final-head comprehensive
 checks and separate platform/live requirements remain mandatory; Phases 5–7
 are not complete.
+
+The hosted slash-selection failure is a product race: completion's delayed
+animation-frame caret update can collapse a newer select-all range before text
+replacement, appending instead of replacing. Restoring the caret in the controlled
+value's layout commit preserves the existing owner/value/focus checks and later
+user selection. Four regressions fail against the old source; 71 focused checks,
+all 14 unchanged workflows in both browsers, and final integrated app types and
+1,386 tests across 114 files pass (`a4400d3e1`, integrated as `c62394b73`).
+
+The two hosted SSH failures have a distinct fixture cause. OpenSSH prefixes a
+ProxyCommand with `exec`; the fixture also supplied it, which local zsh accepted
+but Bash rejected with `exec: exec: not found`. Explicit Bash reproduction fails
+in 0.14s. Removing only the fixture's extra prefix, using its own `/bin/sh`, and
+joining/reporting bounded failed-child output passes all SSH race/coverage checks
+(5.862s) and the exact hosted integration family and failing shuffle seed
+(23.767s), plus vet and pinned lint 0. Production SSH and all deadlines/assertions
+are unchanged. A fresh hosted Linux/macOS pass is still required.
