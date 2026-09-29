@@ -113,7 +113,7 @@ func (m *nativeModel) validateSelection() {
 
 func (m *nativeModel) selectionMouse(message tea.MouseMsg) (tea.Cmd, bool) {
 	mouse := message.Mouse()
-	if m.menu != nil || m.picker != nil || m.decision != nil || m.palette != nil || m.completion != nil || nativePreferenceLabel(m.preferences.Mouse, true) == "off" || mouse.Mod&tea.ModShift != 0 {
+	if m.historyDialog != nil || m.menu != nil || m.picker != nil || m.decision != nil || m.palette != nil || m.completion != nil || nativePreferenceLabel(m.preferences.Mouse, true) == "off" || mouse.Mod&tea.ModShift != 0 {
 		m.selection = nil
 		return nil, true
 	}

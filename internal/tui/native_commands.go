@@ -14,6 +14,7 @@ import (
 )
 
 type nativeControlResult struct {
+	redraft        *nativeRedraft
 	input          *client.InputCommand
 	generation     uint64
 	attach         *protocol.Session
@@ -58,6 +59,11 @@ func (m *nativeModel) control(label string, mutate bool, call func(context.Conte
 }
 
 func (m *nativeModel) command(text string) tea.Cmd {
+	defer func() {
+		if m.input.Value() == "" {
+			m.draftDesign = nil
+		}
+	}()
 	fields := strings.Fields(text)
 	if len(fields) == 0 {
 		return nil
@@ -69,6 +75,8 @@ func (m *nativeModel) command(text string) tea.Cmd {
 		return nil
 	}
 	switch name {
+	case "/redraft":
+		return m.redraftCommand(args)
 	case "/copy":
 		return m.copyCommand(args)
 	case "/attach":

@@ -22,10 +22,10 @@ const nativeHelp = `Native terminal commands
 
 Conversation: /sessions · /resume <owner> · /rename <title> · /status
 History: /older · /newer · /latest · /export [local path] · /copy [last|repl]
-Edits: /stop · /start · /clear · /rewind <sequence> · /fork <title> · /fork-at <sequence> <title>
+Edits: /stop · /start · /clear · /rewind [sequence] · /fork <title> · /fork-at <sequence> <title>
 Input: /queue <text> · /steer <text> · !<shell command>
 Images: /attach <client-local path> · /attach clipboard|check|retry|discard · Ctrl+V reads a clipboard image
-Recovery: /check · /retry · /rejected restore|discard
+Recovery: /check · /retry · /rejected restore|discard · /redraft restore|replace|discard|clear-context
 Configuration: /model · /model-for-session · /effort [level|default] · /setup · /settings · /theme
 Context: /context-doctor [attempt ID] · /compact · /compact log|retry|off|model <model>|provider <provider>
 Goals: /goal [text|status|resume|clear] · /goal-from-context [2..100]
@@ -47,8 +47,8 @@ Paste collapse is opt-in in /settings; original text is restored before sending.
 Commands act on the displayed owner. Export writes a private local file. Direct shell uses the host's normal permission and receipt path.`
 
 func (m *nativeModel) directShell(command string) tea.Cmd {
-	if len(m.liveImages(command)) > 0 || m.attachmentBusy || m.attachment != nil {
-		m.status = "Direct shell does not accept image attachments; remove the chips or submit them as a prompt."
+	if m.draftDesign != nil || len(m.liveImages(command)) > 0 || m.attachmentBusy || m.attachment != nil {
+		m.status = "Direct shell does not accept attached content or design context; remove those references or submit them as a prompt."
 		return nil
 	}
 	command, err := m.expandPastes(command)

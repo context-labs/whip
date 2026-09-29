@@ -97,11 +97,11 @@ func (p *nativeCommandPalette) view(width, height int) string {
 
 func (m *nativeModel) commandKeepingDraft(command string) tea.Cmd {
 	draft := m.input.Value()
-	pastes, images := m.pastes, m.images
+	pastes, images, design := m.pastes, m.images, m.draftDesign
 	result := m.command(command)
 	if draft != "" && !strings.HasPrefix(strings.TrimSpace(draft), "/") {
 		m.input.SetValue(draft)
-		m.pastes, m.images = pastes, images
+		m.pastes, m.images, m.draftDesign = pastes, images, design
 		m.sizeInput()
 	}
 	return result

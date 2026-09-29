@@ -125,8 +125,8 @@ func (m *nativeModel) goalCommand(name, args string) tea.Cmd {
 }
 
 func (m *nativeModel) nativeAdmissionAvailable() bool {
-	if m.uncertain != nil || m.rejected != nil || m.retryControl != nil || m.standingDraft != nil || m.sending || m.controlling {
-		m.status = "Resolve the original pending input, control, or standing draft before another action."
+	if m.uncertain != nil || m.rejected != nil || m.redraft != nil || m.retryControl != nil || m.standingDraft != nil || m.sending || m.controlling {
+		m.status = "Resolve the original pending input, staged redraft, control, or standing draft before another action."
 		return false
 	}
 	return true

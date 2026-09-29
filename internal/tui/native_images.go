@@ -203,6 +203,10 @@ func (m *nativeModel) imageUploaded(value nativeImageUploaded) {
 }
 
 func (m *nativeModel) addImage(reference protocol.ContentReference, name string) {
+	m.addContentChip(reference, name, "Image")
+}
+
+func (m *nativeModel) addContentChip(reference protocol.ContentReference, name, kind string) {
 	m.images = m.liveImages(m.input.Value())
 	if m.images == nil {
 		m.images = map[string]nativeImage{}
@@ -213,7 +217,7 @@ func (m *nativeModel) addImage(reference protocol.ContentReference, name string)
 		name = strings.NewReplacer("[", "(", "]", ")", "\n", " ").Replace(nativeDisplayText(name))
 		label = ": " + ansi.Truncate(name, 24, "…")
 	}
-	chip := fmt.Sprintf("[Image %d%s\u200b]", m.imageSequence, label)
+	chip := fmt.Sprintf("[%s %d%s\u200b]", kind, m.imageSequence, label)
 	m.images[chip] = nativeImage{reference: reference}
 	m.input.InsertString(chip)
 }
@@ -282,7 +286,7 @@ func (m *nativeModel) restoreParts(parts []protocol.Part) bool {
 		if part.Type == "text" {
 			draft.pasteText(part.Text)
 		} else {
-			draft.addImage(protocol.ContentReference{ID: part.ReferenceID, SessionID: m.owner.ID}, "restored attachment")
+			draft.addContentChip(protocol.ContentReference{ID: part.ReferenceID, SessionID: m.owner.ID}, "restored", "Attachment")
 		}
 	}
 	actual, err := draft.promptParts(draft.input.Value())
@@ -295,6 +299,7 @@ func (m *nativeModel) restoreParts(parts []protocol.Part) bool {
 		}
 	}
 	m.input, m.images, m.pastes = draft.input, draft.images, draft.pastes
+	m.draftDesign = nil
 	m.imageSequence, m.pasteSequence = draft.imageSequence, draft.pasteSequence
 	m.sizeInput()
 	return true

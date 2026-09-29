@@ -42,8 +42,8 @@ func (m *nativeModel) navigationAllowed() bool {
 		m.status = "Resolve the image upload before switching its owner."
 		return false
 	}
-	if m.uncertain != nil || m.rejected != nil || m.retryControl != nil || m.standingDraft != nil || m.sending || m.controlling {
-		m.status = "Resolve the pending input, control, or standing draft before switching sessions."
+	if m.uncertain != nil || m.rejected != nil || m.redraft != nil || m.retryControl != nil || m.standingDraft != nil || m.sending || m.controlling {
+		m.status = "Resolve the pending input, staged redraft, control, or standing draft before switching sessions."
 		return false
 	}
 	return true
@@ -195,11 +195,13 @@ func (m *nativeModel) attachSession(owner protocol.Session) error {
 	m.renderCache = nativeRenderCache{}
 	m.picker, m.decision, m.hiddenDecision = nil, nil, nil
 	m.palette = nil
+	m.historyDialog = nil
 	m.decisions, m.decisionsHidden = nil, false
 	m.notice, m.noteRevisions = "", [2]string{}
 	m.input.SetValue(draft.text)
 	m.pastes = draft.pastes
 	m.images = draft.images
+	m.draftDesign = draft.design
 	m.initialPrompt = ""
 	m.polls = 0
 	m.status = "Attached to " + string(owner.ID) + ". Other host work continues."
