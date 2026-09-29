@@ -1,5 +1,5 @@
 import { assertValid } from '@whip/protocol';
-import type { ContentReference, Input, Operations } from '@whip/protocol';
+import type { CapturedText, ContentReference, Input, ModelInspection, Operations } from '@whip/protocol';
 import type { Client } from './index.js';
 import type { RecoveryJournal } from './command.js';
 import type { CallOptions } from './wire.js';
@@ -214,6 +214,44 @@ export class Session {
     options.signal?.throwIfAborted();
     if (digest !== actual.digest) throw new TypeError('Content digest mismatch');
     return { result, data };
+  }
+  readonly models = {
+    inspection: async (attemptID: string, options: CallOptions = {}) => {
+      const value = await this.client.call('models.inspection', { session_id: this.id, attempt_id: attemptID }, options);
+      if (value.session_id !== this.id || value.attempt_id !== attemptID || value.capture && value.capture.request_digest !== value.request_digest || value.compaction && (value.compaction.session_id !== this.id || value.compaction.attempt_id !== attemptID || value.compaction.turn_id !== value.turn_id)) throw new TypeError('Model inspection identity mismatch');
+      if (value.capture && [value.capture.instructions, value.capture.notices].reduce((sum, body) => sum + (body.status === 'available' ? BigInt(body.bytes) : 0n), 0n) > 16n * 1024n * 1024n) throw new TypeError('Captured text total exceeds limit');
+      if (value.capture) for (const body of [value.capture.instructions, value.capture.notices]) this.checkCapturedText(body);
+      return value;
+    },
+    readCompaction: async (inspection: ModelInspection, options: CallOptions = {}) => {
+      assertValid('ModelInspection', inspection);
+      const expected = inspection.compaction;
+      if (inspection.session_id !== this.id || !expected || expected.session_id !== this.id || expected.attempt_id !== inspection.attempt_id || expected.turn_id !== inspection.turn_id) throw new TypeError('Compaction inspection identity mismatch');
+      const result = await this.client.call('context.compaction', { session_id: this.id, compaction_id: expected.id }, options);
+      if (result.metadata.id !== expected.id || result.metadata.session_id !== this.id || result.metadata.attempt_id !== expected.attempt_id || result.metadata.turn_id !== expected.turn_id || result.metadata.through_sequence !== expected.through_sequence || result.metadata.text_bytes !== expected.text_bytes || new TextEncoder().encode(result.text).length !== Number(expected.text_bytes) || BigInt(expected.text_bytes) > 65536n) throw new TypeError('Compaction body identity or size mismatch');
+      return result;
+    },
+    /** Explicit bounded read of exact captured UTF-8; never reconstructs history. */
+    readText: async (body: CapturedText, options: CallOptions & { maxBytes?: number } = {}) => {
+      body = structuredClone(body);
+      this.checkCapturedText(body);
+      const { maxBytes = 1 << 20, ...callOptions } = options;
+      if (!Number.isSafeInteger(maxBytes) || maxBytes < 0 || maxBytes > (16 << 20)) throw new RangeError('Captured text limit must be within 0..16 MiB');
+      if (body.status !== 'available') throw new Error(`Captured text unavailable: ${body.status}`);
+      if (BigInt(body.bytes) > BigInt(maxBytes)) throw new RangeError('Captured text exceeds read limit');
+      const data = new Uint8Array(Number(body.bytes));
+      let offset = 0;
+      for (const chunk of body.chunks) { const piece = await this.content.readBytes(chunk, { ...callOptions, maxBytes: 4 << 20 }); data.set(piece, offset); offset += piece.length; }
+      const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', data))].map(value => value.toString(16).padStart(2, '0')).join('');
+      options.signal?.throwIfAborted();
+      if (digest !== body.digest) throw new TypeError('Captured text digest mismatch');
+      return new TextDecoder('utf-8', { fatal: true }).decode(data);
+    },
+  };
+  private checkCapturedText(body: CapturedText) {
+    assertValid('CapturedText', body);
+    if (body.status !== 'available' && body.chunks.length || body.status === 'available' && (BigInt(body.bytes) > 16n * 1024n * 1024n || body.chunks.reduce((sum, chunk) => sum + BigInt(chunk.size), 0n) !== BigInt(body.bytes))) throw new TypeError('Captured text bounds mismatch');
+    for (const chunk of body.chunks) if (chunk.session_id !== this.id || chunk.media_type !== 'text/plain' || chunk.id !== `model_${chunk.digest}`) throw new TypeError('Captured text owner or reference mismatch');
   }
   async usage(options: CallOptions = {}) {
     const result = await this.client.call('usage.get', { session_id: this.id }, options);

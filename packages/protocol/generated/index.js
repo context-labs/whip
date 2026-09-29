@@ -75,6 +75,11 @@ export const manifest = {
       "result": "BrowserTabsResult"
     },
     {
+      "name": "models.inspection",
+      "params": "ModelInspectionParams",
+      "result": "ModelInspection"
+    },
+    {
       "name": "trace.page",
       "params": "TracePageParams",
       "result": "TracePageResult"

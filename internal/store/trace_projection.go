@@ -133,6 +133,15 @@ func (p *traceProjector) attempt(ctx context.Context, row session.TraceRow, span
 	traceText(span, "whip.logical_id", logical)
 	traceText(span, "whip.cost.source", costSource)
 	traceFlag(span, "whip.input.body_available", false)
+	var instructions, notices, compaction *string
+	var through *int64
+	if err := p.q.QueryRowContext(ctx, `SELECT json_extract(c.capture,'$.instructions.status'),json_extract(c.capture,'$.notices.status'),f.id,f.through_sequence FROM model_attempts a LEFT JOIN model_captures c ON c.attempt_id=a.id LEFT JOIN compactions f ON f.attempt_id=a.id WHERE a.id=?`, row.SourceID).Scan(&instructions, &notices, &compaction, &through); err != nil {
+		return err
+	}
+	traceOptional(span, "whip.instructions.status", instructions)
+	traceOptional(span, "whip.notices.status", notices)
+	traceOptional(span, "whip.compaction.id", compaction)
+	traceCount(span, "whip.compaction.through_sequence", through)
 	traceOptional(span, "whip.output.message_id", output)
 	traceOptional(span, "error.preview", failure)
 	traceCount(span, "gen_ai.usage.input_tokens", input)

@@ -56,7 +56,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return dispatchReceiptMatch(ctx, r, raw)
 	case "workspace.inspect", "workspace.set", "run.configure":
 		return dispatchControls(ctx, r, method, raw)
-	case "trace.page", "trace.export":
+	case "models.inspection", "trace.page", "trace.export":
 		return dispatchTrace(ctx, r, method, raw)
 	case "workspace.complete", "host.attention", "host.directories.list", "host.directory.pick", "host.skills.complete", "host.themes.list", "host.themes.resolve":
 		return dispatchHostViews(ctx, r, method, raw)

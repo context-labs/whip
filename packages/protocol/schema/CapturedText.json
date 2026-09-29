@@ -1,0 +1,74 @@
+{
+  "type": "object",
+  "properties": {
+    "digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "bytes": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "available",
+        "oversized",
+        "quota",
+        "storage_error"
+      ]
+    },
+    "chunks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "session_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "size": {
+            "type": "string",
+            "pattern": "^(0|[1-9][0-9]{0,18})$",
+            "format": "counter"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "session_id",
+          "digest",
+          "size",
+          "media_type",
+          "created_at"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 4
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/CapturedText",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CapturedText",
+  "required": [
+    "digest",
+    "bytes",
+    "status",
+    "chunks"
+  ],
+  "additionalProperties": false
+}

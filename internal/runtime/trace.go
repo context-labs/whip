@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -25,7 +26,8 @@ type TraceExport struct {
 
 // ExportTrace materializes a complete fixed-revision OTLP body into the existing
 // owner-scoped content store. It does not transmit it or automatically retry a
-// conflicted read. Canonical request snapshots contain no historical input bodies.
+// conflicted read. Captured instructions are labeled separately from the full
+// provider input, which can contain private state and is never reconstructed.
 func (r *Runtime) ExportTrace(ctx context.Context, root session.SessionID, traceID string, expected *int64) (TraceExport, error) {
 	var result TraceExport
 	query := session.TraceQuery{RootID: root, TraceID: traceID, ExpectedRevision: expected, Limit: 2048, MaxBytes: 512 << 10}
@@ -59,6 +61,39 @@ func (r *Runtime) ExportTrace(ctx context.Context, root session.SessionID, trace
 				input, output, err = r.store.TraceBodies(ctx, row, result.Revision)
 				if err != nil {
 					return result, err
+				}
+			}
+			if row.Span != nil && row.SourceKind == "attempt" {
+				evidence, err := r.ModelInspection(ctx, row.SessionID, session.ModelAttemptID(row.SourceID))
+				if err != nil {
+					return result, err
+				}
+				if capture := evidence.Capture; capture != nil {
+					if capture.Instructions.Status == "available" && capture.Notices.Status == "available" {
+						if capture.Instructions.Bytes+capture.Notices.Bytes > 1<<20 {
+							return result, fmt.Errorf("%w: captured instructions exceed 1 MiB export limit", store.ErrLimit)
+						}
+						instructions, err := r.readCapturedText(ctx, row.SessionID, capture.Instructions, 1<<20)
+						if err != nil {
+							return result, err
+						}
+						notices, err := r.readCapturedText(ctx, row.SessionID, capture.Notices, 1<<20)
+						if err != nil {
+							return result, err
+						}
+						raw, err := json.Marshal(struct {
+							Scope        string `json:"scope"`
+							Instructions string `json:"instructions"`
+							Notices      string `json:"notices"`
+						}{"captured_instructions_only", instructions, notices})
+						if err != nil {
+							return result, err
+						}
+						if len(raw) > 1<<20 {
+							return result, fmt.Errorf("%w: captured instruction JSON exceeds 1 MiB export limit", store.ErrLimit)
+						}
+						input = new(string(raw))
+					}
 				}
 			}
 			if err := export.Add(row, input, output); err != nil {

@@ -144,16 +144,18 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 		}
 		final := configuration.Run != nil && configuration.Run.MaxTurns > 0 && round > configuration.Run.MaxTurns
 		request.Instructions = baseInstructions
+		request.Notices = ""
 		if notices, ok := r.executor.(interface{ TurnNotices(session.Turn) string }); ok {
 			if text := notices.TurnNotices(turn); text != "" {
-				request.Instructions += "\n\n--- Hook notices ---\n" + text
+				request.Notices += "\n\n--- Hook notices ---\n" + text
 			}
 		}
 		if final {
 			request.Tools = nil
 			request.Purpose = "final"
-			request.Instructions += "\n\nYou have reached the tool-call limit. Do not request any more tools. Give your final answer using only what you have already gathered."
+			request.Notices += "\n\nYou have reached the tool-call limit. Do not request any more tools. Give your final answer using only what you have already gathered."
 		}
+		request.Instructions += request.Notices
 		if r.mail != nil {
 			messages, err := r.mail.ObserveSteers(ctx, turn.ID)
 			if err != nil {
@@ -377,7 +379,7 @@ func (r *Runner) settleResult(parent context.Context, id session.ModelAttemptID,
 }
 
 func (r *Runner) complete(ctx context.Context, turn session.Turn, request model.Request, logicalID string, target *helperTarget) (attemptOutcome, error) {
-	prepared, err := r.provider.Prepare(ctx, request)
+	prepared, err := r.prepare(ctx, request)
 	if err != nil {
 		return attemptOutcome{failure: err}, nil //nolint:nilerr // Preparation failure is a turn outcome; no dispatched evidence needs settlement.
 	}
@@ -429,6 +431,10 @@ func (r *Runner) completePrepared(ctx context.Context, turn session.Turn, prepar
 			if err := validatePrepared(next); err != nil {
 				return attemptOutcome{failure: err}, nil //nolint:nilerr // Invalid refreshed preparation cannot dispatch.
 			}
+			if next.Snapshot.RequestDigest != prepared.Snapshot.RequestDigest {
+				return attemptOutcome{}, errors.New("credential refresh changed the prepared request")
+			}
+			next.Capture = prepared.Capture
 			prepared = next
 			continue
 		}
@@ -476,6 +482,17 @@ func (r *Runner) attempt(ctx context.Context, turn session.Turn, prepared model.
 	spec := session.ModelAttemptSpec{ID: id, TurnID: turn.ID, LogicalID: logicalID, Number: number, Request: prepared.Snapshot}
 	if target.stateless() {
 		spec.OperationID, spec.BatchIndex = &target.operationID, &target.index
+	}
+	if prepared.Capture != nil {
+		if publisher, ok := r.content.(interface {
+			PublishModelCapture(context.Context, session.SessionID, session.ModelCapture) (session.ModelCapture, error)
+		}); ok {
+			capture, err := publisher.PublishModelCapture(ctx, turn.SessionID, *prepared.Capture)
+			if err != nil {
+				return attemptOutcome{}, err
+			}
+			spec.Capture = &capture
+		}
 	}
 	attempt, err := r.attempts.ReserveModelAttempt(ctx, spec)
 	if err != nil {

@@ -695,6 +695,104 @@ export interface CallHostToolParams {
     arguments_base64: string;
   };
 }
+export interface CapturedText {
+  digest: string;
+  bytes: string;
+  status: "available" | "oversized" | "quota" | "storage_error";
+  /**
+   * @maxItems 4
+   */
+  chunks:
+    | []
+    | [
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        }
+      ]
+    | [
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        },
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        }
+      ]
+    | [
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        },
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        },
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        }
+      ]
+    | [
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        },
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        },
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        },
+        {
+          id: string;
+          session_id: string;
+          digest: string;
+          size: string;
+          media_type: string;
+          created_at: string;
+        }
+      ];
+}
 export interface Cell {
   id: string;
   session_id: string;
@@ -5080,6 +5178,245 @@ export interface ModelAttemptsResult {
         dispatched_at: null | string;
         finished_at: null | string;
       }[];
+}
+export interface ModelInspection {
+  session_id: string;
+  attempt_id: string;
+  turn_id: string;
+  request_digest: string;
+  capture: null | {
+    request_digest: string;
+    source_digest: string;
+    instructions: {
+      digest: string;
+      bytes: string;
+      status: "available" | "oversized" | "quota" | "storage_error";
+      /**
+       * @maxItems 4
+       */
+      chunks:
+        | []
+        | [
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            }
+          ]
+        | [
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            },
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            }
+          ]
+        | [
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            },
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            },
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            }
+          ]
+        | [
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            },
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            },
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            },
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            }
+          ];
+    };
+    notices: {
+      digest: string;
+      bytes: string;
+      status: "available" | "oversized" | "quota" | "storage_error";
+      /**
+       * @maxItems 4
+       */
+      chunks:
+        | []
+        | [
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            }
+          ]
+        | [
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            },
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            }
+          ]
+        | [
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            },
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            },
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            }
+          ]
+        | [
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            },
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            },
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            },
+            {
+              id: string;
+              session_id: string;
+              digest: string;
+              size: string;
+              media_type: string;
+              created_at: string;
+            }
+          ];
+    };
+    /**
+     * @maxItems 128
+     */
+    messages: {
+      id: null | string;
+      role: "system" | "user" | "assistant" | "tool";
+      parts_digest: string;
+      parts_count: number;
+    }[];
+    tools_digest: string;
+    tools_count: number;
+    context_complete: boolean;
+  };
+  compaction: null | {
+    history_revision: string;
+    source: null | {
+      session_id: string;
+      compaction_id: string;
+    };
+    id: string;
+    session_id: string;
+    turn_id: null | string;
+    attempt_id: null | string;
+    base_id: null | string;
+    expected_revision: string;
+    through_sequence: string;
+    pinned_message_ids: null | string[];
+    text_bytes: string;
+    created_at: string;
+  };
+}
+export interface ModelInspectionParams {
+  session_id: string;
+  attempt_id: string;
 }
 export interface OpenAIAccountStatus {
   auth_state: "signed_out" | "stored" | "sign_in_required" | "unavailable";
@@ -9843,6 +10180,7 @@ export interface ContractTypes {
   Budget: Budget;
   BudgetsResult: BudgetsResult;
   CallHostToolParams: CallHostToolParams;
+  CapturedText: CapturedText;
   Cell: Cell;
   CellParams: CellParams;
   CellsParams: CellsParams;
@@ -9977,6 +10315,8 @@ export interface ContractTypes {
   Message: Message;
   ModelAttemptsParams: ModelAttemptsParams;
   ModelAttemptsResult: ModelAttemptsResult;
+  ModelInspection: ModelInspection;
+  ModelInspectionParams: ModelInspectionParams;
   OpenAIAccountStatus: OpenAIAccountStatus;
   OpenAIFlowParams: OpenAIFlowParams;
   OpenAIFlowsResult: OpenAIFlowsResult;
@@ -10120,6 +10460,7 @@ export interface Operations {
   "browser.inventory.result": { params: BrowserInventoryResultParams; result: BrowserAccepted };
   "browser.attachments": { params: SessionParams; result: BrowserAttachmentsResult };
   "browser.tabs": { params: SessionParams; result: BrowserTabsResult };
+  "models.inspection": { params: ModelInspectionParams; result: ModelInspection };
   "trace.page": { params: TracePageParams; result: TracePageResult };
   "trace.export": { params: TraceExportParams; result: TraceExportResult };
   "host.attention": { params: HostAttentionParams; result: HostAttentionResult };

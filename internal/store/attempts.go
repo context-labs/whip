@@ -77,7 +77,7 @@ func (s *Store) ReserveModelAttempt(ctx context.Context, p session.ModelAttemptS
 				return ErrConflict
 			}
 			result = existing
-			return nil
+			return sameModelCapture(ctx, tx, p.ID, p.Capture)
 		}
 		if !errors.Is(err, ErrNotFound) {
 			return err
@@ -133,11 +133,17 @@ func (s *Store) ReserveModelAttempt(ctx context.Context, p session.ModelAttemptS
 		if used != 0 {
 			return ErrConflict
 		}
+		if p.Capture != nil && p.Capture.RequestDigest != p.Request.RequestDigest {
+			return ErrConflict
+		}
 		ancestors, err := reserveBudgets(ctx, tx, turn.SessionID, p.Request)
 		if err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO model_attempts (id,turn_id,logical_id,number,request,operation_id,batch_index,state,cost_source,created_at) VALUES (?,?,?,?,?,?,?,'reserved','unknown',?)`, p.ID, p.TurnID, p.LogicalID, p.Number, raw, p.OperationID, p.BatchIndex, now()); err != nil {
+			return err
+		}
+		if err := registerModelCapture(ctx, tx, turn.SessionID, p.ID, p.Capture); err != nil {
 			return err
 		}
 		for _, ancestor := range ancestors {

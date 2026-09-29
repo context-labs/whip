@@ -31,7 +31,7 @@ func (s *Store) TraceBodies(ctx context.Context, row session.TraceRow, revision 
 	case "operation":
 		err = tx.QueryRowContext(ctx, `SELECT substr(CAST(arguments AS BLOB),1,1048576),substr(CAST(result AS BLOB),1,1048576),length(CAST(arguments AS BLOB)),COALESCE(length(CAST(result AS BLOB)),0) FROM operations WHERE id=?`, row.SourceID).Scan(&input, &output, &inputSize, &outputSize)
 	case "attempt":
-		err = tx.QueryRowContext(ctx, `SELECT substr(CAST(m.parts AS BLOB),1,1048576),COALESCE(length(CAST(m.parts AS BLOB)),0) FROM model_attempts a LEFT JOIN messages m ON m.id=a.message_id AND m.turn_id=a.turn_id WHERE a.id=?`, row.SourceID).Scan(&output, &outputSize)
+		err = tx.QueryRowContext(ctx, `SELECT substr(CAST(COALESCE(m.parts,CASE WHEN c.id IS NOT NULL THEN json_array(json_object('type','text','text',c.text)) END) AS BLOB),1,1048576),COALESCE(length(CAST(COALESCE(m.parts,CASE WHEN c.id IS NOT NULL THEN json_array(json_object('type','text','text',c.text)) END) AS BLOB)),0) FROM model_attempts a LEFT JOIN messages m ON m.id=a.message_id AND m.turn_id=a.turn_id LEFT JOIN compactions c ON c.attempt_id=a.id AND c.turn_id=a.turn_id WHERE a.id=?`, row.SourceID).Scan(&output, &outputSize)
 	case "cell":
 		err = tx.QueryRowContext(ctx, `SELECT substr(CAST(json_extract(part.value,'$.call') AS BLOB),1,1048576),length(CAST(json_extract(part.value,'$.call') AS BLOB)),substr(CAST(result.parts AS BLOB),1,1048576),COALESCE(length(CAST(result.parts AS BLOB)),0)
  FROM cells c JOIN messages call ON call.id=c.call_message_id JOIN json_each(call.parts) part

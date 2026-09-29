@@ -496,6 +496,36 @@
     "valid": true
   },
   {
+    "type": "CapturedText",
+    "value": {
+      "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "bytes": "16777217",
+      "status": "oversized",
+      "chunks": []
+    },
+    "valid": true
+  },
+  {
+    "type": "ModelInspectionParams",
+    "value": {
+      "session_id": "session_root",
+      "attempt_id": "attempt"
+    },
+    "valid": true
+  },
+  {
+    "type": "ModelInspection",
+    "value": {
+      "session_id": "session_root",
+      "attempt_id": "attempt",
+      "turn_id": "turn",
+      "request_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "capture": null,
+      "compaction": null
+    },
+    "valid": true
+  },
+  {
     "type": "TracePageParams",
     "value": {
       "root_id": "session_root",

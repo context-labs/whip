@@ -11,6 +11,11 @@ import (
 
 func dispatchTrace(ctx context.Context, r *runtime.Runtime, method string, raw json.RawMessage) (any, error) {
 	switch method {
+	case "models.inspection":
+		return decode(raw, func(p protocol.ModelInspectionParams) (any, error) {
+			value, err := r.ModelInspection(ctx, session.SessionID(p.SessionID), session.ModelAttemptID(p.AttemptID))
+			return protocol.ModelInspectionFromDomain(value), err
+		})
 	case "trace.page":
 		return decode(raw, func(p protocol.TracePageParams) (any, error) {
 			query := session.TraceQuery{RootID: session.SessionID(p.RootID), TraceID: p.TraceID, RootsOnly: p.RootsOnly, Limit: p.Limit, MaxBytes: p.MaxBytes}
