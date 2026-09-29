@@ -3401,3 +3401,12 @@ JSON remains verbatim. Copying output preserves its original text, while collaps
 previews and JSON formatting are presentation only. Native scoped content reads
 are explicit, verify owner/reference/digest, limit text reads to 1 MiB and downloads
 to the shared 4 MiB contract, and discard late results after owner selection changes.
+
+Queued-message controls receive the explicit native selected session and root
+navigation identity. Promotion preserves the input ID, exact active turn and
+stable steering edit in the shared recovery journal. A conflicting target never
+selects a replacement turn. Removal reads the owner-scoped input before explicit
+cancellation; rows remain until authoritative refresh. Full input parts load only
+when the preview opens, with metadata and verified content reads kept separate.
+The queue renderer owns neither an inbox cache nor another session view; its
+caller supplies bounded canonical pages and explicit pagination/refresh actions.

@@ -1,109 +1,116 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { expect, it, vi } from 'vitest';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { UIProvider } from '@whip/ui';
-import type { SessionView } from '@whip/legacy-sdk/state';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { RecoveryJournal, RemoteError, type DurableCommand, type Input, type InputSteeringResult } from '@whip/sdk';
+import { assertValid } from '@whip/protocol';
+import fixtures from '../../protocol/schema/fixtures.json';
 import { ComposerQueue } from '../src/composer-queue';
-import { RuntimeContext } from '../src/context';
-import type { AppRuntime } from '../src/runtime';
+import { providerFixture } from './provider-fixture';
 import type { QueuedInputRow } from '../src/input-presentation';
 
-const row = (seq: string): QueuedInputRow => ({
-  id: `inbox:root:${seq}`, text: 'A follow-up', status: 'Queued',
-  item: { root_id: 'root', agent_id: 'root', seq, kind: 'submit', status: 'queued', origin: 'client',
-    payload: { text: 'A follow-up', reference_id: '', digest: '', size: '11', media_type: 'text/plain', source: '' } },
+beforeEach(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} })));
+afterEach(() => vi.unstubAllGlobals());
+const row = (id: string): QueuedInputRow => ({
+  id: `input:child:${id}`, text: 'A follow-up', status: 'Queued',
+  item: { id, session_id: 'child', ordinal: id, kind: 'prompt', state: 'queued', source: 'user', turn_id: null,
+    created_at: '2026-09-28T00:00:00Z', text_preview: 'A follow-up', preview_truncated: false, attachment_count: '0' },
 });
-
-function fixture(rows = [row('1')], connected = true, turn: string | undefined = 'turn') {
-  let resolve: (value: unknown) => void = () => {};
+function input(id: string): Input {
+  const value: unknown = structuredClone(fixtures.find(item => item.type === 'Input' && item.valid)?.value);
+  assertValid('Input', value);
+  return { ...value, id, session_id: 'child', kind: 'prompt', host_operation: null, source: 'user', state: 'queued', turn_id: null,
+    parts: [{ type: 'text', text: 'Complete message from storage' }], steering: null, design_context: null };
+}
+async function fixture(rows = [row('1')]) {
+  const f = await providerFixture();
+  const session = f.client.session('child');
   const state = { commands: [] };
-  const runtime = { getSnapshot: () => state, subscribe: () => () => {},
-    run: vi.fn(() => new Promise(done => { resolve = done; })), checkCommand: vi.fn(), retryCommand: vi.fn() };
-  const session = { rootId: 'root', inbox: { steer: vi.fn(() => ({})), remove: vi.fn(() => ({})) }, client: { content: vi.fn() } };
-  const view = { session, refresh: vi.fn(async () => {}), getSnapshot: () => ({ root: { cursor: '1' }, collections: {} }), loadCollection: vi.fn(async () => {}) };
-  const queries = new QueryClient();
-  const app = (items = rows, live = connected, active = turn) => <QueryClientProvider client={queries}><RuntimeContext.Provider value={runtime as unknown as AppRuntime}><UIProvider>
-    <form><ComposerQueue rows={items} view={view as unknown as SessionView} runtimeId="runtime" agentId="root" activeTurn={active} connected={live} hasMore={false} />
-      <textarea aria-label="Current draft" data-whip-composer defaultValue="Do not overwrite this" /></form>
-  </UIProvider></RuntimeContext.Provider></QueryClientProvider>;
-  return { app, runtime, session, view, finish: async (status: string) => { await act(async () => resolve({ result: { status } })); } };
+  const journal = new RecoveryJournal({ list: async () => [], put: async () => {}, delete: async () => {} });
+  const controller = new AbortController();
+  Object.assign(f.runtime, { getSnapshot: () => state, subscribe: () => () => {}, recovery: journal,
+    connections: { signal: () => controller.signal },
+    run: vi.fn((command: DurableCommand<'inputs.steer'>) => command.send()), checkCommand: vi.fn(), retryCommand: vi.fn() });
+  const refresh = vi.fn(async () => {}), loadMore = vi.fn(async () => {});
+  let complete!: (value: unknown) => void;
+  f.data.handlers['inputs.steer'] = () => new Promise(resolve => { complete = resolve; });
+  f.data.handlers['inputs.get'] = request => input(request.params.input_id as string);
+  f.data.handlers['inputs.cancel'] = () => new Promise(resolve => { complete = resolve; });
+  const app = (items = rows, connected = true, activeTurn = 'turn') => <form>
+    <ComposerQueue rows={items} session={session} rootId="root" runtimeId={f.client.runtimeID} activeTurn={activeTurn} connected={connected} hasMore={false} refresh={refresh} loadMore={loadMore} />
+    <textarea aria-label="Current draft" data-whip-composer defaultValue="Do not overwrite this" />
+  </form>;
+  return { ...f, app, session, refresh, loadMore,
+    finish: async (state: 'steering' | 'cancelled' | 'claimed') => {
+      await waitFor(() => expect(complete).toBeTypeOf('function'));
+      await act(async () => {
+        if (state === 'steering') {
+          const params = f.calls.find(call => call.method === 'inputs.steer')!.params;
+          const result: InputSteeringResult = { id: params.edit_id as string, session_id: 'child', input_id: '1', turn_id: params.turn_id as string,
+            created_at: '2026-09-28T00:00:00Z', deleted: false, input: { ...input('1'), steering: { id: params.edit_id as string, turn_id: params.turn_id as string, consumed: false } } };
+          complete(result);
+        } else complete({ ...input('1'), state, turn_id: state === 'claimed' ? 'started' : null });
+      });
+    },
+  };
 }
 
-it('steers the exact queued identity and active turn once without resubmitting the draft', async () => {
-  const f = fixture();
-  render(f.app());
+it('steers the exact selected child input and active turn once without resubmitting the draft', async () => {
+  const f = await fixture(); f.mount(f.app());
   const steer = screen.getByRole('button', { name: 'Steer queued message: A follow-up' });
   fireEvent.click(steer); fireEvent.click(steer);
-  expect(f.session.inbox.steer).toHaveBeenCalledExactlyOnceWith('root', '1', 'turn');
-  expect(f.runtime.run).toHaveBeenCalledWith(expect.anything(), 'Steer queued message', undefined, 'runtime:root:queue:root:1');
-  await f.finish('steering');
-  expect(f.view.refresh).toHaveBeenCalledOnce();
+  await waitFor(() => expect(f.count('inputs.steer')).toBe(1));
+  expect(f.calls.find(call => call.method === 'inputs.steer')?.params).toEqual({ session_id: 'child', input_id: '1', turn_id: 'turn', edit_id: expect.any(String) });
+  expect(f.runtime.run).toHaveBeenCalledWith(expect.anything(), 'Steer queued message', undefined, 'host:root:queue:child:1');
+  await f.finish('steering'); expect(f.refresh).toHaveBeenCalledOnce(); expect(f.count('sessions.submit')).toBe(0);
   expect((screen.getByLabelText('Current draft') as HTMLTextAreaElement).value).toBe('Do not overwrite this');
 });
-
-it('leaves the row in place until authoritative removal and explains an already-started race', async () => {
-  const f = fixture();
-  render(f.app());
+it('leaves the row until authoritative removal and reports an already-started race', async () => {
+  const f = await fixture(); f.mount(f.app());
   fireEvent.click(screen.getByRole('button', { name: 'Remove queued message: A follow-up' }));
-  expect(f.session.inbox.remove).toHaveBeenCalledExactlyOnceWith('root', '1');
+  await waitFor(() => expect(f.count('inputs.cancel')).toBe(1));
+  expect(f.calls.find(call => call.method === 'inputs.get')?.params).toEqual({ session_id: 'child', input_id: '1' });
+  expect(f.calls.find(call => call.method === 'inputs.cancel')?.params).toEqual({ input_id: '1' });
   expect(screen.getByRole('region', { name: 'Queued messages' })).toBeTruthy();
-  await f.finish('already_started');
-  expect(screen.getByRole('status').textContent).toBe('That message has already started.');
-  expect(f.session.inbox.steer).not.toHaveBeenCalled();
+  await f.finish('claimed'); expect(screen.getByRole('status').textContent).toBe('That message has already started.'); expect(f.count('inputs.steer')).toBe(0);
 });
-
-it('does not enable controls for unaccepted or unverified messages or offline connections', () => {
-  const f = fixture([{ ...row('1'), stale: true }, { id: 'local', text: 'Still sending', status: 'Sending…' }]);
-  const rendered = render(f.app());
+it('disables unaccepted, foreign, stale and offline queue controls', async () => {
+  const f = await fixture([{ ...row('1'), stale: true }, { id: 'local', text: 'Still sending', status: 'Sending…' }, { ...row('2'), item: { ...row('2').item!, session_id: 'root' } }]);
+  const rendered = f.mount(f.app());
   for (const button of screen.getAllByRole('button', { name: /^(Steer|Remove) queued message/ })) expect((button as HTMLButtonElement).disabled).toBe(true);
-  rendered.rerender(f.app([row('1')], false));
+  rendered.rerender(f.wrap(f.app([row('1')], false)));
   expect((screen.getByRole('button', { name: /^Remove queued/ }) as HTMLButtonElement).disabled).toBe(true);
 });
-
-it('opens complete inline input and shows the count for an attachment-only queue entry', async () => {
-  const attachment = row('1');
-  attachment.text = '';
-  attachment.preview = { text: '', attachment_count: 2 };
-  attachment.item = { ...attachment.item!, kind: 'submit.parts', payload: { ...attachment.item!.payload, text: JSON.stringify({ text: 'Complete message from storage', attachments: [] }) } };
-  const f = fixture([attachment]);
-  render(f.app());
+it('reads the full canonical input only when preview opens, with the exact child owner', async () => {
+  const attachment = { ...row('1'), text: '', preview: { text: '', attachment_count: 2 }, item: { ...row('1').item!, attachment_count: '2' } };
+  const f = await fixture([attachment]); f.mount(f.app()); expect(f.count('inputs.get')).toBe(0);
   fireEvent.click(screen.getByRole('button', { name: 'Preview queued message: 2 attachments' }));
-  await waitFor(() => expect(screen.getByRole('dialog', { name: 'Queued message' })).toBeTruthy());
-  expect(screen.getByText('Complete message from storage')).toBeTruthy();
-  expect(f.session.client.content).not.toHaveBeenCalled();
+  await screen.findByText('Complete message from storage');
+  expect(f.calls.find(call => call.method === 'inputs.get')?.params).toEqual({ session_id: 'child', input_id: '1' }); expect(f.count('content.read')).toBe(0);
 });
-
-it('does not retarget a steer when its turn ends', async () => {
-  const f = fixture();
-  const rendered = render(f.app());
+it('keeps the captured steer target when a later render shows another turn', async () => {
+  const f = await fixture(); const rendered = f.mount(f.app());
   fireEvent.click(screen.getByRole('button', { name: /^Steer queued/ }));
-  rendered.rerender(f.app([row('1')], true, 'replacement'));
-  await f.finish('turn_ended');
-  expect(f.session.inbox.steer).toHaveBeenCalledExactlyOnceWith('root', '1', 'turn');
-  expect(screen.getByRole('status').textContent).toContain('That turn has ended');
+  rendered.rerender(f.wrap(f.app([row('1')], true, 'replacement')));
+  await f.finish('steering'); expect(f.calls.find(call => call.method === 'inputs.steer')?.params.turn_id).toBe('turn'); expect(f.count('inputs.steer')).toBe(1);
 });
-
-it('bounds mounted rows for a long queue without losing the total or message identities', () => {
+it('refreshes a changed target conflict without choosing another turn or resubmitting', async () => {
+  const f = await fixture(); f.data.handlers['inputs.steer'] = () => { throw new RemoteError({ code: -32002, kind: 'CONFLICT', message: 'Target ended' }); };
+  f.mount(f.app()); fireEvent.click(screen.getByRole('button', { name: /^Steer queued/ }));
+  await waitFor(() => expect(screen.getByRole('status').textContent).toContain('queue or target turn changed'));
+  expect(f.refresh).toHaveBeenCalledOnce(); expect(f.count('inputs.steer')).toBe(1); expect(f.count('sessions.submit')).toBe(0);
+});
+it('bounds mounted rows for a long queue while retaining exact identities and total', async () => {
   const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function(this: HTMLElement) { return this.tagName === 'OL' ? 144 : 44; });
   const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(400);
   const rows = Array.from({ length: 128 }, (_, i) => ({ ...row(String(i + 1)), text: `Message ${i + 1}` }));
-  const f = fixture(rows);
-  const rendered = render(f.app());
+  const f = await fixture(rows); const rendered = f.mount(f.app());
   const mounted = rendered.container.querySelectorAll('[data-queue-row]');
-  expect(mounted.length).toBeGreaterThan(0);
-  expect(mounted.length).toBeLessThan(16);
-  expect(mounted[0]?.getAttribute('aria-setsize')).toBe('128');
-  expect(screen.getByRole('status').textContent).toContain('128 queued messages');
-  height.mockRestore(); width.mockRestore();
+  expect(mounted.length).toBeGreaterThan(0); expect(mounted.length).toBeLessThan(16); expect(mounted[0]?.getAttribute('aria-setsize')).toBe('128');
+  expect(screen.getByRole('status').textContent).toContain('128 queued messages'); height.mockRestore(); width.mockRestore();
 });
-
-it('retains the queue and draft when the action fails', async () => {
-  const f = fixture();
-  f.runtime.run.mockRejectedValueOnce(new Error('Connection lost'));
-  render(f.app());
-  fireEvent.click(screen.getByRole('button', { name: /^Steer queued/ }));
+it('retains the queue and draft when delivery fails', async () => {
+  const f = await fixture(); vi.mocked(f.runtime.run).mockRejectedValueOnce(new Error('Connection lost'));
+  f.mount(f.app()); fireEvent.click(screen.getByRole('button', { name: /^Steer queued/ }));
   await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Connection lost'));
-  expect(screen.getByRole('alert').closest('[data-composer-queue]')).toBeTruthy();
-  expect(screen.getByRole('region', { name: 'Queued messages' })).toBeTruthy();
+  expect(screen.getByRole('alert').closest('[data-composer-queue]')).toBeTruthy(); expect(screen.getByRole('region', { name: 'Queued messages' })).toBeTruthy();
   expect((screen.getByLabelText('Current draft') as HTMLTextAreaElement).value).toBe('Do not overwrite this');
 });
