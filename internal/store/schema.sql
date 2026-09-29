@@ -229,6 +229,7 @@ CREATE TABLE inputs (
  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
  source TEXT NOT NULL CHECK(source IN ('user','agent','schedule','goal')),
  kind TEXT NOT NULL DEFAULT 'prompt' CHECK(kind IN ('prompt','compact','goal_formulation','automatic_title','host_operation')),
+ design_context TEXT CHECK(design_context IS NULL OR (kind='prompt' AND source='user' AND json_valid(design_context) AND length(CAST(design_context AS BLOB))<=8192)),
  parts TEXT NOT NULL CHECK(json_valid(parts)), turn_id TEXT UNIQUE, cancelled_at INTEGER, created_at INTEGER NOT NULL,
  schedule_id TEXT, scheduled_for TEXT, goal_id TEXT, goal_revision INTEGER,
  CHECK((goal_id IS NOT NULL) = (source='goal')),
@@ -251,6 +252,7 @@ CREATE TRIGGER input_immutable BEFORE UPDATE ON inputs
  WHEN NEW.id IS NOT OLD.id OR NEW.ordinal IS NOT OLD.ordinal OR NEW.session_id IS NOT OLD.session_id
  OR NEW.goal_id IS NOT OLD.goal_id OR NEW.goal_revision IS NOT OLD.goal_revision
  OR NEW.schedule_id IS NOT OLD.schedule_id OR NEW.scheduled_for IS NOT OLD.scheduled_for
+ OR NEW.design_context IS NOT OLD.design_context
  OR NEW.source IS NOT OLD.source OR NEW.kind IS NOT OLD.kind OR NEW.parts IS NOT OLD.parts OR NEW.created_at IS NOT OLD.created_at
  OR OLD.turn_id IS NOT NULL OR OLD.cancelled_at IS NOT NULL
  BEGIN SELECT RAISE(ABORT, 'accepted input is immutable'); END;
@@ -334,6 +336,7 @@ CREATE TABLE messages (
  retired_by TEXT, retired_revision INTEGER,
  role TEXT NOT NULL CHECK(role IN ('system','user','assistant','tool')),
  input_id TEXT, parts TEXT CHECK(parts IS NULL OR json_valid(parts)), created_at INTEGER NOT NULL,
+ design_context TEXT CHECK(design_context IS NULL OR (role='user' AND source_session_id IS NOT NULL AND json_valid(design_context) AND length(CAST(design_context AS BLOB))<=8192)),
  model_continuation TEXT CHECK(model_continuation IS NULL OR
   (role='assistant' AND json_valid(model_continuation) AND length(CAST(model_continuation AS BLOB))<=1048576)),
  mail_id TEXT, mail_revision INTEGER, mail_presentation TEXT CHECK(mail_presentation IS NULL OR mail_presentation IN ('digest','body')),
@@ -373,6 +376,7 @@ CREATE TRIGGER message_immutable BEFORE UPDATE ON messages
  OR NEW.group_id IS NOT OLD.group_id OR NEW.sequence IS NOT OLD.sequence OR NEW.role IS NOT OLD.role
  OR NEW.opening_input IS NOT OLD.opening_input OR NEW.source_session_id IS NOT OLD.source_session_id
  OR NEW.source_message_id IS NOT OLD.source_message_id OR NEW.source_sequence IS NOT OLD.source_sequence
+ OR NEW.design_context IS NOT OLD.design_context
  OR NEW.input_id IS NOT OLD.input_id OR NEW.parts IS NOT OLD.parts OR NEW.created_at IS NOT OLD.created_at
  OR NEW.model_continuation IS NOT OLD.model_continuation OR NEW.mail_id IS NOT OLD.mail_id
  OR NEW.mail_revision IS NOT OLD.mail_revision OR NEW.mail_presentation IS NOT OLD.mail_presentation

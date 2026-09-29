@@ -3387,3 +3387,31 @@ promotion need a v4 implementation; existing mail steering is not equivalent.
 Browser design selections also require explicit validated input presentation
 provenance, rather than inferring trusted metadata from tagged text. Both remain
 open alongside browser integration and full client adoption.
+
+
+## Workspace/run controls and authored design provenance
+
+Integration branch `codex/backend-redesign-input-controls` follows draft#257.
+It reuses tested controls leaf`a93b16fb4` as`929cc982b`, resolving host computer,
+host profiles, receipt matching, shared process-manager ownership and regenerated
+contract output. The retained run-control test executor now returns canonical
+parts, matching the already-integrated typed-image execution interface.
+
+Fresh schema48/config18/protocol4 includes revisioned workspace/run controls and
+bounded display-only design provenance. The separate browser leaf reserves47;
+its later merge must preserve schema48 or a newer integrated version. No old
+storage or installed runtime was touched.
+
+Focused race/shuffle controls passed: runtime21.091s, runner1.983s,
+model2.490s. Design store/RPC tests passed2.226s/2.525s, covering exact retry
+conflict, invalid/foreign/duplicated/wrong-kind evidence, SQL immutability, both
+history readers, fork ownership, restart and receipt-first source deletion.
+The runner projection test verifies that original content bytes remain in model
+input and display metadata does not enter provider requests. Generated strict-CSP
+contracts and109 v4 SDK tests pass; retained466 SDK tests and6 example checks
+also pass. The production fixture passed38.077s, including workspace/run controls
+141ms and design provenance253ms (dropped ACK, read-only exact recovery, restart,
+fork and source deletion). Analysis passed with zero new lint findings and no
+reachable vulnerabilities before the final runner-only test addition. The full
+phase gate for this integrated checkpoint is pending below; these focused results
+do not mark Phases5–7 complete.

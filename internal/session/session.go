@@ -118,6 +118,7 @@ const (
 // Input owns the accepted payload. Its execution outcome is the linked Turn;
 // terminal turn states are never copied onto input or receipt rows.
 type Input struct {
+	DesignContext *DesignContext
 	HostOperation *HostOperation
 	Goal          *GoalRef
 	Schedule      *ScheduleOccurrence
@@ -326,6 +327,7 @@ func ValidateInputParts(parts []Part) error { return ValidateMessage(User, parts
 // resolve Parts through an input or immutable mail revision; authored and
 // imported entries own their parts.
 type Message struct {
+	DesignContext   *DesignContextPresentation
 	GroupID         HistoryGroupID
 	OpeningInput    bool
 	Source          *MessageSource

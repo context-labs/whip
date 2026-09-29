@@ -208,6 +208,7 @@ type GoalRef struct {
 	Revision Counter `json:"revision"`
 }
 type Input struct {
+	DesignContext *DesignContext      `json:"design_context,omitempty"`
 	HostOperation *DirectHostInput    `json:"host_operation"`
 	Goal          *GoalRef            `json:"goal"`
 	ID            ID                  `json:"id"`
@@ -233,20 +234,21 @@ type Turn struct {
 	FinishedAt      *string  `json:"finished_at"`
 }
 type Message struct {
-	GroupID         ID             `json:"group_id"`
-	OpeningInput    bool           `json:"opening_input"`
-	Source          *MessageSource `json:"source"`
-	RetiredBy       *ID            `json:"retired_by"`
-	RetiredRevision *Counter       `json:"retired_revision"`
-	ID              ID             `json:"id"`
-	SessionID       ID             `json:"session_id"`
-	TurnID          *ID            `json:"turn_id"`
-	InputID         *ID            `json:"input_id"`
-	Mail            *MailRef       `json:"mail"`
-	Sequence        Counter        `json:"sequence"`
-	Role            string         `json:"role" enum:"system,user,assistant,tool"`
-	Parts           []Part         `json:"parts"`
-	CreatedAt       string         `json:"created_at"`
+	DesignContext   *DesignContextPresentation `json:"design_context,omitempty"`
+	GroupID         ID                         `json:"group_id"`
+	OpeningInput    bool                       `json:"opening_input"`
+	Source          *MessageSource             `json:"source"`
+	RetiredBy       *ID                        `json:"retired_by"`
+	RetiredRevision *Counter                   `json:"retired_revision"`
+	ID              ID                         `json:"id"`
+	SessionID       ID                         `json:"session_id"`
+	TurnID          *ID                        `json:"turn_id"`
+	InputID         *ID                        `json:"input_id"`
+	Mail            *MailRef                   `json:"mail"`
+	Sequence        Counter                    `json:"sequence"`
+	Role            string                     `json:"role" enum:"system,user,assistant,tool"`
+	Parts           []Part                     `json:"parts"`
+	CreatedAt       string                     `json:"created_at"`
 }
 type Admission struct {
 	Receipt Receipt `json:"receipt"`
@@ -305,10 +307,11 @@ type UpdateConfigurationParams struct {
 	Patch            ConfigPatch `json:"patch"`
 }
 type SubmitParams struct {
-	Identity  RequestIdentity `json:"identity"`
-	SessionID ID              `json:"session_id"`
-	Source    string          `json:"source" enum:"user,agent"`
-	Parts     []Part          `json:"parts"`
+	DesignContext *DesignContext  `json:"design_context,omitempty"`
+	Identity      RequestIdentity `json:"identity"`
+	SessionID     ID              `json:"session_id"`
+	Source        string          `json:"source" enum:"user,agent"`
+	Parts         []Part          `json:"parts"`
 }
 type HistoryParams struct {
 	ExpectedRevision *Counter `json:"expected_revision,omitempty"`

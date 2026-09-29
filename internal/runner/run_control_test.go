@@ -18,9 +18,9 @@ func (*runControlExecutor) Instructions(context.Context, session.Turn, session.I
 	return "system", nil
 }
 
-func (e *runControlExecutor) Execute(_ context.Context, _ session.Turn, _ session.MessageID, call session.ToolCall) (session.ToolResult, error) {
+func (e *runControlExecutor) Execute(_ context.Context, _ session.Turn, _ session.MessageID, call session.ToolCall) ([]session.Part, error) {
 	e.calls++
-	return session.ToolResult{CallID: call.ID, Output: "observed"}, nil
+	return []session.Part{{Type: "tool_result", Result: &session.ToolResult{CallID: call.ID, Output: "observed"}}}, nil
 }
 
 func TestRunControlUncappedAndFinalWithoutTools(t *testing.T) {

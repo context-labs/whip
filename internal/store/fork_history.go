@@ -12,7 +12,7 @@ import (
 func preflightFork(ctx context.Context, tx *sql.Tx, request session.ForkRequest) error {
 	var messages, groups, bytes, private int64
 	err := tx.QueryRowContext(ctx, `SELECT COUNT(*),COUNT(DISTINCT m.group_id),
- COALESCE(SUM(length(CAST(COALESCE(m.parts,i.parts,r.body,'') AS BLOB))+COALESCE(length(CAST(r.subject AS BLOB)),0)),0),
+ COALESCE(SUM(length(CAST(COALESCE(m.parts,i.parts,r.body,'') AS BLOB))+COALESCE(length(CAST(r.subject AS BLOB)),0)+COALESCE(length(CAST(COALESCE(m.design_context,i.design_context) AS BLOB)),0)),0),
  COALESCE(SUM(length(CAST(m.model_continuation AS BLOB))),0)
  FROM messages m LEFT JOIN inputs i ON i.id=m.input_id
  LEFT JOIN mail_revisions r ON r.mail_id=m.mail_id AND r.revision=m.mail_revision
@@ -65,6 +65,14 @@ func importForkHistory(ctx context.Context, tx *sql.Tx, request session.ForkRequ
 		if err != nil {
 			return nil, err
 		}
+		var design *string
+		if value.DesignContext != nil {
+			design, err = encodeDesignContext(&value.DesignContext.DesignContext)
+			if err != nil {
+				return nil, err
+			}
+			bytes += len(*design)
+		}
 		bytes += len(parts)
 		if bytes > session.MaxForkHistoryBytes {
 			return nil, fmt.Errorf("%w: encoded fork history exceeds byte bound", ErrLimit)
@@ -91,8 +99,8 @@ func importForkHistory(ctx context.Context, tx *sql.Tx, request session.ForkRequ
 			groups[value.GroupID] = group
 		}
 		copied := session.MessageID(newID("message"))
-		if _, err := tx.ExecContext(ctx, `INSERT INTO messages(id,session_id,group_id,sequence,opening_input,source_session_id,source_message_id,source_sequence,role,parts,created_at,model_continuation)
- VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, copied, owner, group, value.Sequence, value.OpeningInput, request.SessionID, value.ID, value.Sequence, value.Role, parts, now(), continuation); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO messages(id,session_id,group_id,sequence,opening_input,source_session_id,source_message_id,source_sequence,role,parts,created_at,model_continuation,design_context)
+ VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, copied, owner, group, value.Sequence, value.OpeningInput, request.SessionID, value.ID, value.Sequence, value.Role, parts, now(), continuation, design); err != nil {
 			return nil, err
 		}
 		messages[value.ID] = copied

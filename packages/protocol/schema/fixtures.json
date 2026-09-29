@@ -3493,6 +3493,39 @@
     "valid": true
   },
   {
+    "type": "SubmitParams",
+    "value": {
+      "design_context": {
+        "context_attachment_id": "context",
+        "elements": [
+          {
+            "label": "Save",
+            "selector": "button.save"
+          }
+        ],
+        "element_count": 1,
+        "page_title": "Settings"
+      },
+      "identity": {
+        "client_id": "human",
+        "request_id": "design"
+      },
+      "session_id": "session_child",
+      "source": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Selected evidence"
+        },
+        {
+          "type": "content",
+          "reference_id": "context"
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
     "type": "UpdateConfigurationParams",
     "value": {
       "session_id": "session_child",

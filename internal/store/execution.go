@@ -16,6 +16,7 @@ import (
 )
 
 type Submission struct {
+	DesignContext *session.DesignContext
 	HostOperation *session.HostOperation
 	Goal          *session.GoalRef
 	SessionID     session.SessionID
@@ -48,12 +49,13 @@ func readReceipt(ctx context.Context, q querier, identity session.RequestIdentit
 
 func readInput(ctx context.Context, q querier, id session.InputID) (result session.Input, err error) {
 	var raw string
+	var design *string
 	var created int64
 	var cancelled sql.NullInt64
 	var scheduleID, slot, goalID sql.NullString
 	var goalRevision sql.NullInt64
-	err = q.QueryRowContext(ctx, "SELECT id,session_id,source,kind,parts,turn_id,cancelled_at,created_at,schedule_id,scheduled_for,goal_id,goal_revision FROM inputs WHERE id=?", id).
-		Scan(&result.ID, &result.SessionID, &result.Source, &result.Kind, &raw, &result.TurnID, &cancelled, &created, &scheduleID, &slot, &goalID, &goalRevision)
+	err = q.QueryRowContext(ctx, "SELECT id,session_id,source,kind,parts,turn_id,cancelled_at,created_at,schedule_id,scheduled_for,goal_id,goal_revision,design_context FROM inputs WHERE id=?", id).
+		Scan(&result.ID, &result.SessionID, &result.Source, &result.Kind, &raw, &result.TurnID, &cancelled, &created, &scheduleID, &slot, &goalID, &goalRevision, &design)
 	if err != nil {
 		return result, found(err)
 	}
@@ -75,6 +77,9 @@ func readInput(ctx context.Context, q querier, id session.InputID) (result sessi
 		result.State = session.InputCancelled
 	}
 	err = json.Unmarshal([]byte(raw), &result.Parts)
+	if err == nil && design != nil {
+		err = json.Unmarshal([]byte(*design), &result.DesignContext)
+	}
 	if err == nil && result.Kind == session.HostOperationInputKind {
 		value, readErr := readHostOperation(ctx, q, result.ID)
 		result.HostOperation, err = &value, readErr
@@ -172,6 +177,15 @@ func normalizeSubmission(request Submission) (Submission, error) {
 	if request.Kind == "" {
 		request.Kind = session.PromptInput
 	}
+	if request.DesignContext != nil {
+		if request.Kind != session.PromptInput || request.Source != session.UserInput {
+			return request, session.ErrInvalid
+		}
+		if _, err := request.DesignContext.Presentation(request.Parts); err != nil {
+			return request, err
+		}
+		request.DesignContext = request.DesignContext.Clone()
+	}
 	switch request.Kind {
 	case session.PromptInput:
 		if err := session.ValidateInputParts(request.Parts); err != nil {
@@ -224,6 +238,13 @@ func admitInput(ctx context.Context, tx *sql.Tx, identity session.RequestIdentit
 	if err := validateContentReferences(ctx, tx, current.ID, request.Parts); err != nil {
 		return result, err
 	}
+	if err := validateDesignContext(ctx, tx, request); err != nil {
+		return result, err
+	}
+	design, err := encodeDesignContext(request.DesignContext)
+	if err != nil {
+		return result, err
+	}
 	parts, err := encode(request.Parts)
 	if err != nil {
 		return result, err
@@ -256,7 +277,7 @@ func admitInput(ctx context.Context, tx *sql.Tx, identity session.RequestIdentit
 	}
 	inputID := session.InputID(newID("input"))
 	created := now()
-	if _, err := tx.ExecContext(ctx, "INSERT INTO inputs (id,session_id,source,kind,parts,created_at,schedule_id,scheduled_for,goal_id,goal_revision) VALUES (?,?,?,?,?,?,?,?,?,?)", inputID, current.ID, request.Source, request.Kind, parts, created, scheduleID, slot, goalID, goalRevision); err != nil {
+	if _, err := tx.ExecContext(ctx, "INSERT INTO inputs (id,session_id,source,kind,parts,created_at,schedule_id,scheduled_for,goal_id,goal_revision,design_context) VALUES (?,?,?,?,?,?,?,?,?,?,?)", inputID, current.ID, request.Source, request.Kind, parts, created, scheduleID, slot, goalID, goalRevision, design); err != nil {
 		return result, err
 	}
 	if request.Kind == session.HostOperationInputKind {
@@ -443,13 +464,14 @@ func (s *Store) Claim(ctx context.Context, id session.SessionID) (result Claim, 
 }
 
 const messageSelect = `SELECT m.id,m.session_id,COALESCE(m.turn_id,''),m.sequence,m.role,m.input_id,
- COALESCE(m.parts,i.parts),m.created_at,m.mail_id,m.mail_revision,m.mail_presentation,r.subject,r.body,mail.source_kind,mail.source_id,r.evidence_ref,` + historyProvenanceColumns + `
+ COALESCE(m.parts,i.parts),m.created_at,m.mail_id,m.mail_revision,m.mail_presentation,r.subject,r.body,mail.source_kind,mail.source_id,r.evidence_ref,COALESCE(m.design_context,i.design_context),` + historyProvenanceColumns + `
  FROM messages m LEFT JOIN inputs i ON i.id=m.input_id
  LEFT JOIN mail_revisions r ON r.mail_id=m.mail_id AND r.revision=m.mail_revision
  LEFT JOIN mail ON mail.id=m.mail_id`
 
 func scanMessage(row scanner) (result session.Message, err error) {
 	var raw sql.NullString
+	var design *string
 	var created int64
 	var mailID *session.MailID
 	var revision sql.NullInt64
@@ -458,7 +480,7 @@ func scanMessage(row scanner) (result session.Message, err error) {
 	var sourceOwner *session.SessionID
 	var sourceMessage *session.MessageID
 	var sourceSequence sql.NullInt64
-	err = row.Scan(&result.ID, &result.SessionID, &result.TurnID, &result.Sequence, &result.Role, &result.InputID, &raw, &created, &mailID, &revision, &presentation, &subject, &body, &sourceKind, &sourceID, &evidence, &result.GroupID, &result.OpeningInput, &sourceOwner, &sourceMessage, &sourceSequence, &result.RetiredBy, &result.RetiredRevision)
+	err = row.Scan(&result.ID, &result.SessionID, &result.TurnID, &result.Sequence, &result.Role, &result.InputID, &raw, &created, &mailID, &revision, &presentation, &subject, &body, &sourceKind, &sourceID, &evidence, &design, &result.GroupID, &result.OpeningInput, &sourceOwner, &sourceMessage, &sourceSequence, &result.RetiredBy, &result.RetiredRevision)
 	if err != nil {
 		return result, found(err)
 	}
@@ -471,6 +493,9 @@ func scanMessage(row scanner) (result session.Message, err error) {
 		result.Parts = mailParts(*result.Mail, session.MailSource{Kind: sourceKind.String, ID: sourceID.String}, subject.String, body.String, evidence)
 	} else {
 		err = json.Unmarshal([]byte(raw.String), &result.Parts)
+	}
+	if err == nil {
+		result.DesignContext, err = decodeDesignContext(design, result.Parts)
 	}
 	return
 }

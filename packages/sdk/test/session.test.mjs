@@ -64,3 +64,20 @@ test('scoped input metadata stays bounded and full payload/cancellation are expl
   await assert.rejects(session.inputs.cancel('input'), /another session/);
   assert.equal(calls.at(-1).method, 'inputs.get');
 });
+
+
+test('design metadata is preserved in exact recoverable input and never invents part coordinates', async () => {
+  const { client, calls } = await clientFixture(request => { const result = fixture('Admission'); result.receipt.identity = request.params.identity; return result; });
+  const parts = [{ type: 'text', text: 'Literal input' }, { type: 'content', reference_id: 'evidence' }];
+  const design = { context_attachment_id: 'evidence', elements: [{ label: 'Save', selector: 'button.save' }], element_count: 1, page_title: 'Selected page' };
+  const command = client.session('child').submission(parts, 'design', { designContext: design });
+  design.page_title = 'Edited later';
+  assert.equal(command.params.design_context.page_title, 'Selected page');
+  await command.send();
+  assert.deepEqual(calls.at(-1).params.parts, parts);
+  assert.equal(calls.at(-1).params.design_context.page_title, 'Selected page');
+  assert.equal('context_part_index' in calls.at(-1).params.design_context, false);
+  await client.session('child').submit(parts, 'direct-design', { designContext: design });
+  assert.equal(calls.at(-1).params.design_context.page_title, 'Edited later');
+  assert.throws(() => client.session('child').submission(parts, 'invalid', { designContext: { ...design, context_part_index: 1 } }), TypeError);
+});

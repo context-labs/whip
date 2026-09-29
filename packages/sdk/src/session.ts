@@ -46,10 +46,11 @@ export class Session {
   }
   lifecycle(lifecycle: Params<'sessions.lifecycle'>['lifecycle'], options: CallOptions = {}) { return this.client.call('sessions.lifecycle', { session_id: this.id, lifecycle }, options); }
   delete(options: CallOptions = {}) { return this.client.call('sessions.delete', { session_id: this.id }, options); }
-  submit(parts: Params<'sessions.submit'>['parts'], requestID: string, options: CallOptions = {}) { return this.client.submit(this.id, parts, requestID, options); }
+  submit(parts: Params<'sessions.submit'>['parts'], requestID: string, options: Parameters<Client['submit']>[3] = {}) { return this.client.submit(this.id, parts, requestID, options); }
   /** Prepare a recoverable submission. Call send explicitly after preserving the handle/record. */
-  submission(parts: Params<'sessions.submit'>['parts'], requestID: string, options: { journal?: RecoveryJournal } = {}) {
-    return this.client.command('sessions.submit', { session_id: this.id, parts, source: 'user', identity: { client_id: this.client.clientID, request_id: requestID } }, options);
+  submission(parts: Params<'sessions.submit'>['parts'], requestID: string, options: { journal?: RecoveryJournal; designContext?: Params<'sessions.submit'>['design_context'] } = {}) {
+    const { designContext, ...commandOptions } = options;
+    return this.client.command('sessions.submit', { session_id: this.id, parts, source: 'user', identity: { client_id: this.client.clientID, request_id: requestID }, ...(designContext === undefined ? {} : { design_context: designContext }) }, commandOptions);
   }
   observe(options: Parameters<Client['observe']>[1] = {}) { return this.client.observe(this.id, options); }
   spawn(params: Omit<Params<'sessions.spawn'>, 'parent_id' | 'identity'>, requestID: string, options: CallOptions = {}) { return this.client.spawn({ ...params, parent_id: this.id }, requestID, options); }

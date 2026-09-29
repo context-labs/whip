@@ -606,6 +606,69 @@
             {
               "type": "object",
               "properties": {
+                "design_context": {
+                  "type": [
+                    "null",
+                    "object"
+                  ],
+                  "properties": {
+                    "context_attachment_id": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                    },
+                    "screenshot_attachment_id": {
+                      "type": [
+                        "null",
+                        "string"
+                      ],
+                      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                    },
+                    "elements": {
+                      "type": [
+                        "null",
+                        "array"
+                      ],
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "label": {
+                            "type": "string",
+                            "minimum": 1,
+                            "maximum": 160
+                          },
+                          "selector": {
+                            "type": "string",
+                            "maximum": 256
+                          }
+                        },
+                        "required": [
+                          "label"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "maximum": 8
+                    },
+                    "element_count": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 1000
+                    },
+                    "page_url": {
+                      "type": "string",
+                      "maximum": 2048
+                    },
+                    "page_title": {
+                      "type": "string",
+                      "maximum": 256
+                    }
+                  },
+                  "required": [
+                    "context_attachment_id",
+                    "elements",
+                    "element_count"
+                  ],
+                  "additionalProperties": false
+                },
                 "host_operation": {
                   "type": "null"
                 },
@@ -760,6 +823,69 @@
             {
               "type": "object",
               "properties": {
+                "design_context": {
+                  "type": [
+                    "null",
+                    "object"
+                  ],
+                  "properties": {
+                    "context_attachment_id": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                    },
+                    "screenshot_attachment_id": {
+                      "type": [
+                        "null",
+                        "string"
+                      ],
+                      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                    },
+                    "elements": {
+                      "type": [
+                        "null",
+                        "array"
+                      ],
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "label": {
+                            "type": "string",
+                            "minimum": 1,
+                            "maximum": 160
+                          },
+                          "selector": {
+                            "type": "string",
+                            "maximum": 256
+                          }
+                        },
+                        "required": [
+                          "label"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "maximum": 8
+                    },
+                    "element_count": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 1000
+                    },
+                    "page_url": {
+                      "type": "string",
+                      "maximum": 2048
+                    },
+                    "page_title": {
+                      "type": "string",
+                      "maximum": 256
+                    }
+                  },
+                  "required": [
+                    "context_attachment_id",
+                    "elements",
+                    "element_count"
+                  ],
+                  "additionalProperties": false
+                },
                 "host_operation": {
                   "type": "null"
                 },
@@ -915,6 +1041,69 @@
             {
               "type": "object",
               "properties": {
+                "design_context": {
+                  "type": [
+                    "null",
+                    "object"
+                  ],
+                  "properties": {
+                    "context_attachment_id": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                    },
+                    "screenshot_attachment_id": {
+                      "type": [
+                        "null",
+                        "string"
+                      ],
+                      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                    },
+                    "elements": {
+                      "type": [
+                        "null",
+                        "array"
+                      ],
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "label": {
+                            "type": "string",
+                            "minimum": 1,
+                            "maximum": 160
+                          },
+                          "selector": {
+                            "type": "string",
+                            "maximum": 256
+                          }
+                        },
+                        "required": [
+                          "label"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "maximum": 8
+                    },
+                    "element_count": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 1000
+                    },
+                    "page_url": {
+                      "type": "string",
+                      "maximum": 2048
+                    },
+                    "page_title": {
+                      "type": "string",
+                      "maximum": 256
+                    }
+                  },
+                  "required": [
+                    "context_attachment_id",
+                    "elements",
+                    "element_count"
+                  ],
+                  "additionalProperties": false
+                },
                 "host_operation": {
                   "type": "object",
                   "properties": {
