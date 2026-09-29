@@ -31,10 +31,10 @@ func TestExecutionInstructionsMatchSelectedEngineAndModules(t *testing.T) {
 				if !strings.Contains(guide, "json.encode") || !strings.Contains(guide, "checkpoint") {
 					t.Fatal("local libraries or checkpoint contract missing")
 				}
-				if engine == session.QuickJS && (!strings.Contains(guide, "not Node.js") || strings.Contains(guide, "time.parse_time")) {
+				if engine == session.QuickJS && (!strings.Contains(guide, "not Node.js") || !strings.Contains(guide, "await each result") || strings.Contains(guide, "time.parse_time")) {
 					t.Fatal("JavaScript guide describes the wrong execution environment")
 				}
-				if engine == session.Starlark && (!strings.Contains(guide, "not Python") || strings.Contains(guide, "await browser")) {
+				if engine == session.Starlark && (!strings.Contains(guide, "not Python") || strings.Contains(guide, "await ")) {
 					t.Fatal("Starlark guide describes the wrong execution environment")
 				}
 			}

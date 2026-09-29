@@ -6121,3 +6121,15 @@ or documented at the exact optional-authority boundary. The final command
 disables issue-count truncation, not lint checks. Its log is
 `/private/tmp/whip-parity-final-lint.log`. No dependencies, installed runtime,
 user database, deployment or merge changed during this follow-up.
+
+## 2026-09-29 — keep shared execution guidance engine-neutral
+
+The shared `execute` tool description no longer mentions JavaScript or `await`.
+Syntax guidance remains in the selected engine's existing guide. A request-level
+regression checks the actual tool description through ordinary calls, correction
+and replan; it fails against the prior wording. Guide checks require QuickJS's
+await guidance and exclude it from the tested Starlark module guides. Focused
+runner and both-engine guide/example tests pass under the race detector (1.595s
+and 6.497s), with independent review finding no issue. The validation log is
+`/private/tmp/whip-engine-guidance-check.log`. No runtime behavior or installation
+changed.

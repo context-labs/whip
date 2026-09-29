@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -182,6 +183,11 @@ func TestResolvedInstructionsStayFrozenThroughEffectsCorrectionAndReplan(t *test
 		ordinary++
 		if request.Instructions != want || instructions != 1 || len(request.Tools) != 1 {
 			return model.Response{}, errors.New("resolved base was duplicated, refreshed or lost")
+		}
+		for _, engineSpecific := range []string{"javascript", "quickjs", "starlark", "python", "await"} {
+			if strings.Contains(strings.ToLower(request.Tools[0].Description), engineSpecific) {
+				return model.Response{}, fmt.Errorf("shared execute description contains engine-specific guidance: %s", engineSpecific)
+			}
 		}
 		// A source changing after the first dispatch cannot affect this turn.
 		base = "project rules v2 and changed skill catalog"
