@@ -54,7 +54,7 @@ export function markdownRows(rows: readonly ConversationActivityRow[], cache: Ma
   const retained = new Set(rows.map(row => row.id));
   for (const id of cache.keys()) if (!retained.has(id)) cache.delete(id);
   const result = rows.flatMap(row => {
-    if (row.role !== 'assistant' || row.body || row.images?.length || !row.text.trim()) return [row];
+    if (row.role !== 'assistant' || row.body || row.images?.length || row.references?.length || !row.text.trim()) return [row];
     const previous = cache.get(row.id);
     if (previous?.text === row.text && previous.live === !!row.live && previous.rows[0]?.truncated === row.truncated) return previous.rows;
     const document = parseMarkdown(row.live ? streamingSource(row.text) : row.text, { extensions: row.live ? [streamingMarkdownExtension()] : undefined });

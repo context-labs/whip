@@ -3333,3 +3333,11 @@ retain their group even with a null local turn. Mail styling follows explicit
 mail provenance. Design grouping verifies unique reference identities at the
 server-derived part indices and never parses tagged transcript text. Local input
 previews retire on exact input identity, not prose similarity or queue disappearance.
+
+Transcript attachment rendering uses native metadata and owner-scoped content
+reads, including explicit design-context disclosure. Canonical messages contain
+parts directly, so the renderer no longer loads legacy JSON message bodies or
+keeps a second stored-prose cache. An SDK `message_too_large` gap names one exact
+message and offers separate inspection; it does not pretend another ordinary
+page request can enlarge the bounded transcript. Reading coordinates remain exact
+decimal strings through the virtualized timeline.
