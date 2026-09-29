@@ -121,3 +121,8 @@ func (r *Runtime) HistoryMetadataAtRevision(ctx context.Context, owner session.S
 func (r *Runtime) SearchHistoryAtRevision(ctx context.Context, owner session.SessionID, after, through int64, query string, limit int, expected *session.Revision) (session.HistorySearchPage, error) {
 	return r.store.SearchHistoryAtRevision(ctx, owner, after, through, query, limit, expected)
 }
+
+// TranscriptPage supplies bounded tail/older pages without scanning the transcript.
+func (r *Runtime) TranscriptPage(ctx context.Context, request session.HistoryPageRequest) (session.TranscriptPage, error) {
+	return r.store.TranscriptPage(ctx, request)
+}

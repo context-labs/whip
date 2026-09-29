@@ -1839,6 +1839,230 @@ export interface HistoryMetadataResult {
   through_sequence: string;
   next_after: null | string;
 }
+export interface HistoryPageParams {
+  session_id: string;
+  direction: "forward" | "backward";
+  cursor?: null | string;
+  expected_revision?: null | string;
+  limit: number;
+}
+export interface HistoryPageResult {
+  snapshot: {
+    revision: string;
+    session_id: string;
+    through_sequence: string;
+    message_count: string;
+  };
+  messages:
+    | null
+    | (
+        | {
+            group_id: string;
+            opening_input: boolean;
+            source: null | {
+              session_id: string;
+              message_id: string;
+              sequence: string;
+            };
+            retired_by: null | string;
+            retired_revision: null | string;
+            id: string;
+            session_id: string;
+            turn_id: null | string;
+            input_id: null | string;
+            mail: null | {
+              id: string;
+              revision: string;
+              presentation: "digest" | "body";
+            };
+            sequence: string;
+            role: "user";
+            /**
+             * @minItems 1
+             * @maxItems 128
+             */
+            parts: [
+              (
+                | {
+                    text: string;
+                    type: "text";
+                  }
+                | {
+                    reference_id: string;
+                    type: "content";
+                  }
+              ),
+              ...(
+                | {
+                    text: string;
+                    type: "text";
+                  }
+                | {
+                    reference_id: string;
+                    type: "content";
+                  }
+              )[]
+            ];
+            created_at: string;
+          }
+        | {
+            group_id: string;
+            opening_input: boolean;
+            source: null | {
+              session_id: string;
+              message_id: string;
+              sequence: string;
+            };
+            retired_by: null | string;
+            retired_revision: null | string;
+            id: string;
+            session_id: string;
+            turn_id: null | string;
+            input_id: null | string;
+            mail: null | {
+              id: string;
+              revision: string;
+              presentation: "digest" | "body";
+            };
+            sequence: string;
+            role: "system";
+            /**
+             * @minItems 1
+             * @maxItems 128
+             */
+            parts: [
+              (
+                | {
+                    text: string;
+                    type: "text";
+                  }
+                | {
+                    reference_id: string;
+                    type: "content";
+                  }
+              ),
+              ...(
+                | {
+                    text: string;
+                    type: "text";
+                  }
+                | {
+                    reference_id: string;
+                    type: "content";
+                  }
+              )[]
+            ];
+            created_at: string;
+          }
+        | {
+            group_id: string;
+            opening_input: boolean;
+            source: null | {
+              session_id: string;
+              message_id: string;
+              sequence: string;
+            };
+            retired_by: null | string;
+            retired_revision: null | string;
+            id: string;
+            session_id: string;
+            turn_id: null | string;
+            input_id: null | string;
+            mail: null | {
+              id: string;
+              revision: string;
+              presentation: "digest" | "body";
+            };
+            sequence: string;
+            role: "assistant";
+            /**
+             * @minItems 1
+             * @maxItems 128
+             */
+            parts: [
+              (
+                | {
+                    text: string;
+                    type: "text";
+                  }
+                | {
+                    reference_id: string;
+                    type: "content";
+                  }
+                | {
+                    call: {
+                      arguments: {
+                        [k: string]: unknown;
+                      };
+                      id: string;
+                      name: string;
+                    };
+                    type: "tool_call";
+                  }
+              ),
+              ...(
+                | {
+                    text: string;
+                    type: "text";
+                  }
+                | {
+                    reference_id: string;
+                    type: "content";
+                  }
+                | {
+                    call: {
+                      arguments: {
+                        [k: string]: unknown;
+                      };
+                      id: string;
+                      name: string;
+                    };
+                    type: "tool_call";
+                  }
+              )[]
+            ];
+            created_at: string;
+          }
+        | {
+            group_id: string;
+            opening_input: boolean;
+            source: null | {
+              session_id: string;
+              message_id: string;
+              sequence: string;
+            };
+            retired_by: null | string;
+            retired_revision: null | string;
+            id: string;
+            session_id: string;
+            turn_id: null | string;
+            input_id: null | string;
+            mail: null | {
+              id: string;
+              revision: string;
+              presentation: "digest" | "body";
+            };
+            sequence: string;
+            role: "tool";
+            /**
+             * @minItems 1
+             * @maxItems 1
+             */
+            parts: [
+              {
+                result: {
+                  call_id: string;
+                  is_error: boolean;
+                  output: string;
+                };
+                type: "tool_result";
+              }
+            ];
+            created_at: string;
+          }
+      )[];
+  next_cursor: null | string;
+}
 export interface HistoryParams {
   expected_revision?: null | string;
   session_id: string;
@@ -7534,6 +7758,8 @@ export interface ContractTypes {
   GrantsResult: GrantsResult;
   HistoryEdit: HistoryEdit;
   HistoryMetadataResult: HistoryMetadataResult;
+  HistoryPageParams: HistoryPageParams;
+  HistoryPageResult: HistoryPageResult;
   HistoryParams: HistoryParams;
   HistoryResult: HistoryResult;
   HistorySnapshot: HistorySnapshot;
@@ -7835,6 +8061,7 @@ export interface Operations {
   "sessions.list": { params: ListSessionsParams; result: ListSessionsResult };
   "sessions.configure": { params: UpdateConfigurationParams; result: Session };
   "sessions.submit": { params: SubmitParams; result: Admission };
+  "sessions.history_page": { params: HistoryPageParams; result: HistoryPageResult };
   "sessions.history": { params: HistoryParams; result: HistoryResult };
   "sessions.rewind": { params: RewindParams; result: HistoryEdit };
   "sessions.fork": { params: ForkParams; result: ForkResult };

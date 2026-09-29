@@ -710,6 +710,11 @@ export const manifest = {
       "result": "Admission"
     },
     {
+      "name": "sessions.history_page",
+      "params": "HistoryPageParams",
+      "result": "HistoryPageResult"
+    },
+    {
       "name": "sessions.history",
       "params": "HistoryParams",
       "result": "HistoryResult"

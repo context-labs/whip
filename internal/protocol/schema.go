@@ -165,6 +165,7 @@ func Operations() []Operation {
 		{"sessions.list", reflect.TypeFor[ListSessionsParams](), reflect.TypeFor[ListSessionsResult]()},
 		{"sessions.configure", reflect.TypeFor[UpdateConfigurationParams](), reflect.TypeFor[Session]()},
 		{"sessions.submit", reflect.TypeFor[SubmitParams](), reflect.TypeFor[Admission]()},
+		{"sessions.history_page", reflect.TypeFor[HistoryPageParams](), reflect.TypeFor[HistoryPageResult]()},
 		{"sessions.history", reflect.TypeFor[HistoryParams](), reflect.TypeFor[HistoryResult]()},
 		{"sessions.rewind", reflect.TypeFor[RewindParams](), reflect.TypeFor[HistoryEdit]()},
 		{"sessions.fork", reflect.TypeFor[ForkParams](), reflect.TypeFor[ForkResult]()},

@@ -312,6 +312,25 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 			value, err := r.Admit(ctx, identity(p.Identity), store.Submission{SessionID: session.SessionID(p.SessionID), Source: session.InputSource(p.Source), Parts: parts})
 			return admission(value), err
 		})
+	case "sessions.history_page":
+		return decode(raw, func(p protocol.HistoryPageParams) (any, error) {
+			request := session.HistoryPageRequest{SessionID: session.SessionID(p.SessionID), Direction: p.Direction, Limit: p.Limit, ExpectedRevision: expectedHistoryRevision(p.ExpectedRevision)}
+			if p.Cursor != nil {
+				request.Cursor = new(int64(*p.Cursor))
+			}
+			page, err := r.TranscriptPage(ctx, request)
+			if err != nil {
+				return nil, err
+			}
+			result := protocol.HistoryPageResult{Snapshot: protocol.HistorySnapshotFromDomain(page.Snapshot), Messages: []protocol.Message{}}
+			for _, message := range page.Messages {
+				result.Messages = append(result.Messages, protocol.MessageFromDomain(message))
+			}
+			if page.NextCursor != nil {
+				result.NextCursor = new(protocol.Counter(*page.NextCursor))
+			}
+			return result, nil
+		})
 	case "sessions.history":
 		return decode(raw, func(p protocol.HistoryParams) (any, error) {
 			snapshot, values, err := r.HistoryPage(ctx, session.SessionID(p.SessionID), int64(p.After), p.Limit, expectedHistoryRevision(p.ExpectedRevision))

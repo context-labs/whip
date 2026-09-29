@@ -223,6 +223,8 @@ func Fixtures() ([]Fixture, error) {
 		{"Response", Response{JSONRPC: "2.0", ID: "call", Error: &RPCError{Code: -32009, Kind: "CONFLICT", Message: "request conflict"}}},
 		{"Session", root},
 		{"Session", child},
+		{"HistoryPageParams", HistoryPageParams{SessionID: child.ID, Direction: "backward", Cursor: new(Counter(9007199254740995)), ExpectedRevision: new(Counter(9007199254740993)), Limit: 10}},
+		{"HistoryPageResult", HistoryPageResult{Snapshot: HistorySnapshot{Revision: 9007199254740993, SessionID: child.ID, ThroughSequence: 9007199254740995, MessageCount: 3}, Messages: []Message{message}, NextCursor: new(Counter(9007199254740993))}},
 		{"HistoryResult", HistoryResult{Snapshot: HistorySnapshot{Revision: 9007199254740993, SessionID: child.ID, ThroughSequence: 9007199254740995, MessageCount: 3}, Items: []Message{message, callMessage, toolMessage}}},
 		{"Part", callMessage.Parts[0]},
 		{"Part", toolMessage.Parts[0]},

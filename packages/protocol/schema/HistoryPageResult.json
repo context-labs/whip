@@ -1,0 +1,843 @@
+{
+  "type": "object",
+  "properties": {
+    "snapshot": {
+      "type": "object",
+      "properties": {
+        "revision": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+        },
+        "through_sequence": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        },
+        "message_count": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,18})$",
+          "format": "counter"
+        }
+      },
+      "required": [
+        "revision",
+        "session_id",
+        "through_sequence",
+        "message_count"
+      ],
+      "additionalProperties": false
+    },
+    "messages": {
+      "type": [
+        "null",
+        "array"
+      ],
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "group_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "opening_input": {
+                "type": "boolean"
+              },
+              "source": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "session_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "message_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "sequence": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  }
+                },
+                "required": [
+                  "session_id",
+                  "message_id",
+                  "sequence"
+                ],
+                "additionalProperties": false
+              },
+              "retired_by": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "retired_revision": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "session_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "turn_id": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "input_id": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "mail": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "revision": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  },
+                  "presentation": {
+                    "type": "string",
+                    "enum": [
+                      "digest",
+                      "body"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "revision",
+                  "presentation"
+                ],
+                "additionalProperties": false
+              },
+              "sequence": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "user"
+                ]
+              },
+              "parts": {
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "text": {
+                          "type": "string",
+                          "pattern": "^[\\s\\S]+$"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "text"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "text"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "reference_id": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "content"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "reference_id"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "minItems": 1,
+                "maxItems": 128
+              },
+              "created_at": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "group_id",
+              "opening_input",
+              "source",
+              "retired_by",
+              "retired_revision",
+              "id",
+              "session_id",
+              "turn_id",
+              "input_id",
+              "mail",
+              "sequence",
+              "role",
+              "parts",
+              "created_at"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "group_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "opening_input": {
+                "type": "boolean"
+              },
+              "source": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "session_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "message_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "sequence": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  }
+                },
+                "required": [
+                  "session_id",
+                  "message_id",
+                  "sequence"
+                ],
+                "additionalProperties": false
+              },
+              "retired_by": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "retired_revision": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "session_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "turn_id": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "input_id": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "mail": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "revision": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  },
+                  "presentation": {
+                    "type": "string",
+                    "enum": [
+                      "digest",
+                      "body"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "revision",
+                  "presentation"
+                ],
+                "additionalProperties": false
+              },
+              "sequence": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "system"
+                ]
+              },
+              "parts": {
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "text": {
+                          "type": "string",
+                          "pattern": "^[\\s\\S]+$"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "text"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "text"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "reference_id": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "content"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "reference_id"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "minItems": 1,
+                "maxItems": 128
+              },
+              "created_at": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "group_id",
+              "opening_input",
+              "source",
+              "retired_by",
+              "retired_revision",
+              "id",
+              "session_id",
+              "turn_id",
+              "input_id",
+              "mail",
+              "sequence",
+              "role",
+              "parts",
+              "created_at"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "group_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "opening_input": {
+                "type": "boolean"
+              },
+              "source": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "session_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "message_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "sequence": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  }
+                },
+                "required": [
+                  "session_id",
+                  "message_id",
+                  "sequence"
+                ],
+                "additionalProperties": false
+              },
+              "retired_by": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "retired_revision": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "session_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "turn_id": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "input_id": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "mail": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "revision": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  },
+                  "presentation": {
+                    "type": "string",
+                    "enum": [
+                      "digest",
+                      "body"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "revision",
+                  "presentation"
+                ],
+                "additionalProperties": false
+              },
+              "sequence": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "assistant"
+                ]
+              },
+              "parts": {
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "text": {
+                          "type": "string",
+                          "pattern": "^[\\s\\S]+$"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "text"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "text"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "reference_id": {
+                          "type": "string",
+                          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "content"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "reference_id"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "call": {
+                          "type": "object",
+                          "properties": {
+                            "arguments": {
+                              "type": "object",
+                              "additionalProperties": true
+                            },
+                            "id": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                            },
+                            "name": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9_-]{1,64}$"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name",
+                            "arguments"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "tool_call"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "call"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "minItems": 1,
+                "maxItems": 128
+              },
+              "created_at": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "group_id",
+              "opening_input",
+              "source",
+              "retired_by",
+              "retired_revision",
+              "id",
+              "session_id",
+              "turn_id",
+              "input_id",
+              "mail",
+              "sequence",
+              "role",
+              "parts",
+              "created_at"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "group_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "opening_input": {
+                "type": "boolean"
+              },
+              "source": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "session_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "message_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "sequence": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  }
+                },
+                "required": [
+                  "session_id",
+                  "message_id",
+                  "sequence"
+                ],
+                "additionalProperties": false
+              },
+              "retired_by": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "retired_revision": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "session_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "turn_id": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "input_id": {
+                "type": [
+                  "null",
+                  "string"
+                ],
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "mail": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "revision": {
+                    "type": "string",
+                    "pattern": "^(0|[1-9][0-9]{0,18})$",
+                    "format": "counter"
+                  },
+                  "presentation": {
+                    "type": "string",
+                    "enum": [
+                      "digest",
+                      "body"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "revision",
+                  "presentation"
+                ],
+                "additionalProperties": false
+              },
+              "sequence": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "tool"
+                ]
+              },
+              "parts": {
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "result": {
+                          "type": "object",
+                          "properties": {
+                            "call_id": {
+                              "type": "string",
+                              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                            },
+                            "is_error": {
+                              "type": "boolean"
+                            },
+                            "output": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "call_id",
+                            "output",
+                            "is_error"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "tool_result"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "result"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "minItems": 1,
+                "maxItems": 1
+              },
+              "created_at": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "group_id",
+              "opening_input",
+              "source",
+              "retired_by",
+              "retired_revision",
+              "id",
+              "session_id",
+              "turn_id",
+              "input_id",
+              "mail",
+              "sequence",
+              "role",
+              "parts",
+              "created_at"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "next_cursor": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/HistoryPageResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HistoryPageResult",
+  "required": [
+    "snapshot",
+    "messages",
+    "next_cursor"
+  ],
+  "additionalProperties": false
+}
