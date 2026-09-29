@@ -433,6 +433,15 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 			value, err := r.Turn(ctx, session.TurnID(p.TurnID))
 			return protocol.TurnFromDomain(value), err
 		})
+	case "turns.cells_page":
+		return decode(raw, func(p protocol.CellPageParams) (any, error) {
+			var before session.CellID
+			if p.Before != nil {
+				before = session.CellID(*p.Before)
+			}
+			page, err := r.CellPage(ctx, session.TurnID(p.TurnID), before, p.Limit)
+			return protocol.CellPageFromDomain(page), err
+		})
 	case "sessions.turns":
 		return decode(raw, func(p protocol.TurnPageParams) (any, error) {
 			var before session.TurnID

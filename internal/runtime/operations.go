@@ -77,3 +77,7 @@ func (r *Runtime) Cell(ctx context.Context, id session.CellID) (session.Cell, er
 func (r *Runtime) Cells(ctx context.Context, id session.TurnID, after session.CellID, limit int) ([]session.Cell, error) {
 	return r.store.Cells(ctx, id, after, limit)
 }
+
+func (r *Runtime) CellPage(ctx context.Context, id session.TurnID, before session.CellID, limit int) (session.CellPage, error) {
+	return r.store.CellPage(ctx, id, before, limit)
+}

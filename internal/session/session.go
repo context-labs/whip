@@ -364,3 +364,9 @@ func ValidateText(value string, maxBytes int) error {
 	}
 	return nil
 }
+
+// CellPage orders native execution by immutable cell ordinal, newest first.
+type CellPage struct {
+	Items      []Cell
+	NextCursor *CellID
+}

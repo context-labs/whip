@@ -77,6 +77,8 @@ func Fixtures() ([]Fixture, error) {
 		{"AttemptPresentation", AttemptPresentationFromDomain(session.AttemptPresentation{GroupID: "group_imported", SourceSessionID: new(session.SessionID("source")), AttemptID: "failed_attempt", TurnID: "source_turn", State: session.AttemptUncertain, Presentation: failedPresentation})},
 		{"CellOutput", CellOutput{Epoch: "boot_fixture", Preview: &CellOutputPreview{SessionID: "session_child", TurnID: "turn_fixture", CellID: "cell_fixture", CallMessageID: "message_call", CallID: "call_fixture", HistoryRevision: 9007199254740993, Revision: 9007199254740993, Text: "Starting…\n", Truncated: false}}},
 		{"CellOutput", CellOutput{Epoch: "boot_fixture"}},
+		{"CellPageParams", CellPageParams{TurnID: "turn_fixture", Before: new(ID("cell_cursor")), Limit: 100}},
+		{"CellPageResult", CellPageResult{Items: []Cell{}, NextCursor: nil}},
 		{"HostStatus", HostStatus{RuntimeID: "runtime_fixture", ProcessEpoch: "boot_fixture", PID: 123, Build: "fixture", StartedAt: created.Format(time.RFC3339Nano)}},
 		{"StopHostParams", StopHostParams{RuntimeID: "runtime_fixture", ProcessEpoch: "boot_fixture"}},
 		{"HostStopAccepted", HostStopAccepted{RuntimeID: "runtime_fixture", ProcessEpoch: "boot_fixture"}},

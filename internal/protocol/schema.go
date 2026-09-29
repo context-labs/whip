@@ -180,6 +180,7 @@ func Operations() []Operation {
 		{"cells.output", reflect.TypeFor[SessionParams](), reflect.TypeFor[CellOutput]()},
 		{"cells.get", reflect.TypeFor[CellParams](), reflect.TypeFor[Cell]()},
 		{"turns.cells", reflect.TypeFor[CellsParams](), reflect.TypeFor[CellsResult]()},
+		{"turns.cells_page", reflect.TypeFor[CellPageParams](), reflect.TypeFor[CellPageResult]()},
 		{"grants.create", reflect.TypeFor[CreateGrantParams](), reflect.TypeFor[Grant]()},
 		{"grants.list", reflect.TypeFor[GrantsParams](), reflect.TypeFor[GrantsResult]()},
 		{"grants.revoke", reflect.TypeFor[GrantParams](), reflect.TypeFor[Grant]()},
