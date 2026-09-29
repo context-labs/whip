@@ -9,7 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/context-labs/whip/internal/lsp"
+	"github.com/context-labs/whip/internal/lspconfig"
 	"github.com/context-labs/whip/internal/session"
 )
 
@@ -79,7 +79,7 @@ func (m Model) resolve(defaultOutput int64) (Model, error) {
 
 type Host struct {
 	// LSP publishes bounded stdio server declarations without granting session authority.
-	LSP map[string]lsp.Config `json:"lsp"`
+	LSP map[string]lspconfig.Config `json:"lsp"`
 	// ProjectRoots publishes named project directories without granting authority.
 	ProjectRoots map[string]string `json:"project_roots"`
 	// StandingInstructionsFile explicitly publishes one file; empty disables it.
@@ -96,11 +96,11 @@ type Host struct {
 // Default is intentionally unconfigured. Model/provider selection is required
 // before resolving a runnable session; initialization invents no credentials.
 func Default() Host {
-	return Host{Version: Version, LSP: map[string]lsp.Config{}, ProjectRoots: map[string]string{}, SkillRoots: map[string]string{}, Providers: map[string]Provider{}, Engine: session.Starlark, Resources: session.DefaultResourceLimits()}
+	return Host{Version: Version, LSP: map[string]lspconfig.Config{}, ProjectRoots: map[string]string{}, SkillRoots: map[string]string{}, Providers: map[string]Provider{}, Engine: session.Starlark, Resources: session.DefaultResourceLimits()}
 }
 
 func (h Host) Validate() error {
-	if err := lsp.ValidateConfig(h.LSP); err != nil {
+	if err := lspconfig.ValidateConfig(h.LSP); err != nil {
 		return fmt.Errorf("%w: %w", session.ErrInvalid, err)
 	}
 	if h.Version != Version {

@@ -68,9 +68,7 @@ func (d *Dispatcher) Call(ctx context.Context, call Invocation) (any, session.Op
 		return nil, "", err
 	}
 	if call.Module == "files" && call.Name == "diagnostics" {
-		if err == nil {
-			prepared, err = d.prepareDiagnostics(ctx, current, prepared)
-		}
+		prepared, err = d.prepareDiagnostics(ctx, current, prepared)
 		if err != nil {
 			return nil, "", err
 		}

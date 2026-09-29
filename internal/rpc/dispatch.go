@@ -54,7 +54,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 	case "lsp.status":
 		return decode(raw, func(p protocol.SessionParams) (any, error) {
 			values, err := r.LSPStatus(ctx, session.SessionID(p.SessionID))
-			return protocol.LanguageServersFromDomain(values), err
+			return languageServersFromDomain(values), err
 		})
 	case "accounts.openai.begin", "accounts.openai.get", "accounts.openai.list", "accounts.openai.cancel", "accounts.openai.status", "accounts.openai.setup", "accounts.openai.logout":
 		return dispatchAccount(ctx, host.OpenAI, method, raw)

@@ -2,9 +2,7 @@ package protocol
 
 import (
 	"reflect"
-	"strings"
 
-	"github.com/context-labs/whip/internal/lsp"
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
@@ -17,21 +15,6 @@ type LanguageServerStatus struct {
 
 type LanguageServersResult struct {
 	Items []LanguageServerStatus `json:"items"`
-}
-
-func LanguageServersFromDomain(values []lsp.Status) LanguageServersResult {
-	result := LanguageServersResult{Items: []LanguageServerStatus{}}
-	for _, value := range values {
-		row := LanguageServerStatus{Name: value.Name, State: strings.ReplaceAll(value.State, " ", "_")}
-		if value.Root != "" {
-			row.WorkspaceRoot = new(value.Root)
-		}
-		if value.Err != "" {
-			row.Failure = new("Language server connection is unavailable.")
-		}
-		result.Items = append(result.Items, row)
-	}
-	return result
 }
 
 func languageServerSchema(schema *jsonschema.Schema, t reflect.Type) {

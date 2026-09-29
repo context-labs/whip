@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/lspconfig"
 )
 
 // diagWait caps how long a write/edit tool call blocks for diagnostics
@@ -27,58 +28,6 @@ const diagWait = 1500 * time.Millisecond
 
 // initTimeout bounds the initialize handshake.
 const initTimeout = 10 * time.Second
-
-// ServerSpec describes how to match and spawn one language server.
-type ServerSpec struct {
-	Command     []string          // argv; nil for a disabled entry
-	Extensions  []string          // file extensions served, e.g. [".go"]
-	RootMarkers []string          // files that mark a project root
-	Env         map[string]string // extra env layered over whip's
-	Disabled    bool
-}
-
-// builtinServers is the shipped registry. Adding a built-in is one row.
-var builtinServers = map[string]ServerSpec{
-	"gopls": {
-		Command:     []string{"gopls"},
-		Extensions:  []string{".go"},
-		RootMarkers: []string{"go.work", "go.mod", "go.sum"},
-	},
-}
-
-// FromConfigMap converts the config-file "lsp" block into specs merged over
-// the built-ins: a user entry with disabled=true removes the built-in, an
-// entry with a command replaces/extends it (extensions/rootMarkers default to
-// the built-in's when omitted). Mirrors mcp.FromConfigMap semantics
-// (internal/mcp/config.go:169).
-func FromConfigMap(in map[string]Config) map[string]ServerSpec {
-	out := make(map[string]ServerSpec, len(builtinServers)+len(in))
-	for name, spec := range builtinServers {
-		out[name] = cloneSpec(spec)
-	}
-	for name, c := range in {
-		existing := out[name]
-		if c.Enabled != nil && !*c.Enabled {
-			delete(out, name)
-			continue
-		}
-		spec := existing
-		if len(c.Command) > 0 {
-			spec.Command = c.Command
-		}
-		if len(c.Extensions) > 0 {
-			spec.Extensions = c.Extensions
-		}
-		if len(c.RootMarkers) > 0 {
-			spec.RootMarkers = c.RootMarkers
-		}
-		if len(c.Env) > 0 {
-			spec.Env = c.Env
-		}
-		out[name] = cloneSpec(spec)
-	}
-	return out
-}
 
 // Status is one row of the /lsp view.
 type Status struct {
@@ -167,7 +116,7 @@ type spawnKeyer func(serverID, abs string, markers []string) string
 func NewManager(specs map[string]ServerSpec) *Manager {
 	copied := make(map[string]ServerSpec, len(specs))
 	for name, spec := range specs {
-		copied[name] = cloneSpec(spec)
+		copied[name] = lspconfig.CloneSpec(spec)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Manager{
@@ -515,8 +464,7 @@ func (cs *clientState) kill() {
 		}
 		cs.cli.shutdown()
 		if cs.process != nil {
-			_ = cs.process.Kill()
-			_ = cs.process.Wait()
+			cs.process.Stop()
 		}
 		if cs.cmd != nil {
 			if cs.cmd.Process != nil {

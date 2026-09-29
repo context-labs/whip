@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/context-labs/whip/internal/buildinfo"
-	"github.com/context-labs/whip/internal/lsp"
+	"github.com/context-labs/whip/internal/lspconfig"
 )
 
 // Provider is an API endpoint that can serve models.
@@ -249,7 +249,7 @@ type BrowserConfig struct {
 
 // LSPServer is the config-file form of an LSP server entry. It mirrors
 // MCPServer minus the remote fields (LSP is stdio-only here).
-type LSPServer = lsp.Config
+type LSPServer = lspconfig.Config
 
 // MCPImport selects which imported MCP server definitions whipcode picks up.
 // Three sources: claude (the user's ~/.claude.json), codex (the user's

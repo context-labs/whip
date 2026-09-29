@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -136,7 +137,18 @@ func TestPoolAuthorityLifetimeAndEphemeralIsolation(t *testing.T) {
 	if len(pool.active) != 1 || len(pool.slots) != 1 {
 		t.Fatal("standing manager missing")
 	}
+	var groups []int
+	for manager := range pool.active {
+		for _, client := range manager.clients {
+			groups = append(groups, client.process.PID())
+		}
+	}
 	pool.RetireAll()
+	for _, group := range groups {
+		if err := syscall.Kill(-group, 0); !errors.Is(err, syscall.ESRCH) {
+			t.Fatalf("retired process group %d still exists: %v", group, err)
+		}
+	}
 	if len(pool.active) != 0 || len(pool.slots) != 0 {
 		t.Fatal("retired process survived")
 	}
