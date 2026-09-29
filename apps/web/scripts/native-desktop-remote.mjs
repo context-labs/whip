@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { expect } from '@playwright/test';
 import { startFixture } from './native-fixture.mjs';
-import { isolateDesktopPerformance, launchDesktopPerformance, finishDesktopPerformance } from './performance-desktop.mjs';
+import { isolateDesktopPerformance, launchDesktopPerformance, setDesktopViewport, finishDesktopPerformance } from './performance-desktop.mjs';
 
 export async function openDesktopRemote(fixture) {
   let local, isolation, host;
@@ -14,7 +14,7 @@ export async function openDesktopRemote(fixture) {
     host = await launchDesktopPerformance(local, isolation);
     assert.notEqual(local.info.runtime_id, fixture.info.runtime_id);
     const { page } = host;
-    await page.setViewportSize({ width: 1280, height: 900 });
+    await setDesktopViewport(host, { width: 1280, height: 900 });
     await page.locator('#whip-session-navigation').getByRole('button', { name: 'Manage servers', exact: true }).click();
     await page.getByRole('button', { name: 'Add server', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Add server', exact: true });
