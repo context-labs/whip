@@ -241,3 +241,32 @@ it('shows a truthful empty global catalog without a folder prerequisite', async 
   f.type('/missing'); expect(screen.getByText('No matching skills.')).toBeTruthy();
   fireEvent.keyDown(f.input, { key: 'Enter' }); expect(f.send).not.toHaveBeenCalled();
 });
+
+it.each(['click', 'keyboard'] as const)('does not undo a newer select-all after %s completion', async method => {
+  const f = fixture(); f.focus(); await loaded(f); f.type('/po');
+  const frames: FrameRequestCallback[] = [];
+  vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => { frames.push(callback); return frames.length; });
+  if (method === 'click') fireEvent.click(screen.getByRole('option', { name: /ponytail/ }));
+  else fireEvent.keyDown(f.input, { key: 'Enter' });
+  expect(f.input.value).toBe('$ponytail ');
+  act(() => {
+    f.input.setSelectionRange(0, f.input.value.length);
+    fireEvent.select(f.input);
+    for (const frame of frames.splice(0)) frame(performance.now());
+  });
+  expect([f.input.selectionStart, f.input.selectionEnd]).toEqual([0, '$ponytail '.length]);
+  act(() => { f.input.setRangeText('/accept-al'); fireEvent.input(f.input); });
+  expect(f.input.value).toBe('/accept-al');
+  expect(f.send).not.toHaveBeenCalled();
+});
+
+it.each([workspace, global])('restores the middle insertion caret before the next edit (%j)', async scope => {
+  const f = fixture(scope); f.focus(); await loaded(f); f.type('Before /po after');
+  act(() => { f.input.setSelectionRange(10, 10); fireEvent.select(f.input); });
+  fireEvent.keyDown(f.input, { key: 'Enter' });
+  expect(f.input.value).toBe('Before $ponytail after');
+  expect([f.input.selectionStart, f.input.selectionEnd]).toEqual([17, 17]);
+  act(() => { f.input.setRangeText('carefully '); fireEvent.input(f.input); });
+  expect(f.input.value).toBe('Before $ponytail carefully after');
+  expect(f.send).not.toHaveBeenCalled();
+});

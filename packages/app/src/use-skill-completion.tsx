@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Client } from '@whip/sdk';
 import { readSkillSuggestions, type SkillScope } from './skill-suggestions';
@@ -22,6 +22,12 @@ export function useSkillCompletion({ client, owner, scope: context, input, draft
   const clientKey = useMemo(() => crypto.randomUUID(), [client]);
   const scopeKey = JSON.stringify([runtimeId, clientKey, owner, scope]);
   const latest = useRef({ scopeKey, client }); latest.current = { scopeKey, client };
+  const restoreSelection = useRef<(() => void) | undefined>(undefined);
+  useLayoutEffect(() => {
+    const restore = restoreSelection.current;
+    restoreSelection.current = undefined;
+    if (!blocked && connected) restore?.();
+  });
   const [request, setRequest] = useState<Request | null>(null);
   useEffect(() => { setRequest(null); }, [scopeKey, blocked, connected]);
   const dismissed = useRef('');
@@ -107,12 +113,14 @@ export function useSkillCompletion({ client, owner, scope: context, input, draft
       !candidates.some(candidate => candidate.text === reference)) return;
     const insertion = insertSkill(element.value, current.trigger, reference);
     if (!insertion) return;
-    dismiss(); suppressRepeat.current = true; change(insertion.text);
-    requestAnimationFrame(() => {
+    dismiss(); suppressRepeat.current = true;
+    // Restore with the controlled value's commit, before another user selection.
+    restoreSelection.current = () => {
       if (latest.current.scopeKey !== current.scope || input.current !== element || element.value !== insertion.text || document.activeElement !== element) return;
       element.setSelectionRange(insertion.caret, insertion.caret);
       rememberSelection?.({ start: insertion.caret, end: insertion.caret });
-    });
+    };
+    change(insertion.text);
   }
   const status = !connected ? 'Reconnect to search skills.'
     : cold ? (loading === readIdentity ? 'Loading skills…' : '')
