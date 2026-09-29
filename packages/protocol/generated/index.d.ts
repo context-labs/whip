@@ -1735,9 +1735,7 @@ export type ExecutorEvent = {
   };
 } & (
   | {
-      invocation?: {
-        [k: string]: unknown;
-      };
+      invocation?: {};
       method?: "executor.invoke";
       [k: string]: unknown;
     }
@@ -3336,9 +3334,7 @@ export type HostOperation = {
   finished_at: null | string;
 } & (
   | {
-      cell_id?: {
-        [k: string]: unknown;
-      };
+      cell_id?: {};
       origin?: "cell";
       [k: string]: unknown;
     }
@@ -3359,11 +3355,34 @@ export interface HostOperationsParams {
 export interface HostOperationsResult {
   items:
     | null
-    | (
+    | ({
+        permission_revision: null | string;
+        id: string;
+        session_id: string;
+        turn_id: string;
+        cell_id: null | string;
+        origin: "cell" | "host_operation";
+        request_id: string;
+        capability: string;
+        resource: string;
+        arguments: unknown;
+        state: "waiting" | "ready" | "dispatched" | "succeeded" | "failed" | "denied" | "cancelled" | "uncertain";
+        grant_id: null | string;
+        result: null | {
+          /**
+           * @maxItems 8
+           */
+          content_references: string[];
+          state: "succeeded" | "failed" | "denied" | "cancelled" | "uncertain";
+          value?: unknown;
+          failure?: null | string;
+        };
+        created_at: string;
+        dispatched_at: null | string;
+        finished_at: null | string;
+      } & (
         | {
-            cell_id?: {
-              [k: string]: unknown;
-            };
+            cell_id?: {};
             origin?: "cell";
             [k: string]: unknown;
           }
@@ -3372,7 +3391,7 @@ export interface HostOperationsResult {
             origin?: "host_operation";
             [k: string]: unknown;
           }
-      )[];
+      ))[];
 }
 export interface HostProfiles {
   revision: string;
@@ -9325,7 +9344,12 @@ export interface TracePageResult {
       /**
        * @maxItems 64
        */
-      attributes: (
+      attributes: ({
+        key: string;
+        text: null | string;
+        count: null | string;
+        flag: null | boolean;
+      } & (
         | {
             count?: null;
             flag?: null;
@@ -9344,7 +9368,7 @@ export interface TracePageResult {
             text?: null;
             [k: string]: unknown;
           }
-      )[];
+      ))[];
     };
   }[];
   revision: string;

@@ -4,6 +4,17 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import ajvUnicodeLength from 'ajv/dist/runtime/ucs2length.js';
 import { validate, manifest } from '../generated/index.js';
+import { declarationSchema } from './declaration-schema.mjs';
+
+test('declaration normalization preserves the independent wire schemas and JSON value types', () => {
+  const source = { type: 'object', properties: { value: { not: { type: 'null' } } }, oneOf: [{ properties: { kind: { const: 'a' } } }] };
+  const before = structuredClone(source);
+  const result = declarationSchema({ type: 'array', items: source });
+  assert.deepEqual(source, before);
+  assert.deepEqual(result, { type: 'array', items: { allOf: [{ type: 'object', properties: { value: { tsType: '{}' } } }, { oneOf: source.oneOf }] } });
+  const primitive = { type: ['string', 'null'], not: { type: 'null' } };
+  assert.deepEqual(declarationSchema(primitive), primitive);
+});
 
 const fixtures = JSON.parse(await readFile(new URL('../schema/fixtures.json', import.meta.url), 'utf8'));
 test('actual Go JSON agrees with standalone TypeScript validation', () => {
