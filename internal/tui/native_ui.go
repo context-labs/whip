@@ -54,6 +54,7 @@ func (w *nativeWork) close() { w.mu.Lock(); w.closed = true; w.stop(); w.mu.Unlo
 // directly over typed host operations; it does not adapt retired RootActions.
 type nativeModel struct {
 	work                            nativeWork
+	connection                      *client.Client
 	handle                          *client.Session
 	owner                           protocol.Session
 	observer                        *client.Observer
@@ -71,11 +72,16 @@ type nativeModel struct {
 	uncertain                       *client.InputCommand
 	quitArmed                       bool
 	cancelling                      bool
+	controlling                     bool
+	retryControl                    tea.Cmd
+	generation                      uint64
 }
 
 type (
 	nativePoll struct{}
 	nativeRead struct {
+		generation    uint64
+		owner         *protocol.Session
 		activity      protocol.SessionActivity
 		page          *protocol.HistoryPageResult
 		observation   *client.Observation
@@ -109,7 +115,7 @@ func newNativeModel(ctx context.Context, c *client.Client, owner protocol.Sessio
 	}
 	lifecycle, cancel := context.WithCancel(ctx)
 	return &nativeModel{
-		work: nativeWork{ctx: lifecycle, stop: cancel}, handle: handle, owner: owner,
+		work: nativeWork{ctx: lifecycle, stop: cancel}, connection: c, handle: handle, owner: owner,
 		history: nativeTranscript{owner: owner.ID}, input: newInput(), width: 80, height: 24, follow: true,
 	}, nil
 }
@@ -121,16 +127,24 @@ func (m *nativeModel) read() tea.Cmd {
 		return nil
 	}
 	m.reading = true
-	observer, handle := m.observer, m.handle
+	observer, handle, generation := m.observer, m.handle, m.generation
 	evidence := m.polls%5 == 0
 	m.polls++
 	return func() tea.Msg {
 		ctx, done, err := m.work.begin()
 		if err != nil {
-			return nativeRead{err: err}
+			return nativeRead{generation: generation, err: err}
 		}
 		defer done()
-		result := nativeRead{observer: observer}
+		result := nativeRead{generation: generation, observer: observer}
+		if observer == nil || evidence {
+			owner, err := handle.Get(ctx)
+			if err != nil {
+				result.err = err
+				return result
+			}
+			result.owner = &owner
+		}
 		result.activity, result.err = handle.Activity(ctx)
 		if result.err != nil {
 			return result
@@ -195,6 +209,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.read()
 	case nativeRead:
 		m.reading = false
+		if value.generation != m.generation {
+			return m, nativeTick()
+		}
 		if value.err != nil {
 			m.ready = false
 			m.status = "Connection read failed: " + value.err.Error()
@@ -216,6 +233,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nativeTick()
 		}
 		m.ready, m.observer, m.activity = true, value.observer, value.activity
+		if value.owner != nil && value.owner.ConfigRevision >= m.owner.ConfigRevision {
+			m.owner = *value.owner
+		}
 		m.history.output(value.output)
 		if value.usage != nil {
 			m.usage = *value.usage
@@ -243,6 +263,31 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.status = "The original input was deleted; it has not been resubmitted."
 			} else {
 				m.status = "Accepted input " + string(value.admission.Input.ID)
+			}
+		}
+	case nativeControlResult:
+		m.controlling = false
+		if value.mutation {
+			m.retryControl = nil
+		}
+		if value.err != nil {
+			m.status = value.label + ": " + value.err.Error()
+			if _, definitive := errors.AsType[*client.Error](value.err); !definitive && value.retry != nil {
+				m.retryControl = value.retry
+				m.status += " Outcome may be unknown; /retry repeats only this original control."
+			} else if !definitive && value.inspectOnError {
+				m.status += " Outcome may be unknown; /status reads current lifecycle. This action is never replayed."
+			}
+		} else {
+			m.status = value.label
+			if value.owner != nil && value.owner.ConfigRevision >= m.owner.ConfigRevision {
+				m.owner = *value.owner
+			}
+			if value.reset {
+				m.generation++
+				m.history = nativeTranscript{owner: m.handle.ID()}
+				m.ready, m.observer = false, nil
+				m.refresh()
 			}
 		}
 	case nativeCancelled:
@@ -287,35 +332,61 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *nativeModel) submit() tea.Cmd {
 	text := m.input.Value()
-	if strings.TrimSpace(text) == "" || !m.ready || m.sending {
-		return nil
-	}
-	if m.uncertain != nil {
-		m.status = "Inspect the original uncertain input before another submission."
+	if strings.TrimSpace(text) == "" || !m.ready || m.sending || m.controlling {
 		return nil
 	}
 	if strings.HasPrefix(strings.TrimSpace(text), "/") {
-		m.status = "Native command controls are still being connected."
+		return m.command(strings.TrimSpace(text))
+	}
+	return m.prompt(text, "auto")
+}
+
+func (m *nativeModel) prompt(text, delivery string) tea.Cmd {
+	if m.uncertain != nil || m.retryControl != nil {
+		m.status = "Inspect or explicitly retry the original uncertain action before another submission."
 		return nil
 	}
 	params := protocol.SubmitParams{Source: "user", Identity: protocol.RequestIdentity{ClientID: "tui", RequestID: protocol.ID(uuid.NewString())}, Parts: []protocol.Part{{Type: "text", Text: text}}}
-	if m.activity.ActiveTurn != nil && m.activity.ActiveTurn.Kind == "prompt" {
+	if delivery != "queue" && m.activity.ActiveTurn != nil && m.activity.ActiveTurn.Kind == "prompt" {
 		params.Delivery, params.TargetTurnID = "steer", new(m.activity.ActiveTurn.ID)
+	}
+	if delivery == "steer" && params.TargetTurnID == nil {
+		m.status = "There is no active prompt turn to steer. Use /queue to submit for a later turn."
+		return nil
 	}
 	command, err := m.handle.Submission(params)
 	if err != nil {
 		m.status = err.Error()
 		return nil
 	}
-	m.sending = true
 	m.input.Reset()
+	return m.sendInput(command, "send")
+}
+
+func (m *nativeModel) sendInput(command *client.InputCommand, action string) tea.Cmd {
+	m.sending = true
 	return func() tea.Msg {
 		ctx, done, err := m.work.begin()
 		if err != nil {
 			return nativeSubmission{command: command, err: err}
 		}
 		defer done()
-		value, err := command.Send(ctx)
+		if action == "check" {
+			value, found, err := command.Check(ctx)
+			if err == nil && found {
+				return nativeSubmission{command: command, admission: value}
+			}
+			if err == nil {
+				err = errors.New("original request not found; /retry explicitly repeats the same request")
+			}
+			return nativeSubmission{command: command, err: err, uncertain: true}
+		}
+		var value protocol.Admission
+		if action == "retry" {
+			value, err = command.Retry(ctx)
+		} else {
+			value, err = command.Send(ctx)
+		}
 		if err == nil {
 			return nativeSubmission{command: command, admission: value}
 		}
@@ -323,7 +394,7 @@ func (m *nativeModel) submit() tea.Cmd {
 			return nativeSubmission{command: command, err: err}
 		}
 		value, found, checkErr := command.Check(ctx)
-		if checkErr == nil && found && value.Input != nil {
+		if checkErr == nil && found {
 			return nativeSubmission{command: command, admission: value}
 		}
 		return nativeSubmission{command: command, err: errors.Join(err, checkErr), uncertain: true}

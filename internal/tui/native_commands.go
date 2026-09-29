@@ -1,0 +1,191 @@
+package tui
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/google/uuid"
+
+	"github.com/context-labs/whip/internal/protocol"
+)
+
+type nativeControlResult struct {
+	label          string
+	mutation       bool
+	owner          *protocol.Session
+	reset          bool
+	err            error
+	retry          tea.Cmd
+	inspectOnError bool
+}
+
+// control owns only this UI request. Its retry closure captures the original
+// typed CAS payload; a transport failure never rebuilds it from newer state.
+func (m *nativeModel) control(label string, mutate bool, call func(context.Context) nativeControlResult) tea.Cmd {
+	m.controlling = true
+	m.input.Reset()
+	var command tea.Cmd
+	command = func() tea.Msg {
+		ctx, done, err := m.work.begin()
+		if err != nil {
+			return nativeControlResult{label: label, err: err}
+		}
+		defer done()
+		value := call(ctx)
+		if value.label == "" || value.err != nil {
+			value.label = label
+		}
+		if mutate {
+			value.mutation = true
+			value.retry = command
+		}
+		return value
+	}
+	return command
+}
+
+func (m *nativeModel) command(text string) tea.Cmd {
+	fields := strings.Fields(text)
+	if len(fields) == 0 {
+		return nil
+	}
+	name := fields[0]
+	args := strings.TrimSpace(strings.TrimPrefix(text, name))
+	switch name {
+	case "/quit", "/exit", "/q":
+		return tea.Quit
+	case "/check":
+		if m.uncertain != nil {
+			m.input.Reset()
+			return m.sendInput(m.uncertain, "check")
+		}
+		m.status = "No uncertain input is retained in this terminal."
+		return nil
+	case "/retry":
+		if m.uncertain != nil {
+			m.input.Reset()
+			return m.sendInput(m.uncertain, "retry")
+		}
+		if m.retryControl != nil {
+			m.controlling = true
+			m.input.Reset()
+			return m.retryControl
+		}
+		m.status = "No uncertain action is retained in this terminal."
+		return nil
+	case "/status":
+		return m.control("Session status", false, func(ctx context.Context) nativeControlResult {
+			owner, err := m.handle.Get(ctx)
+			return nativeControlResult{label: "Session is " + owner.Lifecycle, owner: &owner, err: err}
+		})
+	case "/pwd":
+		return m.control("Working directory", false, func(ctx context.Context) nativeControlResult {
+			owner, err := m.handle.Get(ctx)
+			return nativeControlResult{label: owner.WorkingDirectory, owner: &owner, err: err}
+		})
+	}
+	if m.uncertain != nil || m.retryControl != nil {
+		m.status = "Inspect or explicitly retry the original uncertain action first."
+		return nil
+	}
+	switch name {
+	case "/stop", "/start":
+		if args != "" {
+			m.status = "usage: " + name
+			return nil
+		}
+		state := "stopped"
+		if name == "/start" {
+			state = "active"
+		}
+		params := protocol.LifecycleParams{SessionID: m.handle.ID(), Lifecycle: state}
+		// Lifecycle changes have no immutable receipt. A later explicit command
+		// is fresh intent; never retain one as a retry against future work.
+		return m.control("Set session "+state, false, func(ctx context.Context) nativeControlResult {
+			var owner protocol.Session
+			err := m.connection.Call(ctx, "sessions.lifecycle", params, &owner)
+			if err == nil && (owner.ID != params.SessionID || owner.Lifecycle != state) {
+				err = errors.New("lifecycle control ownership mismatch")
+			}
+			return nativeControlResult{label: "Session is " + state, mutation: true, owner: &owner, err: err, inspectOnError: true}
+		})
+	case "/steer", "/queue":
+		if args == "" {
+			m.status = name + " <message>"
+			return nil
+		}
+		return m.prompt(args, strings.TrimPrefix(name, "/"))
+	case "/cd":
+		if args == "" {
+			return m.command("/pwd")
+		}
+		params := protocol.WorkspaceSetParams{ID: protocol.ID(uuid.NewString()), SessionID: m.handle.ID(), ExpectedRevision: m.owner.ConfigRevision, Path: args}
+		return m.control("Change working directory", true, func(ctx context.Context) nativeControlResult {
+			var value protocol.ControlEdit
+			err := m.connection.Call(ctx, "workspace.set", params, &value)
+			if err == nil && (value.ID != params.ID || value.SessionID != params.SessionID || value.Session != nil && value.Session.ID != params.SessionID) {
+				err = errors.New("workspace control ownership mismatch")
+			}
+			label := "Working directory edit recorded"
+			if value.Deleted {
+				label = "The edited session was deleted; no session was recreated"
+			} else if value.Session != nil {
+				label = "Working directory: " + value.Session.WorkingDirectory
+			}
+			return nativeControlResult{label: label, owner: value.Session, err: err}
+		})
+	case "/clear":
+		if args != "" {
+			m.status = "usage: /clear"
+			return nil
+		}
+		if m.owner.Lifecycle != "stopped" {
+			m.status = "Clear requires a stopped session with no queued work. Use /stop first; it also cancels active work."
+			return nil
+		}
+		params := protocol.RewindParams{EditID: protocol.ID(uuid.NewString()), SessionID: m.handle.ID(), ExpectedRevision: m.history.snapshot.Revision, ObservedThrough: m.history.snapshot.ThroughSequence}
+		return m.control("Clear conversation", true, func(ctx context.Context) nativeControlResult {
+			var value protocol.HistoryEdit
+			err := m.connection.Call(ctx, "sessions.rewind", params, &value)
+			if err == nil && (value.ID != params.EditID || value.SessionID != params.SessionID || value.KeepThrough != 0) {
+				err = errors.New("history edit ownership mismatch")
+			}
+			return nativeControlResult{label: "Conversation cleared and REPL reset. Workspace snapshots and files are unchanged. Use /start to accept execution again.", reset: err == nil, err: err}
+		})
+	case "/rename":
+		if args == "" {
+			m.status = "usage: /rename <title>"
+			return nil
+		}
+		owner := m.owner
+		// The metadata revision is read once for this human command, then frozen
+		// for explicit retry. A later conflict never overwrites a newer title.
+		var params *protocol.UpdateTreeParams
+		return m.control("Rename session", true, func(ctx context.Context) nativeControlResult {
+			if params == nil {
+				var tree protocol.Tree
+				if err := m.connection.Call(ctx, "trees.get", protocol.TreeParams{TreeID: owner.TreeID}, &tree); err != nil {
+					return nativeControlResult{err: err}
+				}
+				if tree.ID != owner.TreeID {
+					return nativeControlResult{err: errors.New("tree ownership mismatch")}
+				}
+				metadata := tree.Metadata
+				metadata.Title = new(args)
+				params = &protocol.UpdateTreeParams{TreeID: tree.ID, ExpectedRevision: tree.Revision, Metadata: metadata}
+			}
+			var value protocol.Tree
+			err := m.connection.Call(ctx, "trees.update", *params, &value)
+			if err == nil && value.ID != owner.TreeID {
+				err = errors.New("renamed tree ownership mismatch")
+			}
+			return nativeControlResult{label: fmt.Sprintf("Session named %q", args), err: err}
+		})
+	default:
+		m.status = "Unknown or unavailable terminal command: " + name
+		return nil
+	}
+}
