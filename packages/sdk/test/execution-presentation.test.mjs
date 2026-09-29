@@ -83,3 +83,17 @@ test('exact body reads preserve canonical metadata and enforce chunk identity an
   }
   const large = await exactReader(message); await assert.rejects(large.read({ maxBytes: 4096 }), /byte limit/); assert.equal(large.calls.length, 1);
 });
+
+test('latest canonical call survives turn metadata lag and imported result joins stay within one unbroken group', () => {
+  const x = execution(), s = source(), message = callMessage(); x.turns = []; s.activity.active_turn = null; s.history.messages = [message];
+  assert.equal(executionPresentationRows(x, s).length, 1);
+  const result = { ...fixture('HistoryResult').items.find(m => m.id === 'message_result'), turn_id: null, group_id: 'imported' };
+  message.turn_id = null; message.group_id = 'imported'; s.history.messages = [message, result];
+  assert.equal(executionPresentationRows(x, s)[0].result.value.output, '1');
+  result.group_id = 'other'; assert.equal(executionPresentationRows(x, s)[0].result, null);
+  result.group_id = 'imported'; s.history.gaps = [{ messageID: 'gap', sequence: message.sequence }];
+  result.sequence = String(BigInt(message.sequence) + 2n); s.history.gaps[0].sequence = String(BigInt(message.sequence) + 1n);
+  assert.equal(executionPresentationRows(x, s)[0].result, null);
+  s.history.gaps = []; s.history.messages.splice(1, 0, { ...message, id: 'reused', presentation: undefined, sequence: String(BigInt(message.sequence) + 1n) });
+  const rows = executionPresentationRows(x, s); assert.equal(rows.find(row => row.messageID === message.id).result, null); assert.equal(rows.find(row => row.messageID === 'reused').result.value.output, '1');
+});
