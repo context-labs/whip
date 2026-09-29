@@ -19,7 +19,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-15]
-        gate: [build, race-store, race-runtime, race-other, clients]
+        gate: [build, race-store-first, race-store-rest, race-runtime, race-other, clients]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:

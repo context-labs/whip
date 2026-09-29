@@ -3578,3 +3578,24 @@ Local affected browser scenarios (`TestE2EHeadless`, `TestE2EDedicated` includin
 reattachment, and `TestManySequentialCalls`) passed in 10.964s on macOS with an
 isolated profile. This proves the fixture change locally, not the Linux Xvfb
 setup; the exact repaired hosted head must pass before crediting Linux evidence.
+
+### PR 259 store race gate partition — 2026-09-28
+
+The repaired `ff8796849` hosted run 36522499701 passed both browser/build gates,
+both runtime race gates, other races, clients and analysis. Its Linux store
+package exhausted the aggregate 600-second timeout while a newly started
+`TestModelHelperProvenanceIsOwnedImmutableAndRetryable` (reported 0 seconds old)
+was initializing a fresh schema. This is recorded as a failed run. The same
+full store suite passed locally at the later integration head in 286.639 seconds.
+
+The hosted matrix now runs the store suite in two complementary groups: names
+matching `^Test[A-M]`, and everything excluded by that exact pattern. Both retain
+the race detector, shuffled order, count one and ten-minute package deadline;
+no individual test, assertion, production timeout or fixture is weakened. The
+local `check:race-store` target runs both groups sequentially. Examples and future
+names automatically belong to the complement, preserving complete coverage.
+
+Local complementary store validation passed in 193.133 seconds and 89.438
+seconds respectively (`task check:race-store`), with every test covered exactly
+once by the mutually exclusive run/skip patterns. Hosted validation is pending
+for this repair; the previous hosted failure is not claimed as passed.
