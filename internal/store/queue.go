@@ -20,7 +20,7 @@ func (s *Store) QueuedSessions(ctx context.Context, after QueueCursor, limit int
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, `WITH ready(session_id,admitted_at) AS (
- SELECT session_id,min(created_at) FROM inputs WHERE turn_id IS NULL AND cancelled_at IS NULL GROUP BY session_id
+ SELECT session_id,min(created_at) FROM inputs WHERE turn_id IS NULL AND steered_turn_id IS NULL AND cancelled_at IS NULL GROUP BY session_id
  UNION ALL
  SELECT m.recipient_id,min(r.available_at) FROM mail m JOIN mail_revisions r ON r.mail_id=m.id AND r.revision=m.revision
  WHERE m.state='pending' AND m.deleted_at IS NULL AND r.delivery<>'next_turn' AND r.available_at<=? AND `+mailRetryAllowed+`

@@ -374,9 +374,9 @@ export class Client {
   }
 
   /** Keep this requestID and exact payload until admission is known, including after a lost acknowledgement. */
-  submit(sessionID: string, parts: Operations['sessions.submit']['params']['parts'], requestID: string, options: CallOptions & { designContext?: Operations['sessions.submit']['params']['design_context'] } = {}): Promise<Admission> {
-    const { designContext, ...callOptions } = options;
-    return this.call('sessions.submit', { session_id: sessionID, source: 'user', parts, identity: this.identity(requestID), ...(designContext === undefined ? {} : { design_context: designContext }) }, callOptions);
+  submit(sessionID: string, parts: Operations['sessions.submit']['params']['parts'], requestID: string, options: CallOptions & { designContext?: Operations['sessions.submit']['params']['design_context']; delivery?: 'queued' | 'steer'; targetTurnID?: string } = {}): Promise<Admission> {
+    const { designContext, delivery, targetTurnID, ...callOptions } = options;
+    return this.call('sessions.submit', { session_id: sessionID, source: 'user', parts, identity: this.identity(requestID), ...(designContext === undefined ? {} : { design_context: designContext }), ...(delivery === undefined ? {} : { delivery }), ...(targetTurnID === undefined ? {} : { target_turn_id: targetTurnID }) }, callOptions);
   }
 
   /** Queues context maintenance with ordinary admission, cancellation and receipt recovery. */

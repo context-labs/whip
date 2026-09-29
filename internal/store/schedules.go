@@ -394,7 +394,7 @@ func (s *Store) fireSchedule(ctx context.Context, id session.ScheduleID, due, in
 		}
 		if value.Latest != nil {
 			var outstanding bool
-			if err := tx.QueryRowContext(ctx, `SELECT (turn_id IS NULL AND cancelled_at IS NULL) OR
+			if err := tx.QueryRowContext(ctx, `SELECT (turn_id IS NULL AND steered_turn_id IS NULL AND cancelled_at IS NULL) OR
  EXISTS(SELECT 1 FROM turns WHERE turns.id=inputs.turn_id AND state IN ('running','cancelling')) FROM inputs WHERE id=?`, value.Latest.InputID).Scan(&outstanding); err != nil {
 				return err
 			}

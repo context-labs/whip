@@ -8,7 +8,7 @@ import { boundedInteger, bytes, delay, freeze, utf8Base64, withSignal } from './
 const methods = [
   'sessions.submit', 'sessions.compact', 'sessions.spawn', 'goals.formulate', 'goals.resume', 'tool.call', 'shell.run',
   'trees.create', 'sessions.fork', 'sessions.rewind', 'permissions.set_mode',
-  'workspace.capture', 'workspace.restore', 'workspace.release',
+  'workspace.capture', 'workspace.restore', 'workspace.release', 'inputs.steer',
   'goals.create', 'schedules.create', 'mail.send', 'state.write', 'state.append', 'state.subscribe',
 ] as const;
 export type DurableMethod = typeof methods[number];
@@ -24,7 +24,7 @@ export interface RecoveryRecord {
   readonly request: string;
   readonly accepted: boolean;
 }
-export type RecoveryEvidence = Admission | Operations['trees.creation']['result'] | Operations['permissions.mode_edit']['result'] | Operations['workspace.action']['result'];
+export type RecoveryEvidence = Admission | Operations['trees.creation']['result'] | Operations['permissions.mode_edit']['result'] | Operations['workspace.action']['result'] | Operations['inputs.steering']['result'];
 export type RecoveryCheck = { state: 'found'; evidence: RecoveryEvidence } | { state: 'identity_only'; evidence: RecoveryEvidence } | { state: 'missing' } | { state: 'unavailable' };
 export class RecoveryError extends Error {
   constructor(message: string) { super(message); this.name = 'RecoveryError'; }
@@ -169,6 +169,12 @@ export class DurableCommand<M extends DurableMethod> {
         case 'trees.create': {
           evidence = await this.client.getTreeCreation(request.params.creation_id, options);
           if (evidence.creation.id !== request.params.creation_id) throw new TypeError('Creation receipt mismatch');
+          break;
+        }
+        case 'inputs.steer': {
+          evidence = await this.client.session(request.params.session_id).inputs.steering(request.params.edit_id, options);
+          if (evidence.input_id !== request.params.input_id || evidence.turn_id !== request.params.turn_id) throw new TypeError('Steering receipt mismatch');
+          matchesRequest = true;
           break;
         }
         case 'permissions.set_mode': {

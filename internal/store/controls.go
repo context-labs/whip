@@ -83,7 +83,7 @@ func (s *Store) ControlOwners(ctx context.Context, tree session.TreeID) ([]sessi
 func controlIdle(ctx context.Context, q querier, tree session.TreeID) error {
 	var busy bool
 	err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM turns t JOIN sessions s ON s.id=t.session_id WHERE s.tree_id=? AND t.state IN('running','cancelling'))
- OR EXISTS(SELECT 1 FROM inputs i JOIN sessions s ON s.id=i.session_id WHERE s.tree_id=? AND i.turn_id IS NULL AND i.cancelled_at IS NULL)
+ OR EXISTS(SELECT 1 FROM inputs i JOIN sessions s ON s.id=i.session_id WHERE s.tree_id=? AND i.turn_id IS NULL AND i.steered_turn_id IS NULL AND i.cancelled_at IS NULL)
  OR EXISTS(SELECT 1 FROM workspace_actions a JOIN sessions s ON s.id=a.session_id WHERE s.tree_id=? AND a.state='claimed')`, tree, tree, tree).Scan(&busy)
 	if err != nil {
 		return err

@@ -25,7 +25,7 @@ type Transcript interface {
 	Continuations(context.Context, session.SessionID, []session.MessageID) (map[session.MessageID]session.ModelContinuation, error)
 }
 
-// Mail presents durable steer revisions only at model-request boundaries.
+// Mail presents authored input and mail steering only at safe model boundaries.
 // Reading client views cannot cause presentation or delivery.
 type Mail interface {
 	ObserveSteers(context.Context, session.TurnID) ([]session.Message, error)
@@ -157,10 +157,15 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 		if r.mail != nil {
 			messages, err := r.mail.ObserveSteers(ctx, turn.ID)
 			if err != nil {
-				return Outcome{}, fmt.Errorf("present steer mail: %w", err)
+				return Outcome{}, fmt.Errorf("present steering: %w", err)
 			}
 			for _, message := range messages {
 				if err := r.appendTurnContext(&request, message.Role, message.Parts, &size); err != nil {
+					return Failure(err), nil
+				}
+			}
+			if len(messages) > 0 {
+				if err := r.hydrate(ctx, &request); err != nil {
 					return Failure(err), nil
 				}
 			}
@@ -207,6 +212,29 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 			return Failure(errors.New("output_invalid: the corrective response must be a final JSON value without tool calls")), nil
 		}
 		if len(calls) == 0 {
+			// A text response also closes a safe batch. Preserve it, then follow
+			// accepted steering in this same turn if another model call is allowed.
+			// At a terminal ceiling, untaken inputs retain normal queued delivery.
+			if !final && (configuration.Run != nil || round < 32) && r.mail != nil {
+				messages, err := r.mail.ObserveSteers(ctx, turn.ID)
+				if err != nil {
+					return Outcome{}, fmt.Errorf("present steering: %w", err)
+				}
+				if len(messages) > 0 {
+					if err := r.appendCompletedContext(&request, completed, &size); err != nil {
+						return Failure(err), nil
+					}
+					for _, message := range messages {
+						if err := r.appendTurnContext(&request, message.Role, message.Parts, &size); err != nil {
+							return Failure(err), nil
+						}
+					}
+					if err := r.hydrate(ctx, &request); err != nil {
+						return Failure(err), nil
+					}
+					continue
+				}
+			}
 			_, validationErr := session.ValidateOutput(configuration.OutputSchema, completed.parts)
 			if validationErr == nil {
 				if folds == 0 && r.compactions != nil && prepared.ContextWindowTokens != nil && *prepared.ContextWindowTokens > 0 {

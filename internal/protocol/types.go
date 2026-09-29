@@ -208,6 +208,7 @@ type GoalRef struct {
 	Revision Counter `json:"revision"`
 }
 type Input struct {
+	Steering      *InputSteeringRef   `json:"steering,omitempty"`
 	DesignContext *DesignContext      `json:"design_context,omitempty"`
 	HostOperation *DirectHostInput    `json:"host_operation"`
 	Goal          *GoalRef            `json:"goal"`
@@ -307,6 +308,8 @@ type UpdateConfigurationParams struct {
 	Patch            ConfigPatch `json:"patch"`
 }
 type SubmitParams struct {
+	Delivery      string          `json:"delivery,omitempty" enum:"queued,steer"`
+	TargetTurnID  *ID             `json:"target_turn_id,omitempty"`
 	DesignContext *DesignContext  `json:"design_context,omitempty"`
 	Identity      RequestIdentity `json:"identity"`
 	SessionID     ID              `json:"session_id"`

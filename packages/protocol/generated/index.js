@@ -860,6 +860,16 @@ export const manifest = {
       "result": "Admission"
     },
     {
+      "name": "inputs.steer",
+      "params": "SteerInputParams",
+      "result": "InputSteeringResult"
+    },
+    {
+      "name": "inputs.steering",
+      "params": "InputSteeringParams",
+      "result": "InputSteeringResult"
+    },
+    {
       "name": "sessions.history_page",
       "params": "HistoryPageParams",
       "result": "HistoryPageResult"

@@ -139,7 +139,7 @@ func goalEligible(ctx context.Context, tx *sql.Tx, owner session.SessionID, exce
 }
 
 func cancelQueuedGoalInputs(ctx context.Context, tx *sql.Tx, id session.GoalID) error {
-	_, err := tx.ExecContext(ctx, "UPDATE inputs SET cancelled_at=? WHERE goal_id=? AND turn_id IS NULL AND cancelled_at IS NULL", now(), id)
+	_, err := tx.ExecContext(ctx, "UPDATE inputs SET cancelled_at=? WHERE goal_id=? AND turn_id IS NULL AND steered_turn_id IS NULL AND cancelled_at IS NULL", now(), id)
 	return err
 }
 
@@ -291,7 +291,7 @@ func (s *Store) ResumeGoal(ctx context.Context, identity session.RequestIdentity
 			return ErrConflict
 		}
 		var outstanding, started bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM inputs i LEFT JOIN turns t ON t.id=i.turn_id WHERE i.goal_id=? AND ((i.turn_id IS NULL AND i.cancelled_at IS NULL) OR t.state IN ('running','cancelling'))),(EXISTS(SELECT 1 FROM inputs WHERE goal_id=?) OR EXISTS(SELECT 1 FROM turns WHERE goal_id=?))`, ref.ID, ref.ID, ref.ID).Scan(&outstanding, &started); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM inputs i LEFT JOIN turns t ON t.id=i.turn_id WHERE i.goal_id=? AND ((i.turn_id IS NULL AND i.steered_turn_id IS NULL AND i.cancelled_at IS NULL) OR t.state IN ('running','cancelling'))),(EXISTS(SELECT 1 FROM inputs WHERE goal_id=?) OR EXISTS(SELECT 1 FROM turns WHERE goal_id=?))`, ref.ID, ref.ID, ref.ID).Scan(&outstanding, &started); err != nil {
 			return err
 		}
 		if outstanding {

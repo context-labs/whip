@@ -12,6 +12,11 @@ export interface Admission {
   };
   input:
     | {
+        steering?: null | {
+          id: string;
+          turn_id: string;
+          consumed: boolean;
+        };
         design_context?: null | {
           context_attachment_id: string;
           screenshot_attachment_id?: null | string;
@@ -69,6 +74,11 @@ export interface Admission {
         };
       }
     | {
+        steering?: null | {
+          id: string;
+          turn_id: string;
+          consumed: boolean;
+        };
         design_context?: null | {
           context_attachment_id: string;
           screenshot_attachment_id?: null | string;
@@ -104,6 +114,11 @@ export interface Admission {
         };
       }
     | {
+        steering?: null | {
+          id: string;
+          turn_id: string;
+          consumed: boolean;
+        };
         design_context?: null | {
           context_attachment_id: string;
           screenshot_attachment_id?: null | string;
@@ -2263,6 +2278,11 @@ export interface GoalAdmission {
     };
     input:
       | {
+          steering?: null | {
+            id: string;
+            turn_id: string;
+            consumed: boolean;
+          };
           design_context?: null | {
             context_attachment_id: string;
             screenshot_attachment_id?: null | string;
@@ -2320,6 +2340,11 @@ export interface GoalAdmission {
           };
         }
       | {
+          steering?: null | {
+            id: string;
+            turn_id: string;
+            consumed: boolean;
+          };
           design_context?: null | {
             context_attachment_id: string;
             screenshot_attachment_id?: null | string;
@@ -2355,6 +2380,11 @@ export interface GoalAdmission {
           };
         }
       | {
+          steering?: null | {
+            id: string;
+            turn_id: string;
+            consumed: boolean;
+          };
           design_context?: null | {
             context_attachment_id: string;
             screenshot_attachment_id?: null | string;
@@ -3574,6 +3604,11 @@ export interface InitializeResult {
 }
 export type Input =
   | {
+      steering?: null | {
+        id: string;
+        turn_id: string;
+        consumed: boolean;
+      };
       design_context?: null | {
         context_attachment_id: string;
         screenshot_attachment_id?: null | string;
@@ -3631,6 +3666,11 @@ export type Input =
       };
     }
   | {
+      steering?: null | {
+        id: string;
+        turn_id: string;
+        consumed: boolean;
+      };
       design_context?: null | {
         context_attachment_id: string;
         screenshot_attachment_id?: null | string;
@@ -3666,6 +3706,11 @@ export type Input =
       };
     }
   | {
+      steering?: null | {
+        id: string;
+        turn_id: string;
+        consumed: boolean;
+      };
       design_context?: null | {
         context_attachment_id: string;
         screenshot_attachment_id?: null | string;
@@ -3714,6 +3759,11 @@ export interface InputPageResult {
   items:
     | null
     | {
+        steering?: null | {
+          id: string;
+          turn_id: string;
+          consumed: boolean;
+        };
         id: string;
         session_id: string;
         ordinal: string;
@@ -3730,6 +3780,166 @@ export interface InputPageResult {
 }
 export interface InputParams {
   input_id: string;
+}
+export interface InputSteeringParams {
+  edit_id: string;
+  session_id: string;
+}
+export interface InputSteeringResult {
+  id: string;
+  session_id: string;
+  input_id: string;
+  turn_id: string;
+  created_at: string;
+  deleted: boolean;
+  input:
+    | {
+        steering?: null | {
+          id: string;
+          turn_id: string;
+          consumed: boolean;
+        };
+        design_context?: null | {
+          context_attachment_id: string;
+          screenshot_attachment_id?: null | string;
+          elements:
+            | null
+            | {
+                label: string;
+                selector?: string;
+              }[];
+          element_count: number;
+          page_url?: string;
+          page_title?: string;
+        };
+        host_operation: null;
+        goal: null | {
+          id: string;
+          revision: string;
+        };
+        id: string;
+        session_id: string;
+        source: "user" | "agent" | "schedule" | "goal";
+        kind: "prompt";
+        /**
+         * @minItems 1
+         * @maxItems 128
+         */
+        parts: [
+          (
+            | {
+                text: string;
+                type: "text";
+              }
+            | {
+                reference_id: string;
+                type: "content";
+              }
+          ),
+          ...(
+            | {
+                text: string;
+                type: "text";
+              }
+            | {
+                reference_id: string;
+                type: "content";
+              }
+          )[]
+        ];
+        state: "queued" | "claimed" | "cancelled";
+        turn_id: null | string;
+        created_at: string;
+        schedule: null | {
+          schedule_id: string;
+          scheduled_for: string;
+        };
+      }
+    | {
+        steering?: null | {
+          id: string;
+          turn_id: string;
+          consumed: boolean;
+        };
+        design_context?: null | {
+          context_attachment_id: string;
+          screenshot_attachment_id?: null | string;
+          elements:
+            | null
+            | {
+                label: string;
+                selector?: string;
+              }[];
+          element_count: number;
+          page_url?: string;
+          page_title?: string;
+        };
+        host_operation: null;
+        goal: null | {
+          id: string;
+          revision: string;
+        };
+        id: string;
+        session_id: string;
+        source: "user" | "agent" | "schedule" | "goal";
+        kind: "compact" | "goal_formulation" | "automatic_title";
+        /**
+         * @maxItems 0
+         */
+        parts: [];
+        state: "queued" | "claimed" | "cancelled";
+        turn_id: null | string;
+        created_at: string;
+        schedule: null | {
+          schedule_id: string;
+          scheduled_for: string;
+        };
+      }
+    | {
+        steering?: null | {
+          id: string;
+          turn_id: string;
+          consumed: boolean;
+        };
+        design_context?: null | {
+          context_attachment_id: string;
+          screenshot_attachment_id?: null | string;
+          elements:
+            | null
+            | {
+                label: string;
+                selector?: string;
+              }[];
+          element_count: number;
+          page_url?: string;
+          page_title?: string;
+        };
+        host_operation: {
+          module: "shell" | "files" | "tools" | "computer" | "browser";
+          name: string;
+          arguments_base64: string;
+        };
+        goal: null | {
+          id: string;
+          revision: string;
+        };
+        id: string;
+        session_id: string;
+        source: "user";
+        kind: "host_operation";
+        /**
+         * @maxItems 0
+         */
+        parts: [];
+        state: "queued" | "claimed" | "cancelled";
+        turn_id: null | string;
+        created_at: string;
+        schedule: null | {
+          schedule_id: string;
+          scheduled_for: string;
+        };
+      }
+    | null;
 }
 export interface InstructionManifestResult {
   manifest: null | {
@@ -8576,6 +8786,11 @@ export interface SpawnSessionResult {
     };
     input:
       | {
+          steering?: null | {
+            id: string;
+            turn_id: string;
+            consumed: boolean;
+          };
           design_context?: null | {
             context_attachment_id: string;
             screenshot_attachment_id?: null | string;
@@ -8633,6 +8848,11 @@ export interface SpawnSessionResult {
           };
         }
       | {
+          steering?: null | {
+            id: string;
+            turn_id: string;
+            consumed: boolean;
+          };
           design_context?: null | {
             context_attachment_id: string;
             screenshot_attachment_id?: null | string;
@@ -8668,6 +8888,11 @@ export interface SpawnSessionResult {
           };
         }
       | {
+          steering?: null | {
+            id: string;
+            turn_id: string;
+            consumed: boolean;
+          };
           design_context?: null | {
             context_attachment_id: string;
             screenshot_attachment_id?: null | string;
@@ -8786,7 +9011,17 @@ export interface StateVersionsResult {
         created_at: string;
       }[];
 }
-export interface SubmitParams {
+export interface SteerInputParams {
+  edit_id: string;
+  session_id: string;
+  input_id: string;
+  turn_id: string;
+}
+export type SubmitParams = {
+  [k: string]: unknown;
+} & {
+  delivery?: "queued" | "steer";
+  target_turn_id?: null | string;
   design_context?: null | {
     context_attachment_id: string;
     screenshot_attachment_id?: null | string;
@@ -8832,7 +9067,7 @@ export interface SubmitParams {
         }
     )[]
   ];
-}
+};
 export interface SubscribeStateParams {
   subscription_id: string;
   session_id: string;
@@ -9390,6 +9625,8 @@ export interface ContractTypes {
   InputPageParams: InputPageParams;
   InputPageResult: InputPageResult;
   InputParams: InputParams;
+  InputSteeringParams: InputSteeringParams;
+  InputSteeringResult: InputSteeringResult;
   InstructionManifestResult: InstructionManifestResult;
   LanguageServersResult: LanguageServersResult;
   LifecycleParams: LifecycleParams;
@@ -9503,6 +9740,7 @@ export interface ContractTypes {
   StateSubscriptionsResult: StateSubscriptionsResult;
   StateVersion: StateVersion;
   StateVersionsResult: StateVersionsResult;
+  SteerInputParams: SteerInputParams;
   SubmitParams: SubmitParams;
   SubscribeStateParams: SubscribeStateParams;
   TerminalAccepted: TerminalAccepted;
@@ -9714,6 +9952,8 @@ export interface Operations {
   "sessions.list": { params: ListSessionsParams; result: ListSessionsResult };
   "sessions.configure": { params: UpdateConfigurationParams; result: Session };
   "sessions.submit": { params: SubmitParams; result: Admission };
+  "inputs.steer": { params: SteerInputParams; result: InputSteeringResult };
+  "inputs.steering": { params: InputSteeringParams; result: InputSteeringResult };
   "sessions.history_page": { params: HistoryPageParams; result: HistoryPageResult };
   "sessions.history": { params: HistoryParams; result: HistoryResult };
   "sessions.rewind": { params: RewindParams; result: HistoryEdit };

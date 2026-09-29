@@ -196,6 +196,8 @@ func Operations() []Operation {
 		{"sessions.list", reflect.TypeFor[ListSessionsParams](), reflect.TypeFor[ListSessionsResult]()},
 		{"sessions.configure", reflect.TypeFor[UpdateConfigurationParams](), reflect.TypeFor[Session]()},
 		{"sessions.submit", reflect.TypeFor[SubmitParams](), reflect.TypeFor[Admission]()},
+		{"inputs.steer", reflect.TypeFor[SteerInputParams](), reflect.TypeFor[InputSteeringResult]()},
+		{"inputs.steering", reflect.TypeFor[InputSteeringParams](), reflect.TypeFor[InputSteeringResult]()},
 		{"sessions.history_page", reflect.TypeFor[HistoryPageParams](), reflect.TypeFor[HistoryPageResult]()},
 		{"sessions.history", reflect.TypeFor[HistoryParams](), reflect.TypeFor[HistoryResult]()},
 		{"sessions.rewind", reflect.TypeFor[RewindParams](), reflect.TypeFor[HistoryEdit]()},
@@ -342,6 +344,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 		attentionSchema(schema, t)
 		traceSchema(schema, t)
 		controlsSchema(schema, t)
+		steeringSchema(schema, t)
 		if t == reflect.TypeFor[InputSummary]() {
 			schema.Properties["text_preview"].MaxLength = new(512)
 		}

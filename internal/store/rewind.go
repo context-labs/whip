@@ -78,7 +78,7 @@ func validateRewind(ctx context.Context, tx *sql.Tx, request session.RewindReque
 	var busy bool
 	if err := tx.QueryRowContext(ctx, `SELECT
  EXISTS(SELECT 1 FROM turns WHERE session_id=? AND state IN ('running','cancelling')) OR
- EXISTS(SELECT 1 FROM inputs WHERE session_id=? AND turn_id IS NULL AND cancelled_at IS NULL)`, request.SessionID, request.SessionID).Scan(&busy); err != nil {
+ EXISTS(SELECT 1 FROM inputs WHERE session_id=? AND turn_id IS NULL AND steered_turn_id IS NULL AND cancelled_at IS NULL)`, request.SessionID, request.SessionID).Scan(&busy); err != nil {
 		return err
 	}
 	if busy {

@@ -285,6 +285,11 @@ func Fixtures() ([]Fixture, error) {
 		{"Message", MessageFromDomain(session.Message{ID: "message_image", SessionID: "session_child", GroupID: "turn_fixture", TurnID: "turn_fixture", Sequence: 9007199254740996, Role: session.Tool, Parts: []session.Part{{Type: "tool_result", Result: &session.ToolResult{CallID: "image_call", Output: "unchanged output"}}, {Type: "content", ReferenceID: "image_ref"}}, CreatedAt: created})},
 		{"SpawnSessionParams", SpawnSessionParams{Identity: RequestIdentity{ClientID: "client", RequestID: "spawn"}, ParentID: root.ID, Parts: []Part{{Type: "text", Text: "Child work"}}, GrantIDs: []ID{}}},
 		{"SubmitParams", SubmitParams{Identity: RequestIdentity{ClientID: "client", RequestID: "request"}, SessionID: child.ID, Source: "user", Parts: []Part{{Type: "text", Text: "Run this."}}}},
+		{"SteerInputParams", SteerInputParams{EditID: "edit", SessionID: "root", InputID: "queued", TurnID: "active"}},
+		{"InputSteeringParams", InputSteeringParams{EditID: "edit", SessionID: "root"}},
+		{"InputSteeringResult", InputSteeringResult{ID: "edit", SessionID: "root", InputID: "queued", TurnID: "active", CreatedAt: created.Format(time.RFC3339Nano), Deleted: true}},
+		{"SubmitParams", SubmitParams{Identity: RequestIdentity{ClientID: "human", RequestID: "steer"}, SessionID: child.ID, Source: "user", Parts: []Part{{Type: "text", Text: "More"}}, Delivery: "steer", TargetTurnID: new(ID("active"))}},
+		{"Input", InputFromDomain(session.Input{ID: "queued", SessionID: "root", Source: session.UserInput, Kind: session.PromptInput, State: session.Claimed, Parts: []session.Part{{Type: "text", Text: "More"}}, TurnID: new(session.TurnID("active")), Steering: &session.InputSteeringRef{ID: "edit", TurnID: "active", Consumed: true}, CreatedAt: created})},
 		{"SubmitParams", SubmitParams{Identity: RequestIdentity{ClientID: "human", RequestID: "design"}, SessionID: child.ID, Source: "user", Parts: []Part{{Type: "text", Text: "Selected evidence"}, {Type: "content", ReferenceID: "context"}}, DesignContext: &DesignContext{ContextAttachmentID: "context", Elements: []DesignContextElement{{Label: "Save", Selector: "button.save"}}, ElementCount: 1, PageTitle: "Settings"}}},
 		{"UpdateConfigurationParams", UpdateConfigurationParams{SessionID: child.ID, ExpectedRevision: 9007199254740993, Patch: ConfigPatch{Modules: []ID{}, AutomaticTitle: new(false), GoalsEnabled: new(false), Compaction: &CompactionPolicy{Model: nil, ThresholdPercent: 0}, ReportMode: new("inline"), Tools: map[string]ToolDeclaration{}, Output: &OutputPolicy{}}}},
 		{"Turn", Turn{Goal: &GoalRef{ID: "goal_fixture", Revision: 9007199254740993}, ID: "turn_fixture", SessionID: child.ID, Kind: "prompt", HistoryRevision: 9007199254740993, ConfigRevision: 9007199254740993, State: "running", StartedAt: created.Format(time.RFC3339Nano)}},
@@ -381,6 +386,14 @@ func Fixtures() ([]Fixture, error) {
 			return nil, err
 		}
 		result = append(result, Fixture{Type: "OpenAIAccountStatus", Value: raw, Valid: false})
+	}
+
+	for _, delivery := range []string{"queued", "invalid"} {
+		raw, err := json.Marshal(SubmitParams{Identity: RequestIdentity{ClientID: "human", RequestID: "steer"}, SessionID: child.ID, Source: "user", Parts: []Part{{Type: "text", Text: "More"}}, Delivery: delivery, TargetTurnID: new(ID("active"))})
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, Fixture{Type: "SubmitParams", Value: raw, Valid: false})
 	}
 	questions, err := questionFixtures(created)
 	if err != nil {

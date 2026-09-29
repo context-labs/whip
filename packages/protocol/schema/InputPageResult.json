@@ -9,6 +9,31 @@
       "items": {
         "type": "object",
         "properties": {
+          "steering": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "turn_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "consumed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "turn_id",
+              "consumed"
+            ],
+            "additionalProperties": false
+          },
           "id": {
             "type": "string",
             "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"

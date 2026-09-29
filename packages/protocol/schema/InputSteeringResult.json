@@ -1,56 +1,27 @@
 {
   "type": "object",
   "properties": {
-    "receipt": {
-      "type": "object",
-      "properties": {
-        "identity": {
-          "type": "object",
-          "properties": {
-            "client_id": {
-              "type": "string",
-              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
-            },
-            "request_id": {
-              "type": "string",
-              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
-            }
-          },
-          "required": [
-            "client_id",
-            "request_id"
-          ],
-          "additionalProperties": false
-        },
-        "digest": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{64}$"
-        },
-        "input_id": {
-          "type": [
-            "null",
-            "string"
-          ],
-          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
-        },
-        "deleted_at": {
-          "type": [
-            "null",
-            "string"
-          ]
-        },
-        "created_at": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "identity",
-        "digest",
-        "input_id",
-        "deleted_at",
-        "created_at"
-      ],
-      "additionalProperties": false
+    "id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "input_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "turn_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "created_at": {
+      "type": "string"
+    },
+    "deleted": {
+      "type": "boolean"
     },
     "input": {
       "oneOf": [
@@ -807,112 +778,19 @@
           "type": "null"
         }
       ]
-    },
-    "turn": {
-      "type": [
-        "null",
-        "object"
-      ],
-      "properties": {
-        "history_revision": {
-          "type": "string",
-          "pattern": "^(0|[1-9][0-9]{0,18})$",
-          "format": "counter"
-        },
-        "goal": {
-          "type": [
-            "null",
-            "object"
-          ],
-          "properties": {
-            "id": {
-              "type": "string",
-              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
-            },
-            "revision": {
-              "type": "string",
-              "pattern": "^(0|[1-9][0-9]{0,18})$",
-              "format": "counter"
-            }
-          },
-          "required": [
-            "id",
-            "revision"
-          ],
-          "additionalProperties": false
-        },
-        "id": {
-          "type": "string",
-          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
-        },
-        "session_id": {
-          "type": "string",
-          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
-        },
-        "kind": {
-          "type": "string",
-          "enum": [
-            "prompt",
-            "compact",
-            "goal_formulation",
-            "automatic_title",
-            "host_operation"
-          ]
-        },
-        "config_revision": {
-          "type": "string",
-          "pattern": "^(0|[1-9][0-9]{0,18})$",
-          "format": "counter"
-        },
-        "state": {
-          "type": "string",
-          "enum": [
-            "running",
-            "cancelling",
-            "succeeded",
-            "failed",
-            "cancelled",
-            "interrupted"
-          ]
-        },
-        "failure": {
-          "type": [
-            "null",
-            "string"
-          ]
-        },
-        "started_at": {
-          "type": "string"
-        },
-        "finished_at": {
-          "type": [
-            "null",
-            "string"
-          ]
-        }
-      },
-      "required": [
-        "history_revision",
-        "goal",
-        "id",
-        "session_id",
-        "kind",
-        "config_revision",
-        "state",
-        "failure",
-        "started_at",
-        "finished_at"
-      ],
-      "additionalProperties": false
     }
   },
-  "$id": "https://whip.dev/protocol/v4/Admission",
+  "$id": "https://whip.dev/protocol/v4/InputSteeringResult",
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Admission",
+  "title": "InputSteeringResult",
   "required": [
-    "receipt",
-    "input",
-    "turn"
+    "id",
+    "session_id",
+    "input_id",
+    "turn_id",
+    "created_at",
+    "deleted",
+    "input"
   ],
   "additionalProperties": false
 }

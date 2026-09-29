@@ -115,7 +115,12 @@ func (s *Store) ObserveSteers(ctx context.Context, id session.TurnID) (result []
 		if err != nil {
 			return err
 		}
-		result, err = observeMailBoundary(ctx, tx, turn, true)
+		result, err = observeInputSteers(ctx, tx, turn)
+		if err != nil {
+			return err
+		}
+		mail, err := observeMailBoundary(ctx, tx, turn, true)
+		result = append(result, mail...)
 		return err
 	})
 	return

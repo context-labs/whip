@@ -163,7 +163,11 @@ func submitChild(ctx context.Context, tx *sql.Tx, owner session.SessionID, opera
 	if err := session.ValidateInputParts(parts); err != nil {
 		return result, err
 	}
-	admitted, err := admitInput(ctx, tx, session.RequestIdentity{ClientID: "operation", RequestID: string(operation)}, digest, Submission{SessionID: target.ID, Source: session.AgentInput, Parts: parts})
+	delivery := request.Delivery
+	if delivery == "" {
+		delivery = session.DeliverySteer
+	}
+	admitted, err := admitInput(ctx, tx, session.RequestIdentity{ClientID: "operation", RequestID: string(operation)}, digest, Submission{SessionID: target.ID, Source: session.AgentInput, Parts: parts, Delivery: delivery, TargetTurnID: request.TargetTurnID})
 	if err != nil {
 		return result, err
 	}

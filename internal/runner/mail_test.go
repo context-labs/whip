@@ -34,7 +34,7 @@ func TestMailBoundaryFollowsAllToolResultsBeforeNextModelRequest(t *testing.T) {
 	transcript := &flakyTranscript{calls: 1}
 	mail := mailFunc(func(context.Context, session.TurnID) ([]session.Message, error) {
 		events = append(events, "mail")
-		if calls == 0 {
+		if calls != 1 {
 			return nil, nil
 		}
 		return []session.Message{{Role: session.User, Parts: []session.Part{{Type: "text", Text: "new steer"}}}}, nil
@@ -61,7 +61,7 @@ func TestMailBoundaryFollowsAllToolResultsBeforeNextModelRequest(t *testing.T) {
 	if err != nil || outcome.State != session.Succeeded {
 		t.Fatalf("outcome=%+v err=%v", outcome, err)
 	}
-	want := []string{"mail", "model", "first", "second", "mail", "model"}
+	want := []string{"mail", "model", "first", "second", "mail", "model", "mail"}
 	if !reflect.DeepEqual(events, want) {
 		t.Fatalf("execution order=%v want=%v", events, want)
 	}

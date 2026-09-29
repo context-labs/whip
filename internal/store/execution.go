@@ -16,6 +16,8 @@ import (
 )
 
 type Submission struct {
+	Delivery      session.InputDelivery
+	TargetTurnID  *session.TurnID
 	DesignContext *session.DesignContext
 	HostOperation *session.HostOperation
 	Goal          *session.GoalRef
@@ -50,14 +52,21 @@ func readReceipt(ctx context.Context, q querier, identity session.RequestIdentit
 func readInput(ctx context.Context, q querier, id session.InputID) (result session.Input, err error) {
 	var raw string
 	var design *string
+	var steeringID *session.InputSteeringID
+	var targetTurn *session.TurnID
+	var consumed bool
 	var created int64
 	var cancelled sql.NullInt64
 	var scheduleID, slot, goalID sql.NullString
 	var goalRevision sql.NullInt64
-	err = q.QueryRowContext(ctx, "SELECT id,session_id,source,kind,parts,turn_id,cancelled_at,created_at,schedule_id,scheduled_for,goal_id,goal_revision,design_context FROM inputs WHERE id=?", id).
-		Scan(&result.ID, &result.SessionID, &result.Source, &result.Kind, &raw, &result.TurnID, &cancelled, &created, &scheduleID, &slot, &goalID, &goalRevision, &design)
+	err = q.QueryRowContext(ctx, `SELECT id,session_id,source,kind,parts,COALESCE(turn_id,steered_turn_id),cancelled_at,created_at,schedule_id,scheduled_for,goal_id,goal_revision,design_context,
+ (SELECT id FROM input_steering s WHERE s.input_id=inputs.id),(SELECT turn_id FROM input_steering s WHERE s.input_id=inputs.id),steered_turn_id IS NOT NULL FROM inputs WHERE id=?`, id).
+		Scan(&result.ID, &result.SessionID, &result.Source, &result.Kind, &raw, &result.TurnID, &cancelled, &created, &scheduleID, &slot, &goalID, &goalRevision, &design, &steeringID, &targetTurn, &consumed)
 	if err != nil {
 		return result, found(err)
+	}
+	if steeringID != nil && targetTurn != nil {
+		result.Steering = &session.InputSteeringRef{ID: *steeringID, TurnID: *targetTurn, Consumed: consumed}
 	}
 	if goalID.Valid {
 		result.Goal = &session.GoalRef{ID: session.GoalID(goalID.String), Revision: goalRevision.Int64}
@@ -171,6 +180,12 @@ func (s *Store) Admit(ctx context.Context, identity session.RequestIdentity, req
 }
 
 func normalizeSubmission(request Submission) (Submission, error) {
+	if err := validateInputDelivery(request.Delivery, request.TargetTurnID); err != nil {
+		return request, err
+	}
+	if request.Delivery == "" {
+		request.Delivery = session.DeliveryQueued
+	}
 	if (request.Source != session.UserInput && request.Source != session.AgentInput) || request.Schedule != nil || request.Goal != nil || request.HostOperation != nil {
 		return request, fmt.Errorf("%w: invalid input source", session.ErrInvalid)
 	}
@@ -192,6 +207,9 @@ func normalizeSubmission(request Submission) (Submission, error) {
 			return request, err
 		}
 	case session.CompactInput:
+		if request.Delivery != session.DeliveryQueued || request.TargetTurnID != nil {
+			return request, session.ErrInvalid
+		}
 		if len(request.Parts) != 0 {
 			return request, fmt.Errorf("%w: compact input cannot contain prompt parts", session.ErrInvalid)
 		}
@@ -275,10 +293,24 @@ func admitInput(ctx context.Context, tx *sql.Tx, identity session.RequestIdentit
 	} else if request.Goal != nil {
 		return result, session.ErrInvalid
 	}
+	target, err := steeringTarget(ctx, tx, request)
+	if err != nil {
+		return result, err
+	}
 	inputID := session.InputID(newID("input"))
 	created := now()
 	if _, err := tx.ExecContext(ctx, "INSERT INTO inputs (id,session_id,source,kind,parts,created_at,schedule_id,scheduled_for,goal_id,goal_revision,design_context) VALUES (?,?,?,?,?,?,?,?,?,?,?)", inputID, current.ID, request.Source, request.Kind, parts, created, scheduleID, slot, goalID, goalRevision, design); err != nil {
 		return result, err
+	}
+	if target != nil {
+		steering := session.SteerInputRequest{ID: session.InputSteeringID("steer_" + string(inputID)), SessionID: current.ID, InputID: inputID, TurnID: *target}
+		steeringDigest, err := requestDigest("input_steer", steering)
+		if err != nil {
+			return result, err
+		}
+		if err := insertInputSteering(ctx, tx, steering, steeringDigest); err != nil {
+			return result, err
+		}
 	}
 	if request.Kind == session.HostOperationInputKind {
 		if request.HostOperation == nil {
@@ -348,7 +380,7 @@ func (s *Store) Claim(ctx context.Context, id session.SessionID) (result Claim, 
 			return ErrBusy
 		}
 		var inputID session.InputID
-		err = tx.QueryRowContext(ctx, "SELECT id FROM inputs WHERE session_id=? AND turn_id IS NULL AND cancelled_at IS NULL ORDER BY ordinal LIMIT 1", id).Scan(&inputID)
+		err = tx.QueryRowContext(ctx, "SELECT id FROM inputs WHERE session_id=? AND turn_id IS NULL AND steered_turn_id IS NULL AND cancelled_at IS NULL ORDER BY ordinal LIMIT 1", id).Scan(&inputID)
 		if errors.Is(err, sql.ErrNoRows) {
 			ready, err := mailReady(ctx, tx, id)
 			if err != nil {
@@ -423,7 +455,7 @@ func (s *Store) Claim(ctx context.Context, id session.SessionID) (result Claim, 
 			}
 		}
 		if inputID != "" {
-			update, err := tx.ExecContext(ctx, "UPDATE inputs SET turn_id=? WHERE id=? AND turn_id IS NULL AND cancelled_at IS NULL", turnID, inputID)
+			update, err := tx.ExecContext(ctx, "UPDATE inputs SET turn_id=? WHERE id=? AND turn_id IS NULL AND steered_turn_id IS NULL AND cancelled_at IS NULL", turnID, inputID)
 			if err != nil {
 				return err
 			}

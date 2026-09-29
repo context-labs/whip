@@ -18,6 +18,7 @@ type Activity struct {
 
 // InputSummary keeps queue discovery separate from explicit payload reads.
 type InputSummary struct {
+	Steering         *InputSteeringRef
 	ID               InputID
 	SessionID        SessionID
 	Ordinal          int64

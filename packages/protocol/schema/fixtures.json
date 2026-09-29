@@ -3864,6 +3864,84 @@
     "valid": true
   },
   {
+    "type": "SteerInputParams",
+    "value": {
+      "edit_id": "edit",
+      "session_id": "root",
+      "input_id": "queued",
+      "turn_id": "active"
+    },
+    "valid": true
+  },
+  {
+    "type": "InputSteeringParams",
+    "value": {
+      "edit_id": "edit",
+      "session_id": "root"
+    },
+    "valid": true
+  },
+  {
+    "type": "InputSteeringResult",
+    "value": {
+      "id": "edit",
+      "session_id": "root",
+      "input_id": "queued",
+      "turn_id": "active",
+      "created_at": "2026-09-27T12:00:00.123456Z",
+      "deleted": true,
+      "input": null
+    },
+    "valid": true
+  },
+  {
+    "type": "SubmitParams",
+    "value": {
+      "delivery": "steer",
+      "target_turn_id": "active",
+      "identity": {
+        "client_id": "human",
+        "request_id": "steer"
+      },
+      "session_id": "session_child",
+      "source": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "More"
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "type": "Input",
+    "value": {
+      "steering": {
+        "id": "edit",
+        "turn_id": "active",
+        "consumed": true
+      },
+      "host_operation": null,
+      "goal": null,
+      "id": "queued",
+      "session_id": "root",
+      "source": "user",
+      "kind": "prompt",
+      "parts": [
+        {
+          "type": "text",
+          "text": "More"
+        }
+      ],
+      "state": "claimed",
+      "turn_id": "active",
+      "created_at": "2026-09-27T12:00:00.123456Z",
+      "schedule": null
+    },
+    "valid": true
+  },
+  {
     "type": "SubmitParams",
     "value": {
       "design_context": {
@@ -4676,6 +4754,46 @@
       "plan": null,
       "expires_at": "not-a-time",
       "failure": null
+    },
+    "valid": false
+  },
+  {
+    "type": "SubmitParams",
+    "value": {
+      "delivery": "queued",
+      "target_turn_id": "active",
+      "identity": {
+        "client_id": "human",
+        "request_id": "steer"
+      },
+      "session_id": "session_child",
+      "source": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "More"
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "type": "SubmitParams",
+    "value": {
+      "delivery": "invalid",
+      "target_turn_id": "active",
+      "identity": {
+        "client_id": "human",
+        "request_id": "steer"
+      },
+      "session_id": "session_child",
+      "source": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "More"
+        }
+      ]
     },
     "valid": false
   },
