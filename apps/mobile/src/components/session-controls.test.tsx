@@ -3,22 +3,24 @@ import { Alert } from 'react-native';
 import type { Session } from '@whip/protocol';
 import type { SessionView } from '@whip/sdk/state';
 import { SessionControls } from './session-controls';
+import { nativeFixture } from '../../test/native-fixtures';
 let mockRuntime: any, mockObserved: any, mockPolicy: any;
 const mockPush = jest.fn(), mockTrace = jest.fn();
+jest.mock('expo-crypto', () => ({ randomUUID: () => 'mobile-edit' }));
 jest.mock('expo-router', () => ({ router: { push: (...args: unknown[]) => mockPush(...args) } }));
 jest.mock('../runtime/context', () => ({ useRuntime: () => mockRuntime, useRuntimeState: () => mockRuntime.getSnapshot() }));
-jest.mock('@tanstack/react-query', () => ({ useQuery: () => ({ data: mockPolicy, refetch: async () => {} }) }));
+jest.mock('@tanstack/react-query', () => ({ useQuery: (options: { queryKey: unknown[] }) => ({ data: options.queryKey.includes('permission-mode') ? mockPolicy : undefined, refetch: async () => {} }) }));
 jest.mock('@whip/sdk/react', () => ({ useSessionView: () => mockObserved, useTraceView: (view: any) => view.getSnapshot() }));
 jest.mock('@whip/sdk/state', () => ({ createTraceView: (...args: unknown[]) => mockTrace(...args) }));
-function fixture() {
+function fixture(root = false) {
   mockPush.mockClear(); mockTrace.mockReset();
   const lifecycle = jest.fn(async () => ({}));
-  const client = { session: () => ({ lifecycle }), runtimeID: 'runtime', clientID: 'phone' }, state = { ready: true, active: true, client, host: { id: 'host', runtimeId: 'runtime' } };
+  const client = { session: () => ({ lifecycle }), runtimeID: 'runtime', clientID: 'phone', processEpoch: 'boot' }, state = { ready: true, active: true, commands: [], client, host: { id: 'host', runtimeId: 'runtime' } };
   mockObserved = { activity: { lifecycle: 'stopped', active_turn: null }, status: 'live', sessionID: 'child', unavailable: false, history: { messages: [{ group_id: 'earlier', sequence: '9007199254740992' }, { group_id: 'later', sequence: '9007199254740993' }], snapshot: { session_id: 'child', revision: '9007199254740995', through_sequence: '9007199254740993' } } };
-  mockPolicy = { tree_id: 'tree', revision: '9007199254740997', mode: 'prompt' };
-  const run = jest.fn(async () => ({ root: { id: 'new-root' }, deleted: false }));
+  mockPolicy = { ...nativeFixture('PermissionPolicy'), tree_id: 'tree', revision: '9007199254740997', mode: 'prompt', deny_interactive: false };
+  const run = jest.fn(async (_method: string, _params: unknown, _options: unknown) => ({ root: { id: 'new-root' }, deleted: false }));
   mockRuntime = { getSnapshot: () => ({ ...state }), requireReady: () => { if (!state.ready) throw new Error('Offline'); return state.client; }, isBlocked: () => false, run, report: jest.fn(), query: { refetchQueries: jest.fn(async () => {}) } };
-  const session = { id: 'child', lifecycle: 'stopped', tree_id: 'tree', config_revision: '9007199254740999' } as Session, view = { getSnapshot: () => mockObserved, refresh: async () => {} } as SessionView;
+  const session: Session = { ...nativeFixture('Session'), id: root ? 'root' : 'child', parent_id: root ? null : 'root', lifecycle: 'stopped', tree_id: 'tree', config_revision: '9007199254740999' }, view = { getSnapshot: () => mockObserved, refresh: async () => {} } as SessionView;
   return { state, run, lifecycle, element: () => <SessionControls rootId="root" session={session} view={view} /> };
 }
 afterEach(() => jest.restoreAllMocks());
@@ -28,7 +30,7 @@ test('fork uses the exact child snapshot and navigates only to the returned root
   expect(mockPush).toHaveBeenCalledWith({ pathname: '/session/[rootId]', params: { rootId: 'new-root', runtimeId: 'runtime', hostId: 'host' } });
 });
 test('confirmed root permission mode preserves exact CAS while a stale confirmation cannot switch hosts', async () => {
-  const f = fixture(), alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {}), screen = await render(f.element());
+  const f = fixture(true), alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {}), screen = await render(f.element());
   await fireEvent.press(screen.getByText('Use automatic mode…')); expect(f.run).not.toHaveBeenCalled();
   await act(async () => { alert.mock.calls[0][2]![1].onPress!(); });
   expect(f.run).toHaveBeenCalledWith('permissions.set_mode', expect.objectContaining({ session_id: 'root', expected_revision: '9007199254740997', mode: 'automatic' }), { rootId: 'root' });
@@ -57,4 +59,20 @@ test('a lost stop response requires an explicit status read, never automatic res
   expect(screen.getByRole('button', { name: 'Stop this recipient…' })).toBeDisabled();
   await fireEvent.press(screen.getByText('Read current recipient status')); expect(f.lifecycle).toHaveBeenCalledTimes(1);
   expect(mockRuntime.query.refetchQueries).toHaveBeenCalledWith({ queryKey: ['runtime', 'session-metadata', 'root', 'child'], type: 'active' }, { throwOnError: true });
+});
+
+test.each([false, true])('interactive denial %s changes independently of automatic mode with exact root CAS', async initial => {
+  const f = fixture(true); mockPolicy.mode = 'automatic'; mockPolicy.deny_interactive = initial;
+  const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {}), screen = await render(f.element());
+  await fireEvent.press(screen.getByText(initial ? 'Allow interactive requests…' : 'Deny interactive requests…'));
+  expect(f.run).not.toHaveBeenCalled(); await act(async () => { alert.mock.calls[0][2]![1].onPress!(); });
+  expect(f.run).toHaveBeenCalledWith('permissions.set_denial', expect.objectContaining({ session_id: 'root', expected_revision: '9007199254740997', deny_interactive: !initial }), { rootId: 'root' });
+  expect(f.run.mock.calls[0][1]).not.toHaveProperty('mode');
+});
+test('child policy controls are read-only even when its tree policy can be inspected', async () => {
+  const f = fixture(), screen = await render(f.element());
+  expect(screen.getByRole('button', { name: 'Use automatic mode…' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Deny interactive requests…' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Capture current host settings…' })).toBeDisabled();
+  expect(f.run).not.toHaveBeenCalled();
 });

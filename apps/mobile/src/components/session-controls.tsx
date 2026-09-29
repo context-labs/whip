@@ -10,14 +10,21 @@ import { useSessionView, useTraceView } from '@whip/sdk/react';
 import { useRuntime, useRuntimeState } from '../runtime/context';
 import { historyBoundaries, historyCut } from '../features/history-actions';
 import { Actions, Field, Label, Loading, Notice, Stack } from './primitives';
+import { ReloadControls } from './reload-controls';
 
 /** Controls borrow the selected transcript; they never own a second history or work queue. */
 export function SessionControls({ rootId, session, view }: { rootId: string; session: SessionRecord; view: SessionView }) {
   const runtime = useRuntime(), state = useRuntimeState(), observed = useSessionView(view);
   const [keep, setKeep] = useState(''), [busy, setBusy] = useState(false), [trace, setTrace] = useState(false), [uncertain, setUncertain] = useState(false); const lock = useRef(false), lifecycleUnknown = useRef(false);
   const online = state.ready && state.active && observed.status === 'live';
-  const policy = useQuery({ queryKey: [state.host?.runtimeId, rootId, 'permission-mode'], enabled: online,
-    queryFn: ({ signal }) => runtime.requireReady().session(rootId).permissions.policy({ signal }) });
+  const policy = useQuery({ queryKey: [state.client?.runtimeID, state.client?.processEpoch, rootId, 'permission-mode'], enabled: online,
+    queryFn: async ({ signal }) => {
+      const client = runtime.requireReady(); if (client !== state.client) throw new Error('Host changed. Read current tree policy again.');
+      const value = await client.session(rootId).permissions.policy({ signal });
+      if (runtime.requireReady() !== client || value.tree_id !== session.tree_id) throw new Error('Tree policy belongs to another host or tree.');
+      return value;
+    } });
+  const rootSelected = session.id === rootId && session.parent_id === null;
   const disabled = !online || busy || uncertain || runtime.isBlocked(rootId, session.id);
   const lifecycle = observed.activity?.lifecycle ?? session.lifecycle;
   const historyDisabled = disabled || !!observed.activity?.active_turn;
@@ -34,14 +41,16 @@ export function SessionControls({ rootId, session, view }: { rootId: string; ses
     } catch (error) { if (sent) { lifecycleUnknown.current = true; setUncertain(true); } runtime.report(error); }
     finally { lock.current = false; setBusy(false); }
   }
-  async function change(kind: 'compact' | 'fork' | 'rewind' | 'prompt' | 'automatic') {
+  async function change(kind: 'compact' | 'fork' | 'rewind' | 'prompt' | 'automatic' | 'deny' | 'permit') {
     if (lock.current || lifecycleUnknown.current || !runtime.getSnapshot().active) return;
     lock.current = true; setBusy(true);
     try {
       const client = runtime.requireReady(); if (client !== state.client) throw new Error('Host changed. Reopen these controls.');
-      if (kind === 'prompt' || kind === 'automatic') {
+      if (kind === 'prompt' || kind === 'automatic' || kind === 'deny' || kind === 'permit') {
+        if (!rootSelected) throw new Error('Open the root agent to change tree policy.');
         if (!policy.data || policy.data.tree_id !== session.tree_id) throw new Error('Read the current permission mode before changing it.');
-        await runtime.run('permissions.set_mode', { session_id: rootId, edit_id: Crypto.randomUUID(), expected_revision: policy.data.revision, mode: kind }, { rootId });
+        if (kind === 'deny' || kind === 'permit') await runtime.run('permissions.set_denial', { session_id: rootId, edit_id: Crypto.randomUUID(), expected_revision: policy.data.revision, deny_interactive: kind === 'deny' }, { rootId });
+        else await runtime.run('permissions.set_mode', { session_id: rootId, edit_id: Crypto.randomUUID(), expected_revision: policy.data.revision, mode: kind }, { rootId });
         await policy.refetch();
       } else if (kind === 'compact') {
         await runtime.run('sessions.compact', { session_id: session.id, identity: { client_id: client.clientID, request_id: Crypto.randomUUID() } }, { rootId });
@@ -67,10 +76,19 @@ export function SessionControls({ rootId, session, view }: { rootId: string; ses
       { label: 'Read current recipient status', disabled: !online || busy, secondary: true, onPress: () => { void setLifecycle(); } },
     ]} />
     <Label muted>Permission mode for this session tree</Label><Label>{policy.data?.mode ?? 'Unavailable'}</Label>{policy.error && <Notice>{policy.error.message}</Notice>}
-    <Actions items={(['prompt', 'automatic'] as const).map(mode => ({ label: mode === 'prompt' ? 'Ask before effects' : 'Use automatic mode…', secondary: true, disabled: disabled || !policy.data || policy.data.mode === mode || runtime.isBlocked(rootId), onPress: () => {
+    <Actions items={(['prompt', 'automatic'] as const).map(mode => ({ label: mode === 'prompt' ? 'Ask before effects' : 'Use automatic mode…', secondary: true, disabled: disabled || !rootSelected || policy.isFetching || !!policy.error || !policy.data || policy.data.mode === mode || runtime.isBlocked(rootId), onPress: () => {
       if (mode === 'automatic') Alert.alert('Use automatic permission mode?', 'Eligible operations in this session tree may run without asking. Host restrictions and explicit-consent capabilities still apply.', [{ text: 'Keep current mode', style: 'cancel' }, { text: 'Use automatic mode', onPress: () => { void change(mode); } }]);
       else void change(mode);
     } }))} />
+    <Label muted>Interactive tool permissions for this tree</Label><Label>{policy.data ? policy.data.deny_interactive ? 'Denied' : 'Allowed by the current permission policy' : 'Unavailable'}</Label>
+    <Notice>Interactive denial is independent of Ask or Full access. Tool effects without existing explicit authority are denied instead of asking or using Full access. Existing grants and user questions remain available.</Notice>
+    {!rootSelected && <Notice>Open the root agent to change tree policy or request a settings reload. These controls are read-only for a child.</Notice>}
+    <Actions items={[{ label: policy.data?.deny_interactive ? 'Allow interactive requests…' : 'Deny interactive requests…', secondary: true,
+      disabled: disabled || !rootSelected || policy.isFetching || !!policy.error || !policy.data || runtime.isBlocked(rootId), onPress: () => {
+        const deny = !policy.data?.deny_interactive;
+        Alert.alert(deny ? 'Deny interactive requests?' : 'Allow interactive requests?', deny ? 'Pending tool approvals and future effects without explicit authority will be denied. Existing grants and user questions remain available. Ask or Full access remains unchanged.' : 'Tool effects return to the current Ask or Full access policy. This creates no additional grants.', [{ text: 'Keep current policy', style: 'cancel' }, { text: deny ? 'Deny requests' : 'Allow requests', onPress: () => { void change(deny ? 'deny' : 'permit'); } }]);
+      } }]} />
+    <ReloadControls rootId={rootId} session={session} view={view} online={online} />
     <Label muted>History actions for {session.id === rootId ? 'the root agent' : 'this child agent'}</Label><Notice>These actions use the exact observed history. A lost response stays in Drafts &amp; recovery; reconnecting does not retry it.</Notice>
     <Notice>Stop this recipient before rewinding. Choose the end of a whole completed message group. Use 0 to keep no messages. Boundaries on this page: {boundaries.slice(-8).join(', ')}{boundaries.length > 8 ? ' (latest 8 shown)' : ''}.</Notice>
     <Field label="Keep through message sequence" value={keep} placeholder={observed.history.snapshot?.through_sequence ?? '0'} onChangeText={setKeep} maxLength={19} editable={!historyDisabled} keyboardType="number-pad" />

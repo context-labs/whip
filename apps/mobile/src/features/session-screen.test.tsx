@@ -10,7 +10,7 @@ let mockScrollOffset = 510;
 const mockRows = [{ id: 'first', seq: '10', role: 'user' }, { id: 'middle', seq: '20', role: 'assistant' }, { id: 'last', seq: '30', role: 'assistant' }];
 const mockScrollToIndex = jest.fn(async (_params: unknown) => {});
 let mockMetadata: any;
-jest.mock('@tanstack/react-query', () => ({ useQuery: (options: any) => ({ data: options.queryKey.includes('session-metadata') ? mockMetadata : options.queryKey.includes('inbox') ? { items: [] } : { inventory: { routes: [], defaults: null }, catalogs: [{ provider: 'provider', models: [{ id: 'changed', reasoning_efforts: ['low', 'high'] }] }] }, isFetching: false }) }));
+jest.mock('@tanstack/react-query', () => ({ useQuery: (options: any) => ({ data: options.queryKey.includes('captured-reload') ? undefined : options.queryKey.includes('permission-mode') ? { tree_id: 'tree', mode: 'prompt', deny_interactive: false, revision: '1', updated_at: '2026-09-28T00:00:00Z' } : options.queryKey.includes('session-metadata') ? mockMetadata : options.queryKey.includes('inbox') ? { items: [] } : { inventory: { routes: [], defaults: null }, catalogs: [{ provider: 'provider', models: [{ id: 'changed', reasoning_efforts: ['low', 'high'] }] }] }, isFetching: false }) }));
 jest.mock('../runtime/context', () => ({ useRuntime: () => mockRuntime, useRuntimeState: () => mockRuntime.getSnapshot(), useSessionOwner: () => ({ view: mockView, execution: {} }) }));
 jest.mock('@whip/sdk/react', () => ({ useSessionView: () => mockSnapshot, useExecutionView: () => ({ turns: [], cells: [], operations: [] }) }));
 jest.mock('@whip/app/presentation', () => ({ ...jest.requireActual('@whip/app/presentation'), conversationRows: () => mockRows }));

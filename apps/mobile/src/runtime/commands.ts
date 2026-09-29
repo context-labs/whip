@@ -166,7 +166,14 @@ export class MobileCommands {
         if (result.creation.id !== record.commandId) throw new Error('Creation receipt identity mismatch');
         return result;
       }
-      case 'permissions.set_mode': return client.getPermissionModeEdit(record.sessionId!, record.commandId, { signal });
+      case 'permissions.set_mode': case 'permissions.set_denial': {
+        const result = record.operation === 'permissions.set_mode'
+          ? await client.getPermissionModeEdit(record.sessionId!, record.commandId, { signal })
+          : await client.getPermissionDenialEdit(record.sessionId!, record.commandId, { signal });
+        if (result.id !== record.commandId || result.session_id !== record.sessionId) throw new Error('Permission edit identity or recipient mismatch');
+        return result;
+      }
+      case 'sessions.reload': return client.getReloadEdit(record.sessionId!, record.commandId, { signal });
       case 'inputs.steer': return client.session(record.sessionId!).inputs.steering(record.commandId, { signal });
       default: return undefined;
     }

@@ -3,6 +3,7 @@
 import { createHash } from 'node:crypto';
 import { Client, DeliveryError, type Admission, type Request, type Response, type Transport } from '@whip/sdk';
 import { MobileCommands } from './commands';
+import { nativeFixture } from '../../test/native-fixtures';
 import { metadataKey, type MetadataStorage, type StoredMetadata } from './recovery-metadata';
 
 const hash = async (text: string) => createHash('sha256').update(text).digest('hex');
@@ -178,4 +179,36 @@ test('published metadata is immutable and cannot redirect later recovery', async
   await f.commands.check(record);
   expect(f.requests.at(-1)?.method).toBe('receipts.get');
   expect(f.commands.getSnapshot()[0].record.sessionId).toBe('child');
+});
+
+test.each(['permissions.set_denial', 'sessions.reload'] as const)('%s preserves exact recovery before restart and identity-only inspection afterwards', async method => {
+  const f = fixture(), client = await f.client(); await f.commands.bind(client);
+  const receipt = method === 'permissions.set_denial' ? nativeFixture('PermissionDenialEdit') : nativeFixture('ReloadEdit');
+  const params = { session_id: receipt.session_id, edit_id: receipt.id, expected_revision: receipt.expected_revision };
+  const prepare = () => method === 'permissions.set_denial' ? client.command(method, { ...params, deny_interactive: false }) : client.command(method, params);
+  f.method(async request => { if (request.method === method) throw new DeliveryError('lost acknowledgement'); return success(request, receipt); });
+  await expect(f.commands.run(prepare(), { rootId: receipt.session_id })).rejects.toThrow('lost acknowledgement');
+  expect(JSON.stringify([...f.records.values()])).not.toContain('configuration');
+  expect(JSON.stringify([...f.records.values()])).not.toContain('deny_interactive');
+  f.commands.detach(); await f.commands.bind(await f.client('new-epoch'));
+  expect(f.requests).toHaveLength(1);
+  const record = f.commands.getSnapshot()[0].record;
+  expect(await f.commands.check(record)).toMatchObject({ knownAccepted: true, status: 'accepted', retryable: false });
+  expect(f.requests.filter(request => request.method === method)).toHaveLength(1);
+  // A separate lost delivery restores only metadata, not original request bytes.
+  const g = fixture(), other = await g.client(); await g.commands.bind(other);
+  g.method(async request => { if (request.method === method) throw new DeliveryError('lost'); return success(request, receipt); });
+  const command = method === 'permissions.set_denial' ? other.command(method, { ...params, deny_interactive: false }) : other.command(method, params);
+  await expect(g.commands.run(command, { rootId: receipt.session_id })).rejects.toThrow('lost');
+  g.commands.dispose(); const restarted = new MobileCommands(g.storage, hash); await restarted.bind(await g.client('restart'));
+  expect(await restarted.check(restarted.getSnapshot()[0].record)).toMatchObject({ status: 'identity_only', knownAccepted: false, retryable: false });
+  expect(g.requests.filter(request => request.method === method)).toHaveLength(1);
+});
+
+test('restored permission denial receipt must retain its exact edit and recipient identities', async () => {
+  const f = fixture(), client = await f.client(); await f.commands.bind(client); const receipt = nativeFixture('PermissionDenialEdit');
+  f.method(async request => { if (request.method === 'permissions.set_denial') throw new DeliveryError('lost'); return success(request, { ...receipt, session_id: 'other' }); });
+  await expect(f.commands.run(client.command('permissions.set_denial', { session_id: receipt.session_id, edit_id: receipt.id, expected_revision: receipt.expected_revision, deny_interactive: false }))).rejects.toThrow();
+  f.commands.dispose(); const restarted = new MobileCommands(f.storage, hash); await restarted.bind(await f.client());
+  expect(await restarted.check(restarted.getSnapshot()[0].record)).toMatchObject({ status: 'unknown', knownAccepted: false, retryable: false, message: 'Permission edit identity or recipient mismatch' });
 });

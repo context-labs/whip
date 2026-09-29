@@ -22,11 +22,13 @@ export default function SettingsScreen() {
     {state.commands.map(command => <Stack key={command.record.commandId}><Label>{command.record.operation} · {command.status}</Label>
       <Label muted style={{ fontSize: 12 }}>{command.record.rootId ?? 'New session'}{command.record.sessionId ? ` / ${command.record.sessionId}` : ''}</Label>
       {command.message && <Notice>{command.message}</Notice>}
+      {command.record.operation === 'sessions.reload' && <Notice>Delivery acceptance does not mean the captured settings were applied. Inspect this exact request in the root agent’s controls before clearing its local record.</Notice>}
       <Actions items={[
-        ...(!['accepted', 'failed'].includes(command.status) ? [{ label: 'Check delivery', secondary: true, disabled: !state.ready, onPress: () => { void runtime.checkCommand(command).catch(runtime.report); } }] : []),
+        ...(command.record.operation === 'sessions.reload' || !['accepted', 'failed'].includes(command.status) ? [{ label: 'Check delivery', secondary: true, disabled: !state.ready, onPress: () => { void runtime.checkCommand(command).catch(runtime.report); } }] : []),
+        ...(command.record.operation === 'sessions.reload' && command.record.rootId ? [{ label: 'Open root reload controls', secondary: true, onPress: () => router.push({ pathname: '/session/[rootId]', params: { rootId: command.record.rootId!, runtimeId: command.record.runtimeId, hostId: state.host?.id } }) }] : []),
         ...(command.destination && !command.destination.deleted ? [{ label: 'Open located session', secondary: true, onPress: () => router.push({ pathname: '/session/[rootId]', params: { rootId: command.destination!.rootId, runtimeId: command.record.runtimeId, hostId: state.host?.id } }) }] : []),
         ...(command.retryable ? [{ label: 'Retry original request', disabled: !state.ready, secondary: true, onPress: () => { void runtime.retryCommand(command).catch(runtime.report); } }] : []),
-        ...(['accepted', 'failed', 'missing'].includes(command.status) ? [{ label: 'Clear resolved record', secondary: true, onPress: () => { void runtime.forgetCommand(command).catch(runtime.report); } }] : []),
+        ...(['accepted', 'failed', 'missing'].includes(command.status) && !(command.record.operation === 'sessions.reload' && command.knownAccepted) ? [{ label: 'Clear resolved record', secondary: true, onPress: () => { void runtime.forgetCommand(command).catch(runtime.report); } }] : []),
       ]} />
     </Stack>)}
   </Stack><Stack><Label style={{ fontSize: 22, fontWeight: '600' }}>Permission decisions</Label>

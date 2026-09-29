@@ -1,7 +1,7 @@
 import { assertValid, manifest } from '@whip/protocol';
 import type { RecoveryRecord } from '@whip/sdk';
 
-export const mobileDurableMethods = ['trees.create', 'sessions.submit', 'sessions.compact', 'sessions.spawn', 'sessions.fork', 'sessions.rewind', 'permissions.set_mode', 'inputs.steer'] as const;
+export const mobileDurableMethods = ['trees.create', 'sessions.submit', 'sessions.compact', 'sessions.spawn', 'sessions.fork', 'sessions.rewind', 'permissions.set_mode', 'permissions.set_denial', 'sessions.reload', 'inputs.steer'] as const;
 export type MobileDurableMethod = typeof mobileDurableMethods[number];
 export type MobileMetadataMethod = MobileDurableMethod | 'permissions.resolve' | 'questions.answer';
 export interface RecoveryMetadata {

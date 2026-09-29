@@ -71,14 +71,14 @@ async function mobile(name: string) {
   const path = join(directory, name + '.db'), fresh = !existsSync(path), db = new DatabaseSync(path);
   const adapter: StorageDatabase = { execAsync: async sql => { db.exec(sql); }, runAsync: async (sql, ...args) => db.prepare(sql).run(...args), getAllAsync: async <T,>(sql: string, ...args: Array<string | number>) => db.prepare(sql).all(...args) as T[], getFirstAsync: async <T,>(sql: string, ...args: Array<string | number>) => (db.prepare(sql).get(...args) ?? null) as T | null, closeAsync: async () => db.close() };
   const storage = new SqliteMobileStorage(adapter); await storage.initialize(fresh);
-  const requests: string[] = []; let dropSubmit = false;
+  const requests: string[] = []; let dropMethod: string | undefined;
   const runtime = new MobileRuntime(storage, async (host, signal) => {
     const client = await connectMobile(host, signal), call = client.call.bind(client);
     // The real gateway has durably replied before the phone loses its ACK.
     jest.spyOn(client, 'call').mockImplementation(async (...args: Parameters<typeof call>) => {
       requests.push(args[0]); let result;
       try { result = await call(...args); } catch (error) { if (error instanceof Error) error.message = args[0] + ': ' + error.message; throw error; }
-      if (dropSubmit && args[0] === 'sessions.submit') { dropSubmit = false; throw new DOMException('lost mobile ACK', 'AbortError'); }
+      if (dropMethod === args[0]) { dropMethod = undefined; throw new DOMException('lost mobile ACK', 'AbortError'); }
       return result;
     });
     return client;
@@ -86,7 +86,7 @@ async function mobile(name: string) {
   runtimes.push(runtime); await runtime.start(false);
   const host: SavedHost = { id: 'test-host', name: 'Disposable backend', url: ready.web, runtimeId: ready.runtime_id, clientId: 'mobile-' + name };
   await runtime.connect(host);
-  return { runtime, storage, requests, host, loseSubmit() { dropSubmit = true; } };
+  return { runtime, storage, requests, host, loseSubmit() { dropMethod = 'sessions.submit'; }, lose(method: string) { dropMethod = method; } };
 }
 async function root(runtime: MobileRuntime, name: string, engine: 'starlark' | 'quickjs' = 'starlark') {
   const client = runtime.requireReady(), definition = client.builtins.find(item => item.id === 'assistant');
@@ -163,4 +163,49 @@ test('lost ACK, mobile restart and host restart inspect durable evidence without
   expect(restored.retryable).toBe(false); await f.runtime.checkCommand(restored); const inspected = f.runtime.getSnapshot().commands.find(item => item.record.commandId === 'restart')!; expect(inspected.status).toBe('identity_only'); expect(inspected.retryable).toBe(false);
   expect(f.runtime.draft(key).text).toBe('preserve after restart'); expect(f.requests).toEqual(['receipts.get']); expect((await f.storage.listRecovery())[0].record.commandId).toBe('old-request');
   const messages = (await f.runtime.requireReady().call('sessions.history_page', { session_id: owner.id, direction: 'forward', limit: 20 }, deadline())).messages; expect(messages!.filter(message => message.role === 'user')).toHaveLength(2);
+});
+
+test('mobile denial and captured reload keep independent policy and exact outcomes across lost ACK and phone restart', async () => {
+  let f = await mobile('controls'); const owner = await root(f.runtime, 'controls-root'); let client = f.runtime.requireReady();
+  await f.runtime.run('sessions.submit', { session_id: owner.id, identity: { client_id: client.clientID, request_id: 'hold-reload' }, source: 'user', parts: [{ type: 'text', text: 'starlark-question' }] }, { rootId: owner.id });
+  await until(() => client.session(owner.id).questions.list({ pending_only: true, limit: 16 }, deadline()), value => value.items.length === 1, 'question holds idle reload boundary');
+  const original = await client.session(owner.id).get(deadline());
+  f.lose('sessions.reload');
+  await expect(f.runtime.run('sessions.reload', { session_id: owner.id, edit_id: 'captured-mobile', expected_revision: original.config_revision }, { rootId: owner.id })).rejects.toThrow('lost mobile ACK');
+  expect((await client.session(owner.id).reloads.get('captured-mobile', deadline())).state).toBe('pending');
+  expect((await client.session(owner.id).get(deadline())).config_revision).toBe(original.config_revision);
+  await f.runtime.dispose(); f = await mobile('controls'); client = f.runtime.requireReady();
+  expect(f.requests).toEqual([]);
+  const restored = f.runtime.getSnapshot().commands.find(item => item.record.commandId === 'captured-mobile')!;
+  expect((await f.runtime.checkCommand(restored)).status).toBe('identity_only');
+  expect(f.requests).toEqual(['sessions.reload_edit']);
+  expect((await client.session(owner.id).reloads.cancel('captured-mobile', deadline())).state).toBe('interrupted');
+  await f.runtime.forgetCommand(restored);
+  const policy = await client.session(owner.id).permissions.policy(deadline()); expect(policy.deny_interactive).toBe(false);
+  f.lose('permissions.set_denial');
+  await expect(f.runtime.run('permissions.set_denial', { session_id: owner.id, edit_id: 'deny-mobile', expected_revision: policy.revision, deny_interactive: true }, { rootId: owner.id })).rejects.toThrow('lost mobile ACK');
+  const denial = f.runtime.getSnapshot().commands.find(item => item.record.commandId === 'deny-mobile')!;
+  expect((await f.runtime.checkCommand(denial)).knownAccepted).toBe(true);
+  const denied = await client.session(owner.id).permissions.policy(deadline()); expect(denied.deny_interactive).toBe(true); expect(denied.mode).toBe(policy.mode);
+  const intrinsic = await client.session(owner.id).questions.list({ pending_only: true, limit: 16 }, deadline()); expect(intrinsic.items).toHaveLength(1);
+  await f.runtime.decisions.answer(owner.id, owner.id, intrinsic.items[0].operation_id, [{ answer: ['B'], dismissed: false }], {}, intrinsic.items[0].request);
+  await client.wait('hold-reload', deadline());
+  await client.callTool(owner.id, { module: 'files', name: 'write', arguments_base64: Buffer.from(JSON.stringify({ path: 'denied-mobile.txt', content: 'must not write' })).toString('base64') }, 'denied-write', deadline());
+  expect((await client.wait('denied-write', deadline())).turn?.state).toBe('failed');
+  expect(existsSync(join(directory, 'denied-mobile.txt'))).toBe(false);
+  expect((await client.session(owner.id).permissions.list({ pending_only: true, limit: 16 }, deadline())).items).toHaveLength(0);
+  await f.runtime.run('permissions.set_mode', { session_id: owner.id, edit_id: 'full-mobile', expected_revision: denied.revision, mode: 'automatic' }, { rootId: owner.id });
+  const automatic = await client.session(owner.id).permissions.policy(deadline()); expect(automatic.deny_interactive).toBe(true);
+  await f.runtime.run('permissions.set_denial', { session_id: owner.id, edit_id: 'clear-mobile', expected_revision: automatic.revision, deny_interactive: false }, { rootId: owner.id });
+  expect(await client.session(owner.id).permissions.policy(deadline())).toMatchObject({ mode: 'automatic', deny_interactive: false });
+  const before = await client.session(owner.id).get(deadline());
+  const history = await client.call('sessions.history_page', { session_id: owner.id, direction: 'forward', limit: 20 }, deadline());
+  await f.runtime.run('sessions.reload', { session_id: owner.id, edit_id: 'apply-mobile', expected_revision: before.config_revision }, { rootId: owner.id });
+  const applied = await until(() => client.session(owner.id).reloads.get('apply-mobile', deadline()), value => value.state !== 'pending', 'captured settings applied');
+  expect(applied.state).toBe('applied'); expect(applied.revision).toBe(String(BigInt(before.config_revision) + 1n));
+  const after = await client.session(owner.id).get(deadline()); expect(after.configuration.model).toEqual(before.configuration.model); expect(after.configuration.automatic_title).toBe(false);
+  expect((await client.call('sessions.history_page', { session_id: owner.id, direction: 'forward', limit: 20 }, deadline())).messages).toEqual(history.messages);
+  expect(f.requests.filter(method => method === 'permissions.set_denial')).toHaveLength(2);
+  expect(f.requests.filter(method => method === 'sessions.reload')).toHaveLength(1);
+  await f.runtime.dispose();
 });
