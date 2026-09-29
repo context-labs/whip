@@ -1,4 +1,5 @@
-package llm
+// Package imageutil contains bounded image decoding and normalization without model or execution state.
+package imageutil
 
 import (
 	"bytes"
@@ -46,7 +47,7 @@ var jpegQualities = []int{80, 70, 55, 40}
 //
 //  1. If the raw bytes already fit NormalizeMaxBytes AND both dims fit
 //     NormalizeMaxDim, the input passes through untouched (ext preserved).
-//  2. Otherwise the image is decoded, Lanczos-scaled to fit NormalizeMaxDim,
+//  2. Otherwise the image is decoded, bilinear-scaled to fit NormalizeMaxDim,
 //     and re-encoded as JPEG at descending qualities; if it still exceeds the
 //     byte budget the image shrinks by ×0.75 per round and the quality ladder
 //     retries (up to 32 rounds, mirroring opencode).
@@ -65,7 +66,7 @@ func NormalizeImage(ext string, data []byte) (string, []byte) {
 	if len(data) <= NormalizeMaxBytes && w <= NormalizeMaxDim && h <= NormalizeMaxDim {
 		return ext, data // already cheap enough; keep the original encoding
 	}
-	if w*h > NormalizeMaxPixels {
+	if w <= 0 || h <= 0 || w > NormalizeMaxPixels/h {
 		// A header can declare a canvas no real capture has (a 40-byte PNG
 		// claiming 100000²) and image.Decode would allocate for all of it.
 		// Pass it through untouched: the provider rejects it, whipcode stays up.

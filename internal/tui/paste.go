@@ -19,8 +19,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/context-labs/whip/internal/imageutil"
 	"github.com/context-labs/whip/internal/legacy/config"
-	"github.com/context-labs/whip/internal/llm"
 )
 
 // readClipboardImage returns image bytes and their format extension from the
@@ -217,7 +217,7 @@ func pasteImageFileCmd(path string) tea.Msg {
 func saveClipboardImage(ext string, data []byte) (string, error) {
 	// Bound the image before it hits disk or the daemon's size cap: a HiDPI
 	// screenshot is several times the pixels the model will be sent anyway.
-	ext, data = llm.NormalizeImage(ext, data)
+	ext, data = imageutil.NormalizeImage(ext, data)
 	dir, err := config.Dir()
 	if err != nil {
 		return "", err

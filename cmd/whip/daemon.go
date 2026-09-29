@@ -23,6 +23,7 @@ import (
 	"github.com/context-labs/whip/internal/browser"
 	"github.com/context-labs/whip/internal/computer"
 	"github.com/context-labs/whip/internal/daemon"
+	"github.com/context-labs/whip/internal/imageutil"
 	"github.com/context-labs/whip/internal/legacy/config"
 	"github.com/context-labs/whip/internal/legacy/protocol"
 	"github.com/context-labs/whip/internal/legacy/session"
@@ -399,7 +400,7 @@ func rlmLimits(value config.RLMConfig) process.Limits {
 func screenshotParts(images [][]byte) []llm.ContentPart {
 	parts := make([]llm.ContentPart, 0, len(images))
 	for _, image := range images {
-		ext, data := llm.NormalizeImage("jpg", image)
+		ext, data := imageutil.NormalizeImage("jpg", image)
 		parts = append(parts, llm.ImagePart(ext, data))
 	}
 	return parts

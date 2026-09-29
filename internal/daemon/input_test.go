@@ -13,6 +13,7 @@ import (
 
 	"github.com/context-labs/whip/internal/agent"
 	"github.com/context-labs/whip/internal/capability"
+	"github.com/context-labs/whip/internal/imageutil"
 	sessionstore "github.com/context-labs/whip/internal/legacy/session"
 	"github.com/context-labs/whip/internal/llm"
 	"github.com/context-labs/whip/internal/tools"
@@ -362,7 +363,7 @@ func TestPrepareAuthoredInputNormalizesOversizedImages(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	workspace := t.TempDir()
 	var buf bytes.Buffer
-	if err := png.Encode(&buf, image.NewGray(image.Rect(0, 0, llm.NormalizeMaxDim+100, 40))); err != nil {
+	if err := png.Encode(&buf, image.NewGray(image.Rect(0, 0, imageutil.NormalizeMaxDim+100, 40))); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(workspace, "wide.png"), buf.Bytes(), 0o600); err != nil {
@@ -374,7 +375,7 @@ func TestPrepareAuthoredInputNormalizesOversizedImages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(parts) != 1 || parts[0].W == 0 || parts[0].W > llm.NormalizeMaxDim || !strings.HasPrefix(parts[0].ImageURL.URL, "data:image/jpeg") {
+	if len(parts) != 1 || parts[0].W == 0 || parts[0].W > imageutil.NormalizeMaxDim || !strings.HasPrefix(parts[0].ImageURL.URL, "data:image/jpeg") {
 		t.Fatalf("normalized parts=%+v", parts)
 	}
 }

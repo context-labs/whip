@@ -12,6 +12,7 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 
+	"github.com/context-labs/whip/internal/imageutil"
 	"github.com/context-labs/whip/internal/llm"
 )
 
@@ -177,7 +178,7 @@ func promptFromBlocks(blocks []acp.ContentBlock, vision bool) (text string, part
 		case b.Image != nil:
 			if vision {
 				if data, err := base64.StdEncoding.DecodeString(b.Image.Data); err == nil {
-					ext, data := llm.NormalizeImage(mimeExt(b.Image.MimeType), data) // same caps as paste/@mention
+					ext, data := imageutil.NormalizeImage(mimeExt(b.Image.MimeType), data) // same caps as paste/@mention
 					parts = append(parts, llm.ImagePart(ext, data))
 					continue
 				}
