@@ -3,6 +3,8 @@ export interface SkillTrigger { start: number; end: number; caret: number; prefi
 
 export function skillTrigger(text: string, start: number, end = start): SkillTrigger | null {
   if (start !== end || start < 0 || start > text.length) return null;
+  // Most edits contain no slash before the caret; avoid walking a long token.
+  if (text.lastIndexOf('/', start - 1) < 0) return null;
   let from = start;
   while (from > 0 && !/\s/.test(text[from - 1]!)) from--;
   if (text[from] !== '/' || start <= from) return null;
