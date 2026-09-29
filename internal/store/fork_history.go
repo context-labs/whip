@@ -12,7 +12,7 @@ import (
 func preflightFork(ctx context.Context, tx *sql.Tx, request session.ForkRequest) error {
 	var messages, groups, bytes, private int64
 	err := tx.QueryRowContext(ctx, `SELECT COUNT(*),COUNT(DISTINCT m.group_id),
- COALESCE(SUM(length(CAST(COALESCE(m.parts,i.parts,r.body,'') AS BLOB))+COALESCE(length(CAST(r.subject AS BLOB)),0)+COALESCE(length(CAST(COALESCE(m.design_context,i.design_context) AS BLOB)),0)),0),
+ COALESCE(SUM(length(CAST(COALESCE(m.parts,i.parts,r.body,'') AS BLOB))+COALESCE(length(CAST(r.subject AS BLOB)),0)+COALESCE(length(CAST(COALESCE(m.design_context,i.design_context) AS BLOB)),0)+COALESCE(length(CAST(m.presentation AS BLOB)),0)),0),
  COALESCE(SUM(length(CAST(m.model_continuation AS BLOB))),0)
  FROM messages m LEFT JOIN inputs i ON i.id=m.input_id
  LEFT JOIN mail_revisions r ON r.mail_id=m.mail_id AND r.revision=m.mail_revision
@@ -73,6 +73,13 @@ func importForkHistory(ctx context.Context, tx *sql.Tx, request session.ForkRequ
 			}
 			bytes += len(*design)
 		}
+		display, err := encodePresentation(value.Presentation)
+		if err != nil {
+			return nil, err
+		}
+		if display != nil {
+			bytes += len(*display)
+		}
 		bytes += len(parts)
 		if bytes > session.MaxForkHistoryBytes {
 			return nil, fmt.Errorf("%w: encoded fork history exceeds byte bound", ErrLimit)
@@ -93,14 +100,24 @@ func importForkHistory(ctx context.Context, tx *sql.Tx, request session.ForkRequ
 		group, ok := groups[value.GroupID]
 		if !ok {
 			group = session.HistoryGroupID(newID("group"))
-			if _, err := tx.ExecContext(ctx, `INSERT INTO history_groups(id,session_id,source_session_id,source_group_id,created_at) VALUES(?,?,?,?,?)`, group, owner, request.SessionID, value.GroupID, now()); err != nil {
+			evidence, err := forkAttemptPresentations(ctx, tx, request.SessionID, value.GroupID, group)
+			if err != nil {
+				return nil, err
+			}
+			if evidence != nil {
+				bytes += len(*evidence)
+				if bytes > session.MaxForkHistoryBytes {
+					return nil, fmt.Errorf("%w: fork display evidence exceeds byte bound", ErrLimit)
+				}
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO history_groups(id,session_id,source_session_id,source_group_id,created_at,attempt_presentations) VALUES(?,?,?,?,?,?)`, group, owner, request.SessionID, value.GroupID, now(), evidence); err != nil {
 				return nil, err
 			}
 			groups[value.GroupID] = group
 		}
 		copied := session.MessageID(newID("message"))
-		if _, err := tx.ExecContext(ctx, `INSERT INTO messages(id,session_id,group_id,sequence,opening_input,source_session_id,source_message_id,source_sequence,role,parts,created_at,model_continuation,design_context)
- VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`, copied, owner, group, value.Sequence, value.OpeningInput, request.SessionID, value.ID, value.Sequence, value.Role, parts, now(), continuation, design); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO messages(id,session_id,group_id,sequence,opening_input,source_session_id,source_message_id,source_sequence,role,parts,created_at,model_continuation,design_context,presentation)
+ VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, copied, owner, group, value.Sequence, value.OpeningInput, request.SessionID, value.ID, value.Sequence, value.Role, parts, now(), continuation, design, display); err != nil {
 			return nil, err
 		}
 		messages[value.ID] = copied

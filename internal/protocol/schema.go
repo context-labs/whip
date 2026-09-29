@@ -267,6 +267,8 @@ func Types() map[string]reflect.Type {
 	result["Response"] = reflect.TypeFor[Response]()
 	result["Part"] = reflect.TypeFor[Part]()
 	result["Message"] = reflect.TypeFor[Message]()
+	result["MessagePresentation"] = reflect.TypeFor[MessagePresentation]()
+	result["AttemptPresentation"] = reflect.TypeFor[AttemptPresentation]()
 	result["ToolCall"] = reflect.TypeFor[ToolCall]()
 	result["ToolResult"] = reflect.TypeFor[ToolResult]()
 	for _, op := range Operations() {
@@ -381,6 +383,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 		computerSchema(schema, t)
 		externalBrowserSchema(schema, t)
 		terminalSchema(schema, t)
+		presentationSchema(schema, t)
 		hostOperationSchema(schema, t)
 		if t == reflect.TypeFor[MatchReceiptParams]() {
 			schema.Properties["params_base64"].MinLength = new(1)

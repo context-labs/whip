@@ -2,14 +2,12 @@ package runtime
 
 import (
 	"context"
-	"strings"
-	"unicode/utf8"
 
 	"github.com/context-labs/whip/internal/model"
 	"github.com/context-labs/whip/internal/session"
 )
 
-const maxPreviewBytes = 128 << 10
+const maxPreviewBytes = model.MaxPreviewBytes
 
 // Preview contains provisional provider text and reasoning, not a Message.
 // Partial tool arguments may be invalid JSON and must never be executed.
@@ -23,67 +21,47 @@ type Preview struct {
 	Reasoning       string
 	Calls           []CallPreview
 	Truncated       bool
+	Presentation    *session.MessagePresentation
 }
 type CallPreview struct {
 	Index               int
 	ID, Name, Arguments string
 }
 type Observation struct {
-	Snapshot session.HistorySnapshot
-	Epoch    string
-	Messages []session.Message
-	Preview  *Preview
+	AttemptPresentations          []session.AttemptPresentation
+	AttemptPresentationsTruncated bool
+	Snapshot                      session.HistorySnapshot
+	Epoch                         string
+	Messages                      []session.Message
+	Preview                       *Preview
 }
-type (
-	callPreviewBuffer struct{ id, name, arguments strings.Builder }
-	livePreview       struct {
-		preview   Preview
-		text      strings.Builder
-		reasoning strings.Builder
-		calls     map[int]*callPreviewBuffer
-		bytes     int
-	}
-)
+type livePreview struct {
+	preview     Preview
+	accumulator *model.PresentationAccumulator
+}
 
 // BeginPreview's callbacks live only for the dispatched attempt. Late callbacks
 // cannot overwrite another attempt. Capacity is bounded separately from history.
-func (r *Runtime) BeginPreview(turn session.Turn, id session.ModelAttemptID, messageID session.MessageID) (func(model.Chunk), func()) {
-	live := &livePreview{preview: Preview{historyRevision: turn.HistoryRevision, AttemptID: id, TurnID: turn.ID, MessageID: messageID}, calls: map[int]*callPreviewBuffer{}}
+func (r *Runtime) BeginPreview(turn session.Turn, id session.ModelAttemptID, messageID session.MessageID, accumulator *model.PresentationAccumulator) (func(model.Chunk), func()) {
+	live := &livePreview{preview: Preview{historyRevision: turn.HistoryRevision, AttemptID: id, TurnID: turn.ID, MessageID: messageID}, accumulator: accumulator}
 	r.previewMu.Lock()
 	if len(r.previews) >= 64 {
 		r.previewMu.Unlock()
-		return func(model.Chunk) {}, func() {}
+		return accumulator.Append, func() {}
 	}
 	r.previews[turn.SessionID] = live
 	r.previewMu.Unlock()
 	emit := func(chunk model.Chunk) {
 		r.previewMu.Lock()
 		defer r.previewMu.Unlock()
-		if r.previews[turn.SessionID] != live || live.preview.Truncated {
+		if r.previews[turn.SessionID] != live {
 			return
 		}
 		if chunk.Text == "" && chunk.Reasoning == "" && chunk.Call == nil {
 			return
 		}
 		live.preview.Revision++
-		live.append(&live.text, chunk.Text, maxPreviewBytes)
-		live.append(&live.reasoning, chunk.Reasoning, maxPreviewBytes)
-		if chunk.Call == nil {
-			return
-		}
-		c := chunk.Call
-		if c.Index < 0 || c.Index >= session.MaxToolCalls {
-			live.preview.Truncated = true
-			return
-		}
-		buffer := live.calls[c.Index]
-		if buffer == nil {
-			buffer = &callPreviewBuffer{}
-			live.calls[c.Index] = buffer
-		}
-		live.append(&buffer.id, c.ID, 128)
-		live.append(&buffer.name, c.Name, 64)
-		live.append(&buffer.arguments, c.Arguments, maxPreviewBytes)
+		accumulator.Append(chunk)
 	}
 	end := func() {
 		r.previewMu.Lock()
@@ -95,25 +73,6 @@ func (r *Runtime) BeginPreview(turn session.Turn, id session.ModelAttemptID, mes
 	return emit, end
 }
 
-func (p *livePreview) append(target *strings.Builder, value string, limit int) {
-	if p.preview.Truncated {
-		return
-	}
-	if !utf8.ValidString(value) {
-		p.preview.Truncated = true
-		return
-	}
-	count := min(len(value), maxPreviewBytes-p.bytes, limit-target.Len())
-	if count < len(value) {
-		p.preview.Truncated = true
-		for count > 0 && !utf8.ValidString(value[:count]) {
-			count--
-		}
-	}
-	target.WriteString(value[:count])
-	p.bytes += count
-}
-
 func (r *Runtime) preview(id session.SessionID) *Preview {
 	r.previewMu.Lock()
 	defer r.previewMu.Unlock()
@@ -122,13 +81,14 @@ func (r *Runtime) preview(id session.SessionID) *Preview {
 		return nil
 	}
 	result := live.preview
-	result.Text = strings.Clone(live.text.String())
-	result.Reasoning = strings.Clone(live.reasoning.String())
+	snapshot := live.accumulator.Snapshot()
+	result.Text = snapshot.Text
+	result.Reasoning = snapshot.Reasoning
+	result.Truncated = snapshot.Truncated
+	result.Presentation = snapshot.Presentation
 	result.Calls = []CallPreview{}
-	for index := range session.MaxToolCalls {
-		if call := live.calls[index]; call != nil {
-			result.Calls = append(result.Calls, CallPreview{Index: index, ID: strings.Clone(call.id.String()), Name: strings.Clone(call.name.String()), Arguments: strings.Clone(call.arguments.String())})
-		}
+	for _, call := range snapshot.Calls {
+		result.Calls = append(result.Calls, CallPreview{Index: call.Index, ID: call.ID, Name: call.Name, Arguments: call.Arguments})
 	}
 	return &result
 }
@@ -168,5 +128,21 @@ func (r *Runtime) ObserveRevision(ctx context.Context, id session.SessionID, aft
 			}
 		}
 	}
-	return Observation{Snapshot: snapshot, Epoch: r.epoch, Messages: messages, Preview: preview}, nil
+	through := snapshot.ThroughSequence
+	if len(messages) > 0 {
+		through = messages[len(messages)-1].Sequence
+	}
+	attempts, truncated, err := r.store.AttemptPresentations(ctx, id, after, through, snapshot.Revision)
+	if err != nil {
+		return Observation{}, err
+	}
+	if preview != nil {
+		for _, attempt := range attempts {
+			if attempt.AttemptID == preview.AttemptID {
+				preview = nil
+				break
+			}
+		}
+	}
+	return Observation{Snapshot: snapshot, Epoch: r.epoch, Messages: messages, Preview: preview, AttemptPresentations: attempts, AttemptPresentationsTruncated: truncated}, nil
 }

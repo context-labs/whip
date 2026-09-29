@@ -553,7 +553,7 @@ func helperRefused(err error) bool {
 
 type helperPreview struct{ calls atomic.Int64 }
 
-func (p *helperPreview) BeginPreview(session.Turn, session.ModelAttemptID, session.MessageID) (func(model.Chunk), func()) {
+func (p *helperPreview) BeginPreview(session.Turn, session.ModelAttemptID, session.MessageID, *model.PresentationAccumulator) (func(model.Chunk), func()) {
 	p.calls.Add(1)
 	return func(model.Chunk) {}, func() {}
 }

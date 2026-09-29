@@ -23,7 +23,9 @@ func (r HistoryPageRequest) Validate() error {
 // TranscriptPage always presents messages in ascending order. NextCursor names
 // the exclusive continuation in the requested direction, including sequence gaps.
 type TranscriptPage struct {
-	Snapshot   HistorySnapshot
-	Messages   []Message
-	NextCursor *int64
+	AttemptPresentations          []AttemptPresentation
+	AttemptPresentationsTruncated bool
+	Snapshot                      HistorySnapshot
+	Messages                      []Message
+	NextCursor                    *int64
 }

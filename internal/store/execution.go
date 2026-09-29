@@ -508,7 +508,7 @@ func (s *Store) Claim(ctx context.Context, id session.SessionID) (result Claim, 
 }
 
 const messageSelect = `SELECT m.id,m.session_id,COALESCE(m.turn_id,''),m.sequence,m.role,m.input_id,
- COALESCE(m.parts,i.parts),m.created_at,m.mail_id,m.mail_revision,m.mail_presentation,r.subject,r.body,mail.source_kind,mail.source_id,r.evidence_ref,COALESCE(m.design_context,i.design_context),` + historyProvenanceColumns + `
+ COALESCE(m.parts,i.parts),m.created_at,m.mail_id,m.mail_revision,m.mail_presentation,r.subject,r.body,mail.source_kind,mail.source_id,r.evidence_ref,COALESCE(m.design_context,i.design_context),m.presentation,` + historyProvenanceColumns + `
  FROM messages m LEFT JOIN inputs i ON i.id=m.input_id AND i.session_id=m.session_id
  LEFT JOIN receipts receipt ON receipt.input_id=i.id
  LEFT JOIN mail_revisions r ON r.mail_id=m.mail_id AND r.revision=m.mail_revision
@@ -516,7 +516,7 @@ const messageSelect = `SELECT m.id,m.session_id,COALESCE(m.turn_id,''),m.sequenc
 
 func scanMessage(row scanner) (result session.Message, err error) {
 	var raw sql.NullString
-	var design *string
+	var design, display *string
 	var created int64
 	var mailID *session.MailID
 	var revision sql.NullInt64
@@ -526,7 +526,7 @@ func scanMessage(row scanner) (result session.Message, err error) {
 	var sourceMessage *session.MessageID
 	var sourceSequence sql.NullInt64
 	var clientID, requestID *string
-	err = row.Scan(&result.ID, &result.SessionID, &result.TurnID, &result.Sequence, &result.Role, &result.InputID, &raw, &created, &mailID, &revision, &presentation, &subject, &body, &sourceKind, &sourceID, &evidence, &design, &result.GroupID, &result.OpeningInput, &sourceOwner, &sourceMessage, &sourceSequence, &result.RetiredBy, &result.RetiredRevision, &clientID, &requestID)
+	err = row.Scan(&result.ID, &result.SessionID, &result.TurnID, &result.Sequence, &result.Role, &result.InputID, &raw, &created, &mailID, &revision, &presentation, &subject, &body, &sourceKind, &sourceID, &evidence, &design, &display, &result.GroupID, &result.OpeningInput, &sourceOwner, &sourceMessage, &sourceSequence, &result.RetiredBy, &result.RetiredRevision, &clientID, &requestID)
 	if err != nil {
 		return result, found(err)
 	}
@@ -543,6 +543,9 @@ func scanMessage(row scanner) (result session.Message, err error) {
 	}
 	if err == nil {
 		result.DesignContext, err = decodeDesignContext(design, result.Parts)
+		if err == nil {
+			result.Presentation, err = decodePresentation(display)
+		}
 	}
 	return
 }
@@ -562,6 +565,14 @@ func validDraft(draft session.MessageDraft) error {
 			return err
 		}
 	}
+	if draft.Presentation != nil {
+		if draft.Role != session.Assistant {
+			return session.ErrInvalid
+		}
+		if err := draft.Presentation.ValidateMessage(draft.Parts); err != nil {
+			return err
+		}
+	}
 	return session.ValidateMessage(draft.Role, draft.Parts)
 }
 
@@ -577,7 +588,7 @@ func appendMessage(ctx context.Context, tx *sql.Tx, turn session.Turn, draft ses
 	}
 	existing, err := scanMessage(tx.QueryRowContext(ctx, messageSelect+" WHERE m.id=?", draft.ID))
 	if err == nil {
-		if existing.TurnID != turn.ID || existing.Role != draft.Role || !reflect.DeepEqual(existing.Parts, draft.Parts) {
+		if existing.TurnID != turn.ID || existing.Role != draft.Role || !reflect.DeepEqual(existing.Parts, draft.Parts) || !reflect.DeepEqual(existing.Presentation, draft.Presentation) {
 			return session.Message{}, ErrConflict
 		}
 		continuation, err := readContinuation(ctx, tx, draft.ID)
@@ -612,9 +623,13 @@ func appendMessage(ctx context.Context, tx *sql.Tx, turn session.Turn, draft ses
 			return session.Message{}, err
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,turn_id,group_id,sequence,role,parts,model_continuation,created_at)
-  SELECT ?,?,?,?,COALESCE(MAX(sequence),0)+1,?,?,?,? FROM messages WHERE session_id=?`,
-		draft.ID, turn.SessionID, turn.ID, turn.ID, draft.Role, raw, continuation, now(), turn.SessionID); err != nil {
+	display, err := encodePresentation(draft.Presentation)
+	if err != nil {
+		return session.Message{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO messages (id,session_id,turn_id,group_id,sequence,role,parts,model_continuation,created_at,presentation)
+  SELECT ?,?,?,?,COALESCE(MAX(sequence),0)+1,?,?,?,?,? FROM messages WHERE session_id=?`,
+		draft.ID, turn.SessionID, turn.ID, turn.ID, draft.Role, raw, continuation, now(), display, turn.SessionID); err != nil {
 		return session.Message{}, err
 	}
 	return scanMessage(tx.QueryRowContext(ctx, messageSelect+" WHERE m.id=?", draft.ID))

@@ -55,7 +55,7 @@ const historyProvenanceColumns = `COALESCE(m.group_id,''),COALESCE(m.opening_inp
 const historyColumns = `COALESCE(m.id,''),COALESCE(m.turn_id,''),m.input_id,
 	COALESCE(m.sequence,0),COALESCE(m.role,''),COALESCE(length(CAST(COALESCE(m.parts,i.parts) AS BLOB)),0),
 	CASE WHEN ? THEN COALESCE(m.parts,i.parts) END,COALESCE(m.created_at,0),
-	m.mail_id,m.mail_revision,m.mail_presentation,r.subject,r.body,mail.source_kind,mail.source_id,r.evidence_ref,COALESCE(m.design_context,i.design_context),` + historyProvenanceColumns
+	m.mail_id,m.mail_revision,m.mail_presentation,r.subject,r.body,mail.source_kind,mail.source_id,r.evidence_ref,COALESCE(m.design_context,i.design_context),m.presentation,` + historyProvenanceColumns
 
 const historyJoins = ` LEFT JOIN inputs i ON i.id=m.input_id AND i.session_id=m.session_id
 	LEFT JOIN receipts receipt ON receipt.input_id=i.id
@@ -73,6 +73,7 @@ type historyRecord struct {
 
 func scanHistory(row scanner, withSnapshot bool) (value historyRecord, err error) {
 	var raw sql.NullString
+	var display *string
 	var mailID *session.MailID
 	var revision sql.NullInt64
 	var presentation, subject, body, sourceKind, sourceID sql.NullString
@@ -84,7 +85,7 @@ func scanHistory(row scanner, withSnapshot bool) (value historyRecord, err error
 	destinations := []any{
 		&value.metadata.SessionID, &value.maximum, &value.metadata.ID, &value.metadata.TurnID, &value.metadata.InputID,
 		&value.metadata.Sequence, &value.metadata.Role, &value.metadata.PartsBytes, &raw, &value.created,
-		&mailID, &revision, &presentation, &subject, &body, &sourceKind, &sourceID, &evidence, &value.design,
+		&mailID, &revision, &presentation, &subject, &body, &sourceKind, &sourceID, &evidence, &value.design, &display,
 		&value.metadata.GroupID, &value.metadata.OpeningInput, &sourceOwner, &sourceMessage, &sourceSequence, &value.metadata.RetiredBy, &value.metadata.RetiredRevision, &clientID, &requestID,
 	}
 	if withSnapshot {
@@ -92,6 +93,10 @@ func scanHistory(row scanner, withSnapshot bool) (value historyRecord, err error
 	}
 	err = row.Scan(destinations...)
 	value.snapshot.SessionID = value.metadata.SessionID
+	if err != nil {
+		return value, err
+	}
+	value.metadata.Presentation, err = decodePresentation(display)
 	if err != nil {
 		return value, err
 	}
@@ -185,6 +190,7 @@ func (s *Store) HistoryPage(ctx context.Context, owner session.SessionID, after 
 func historyMessage(value historyRecord) (session.Message, error) {
 	message := session.Message{
 		InputIdentity: value.metadata.InputIdentity,
+		Presentation:  value.metadata.Presentation,
 		GroupID:       value.metadata.GroupID, OpeningInput: value.metadata.OpeningInput, Source: value.metadata.Source,
 		RetiredBy: value.metadata.RetiredBy, RetiredRevision: value.metadata.RetiredRevision,
 		ID: value.metadata.ID, SessionID: value.metadata.SessionID, TurnID: value.metadata.TurnID, InputID: value.metadata.InputID,
@@ -215,6 +221,7 @@ func (s *Store) HistoryMetadataAtRevision(ctx context.Context, owner session.Ses
 	}
 	defer func() { _ = rows.Close() }()
 	exists := false
+	size := 0
 	for rows.Next() {
 		value, err := scanHistory(rows, true)
 		if err != nil {
@@ -231,7 +238,12 @@ func (s *Store) HistoryMetadataAtRevision(ctx context.Context, owner session.Ses
 		if value.metadata.ID == "" {
 			break
 		}
-		if len(result.Items) == limit {
+		raw, err := json.Marshal(value.metadata)
+		if err != nil {
+			return result, err
+		}
+		size += len(raw)
+		if len(result.Items) == limit || size > MaxPageBytes {
 			result.NextAfter = new(result.Items[len(result.Items)-1].Sequence)
 			break
 		}

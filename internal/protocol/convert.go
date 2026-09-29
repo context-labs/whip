@@ -57,6 +57,7 @@ func ModelAttemptFromDomain(value session.ModelAttempt) ModelAttempt {
 	if value.Result != nil {
 		u := value.Result.Usage
 		result.Result = &ModelAttemptResult{
+			Presentation:  PresentationFromDomain(value.Result.Presentation),
 			ElapsedMillis: counter(value.Result.ElapsedMillis),
 			State:         string(value.Result.State), Failure: value.Result.Failure, UsageNote: value.Result.UsageNote, ReportedCostNanoUSD: counter(value.Result.ReportedCostNanoUSD),
 			Usage: ModelUsage{Input: counter(u.Input), Output: counter(u.Output), Reasoning: counter(u.Reasoning), CachedInput: counter(u.CachedInput), CachedOutput: counter(u.CachedOutput)},
@@ -223,6 +224,7 @@ func MessageFromDomain(value session.Message) Message {
 	result := Message{
 		InputIdentity: requestIdentity(value.InputIdentity),
 		DesignContext: designPresentationFromDomain(value.DesignContext),
+		Presentation:  PresentationFromDomain(value.Presentation),
 		GroupID:       ID(value.GroupID), OpeningInput: value.OpeningInput, Source: messageSource(value.Source),
 		RetiredBy: historyEditID(value.RetiredBy), RetiredRevision: historyRevision(value.RetiredRevision),
 		ID: ID(value.ID), SessionID: ID(value.SessionID), TurnID: localID(string(value.TurnID)),

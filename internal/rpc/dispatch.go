@@ -370,7 +370,10 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 			if err != nil {
 				return nil, err
 			}
-			result := protocol.HistoryPageResult{Snapshot: protocol.HistorySnapshotFromDomain(page.Snapshot), Messages: []protocol.Message{}}
+			result := protocol.HistoryPageResult{AttemptPresentationsTruncated: page.AttemptPresentationsTruncated, Snapshot: protocol.HistorySnapshotFromDomain(page.Snapshot), Messages: []protocol.Message{}}
+			for _, attempt := range page.AttemptPresentations {
+				result.AttemptPresentations = append(result.AttemptPresentations, protocol.AttemptPresentationFromDomain(attempt))
+			}
 			for _, message := range page.Messages {
 				result.Messages = append(result.Messages, protocol.MessageFromDomain(message))
 			}

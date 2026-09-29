@@ -67,20 +67,21 @@ type HistorySnapshot struct {
 }
 
 type HistoryMetadata struct {
-	InputIdentity   *RequestIdentity `json:"input_identity"`
-	GroupID         ID               `json:"group_id"`
-	OpeningInput    bool             `json:"opening_input"`
-	Source          *MessageSource   `json:"source"`
-	RetiredBy       *ID              `json:"retired_by"`
-	RetiredRevision *Counter         `json:"retired_revision"`
-	ID              ID               `json:"id"`
-	SessionID       ID               `json:"session_id"`
-	TurnID          *ID              `json:"turn_id"`
-	InputID         *ID              `json:"input_id"`
-	Mail            *MailRef         `json:"mail"`
-	Sequence        Counter          `json:"sequence"`
-	Role            string           `json:"role" enum:"system,user,assistant,tool"`
-	PartsBytes      Counter          `json:"parts_bytes"`
+	Presentation    *MessagePresentation `json:"presentation,omitempty"`
+	InputIdentity   *RequestIdentity     `json:"input_identity"`
+	GroupID         ID                   `json:"group_id"`
+	OpeningInput    bool                 `json:"opening_input"`
+	Source          *MessageSource       `json:"source"`
+	RetiredBy       *ID                  `json:"retired_by"`
+	RetiredRevision *Counter             `json:"retired_revision"`
+	ID              ID                   `json:"id"`
+	SessionID       ID                   `json:"session_id"`
+	TurnID          *ID                  `json:"turn_id"`
+	InputID         *ID                  `json:"input_id"`
+	Mail            *MailRef             `json:"mail"`
+	Sequence        Counter              `json:"sequence"`
+	Role            string               `json:"role" enum:"system,user,assistant,tool"`
+	PartsBytes      Counter              `json:"parts_bytes"`
 }
 
 type ContextHistoryParams struct {
@@ -169,6 +170,7 @@ func CompactionFromDomain(v session.CompactionMetadata) CompactionMetadata {
 
 func HistoryMetadataFromDomain(v session.HistoryMetadata) HistoryMetadata {
 	r := HistoryMetadata{
+		Presentation:  PresentationFromDomain(v.Presentation),
 		InputIdentity: requestIdentity(v.InputIdentity),
 		GroupID:       ID(v.GroupID), OpeningInput: v.OpeningInput, Source: messageSource(v.Source),
 		RetiredBy: historyEditID(v.RetiredBy), RetiredRevision: historyRevision(v.RetiredRevision),

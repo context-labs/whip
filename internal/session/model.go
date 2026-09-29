@@ -215,15 +215,32 @@ func (s ModelRequestSnapshot) Validate() error {
 }
 
 type ModelAttemptResult struct {
-	State               ModelAttemptState `json:"state"`
-	ElapsedMillis       *int64            `json:"elapsed_millis"`
-	Usage               ModelUsage        `json:"usage"`
-	ReportedCostNanoUSD *int64            `json:"reported_cost_nano_usd"`
-	Failure             *string           `json:"failure"`
-	UsageNote           *string           `json:"usage_note"`
+	Presentation        *MessagePresentation `json:"presentation,omitempty"`
+	State               ModelAttemptState    `json:"state"`
+	ElapsedMillis       *int64               `json:"elapsed_millis"`
+	Usage               ModelUsage           `json:"usage"`
+	ReportedCostNanoUSD *int64               `json:"reported_cost_nano_usd"`
+	Failure             *string              `json:"failure"`
+	UsageNote           *string              `json:"usage_note"`
 }
 
 func (r ModelAttemptResult) Validate() error {
+	if err := r.Presentation.Validate(); err != nil {
+		return err
+	}
+	if r.Presentation != nil {
+		if r.State == AttemptSucceeded {
+			return ErrInvalid
+		}
+		for _, part := range r.Presentation.Parts {
+			if part.Type == "text" && part.Start != nil {
+				return ErrInvalid
+			}
+			if part.Type == "tool_call" && part.Call == nil {
+				return ErrInvalid
+			}
+		}
+	}
 	if r.ElapsedMillis != nil && *r.ElapsedMillis < 0 {
 		return fmt.Errorf("%w: negative model elapsed time", ErrInvalid)
 	}

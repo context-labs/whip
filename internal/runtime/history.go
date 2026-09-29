@@ -124,5 +124,10 @@ func (r *Runtime) SearchHistoryAtRevision(ctx context.Context, owner session.Ses
 
 // TranscriptPage supplies bounded tail/older pages without scanning the transcript.
 func (r *Runtime) TranscriptPage(ctx context.Context, request session.HistoryPageRequest) (session.TranscriptPage, error) {
-	return r.store.TranscriptPage(ctx, request)
+	page, err := r.store.TranscriptPage(ctx, request)
+	if err != nil || len(page.Messages) == 0 {
+		return page, err
+	}
+	page.AttemptPresentations, page.AttemptPresentationsTruncated, err = r.store.AttemptPresentations(ctx, request.SessionID, page.Messages[0].Sequence, page.Messages[len(page.Messages)-1].Sequence, page.Snapshot.Revision)
+	return page, err
 }

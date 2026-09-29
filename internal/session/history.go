@@ -57,20 +57,21 @@ type HistorySnapshot struct {
 }
 
 type HistoryMetadata struct {
-	InputIdentity   *RequestIdentity `json:"input_identity"`
-	GroupID         HistoryGroupID   `json:"group_id"`
-	OpeningInput    bool             `json:"opening_input"`
-	Source          *MessageSource   `json:"source"`
-	RetiredBy       *HistoryEditID   `json:"retired_by"`
-	RetiredRevision *Revision        `json:"retired_revision,string"`
-	ID              MessageID        `json:"id"`
-	SessionID       SessionID        `json:"session_id"`
-	TurnID          TurnID           `json:"turn_id"`
-	InputID         *InputID         `json:"input_id"`
-	Mail            *MailRef         `json:"mail"`
-	Sequence        int64            `json:"sequence,string"`
-	Role            Role             `json:"role"`
-	PartsBytes      int64            `json:"parts_bytes,string"`
+	Presentation    *MessagePresentation `json:"presentation,omitempty"`
+	InputIdentity   *RequestIdentity     `json:"input_identity"`
+	GroupID         HistoryGroupID       `json:"group_id"`
+	OpeningInput    bool                 `json:"opening_input"`
+	Source          *MessageSource       `json:"source"`
+	RetiredBy       *HistoryEditID       `json:"retired_by"`
+	RetiredRevision *Revision            `json:"retired_revision,string"`
+	ID              MessageID            `json:"id"`
+	SessionID       SessionID            `json:"session_id"`
+	TurnID          TurnID               `json:"turn_id"`
+	InputID         *InputID             `json:"input_id"`
+	Mail            *MailRef             `json:"mail"`
+	Sequence        int64                `json:"sequence,string"`
+	Role            Role                 `json:"role"`
+	PartsBytes      int64                `json:"parts_bytes,string"`
 }
 
 type HistoryMetadataPage struct {
