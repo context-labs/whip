@@ -6012,3 +6012,34 @@ are unchanged; no child-policy rows are backfilled. Integrity and foreign-key
 checks pass. Exact local evidence is `child-policy-fix-verification.json`,
 `runtime-manifest.json`, `build-evidence.json` and `launch-status.json`. The build
 log is `/private/tmp/whip-subagent-debug/package-build.log`.
+
+
+## 2026-09-29 — restore working REPL behavior after the native migration
+
+The user clarifies that the old working behavior is the acceptance target unless
+a deliberate change fixes a documented defect. In particular, the permanent
+child-policy expiry described in the previous entry was a regression. This
+follow-up preserves the new execution/persistence boundaries while restoring
+live permission propagation, automatic instruction capture, MCP discovery/call
+alignment, useful model guidance and friendly child identity. Performance work
+remains closed. The active frontend checkout and normal installation are untouched.
+
+The first increment keeps an ongoing policy-inheritance relationship for default
+same-workspace children, including children created in Ask mode. Later policy
+changes apply to new operations in existing children and grandchildren. Waiting
+and ready old-policy operations remain denied; they are never replayed. Explicit
+grant subsets, empty grants, different workspaces and explicit host-consent
+requirements retain their restrictions. No standing grants are fabricated.
+
+Schema57 restores missing default relationships only when immutable successful
+agent-spawn arguments and matching receipts prove the original selection. Old
+direct-client receipts without those arguments cannot safely distinguish default
+inheritance from explicit restrictions and remain restricted. Identity, input
+and operation outcomes are preserved. Existing schema56 delegation records now
+follow the live policy. Fresh stores and atomic55/56 upgrades are supported.
+
+The new off/on and Ask-to-Full-Access store regressions fail against the previous
+helper. Focused store inheritance/preview/migration tests pass with the fix, as
+does the actual Starlark/QuickJS scenario exercising existing default and
+explicitly restricted children through Ask → Full Access → Ask → Full Access.
+Broader integrated validation and the remaining increments are still in progress.

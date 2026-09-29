@@ -1,6 +1,8 @@
 package store
 
 import (
+	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -8,7 +10,86 @@ import (
 	"github.com/context-labs/whip/internal/session"
 )
 
-func TestChildPermissionMigrationPreservesDataWithoutBackfill(t *testing.T) {
+func TestChildPermissionMigrationRestoresOnlyProvenDefaultSpawns(t *testing.T) {
+	for _, version := range []int{55, 56} {
+		t.Run(fmt.Sprint(version), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "runtime.db")
+			s := openTest(t, path)
+			root, cell := operationCell(t, s)
+			grant, err := s.CreateGrant(t.Context(), session.Grant{
+				ID: "spawn", SessionID: root.ID, Capability: "agents.spawn", Resource: string(root.TreeID),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var inherited, restricted []session.Session
+			for _, selection := range []string{"default", "empty", "subset", "different-workspace"} {
+				request := childRequest(root.ID)
+				switch selection {
+				case "empty":
+					request.GrantIDs = []session.GrantID{}
+				case "subset":
+					request.GrantIDs = []session.GrantID{grant.ID}
+				case "different-workspace":
+					request.WorkingDirectory = t.TempDir()
+				}
+				raw, err := json.Marshal(request)
+				if err != nil {
+					t.Fatal(err)
+				}
+				op := admitOperation(t, s, session.OperationSpec{
+					ID: session.OperationID(selection), CellID: cell.ID, RequestID: selection,
+					Capability: grant.Capability, Resource: grant.Resource, Arguments: raw,
+				})
+				child, err := s.SpawnChildOperation(t.Context(), op.ID)
+				if err != nil || child.Session == nil {
+					t.Fatal(child, err)
+				}
+				if selection == "default" {
+					inherited = append(inherited, *child.Session)
+				} else {
+					restricted = append(restricted, *child.Session)
+				}
+			}
+			unknown := spawnChildTest(t, s, "client-without-original-request", childRequest(root.ID))
+			restricted = append(restricted, *unknown.Session)
+			// Ask denied this operation. Restoring inheritance must not replay it.
+			childCell := childOperationCell(t, s, inherited[0].ID)
+			old := admitOperation(t, s, delegatedReadSpec(inherited[0], childCell, "old-read"))
+			if old.State != session.OperationDenied {
+				t.Fatal(old)
+			}
+			execTest(t, s, "DELETE FROM child_permission_policies")
+			if version == 55 {
+				execTest(t, s, "DROP TABLE child_permission_policies")
+			}
+			execTest(t, s, fmt.Sprintf("PRAGMA user_version=%d", version))
+			reopened := openTest(t, path)
+			if reopened.Identity() != s.Identity() || count(t, reopened, "child_permission_policies") != len(inherited) {
+				t.Fatal("migration changed identity or guessed delegation")
+			}
+			setModeTest(t, reopened, root.ID, "enable", 1, session.PermissionAutomatic)
+			if allowed, err := reopened.DispatchOperation(t.Context(), old.ID); err != nil || allowed {
+				t.Fatal("migration replayed an old denied operation", allowed, err)
+			}
+			next := admitOperation(t, reopened, delegatedReadSpec(inherited[0], childCell, "new-read"))
+			if next.State != session.OperationReady || next.PermissionRevision == nil || *next.PermissionRevision != 2 {
+				t.Fatal("default child did not regain live inheritance", next)
+			}
+			for _, child := range restricted {
+				cell := childOperationCell(t, reopened, child.ID)
+				if read := admitOperation(t, reopened, delegatedReadSpec(child, cell, "read-"+string(child.ID))); read.State != session.OperationDenied || read.PermissionRevision != nil {
+					t.Fatal("migration widened a restricted or unknown child", read)
+				}
+			}
+			if count(t, reopened, "inputs") != count(t, s, "inputs") || count(t, reopened, "permissions") != 0 {
+				t.Fatal("migration admitted work or a permission request")
+			}
+		})
+	}
+}
+
+func TestChildPermissionMigrationPreservesDataWithoutGuessingClientGrantSelections(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "runtime.db")
 	s := openTest(t, path)
 	root, _ := operationCell(t, s)
@@ -22,7 +103,7 @@ func TestChildPermissionMigrationPreservesDataWithoutBackfill(t *testing.T) {
 		t.Fatal("upgrade changed runtime identity")
 	}
 	var version int
-	if err := reopened.db.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&version); err != nil || version != 56 {
+	if err := reopened.db.QueryRowContext(t.Context(), "PRAGMA user_version").Scan(&version); err != nil || version != schemaVersion {
 		t.Fatal("upgrade did not advance version", version, err)
 	}
 	if count(t, reopened, "child_permission_policies") != 0 || count(t, reopened, "sessions") != 2 {

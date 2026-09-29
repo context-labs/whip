@@ -322,12 +322,15 @@ Subscription credentials
 belong to the independent host account manager and its private file.
 
 Current fresh [host configuration](../internal/config/host.go) is version 21;
-the [SQLite schema](../internal/store/store.go) is version 56. Version numbers in
+the [SQLite schema](../internal/store/store.go) is version 57. Version numbers in
 the implementation histories below identify their introducing checkpoints, not
 additional formats accepted by the current binary.
-SQLite has an application identifier and schema version. Schema55 upgrades
-atomically to56 by adding child permission-policy delegation records, with no
-backfill for existing children. Other applications and versions are rejected.
+SQLite has an application identifier and schema version. Schema55 and56 upgrade atomically to57. Existing child policy records become
+ongoing inheritance relationships. Missing records are restored only from a
+successful immutable agent spawn and its matching admission receipt proving
+default grant selection and the same workspace. Older direct-client receipts
+without the original selection remain restricted; the migration never guesses
+that an explicit restriction was absent. Other applications and versions are rejected.
 Reopening preserves runtime identity, session data and seeded revisions; separate
 databases receive distinct identities. Downgrading requires restoring the
 pre-upgrade database together with its matching binary.
@@ -774,13 +777,14 @@ query durable records; they do not introduce another authority cache.
 Fresh schema37/config14 stores one permission policy per tree: `prompt` (Ask) or
 `automatic` (Full Access), positive revision and update time. Only roots may edit
 it, including stopped roots. Children display the same tree policy; execution
-requires either an exact live delegated grant chain or captured policy delegation.
-Schema56 captures automatic authority for newly spawned children only when
-`grant_ids` is omitted/null, the parent is eligible, and the working directories
-match exactly. Explicit subsets (including `[]`) never inherit policy authority.
-Each child-to-parent hop must retain the captured tree policy revision and workspace.
-Historical children receive no backfilled authority. Policy changes permanently
-expire prior child delegation, even if Full Access is later enabled again.
+requires either an exact live delegated grant chain or an ongoing policy-inheritance
+relationship. A default child inherits the parent policy when `grant_ids` is
+omitted/null, the parent inherits that policy, and working directories match
+exactly. This relationship is captured in Ask mode as well as Full Access.
+Explicit subsets (including `[]`) never inherit policy authority. Every ancestor
+hop and workspace is checked. Later mode changes propagate to existing default
+children, including Ask → Full Access and off/on transitions. The recorded child
+revision is an admission observation, not an expiration of this relationship.
 Automatic mode never bypasses input validation, fixed workspace scopes, root-only
 human questions, or explicit host consent for computer/MCP effects.
 
@@ -865,7 +869,7 @@ parent-scoped content references copied into new child references, delegated
 grants, captured permission-policy delegation, initial input and receipt commit
 together. No duplicate body bytes or
 child-specific transcript path exists. `grant_ids: null` inherits currently valid
-standing grants plus eligible same-workspace automatic authority; an explicit
+standing grants plus ongoing same-workspace permission-policy inheritance; an explicit
 subset delegates only those grants and `[]` delegates none. Retries preserve this
 original request and
 return the same child/input even if parent defaults or grants have since changed.
