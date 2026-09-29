@@ -325,3 +325,82 @@ would narrow the owner question; absence of natural collection within this
 finite window remains ambiguity, not proof of a leak. This experiment has been
 authorized separately; its results must be recorded separately from this source
 audit and from the earlier full workload.
+
+
+## Retention-only native outcome (2026-09-29)
+
+The single approved follow-up completed with exit 0. It used the same staged
+candidate renderer/native build as the full pair, under Electron 44.2.0 /
+Chromium 152.0.7977.76, from documentation head
+`48d862e7d81824512e523717bf7fc874a4e1bca6`. The production code remains
+`473d065d01b38a56ef562f1731920e6b4ca3648a`; subsequent commits are audit-only.
+Renderer digest:
+`0af75b87cce53a45cc1fb60227912395b09dfe601c899c4abfeb0e0d79cdc39d`.
+Native SHA-256:
+`9503860103811d08f0e41e9fadfdd2d862e6a03686ea1897f6be3df309e01c00`.
+
+The disposable root had one actual provider request, emitting the existing
+2,000-token finite paragraph and then holding. The runner performed exactly
+three full navigations to that same root, natural immediate/35-second samples,
+then explicit successful fixture settlement and another immediate/35-second
+pair. It did not type, upload, force collection, take heap snapshots, modify
+product code, or use installed runtime/browser state. The other agents and
+parent had joined their local workloads for this interval. Passive evidence was
+bounded to 16 document lifecycle records, 128 context events, 1,024 IPC lifecycle
+records, eight renderer-frame summaries and 96 active transport identities.
+No diagnostic bound overflowed.
+
+| Natural phase | Documents | DOM nodes | Fade spans | App RSS MiB | Renderer RSS MiB | Used JS MiB | Embedder MiB |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| finite-preview-before-navigation | 1 | 6,760 | 36 | 858.5 | 459.0 | 30.4 | 89.4 |
+| navigation-1-immediate | 2 | 16,798 | 3,999 | 1016.8 | 616.5 | 28.3 | 202.5 |
+| navigation-1-natural-35s | 1 | 10,321 | 3,999 | 1032.1 | 615.5 | 33.2 | 139.0 |
+| navigation-2-immediate | 2 | 20,654 | 3,999 | 1170.3 | 753.8 | 33.9 | 358.6 |
+| navigation-2-natural-35s | 1 | 10,321 | 3,999 | 1142.3 | 720.4 | 26.2 | 143.1 |
+| navigation-3-immediate | 2 | 20,654 | 3,999 | 1187.9 | 765.8 | 38.2 | 361.1 |
+| navigation-3-natural-35s | 1 | 10,321 | 3,999 | 1074.1 | 649.4 | 23.3 | 137.0 |
+| explicit-settlement-immediate | 1 | 14,331 | 0 | 1105.5 | 667.4 | 26.7 | 146.5 |
+| explicit-settlement-natural-35s | 1 | 6,308 | 0 | 883.2 | 461.4 | 31.6 | 9.1 |
+
+Every outgoing measured document reported `pagehide.persisted === false`.
+Owned process arguments also show Playwright's `--disable-back-forward-cache`;
+that is a property of this fixture, not a claim about every installed desktop
+launch. Context-clear events preceded each replacement's default/isolated
+contexts. Each old native frame stopped sending, released its prepared
+connection and closed its final browser-provider peer. Subsequent samples had
+no active transports from an older frame. The successful model request occurred
+exactly once across all reloads.
+
+After each reload, document count returned naturally from two to one and total
+DOM nodes returned to 10,321 while the live paragraph remained held. This
+reproduces the previous immediate second-document observation and shows that
+these old documents do not accumulate in this bounded case. Following explicit
+settlement, the paragraph's 3,999 fade spans disappeared and its largest-block
+count fell from 10,000 to 6,001. Natural collection then reduced total DOM nodes
+to 6,308; renderer RSS was 461.4 MiB versus 459.0 MiB before navigation, used JS
+31.6 versus 30.4 MiB, and embedder heap 9.1 versus 89.4 MiB. App RSS was 883.2
+versus 858.5 MiB. No threshold or tolerance was used to label those values.
+
+The old-document retention investigation is satisfied **for this bounded
+case**: natural delayed collection plus the exact live-paragraph representation
+explain the document/node behavior, with no app-owned accumulating leak or
+product fix established. These sequential samples do not attribute every byte
+of the RSS excursion. The earlier full-workload peak observations
+(1,629,712 KiB baseline / 1,693,136 KiB candidate) remain unchanged; this smaller
+one-root experiment is not a replacement or a waiver. Summed process RSS can
+double-count shared pages, sampled values can miss brief peaks, and this is not
+physical footprint, signed-package or long-duration memory acceptance. No
+further memory/timing experiment or speculative optimization is implied.
+
+All five owned processes (37851, 37857, 37858, 37859, 37861) were verified absent
+after joined cleanup. The fixture and desktop isolation directories were
+removed. Page/probe/cleanup error arrays were empty. Exact artifacts:
+
+- `/tmp/whip-retention-source-audit/document-retention.mjs` — artifact-only runner.
+- `/tmp/whip-retention-source-audit/document-retention.log` — complete run output.
+- `/tmp/whip-retention-source-audit/native-document-run/retention.json` — scalar phases, lifecycle/context/IPC records; SHA-256 `e1fdcebf5700203718f79f8850bb501e7e7def5091774203d4028f4727c3c993`.
+- `/tmp/whip-retention-source-audit/native-document-run/owned-process-arguments.txt` — exact owned launch-flag evidence.
+
+The 72 ms speed decision remains user-accepted. This memory investigation adds
+no new latency measurement or acceptance criterion and does not declare all
+Phases 5–7 complete.
