@@ -3209,3 +3209,33 @@ The application owns the shared execution observer lifetime and passes it into
 chat, REPL and inspectors. Suspend/reconnect alongside the transcript view; a
 changed history revision or process epoch clears pending execution evidence.
 Older/focused turn inspection is explicit, and navigation never replays effects.
+
+
+Native Tools & host diagnostics reuses `tool.schemas` (at most 142 declarations) and
+`host.status`. Direct-call built-ins are qualified by module; captured custom input/output
+schemas remain separate. Search displays at most 64 matches and never registers a tool,
+binds an executor, or grants authority. Host diagnostics verify the runtime identity through
+the SDK and reject a replacement process epoch before presenting its PID, build, startup
+or gateway metadata. Reading diagnostics never starts or stops a host.
+
+Native trace rendering takes the SDK's root-scoped `TraceView` from
+`@whip/sdk/state` and subscribes with `useTraceView`. The app owns its shared
+start/suspend/reconnect/dispose lifetime separately from selected-session views.
+`createTraceView(client, rootID)` keeps one canonical descending row page and a
+separate trace-root picker page at the same exact revision. Defaults are 1,024
+rows, 64 roots and a 1 MiB total budget; each backend read is at most 512 KiB and
+scans at most 2,048 index entries. Tombstones stay canonical null-span rows, and
+an empty filtered page may still have an explicit continuation. No background
+history crawl or client-side execution ledger is created.
+
+`trace.page` requires exactly one direction: `after` retains forward reads;
+`before: null` starts at the newest captured change and `before: Counter` reads
+strictly older changes. Backward pages end with `next: "0"`; otherwise `next` is
+the last examined exact sequence, including filtered entries. `loadOlder` and
+`latest` replace the row window; `loadOlderRoots` and `latestRoots` independently
+replace the picker. `selectTrace` changes the native trace filter (empty means
+all traces). Refresh preserves an explicitly selected older boundary instead of
+jumping to current work. Both pages publish only after their revisions agree;
+conflict retains stale evidence until a later read succeeds. Reconnection never
+replays effects, and a changed process epoch clears prior pages and cursors.
+Trace-window counts are not whole-tree usage totals.
