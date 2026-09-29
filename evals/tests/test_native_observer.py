@@ -11,6 +11,7 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from whip_evals.observe import (aggregate, configure_catalog, export_content_bodies,
                                 final_accounting_complete, quiet_start, run,
@@ -98,7 +99,7 @@ class NativeObserverAcceptance(unittest.TestCase):
                     commit=False, native_defaults=True, model="kimi-k3")
                 outcome = None
                 try:
-                    with contextlib.chdir(workspace):
+                    with contextlib.chdir(workspace), patch.dict(os.environ, {"INFERENCE_API_KEY": "offline-fixture"}):
                         outcome = run(args)
                     self.assertEqual(outcome["status"], "completed", outcome)
                     self.assertTrue(outcome["final_snapshot"], outcome)
@@ -144,7 +145,7 @@ class NativeObserverAcceptance(unittest.TestCase):
                     self.assertFalse(altered["accounting_complete"])
                     self.assertIn("accounting_snapshot_mismatch", altered["error_codes"])
                     # A queued child input in the copied real schema blocks finality.
-                    with sqlite3.connect(evidence / "sessions.db") as db:
+                    with contextlib.closing(sqlite3.connect(evidence / "sessions.db")) as db, db:
                         db.execute("INSERT INTO inputs(id,session_id,source,parts,created_at) VALUES(?,?,'user','[]',1)",
                                    ("pending-test", child_turns[0]["session_id"]))
                     self.assertFalse(snapshot(evidence / "sessions.db")["settled"])

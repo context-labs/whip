@@ -20,11 +20,19 @@ try {
   }
   const consumer = join(directory, 'consumer');
   await mkdir(consumer);
-  const project = JSON.parse(await readFile(join(repository, 'package.json'), 'utf8'));
+  // Pack the already installed lockfile dependencies too. A fresh npm ci cache
+  // contains package tarballs, but need not contain registry metadata for an
+  // offline resolver; this consumer must not depend on a warmed global cache.
+  for (const name of ['react', '@types/react', '@types/node', 'csstype', 'undici-types']) {
+    const { stdout } = await exec('npm', ['pack', '--json', '--ignore-scripts', '--pack-destination', directory],
+      { cwd: join(repository, 'node_modules', name) });
+    const [packed] = JSON.parse(stdout);
+    archives[name] = 'file:' + join(directory, packed.filename);
+  }
   await writeFile(join(consumer, 'package.json'), JSON.stringify({ private: true, type: 'module',
-    dependencies: { ...archives, react: project.devDependencies.react,
-      '@types/react': project.devDependencies['@types/react'], '@types/node': project.devDependencies['@types/node'] } }));
-  await exec('npm', ['install', '--offline', '--ignore-scripts', '--package-lock=false', '--no-audit', '--no-fund'], { cwd: consumer, timeout: 60_000 });
+    dependencies: archives }));
+  await exec('npm', ['install', '--offline', '--ignore-scripts', '--package-lock=false', '--no-audit', '--no-fund',
+    '--cache', join(directory, 'empty-npm-cache')], { cwd: consumer, timeout: 60_000 });
   await writeFile(join(consumer, 'imports.mjs'), `
 import assert from 'node:assert/strict';
 import * as protocol from '@whip/protocol';

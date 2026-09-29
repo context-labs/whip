@@ -1,5 +1,6 @@
 """Offline normalization, paired statistics, and one JSON/Markdown/CSV projection."""
 from collections import Counter
+from contextlib import closing
 import csv
 from decimal import Decimal
 from datetime import datetime
@@ -121,7 +122,7 @@ def span_counts(database):
     if database is None:
         return {"span_count": None, "open_span_count": None}
     try:
-        with sqlite3.connect(f"file:{database}?mode=ro&immutable=1", uri=True) as db:
+        with closing(sqlite3.connect(f"file:{database}?mode=ro&immutable=1", uri=True)) as db:
             if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='spans'").fetchone():
                 return {"span_count": None, "open_span_count": None}
             total, open_spans = db.execute("SELECT count(*), coalesce(sum(end_ns=0), 0) FROM spans").fetchone()
@@ -234,7 +235,7 @@ def normalize_trial(trial, raw, artifact_root):
     # upload must not make edited state.json totals eligible for promotion.
     if paths["sessions.db"]:
         try:
-            with sqlite3.connect(paths["sessions.db"].as_uri() + "?mode=ro&immutable=1", uri=True) as db:
+            with closing(sqlite3.connect(paths["sessions.db"].as_uri() + "?mode=ro&immutable=1", uri=True)) as db:
                 db.row_factory = sqlite3.Row
                 roots = [row["id"] for row in db.execute("SELECT id FROM sessions WHERE parent_id IS NULL" if native_ledger else "SELECT id FROM sessions")]
                 if roots != [(state.get("root") or {}).get("id")]:

@@ -4701,3 +4701,65 @@ history/activity/queue checks without extending the20-minute job bounds. These
 checkpoints do not complete Phases5–7: performance targets, remaining specialized
 probes, canonical documentation, final active-import removal and exact final-head
 platform/package validation remain open.
+
+### Clean-machine evaluator and cancellation qualification — 2026-09-29
+
+Hosted run36555920516 atf26acf587 failed its new evaluator and package-consumer
+jobs. The direct offline observer test omitted the synthetic INFERENCE_API_KEY
+already supplied by the Doctor adapter. It now supplies only offline-fixture
+inside the test context. The isolated npm consumer previously depended on cached
+registry metadata, which npm ci need not retain. It now packs its exact installed
+React/type dependencies as local tarballs and installs all archives with an
+explicitly empty private cache. Public imports, browser bundling, consumer types
+and actual native input/history pass with that empty cache.
+
+The corrected evaluator passes87 canonical and77 retained/historical Python
+tests. The existing Linuxamd64 fixture image, with networking disabled and no
+external credential, passes six both-engine/accounting/export checks in16.608s.
+Python3.13 also exposed SQLite connection ResourceWarnings: a connection context
+manager ends a transaction but does not close the connection. Observer snapshots,
+content export, backup and report reads now close their own connections explicitly;
+the final Linux run has no ResourceWarning or ignored cleanup exception.
+
+The Linux build job failed an ACP test that treated cancellation of the upstream
+SDK's Prompt context as observation-only. That SDK explicitly sends session/cancel.
+The replacement tests separately prove that ending the bridge caller context
+preserves accepted host execution and that the SDK notification cancels the exact
+host input/provider. Ten shuffled repetitions under race detection pass22.794s;
+vet passes. No production cancellation policy or timeout changed.
+
+All other client/race/distribution/Settings/web/docs/analysis jobs in that run
+passed except macOS runtime-first, product-browser and product-desktop. The
+runtime standing-edit test sometimes consumed an automatic-title helper request
+instead of the ordinary turn it meant to inspect; its original exact-seed20-run
+stress reproduced the failure. It now keeps title execution enabled, excludes
+only that helper purpose from this instruction-evidence channel and checks each
+captured request's exact turn ID. Thirty repetitions pass25.733s with the same
+hosted seed; vet passes. Browser mobile-search synchronization and hidden desktop
+guest first-frame screenshot failures remain separately diagnosed repair work.
+The failed hosted run remains failed; none of these local checks establishes a
+passing final hosted revision or completion of Phases5–7.
+
+The browser transfer fixture also assumed the parent could have no messages
+after child admission. A fast child can legitimately publish its completion
+mail in that interval. The replacement assertion admits only that exact child's
+completion reference and revision, rejects the direct transfer turn and ordinary
+inputs, and retains lost-acknowledgement and cancellation assertions. Thirty
+shuffled race repetitions pass in 27.777s. The earlier macOS failure in run
+36556449033 remains recorded as a failure.
+
+Mobile sidebar search now holds the actual filtered catalog response in its
+fixture, proves an existing recent-result label is not filtered readiness, and
+requires that response and settled loading state before the original selection
+and dialog-close assertions. Chromium passes all 11 workflows, including 66
+themes; Firefox passes all 10. Bounded diagnostics preserve click/query evidence
+if the failure recurs. The original missed click remains an inference because
+its hosted trace did not record those events. No product timeout or assertion
+was relaxed. Failure injection also verifies fixture process/socket cleanup.
+
+The desktop first-frame screenshot failure is still unresolved. A separate
+disposable stock Electron reproduction also reaches the same five-second
+capture deadline with a new hidden WebContentsView; this establishes first-frame
+sensitivity outside Whip, but does not prove the cause of the hosted failure.
+Failed rendering experiments were discarded. Exact final-head hosted acceptance
+is still required.

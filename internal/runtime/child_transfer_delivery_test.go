@@ -95,8 +95,20 @@ func TestPublicBrowserTransferReadCancellationAndLostAcknowledgement(t *testing.
 		t.Fatal(again, err)
 	}
 	history, err := r.History(t.Context(), owner.ID, 0, 100)
-	if err != nil || len(history) != 0 {
-		t.Fatal("public transfer fabricated parent conversation", history, err)
+	if err != nil || len(history) > 1 {
+		t.Fatal("unexpected parent history", history, err)
+	}
+	// The admitted child may already have failed and delivered its completion
+	// before this read. That canonical mail is independent of the direct transfer;
+	// the transfer itself must not invent a parent prompt or tool conversation.
+	for _, message := range history {
+		if message.TurnID == op.DirectTurnID || message.InputID != nil || message.Mail == nil {
+			t.Fatal("public transfer fabricated parent conversation", message)
+		}
+		mail, err := r.ReadMail(t.Context(), owner.ID, message.Mail.ID)
+		if err != nil || mail.Source.Kind != "completion" || mail.Source.ID != string(created.Session.ID) || mail.RecipientID != owner.ID || mail.Revision != message.Mail.Revision {
+			t.Fatal("parent message is not the admitted child's completion", mail, err)
+		}
 	}
 	changed := request
 	changed.Parts = []session.Part{{Type: "text", Text: "changed"}}
