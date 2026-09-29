@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { ThemeProvider, UIProvider } from '@whip/ui';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { WhipClient } from '@whip/legacy-sdk';
+import type { Client } from '@whip/sdk';
 import type { AppRuntime } from '../src/runtime';
 import type { HostConnection } from '../src/hosts';
 import type { AppPlatform } from '../src/platform';
@@ -14,7 +14,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 function host(id: string, overrides: Partial<HostConnection> = {}): HostConnection {
   return { id, name: id === 'local' ? 'Local' : 'Build server', local: id === 'local', device: false,
-    state: 'connected', client: {} as WhipClient, endpoint: `https://${id}.example/api/v3/ws`, runtimeId: `runtime-${id}`, connectOnLaunch: true,
+    state: 'connected', client: {} as Client, endpoint: `https://${id}.example/api/v4/ws`, runtimeId: `runtime-${id}`, connectOnLaunch: true,
     profile: { id, label: id, runtimeId: `runtime-${id}`, target: { kind: 'url', endpoint: `https://${id}.example` } }, ...overrides };
 }
 function fixture({ editing, hosts = [host('local'), host('remote')], platform = {}, form = false }: {
@@ -43,7 +43,7 @@ async function add() { fireEvent.click(screen.getByRole('button', { name: 'Add s
 it('shows a quiet list with addresses, status, and no inline form or local tools', () => {
   fixture();
   expect(screen.getByRole('heading', { name: 'Saved servers' })).toBeTruthy();
-  expect(screen.getByText('https://remote.example/api/v3/ws')).toBeTruthy();
+  expect(screen.getByText('https://remote.example/api/v4/ws')).toBeTruthy();
   expect(screen.getAllByText('Connected')).toHaveLength(2);
   expect(screen.queryByRole('textbox')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Test Connection' })).toBeNull();

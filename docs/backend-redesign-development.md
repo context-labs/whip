@@ -4998,3 +4998,76 @@ The run remains failed on the already-recorded client and desktop failures.
 #270's hosted run 36562851241 is still in progress; its desktop, activity,
 mobile, web, Settings, evaluator and distribution jobs have passed, but the
 aggregate is not yet accepted.
+
+### Native history, permissions and draft notifications — 2026-09-29
+
+`codex/backend-redesign-client-controls` builds on structural checkpoint
+`76fb8b47d9153a567e7a6f10083d91cafa6ae77a` (#271). Existing tested leaves were
+integrated: orphan MCP fixture removal (`682ff1acf`), actual permission matrix
+(`b78a3b831`), standing grants (`608e241c7`), captured terminal history controls
+(`b1b803d92`), bounded performance tracing (`6954ef0d1`), draft notifications
+(`87bf016f1`) and applied-instruction audit/safe HTTP links (`e99dd39ca`).
+
+Native rewind and fork now mount bounded dialogs around the original input and
+captured history/configuration/tail. Rewind requires an explicitly stopped owner;
+matching receipts gate original text, content-handle and design-context restoration.
+An existing draft is preserved for explicit redraft controls. No UI action silently
+stops, uploads or submits. Context inspection reports the applied turn manifest;
+its separately labeled bytes/4 heuristic is not added to raw source bytes or host
+schemas. The retained implementation also inspected applied context: the old
+registry's “fresh-session” wording was not a fresh-preview contract. Native HTTP
+links reject unsafe schemes, credentials and controls without probing host paths.
+Known-local file links and remaining terminal panels are separate follow-ups.
+
+Session details now creates exact standing grants. Roots name capability/resource;
+children select an active standing grant from their direct parent. A stable grant
+ID and immutable payload survive an explicit same-request retry while the form is
+open. Scope is checked on acknowledgement; owner/client changes retire late results.
+This is not a persistent recovery journal or implicit “remember” action. Pending
+approvals remain independent. The real native permission and standing-grant probes
+are now required in `check:product-activity`.
+
+Integrated validation: the complete native TUI race/shuffle suite passes in
+111.836s, followed by vet. Added applied-context/native-HTTP/retained-hyperlink
+race tests pass in 3.096s. Pinned lint reports zero issues; its first attempt was
+blocked by another worktree's active linter lock and the serialized retry passes.
+The seven affected app suites pass142 tests in4.55s, shared app types pass, and
+all eight bounded trace lifecycle/loss tests pass in10.045s. The last server-manager
+fixture's type-only legacy SDK import now uses the native Client and v4 endpoint;
+all existing host-manager workflows remain covered.
+
+The actual packed renderer is
+`187ddeaeefc2117ea5befac4e7c664296abc8fd3e2275fcd7c0e9aa8911e08d8`.
+Both browsers pass the eight standing-grant workflow groups, including effective
+writes, pending-request independence, foreign-root/missing-issuer negatives,
+child delegation and revocation. All24 original permission layouts pass across
+four viewports and three themes, with exact denied/allowed file effects, owner
+isolation and no page/CSP errors. Logs and artifacts use
+`/tmp/whip-client-controls-{app-tests,app-types,tui,vet,audit-links,lint-final,trace-tests,pack,standing-grants,permissions}`.
+
+The notification fix first reproduced two failures: merely becoming dirty or
+successfully saving replaced AppRuntime's snapshot and rerendered unrelated tabs.
+It now notifies existing safety subscribers without changing an unchanged React
+snapshot; actual draft presence, eviction and errors still publish changes. The
+unchanged seven-group staged desktop workload passes. Compared with the prior
+untraced encoder build, input-handler-to-rAF p95 improves30.5→11ms and native
+keydown-to-paint p95 remains72ms (68–76ms bound;40 samples), with maximum104→88ms.
+Peak app RSS changes1,638,848→1,589,680KiB in this single pair. The50ms input and
+memory acceptance remain open. Fix renderer
+`9263204a384a0329076691cb30f572e14353fa43baeb9ba6c98368f649b50c41` and artifact
+`/tmp/whip-performance-draft-notification/run-9TMoFW/performance.json` retain the
+exact measurement. Traced runs remain diagnostic, never acceptance evidence.
+
+Hosted #270 run36562851241 fails both client jobs on the complete native TUI
+three-minute aggregate limit, while the active Linux fork test had run1s and the
+macOS model-menu test0s. No individual test failure or deadlock was established.
+The next gate partitions native names into complementary A–L and remaining
+native groups at the same3m limit, alongside the retained complement: no test or
+assertion is omitted. Desktop passed on that run; this does not prove the earlier
+intermittent capture/navigation issue permanently fixed.
+
+The concurrency guide now describes current native owners, bounded views,
+recovery, gateways and mobile lifetimes, with checked source links. Broader
+protocol/runtime/feature documentation, specialized client probes, performance,
+remaining terminal controls, and final retired-core removal are still required.
+No installed runtime, real account, original checkout, merge or deployment changed.
