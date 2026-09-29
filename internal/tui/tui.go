@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
@@ -27,28 +26,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 )
-
-// UI styles stay legible on both dark and light terminal backgrounds. Lip
-// Gloss v2 has no global background state, so refreshBaseStyles rebuilds
-// them from whip's own scheme detection whenever it changes.
-var youStyle, botStyle, toolStyle, dimStyle, errStyle, thinkingStyle lipgloss.Style
-
-func init() { refreshBaseStyles() }
-
-// refreshBaseStyles picks the light or dark variant of every package-level
-// style for the current scheme (see SetLightTheme / SetUnknownTheme).
-func refreshBaseStyles() {
-	rebuildTheme()
-	th := currentTheme()
-	youStyle = th.On(th.Info, nil).Bold(true)
-	botStyle = th.On(th.Accent, nil).Bold(true)
-	toolStyle = th.On(th.Warning, nil)
-	dimStyle = th.On(th.Muted, nil)
-	errStyle = th.On(th.Error, nil)
-	thinkingStyle = th.On(th.Muted, nil).Italic(true)
-	diffAddStyle = th.On(nil, th.DiffAdd)
-	diffDelStyle = th.On(nil, th.DiffDel)
-}
 
 // Marker glyphs prefixing user and assistant turns. Package-level so the
 // opencode render mode can swap them (❯→┃, ●→▣) in one place; both defaults
@@ -241,30 +218,7 @@ type picker struct {
 	previews map[string][2]string // id -> last user, last assistant
 }
 
-// newInput builds the prompt textarea with whip's keybindings and styling.
-// Newlines come from ctrl+j / shift+enter / alt+enter; plain enter submits.
-func newInput() textarea.Model {
-	ti := textarea.New()
-	ti.Placeholder = inputPlaceholder
-	ti.Prompt = "" // the prompt box (opencodePrompt) draws the ┃ bar per line
-	ti.SetHeight(1)
-	ti.MaxHeight = 24 // input grows with content up to this many lines
-	ti.ShowLineNumbers = false
-	ti.KeyMap.InsertNewline = key.NewBinding(
-		key.WithKeys("ctrl+j", "shift+enter", "alt+enter"),
-		key.WithHelp("ctrl+j", "newline"),
-	)
-	// ctrl+k clears the conversation (handled in (*model).key); don't let the
-	// textarea's default delete-after-cursor shadow it.
-	ti.KeyMap.DeleteAfterCursor = key.NewBinding()
-	ti.SetStyles(currentTheme().Textarea) // applyOpencodeStyles re-applies on every theme change
-	ti.SetVirtualCursor(false)            // the terminal draws the cursor where View places it
-	ti.Focus()
-	return ti
-}
-
-// tuiRunning gates the raw tty query to BEFORE bubbletea starts; bgCache
-// carries the startup answer to runtime re-detections. Both are only touched
+// tuiRunning gates the raw tty query to BEFORE bubbletea starts. It is touched
 // from the main goroutine (Run pre-tea, then Update inside the event loop).
 //
 // This block must stay ABOVE Run: ineffassign (the golangci-lint gate)
@@ -272,10 +226,7 @@ func newInput() textarea.Model {
 // order that reads the var, and Run's `tuiRunning = true` precedes the read
 // in detectColorScheme — declared below Run, the write is misreported as
 // ineffectual.
-var (
-	tuiRunning bool
-	bgCache    bgResult
-)
+var tuiRunning bool
 
 func (m *model) startupReport() {
 	// opencode mode keeps the startup clean (quiet): the routine roster lines
@@ -732,28 +683,6 @@ func cwd() string {
 	return "?"
 }
 
-// detectColorScheme figures out whether the terminal background is light and
-// calls SetLightTheme so markdown renders with a matching (high-contrast)
-// glamour style. Priority:
-//  1. WHIP_THEME=light|dark (explicit env override)
-//  2. COLORFGBG (set by many terminals; last field is the bg color index)
-//  3. an OSC 11 background query on /dev/tty with a short timeout
-//  4. default: dark (the safe assumption for coding terminals)
-//
-// The config theme is NOT consulted here — applyTheme handles explicit picks
-// before auto ever reaches detection. detectColorScheme returns a short
-// human-readable note naming the source of the decision (shown by /theme auto
-// so a wrong pick is diagnosable).
-//
-// tuiRunning and bgCache are declared above Run (see the note there).
-// r/g/b hold the OSC 11 reply's actual color when hasRGB — the opencode mode
-// derives its panel shades relative to the REAL background from these.
-type bgResult struct {
-	light, valid bool
-	r, g, b      int
-	hasRGB       bool
-}
-
 // applyDetectedBackground consumes Bubble Tea's background-color reply. It
 // resolves the scheme only when whip's own pre-run query could not (mosh, an
 // old tmux without passthrough) and no theme is pinned in the config; a known
@@ -875,6 +804,18 @@ func detectMosh() bool {
 	return false
 }
 
+// detectColorScheme figures out whether the terminal background is light and
+// calls SetLightTheme so markdown renders with a matching (high-contrast)
+// glamour style. Priority:
+//  1. WHIP_THEME=light|dark (explicit env override)
+//  2. COLORFGBG (set by many terminals; last field is the bg color index)
+//  3. an OSC 11 background query on /dev/tty with a short timeout
+//  4. default: dark (the safe assumption for coding terminals)
+//
+// The config theme is NOT consulted here — applyTheme handles explicit picks
+// before auto ever reaches detection. detectColorScheme returns a short
+// human-readable note naming the source of the decision (shown by /theme auto
+// so a wrong pick is diagnosable).
 func detectColorScheme() string {
 	setScheme := func(light bool) {
 		SetLightTheme(light) // glamour markdown style + the package-level styles
@@ -1420,10 +1361,6 @@ func (m *model) viewBody() string {
 	}
 	return b.String() // the footer is drawn by View on the last row (measure budgets that row)
 }
-
-// inputPlaceholder is the idle input hint; syncInputPlaceholder re-uses it
-// when the busy state clears so the two sites never drift.
-var inputPlaceholder = "Ask whipcode anything… (/ commands, tab completes)"
 
 // syncInputPlaceholder reflects the busy state into the input's placeholder:
 // while a turn runs, typed text steers it at the next loop boundary. Called from View so it tracks
