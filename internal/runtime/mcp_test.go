@@ -284,10 +284,26 @@ func TestMCPChildrenSeeOnlyCapturedValidDelegatedTools(t *testing.T) {
 	if _, err := r.MCPReconnect(t.Context(), owner.ID, "fixture"); err != nil {
 		t.Fatal(err)
 	}
-	awaitMCPReady(t, r, owner)
-	visible, _, err = r.mcpVisibleCatalog(t.Context(), *child.Session, entry)
-	if err != nil || len(visible["fixture"]) != 1 {
-		t.Fatal("refresh widened child", visible, err)
+	// A tools/list_changed notification clears the catalog while its bounded
+	// refresh runs. Connection readiness alone does not mean that refresh has
+	// published. Observe the new tool at the root and the exact delegated subset
+	// at the child; transiently empty metadata grants no authority.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		visible, _, err = r.mcpVisibleCatalog(t.Context(), *child.Session, entry)
+		if err != nil || len(visible) > 1 || len(visible["fixture"]) > 1 {
+			t.Fatal("refresh widened child", visible, err)
+		}
+		if rows := visible["fixture"]; len(rows) == 1 && (rows[0].Name != "visible" || rows[0].Resource != grant.Resource) {
+			t.Fatal("refresh changed delegated scope", rows)
+		}
+		if _, err := manager.ResolveTool("fixture", "future"); err == nil && len(visible["fixture"]) == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("refreshed catalog did not publish delegated subset", visible, manager.Statuses())
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 	if _, err := r.mcpCatalog(t.Context(), *child.Session, session.MCPCatalogRequest{Action: "instructions", Server: "fixture"}); !errors.Is(err, store.ErrConflict) {
 		t.Fatal("ungranted instructions leaked", err)
