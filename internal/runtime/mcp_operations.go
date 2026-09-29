@@ -234,7 +234,7 @@ func (r *Runtime) mcpVisibleCatalog(ctx context.Context, current session.Session
 	visible := map[string][]MCPTool{}
 	grants := map[string]bool{}
 	if current.ParentID != nil {
-		standing, err := r.store.MCPStandingGrants(ctx, current.ID)
+		standing, err := r.store.MCPDelegatedAuthority(ctx, current.ID)
 		if err != nil {
 			return nil, nil, err
 		}

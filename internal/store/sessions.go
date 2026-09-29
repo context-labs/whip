@@ -92,6 +92,8 @@ type SpawnSession struct {
 // workspace; an explicit empty slice delegates none.
 type ChildRequest struct {
 	SpawnSession
+	// MCPTools is assigned by the runtime, never accepted from guest or client input.
+	MCPTools           []MCPToolScope          `json:"captured_mcp_tools,omitempty"`
 	BrowserAttachments []string                `json:"browser_attachments,omitempty"`
 	Parts              []session.Part          `json:"parts"`
 	GrantIDs           []session.GrantID       `json:"grant_ids"`
@@ -152,6 +154,9 @@ func (s *Store) SpawnChild(ctx context.Context, identity session.RequestIdentity
 }
 
 func validateChildRequest(identity session.RequestIdentity, request ChildRequest) error {
+	if err := validateMCPTools(request.MCPTools); err != nil {
+		return err
+	}
 	if len(request.BrowserAttachments) > 4 {
 		return ErrLimit
 	}
@@ -223,7 +228,7 @@ func spawnChild(ctx context.Context, tx *sql.Tx, identity session.RequestIdentit
 }
 
 func spawnChildID(ctx context.Context, tx *sql.Tx, childID session.SessionID, identity session.RequestIdentity, request ChildRequest, captured *session.Configuration) (ChildAdmission, error) {
-	digest, err := requestDigest("spawn_child", request)
+	digest, err := childRequestDigest(request)
 	if err != nil {
 		return ChildAdmission{}, err
 	}
@@ -261,6 +266,9 @@ func spawnChildAccepted(ctx context.Context, tx *sql.Tx, childID session.Session
 		if _, err := tx.ExecContext(ctx, "INSERT INTO child_permission_policies(session_id,policy_revision) VALUES (?,?)", child.ID, *revision); err != nil {
 			return ChildAdmission{}, err
 		}
+	}
+	if err := insertMCPTools(ctx, tx, child, request.MCPTools); err != nil {
+		return ChildAdmission{}, err
 	}
 	for _, limit := range request.Resources {
 		if _, err := setResource(ctx, tx, child.ID, 0, limit); err != nil {

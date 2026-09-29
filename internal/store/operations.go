@@ -200,7 +200,7 @@ func (s *Store) admitOperation(ctx context.Context, spec session.OperationSpec, 
 					return err
 				}
 				if !requiresExplicitHostGrant(spec.Capability) {
-					revision, err := automaticPermissionRevision(ctx, tx, owner)
+					revision, err := automaticOperationPermissionRevision(ctx, tx, owner, spec.Capability, spec.Resource)
 					if err != nil {
 						return err
 					}
@@ -374,7 +374,7 @@ func authorizeOperation(ctx context.Context, q querier, operation session.Operat
 		if operation.GrantID != nil {
 			return ErrConflict
 		}
-		revision, err := automaticPermissionRevision(ctx, q, owner)
+		revision, err := automaticOperationPermissionRevision(ctx, q, owner, operation.Capability, operation.Resource)
 		if err != nil {
 			return err
 		}

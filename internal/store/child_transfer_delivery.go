@@ -45,7 +45,7 @@ func validateChildTransferRequest(identity session.RequestIdentity, request Chil
 	if err := validateChildRequest(identity, request); err != nil {
 		return "", err
 	}
-	return requestDigest("spawn_child", request)
+	return childRequestDigest(request)
 }
 
 // BeginChildTransfer admits exactly one private, model-free host input. Retrying
@@ -146,7 +146,7 @@ func checkChildTransferReservation(ctx context.Context, q querier, identity sess
 
 func childTransferReceipt(ctx context.Context, q querier, op session.Operation, intent ChildTransferIntent) (session.RequestIdentity, string, error) {
 	if op.DirectTurnID == "" {
-		digest, err := requestDigest("spawn_child", intent.Request)
+		digest, err := childRequestDigest(intent.Request)
 		return session.RequestIdentity{ClientID: "operation", RequestID: string(op.ID)}, digest, err
 	}
 	accepted, digest, err := acceptedChildTransfer(ctx, q, op.DirectTurnID)

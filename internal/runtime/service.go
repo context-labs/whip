@@ -61,6 +61,21 @@ func (r *Runtime) SpawnChild(ctx context.Context, identity session.RequestIdenti
 	if len(request.BrowserAttachments) != 0 {
 		return r.spawnTransferredChild(ctx, identity, request)
 	}
+	// Resolve an existing public receipt before consulting the live parent or
+	// catalog. Its captured scope must not change on an exact retry.
+	if _, err := r.store.MatchChild(ctx, identity, request); err == nil {
+		return r.store.SpawnChild(ctx, identity, request)
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return store.ChildAdmission{}, err
+	}
+	parent, err := r.store.Session(ctx, request.ParentID)
+	if err != nil {
+		return store.ChildAdmission{}, err
+	}
+	request.MCPTools, err = r.captureChildMCPTools(ctx, parent)
+	if err != nil {
+		return store.ChildAdmission{}, err
+	}
 	result, err := r.store.SpawnChild(ctx, identity, request)
 	if err == nil {
 		r.Wake()
