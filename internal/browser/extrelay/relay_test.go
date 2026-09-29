@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,7 +30,9 @@ func (c *client) Close() error                { return c.nc.Close() }
 // dialWS connects a client to a relay path.
 func dialWS(t *testing.T, url string) *client {
 	t.Helper()
-	nc, br, _, err := ws.Dial(context.Background(), url)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	nc, br, _, err := ws.Dial(ctx, url)
 	if err != nil {
 		t.Fatalf("dial %s: %v", url, err)
 	}
@@ -40,6 +44,10 @@ func dialWS(t *testing.T, url string) *client {
 
 func readSrv(t *testing.T, c *client) string {
 	t.Helper()
+	if err := c.nc.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.nc.SetReadDeadline(time.Time{}) }()
 	b, err := wsutil.ReadServerText(c)
 	if err != nil {
 		t.Fatalf("read: %v", err)
@@ -163,5 +171,78 @@ func TestExtensionDisconnectDetaches(t *testing.T) {
 	}
 	if r.Attached() {
 		t.Fatal("relay must report detached after the extension socket closes")
+	}
+}
+
+// handshakeGate pauses the server after the client receives HTTP 101 but before
+// Flush returns. This is the scheduling window that exposed an absent relay
+// extension to an immediately connected CDP client.
+type handshakeGate struct {
+	http.ResponseWriter
+	release <-chan struct{}
+}
+
+func (g handshakeGate) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	nc, rw, err := g.ResponseWriter.(http.Hijacker).Hijack()
+	if err != nil {
+		return nil, nil, err
+	}
+	gated := &handshakeConn{Conn: nc, release: g.release}
+	return gated, bufio.NewReadWriter(rw.Reader, bufio.NewWriter(gated)), nil
+}
+
+type handshakeConn struct {
+	net.Conn
+	release <-chan struct{}
+	once    sync.Once
+}
+
+func (c *handshakeConn) Write(p []byte) (int, error) {
+	n, err := c.Conn.Write(p)
+	c.once.Do(func() { <-c.release })
+	return n, err
+}
+
+func TestExtensionHandshakePublicationPrecedesAttachedObservation(t *testing.T) {
+	r := &Relay{token: "test-token"}
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	defer unblock()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ext", func(w http.ResponseWriter, request *http.Request) {
+		r.handleExt(handshakeGate{ResponseWriter: w, release: release}, request)
+	})
+	mux.HandleFunc("/cdp", r.handleCDP)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	url := "ws" + strings.TrimPrefix(server.URL, "http")
+	ext := dialWS(t, url+"/ext?token="+r.token)
+	defer ext.Close()
+	observed := make(chan bool, 1)
+	go func() { observed <- r.Attached() }()
+	select {
+	case attached := <-observed:
+		t.Fatalf("observed extension=%t while its acknowledged handshake was still being committed", attached)
+	case <-time.After(25 * time.Millisecond):
+	}
+	unblock()
+	select {
+	case attached := <-observed:
+		if !attached {
+			t.Fatal("acknowledged extension was not published")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("attachment observation stayed blocked")
+	}
+	cdp := dialWS(t, url+"/cdp")
+	defer cdp.Close()
+	writeCli(t, cdp, `{"id":7,"method":"Runtime.evaluate","params":{"expression":"1+1"}}`)
+	if got := readSrv(t, ext); !strings.Contains(got, "Runtime.evaluate") {
+		t.Fatal(got)
+	}
+	writeCli(t, ext, `{"id":7,"result":{"value":2}}`)
+	if got := readSrv(t, cdp); !strings.Contains(got, `"value":2`) {
+		t.Fatal(got)
 	}
 }
