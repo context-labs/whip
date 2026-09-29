@@ -37,6 +37,9 @@ export function utf8Base64(value: string): string {
   return bytesBase64(new TextEncoder().encode(value));
 }
 export function bytesBase64(encoded: Uint8Array): string {
+  // Modern browsers encode the view directly, without a temporary binary string.
+  // Keep the portable path for supported Node and native mobile runtimes.
+  if ('toBase64' in encoded && typeof encoded.toBase64 === 'function') return encoded.toBase64();
   let binary = '';
   for (let offset = 0; offset < encoded.length; offset += 8192) binary += String.fromCharCode(...encoded.subarray(offset, offset + 8192));
   return btoa(binary);
