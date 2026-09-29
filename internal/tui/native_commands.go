@@ -69,6 +69,8 @@ func (m *nativeModel) command(text string) tea.Cmd {
 		return nil
 	}
 	switch name {
+	case "/copy":
+		return m.copyCommand(args)
 	case "/attach":
 		return m.attachCommand(args)
 	case "/help":

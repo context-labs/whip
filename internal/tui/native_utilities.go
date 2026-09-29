@@ -21,7 +21,7 @@ import (
 const nativeHelp = `Native terminal commands
 
 Conversation: /sessions · /resume <owner> · /rename <title> · /status
-History: /older · /newer · /latest · /export [local path]
+History: /older · /newer · /latest · /export [local path] · /copy [last|repl]
 Edits: /stop · /start · /clear · /rewind <sequence> · /fork <title> · /fork-at <sequence> <title>
 Input: /queue <text> · /steer <text> · !<shell command>
 Images: /attach <client-local path> · /attach clipboard|check|retry|discard · Ctrl+V reads a clipboard image
@@ -40,7 +40,7 @@ Enter sends; Ctrl+J/Shift+Enter inserts a newline; Escape cancels the exact acti
 Ctrl+T focuses the agent tree; arrows select, Enter opens, Escape returns to its root.
 Ctrl+R toggles REPL; PageUp/PageDown scroll the focused pane; Ctrl+C twice exits.
 Ctrl+P opens commands; Ctrl+O toggles live reasoning. Tab completes commands, @host files, $authorized skills, or host paths.
-Ctrl+X then M/L/N/B/R/T/C/G/S opens model/sessions/clear/sidebar/REPL/theme/compact/rewind or stops a selected child.
+Ctrl+X then M/L/N/B/R/T/C/G/S opens model/sessions/clear/sidebar/REPL/theme/compact/rewind or stops a selected child; Y offers the last loaded assistant text to the clipboard.
 Paste collapse is opt-in in /settings; original text is restored before sending.
 Commands act on the displayed owner. Export writes a private local file. Direct shell uses the host's normal permission and receipt path.`
 

@@ -76,6 +76,8 @@ type nativeModel struct {
 	imageSequence                   uint64
 	attachment                      *nativeImageUpload
 	attachmentBusy                  bool
+	clipboard                       *nativeClipboardOwner
+	copyBusy                        bool
 	clientDirectory                 string
 	completion                      *nativeCompletion
 	palette                         *nativeCommandPalette
@@ -304,6 +306,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.updateMenu(message)
 	}
 	switch value := message.(type) {
+	case nativeCopyResult:
+		m.copied(value)
+		return m, nil
 	case nativeCompletionResult:
 		m.applyCompletion(value)
 		return m, nil

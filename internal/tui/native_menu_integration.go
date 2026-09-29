@@ -40,6 +40,9 @@ func (m *nativeModel) closeMenu() {
 func (m *nativeModel) close() {
 	m.closeCompletion(false)
 	m.closeMenu()
+	if m.clipboard != nil {
+		m.clipboard.close()
+	}
 	m.work.close()
 	if m.recovery != nil {
 		_ = m.recovery.root.Close()

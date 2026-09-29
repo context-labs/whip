@@ -33,6 +33,7 @@ var nativeCommandChoices = []nativeCommandChoice{
 	{"/computer", "Inspect computer availability", true},
 	{"/computer-use", "Submit a computer-use task", false},
 	{"/context-doctor", "Inspect captured context and accounting evidence", true},
+	{"/copy", "Copy the latest loaded assistant text", true},
 	{"/dock", "Toggle the local agent dock", true},
 	{"/effort", "Inspect or change reasoning effort", true},
 	{"/export", "Export canonical history to a local file", false},
