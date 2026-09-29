@@ -153,6 +153,10 @@ in
   reduced-motion support and bounded loading. See [startup splash](../.ai-docs/plans/startup-splash/README.md).
 - [x] All 66 TUI themes, automatic appearance, custom-theme resolution and themed
   read-only code, with deterministic generation and component contrast checks.
+- [x] Completed agent-response date/copy/history footer in web and desktop.
+  Fork and confirmed rewind retain the selected response, with host-recorded
+  timestamps and existing theme/accessibility controls. See
+  [agent response controls](../.ai-docs/plans/agent-message-controls/README.md).
 - [x] Packaged browser assets in the executable; no production Node server.
 - [ ] Single out-of-process web gateway: socket-only daemon by default, foreground
   `whip web`, and optional owned child via `WHIP_NETWORK=1`. This supersedes the

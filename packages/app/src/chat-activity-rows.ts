@@ -22,38 +22,58 @@ export const activityItems = (group: ActivityGroup): readonly ActivityItem[] => 
 export const isActivityGroup = (row: TimelineRow): row is ActivityGroup => 'cells' in row;
 export const executionActive = (cell: ExecutionCell) => cell.status === 'running' || cell.status === 'writing';
 
-/** One footer for a response to an authored input. Internal deliveries and tool
- * steps remain within that response; queued input does not finish active work.
- * This is a view of retained prose, not a second turn/event store.
+export interface ResponseActions { text: string; label: string; sentAt?: string; endpoint?: number }
+
+/** One footer per response, derived from retained source rows before Markdown
+ * splits. Internal deliveries and tool results belong to the response; queued
+ * input does not finish active work. Missing raw boundaries never permit edits.
  */
-export function responseCopies(rows: readonly ConversationActivityRow[], active: boolean, hasEarlier = false): ReadonlyMap<string, { text: string; label: string }> {
-  const copies = new Map<string, { text: string; label: string }>();
+export function responseCopies(rows: readonly ConversationActivityRow[], active: boolean, hasEarlier = false, throughSeq?: number): ReadonlyMap<string, ResponseActions> {
+  const copies = new Map<string, ResponseActions>();
   let prose: string[] = [];
   let last: string | undefined;
+  let assistant = false;
+  let assistantSeq = -1;
+  let sentAt: string | undefined;
   let incomplete = hasEarlier;
+  let uncertain = hasEarlier;
+  let seqs = new Set<number>();
   let bytes = 0;
-  const finish = () => {
-    if (last && prose.length) copies.set(last, { text: prose.join('\n\n'), label: incomplete ? 'Copy visible response' : 'Copy response' });
-    prose = [];
-    last = undefined;
-    bytes = 0;
-    incomplete = false;
+  const finish = (nextSeq?: number) => {
+    if (last && assistant) {
+      const ordered = [...seqs].sort((a, b) => a - b);
+      const end = ordered.at(-1);
+      const contiguous = ordered.every((seq, index) => index === 0 || seq === ordered[index - 1]! + 1);
+      const endpoint = !uncertain && contiguous && end !== undefined && nextSeq === end + 1 ? end : undefined;
+      copies.set(last, { text: prose.join('\n\n'), label: incomplete ? 'Copy visible response' : 'Copy response',
+        ...(sentAt && Number.isFinite(new Date(sentAt).getTime()) ? { sentAt } : {}), ...(endpoint !== undefined ? { endpoint } : {}) });
+    }
+    prose = []; last = undefined; assistant = false; assistantSeq = -1; sentAt = undefined;
+    bytes = 0; incomplete = false; uncertain = false; seqs = new Set();
   };
   for (const row of rows) {
     if (row.queued) continue;
-    if (row.historyGap) { incomplete = true; finish(); incomplete = true; continue; }
-    if (row.role === 'user') { finish(); continue; }
-    last = row.id;
+    if (row.historyGap) { incomplete = true; uncertain = true; finish(); incomplete = true; uncertain = true; continue; }
+    if (row.role === 'user') finish(row.seq);
+    else last = row.id;
+    if (row.live || row.historyUncertain || row.seq === undefined) uncertain = true;
+    for (const seq of [row.seq, ...(row.memberSeqs ?? [])]) {
+      if (seq === undefined || !Number.isSafeInteger(seq) || seq < 1 || seq >= Number.MAX_SAFE_INTEGER) uncertain = true;
+      else seqs.add(seq);
+    }
+    const recorded = row.assistantSeq ?? ((row.sourceRole ?? row.role) === 'assistant' ? row.seq : undefined);
+    if (recorded !== undefined && recorded >= assistantSeq) { assistantSeq = recorded; sentAt = row.sentAt; }
     if (row.role !== 'assistant') continue;
-    if (row.body) incomplete = true;
+    if (row.body || row.truncated) incomplete = true;
     const source = row.copyText ?? row.text;
+    assistant ||= !!(source.trim() || row.text.trim() || row.images?.length || row.body);
     if (!source.trim()) continue;
     // Bound derived copy strings as well as the underlying SDK window.
-    if (bytes + source.length > 256 * 1024) { incomplete = true; continue; }
-    prose.push(source);
-    bytes += source.length;
+    const size = source.length + (prose.length ? 2 : 0);
+    if (bytes + size > 256 * 1024) { incomplete = true; continue; }
+    prose.push(source); bytes += size;
   }
-  if (!active) finish();
+  if (!active) finish(throughSeq === undefined ? undefined : throughSeq + 1);
   return copies;
 }
 
@@ -102,9 +122,12 @@ export function conversationActivityRows(
     const aliases = new Set([id, ...pending.map(item => item.id), ...members.flatMap(row => [row.id, ...(row.memberIds ?? [])])]);
     for (const group of overlaps) for (const alias of [group.id, ...group.memberIds]) if (aliases.size < 512) aliases.add(alias);
     const groupedCells = [...new Map(pending.flatMap(item => item.cell ? [[item.cell.id, item.cell] as const] : [])).values()];
+    const assistant = members.filter(row => row.assistantSeq !== undefined).sort((a, b) => b.assistantSeq! - a.assistantSeq!)[0];
     output.push({ id, role: 'activity', text: '', seq: members[0]?.seq, cells: groupedCells, items: pending,
       updates: pending.flatMap(item => item.kind === 'mailbox' && item.row ? [item.row] : []),
-      memberIds: [...aliases].slice(0, 512), memberSeqs: [...new Set(members.flatMap(row => row.seq === undefined ? [] : [row.seq]))],
+      memberIds: [...aliases].slice(0, 512), memberSeqs: [...new Set(members.flatMap(row => [...(row.seq === undefined ? [] : [row.seq]), ...(row.memberSeqs ?? [])]))],
+      historyUncertain: members.some(row => row.seq === undefined || row.historyUncertain),
+      ...(assistant ? { assistantSeq: assistant.assistantSeq, sentAt: assistant.sentAt } : {}),
       live: pending.some(item => item.cell ? executionActive(item.cell) : item.row?.live), turnId: members.find(row => row.turnId)?.turnId ?? groupedCells[0]?.turnId });
     pending = []; members = [];
   };

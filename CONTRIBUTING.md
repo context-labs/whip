@@ -3,6 +3,27 @@
 Thanks for contributing to whip. This doc covers what CI runs on your pull
 request and how to run the same checks locally before you push.
 
+## Initialize the client workspace
+
+Use Node 24, the Go toolchain in `go.mod`, and Task. From the repository root:
+
+```sh
+npm ci
+task generate
+```
+
+`task generate` generates the protocol schemas, manifest, interoperability
+fixtures, validators and declarations from Go, then builds the SDK. Both
+`packages/protocol/schema/` and `packages/protocol/generated/` are ignored;
+edit the Go definitions or generators instead of their output. Rerun
+`task generate` after pulling, switching branches, or changing protocol source.
+Run `npm ci` first when dependencies change. Ordinary builds and development
+commands use the prepared files without regenerating them. `npm run check`
+checks freshness without rewriting output and reports how to refresh it.
+
+Protocol-dependent CI jobs initialize once before their checks. Docs and UI-only
+workflows keep their own setup and do not require protocol generation.
+
 ## Before you push
 
 Run the local Go/runtime gate:
@@ -95,7 +116,7 @@ Dependabot keeps Go modules and GitHub Actions current (grouped weekly PRs).
 
 ## Development and release boundaries
 
-Use `npm ci && task build` for the packaged `./whipcode`, or `task install` for
+After initialization, use `task build` for the packaged `./whipcode`, or `task install` for
 GOBIN/GOPATH/bin. There is no separate `whip` build or identity-specific task.
 Read [setup](docs/setup.md) and [frontend architecture](docs/frontend.md) before
 changing the affected area. Run the focused workspace tests too; CI supplies the

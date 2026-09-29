@@ -76,7 +76,7 @@ func openRecursiveRuntime(t *testing.T, client *llm.Client, maxWorkers int, engi
 		if runtimeErr != nil {
 			return Components{}, runtimeErr
 		}
-		return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind}, nil
+		return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind, Definition: withoutAutomaticTitle()}, nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -471,7 +471,7 @@ func TestRecursiveRuntimeRestoresRetainedAgentAndTranscript(t *testing.T) {
 			if runtimeErr != nil {
 				return Components{}, runtimeErr
 			}
-			return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind}, nil
+			return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind, Definition: withoutAutomaticTitle()}, nil
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -502,6 +502,10 @@ func TestRecursiveRuntimeRestoresRetainedAgentAndTranscript(t *testing.T) {
 	if err != nil || len(transcript) == 0 {
 		t.Fatalf("first transcript = %+v, %v", transcript, err)
 	}
+	stamp := transcript[len(transcript)-1].SentAt
+	if stamp == nil || stamp.IsZero() {
+		t.Fatalf("child response recording timestamp missing: %+v", transcript)
+	}
 	waitAgentIdle(t, first.agents[childID])
 	if err := owner.Close(); err != nil {
 		t.Fatal(err)
@@ -524,6 +528,8 @@ func TestRecursiveRuntimeRestoresRetainedAgentAndTranscript(t *testing.T) {
 	}
 	if history := restored.agent.MessagesSnapshot(); len(history) < 2 || !strings.Contains(history[len(history)-1].Content, "remembered child turn") {
 		t.Fatalf("restored history = %+v", history)
+	} else if got := history[len(history)-1].SentAt; got == nil || !got.Equal(*stamp) {
+		t.Fatalf("child timestamp changed on restore: %v, want %v", got, stamp)
 	}
 	runs := &sync.Map{}
 	second.setRunTurnHook(observeRunTurn(runs))
@@ -572,7 +578,7 @@ func TestQueuedInitialAgentPromptSurvivesRestartExactlyOnce(t *testing.T) {
 			if runtimeErr != nil {
 				return Components{}, runtimeErr
 			}
-			return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind}, nil
+			return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind, Definition: withoutAutomaticTitle()}, nil
 		})
 		if ownerErr != nil {
 			t.Fatal(ownerErr)
@@ -907,7 +913,7 @@ func TestChildScratchSurvivesDaemonRestart(t *testing.T) {
 			if runtimeErr != nil {
 				return Components{}, runtimeErr
 			}
-			return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind}, nil
+			return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind, Definition: withoutAutomaticTitle()}, nil
 		})
 		if ownerErr != nil {
 			t.Fatal(ownerErr)

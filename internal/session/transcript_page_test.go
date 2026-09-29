@@ -6,7 +6,54 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/context-labs/whip/internal/llm"
 )
+
+func TestTranscriptPagePreservesAssistantTimestamp(t *testing.T) {
+	for _, name := range []string{"root", "child"} {
+		t.Run(name, func(t *testing.T) {
+			store, rootID, _ := newMailboxFixture(t)
+			agentID := rootID
+			if name == "child" {
+				agentID = "child"
+			}
+			stamp := time.Date(2025, 6, 1, 14, 30, 0, 123, time.UTC)
+			transcriptCommit(t, store, rootID, agentID, 1, []llm.Message{
+				{Role: "assistant", Content: strings.Repeat("answer ", 1000), SentAt: &stamp},
+				{Role: "assistant", Content: "legacy answer"},
+			})
+			for _, maxBytes := range []int{1024, 16384} {
+				page, err := store.ReadTranscriptPage(t.Context(), rootID, agentID, TranscriptReadOptions{
+					ThroughSeq: -1, Limit: 2, MaxBytes: maxBytes,
+				})
+				if err != nil || len(page.Messages) == 0 {
+					t.Fatalf("page: %+v, %v", page, err)
+				}
+				entry := page.Messages[0]
+				got := entry.SentAt
+				if maxBytes == 1024 {
+					if entry.Body == nil || entry.Message != nil || entry.Role != "assistant" {
+						t.Fatalf("expected stored body metadata: %+v", entry)
+					}
+				} else {
+					if entry.Message == nil || len(page.Messages) != 2 || page.Messages[1].Message.SentAt != nil {
+						t.Fatalf("expected inline and unstamped legacy messages: %+v", page)
+					}
+					got = entry.Message.SentAt
+				}
+				if entry.Seq != 1 || got == nil || !got.Equal(stamp) {
+					t.Fatalf("timestamp/provenance changed: %+v", entry)
+				}
+				encoded, err := json.Marshal(page)
+				if err != nil || !strings.Contains(string(encoded), stamp.Format(time.RFC3339Nano)) {
+					t.Fatalf("wire timestamp missing: %s, %v", encoded, err)
+				}
+			}
+		})
+	}
+}
 
 func TestTranscriptPageBoundsRevisionAndRecent(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), "runtime.db"))

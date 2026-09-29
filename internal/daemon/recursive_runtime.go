@@ -269,9 +269,9 @@ func (runtime *RecursiveRuntime) Bind(ctx context.Context, root *Session) error 
 		runtime.mu.Unlock()
 		return errors.New("recursive runtime is closed")
 	}
-	if root.meta.ExecutionEngine != runtime.engine {
+	if root.engine != runtime.engine {
 		runtime.mu.Unlock()
-		return fmt.Errorf("session execution engine %s does not match runtime %s", root.meta.ExecutionEngine, runtime.engine)
+		return fmt.Errorf("session execution engine %s does not match runtime %s", root.engine, runtime.engine)
 	}
 	runtime.root = root
 	node := runtime.rootNode
@@ -1356,6 +1356,8 @@ func cloneRuntimeAgent(parent *agent.Agent, services *tools.Services, arguments 
 	child.Temperature, child.TopP = parent.Temperature, parent.TopP
 	child.CompactClient, child.CompactModel, child.CompactThreshold = parent.CompactClient, parent.CompactModel, parent.CompactThreshold
 	child.CompactPricing, child.CompactProvider = parent.CompactPricing, parent.CompactProvider
+	child.CompactContextLimit, child.CompactMaxTokens = parent.CompactContextLimit, parent.CompactMaxTokens
+	child.CompactFallback = parent.CompactFallback
 	child.WorkingDir = parent.WorkingDir
 	child.ResolveModel = parent.ResolveModel
 	return child, child.ModelName, child.Provider, nil

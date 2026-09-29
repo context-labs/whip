@@ -355,7 +355,7 @@ func TestRootTurnLifecycleIdentifiesExactTurn(t *testing.T) {
 			if status == "interrupted" {
 				_, err = store.InterruptRoot(t.Context(), rootID, "daemon stopped")
 			} else {
-				commit := RootTurnCommit{RootID: rootID, AgentID: agentID, TurnID: turnID, Status: status, Model: "model", Provider: "provider"}
+				commit := RootTurnCommit{RootID: rootID, AgentID: agentID, TurnID: turnID, Status: status}
 				switch status {
 				case "failed":
 					commit.Error = "provider unavailable"
@@ -431,7 +431,6 @@ func TestRootTurnCommitAtomicallyAppendsHistoryAndConsumesAcknowledgedInbox(t *t
 		RootID: rootID, AgentID: authority.AgentID, InboxSeq: first.InboxSeq,
 		AcknowledgedInbox: []int64{steer.InboxSeq}, Messages: history,
 		WorkspaceSeq: 5, WorkspaceRef: "snapshot-commit",
-		Model: "new-model", Provider: "new-provider",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -440,8 +439,8 @@ func TestRootTurnCommitAtomicallyAppendsHistoryAndConsumesAcknowledgedInbox(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if meta.Model != "new-model" || meta.Provider != "new-provider" {
-		t.Fatalf("route=%s/%s", meta.Provider, meta.Model)
+	if meta.Model != "old-model" || meta.Provider != "old-provider" {
+		t.Fatalf("turn commit changed the session route to %s/%s", meta.Provider, meta.Model)
 	}
 	if len(restored) != 7 || restored[0].Content != "stale" || restored[4].Content != "work" || restored[6].Content != "done" {
 		t.Fatalf("restored history=%+v", restored)
@@ -481,7 +480,6 @@ func TestInternalTurnInboxDoesNotPersistACommandOutcome(t *testing.T) {
 	if err := st.CommitRootTurn(context.Background(), RootTurnCommit{
 		RootID: rootID, AgentID: authority.AgentID, InboxSeq: item.InboxSeq,
 		Outcome: RuntimePayload{Data: bytes.Repeat([]byte("outcome"), 2048), MediaType: "text/plain", Source: "command outcome"},
-		Model:   "model", Provider: "provider",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -524,7 +522,6 @@ func TestRootTurnCommitPreservesRawHistoryAcrossCompaction(t *testing.T) {
 	if err := st.CommitRootTurn(context.Background(), RootTurnCommit{
 		RootID: rootID, AgentID: authority.AgentID, InboxSeq: item.InboxSeq,
 		Messages: []llm.Message{{Role: "user", Content: "q4"}, {Role: "assistant", Content: "a4"}},
-		Model:    "model", Provider: "provider",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -572,7 +569,6 @@ func TestRootTurnCommitMapsCompactionsWithoutPersistedSystem(t *testing.T) {
 			RootID: rootID, AgentID: authority.AgentID, InboxSeq: item.InboxSeq,
 			Messages:    []llm.Message{{Role: "user", Content: input}, {Role: "assistant", Content: output}},
 			Compactions: []RootCompaction{{Summary: "summary " + input, Cutoff: cutoff, RawTailStart: rawTail}},
-			Model:       "model", Provider: "provider",
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -608,7 +604,7 @@ func TestRootTurnCommitRollsBackAsOneTransition(t *testing.T) {
 	err = st.commitRootTurn(context.Background(), RootTurnCommit{
 		RootID: rootID, AgentID: authority.AgentID, InboxSeq: item.InboxSeq,
 		Messages: []llm.Message{{Role: "user", Content: "work"}}, WorkspaceSeq: 1, WorkspaceRef: "rolled-back-snapshot",
-		GoalContinuation: "continue", Model: "model", Provider: "provider",
+		GoalContinuation: "continue",
 	}, func() error { return want })
 	if !errors.Is(err, want) {
 		t.Fatalf("commit error=%v", err)

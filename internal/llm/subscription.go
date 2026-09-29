@@ -35,6 +35,15 @@ func NewSubscription(auth *openaiauth.Manager) *Client {
 	return client
 }
 
+// NaturalOutputLimit returns the verified fixed output reservation for a
+// transport that cannot enforce smaller request caps, or zero otherwise.
+func (c *Client) NaturalOutputLimit(model string) int {
+	if c.openAI != nil {
+		return SubscriptionOutputLimit(model)
+	}
+	return 0
+}
+
 // SubscriptionOutputLimit is a vetted natural model ceiling, not a request
 // parameter. Codex's subscription endpoint does not expose max_output_tokens.
 // Sources checked 2026-09-08: developers.openai.com/api/docs/models/{gpt,
@@ -131,6 +140,7 @@ type subscriptionFailure struct {
 // HTTP bodies and SSE failures carry the same error, either nested or inline.
 // SSE has no HTTP failure status, so derive only known retryable categories.
 func subscriptionError(status int, body []byte) *HTTPError {
+	responseStarted := status == 0
 	var payload struct {
 		Error *subscriptionFailure `json:"error"`
 		subscriptionFailure
@@ -154,7 +164,10 @@ func subscriptionError(status int, body []byte) *HTTPError {
 			status = http.StatusBadRequest
 		}
 	}
-	err := &HTTPError{Status: strconv.Itoa(status) + " " + http.StatusText(status), Body: "OpenAI subscription request failed"}
+	err := &HTTPError{
+		Status: strconv.Itoa(status) + " " + http.StatusText(status), Body: "OpenAI subscription request failed",
+		ResponseStarted: responseStarted,
+	}
 	switch code {
 	case "usage_limit_reached", "insufficient_quota", "quota_exceeded":
 		err.Permanent = true

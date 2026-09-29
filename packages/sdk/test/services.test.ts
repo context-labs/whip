@@ -5,6 +5,53 @@ import { WhipClient } from '../src/client.js';
 import { decodeBase64 } from '../src/util.js';
 import { transportFixture } from './transport-fixture.js';
 
+test('host directory creation sends one typed request outside session command recovery', async t => {
+  const records: unknown[] = [];
+  const fixture = transportFixture({ request(request, connection) {
+    if (request.method === 'host.directory.create') connection.reply(request, { path: '/projects/new folder' });
+  } });
+  const client = new WhipClient({ endpoint: fixture.factory, clientId: 'client', reconnect: false,
+    recoveryStorage: { async list() { return []; }, async put(record) { records.push(record); }, async delete() {} } });
+  t.after(() => client.close());
+  await client.connect();
+  assert.equal(client.supports('rpc', 'host.directory.create'), true);
+  assert.deepEqual(await client.host.createDirectory({ parent: '/projects', name: 'new folder' }), { path: '/projects/new folder' });
+  assert.deepEqual(fixture.current.requests.at(-1)?.params, { parent: '/projects', name: 'new folder' });
+  assert.deepEqual(fixture.current.requests.map(request => request.method), ['initialize', 'host.directory.create']);
+  assert.deepEqual(records, []);
+});
+
+test('host directory creation is unavailable on older hosts without sending a mutation', async t => {
+  const fixture = transportFixture();
+  fixture.info.operations = fixture.info.operations!.filter(operation => operation.name !== 'host.directory.create');
+  const client = new WhipClient({ endpoint: fixture.factory, clientId: 'client', reconnect: false });
+  t.after(() => client.close());
+  await client.connect();
+  assert.equal(client.supports('rpc', 'host.directory.create'), false);
+  await assert.rejects(client.host.createDirectory({ parent: '/projects', name: 'new' }), { kind: 'unsupported_operation' });
+  assert.deepEqual(fixture.current.requests.map(request => request.method), ['initialize']);
+});
+
+test('host directory creation does not replay a lost response after reconnect', async t => {
+  const records: unknown[] = [];
+  const fixture = transportFixture({ request(request, connection) {
+    if (request.method === 'host.directories.list') connection.reply(request, { path: '/projects', parent: '/', entries: [], has_more: false, truncated: false });
+    // The create may have committed; deliberately lose its response.
+  } });
+  const client = new WhipClient({ endpoint: fixture.factory, clientId: 'client', reconnect: false,
+    recoveryStorage: { async list() { return []; }, async put(record) { records.push(record); }, async delete() {} } });
+  t.after(() => client.close());
+  await client.connect();
+  await assert.rejects(client.host.createDirectory({ parent: '/projects', name: 'new' }, { timeoutMs: 10 }), { kind: 'timeout' });
+  fixture.current.fail();
+  await client.connect();
+  await client.host.directories({ path: '/projects' });
+  assert.deepEqual(fixture.connections.flatMap(connection => connection.requests.map(request => request.method)), [
+    'initialize', 'host.directory.create', 'initialize', 'host.directories.list',
+  ]);
+  assert.deepEqual(records, []);
+});
+
 const decision = { root_id: 'root', permission_id: 'permission', allow: true, command_id: 'decision-1', reason: '<tag> & café "quoted"' };
 
 test('provider inventory, discovery and revision-checked disconnect stay outside command recovery', async t => {

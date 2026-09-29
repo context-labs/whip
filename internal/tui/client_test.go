@@ -100,7 +100,7 @@ func waitClientState(t *testing.T, client *Client, want ClientState) []ClientSta
 	}
 }
 
-func TestInteractiveSetupAppliesCautiousModeBeforeAutomaticTitles(t *testing.T) {
+func TestInteractiveSetupAppliesCautiousMode(t *testing.T) {
 	connection := newFakeDaemonConnection(session.RootSnapshot{RootID: "root"})
 	client, err := NewClient(ClientOptions{
 		ClientID: "tui", RootID: "root", RetryMin: time.Millisecond, RetryMax: time.Millisecond,
@@ -116,7 +116,7 @@ func TestInteractiveSetupAppliesCautiousModeBeforeAutomaticTitles(t *testing.T) 
 	}
 	connection.mu.Lock()
 	defer connection.mu.Unlock()
-	if len(connection.commands) != 2 || connection.commands[0].Operation != "permission.mode" || connection.commands[1].Operation != "session.autotitle" {
+	if len(connection.commands) != 1 || connection.commands[0].Operation != "permission.mode" {
 		t.Fatalf("interactive setup command order=%+v", connection.commands)
 	}
 }
@@ -138,7 +138,7 @@ func TestInteractiveSetupAppliesYoloModeOnlyToInitialSession(t *testing.T) {
 	connection.mu.Lock()
 	commands := append([]daemon.CommandParams(nil), connection.commands...)
 	connection.mu.Unlock()
-	if len(commands) != 2 || commands[0].Operation != "permission.mode" || !strings.Contains(string(commands[0].Payload), `"external_permissions":false`) || commands[1].Operation != "session.autotitle" {
+	if len(commands) != 1 || commands[0].Operation != "permission.mode" || !strings.Contains(string(commands[0].Payload), `"external_permissions":false`) {
 		t.Fatalf("yolo setup commands=%+v", commands)
 	}
 
@@ -160,7 +160,7 @@ func TestInteractiveSetupAppliesYoloModeOnlyToInitialSession(t *testing.T) {
 	}
 	connection.mu.Lock()
 	defer connection.mu.Unlock()
-	if len(connection.commands) != 2 {
+	if len(connection.commands) != 1 {
 		t.Fatalf("attaching changed saved permissions: %+v", connection.commands)
 	}
 }
@@ -181,7 +181,7 @@ func TestInteractiveSetupWithoutFlagsPreservesSavedPermissions(t *testing.T) {
 	}
 	connection.mu.Lock()
 	defer connection.mu.Unlock()
-	if len(connection.commands) != 1 || connection.commands[0].Operation != "session.autotitle" {
+	if len(connection.commands) != 0 {
 		t.Fatalf("setup replaced saved permissions: %+v", connection.commands)
 	}
 }

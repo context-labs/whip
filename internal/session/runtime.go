@@ -134,8 +134,9 @@ type InboxEnqueue struct {
 }
 
 type InboxSequence struct {
-	InboxSeq int64
-	EventSeq int64
+	InboxSeq            int64
+	EventSeq            int64
+	TitleInitialization *TitleInitialization
 }
 
 type InboxItem struct {
@@ -264,8 +265,6 @@ type RootTurnCommit struct {
 	WorkspaceRef      string
 	ClearGoal         bool
 	GoalContinuation  string
-	Model             string
-	Provider          string
 	Status            string
 	Error             string
 	Outcome           RuntimePayload
@@ -702,6 +701,16 @@ func (s *Store) commitRootTurn(ctx context.Context, commit RootTurnCommit, befor
 			continue
 		}
 		messageSeq++
+		if message.Role == "user" {
+			// Preserve input provenance so admission can distinguish a new
+			// attachment-only conversation from unlinked historical messages.
+			presentation := llm.TranscriptPresentation{Version: 1}
+			if message.Presentation != nil {
+				presentation = *message.Presentation
+			}
+			presentation.TurnID = turnID
+			message.Presentation = &presentation
+		}
 		data, err := json.Marshal(message)
 		if err != nil {
 			return err
@@ -719,9 +728,7 @@ func (s *Store) commitRootTurn(ctx context.Context, commit RootTurnCommit, befor
 			return err
 		}
 	}
-	title := ProvisionalTitle(commit.Messages)
-	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET updated_at=?,model=?,provider=?,title=CASE WHEN title='' THEN ? ELSE title END WHERE id=?`,
-		stamp, commit.Model, commit.Provider, title, commit.RootID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET updated_at=? WHERE id=?`, stamp, commit.RootID); err != nil {
 		return err
 	}
 	if status == "succeeded" {
@@ -1121,6 +1128,11 @@ func (s *Store) enqueueInboxTx(ctx context.Context, tx *sql.Tx, item InboxEnqueu
 		return InboxSequence{}, ErrRootTerminal
 	}
 	var sequence InboxSequence
+	title, err := initializeInputTitleTx(ctx, tx, item)
+	if err != nil {
+		return InboxSequence{}, err
+	}
+	sequence.TitleInitialization = title
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0)+1 FROM inbox WHERE root_id=? AND agent_id=?`, item.RootID, item.AgentID).Scan(&sequence.InboxSeq); err != nil {
 		return InboxSequence{}, err
 	}

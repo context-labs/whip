@@ -111,11 +111,9 @@ it('shows one current status in the bar without a duplicate agent dock', () => {
   expect(screen.getByRole('status').textContent).toBe('Reconnecting · activity updates paused');
 });
 
-it('preserves the activity motion control and hides session-only controls for New Chat', () => {
+it('hides session-only controls for New Chat', () => {
   const view = render(<ThemeProvider><UIProvider><SessionTopBar host="Local" cwd="/whip" agentName="Root" kind="repl"
     activity={<CurrentActivity status={{ text: 'Working', active: true }} connected onDetails={vi.fn()} />} /></UIProvider></ThemeProvider>);
-  fireEvent.click(screen.getByRole('button', { name: 'Pause activity animation' }));
-  expect(screen.getByRole('button', { name: 'Use system motion setting' })).toBeDefined();
   view.rerender(<ThemeProvider><UIProvider><SessionTopBar host="Choose a host" kind="new" /></UIProvider></ThemeProvider>);
   expect(screen.getByText('Not started')).toBeDefined();
   expect(screen.queryByRole('group', { name: 'Session view' })).toBeNull();

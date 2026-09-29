@@ -45,7 +45,7 @@ import { ActivityHeader, ActivityStep, ActivityDetail, InlineAgent, type Transcr
 import { MotionContext, RowMotion, transcriptMotion, useTranscriptMotion, type Arrival } from './transcript-motion';
 import { MarkdownBlock, isMarkdownRow, markdownRows, useCoalescedTranscript } from './streaming-markdown';
 import { DiagramChoices, MarkdownCodeBlock, MarkdownReadiness } from './markdown-code-block';
-import { isActivityGroup, isAgentActivity, activityItems, responseCopies, type ActivityItem, type ActivityGroup, type ConversationActivityRow } from './chat-activity-rows';
+import { isActivityGroup, isAgentActivity, activityItems, responseCopies, type ActivityItem, type ActivityGroup, type ConversationActivityRow, type ResponseActions } from './chat-activity-rows';
 import { conversationRows, messagePresentation, type ImagePart, type TimelineRow } from './conversation-rows';
 import { DesignInputAttachments } from './design-input-attachments';
 import { BrowserDesignAttachment } from './browser-design-attachment';
@@ -182,15 +182,11 @@ const styles = stylex.create({
   imageDialog: { width: 'min(960px, 90vw)' },
   imagePreview: { display: 'block', width: '100%', height: 'auto', maxHeight: '75vh', objectFit: 'contain' },
   actions: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'flex-end',
     gap: 8,
     minHeight: { default: 28, '@media (pointer: coarse)': 44 },
-    pointerEvents: { default: 'none', [stylex.when.ancestor(':hover', messageMarker)]: 'auto', [stylex.when.ancestor(':focus-within', messageMarker)]: 'auto', '@media (pointer: coarse)': 'auto' },
+    pointerEvents: { default: 'none', [stylex.when.ancestor(':hover', messageMarker)]: 'auto', [stylex.when.ancestor(':focus-within', messageMarker)]: 'auto', [stylex.when.ancestor(':has([aria-expanded="true"])', messageMarker)]: 'auto', '@media (pointer: coarse)': 'auto' },
     fontSize: typography.size12,
     color: surface.secondaryText,
     opacity: {
@@ -201,7 +197,8 @@ const styles = stylex.create({
       '@media (pointer: coarse)': 1,
     },
   },
-  responseActions: { display: 'flex', alignItems: 'center', paddingBlock: '2px 12px', color: surface.secondaryText },
+  userActions: { position: 'absolute', bottom: 0, right: 0, justifyContent: 'flex-end' },
+  responseActions: { justifyContent: 'flex-start', paddingBlock: '2px 12px' },
   actionButton: { width: { default: 28, '@media (pointer: coarse)': 44 }, minHeight: { default: 28, '@media (pointer: coarse)': 44 }, padding: 0 },
   delivery: { fontSize: typography.size12, color: surface.secondaryText, marginTop: 4 },
   byline: {
@@ -503,8 +500,6 @@ export const MessageRow = memo(function MessageRow({
   const disclosure = ['tool', 'reasoning', 'mailbox', 'internal'].includes(row.role);
   const user = row.role === 'user';
   const assistant = row.role === 'assistant';
-  const stamp = row.sentAt ? new Date(row.sentAt) : undefined;
-  const time = stamp && Number.isFinite(stamp.getTime()) ? stamp : undefined;
   const copy = <MessageCopy key={row.id} owner={row.id} label="Copy message" text={row.text} />;
   return (
     <article
@@ -539,15 +534,8 @@ export const MessageRow = memo(function MessageRow({
               {row.delivery}
             </div>
           )}
-          <div data-message-actions {...stylex.props(styles.actions)}>
-            {time && (
-              <time dateTime={row.sentAt} title={time.toLocaleString()}>
-                {time.toLocaleTimeString(undefined, {
-                  hour: 'numeric',
-                  minute: '2-digit',
-                })}
-              </time>
-            )}
+          <div data-message-actions {...stylex.props(styles.actions, styles.userActions)}>
+            <MessageTime sentAt={row.sentAt} />
             {copy}
             {row.seq !== undefined && historyAction && (
               <Menu
@@ -599,6 +587,33 @@ export const MessageRow = memo(function MessageRow({
   );
 });
 
+function MessageTime({ sentAt }: { sentAt?: string }) {
+  const time = sentAt ? new Date(sentAt) : undefined;
+  if (!time || !Number.isFinite(time.getTime())) return null;
+  return <time dateTime={sentAt} title={time.toLocaleString()} aria-label={time.toLocaleString()}>
+    {time.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+  </time>;
+}
+
+function ResponseFooter({ owner, response, historyAction, rewindDisabled }: {
+  owner: string; response: ResponseActions;
+  historyAction?(endpoint: number, action: 'fork' | 'rewind'): void;
+  rewindDisabled: boolean;
+}) {
+  const endpoint = response.endpoint;
+  const canAct = endpoint !== undefined && !!historyAction;
+  if (!response.text && !response.sentAt && !canAct) return null;
+  return <div data-response-actions {...stylex.props(styles.actions, styles.responseActions)}>
+    {canAct && <Menu trigger={<IconButton variant="ghost" xstyle={styles.actionButton} label="Response history actions"><MoreHorizontal size={14} /></IconButton>}
+      items={[
+        { id: 'fork', label: 'Fork from here', onSelect: () => historyAction(endpoint, 'fork') },
+        { id: 'rewind', label: 'Rewind to here…', disabled: rewindDisabled, onSelect: () => historyAction(endpoint, 'rewind') },
+      ]} />}
+    {!!response.text && <MessageCopy owner={owner} label={response.label} text={response.text} />}
+    <MessageTime sentAt={response.sentAt} />
+  </div>;
+}
+
 function MessageCopy({ owner, label, text }: { owner: string; label: string; text: string }) {
   const runtime = useRuntime();
   const [error, setError] = useState<unknown>();
@@ -612,6 +627,9 @@ function MessageCopy({ owner, label, text }: { owner: string; label: string; tex
 export function Timeline({
   readingActionsRef,
   rows: incomingRows,
+  responseHistoryAction,
+  historyThroughSeq,
+  rewindDisabled = false,
   agents = [],
   activeTurnId,
   onAgent,
@@ -637,6 +655,9 @@ export function Timeline({
 }: {
   readingActionsRef?: Ref<ReadingListActions>;
   rows: ConversationActivityRow[];
+  responseHistoryAction?(endpoint: number, action: 'fork' | 'rewind'): void;
+  historyThroughSeq?: number;
+  rewindDisabled?: boolean;
   agents?: readonly TranscriptAgent[];
   activeTurnId?: string;
   onAgent?(id: string): void;
@@ -695,7 +716,7 @@ export function Timeline({
   const copies = useMemo(() => responseCopies(rows.map(row => {
     const prose = storedProse.get(row.id);
     return prose && prose.digest === row.body?.digest ? { ...row, body: undefined, copyText: prose.text } : row;
-  }), active || !connected || !historyReady, hasMore), [rows, storedProse, active, connected, historyReady, hasMore]);
+  }), active || !historyReady, hasMore, latestMissing ? undefined : historyThroughSeq), [rows, storedProse, active, historyReady, hasMore, latestMissing, historyThroughSeq]);
   const parsed = useRef<Parameters<typeof markdownRows>[1]>(new Map());
   const blocks = useMemo(() => markdownRows(rows, parsed.current), [rows]);
   const region = useRef<HTMLDivElement>(null);
@@ -788,7 +809,7 @@ export function Timeline({
     return next;
     });
   };
-  type DisplayRow = { id: string; seq?: number; memberIds?: readonly string[]; memberSeqs?: readonly number[]; source: typeof blocks[number]; group?: ActivityGroup; item?: ActivityItem; detail?: boolean; open?: boolean; last?: boolean; copy?: { text: string; label: string } };
+  type DisplayRow = { id: string; seq?: number; memberIds?: readonly string[]; memberSeqs?: readonly number[]; source: typeof blocks[number]; group?: ActivityGroup; item?: ActivityItem; detail?: boolean; open?: boolean; last?: boolean; copy?: ResponseActions };
   const displayRows: DisplayRow[] = [];
   for (const [blockIndex, row] of blocks.entries()) {
     if (isActivityGroup(row)) {
@@ -801,7 +822,7 @@ export function Timeline({
         displayRows.push({ id: item.id, seq: item.row?.seq ?? item.cell?.seq, source: row, group: row, item, open: detail, last: index === items.length - 1 && !detail });
         if (detail) displayRows.push({ id: `${item.id}:detail`, seq: item.row?.seq ?? item.cell?.seq, source: row, group: row, item, detail: true });
       });
-    } else displayRows.push({ id: row.id, seq: row.seq, memberIds: row.memberIds, source: row });
+    } else displayRows.push({ id: row.id, seq: row.seq, memberIds: row.memberIds, memberSeqs: row.memberSeqs, source: row });
     const owner = isMarkdownRow(row) ? row.ownerId : row.id;
     const following = blocks[blockIndex + 1];
     if (!isMarkdownRow(row) || !following || !isMarkdownRow(following) || following.ownerId !== owner) displayRows.at(-1)!.copy = copies.get(owner);
@@ -813,7 +834,7 @@ export function Timeline({
       label="Conversation" earlierLabel="Load earlier messages" footer={footer}
       renderRow={row => {
         const source = row.source;
-        return <>
+        return <div data-response-end={row.copy ? true : undefined} {...stylex.props(messageMarker)}>
           <RowMotion arrival={row.group || isAgentActivity(source) ? arrivals.current.get(row.id) : undefined} closing={!!row.item && closing.has(row.group!.id)}>
             {source.historyGap ? <HistoryGapControl gap={source.historyGap} connected={connected} load={() => loadGap?.(source.historyGap!.toSeq) ?? Promise.resolve()} />
             : row.group ? row.item ? row.detail
@@ -832,8 +853,10 @@ export function Timeline({
                     ? <StoredMessageRow row={source} scope={messageScope} connected={connected} historyRevision={historyRevision} onProse={retainProse} readBody={readBody} detailsOnly />
                     : undefined} />}
           </RowMotion>
-          {row.copy && <div data-response-actions {...stylex.props(styles.responseActions)}><MessageCopy key={source.id} owner={source.id} label={row.copy.label} text={row.copy.text} /></div>}
-        </>;
+          {row.copy && <ResponseFooter key={source.id} owner={source.id} response={row.copy}
+            historyAction={connected && historyReady ? responseHistoryAction : undefined}
+            rewindDisabled={rewindDisabled || active || row.copy.endpoint === historyThroughSeq} />}
+        </div>;
       }} />
   </div></MotionContext.Provider></DiagramChoices.Provider>;
 }

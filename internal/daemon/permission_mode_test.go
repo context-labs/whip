@@ -171,7 +171,7 @@ func assertResumedWritePermission(t *testing.T, store *session.Store, root *Sess
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	path := filepath.Join(root.meta.CWD, "resumed.txt")
+	path := filepath.Join(root.WorkingDirectory(), "resumed.txt")
 	arguments, err := json.Marshal(map[string]string{"path": path, "content": "resumed write"})
 	if err != nil {
 		t.Fatal(err)
@@ -285,7 +285,7 @@ func TestPermissionModeRestoresChildrenBeforeResumedWork(t *testing.T) {
 						firstModes.LoadOrStore(node.id, node.ExternalPermissionsEnabled())
 						observeRunTurn(runs)(node)
 					})
-					return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind}, nil
+					return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind, Definition: withoutAutomaticTitle()}, nil
 				})
 				if err != nil {
 					t.Fatal(err)

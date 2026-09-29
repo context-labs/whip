@@ -43,6 +43,12 @@ type PingResult struct {
 	Generation int64  `json:"generation,string"`
 	BuildID    string `json:"build_id"`
 }
+
+// SessionTitleChangedParams invalidates title metadata on this host, without a root subscription.
+type SessionTitleChangedParams struct {
+	RootID string `json:"root_id"`
+}
+
 type EventNotification struct {
 	Event ProtocolEvent `json:"event"`
 }
@@ -100,6 +106,7 @@ var rpcOperations = []Operation{
 	rpc[HostSkillCompletionParams, CompletionResult]("host.skills.complete", Query, "host-runtime", false),
 	rpc[HostDirectoryParams, HostDirectoryResult]("host.directories.list", Query, "host-runtime", false),
 	rpc[HostDirectoryPickParams, HostDirectoryPickResult]("host.directory.pick", Query, "host-runtime", false),
+	rpc[HostDirectoryCreateParams, HostDirectoryCreateResult]("host.directory.create", Ephemeral, "host-runtime", false),
 	rpc[HostAttentionParams, HostAttentionResult]("host.attention", Query, "host-runtime", false),
 	rpc[EmptyParams, theme.CatalogResult]("host.themes.list", Query, "host-runtime", false),
 	rpc[HostThemeResolveParams, theme.Resolved]("host.themes.resolve", Query, "host-runtime", false),
@@ -209,6 +216,7 @@ func Lookup(name string) (Operation, bool) {
 func Events() map[string]reflect.Type {
 	return map[string]reflect.Type{
 		"event":                    reflect.TypeFor[EventNotification](),
+		"sessions.title.changed":   reflect.TypeFor[SessionTitleChangedParams](),
 		"subscription.failed":      reflect.TypeFor[SubscriptionFailure](),
 		"browser.provider.revoked": reflect.TypeFor[BrowserProviderRevoked](),
 		"browser.inventory":        reflect.TypeFor[BrowserInventoryRequest](),

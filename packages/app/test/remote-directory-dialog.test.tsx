@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ThemeProvider, UIProvider } from '@whip/ui';
@@ -10,17 +11,21 @@ beforeEach(() => vi.stubGlobal('matchMedia', () => ({ matches: false, addEventLi
 afterEach(() => vi.unstubAllGlobals());
 const result = (path: string, names: string[] = []) => ({ path, parent: path.slice(0, path.lastIndexOf('/')) || '/', entries: names.map(name => ({ name, path: `${path}/${name}` })), has_more: false, next_after: '' });
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; }
-function fixture() {
+function fixture(supported = true) {
   let snapshot = { state: 'connected', info: { runtime_id: 'kuzco' } };
   const listeners = new Set<() => void>();
   const directories = vi.fn(async (params: { path?: string; limit?: number; prefix?: string; show_hidden?: boolean; after?: string }, _options?: { signal?: AbortSignal }) => result(params.path || '/home/sam', params.path === '/home/sam' ? ['alpha', 'beta', 'private'] : []));
-  const client = { subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener); }, getSnapshot: () => snapshot, host: { directories } } as unknown as WhipClient;
+  const createDirectory = vi.fn(async ({ parent, name }: { parent: string; name: string }) => ({ path: `${parent}/${name}` }));
+  const supports = vi.fn(() => supported);
+  const client = { supports, subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener); }, getSnapshot: () => snapshot, host: { directories, createDirectory } } as unknown as WhipClient;
   const query = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   const onSelect = vi.fn(), onClose = vi.fn();
   const reconnect = vi.fn(async () => { setState('connected'); });
   function setState(state: string) { act(() => { snapshot = { ...snapshot, state }; listeners.forEach(listener => listener()); }); }
-  const view = render(<ThemeProvider initialTheme="dark"><UIProvider><QueryClientProvider client={query}><RemoteDirectoryDialog client={client} host={{ name: 'Kuzco', detail: 'sam@kuzco', reconnect }} value="/home/sam" disabled={false} onSelect={onSelect} onClose={onClose} /></QueryClientProvider></UIProvider></ThemeProvider>);
-  return { client, directories, query, onSelect, onClose, reconnect, setState, view };
+  function setRuntime(runtime_id: string) { act(() => { snapshot = { ...snapshot, info: { runtime_id } }; listeners.forEach(listener => listener()); }); }
+  const dialog = (activeClient = client, disabled = false) => <ThemeProvider initialTheme="dark"><UIProvider><QueryClientProvider client={query}><RemoteDirectoryDialog client={activeClient} host={{ name: 'Kuzco', detail: 'sam@kuzco', reconnect }} value="/home/sam" disabled={disabled} onSelect={onSelect} onClose={onClose} /></QueryClientProvider></UIProvider></ThemeProvider>;
+  const view = render(dialog());
+  return { client, directories, createDirectory, supports, query, onSelect, onClose, reconnect, setState, setRuntime, view, rerender: (activeClient = client, disabled = false) => view.rerender(dialog(activeClient, disabled)) };
 }
 const choose = () => screen.getByRole('button', { name: 'Choose folder', exact: true }) as HTMLButtonElement;
 const ready = () => waitFor(() => expect(choose().disabled).toBe(false));
@@ -163,6 +168,187 @@ it('retains rows and breadcrumbs during a slow navigation and reuses Back withou
   const before = homeReads();
   fireEvent.click(screen.getByRole('button', { name: 'Back', exact: true }));
   await ready(); expect(folder('beta')).toBeTruthy(); expect(homeReads()).toBe(before);
+});
+
+const newFolder = () => screen.getByRole('button', { name: 'New folder', exact: true }) as HTMLButtonElement;
+function nameFolder(name = 'project') {
+  fireEvent.click(newFolder());
+  const input = screen.getByRole('textbox', { name: 'Folder name' }) as HTMLInputElement;
+  fireEvent.change(input, { target: { value: name } });
+  return input;
+}
+const submitFolder = (input: HTMLElement) => fireEvent.submit(input.closest('form')!);
+
+it('creates in the displayed parent, opens the result, and still requires explicit choice', async () => {
+  const f = fixture(); await ready();
+  fireEvent.click(folder('alpha')); await ready();
+  const input = nameFolder();
+  expect(document.activeElement).toBe(input);
+  expect(screen.getByRole('form', { name: 'New folder' }).textContent).toContain('Create in Kuzco/home/sam');
+  expect(choose().disabled).toBe(true);
+  submitFolder(input);
+  await screen.findByText('Folder created. Choose folder to use it.'); await ready();
+  expect(f.createDirectory).toHaveBeenCalledExactlyOnceWith({ parent: '/home/sam', name: 'project' });
+  expect(screen.getByRole('navigation', { name: 'Folder path' }).textContent).toContain('project');
+  expect(f.onSelect).not.toHaveBeenCalled();
+  fireEvent.click(choose());
+  await waitFor(() => expect(f.onSelect).toHaveBeenCalledExactlyOnceWith('/home/sam/project'));
+});
+
+it('guards duplicate submissions and retains a conflict inline for correction without retries', async () => {
+  const f = fixture(); await ready();
+  let reject!: (error: Error) => void;
+  f.createDirectory.mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail; }));
+  const input = nameFolder('alpha');
+  submitFolder(input); submitFolder(input);
+  expect(f.createDirectory).toHaveBeenCalledTimes(1);
+  expect(input.disabled).toBe(true);
+  expect(newFolder().disabled).toBe(true);
+  expect(within(screen.getByRole('form', { name: 'New folder' })).getByRole('button', { name: 'Cancel' }).hasAttribute('disabled')).toBe(true);
+  await act(async () => reject(new Error('A folder already exists')));
+  await screen.findByRole('alert');
+  expect(screen.getByRole('alert').textContent).toBe('A folder already exists');
+  expect(input.value).toBe('alpha'); expect(document.activeElement).toBe(input);
+  expect(f.createDirectory).toHaveBeenCalledTimes(1);
+  fireEvent.change(input, { target: { value: 'corrected' } }); submitFolder(input);
+  await ready(); expect(f.createDirectory).toHaveBeenCalledTimes(2);
+  expect(f.onSelect).not.toHaveBeenCalled();
+});
+
+it.each(['', '   ', '.', '..', 'nested/name', 'nested\\name', '/absolute', 'C:drive', 'nul\0name', 'é'.repeat(128)])('rejects invalid folder name %j without a mutation', async name => {
+  const f = fixture(); await ready();
+  const input = nameFolder(name);
+  expect(within(screen.getByRole('form', { name: 'New folder' })).getByRole('button', { name: 'Create' }).hasAttribute('disabled')).toBe(true);
+  submitFolder(input); expect(f.createDirectory).not.toHaveBeenCalled();
+});
+
+it('cancels the form with Escape or Cancel and restores focus without mutating', async () => {
+  const f = fixture(); await ready();
+  const input = nameFolder();
+  fireEvent.keyDown(input, { key: 'Escape' });
+  expect(screen.queryByRole('form', { name: 'New folder' })).toBeNull();
+  expect(document.activeElement).toBe(newFolder()); expect(f.onClose).not.toHaveBeenCalled();
+  nameFolder();
+  fireEvent.click(within(screen.getByRole('form', { name: 'New folder' })).getByRole('button', { name: 'Cancel' }));
+  expect(document.activeElement).toBe(newFolder());
+  expect(f.createDirectory).not.toHaveBeenCalled(); expect(choose().disabled).toBe(false);
+});
+
+it.each(['hover', 'focus'])('keeps older hosts browseable with an upgrade tooltip on %s and no creation', async interaction => {
+  const f = fixture(false); await ready();
+  expect(f.supports).toHaveBeenCalledWith('rpc', 'host.directory.create');
+  expect(newFolder().disabled).toBe(true);
+  expect(screen.getByText(/Update this host to create folders/)).toBeTruthy();
+  expect(screen.queryByText('Host does not support folder creation. Please upgrade.')).toBeNull();
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'Filter folders by prefix' })));
+  const trigger = newFolder().parentElement!;
+  if (interaction === 'hover') await userEvent.setup().hover(trigger);
+  else act(() => trigger.focus());
+  expect(await screen.findByText('Host does not support folder creation. Please upgrade.')).toBeTruthy();
+  fireEvent.click(newFolder()); expect(screen.queryByRole('form', { name: 'New folder' })).toBeNull();
+  fireEvent.click(choose()); await waitFor(() => expect(f.onSelect).toHaveBeenCalledWith('/home/sam'));
+  expect(f.createDirectory).not.toHaveBeenCalled();
+});
+
+it('disables creation while offline, disabled, loading, or without a valid listing', async () => {
+  const f = fixture(); await ready();
+  f.setState('disconnected'); expect(newFolder().disabled).toBe(true);
+  f.setState('connected'); await ready();
+  f.rerender(f.client, true); expect(newFolder().disabled).toBe(true);
+  f.rerender(); await ready();
+  const listing = deferred<ReturnType<typeof result>>();
+  f.directories.mockImplementationOnce(() => listing.promise);
+  fireEvent.click(screen.getByRole('button', { name: 'Open alpha' }));
+  expect(newFolder().disabled).toBe(true);
+  await act(async () => listing.resolve(result('/home/sam/alpha'))); await ready();
+  f.directories.mockRejectedValueOnce(new Error('Permission denied'));
+  fireEvent.click(screen.getByRole('button', { name: 'File system', exact: true }));
+  await screen.findByText('Can’t open this folder'); expect(newFolder().disabled).toBe(true);
+});
+
+it('invalidates every parent page/filter and alias on only the captured runtime and clears filters for hidden creation', async () => {
+  const f = fixture(); await ready();
+  f.directories.mockImplementation(async params => ({ ...result(params.path === '~' ? '/home/sam' : params.path!, ['alpha']), has_more: !params.after, next_after: 'alpha' }));
+  const filter = screen.getByRole('textbox', { name: 'Filter folders by prefix' }) as HTMLInputElement;
+  fireEvent.change(filter, { target: { value: 'a' } }); await ready();
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Hidden folders' })); await ready();
+  fireEvent.click(screen.getByRole('button', { name: 'Next folders' })); await ready();
+  const cached = [
+    ['directories', 'kuzco', '/home/sam', 'x', false, 'page-2'],
+    ['directories', 'kuzco', '~', '', true, ''],
+    ['directories', 'kuzco', '/alias', '', false, ''],
+  ];
+  const other = ['directories', 'other-host', '/home/sam', '', false, ''];
+  // The daemon cleans paths but does not resolve symlinks: /alias stays /alias.
+  act(() => { for (const key of [...cached, other]) f.query.setQueryData(key, result(key[2] === '~' ? '/home/sam' : key[2] as string)); });
+  submitFolder(nameFolder('.hidden'));
+  await screen.findByText('Folder created. Choose folder to use it.'); await ready();
+  expect(f.createDirectory).toHaveBeenCalledExactlyOnceWith({ parent: '/home/sam', name: '.hidden' });
+  expect(filter.value).toBe('');
+  expect(screen.getByRole('checkbox', { name: 'Hidden folders' }).getAttribute('aria-checked')).toBe('false');
+  expect(f.directories).toHaveBeenCalledWith(expect.objectContaining({ path: '/home/sam/.hidden', prefix: undefined, after: undefined, show_hidden: false }), expect.anything());
+  for (const key of cached) expect(f.query.getQueryState(key)?.isInvalidated).toBe(true);
+  expect(f.query.getQueryState(other)?.isInvalidated).toBe(false);
+  expect(f.onSelect).not.toHaveBeenCalled();
+});
+
+it('refreshes an actively viewed parent when stale creation succeeds without navigating or selecting', async () => {
+  const f = fixture(); await ready();
+  const pending = deferred<{ path: string }>();
+  f.createDirectory.mockImplementationOnce(() => pending.promise);
+  submitFolder(nameFolder());
+  fireEvent.click(screen.getByRole('button', { name: 'sam', exact: true })); await ready();
+  f.directories.mockImplementation(async params => result(params.path!, params.path === '/home/sam' ? ['alpha', 'project'] : []));
+  await act(async () => pending.resolve({ path: '/home/sam/project' }));
+  await waitFor(() => expect(folder('project')).toBeTruthy());
+  expect(screen.getByRole('navigation', { name: 'Folder path' }).textContent).not.toContain('project');
+  expect(f.onSelect).not.toHaveBeenCalled();
+  expect(screen.queryByText('Folder created. Choose folder to use it.')).toBeNull();
+});
+
+it('keeps a stale failure out of a new creation form after navigation', async () => {
+  const f = fixture(); await ready();
+  let reject!: (error: Error) => void;
+  f.createDirectory.mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail; }));
+  submitFolder(nameFolder());
+  fireEvent.click(screen.getByRole('button', { name: 'File system', exact: true })); await ready();
+  const input = nameFolder('another');
+  await act(async () => reject(new Error('Old request failed')));
+  expect(screen.queryByText('Old request failed')).toBeNull(); expect(input.value).toBe('another');
+  fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true });
+  expect(f.onSelect).not.toHaveBeenCalled(); expect(f.createDirectory).toHaveBeenCalledTimes(1);
+  submitFolder(input); await ready(); expect(f.createDirectory).toHaveBeenCalledTimes(2);
+});
+
+it('distinguishes successful creation from a failed destination listing and retries only the read', async () => {
+  const f = fixture(); await ready();
+  f.directories.mockImplementation(async params => { if (params.path === '/home/sam/project') throw new Error('Read denied'); return result(params.path!); });
+  submitFolder(nameFolder());
+  await screen.findByText('Folder created, but its contents could not be loaded. Retry the listing; do not create it again.');
+  expect(choose().disabled).toBe(true); expect(newFolder().disabled).toBe(true);
+  f.directories.mockImplementation(async params => result(params.path!));
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' })); await ready();
+  expect(f.createDirectory).toHaveBeenCalledTimes(1); expect(f.onSelect).not.toHaveBeenCalled();
+});
+
+it.each(['navigation', 'close', 'unmount', 'runtime', 'client', 'disconnect'] as const)('invalidates the original parent but ignores late creation after %s', async boundary => {
+  const f = fixture(); await ready();
+  const pending = deferred<{ path: string }>();
+  f.createDirectory.mockImplementationOnce(() => pending.promise);
+  const original = ['directories', 'kuzco', '/home/sam', 'cached', true, 'page'];
+  act(() => f.query.setQueryData(original, result('/home/sam')));
+  submitFolder(nameFolder());
+  if (boundary === 'navigation') fireEvent.click(screen.getByRole('button', { name: 'File system', exact: true }));
+  if (boundary === 'close') fireEvent.click(screen.getAllByRole('button', { name: 'Cancel', exact: true }).at(-1)!);
+  if (boundary === 'unmount') f.view.unmount();
+  if (boundary === 'runtime') f.setRuntime('pacha');
+  if (boundary === 'client') f.rerender({ ...f.client } as WhipClient);
+  if (boundary === 'disconnect') { f.setState('disconnected'); f.setState('connected'); }
+  await act(async () => pending.resolve({ path: '/home/sam/project' }));
+  await waitFor(() => expect(f.query.getQueryState(original)?.isInvalidated).toBe(true));
+  expect(f.directories.mock.calls.some(([params]) => params.path === '/home/sam/project')).toBe(false);
+  expect(f.onSelect).not.toHaveBeenCalled();
+  if (boundary !== 'unmount') expect(screen.queryByText('Folder created. Choose folder to use it.')).toBeNull();
 });
 
 it('revalidates an expired choice before confirming and rejects a late result after navigation', async () => {

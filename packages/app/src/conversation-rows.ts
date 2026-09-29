@@ -6,6 +6,8 @@ import { admittedText, inboxInputId, isChatInput, matchesInput, submittedInputId
 export interface TimelineRow {
   id: string;
   role: string;
+  /** Raw record role differs from display role for interrupted presentation text. */
+  sourceRole?: string;
   text: string;
   label?: string;
   args?: string;
@@ -13,6 +15,11 @@ export interface TimelineRow {
   deliveries?: number;
   body?: NonNullable<HistoryView['messages'][number]['body']>;
   seq?: number;
+  /** Canonical records folded into this display row (for example tool results). */
+  memberSeqs?: readonly number[];
+  historyUncertain?: boolean;
+  /** Assistant source identity survives rich parts and activity grouping. */
+  assistantSeq?: number;
   images?: ImagePart[];
   designContext?: DeepReadonly<DesignContext> | null;
   designEvidence?: { context: DeepReadonly<DesignContext>; rawText: string; image?: ImagePart };
@@ -103,14 +110,18 @@ export function timelineRows(
     // screenshots). Only authored input belongs in the desktop/web user bubble.
     const sourceRole = message?.role ?? entry.role ?? 'notice';
     const role = rich && sourceRole === 'user' && !(message?.authored ?? entry.authored) ? 'internal' : sourceRole;
+    const sentAt = message?.sent_at ?? entry.sent_at ?? undefined;
+    const assistant = { sourceRole, ...(sourceRole === 'assistant' ? { assistantSeq: entry.seq, sentAt } : {}) };
     const metadata = message?.presentation ?? entry.presentation;
     const orderedParts = rich && metadata?.version === 1 ? metadata.parts ?? [] : [];
     const resultPart = orderedParts.find(part => part.kind === 'result' && part.call_id);
     if (!message && resultPart && calls.has(resultPart.call_id!) && (!calls.get(resultPart.call_id!)!.turnId || calls.get(resultPart.call_id!)!.turnId === metadata!.turn_id)) {
-      calls.get(resultPart.call_id!)!.body = entry.body ?? undefined;
+      const call = calls.get(resultPart.call_id!)!;
+      call.body = entry.body ?? undefined;
+      call.memberSeqs = [...(call.memberSeqs ?? []), entry.seq];
       // Pending presentation (e.g. interrupted reasoning) still follows this result.
       for (const part of orderedParts) if (part.kind === 'reasoning' || (part.kind === 'text' && part.text))
-        rows.push({ id: `part:${part.id}`, partId: part.id, seq: entry.seq, turnId: metadata!.turn_id, role: part.kind === 'text' ? 'assistant' : 'reasoning', text: part.text ?? '', body: entry.body ?? undefined, truncated: !!part.omitted });
+        rows.push({ id: `part:${part.id}`, partId: part.id, seq: entry.seq, ...assistant, turnId: metadata!.turn_id, role: part.kind === 'text' ? 'assistant' : 'reasoning', text: part.text ?? '', body: entry.body ?? undefined, truncated: !!part.omitted });
       continue;
     }
     const detailed: TimelineRow[] = [];
@@ -118,7 +129,7 @@ export function timelineRows(
       const prose = messagePresentation(message?.content).text;
       const encoded = new TextEncoder().encode(prose);
       for (const part of orderedParts) {
-        const base = { id: `part:${part.id}`, partId: part.id, seq: entry.seq, turnId: metadata!.turn_id, memberIds: [id], truncated: !!(metadata!.omitted || part.omitted) };
+        const base = { id: `part:${part.id}`, partId: part.id, seq: entry.seq, ...assistant, turnId: metadata!.turn_id, memberIds: [id], truncated: !!(metadata!.omitted || part.omitted) };
         if (part.kind === 'reasoning') detailed.push({ ...base, role: 'reasoning', text: part.text ?? '', body: entry.body ?? undefined });
         else if (part.kind === 'text' && part.text) detailed.push({ ...base, role: 'assistant', text: part.text, copyText: part.text, truncated: true });
         else if (part.kind === 'text' && message?.role === 'assistant' && !metadata!.omitted) {
@@ -132,10 +143,10 @@ export function timelineRows(
         }
       }
       if (message?.role === 'assistant' || !message) {
-        if (metadata!.omitted && prose) detailed.push({ id, seq: entry.seq, role: 'assistant', text: prose });
-        if (entry.body && !detailed.some(row => row.body)) detailed.push({ id, seq: entry.seq, role, text: '', body: entry.body ?? undefined });
+        if (metadata!.omitted && prose) detailed.push({ id, seq: entry.seq, ...assistant, role: 'assistant', text: prose });
+        if (entry.body && !detailed.some(row => row.body)) detailed.push({ id, seq: entry.seq, ...assistant, role, text: '', body: entry.body ?? undefined });
         const images = messagePresentation(message?.content).images;
-        if (images.length) detailed.push({ id: `${id}:images`, seq: entry.seq, role: 'assistant', text: '', images });
+        if (images.length) detailed.push({ id: `${id}:images`, seq: entry.seq, ...assistant, role: 'assistant', text: '', images });
         let copied = false;
         for (const row of detailed) if (row.role === 'assistant' && row.copyText === undefined) { row.copyText = copied ? '' : prose; copied = true; }
         rows.push(...detailed);
@@ -148,7 +159,8 @@ export function timelineRows(
         seq: entry.seq,
         role,
         text: '',
-        sentAt: entry.sent_at ?? undefined,
+        sentAt,
+        ...assistant,
         ...(entry.body ? { body: entry.body ?? undefined } : {}),
       });
       continue;
@@ -165,6 +177,7 @@ export function timelineRows(
       previous.text === parts.text
     ) {
       previous.deliveries = (previous.deliveries ?? 1) + 1;
+      previous.memberSeqs = [...(previous.memberSeqs ?? []), entry.seq];
       continue;
     }
     if (
@@ -173,6 +186,8 @@ export function timelineRows(
       calls.has(message.tool_call_id) &&
       (!rich || !metadata?.turn_id || !calls.get(message.tool_call_id)!.turnId || calls.get(message.tool_call_id)!.turnId === metadata.turn_id)
     ) {
+      const call = calls.get(message.tool_call_id)!;
+      call.memberSeqs = [...(call.memberSeqs ?? []), entry.seq];
       calls.get(message.tool_call_id)!.text = parts.text;
       calls.get(message.tool_call_id)!.images = parts.images;
       if (entry.body) calls.get(message.tool_call_id)!.body = entry.body;
@@ -187,7 +202,8 @@ export function timelineRows(
         text: parts.text,
         images: parts.images,
         ...(parts.designEvidence ? { designEvidence: parts.designEvidence } : {}),
-        sentAt: message.sent_at ?? entry.sent_at ?? undefined,
+        sentAt,
+        ...assistant,
         ...(message.role === 'tool'
           ? { label: message.name || 'Tool output' }
           : {}),
@@ -198,6 +214,7 @@ export function timelineRows(
       const row: TimelineRow = {
         id: `${id}:${call.id}`,
         seq: entry.seq,
+        ...assistant,
         role: 'tool',
         toolName: call.function.name,
         callId: call.id,

@@ -448,6 +448,18 @@ func (r *sdkFixtureRunner) Turn(ctx context.Context, input string, authored bool
 	r.mu.Lock()
 	r.journalStart, r.boundaryJournal = len(r.history), turnJournal{}
 	r.mu.Unlock()
+	defer func() {
+		// The fake runner bypasses Agent.appendTurnMessages; retain the same
+		// recording-time contract before the daemon reads this turn's journal.
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		for i := r.journalStart; i < len(r.history); i++ {
+			if r.history[i].Role == "assistant" && r.history[i].SentAt == nil {
+				now := time.Now()
+				r.history[i].SentAt = &now
+			}
+		}
+	}()
 	if input == "queue:boundary" {
 		return r.queueBoundaryTurn(ctx, input, started)
 	}

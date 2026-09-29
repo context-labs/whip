@@ -139,6 +139,44 @@ func TestForkFullHistory(t *testing.T) {
 	}
 }
 
+func TestForkCarriesPermissionMode(t *testing.T) {
+	st, id := seeded(t)
+
+	if err := st.SetPermissionMode(t.Context(), id, PermissionModeAutomatic); err != nil {
+		t.Fatal(err)
+	}
+	forkID, err := st.Fork(id, 2, "full access fork")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode, err := st.PermissionMode(t.Context(), forkID); err != nil || mode != PermissionModeAutomatic {
+		t.Fatalf("fork permission mode = %q, %v; want %q", mode, err, PermissionModeAutomatic)
+	}
+	// the client snapshot for the fork reports the inherited mode
+	snapshot, err := st.SnapshotRoot(t.Context(), forkID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.PermissionMode != PermissionModeAutomatic {
+		t.Fatalf("fork snapshot permission mode = %q, want %q", snapshot.PermissionMode, PermissionModeAutomatic)
+	}
+	// the source session keeps its own setting
+	if mode, err := st.PermissionMode(t.Context(), id); err != nil || mode != PermissionModeAutomatic {
+		t.Fatalf("source permission mode = %q, %v; want %q", mode, err, PermissionModeAutomatic)
+	}
+	// a prompt-mode source forks into a prompt-mode session
+	if err := st.SetPermissionMode(t.Context(), id, PermissionModePrompt); err != nil {
+		t.Fatal(err)
+	}
+	promptFork, err := st.Fork(id, 2, "prompt fork")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode, err := st.PermissionMode(t.Context(), promptFork); err != nil || mode != PermissionModePrompt {
+		t.Fatalf("prompt fork permission mode = %q, %v; want %q", mode, err, PermissionModePrompt)
+	}
+}
+
 func TestForkTitle(t *testing.T) {
 	st, id := seeded(t)
 

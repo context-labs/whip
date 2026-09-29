@@ -8,11 +8,17 @@ URLs. See [setup and development](../../docs/mobile.md), the canonical
 Run workspace commands from the repository root:
 
 ```sh
+npm ci
+task generate
 npm run check:mobile
 npm run test:mobile
 npm run export:mobile
 npm run dev:mobile
 ```
+
+Use Node 24, the Go toolchain in `go.mod`, and Task. `task generate` prepares
+ignored protocol artifacts and builds the SDK. Rerun it after pulling, switching
+branches, or changing protocol source; rerun `npm ci` first when dependencies change.
 
 A native development build is required. Expo Go cannot provide the encrypted
 storage/native UI modules. Native projects are generated from `app.config.ts`;

@@ -33,7 +33,7 @@ func renderRuntimeControl(operation, output string) (string, bool, error) {
 			return "", true, err
 		}
 		if value.BuiltinDefault {
-			return "automatic compaction restored to built-in defaults", true, nil
+			return "compaction model: Automatic (this conversation’s model and provider)", true, nil
 		}
 		return "compaction model: " + strings.TrimSpace(value.Model+" "+value.Provider), true, nil
 	case "history.compact.retry":

@@ -44,10 +44,10 @@ type Message struct {
 	// results, goal-check continuations). Internal only — never sent to the
 	// provider. Used so input-history recall cycles only real submissions.
 	Authored bool `json:"authored,omitempty"`
-	// SentAt is when the human submitted the message (local time). Internal
-	// only — never sent to the provider; used by the rewind picker's
-	// per-message timestamp. A pointer so omitempty drops it for injected and
-	// pre-field messages (a zero time.Time struct is never omitted).
+	// SentAt is when a human submitted a user message or the execution host
+	// recorded an assistant message. Internal only — never sent to the provider.
+	// A pointer so omitempty drops it for other injected and pre-field messages
+	// (a zero time.Time struct is never omitted).
 	SentAt *time.Time `json:"sent_at,omitempty"`
 	// Usage is the token accounting for the assistant response that produced
 	// this message. Internal only — never sent to the provider; powers
@@ -257,7 +257,7 @@ type ToolCall struct {
 
 // stripAuthored returns a copy of msgs with the internal Authored marker and
 // SentAt timestamp cleared — they're whip-local bookkeeping (input-history
-// recall, the rewind picker) and must never reach the provider. It copies
+// recall, transcript timestamps) and must never reach the provider. It copies
 // because req.Messages typically aliases the caller's conversation slice,
 // which must keep the fields for storage/recall.
 func stripAuthored(msgs []Message) []Message {
@@ -566,6 +566,9 @@ type HTTPError struct {
 	Body       string
 	Permanent  bool
 	RetryAfter time.Duration
+	// ResponseStarted distinguishes in-stream errors assigned a synthetic
+	// HTTP status from an actual HTTP rejection before response generation.
+	ResponseStarted bool
 }
 
 func (e *HTTPError) Error() string { return e.Status + ": " + e.Body }

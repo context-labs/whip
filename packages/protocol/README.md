@@ -1,9 +1,21 @@
-# WHIP protocol v5 contracts
+# WHIP protocol contracts
 
 This package contains generated TypeScript declarations, Draft-07 JSON Schema,
 and Ajv validators for the Go protocol registry. It has no UI or transport state.
-Use Node 24 and `npm ci`; regenerate with `npm run generate` and verify types,
-Go-produced interoperability fixtures, and drift with `npm run check`.
+Use Node 24, the Go toolchain in `go.mod`, and Task. From the repository root:
+
+```sh
+npm ci
+task generate
+npm run check
+```
+
+`task generate` creates the schemas, manifest and Go-marshaled interoperability
+fixtures in `schema/`, then JavaScript validators and TypeScript declarations in
+`generated/`, and finally builds the SDK. Both output directories are ignored by
+Git. `npm run check` verifies freshness, types and interoperability without
+regenerating protocol output. To check freshness alone, run
+`npm run check:drift -w @whip/protocol`.
 
 ```ts
 import { assertValid, type SubscribeParams } from '@whip/protocol';
@@ -21,15 +33,19 @@ and existing permission requirements for each RPC and runtime operation.
 Runtime operations travel inside `command.submit` or `query`; the latter never
 journals work. A command's RPC request ID is separate from its durable command
 ID. Client IDs provide retry namespaces and are not authenticated identities.
-The wire major is 5. Required archive metadata and catalog cursor status are
-incompatible with earlier majors; clients and daemons reject them at initialization.
+Clients and daemons must agree on the wire major; incompatible clients are
+rejected at initialization.
 
 Do not coerce decimal strings into JavaScript numbers. Binary fields use base64;
 JSON payloads remain JSON. Permission decisions use ordinary unsigned payloads.
 Never persist provider credentials or terminal input in a client
 retry queue. A dropped connection does not cancel an accepted command.
 
-Generated files are checked in for consumers. Edit `internal/protocol` rather
-than these files, then regenerate. The daemon validates against the same Go
+Edit the definitions in `internal/protocol` or the generators rather than their
+output. Rerun `task generate` after pulling, switching branches, or editing those
+sources; rerun `npm ci` first when dependencies change. Ordinary builds use the
+prepared files, and checks reject missing or stale output instead of rewriting it.
+Package archives include the generated JavaScript and declarations, so consumers
+do not need Go or generation tools. The daemon validates against the same Go
 schema builder before admitting operations. Snapshot and command result
 payloads must also be validated against the result type named in the registry.

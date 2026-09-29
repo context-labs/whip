@@ -167,7 +167,7 @@ func TestRootTurnCommitsProtocolCommandOutcome(t *testing.T) {
 	outcome := bytes.Repeat([]byte("result"), 2048)
 	if err := st.CommitRootTurn(context.Background(), RootTurnCommit{
 		RootID: rootID, AgentID: authority.AgentID, InboxSeq: result.Command.IngressSeq,
-		Model: "model", Provider: "provider", Outcome: RuntimePayload{Data: outcome, Source: "outcome"},
+		Outcome: RuntimePayload{Data: outcome, Source: "outcome"},
 	}); err != nil {
 		t.Fatal(err)
 	}

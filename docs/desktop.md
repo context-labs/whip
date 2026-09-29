@@ -347,15 +347,21 @@ installed-editor diagnostic requires explicit opt-in.
 
 ## Build and develop
 
-Building requires macOS arm64, Node 24, Go from `go.mod`, and Xcode command-line
+Building requires macOS arm64, Node 24, Go from `go.mod`, Task, and Xcode command-line
 tools for Swift/signing. The resulting app includes Electron, Go and the computer
 helper; users do not need those build toolchains or a first-launch runtime download.
 
 ```sh
 npm ci
+task generate
 node node_modules/electron/install.js
 npm run dev:desktop
 ```
+
+`task generate` prepares ignored protocol artifacts and builds the SDK before
+desktop scripts import them. Rerun it after pulling, switching branches, or editing
+protocol source; rerun `npm ci` first when dependencies change. Development and
+build commands use the prepared files, while packaging checks their freshness.
 
 For UI development against an already-running daemon, use attach mode:
 

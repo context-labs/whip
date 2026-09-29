@@ -102,7 +102,7 @@ func TestSubscriptionRecursiveRuntimeToolsHelpersTitleAndCompaction(t *testing.T
 		if err != nil {
 			return Components{}, err
 		}
-		return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind}, nil
+		return Components{Runner: runtime.RootSession(), Runtime: runtime, Bind: runtime.Bind, Definition: withoutAutomaticTitle()}, nil
 	}, providers)
 	if err != nil {
 		t.Fatal(err)
@@ -137,7 +137,7 @@ func TestSubscriptionRecursiveRuntimeToolsHelpersTitleAndCompaction(t *testing.T
 	if child.agent.Provider != openaiauth.Provider || child.agent.Client.HTTP != client.HTTP {
 		t.Fatal("child lost the shared subscription credential owner")
 	}
-	if title, _, err := runtime.rootNode.GenerateTitle(t.Context()); err != nil || title != "subscription result" {
+	if title, _, err := runtime.rootNode.GenerateTitle(t.Context(), "Inspect model accounting"); err != nil || title != "subscription result" {
 		t.Fatalf("subscription title: %q %v", title, err)
 	}
 	if _, err := runtime.rootNode.CompactNow(t.Context()); err != nil {

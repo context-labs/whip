@@ -4,7 +4,7 @@ import * as fs from 'node:fs/promises';
 import Module from 'node:module';
 import path from 'node:path';
 import test, { type TestContext } from 'node:test';
-import type { BrowserWindow } from 'electron';
+import type { BrowserWindow, OpenDialogOptions } from 'electron';
 import type { DesktopEvent } from '@whip/app/desktop-bridge';
 
 function deferred<T = void>() {
@@ -16,6 +16,8 @@ function gate() { return { entered: deferred(), resume: deferred() }; }
 const hooks: { open?: ReturnType<typeof gate>; write?: ReturnType<typeof gate>; sync?: ReturnType<typeof gate> } = {};
 const opened: fs.FileHandle[] = [];
 let saveResult: Promise<{ canceled: boolean; filePath?: string }>;
+let openResult = { canceled: false, filePaths: [] as string[] };
+let openOptions: OpenDialogOptions | undefined;
 let destroyed = false;
 let focused = false;
 let showCount = 0;
@@ -32,7 +34,13 @@ class StubNotification extends EventEmitter {
   close() { this.closed = true; }
 }
 const electron = {
-  dialog: { showSaveDialog: async () => saveResult },
+  dialog: {
+    showSaveDialog: async () => saveResult,
+    showOpenDialog: async (_window: BrowserWindow, options: OpenDialogOptions) => {
+      openOptions = options;
+      return openResult;
+    },
+  },
   clipboard: { writeText() {} },
   shell: { openExternal: async () => {} },
   Notification: StubNotification,
@@ -184,6 +192,19 @@ test('native notification throttling is per session and bounds ownership without
   assert.deepEqual(f.events, [{ kind: 'navigate', path: '/h/fixture/s/33' }]);
   await f.native.dispose();
   assert.equal(notices.filter(notice => !notice.closed).length, 0);
+});
+
+test('native directory picker enables creation and preserves selection and cancellation', async t => {
+  const f = await fixture(t);
+  openResult = { canceled: false, filePaths: [path.join(f.directory, 'chosen folder')] };
+  assert.equal(await f.native.pickDirectory(), openResult.filePaths[0]);
+  assert.deepEqual(openOptions, {
+    properties: ['openDirectory', 'createDirectory'], title: 'Choose a local project directory',
+  });
+  openResult = { canceled: true, filePaths: [path.join(f.directory, 'ignored')] };
+  assert.equal(await f.native.pickDirectory(), undefined);
+  openResult = { canceled: false, filePaths: [] };
+  assert.equal(await f.native.pickDirectory(), undefined);
 });
 
 test('native effects reject privileged external schemes and malformed notification routes', async () => {

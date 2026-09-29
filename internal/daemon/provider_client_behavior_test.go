@@ -133,7 +133,10 @@ func TestProviderClientOnboardingPersistsSettingsWithoutJournalingSecrets(t *tes
 				if key != "private-api-key" {
 					return nil, errors.New("bad key")
 				}
-				return []llm.ModelInfo{{ID: "fixture-model", SupportsTools: new(true), OutputModalities: []string{"text"}}}, nil
+				return []llm.ModelInfo{
+					{ID: "fixture-model", SupportsTools: new(true), OutputModalities: []string{"text"}},
+					{ID: "compact-model"},
+				}, nil
 			}
 			service.login = func(_ context.Context, code func(string, string)) (providerLoginIdentity, error) {
 				code("https://example.test/verify", "display-code")

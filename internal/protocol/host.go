@@ -46,6 +46,17 @@ type HostDirectoryPickParams struct {
 	Start string `json:"start,omitempty"`
 }
 
+// HostDirectoryCreateParams creates one directory in an existing absolute parent.
+// Name is a single component; existing files and directories are never adopted.
+type HostDirectoryCreateParams struct {
+	Parent string `json:"parent"`
+	Name   string `json:"name"`
+}
+
+type HostDirectoryCreateResult struct {
+	Path string `json:"path"`
+}
+
 type HostDirectoryPickResult struct {
 	Path      string `json:"path,omitempty"`
 	Cancelled bool   `json:"cancelled"`

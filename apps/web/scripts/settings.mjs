@@ -46,6 +46,7 @@ for (const engine of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split
     await composer.fill('Keep this unsent draft while changing settings.');
     const before = await page.evaluate(() => sessionStorage.getItem('whip.web.workspace.v3'));
     await page.locator('#whip-settings-link').click();
+    await category('Appearance').click();
     await expect(page.getByRole('heading', { name: 'Appearance', exact: true })).toBeVisible();
     await expect(page.locator('#whip-session-navigation')).toHaveCount(0);
     await expect(page.getByRole('tablist')).toHaveCount(0);
@@ -108,6 +109,73 @@ for (const engine of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split
       await category(label).click();
       await expect(page.getByRole('heading', { name: label, exact: true })).toBeVisible();
       await expect(page.getByRole('button', { name: /^Attention ·/ })).toHaveCount(0);
+      if (label === 'Agents & execution') {
+        const model = page.getByRole('button', { name: 'Summary model', exact: true });
+        const percentage = page.getByRole('combobox', { name: 'Compact at', exact: true });
+        await expect(model).toHaveText('Conversation Model');
+        await expect(percentage).toHaveText('50%');
+        await expect(page.getByText('Summarize older context while keeping the full conversation history.', { exact: true })).toHaveCount(0);
+        const spacing = await page.evaluate(() => {
+          const measure = (firstId, secondId) => {
+            const row = document.getElementById(firstId), next = document.getElementById(secondId);
+            const section = row.closest('section'), panel = section.lastElementChild;
+            const rowBox = row.getBoundingClientRect(), panelBox = panel.getBoundingClientRect();
+            const rowStyle = getComputedStyle(row), panelStyle = getComputedStyle(panel);
+            return {
+              top: rowBox.top - panelBox.top, left: rowBox.left - panelBox.left,
+              gap: next.getBoundingClientRect().top - rowBox.bottom,
+              panelPadding: panelStyle.padding, headingGap: getComputedStyle(section).gap,
+              rowPadding: rowStyle.padding, divider: rowStyle.borderBottom,
+              labelSize: getComputedStyle(document.getElementById(firstId + '-label')).fontSize,
+            };
+          };
+          return { compaction: measure('compact_model', 'compact_percent'), limits: measure('goal_max_rounds', 'max_retries') };
+        });
+        for (const [key, value] of Object.entries(spacing.compaction)) {
+          const expected = spacing.limits[key];
+          // Allow browser subpixel rounding, but not a visible spacing difference.
+          assert.ok(typeof value === 'number' ? Math.abs(value - expected) < 0.1 : value === expected, 'Compaction spacing differs from neighboring settings: ' + key);
+        }
+        await expect(page.getByRole('button', { name: 'Advanced compaction settings', exact: true })).toHaveCount(0);
+        await model.click();
+        await expect(page.getByRole('option', { name: 'Conversation Model', exact: true })).toBeVisible();
+        await page.getByRole('option', { name: 'settings-model · openrouter', exact: true }).click();
+        await expect(model).toContainText('openrouter');
+        await percentage.click();
+        await expect(page.getByRole('option')).toHaveCount(9);
+        await page.getByRole('option', { name: '70%', exact: true }).click();
+        await page.getByRole('button', { name: 'Save host defaults', exact: true }).click();
+        await expect(page.getByRole('button', { name: 'Save host defaults', exact: true })).toBeDisabled();
+        let savedCompaction = JSON.parse((await readFile(join(fixture.directory, 'home', 'config.json'), 'utf8')).replace(/^\/\/[^\n]*\n/gm, ''));
+        assert.equal(savedCompaction.compactModel, 'settings-model');
+        assert.equal(savedCompaction.compactProvider, 'openrouter');
+        assert.equal(savedCompaction.compactPct, 70);
+        await auditServers('main');
+        await page.locator('#compact_model').scrollIntoViewIfNeeded();
+        await page.screenshot({ path: join(results, engine + '-compaction-custom.png') });
+        await model.click();
+        await page.getByRole('textbox', { name: 'Search models' }).fill('no-matching-model');
+        await page.keyboard.press('ArrowDown');
+        await expect(page.getByRole('option', { name: 'Conversation Model', exact: true })).toBeFocused();
+        await page.keyboard.press('Enter');
+        await expect(model).toBeFocused();
+        await select('Compact at', '50%');
+        await page.getByRole('button', { name: 'Save host defaults', exact: true }).click();
+        await expect(page.getByRole('button', { name: 'Save host defaults', exact: true })).toBeDisabled();
+        savedCompaction = JSON.parse((await readFile(join(fixture.directory, 'home', 'config.json'), 'utf8')).replace(/^\/\/[^\n]*\n/gm, ''));
+        assert.equal(savedCompaction.compactModel ?? '', '');
+        assert.equal(savedCompaction.compactProvider ?? '', '');
+        assert.equal(savedCompaction.compactPct, 50);
+        for (const width of [1440, 390, 320]) {
+          await page.setViewportSize({ width, height: 1080 });
+          await expect(model).toHaveText('Conversation Model');
+          assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Compaction settings overflow at ' + width);
+          await page.locator('#compact_model').scrollIntoViewIfNeeded();
+          await page.screenshot({ path: join(results, engine + '-compaction-' + width + '.png') });
+        }
+        await page.setViewportSize({ width: 1440, height: 1080 });
+        checks.push('two compaction controls, connected route, nine percentages, keyboard default reset, raw saved values, and 320px reflow');
+      }
       if (label === 'Servers') {
         await expect(page.getByRole('heading', { name: 'Servers', exact: true })).toHaveCount(1);
         await expect(page.getByRole('textbox', { name: 'Server address' })).toHaveCount(0);
@@ -185,6 +253,11 @@ for (const engine of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split
     await page.getByRole('option', { name: 'Claude Code Dark', exact: true }).click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'claude-code');
     await page.screenshot({ path: join(results, `${engine}-appearance-dark.png`) });
+    await category('Agents & execution').click();
+    await expect(page.locator('#compact_model')).toContainText('Conversation Model');
+    await page.locator('#compact_model').scrollIntoViewIfNeeded();
+    await auditServers('main');
+    await page.screenshot({ path: join(results, engine + '-compaction-conversation-dark.png') });
     await category('Servers').click();
     await auditServers('main');
     await page.screenshot({ path: join(results, `${engine}-servers-dark.png`) });
@@ -293,6 +366,37 @@ for (const engine of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split
     await themeSearch.press('Escape');
     await page.screenshot({ path: join(results, `${engine}-appearance-narrow.png`) });
     checks.push('1024/768/767/390/320 widths, narrow category search keyboard focus, and maximum UI size reflow');
+    await page.getByRole('button', { name: 'Appearance', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Settings', exact: true }).getByRole('button', { name: 'Agents & execution', exact: true }).click();
+    const compactModel = page.getByRole('button', { name: 'Summary model', exact: true });
+    await expect(compactModel).toHaveText('Conversation Model');
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Compaction large text overflow at 320px');
+    await page.locator('#compact_model').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(results, engine + '-compaction-large-text-320.png') });
+    await compactModel.click();
+    const compactList = page.getByRole('listbox', { name: 'Models', exact: true });
+    assert.ok(await compactList.evaluate(element => { const box = element.getBoundingClientRect(); return box.left >= 0 && box.right <= innerWidth && element.scrollWidth <= element.clientWidth; }), 'Compaction model menu overflow');
+    await page.getByRole('textbox', { name: 'Search models' }).press('Escape');
+    await expect(compactModel).toBeFocused();
+    await page.setViewportSize({ width: 1440, height: 1080 });
+    await page.goto(chatURL + '?panel=context');
+    const inspector = page.getByRole('dialog', { name: 'Session details', exact: true });
+    await expect(inspector).toBeVisible();
+    await select('Context settings section', 'Compaction');
+    await expect(inspector.getByRole('button', { name: 'Summary model', exact: true })).toHaveText('Conversation Model');
+    await expect(inspector.getByRole('combobox', { name: 'Compact at', exact: true })).toHaveText('50%');
+    await expect(inspector.getByText(/shared host defaults/)).toBeVisible();
+    assert.ok(await inspector.evaluate(element => element.scrollWidth <= element.clientWidth), 'Compaction inspector overflows');
+    const controlGeometry = await inspector.evaluate(element => {
+      const group = element.querySelector('#compact_model');
+      const control = group.querySelector('button');
+      const label = group.querySelector('#compact_model-label');
+      return { width: control.getBoundingClientRect().width, labelBottom: label.getBoundingClientRect().bottom, controlTop: control.getBoundingClientRect().top };
+    });
+    assert.ok(controlGeometry.width >= 200 && controlGeometry.controlTop >= controlGeometry.labelBottom, 'Narrow inspector should stack controls at readable widths');
+    await page.screenshot({ path: join(results, engine + '-compaction-inspector.png') });
+    checks.push('compaction at maximum text size/320px, focused searchable menu, and stacked shared controls in a narrow inspector');
+
     assert.deepEqual(errors, [], 'Browser runtime errors');
     assert.deepEqual(await page.evaluate(() => window.cspErrors), [], 'Production CSP violations');
     await writeFile(join(results, `${engine}.json`), JSON.stringify({ engine, checks, pageErrors: errors, cspErrors: [], frameCount: frames.length }, null, 2));

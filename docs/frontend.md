@@ -646,6 +646,13 @@ SDK client and `SessionListView` for each attached daemon. Components subscribe
 using `useSyncExternalStore` through app hooks or `@whip/sdk/react`. Store
 snapshots remain immutable and referentially stable between changes.
 
+Optimistic intent lives in the SDK view that owns the data, not in component
+state: `SessionListView.setOptimisticArchived` hides or restores a row the
+moment the user acts, and every later server publish reconciles the overlay
+against the fetched catalog (server truth wins, agreeing entries are dropped).
+Callers revert by setting the opposite intent; they never filter server state
+themselves.
+
 Local is the daemon supplied by the browser launch endpoint, or the managed
 This Mac runtime in Electron. Its configuration
 owns the `remote_hosts` registry, shared by browsers using that local daemon:
@@ -1178,6 +1185,27 @@ session listing stays with `SessionListView`; filtered search and host attention
 are separate reads. Do not confuse agent mailbox messages with queued execution
 inputs in the root inbox.
 
+Session titles are daemon-owned metadata. The first accepted authored text supplies
+a deterministic title; eligible titles get one background compact-model request
+without waiting for the conversation turn. The existing `session.title.updated`
+root event updates an observed conversation. Connections negotiating
+`session_title_notifications` also receive `sessions.title.changed` with only a
+`root_id` after committed naming, manual renames, and fork creation. This is a
+best-effort invalidation hint, not a title value to apply.
+
+The SDK `SessionListView` owns its notification listener and reuses its coalesced
+catalog refresh. Desktop/web owns one additional listener per attached client in
+`AppRuntime`, invalidating only that host's existing tab/sidebar summaries, search,
+and attention queries. No per-conversation subscription or second title cache is
+created. Query results still supply tab title hints; notifications never overwrite
+unsent rename drafts. Reconnect replaces listeners; detach and disposal remove them.
+
+All existing polling intervals, observation/visibility gates, page bounds, and
+reconnect/focus recovery stay unchanged. They cover missed notifications and hosts
+without this capability. Off-page sessions get current titles when fetched. Search
+invalidation includes all cached terms for the host, because a rename can change
+result membership, not only visible text.
+
 The SDK owns snapshot/cursor consistency, replay, subscription IDs, duplicate/gap
 checks, resynchronization, and history revisions. It processes every event in
 order and batches notifications (normally 16 ms); it does not drop intermediate
@@ -1268,6 +1296,26 @@ Provider onboarding, tokens, machine keys, and shared configuration writes remai
 host-owned. API-key entry is an ephemeral UI input: never place it in drafts,
 Query persistence, command-recovery storage, or logs. Configuration updates use
 revision checks; display conflicts instead of overwriting newer settings.
+
+Compaction settings expose two controls: Summary model defaults to Conversation
+Model, and Compact at defaults to 50%, with 10–90% choices in ten-point increments.
+No Advanced disclosure or separate Automatic/Custom modes. Conversation Model is
+an optional first-class choice in CatalogModelPicker; selecting it clears both
+model and provider, while explicit choices select a connected pair. Open the
+picker to load its host-scoped catalog; keep the default choice available on
+catalog failures and while searching. Show provider identity in the closed control.
+Zero remains the stored default sentinel; never dirty a form by displaying it as
+50%. Preserve non-ten/out-of-range saved percentages and unavailable routes until
+explicitly changed. The backend continues accepting integers from 10–90%.
+Host settings and the inspector share these controls and preserve revision-checked
+drafts. They describe host defaults, not a live effective route or a session-only
+override; explicit agent-definition compaction settings still take precedence.
+The Conversation Model label requires the paired updated execution host: older
+hosts interpreted empty model as DeepSeek. The current handshake does not prove
+support, so display a short compatibility note rather than guessing from protocol
+version or a dev build. Actual summary
+model/provider and any compaction fallback are read from the existing call trace;
+do not add a second client routing resolver or history store.
 `settings/provider-connections.tsx` reads the inexpensive `provider.list`
 inventory, scoped to the execution host, independently of model discovery.
 Opening setup and explicit Settings Refresh use the ephemeral `provider.discover`
@@ -1402,7 +1450,8 @@ the shared Whip controls and theme tokens. Attachment and context controls remai
 disabled until a session exists; their backend operations require a root identity.
 The folder button opens the native system picker directly for the local machine
 and the host directory browser for remote hosts. If a local host has no native
-picker available, the existing host-browser fallback remains available.
+picker available, the existing host-browser fallback remains available. The desktop
+native chooser enables folder creation through Electron’s `createDirectory` option.
 
 `remote-directory-dialog.tsx` implements the remote picker from Paper FYQ-1,
 G8C-1 and GHR-1 using shared Dialog, Input, Checkbox, Menu and Button components.
@@ -1413,6 +1462,20 @@ Single-click selects; double-click, Enter or the trailing chevron opens a folder
 Arrow keys move selection, Cmd/Ctrl+Shift+G edits the path and Cmd/Ctrl+Enter
 confirms. Escape first leaves path editing, then closes the dialog. Confirmation
 updates only the draft folder; it never sends the first message.
+
+**New folder** creates one child of the currently displayed directory on the
+selected execution host. Its inline name form keeps filesystem errors visible
+without discarding the name. The SDK's `host.createDirectory` calls the host-scoped
+`host.directory.create` mutating RPC, not a session command or an agent tool.
+The daemon validates the absolute parent and single-component name and uses a
+non-recursive filesystem mkdir; it never overwrites or silently adopts an existing
+entry. Requests are not automatically retried. The advertised operation catalog
+gates the action for older hosts, with an update-host explanation and a hover/focus
+tooltip on **New folder**: “Host does not support folder creation. Please upgrade.”
+After success, the picker invalidates cached directory listings on the captured
+host, clears filtering/pagination and opens the created folder. **Choose folder**
+remains an explicit separate confirmation. Closing or changing the host does not
+undo creation; stale completions cannot navigate or choose on a different host.
 
 Listings use `client.host.directories` with a 64-entry page, a debounced filename
 prefix and hidden folders off by default. Next/First controls expose pagination;
@@ -1470,9 +1533,10 @@ Provider rows grow for wrapped labels and mobile touch targets. Connection and
 model confirmation reuse the existing flows; completing setup returns focus to
 the preserved draft composer without sending it.
 
-Sending the first message is three commands through the runtime's command
-runner: `sessions.create`, an optional `session.effort` with `persist_default:
-false` when the draft chose an effort, then `submit`. Acceptance of the submit
+Sending the first message is two commands through the runtime's command
+runner: `sessions.create`, carrying `effort` when the draft chose one (the
+daemon otherwise resolves the configured default against the model, protocol
+6.9), then `submit`. Acceptance of the submit
 promotes the New Chat tab in place into the session's tab (`SessionTabs.promoteNew`);
 the router follows only when that draft route is still focused, so a background
 pane never steals focus. The draft is cleared only if its text is still what was
@@ -1537,7 +1601,11 @@ execution also hosts the agent editor (`settings/agents.tsx`): it lists the
 host's definitions from `definitions.list`, derives the module and capability
 catalog from the built-in coding definition, builds the canonical document with
 the SDK's `defineAgent`, and registers it; registering an existing id adds a
-revision and never changes running sessions. The welcome page's Agent picker
+revision and never changes running sessions. Creation, copying and editing use
+the same compact dialog: stacked UI Fields, responsive module/capability Fieldsets,
+and a More options disclosure for project discovery and session flags. Keep
+authority choices visible; do not reuse the full-page SettingsRow layout inside
+this form. The welcome page's Agent picker
 reads the same query (`definitions.ts`) and sends `definition` with
 `session.create`; hosts that do not advertise the registry hide the picker. Every category
 uses the Settings heading and shared groups; no category shows the Attention
@@ -1711,9 +1779,12 @@ adds no live region, requests, retained history, or SDK event reconciliation.
 changes are coalesced to at most 30 parses/second, with stable unchanged block
 ASTs and a 512-document / 2 MiB source cache. This is not an incremental parser.
 Conservative trailing inline delimiter completion affects display only. One
-response-copy footer uses original retained assistant prose before display splits;
-reasoning, tool output and mailbox deliveries are excluded. Partial history reads
-say **Copy visible response**, with the existing 256K-character bound. Selected
+response footer uses original retained assistant prose before display splits for
+copying; reasoning, tool output and mailbox deliveries are excluded. Partial
+history reads say **Copy visible response**, with the existing 256K-character
+bound. The same projection owns its last assistant timestamp and committed
+history endpoint; folded tool-result sequences remain part of that endpoint.
+Unknown or incomplete endpoints do not expose history mutations. Selected
 Markdown blocks preserve their DOM until selection ends, then display the latest
 source; other blocks continue streaming. Code decoration receives original token
 offsets and never changes its source or copy semantics.
@@ -1930,8 +2001,22 @@ User messages use right-aligned, theme-derived bubbles. Timestamps and existing
 copy/history actions appear below the bubble on hover or keyboard focus; touch
 keeps the controls available. Show recorded `sent_at` values when supplied, and
 never invent timestamps for historical messages that lack them.
-Agent responses omit a repeated author heading and show one left-aligned copy
-control in the completed response footer, with no per-paragraph copy control.
+Agent responses omit a repeated author heading and show one left-aligned
+history-menu/copy/time footer per completed response, mirroring the user footer,
+not per paragraph or tool step. Its controls follow the same hover, focus,
+open-menu, and touch behavior without moving the transcript. Assistant `sent_at` is recorded once on the
+execution host when the message enters the journal, survives reload/fork, and
+never enters provider requests. The footer uses the last assistant timestamp,
+formats time in the viewer's locale, and exposes the full date accessibly.
+
+**Fork from here** includes the selected response. **Rewind to here…** confirms
+before removing later conversation and restoring tracked files where supported.
+The committed response endpoint includes trailing tool results: fork uses its
+inclusive sequence, rewind the next sequence. Commands retain the existing
+root-only scope, expected-history-revision guards, and local errors. Rewind is
+unavailable during running root work or at the latest endpoint; disconnected,
+child, and uncertain-endpoint footers do not show an empty history menu. User
+message actions retain their existing behavior.
 
 A large image attachment must not replace its message with a “Read stored message”
 button. Mounted user/assistant rows automatically fetch referenced transcript
@@ -2076,24 +2161,39 @@ reveals/focuses the window, dialogs guard the action, and no web hotkey is insta
 ### Saved-session navigation
 
 [`session-sidebar.tsx`](../packages/app/src/session-sidebar.tsx) projects the SDK's
-bounded per-host catalogs into host sections, virtual directory headers and compact
-session rows in one scroll area. Group within each host by exact `cwd`: worktrees remain separate, directories with matching names show
-a distinguishing parent suffix, and full paths remain available in labels and
-titles. Groups follow their first catalog occurrence; sessions retain server
-pin/recency order. Only loaded pages are grouped; Load more retains the SDK's
-existing page/cache limits. Each directory initially shows at most seven sessions;
-More reveals seven additional loaded sessions per click. Only once all loaded
-sessions in the directory are visible does Less replace More; Less resets to seven.
-Expansion is local to the mounted host list (up to 64 directory preferences);
-route navigation reveals an older selected session by expanding its directory.
-Sidebar labels never lease root views.
+bounded per-host catalogs into one virtualized **Projects** list shared by desktop
+and web. Group by verified runtime identity and exact cwd: worktrees remain
+separate, matching names on one host show a distinguishing parent suffix, and
+full paths are available on focus/hover. Local and remote directories interleave
+by their newest loaded session update, with stable identity tie breaks; sessions
+inside each directory retain server pin/recency order. Directory headings are
+text-only, with a disclosure caret on hover/focus. Remote directories carry a
+host label and connection mark. Their compact, theme-native details popover shows
+host/status, a secondary connection address (SSH user/host/port where applicable,
+omitted when identical to the host name), a wrapping path, and left-aligned
+reconnect/server management actions. Duplicate display names expose their full
+disambiguated identity in the details, without row truncation. Local folders omit host metadata
+unless unavailable. Temporary disconnects retain SDK-stale rows but never live
+activity indicators; explicit Disconnect still disposes the catalog.
+
+Only loaded pages are grouped. Host-labelled Load more controls retain independent
+SDK cursors and page/cache limits; directory More is disclosure, not a fetch.
+Each directory initially shows at most seven sessions. More reveals seven
+additional loaded sessions per click; Less appears only when all are shown and
+resets to seven. Expansion is mounted state (64 directories per host), released
+when that host detaches. Exact host/path collapse retains the existing bounded v1
+window preferences. Only route navigation reveals an older selected session;
+polling never undoes a deliberate collapse. Host-scoped keys also own hover,
+scroll anchors, actions and drag sources. Catalog snapshots are observed directly,
+not mirrored into Query or component state. Summary requests are partitioned by
+host and include only rendered/overscan rows. Sidebar labels never lease root views.
 
 New session, Search sessions and Settings are the top destinations; execution-host
 management stays at the end of the scrollable content. The brand/window controls
-and New session remain pinned; Search, Settings, host sections, and Servers share
+and New session remain pinned; Search, Settings, directory groups, and Servers share
 one scroll area. A theme-derived hairline and 12 px soft fade appear below the
 pinned header only after scrolling, with a reduced-motion-aware opacity transition.
-Host headings show connection status and collapse independently. Each pane's tab strip sits above the shared [`SessionTopBar`](../packages/app/src/session-top-bar.tsx): host/project, selected
+Only directory groups collapse; there are no host headings. Each pane's tab strip sits above the shared [`SessionTopBar`](../packages/app/src/session-top-bar.tsx): host/project, selected
 agent, current activity and scoped actions. Chat, REPL and trace/span views use
 this same component, including loading and unavailable states. It owns the
 fixed-position Chat / REPL / Trace single-selection view controls and a separate
@@ -2309,6 +2409,12 @@ an optional typed `xstyle` extension where appropriate. Base UI `render` and
 `mergeProps` preserve composition. Keep interactive siblings separate; a tab link
 cannot contain its own close/menu button. App-specific data fetching belongs in
 app controllers/hooks, not in UI controls.
+
+Shared Dialog/AlertDialog scrolling belongs to the UI component's Base UI
+viewport: popups use natural content height and move as a whole over a fixed
+backdrop. Short dialogs remain centered; tall dialogs retain the former top
+spacing. Sheet and explicitly bounded picker compositions keep their own internal
+scrolling. Consumers should not add wrappers to implement default dialog scrolling.
 
 Use `stylex.create` and `stylex.props` for authored visuals and import shared
 variables from `@whip/ui/tokens.stylex`. The `.stylex` suffix is required for
@@ -2552,6 +2658,16 @@ accepts additive incoming fields, and surfaces unknown event kinds explicitly.
 Malformed known messages are protocol errors. Feature components must not create
 their own WebSocket clients or handwritten JSON-RPC envelopes.
 
+Go protocol definitions and generators are the authored contract. Both
+`packages/protocol/schema/` (schemas, manifest and interoperability fixtures) and
+`packages/protocol/generated/` (JavaScript and declarations) are ignored build
+output. Initialize with `npm ci` and `task generate` before client development.
+The task runs Go-to-schema generation, then validator/declaration generation and
+SDK compilation. Ordinary builds consume the prepared files; they do not generate
+the protocol. Freshness checks compare local output with current source without
+rewriting it. Package archives contain ready-to-use JavaScript and declarations,
+so archive consumers do not need Go or a generator.
+
 The browser uses the gateway's WebSocket API and scoped HTTP content transfers.
 The gateway relays the existing protocol to the socket-only daemon; it owns no
 execution engine, store, or independent HTTP business API.
@@ -2666,11 +2782,11 @@ Useful starting files:
 
 ## Development and validation
 
-Run from the repository root with Node 24 and the Go toolchain in `go.mod`.
+Run from the repository root with Node 24, the Go toolchain in `go.mod`, and Task.
 
 ```sh
 npm ci
-npm run build                  # SDK artifacts used by the app
+task generate                  # protocol artifacts and SDK used by the app
 # In another terminal, run a gateway for the intended compatible daemon:
 # WHIPCODE_LISTEN=127.0.0.1:4444 whipcode web --no-open
 # Attaches through the local dev proxy; no daemon restart.
@@ -2685,6 +2801,12 @@ The proxy accepts only local requests from the exact dev origin, then rewrites
 the upstream origin for HTTP content and WebSockets. It does not start or
 reconfigure a gateway or daemon. Shared app/UI source edits use React Fast Refresh;
 SDK source edits still require `npm run build`.
+Rerun `task generate` after pulling, switching branches, or editing protocol
+definitions/generators; rerun `npm ci` first when dependencies change. Development
+launches do not automatically detect protocol drift. `npm run check` and packaging
+freshness checks reject stale or missing artifacts and direct you to refresh them.
+Protocol-dependent CI jobs initialize once before checks. Docs/UI-only workflows
+remain independent and do not need protocol generation.
 Use [web-app.md](web-app.md) for daemon/gateway
 setup, production assets, trusted-network access, and troubleshooting. A daemon
 restart interrupts work; do not restart or reset a developer's runtime as a
@@ -2713,6 +2835,8 @@ node apps/web/scripts/snapshot-refresh.mjs
 node apps/web/scripts/session-tabs.mjs
 node apps/web/scripts/workspace-layout.mjs
 node apps/web/scripts/sidebar.mjs
+node apps/web/scripts/agents.mjs # isolated agent-editor fixture; no daemon needed
+node apps/web/scripts/directory-sidebar.mjs
 node apps/web/scripts/session-search.mjs
 node apps/web/scripts/performance.mjs
 # Actual Safari on macOS, distinct from Playwright WebKit:

@@ -137,6 +137,19 @@ Available modules are summarized in [tools.md](tools.md).
   bounded summary.
 - `context.inspect/search/read` returns source metadata and byte spans.
 - Proactive and reactive compaction protect the provider context window.
+  Conversation Model uses each agent's conversation model/provider, with no auxiliary
+  account requirement. An omitted model and zero threshold use the defaults (50%);
+  existing saved custom routes are preserved. Host settings and the idle-session
+  inspector share two controls: a model/provider picker with Conversation Model
+  and a Compact at selector offering 10–90% in ten-point increments. Missing or
+  too-small custom routes and definite safe request rejections
+  can fall back to the conversation route, with a notice and the actual route and
+  reason on the summary's trace. Cancellation, uncertain completion, partial
+  output and accounting/budget failures never cause a second-route replay.
+  See [compaction settings](models-providers.md#compaction-model),
+  `cmd/whip/daemon.go`, `internal/agent/agent.go`,
+  `packages/app/src/settings/configuration.tsx`, and their configuration,
+  compaction-fallback and settings regression tests.
 - Large values are immutable, content-addressed, and separately authorized.
 
 The deterministic evaluation expands a corpus above 500 KB and proves the
@@ -304,6 +317,16 @@ root prompt (`evals/rlm`).
   [agent-loop.md](agent-loop.md).
 - Model-to-provider routing, live catalog discovery, context/output limits,
   reasoning effort, vision flags, sampling parameters, and pricing.
+- Reasoning effort is one vocabulary, `off` or a catalog level, in the saved
+  session row, the runner, the TUI, the web app and the wire. A session stores
+  a concrete effort from creation: the `session.create.effort` request, else
+  the agent definition's default, else the configured default, resolved against
+  the model's catalog entry (`config.ResolveEffort`). Sessions saved before
+  this rule are resolved the first time the daemon opens them. `off` becomes an
+  omitted request parameter at the llm encoders. Switching to a model that does
+  not support the saved level sets the session to `off`. Coverage:
+  `TestSessionCreationStoresConcreteEffort`, `TestOpenResolvesLegacyBlankEffort`,
+  `TestOffEffortOmitsReasoningParameter`, `TestResolveEffortModelAware`.
 - `models.call` and `models.batch` provide stateless analysis without creating
   durable child identities; batch results retain input order.
 - Prompt-cache keys are stable per retained session: the daemon stamps
@@ -614,6 +637,46 @@ verified tools, helpers, a child, images, title/compaction and restart recovery.
   inspection and management remain in the session inspector.
 - Process shutdown is root-owned and waits for supervised workers.
 
+## Session naming
+
+- Session creation remains promptless. The first accepted user message with usable
+  text supplies a whitespace-normalized, Unicode-bounded deterministic title before
+  conversation execution. Multipart text follows the same root-input path;
+  attachment-only messages wait for authored text rather than invoking vision. A
+  later execution failure does not undo naming of an already accepted message.
+- Deterministic titles shorter than 20 Unicode characters are kept without an LLM
+  call. At 20 characters or more, automatic naming is enabled by default: one
+  daemon-owned background request uses the automatic conversation route or saved
+  custom compaction route (with its setup fallback), using only the user text,
+  with a 20-second timeout.
+  Definition `surface.auto_title=false` skips this request but retains the
+  deterministic title. No separate per-session enablement
+  command or inspector control is required.
+- Failure or shutdown retains the deterministic title; there is no retry job or
+  old-session backfill. Duplicate input does not schedule another attempt. Manual
+  rename wins over in-flight generation, and fork names are preserved. Title calls
+  retain normal model-accounting and budget enforcement.
+- Persisted title changes bump the existing catalog revision and emit a negotiated
+  host-level `sessions.title.changed` notification containing only the root ID.
+  Deterministic titles (including short titles), generated titles, manual renames,
+  and newly created forks trigger existing catalog/summary reads without opening
+  the conversation. Active conversations retain the ordered root title event.
+- Notifications are best-effort invalidation hints, not another title cache. SDK
+  catalogs refresh and Desktop/web invalidates that host's tab/sidebar summaries,
+  search, and attention queries. Existing polling intervals and visibility gates
+  remain unchanged as backup; older clients/hosts continue polling. Off-page and
+  disconnected views read current titles when fetched or reconnected.
+- Code: `internal/session/{command,title}.go`,
+  `internal/daemon/{session,agent_session,client_control}.go`. Validation: session
+  `internal/session/title_admission_test.go`, daemon title lifecycle and metadata
+  routing tests (`title_lifecycle_test.go`, `metadata_routing_test.go`), title
+  model-accounting tests, and notification delivery/lifecycle tests in
+  `internal/daemon/title_notifications_test.go`. Client coverage lives in
+  `packages/sdk/test/{client,state}.test.ts` and
+  `packages/app/test/{session-title-notifications,session-tab-titles}.test.ts*`.
+  `apps/web/scripts/session-title-notifications.mjs` verifies real WebSocket
+  delivery and unopened-sidebar/inactive-tab updates in Chromium and Firefox.
+
 ## TypeScript client SDK
 
 - Desktop/web active-turn messages enter a durable queue above the composer.
@@ -751,6 +814,7 @@ behavior to its owning code and repeatable validation.
 | Live session trace view (resizable execution tree, waterfall, and span details; pointer/keyboard dividers; ~30 fps live clock, paused when hidden/idle or motion is reduced) fed by durable nanosecond spans and live span events; one trace per root turn with child turns parented under their cause; OTLP/JSON export with GenAI + OpenInference attributes via `trace.export` and `whipcode sessions export` | `internal/session/{span,otlp_export}.go`, `internal/daemon/spans.go`, `packages/sdk/src/trace.ts`, `packages/app/src/{trace-view,trace-math}.ts*`, `cmd/whip/sessions_export.go` | `internal/session/{span,otlp_export}_test.go`, `internal/daemon/v2_event_schema_test.go`, `packages/sdk/test/trace.test.ts`, `packages/app/test/{trace-view,trace-math}.test.ts*` |
 | Attach to existing hosts, discover each directory tree, and route to retained sessions | `apps/web/src/main.tsx`, `packages/app/src/runtime.ts`, `packages/app/src/{shell,directory-picker}.tsx`, `internal/daemon/host.go` | `packages/app/test/runtime.test.ts`, `internal/daemon/host_test.go`, `apps/web/scripts/browser.mjs` |
 | Choose a Local working directory in the OS-native folder dialog (osascript/zenity/kdialog/PowerShell), falling back to the web directory browser; Remote uses its daemon directory browser | `host.directory.pick` in `internal/{protocol,daemon}/host.go`, `packages/sdk/src/services.ts`, `packages/app/src/directory-picker.tsx` | `TestDirectoryPickCommand`/`TestHostDirectoryPickValidation` in `internal/daemon/host_test.go` |
+| Create a folder while choosing a new-session directory: native desktop New Folder, or inline New folder on the selected host; validate one child name, preserve errors, open the created folder, then explicitly Choose folder. Older hosts retain browsing with an update explanation. | `apps/desktop/src/native.ts`, `host.directory.create` in `internal/{protocol,daemon}/host.go`, `packages/sdk/src/services.ts`, `packages/app/src/remote-directory-dialog.tsx` | `apps/desktop/tests/native.test.ts`, `internal/daemon/host_test.go`, `packages/sdk/test/services.test.ts`, `packages/app/test/remote-directory-dialog.test.tsx` |
 | Multiple daemon connections, Local-owned saved profiles, verified identities, isolated disconnects and guided Local/Remote session creation | `packages/app/src/{hosts,runtime}.ts`, `{host-dialog,welcome,settings}.tsx`, `internal/config/remote_hosts.go`, daemon configuration service | `packages/app/test/hosts.test.ts`, `runtime.test.ts`, `sidebar-creation.test.tsx`; `internal/config/remote_hosts_test.go`; `TestProviderClientRemoteHostsPreserveConfigurationAndRejectConflicts` |
 | Search and advisory attention across hosts, source labels/filter, independent bounded pagination and partial failures without root hydration | `packages/app/src/{session-search-dialog,attention}.tsx` | `packages/app/test/multi-host-discovery.test.tsx` |
 | Author data-only agent definitions in Settings (persona, rules, discovery, modules, capabilities, surface), copy built-ins, add revisions to registered ids, and pick the agent a new session runs | `packages/app/src/settings/agents.tsx`, `packages/app/src/definitions.ts`, `packages/app/src/welcome.tsx`, `session-tabs.ts` (`definition`) | `packages/app/test/settings-agents.test.tsx`, `sidebar-creation.test.tsx` (agent picker), `session-tabs.test.ts` |
@@ -766,6 +830,7 @@ behavior to its owning code and repeatable validation.
 | Root/child conversations, grouped tool calls, read-only Starlark, bounded history and recipient-scoped drafts | `packages/app/src/{conversation,timeline,composer}.tsx`, SDK session views | `packages/app/test/{timeline,composer}.test.tsx`, production browser fixture; `apps/web/scripts/performance.mjs` exercises 10,000 root messages, 100 retained children, stable selection/scroll and 32 drafts under 16 concurrent streams |
 | Compact growing composer, shared model/reasoning picker for idle root sessions, and neutral input focus borders | `packages/app/src/{composer,model-selection}.tsx`, shared UI form styles | Composer tests; `apps/web/scripts/browser.mjs` (growth/shrink, explicit model/effort changes, busy state, draft/reload preservation); `apps/web/scripts/model-picker.mjs` (detail-card bounds, side flipping, scrolling, keyboard and resize in Chromium/Firefox); split workspace browser fixture |
 | Right-aligned user bubbles, hover/focus timestamps and controls, immediate submission previews, queued/running inbox messages | `packages/app/src/{input-presentation,runtime}.ts`, `packages/app/src/{conversation,timeline,composer}.tsx` | `packages/app/test/input-presentation.test.tsx`, composer/runtime tests, `apps/web/scripts/user-messages.mjs` (Chromium/Firefox delayed request, running turn, reload, duplicate text, hover/focus and responsive themes) |
+| One completed-agent-response footer with recorded local time, bounded Markdown copy, and root-only Fork from here / Rewind to here actions that keep the selected response | `packages/app/src/{conversation-rows,chat-activity-rows}.ts`, `{timeline,conversation}.tsx`; `internal/agent/agent.go`, `internal/llm/openai.go` | App response grouping/timeline/history-action tests; agent timestamp/provider-filtering and daemon endpoint tests; `apps/web/scripts/user-messages.mjs` (Chromium/Firefox date, clipboard failure/retry, keyboard/touch, themes, inclusive fork/rewind and reload) |
 | Errors owned by application, host, session, turn, execution, submission, resource, action or validation, each with one canonical display | [Ownership rules](frontend.md#error-ownership-and-canonical-displays), `packages/app/src/error-feedback.tsx`; latest turn outcome only, recorded execution failures retained | `local-errors.test.tsx`, `welcome-recovery.test.tsx`, error ownership browser fixture |
 | Questions, permission decisions, remembered rules and exact-turn cancellation | `packages/app/src/{requests,conversation}.tsx`, SDK permission/command helpers | `packages/app/test/requests.test.tsx`, two-client production browser fixture, existing daemon permission tests |
 | Recursive work, mailbox/evidence inspection, goals, schedules, budgets, context and integrations | `packages/app/src/inspector.tsx`, `packages/app/src/details/`, host read services | `packages/app/test/inspector.test.tsx`, `internal/daemon/host_test.go`, generated SDK operation coverage |
@@ -1198,8 +1263,12 @@ WHIP's themes. It groups the loaded SDK catalog by exact directory, keeps
 worktrees distinct, preserves pin/recency order, and shows seven sessions per folder
 by default. More reveals seven additional loaded sessions at a time; once all are
 visible, Less resets the folder to seven. It offers New session, Search
-sessions and Settings. Hosts have separate headings and connection status within
-one sidebar. Directory + preselects its source host and folder in the Local/Remote
+sessions and Settings. Local and remote directories interleave by their newest
+loaded session update in one virtualized Projects list, with no host headings.
+Project headings are text-only. Remote directories show a host name and connection
+status, with compact identity/path details and left-aligned server actions. Exact runtime/path keys isolate collapse, scroll,
+activity and actions; transient disconnects retain stale rows, explicit detach
+clears them. Host-labelled pagination keeps independent catalog limits. Directory + preselects its source host and folder in the Local/Remote
 creation form; it does not create work until submitted. Search opens a centered
 dialog with host labels/filter, recent sessions, debounced host search, independent
 bounded paging, partial errors and arrow/Enter navigation (`session-search-dialog.tsx`; `apps/web/scripts/session-search.mjs`).
@@ -1219,7 +1288,7 @@ Code: `packages/app/src/session-sidebar.tsx`, `sidebar-state.ts`,
 `sidebar-layout.tsx`, `welcome.tsx`, and `session-tab-routing.ts`.
 Tests: `sidebar-state.test.ts`, `sidebar-layout.test.tsx`,
 `sidebar-creation.test.tsx`, `session-tab-routing.test.ts`, and the isolated
-production-browser workflow `apps/web/scripts/sidebar.mjs`.
+production-browser workflows `apps/web/scripts/sidebar.mjs` and `directory-sidebar.mjs`.
 
 
 ## Multiple execution hosts in the web workspace

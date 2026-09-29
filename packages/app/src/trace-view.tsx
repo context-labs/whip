@@ -263,6 +263,11 @@ function SpanDetails({ width, view, node, domainStartMs, now, agents }: { width:
         <dl {...stylex.props(styles.stats)}>
           {stats.map(([label, value]) => <div key={label} {...stylex.props(styles.stat)}><dt {...stylex.props(styles.statLabel)}>{label}</dt><dd {...stylex.props(styles.statValue)}>{value}</dd></div>)}
         </dl>
+        {span.kind === 'llm' && text(attrs.purpose) === 'compaction' && <div {...stylex.props(styles.section)}>
+          <span {...stylex.props(styles.sectionLabel)}>Summary route</span>
+          <p {...stylex.props(styles.notice)}>{text(attrs.model) || span.name} · {text(attrs.provider) || 'Provider not recorded'}</p>
+          {text(attrs.compaction_fallback) && <p {...stylex.props(styles.notice)}>{text(attrs.compaction_fallback)}</p>}
+        </div>}
         {bodies.map(([label, value]) => <div key={label} {...stylex.props(styles.section)}>
           <CodeBlock code={value} label={label} xstyle={styles.code} />
         </div>)}

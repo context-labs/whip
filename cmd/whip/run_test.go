@@ -19,13 +19,33 @@ import (
 	"github.com/context-labs/whip/internal/session"
 )
 
-// runFixture writes a config pointing the default model at an SSE test
-// server that replies with reply (and records each request into reqs).
+// respondToTitleRequest handles the daemon's prompt-only naming request without
+// adding it to conversation captures or advancing a tool-call fixture.
+func respondToTitleRequest(t *testing.T, w http.ResponseWriter, request llm.Request) bool {
+	t.Helper()
+	if len(request.Messages) == 0 || request.Messages[0].Role != "system" ||
+		!strings.HasPrefix(request.Messages[0].Content, "Name this session based on") {
+		return false
+	}
+	if request.Stream || len(request.Tools) != 0 || len(request.Messages) != 2 ||
+		request.Messages[1].Role != "user" || strings.TrimSpace(request.Messages[1].Content) == "" {
+		t.Errorf("title request must be nonstreaming and prompt-only: %+v", request)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprint(w, `{"choices":[{"message":{"role":"assistant","content":"Fixture session title"},"finish_reason":"stop"}]}`)
+	return true
+}
+
+// runFixture writes a config pointing the default model at a test server that
+// replies with reply and records only conversation requests into reqs.
 func runFixture(t *testing.T, reply string, reqs *[]llm.Request) {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req llm.Request
 		json.NewDecoder(r.Body).Decode(&req)
+		if respondToTitleRequest(t, w, req) {
+			return
+		}
 		if reqs != nil {
 			*reqs = append(*reqs, req)
 		}
@@ -273,6 +293,9 @@ func TestRunMaxTurns(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req llm.Request
 		json.NewDecoder(r.Body).Decode(&req)
+		if respondToTitleRequest(t, w, req) {
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		if len(req.Tools) == 0 {
 			fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"final answer"},"finish_reason":"stop"}]}`+"\n\n")
@@ -463,6 +486,9 @@ func TestRunJSONToolEvents(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req llm.Request
 		json.NewDecoder(r.Body).Decode(&req)
+		if respondToTitleRequest(t, w, req) {
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		if len(req.Tools) == 0 {
 			fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}`+"\n\n")
@@ -517,6 +543,14 @@ func TestRunJSONToolEvents(t *testing.T) {
 // of the reply text, so downstream tools can show thinking activity live.
 func TestRunJSONReasoning(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req llm.Request
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if respondToTitleRequest(t, w, req) {
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(w, `data: {"choices":[{"delta":{"reasoning_content":"let me think"}}]}`+"\n\n")
 		fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"answer"},"finish_reason":"stop"}]}`+"\n\n")
@@ -665,6 +699,9 @@ func TestRunAutomaticHeadlessHonorsSavedPermission(t *testing.T) {
 					var req llm.Request
 					if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 						t.Error(err)
+						return
+					}
+					if respondToTitleRequest(t, w, req) {
 						return
 					}
 					w.Header().Set("Content-Type", "text/event-stream")
