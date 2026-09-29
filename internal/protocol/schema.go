@@ -206,6 +206,7 @@ func Types() map[string]reflect.Type {
 	result["ExecutorEvent"] = reflect.TypeFor[ExecutorEvent]()
 	result["RPCError"] = reflect.TypeFor[RPCError]()
 	result["Request"] = reflect.TypeFor[Request]()
+	result["GatewayDiscovery"] = reflect.TypeFor[GatewayDiscovery]()
 	result["Response"] = reflect.TypeFor[Response]()
 	result["Part"] = reflect.TypeFor[Part]()
 	result["Message"] = reflect.TypeFor[Message]()

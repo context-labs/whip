@@ -8,6 +8,7 @@ import type { BrowserOptions } from './browser-identity.js';
 export type { BrowserOptions } from './browser-identity.js';
 export { checkNetworkInitialize, networkInitialize } from './browser-identity.js';
 export { browserDuplex } from './browser-duplex.js';
+export { discoverGateway } from './browser-discovery.js';
 
 /** One connection per ordinary call. Every connection verifies the selected host.
  * Cancellation stops observation only; use explicit runtime operations to cancel work. */

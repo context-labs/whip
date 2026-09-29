@@ -160,8 +160,12 @@ func TestHostOriginPolicyAndDiscovery(t *testing.T) {
 				t.Fatalf("status=%d", res.StatusCode)
 			}
 			if tc.status == 200 {
+				raw, err := io.ReadAll(io.LimitReader(res.Body, 4097))
+				if err != nil || len(raw) > 4096 || protocol.Validate("GatewayDiscovery", raw) != nil {
+					t.Fatalf("invalid bounded gateway metadata: %s (%v)", raw, err)
+				}
 				var body map[string]any
-				if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+				if err := json.Unmarshal(raw, &body); err != nil {
 					t.Fatal(err)
 				}
 				if body["available"] != false || body["runtime_id"] != string(s.options.RuntimeID) || body["process_epoch"] != string(s.options.ProcessEpoch) || body["max_content_bytes"] != float64(maxContentBytes) {

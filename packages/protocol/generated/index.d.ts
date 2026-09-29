@@ -1688,6 +1688,15 @@ export interface FormulateGoalParams {
     tail_messages?: 0 | number;
   };
 }
+export interface GatewayDiscovery {
+  available: boolean;
+  major: number;
+  runtime_id: string;
+  process_epoch: string;
+  websocket_path: "/api/v4/ws";
+  content_path: "/api/v4/content/";
+  max_content_bytes: number;
+}
 export interface GetStateParams {
   session_id: string;
   scope: "session" | "tree";
@@ -8256,6 +8265,7 @@ export interface ContractTypes {
   ForkParams: ForkParams;
   ForkResult: ForkResult;
   FormulateGoalParams: FormulateGoalParams;
+  GatewayDiscovery: GatewayDiscovery;
   GetStateParams: GetStateParams;
   Goal: Goal;
   GoalAdmission: GoalAdmission;

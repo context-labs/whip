@@ -6,6 +6,18 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
+// GatewayDiscovery is bounded public metadata, not proof of a client connection.
+// Every subsequent connection still verifies the selected runtime and generation.
+type GatewayDiscovery struct {
+	Available       bool   `json:"available"`
+	Major           int    `json:"major" min:"4" max:"4"`
+	RuntimeID       ID     `json:"runtime_id"`
+	ProcessEpoch    ID     `json:"process_epoch"`
+	WebSocketPath   string `json:"websocket_path" enum:"/api/v4/ws"`
+	ContentPath     string `json:"content_path" enum:"/api/v4/content/"`
+	MaxContentBytes int    `json:"max_content_bytes" min:"1" max:"4194304"`
+}
+
 type ListTreesParams struct {
 	ExpectedRevision *Counter `json:"expected_revision,omitempty" pattern:"^[1-9][0-9]{0,18}$"`
 	After            *ID      `json:"after,omitempty"`
