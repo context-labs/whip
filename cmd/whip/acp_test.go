@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -207,7 +208,19 @@ func testNativeACPPromptContext(t *testing.T) {
 	}
 	defer func() { _ = c.Close() }()
 	bridge := nativeacp.NewBridge("fixture", c, nativeacp.Options{})
-	defer bridge.CloseAll()
+	// This fixture verifies provider instructions, not editor rendering. Bind a
+	// real SDK connection so notifications follow the normal publication path.
+	input, peerOutput := io.Pipe()
+	agent := acpsdk.NewAgentSideConnection(bridge, io.Discard, input)
+	defer func() {
+		bridge.CloseAll()
+		_ = peerOutput.Close()
+		_ = input.Close()
+		<-agent.Done()
+	}()
+	if err := bridge.SetAgentConnection(agent); err != nil {
+		t.Fatal(err)
+	}
 	created, err := bridge.NewSession(t.Context(), acpsdk.NewSessionRequest{Cwd: working, McpServers: []acpsdk.McpServer{}})
 	if err != nil {
 		t.Fatal(err)

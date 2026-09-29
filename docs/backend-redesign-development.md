@@ -3907,3 +3907,31 @@ data race between `SetAgentConnection` and the first outbound update (shuffle
 `1790669959083801000`). This run remains failed; the connection publication fix
 and repaired protocol/full CLI validation are required before publication. Log:
 `/tmp/whip-observation-cli-families.log`.
+
+### ACP publication repair and complete CLI rerun — 2026-09-29
+
+The ACP SDK starts receiving inside connection construction, before the bridge
+setter runs. Commit `4de3980e9` replaces the unsafe nullable connection read with
+one immutable publication barrier. Early updates/permissions wait instead of
+being dropped; cancellation and bridge close release/join those waits. Nil,
+repeated and post-close publication are rejected. The focused regression passes
+20 race repetitions; both real CLI startup/EOF paths pass 20 repetitions each
+under the failing shuffle seed, and the complete ACP race suite passes. This is
+a production race repair, not a timeout adjustment.
+
+The first complete CLI rerun (`/tmp/whip-observation-cli-final.log`) then exposed
+an unbound test-only bridge in the retained provider-instruction fixture. It had
+relied on silently discarded notifications. That fixture now binds a real ACP
+SDK connection with an explicit notification sink, closes/joins it, and preserves
+every actual provider prompt/source-freshness assertion. Five repetitions under
+the failing seed pass8.530s. Final complete `task check:native-cli` passes:
+auth13.255s, lifecycle6.176s, run/catalog32.805s, protocol19.043s,
+compiled native CLI18.170s and CLI vet. Logs:
+`/tmp/whip-observation-acp-context-repaired.log` and
+`/tmp/whip-observation-cli-final-repaired.log`.
+
+Hosted run `36540585469` at `90032ecf9` is complete and failed: Linux clients and
+the required aggregate failed; every other Linux/macOS build/race/client and
+analysis job passed. Those are historical outcomes, not repaired-head evidence.
+This publication includes the complete family/readiness changes and ACP repair;
+all required hosted checks must rerun at the new head. Phases5–7 remain incomplete.
