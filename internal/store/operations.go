@@ -147,6 +147,11 @@ func (s *Store) admitOperation(ctx context.Context, spec session.OperationSpec, 
 		var permissionRevision *session.Revision
 		state := session.OperationWaiting
 		switch spec.Capability {
+		case "permissions.inspect":
+			if err := validatePermissionInspection(ctx, tx, spec); err != nil {
+				return err
+			}
+			state = session.OperationReady
 		case "mcp.catalog":
 			if err := validateMCPCatalog(ctx, tx, spec); err != nil {
 				return err
@@ -281,6 +286,12 @@ func authorizeOperation(ctx context.Context, q querier, operation session.Operat
 			return ErrConflict
 		}
 		return nil
+	}
+	if operation.Capability == "permissions.inspect" {
+		if operation.GrantID != nil || operation.PermissionRevision != nil {
+			return ErrConflict
+		}
+		return validatePermissionInspection(ctx, q, operation.OperationSpec)
 	}
 	if operation.Capability == "mcp.catalog" {
 		if operation.GrantID != nil || operation.PermissionRevision != nil {
