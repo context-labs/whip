@@ -134,9 +134,6 @@ func TestLocalPathsAndLaunchFailClosed(t *testing.T) {
 	if _, err := localruntime.Resolve(""); err == nil {
 		t.Fatal("accepted empty home")
 	}
-	if _, err := localruntime.Resolve("/tmp/" + strings.Repeat("x", 100)); err == nil {
-		t.Fatal("accepted oversized socket")
-	}
 	bad := paths
 	bad.Log = filepath.Join(filepath.Dir(paths.Directory), "outside")
 	if _, err := localruntime.Start(t.Context(), bad, fixtureLaunch(t)); err == nil {
@@ -291,5 +288,51 @@ func TestManagedGatewayReadinessAndFailureIsolation(t *testing.T) {
 				t.Fatal("host lost after gateway result", observed)
 			}
 		})
+	}
+}
+
+func TestLongHomeLaunchAndDiscoveryPreserveRuntimeIdentity(t *testing.T) {
+	paths := fixturePaths(t)
+	home := filepath.Join(filepath.Dir(paths.Directory), strings.Repeat("long", 40))
+	if err := os.Mkdir(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := localruntime.Resolve(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, _ = localruntime.Stop(ctx, paths)
+		_ = os.Remove(filepath.Dir(paths.Socket))
+	})
+	if filepath.Dir(paths.Socket) == paths.Directory || len(paths.Socket) > 100 {
+		t.Fatal(paths)
+	}
+	if status := localruntime.Inspect(t.Context(), paths); status.State != "stopped" {
+		t.Fatal(status)
+	}
+	if _, err := os.Stat(filepath.Dir(paths.Socket)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("inspection created fallback", err)
+	}
+	first, err := localruntime.Start(t.Context(), paths, fixtureLaunch(t))
+	if err != nil || first.Process == nil {
+		t.Fatal(first, err)
+	}
+	for _, file := range []string{"state.db", "host.json", "runtime.lock"} {
+		if _, err := os.Stat(filepath.Join(paths.Directory, file)); err != nil {
+			t.Fatal("durable storage moved", file, err)
+		}
+	}
+	if stopped, err := localruntime.Stop(t.Context(), paths); err != nil || !stopped {
+		t.Fatal(stopped, err)
+	}
+	second, err := localruntime.Start(t.Context(), paths, fixtureLaunch(t))
+	if err != nil || second.Process == nil {
+		t.Fatal(second, err)
+	}
+	if second.Process.RuntimeID != first.Process.RuntimeID || second.Process.ProcessEpoch == first.Process.ProcessEpoch {
+		t.Fatal("restart changed durable identity", first, second)
 	}
 }

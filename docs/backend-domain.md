@@ -2350,3 +2350,21 @@ of resending an uncertain effect. Shutdown joins accepted work before deleting
 only the endpoint-created root. The command-owned stdio wrapper bounds MCP lines,
 arguments, batches, concurrency, output and blocked writes while preserving
 ACP's separate frame limit.
+
+
+## Long-home native socket placement
+
+`internal/runtimepath` is the shared pure socket-address function. Short homes
+keep `runtime.sock` in the selected runtime directory. If that path exceeds the
+100-byte Unix bound, the socket alone uses `/tmp/whip-<uid>-<full SHA-256 of the
+absolute runtime directory>/runtime.sock`. This fixed short location is
+independent of `TMPDIR`, so launch and later discovery agree. Host configuration,
+SQL, content and the sole execution/launch locks stay in the selected home.
+Read-only discovery creates nothing.
+
+The execution owner holds the durable runtime lock before creating or validating
+the fallback directory. It must be a real0700 directory owned by the current UID;
+symlinks, other owners, public modes and non-socket occupants are rejected without
+repairing permissions or replacing files. Only that owner removes a stale socket.
+RPC retains its100-byte bound and0600 socket. Closing the owner removes an empty
+fallback directory only; there is no recursive cleanup of unexpected contents.

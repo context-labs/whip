@@ -10,7 +10,7 @@ import (
 )
 
 func TestExecutionAndClientImportBoundaries(t *testing.T) {
-	command := exec.CommandContext(t.Context(), "go", "list", "-json", "./internal/clientnotes", "./internal/acp", "./internal/imageutil", "./internal/trace", "./internal/hostview", "./internal/theme", "./internal/computer", "./internal/computerconfig", "./internal/helperprogram", "./internal/browser", "./internal/browserhost", "./internal/terminal", "./internal/mcp", "./internal/mcpconfig", "./internal/jsonc", "./internal/secretref", "./internal/brandicon", "./internal/bashrun", "./internal/shell", "./internal/executor", "./internal/gateway", "./internal/webassets", "./internal/hostmodule", "./internal/engine/process", "./internal/model", "./internal/openaiauth", "./internal/inferenceauth", "./internal/account", "./internal/providerhost", "./internal/capability", "./internal/lsp", "./internal/lspconfig", "./internal/inferenceaccount", "./internal/runner", "./internal/tool", "./internal/instruction", "./internal/skills", "./internal/workspace", "./internal/runtime", "./internal/rpc", "./internal/client", "./internal/hostcmd", "./internal/localruntime", "./internal/runclient")
+	command := exec.CommandContext(t.Context(), "go", "list", "-json", "./internal/runtimepath", "./internal/clientnotes", "./internal/acp", "./internal/imageutil", "./internal/trace", "./internal/hostview", "./internal/theme", "./internal/computer", "./internal/computerconfig", "./internal/helperprogram", "./internal/browser", "./internal/browserhost", "./internal/terminal", "./internal/mcp", "./internal/mcpconfig", "./internal/jsonc", "./internal/secretref", "./internal/brandicon", "./internal/bashrun", "./internal/shell", "./internal/executor", "./internal/gateway", "./internal/webassets", "./internal/hostmodule", "./internal/engine/process", "./internal/model", "./internal/openaiauth", "./internal/inferenceauth", "./internal/account", "./internal/providerhost", "./internal/capability", "./internal/lsp", "./internal/lspconfig", "./internal/inferenceaccount", "./internal/runner", "./internal/tool", "./internal/instruction", "./internal/skills", "./internal/workspace", "./internal/runtime", "./internal/rpc", "./internal/client", "./internal/hostcmd", "./internal/localruntime", "./internal/runclient")
 	command.Dir = "../.."
 	raw, err := command.Output()
 	if err != nil {
@@ -26,6 +26,7 @@ func TestExecutionAndClientImportBoundaries(t *testing.T) {
 		"mcp":            {"buildinfo": true, "capability": true, "jsonc": true, "mcpconfig": true, "secretref": true},
 		"mcpconfig":      {},
 		"clientnotes":    {},
+		"runtimepath":    {},
 		"jsonc":          {},
 		"secretref":      {"capability": true},
 		"brandicon":      {},
@@ -52,10 +53,10 @@ func TestExecutionAndClientImportBoundaries(t *testing.T) {
 		"skills":           {"buildinfo": true},
 		"workspace":        {"session": true, "capability": true},
 		"executor":         {"session": true},
-		"runtime":          {"browser": true, "browserhost": true, "trace": true, "hostview": true, "theme": true, "computer": true, "computerconfig": true, "mcp": true, "mcpconfig": true, "brandicon": true, "bashrun": true, "shell": true, "executor": true, "lsp": true, "capability": true, "model": true, "session": true, "store": true, "config": true, "content": true, "runner": true, "engine/process": true, "tool": true, "instruction": true, "workspace": true},
+		"runtime":          {"runtimepath": true, "browser": true, "browserhost": true, "trace": true, "hostview": true, "theme": true, "computer": true, "computerconfig": true, "mcp": true, "mcpconfig": true, "brandicon": true, "bashrun": true, "shell": true, "executor": true, "lsp": true, "capability": true, "model": true, "session": true, "store": true, "config": true, "content": true, "runner": true, "engine/process": true, "tool": true, "instruction": true, "workspace": true},
 		"rpc":              {"computer": true, "browserhost": true, "hostview": true, "theme": true, "computerconfig": true, "terminal": true, "bashrun": true, "mcp": true, "mcpconfig": true, "shell": true, "executor": true, "lsp": true, "providerhost": true, "account": true, "inferenceaccount": true, "config": true, "session": true, "store": true, "protocol": true, "runtime": true},
 		"client":           {"protocol": true},
-		"localruntime":     {"client": true, "protocol": true},
+		"localruntime":     {"runtimepath": true, "client": true, "protocol": true},
 		"runclient":        {"client": true, "protocol": true},
 		"hostcmd":          {"webassets": true, "account": true, "config": true, "gateway": true, "inferenceaccount": true, "inferenceauth": true, "model": true, "openaiauth": true, "protocol": true, "providerhost": true, "rpc": true, "runner": true, "runtime": true, "session": true, "terminal": true},
 	}

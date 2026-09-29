@@ -10,7 +10,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-type owner struct{ file *os.File }
+type owner struct {
+	file            *os.File
+	socketDirectory string
+}
 
 func acquireOwner(directory, path string) (*owner, error) {
 	info, err := os.Lstat(directory)
@@ -46,6 +49,32 @@ func acquireOwner(directory, path string) (*owner, error) {
 	return &owner{file: file}, nil
 }
 
+// Only the holder of the durable execution lock may prepare the fallback.
+func (o *owner) prepareSocketDirectory(path string) error {
+	if err := os.Mkdir(path, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
+		return err
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !info.IsDir() || info.Mode().Perm() != 0o700 || !ok || int64(stat.Uid) != int64(os.Getuid()) {
+		return errors.New("runtime socket directory must be owner-only and not a symlink")
+	}
+	o.socketDirectory = path
+	return nil
+}
+
 func (o *owner) Close() error {
-	return errors.Join(unix.Flock(int(o.file.Fd()), unix.LOCK_UN), o.file.Close())
+	var cleanup error
+	if o.socketDirectory != "" {
+		// Remove only an empty owned directory; never recursively delete socket
+		// occupants or unrelated files. The RPC listener owns its socket's lifetime.
+		cleanup = os.Remove(o.socketDirectory)
+		if errors.Is(cleanup, os.ErrNotExist) || errors.Is(cleanup, syscall.ENOTEMPTY) {
+			cleanup = nil
+		}
+	}
+	return errors.Join(cleanup, unix.Flock(int(o.file.Fd()), unix.LOCK_UN), o.file.Close())
 }

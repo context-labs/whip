@@ -4276,3 +4276,26 @@ foreground backend-loss cleanup. Initial failed logs remain failures. This uses
 only a disposable binary/home and does not install or modify the real runtime.
 Long-home socket fallback and the remaining distribution update scenarios are
 still pending; this does not close Phase7.
+
+
+### Native long-home socket parity
+
+The retained distribution probe requires a long explicit product home. Native
+launch previously rejected it outright, even though durable storage itself fits.
+The shared pure `runtimepath.Socket` leaf now keeps short addresses unchanged and
+moves only an oversized socket address into a deterministic private `/tmp`
+directory; the full directory digest and UID distinguish owners, while durable
+state and both execution/launch locks remain in the selected home. Discovery is
+read-only and independent of the caller's `TMPDIR`. Existing private-directory,
+non-symlink, stale-socket and100-byte listener checks remain enforced.
+
+Tests verify read-only deterministic selection, distinct homes, rejected public
+and symlink directories, preserved regular-file occupants, exclusive durable lock
+before stale-socket removal, empty-directory cleanup and real detached
+start/stop/restart retaining runtime ID with a new process epoch. Three shuffled
+race repeats passed runtimepath1.173s/runtime2.480s/localruntime5.932s. Existing
+execution ownership/restart/shutdown and architecture regressions passed3.899s;
+full localruntime/hostcmd races passed5.073/5.422s. Vet and pinned baseline lint
+passed with zero new issues. The leaf is included in required package and import
+boundary gates. The full installer/update probe is next; this result alone does
+not claim distribution or Phase7 completion.

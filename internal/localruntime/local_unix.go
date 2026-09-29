@@ -17,6 +17,7 @@ import (
 
 	"github.com/context-labs/whip/internal/client"
 	"github.com/context-labs/whip/internal/protocol"
+	"github.com/context-labs/whip/internal/runtimepath"
 	"golang.org/x/sys/unix"
 )
 
@@ -33,10 +34,7 @@ func Resolve(home string) (Paths, error) {
 	if err != nil {
 		return Paths{}, err
 	}
-	paths := Paths{Directory: directory, Socket: filepath.Join(directory, "runtime.sock"), Lock: filepath.Join(directory, "runtime.lock"), Log: filepath.Join(directory, "runtime.log")}
-	if len(paths.Socket) > 100 {
-		return Paths{}, errors.New("native runtime socket path exceeds 100 bytes")
-	}
+	paths := Paths{Directory: directory, Socket: runtimepath.Socket(directory), Lock: filepath.Join(directory, "runtime.lock"), Log: filepath.Join(directory, "runtime.log")}
 	return paths, nil
 }
 
@@ -62,6 +60,12 @@ func Inspect(ctx context.Context, paths Paths) Status {
 			result.State, result.Error = "unhealthy", err.Error()
 		}
 		return result
+	}
+	if socketDirectory := filepath.Dir(paths.Socket); socketDirectory != paths.Directory {
+		if err := validateDirectory(socketDirectory); err != nil && !errors.Is(err, os.ErrNotExist) {
+			result.State, result.Error = "unhealthy", err.Error()
+			return result
+		}
 	}
 	c, err := client.Connect(ctx, paths.Socket, nil)
 	if err == nil {

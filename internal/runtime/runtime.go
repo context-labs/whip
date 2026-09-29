@@ -23,6 +23,7 @@ import (
 	"github.com/context-labs/whip/internal/hostview"
 	"github.com/context-labs/whip/internal/lsp"
 	"github.com/context-labs/whip/internal/runner"
+	"github.com/context-labs/whip/internal/runtimepath"
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/shell"
 	"github.com/context-labs/whip/internal/store"
@@ -148,7 +149,12 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 	}()
 	// Only the newly acquired execution owner may remove a dead owner's socket.
 	// RPC listeners never unlink a pre-existing path, so double binding is safe.
-	socket := filepath.Join(directory, "runtime.sock")
+	socket := runtimepath.Socket(directory)
+	if socketDirectory := filepath.Dir(socket); socketDirectory != directory {
+		if err := lock.prepareSocketDirectory(socketDirectory); err != nil {
+			return nil, err
+		}
+	}
 	if info, statErr := os.Lstat(socket); statErr == nil {
 		if info.Mode()&os.ModeSocket == 0 {
 			return nil, errors.New("runtime socket path is occupied by a non-socket")
@@ -235,7 +241,7 @@ func (r *Runtime) ProcessEpoch() string { return r.epoch }
 // command's account/provider services. Snapshot reads never create a second cache.
 func (r *Runtime) HostConfiguration() *config.Authority { return r.configuration }
 
-func (r *Runtime) SocketPath() string    { return filepath.Join(r.directory, "runtime.sock") }
+func (r *Runtime) SocketPath() string    { return runtimepath.Socket(r.directory) }
 func (r *Runtime) Done() <-chan struct{} { return r.done }
 func (r *Runtime) Start(ctx context.Context) error {
 	r.mu.Lock()
