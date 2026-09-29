@@ -71,7 +71,7 @@ func authoredInputText(item InboxEnqueue) (string, error) {
 
 func initializeInputTitleTx(ctx context.Context, tx *sql.Tx, item InboxEnqueue) (*TitleInitialization, error) {
 	if item.RootID != item.AgentID || item.Origin != "client" || clientInputOrigin(item.Kind) == "" {
-		return nil, nil
+		return nil, nil //nolint:nilnil // nil signals no title initialization is needed
 	}
 	prompt, err := authoredInputText(item)
 	if err != nil {
@@ -79,7 +79,7 @@ func initializeInputTitleTx(ctx context.Context, tx *sql.Tx, item InboxEnqueue) 
 	}
 	title := provisionalTitleText(prompt)
 	if title == "" {
-		return nil, nil
+		return nil, nil //nolint:nilnil // empty prompt yields no provisional title
 	}
 	var current, forkedFrom string
 	var revision int64
@@ -88,7 +88,7 @@ func initializeInputTitleTx(ctx context.Context, tx *sql.Tx, item InboxEnqueue) 
 		return nil, err
 	}
 	if current != "" || forkedFrom != "" || revision != 0 {
-		return nil, nil
+		return nil, nil //nolint:nilnil // already titled or forked
 	}
 	var firstTurn sql.NullString
 	if err := tx.QueryRowContext(ctx, `SELECT
@@ -97,7 +97,7 @@ func initializeInputTitleTx(ctx context.Context, tx *sql.Tx, item InboxEnqueue) 
 		return nil, err
 	}
 	if firstTurn.Valid && firstTurn.String == "" {
-		return nil, nil
+		return nil, nil //nolint:nilnil // no first turn means no title to initialize
 	}
 	// Retained inbox metadata proves that previous human input had no usable
 	// text. Unknown legacy previews are not evidence of an attachment-only start.
@@ -121,7 +121,7 @@ func initializeInputTitleTx(ctx context.Context, tx *sql.Tx, item InboxEnqueue) 
 		// 2048-byte boundary; the UTF-8 truncator can drop up to three bytes.
 		if origin != "client" || preview == nil || strings.TrimSpace(preview.Text) != "" ||
 			preview.Truncated && len(preview.Text) >= 2048-utf8.UTFMax+1 {
-			return nil, nil
+			return nil, nil //nolint:nilnil // prior admission had text; not a first-turn candidate
 		}
 		if firstTurn.String == rootTurnID(item.AgentID, seq) {
 			historyLinked = true
@@ -136,7 +136,7 @@ func initializeInputTitleTx(ctx context.Context, tx *sql.Tx, item InboxEnqueue) 
 	// A history without a known no-text admission is historical, not a new
 	// conversation. Reading only its first row also avoids expanded file text.
 	if !historyLinked {
-		return nil, nil
+		return nil, nil //nolint:nilnil // history without a known no-text admission is not new
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE sessions SET title=? WHERE id=? AND title=''`, title, item.RootID)
 	if err != nil {

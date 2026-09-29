@@ -1926,9 +1926,7 @@ func (m *model) thinCommand(text string) (bubbletea.Model, bubbletea.Cmd) {
 		if !ok {
 			levels := m.effortsFor()
 			names := make([]string, len(levels))
-			for index := range levels {
-				names[index] = levels[index]
-			}
+			copy(names, levels)
 			m.append(errStyle.Render("unknown effort level; " + m.modelName + " supports: " + strings.Join(names, ", ")))
 			return m, nil
 		}

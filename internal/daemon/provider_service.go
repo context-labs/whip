@@ -364,7 +364,7 @@ func (s *ProviderService) SetProviderKey(ctx context.Context, p ProviderKeySetup
 			provider.APIKeyEnv = config.DiscoverCredentials(c).AvailableEnvironmentVariable(preset)
 		}
 	}
-	if !ok || (provider.API != "" && provider.API != "openai-completions") {
+	if !ok || (provider.API != "" && !config.KnownAPI(provider.API)) {
 		return RuntimeConfiguration{}, errors.New("provider does not support API key setup")
 	}
 	credential := protocol.ProviderCredential{Mode: "api_key", Key: p.Key}

@@ -3,7 +3,7 @@ import type {
   CreateSessionParams, SessionCatalogParams, SubmitPayload, HistoryPageParams, MailboxPageParams,
 } from '@whip/protocol';
 import type { WhipClient, CallOptions } from './client.js';
-import type { CommandOptions } from './command.js';
+import type { CommandHandle, CommandOptions } from './command.js';
 import { Turn, permissionEvent, questionEvent, type PermissionEvent, type QuestionEvent, type RunOptions } from './turn.js';
 import { encodeBase64, object } from './util.js';
 
@@ -12,7 +12,7 @@ export class Session {
   constructor(readonly client: WhipClient, readonly rootId: string) {
     if (!rootId) throw new TypeError('rootId is required');
   }
-  command<O extends CommandOperation>(operation: O, payload: RuntimeOperations[O]['params'], options: Omit<CommandOptions, 'rootId'> = {}) {
+  command<O extends CommandOperation>(operation: O, payload: RuntimeOperations[O]['params'], options: Omit<CommandOptions, 'rootId'> = {}): CommandHandle<O> {
     return this.client.submit(operation, payload, { ...options, rootId: this.rootId });
   }
   query<O extends QueryOperation>(operation: O, payload: RuntimeOperations[O]['params'], options: CallOptions = {}) {

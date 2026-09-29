@@ -193,7 +193,7 @@ func openAIEnvironmentMatches() bool {
 }
 
 func canonicalPreset(p Provider) (ProviderPreset, bool) {
-	if p.API != "" && p.API != "openai-completions" {
+	if p.API != "" && !KnownAPI(p.API) {
 		return ProviderPreset{}, false
 	}
 	for _, preset := range ProviderPresets() {
@@ -268,7 +268,7 @@ func (p Provider) ValidateAuth() error {
 	if p.Auth != "" && p.Auth != "none" {
 		return errors.New("unsupported provider authentication mode")
 	}
-	if p.Auth == "none" && (p.APIKey != "" || p.APIKeyEnv != "" || p.API != "" && p.API != "openai-completions") {
+	if p.Auth == "none" && (p.APIKey != "" || p.APIKeyEnv != "" || p.API != "" && !GenericChatAPI(p.API)) {
 		return errors.New("unauthenticated providers cannot contain credentials or use subscription APIs")
 	}
 	return nil

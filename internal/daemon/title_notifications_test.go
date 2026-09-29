@@ -63,17 +63,20 @@ func titlePing(t *testing.T, transport messageTransport) {
 func connectTitleClient(t *testing.T, server *Server, id string, capabilities []string) messageTransport {
 	t.Helper()
 	// A short temporary directory keeps Unix socket paths below macOS's limit.
-	directory, err := os.MkdirTemp("", "whip-title-")
+	// t.TempDir() nests under the full test name and exceeds the 104-char socket cap.
+	directory, err := os.MkdirTemp("", "whip-title-") //nolint:usetesting // short path required for macOS socket limit
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(directory) })
-	listener, err := net.Listen("unix", filepath.Join(directory, "socket"))
+	var lc net.ListenConfig
+	listener, err := lc.Listen(context.Background(), "unix", filepath.Join(directory, "socket"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer listener.Close()
-	clientSide, err := net.Dial("unix", listener.Addr().String())
+	var dialer net.Dialer
+	clientSide, err := dialer.DialContext(context.Background(), "unix", listener.Addr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,10 +391,11 @@ func TestTitleNotificationsGeneratedResultRequiresCommittedWrite(t *testing.T) {
 			}
 			owner, root := openTitleLifecycle(t, store, rootID, &fakeRunner{})
 			changes := observeTitleChanges(t, owner)
-			if scenario == "write failure" {
+			switch scenario {
+			case "write failure":
 				titleFailureDB(t, path, `CREATE TRIGGER fail_title BEFORE UPDATE OF title ON sessions
 					BEGIN SELECT RAISE(ABORT,'title write failed'); END`)
-			} else if scenario == "event failure" {
+			case "event failure":
 				titleFailureDB(t, path, `CREATE TRIGGER fail_title BEFORE INSERT ON events
 					WHEN NEW.kind='session.title.updated' BEGIN SELECT RAISE(ABORT,'title event failed'); END`)
 			}
@@ -500,10 +504,11 @@ func TestTitleNotificationsColdRenameCommitAndFailure(t *testing.T) {
 			}
 			t.Cleanup(func() { _ = owner.Close() })
 			changes := observeTitleChanges(t, owner)
-			if failure == "event" {
+			switch failure {
+			case "event":
 				titleFailureDB(t, path, `CREATE TRIGGER fail_title BEFORE INSERT ON events
 					WHEN NEW.kind='session.title.updated' BEGIN SELECT RAISE(ABORT,'title event failed'); END`)
-			} else if failure == "write" {
+			case "write":
 				titleFailureDB(t, path, `CREATE TRIGGER fail_title BEFORE UPDATE OF title ON sessions
 					BEGIN SELECT RAISE(ABORT,'title write failed'); END`)
 			}

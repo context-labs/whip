@@ -272,9 +272,6 @@ func (d *Daemon) open(meta session.Meta, history []llm.Message) (_ *Session, err
 			cfg = config.Default()
 		}
 		meta.Effort = resolveEffort(cfg, meta.Model, meta.Provider, "", definition.Model.Effort)
-		if err := d.store.SetEffort(meta.ID, meta.Effort); err != nil {
-			return nil, err
-		}
 	}
 	authority, err := d.store.EnsureRootAuthority(d.ctx, meta.ID, rootGrants(definition, hasDefinition))
 	if err != nil {
@@ -283,6 +280,13 @@ func (d *Daemon) open(meta session.Meta, history []llm.Message) (_ *Session, err
 	components, err := d.factory(d.ctx, meta, history)
 	if err != nil {
 		return nil, err
+	}
+	// Persist the resolved effort only after the factory succeeds, so a
+	// failed restore does not mutate the saved session.
+	if meta.Kind == session.SessionKindAgent && meta.Effort != "" {
+		if err := d.store.SetEffort(meta.ID, meta.Effort); err != nil {
+			return nil, err
+		}
 	}
 	started := false
 	var root *Session

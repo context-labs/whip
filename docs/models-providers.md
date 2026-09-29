@@ -130,10 +130,15 @@ source below, or paste the key in Whip. Existing Whip keys and account files are
 preserved. Docker continues to isolate your host credentials unless you explicitly
 seed a test source inside the container.
 
-The runtime supports two API flavors: `openai-completions` for OpenAI-compatible
-Chat Completions, and `openai-codex` for the fixed ChatGPT subscription endpoint.
-There is no native Anthropic Messages, Google Gemini, or configurable generic
-Responses API adapter. Models served through a compatible gateway still work.
+The runtime supports three API flavors: `openai-completions` for OpenAI-compatible
+Chat Completions, `openai-codex` for the fixed ChatGPT subscription endpoint, and
+`anthropic-messages`, which speaks Anthropic Messages natively. Set it on a
+provider entry (`"api": "anthropic-messages"`) whose models expose a messages
+endpoint — inference.net's Claude models advertise `supported_endpoints:
+["messages"]`, and the chat-completions translation for them is lossy for
+thinking- and tool-round-trip requests. Thinking parameters are not yet sent on
+the messages flavor (phase 2). Models served through a chat-compatible gateway
+still work unchanged.
 
 In the TUI, open `/connect` and choose **Custom endpoint**. Compact prompts ask for a name,
 the API root URL (for example `https://api.example.com/v1`), and choose API key,

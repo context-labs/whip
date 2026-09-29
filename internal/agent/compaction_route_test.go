@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -192,7 +193,7 @@ func TestCompactionFallbackDoesNotHideEarlierUnknownCompletion(t *testing.T) {
 		if custom == 1 {
 			return nil, io.ErrUnexpectedEOF
 		}
-		return &http.Response{StatusCode: 400, Status: "400 Bad Request", Header: http.Header{}, Body: io.NopCloser(strings.NewReader("rejected"))}, nil
+		return &http.Response{StatusCode: http.StatusBadRequest, Status: "400 Bad Request", Header: http.Header{}, Body: io.NopCloser(strings.NewReader("rejected"))}, nil
 	})}
 	_, _, _, err := a.CompactNow(t.Context())
 	if err == nil || custom != 2 || conversation != 0 {
@@ -202,7 +203,7 @@ func TestCompactionFallbackDoesNotHideEarlierUnknownCompletion(t *testing.T) {
 
 func TestCompactionFallbackPreflightsPreparedSummaryRequest(t *testing.T) {
 	for _, limit := range []int{100, 8192} {
-		t.Run(fmt.Sprint(limit), func(t *testing.T) {
+		t.Run(strconv.Itoa(limit), func(t *testing.T) {
 			var requests []llm.Request
 			a := compactionRouteAgent(t, func(w http.ResponseWriter, r *http.Request) {
 				var request llm.Request
@@ -237,7 +238,7 @@ func TestCompactionFallbackPreflightsPreparedSummaryRequest(t *testing.T) {
 
 func TestCompactionFallbackUsesSubscriptionNaturalOutputForPreflight(t *testing.T) {
 	for _, fits := range []bool{false, true} {
-		t.Run(fmt.Sprint(fits), func(t *testing.T) {
+		t.Run(strconv.FormatBool(fits), func(t *testing.T) {
 			var conversation, subscription int
 			a := compactionRouteAgent(t, func(w http.ResponseWriter, _ *http.Request) {
 				conversation++
@@ -269,7 +270,7 @@ func TestCompactionFallbackUsesSubscriptionNaturalOutputForPreflight(t *testing.
 					t.Error("subscription request included an unsupported explicit output cap")
 				}
 				body := "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"summary\"}]}]}}\n\n"
-				return &http.Response{Status: "200 OK", StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
+				return &http.Response{Status: "200 OK", StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
 			})}
 			var reservation int
 			a.SetModelCallBudget(attemptBudgetFunc(func(_ context.Context, attempt llm.ModelAttempt) (llm.ModelPermit, error) {
@@ -304,9 +305,9 @@ func TestCompactionFallbackDoesNotHideRegeneratedPartialOutput(t *testing.T) {
 		custom++
 		if custom == 1 {
 			body := "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Partial\"}\n\n"
-			return &http.Response{Status: "200 OK", StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
+			return &http.Response{Status: "200 OK", StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
 		}
-		return &http.Response{Status: "400 Bad Request", StatusCode: 400, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("rejected"))}, nil
+		return &http.Response{Status: "400 Bad Request", StatusCode: http.StatusBadRequest, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("rejected"))}, nil
 	})}
 	_, _, _, err := a.CompactNow(t.Context())
 	if err == nil || custom != 2 || conversation != 0 {
@@ -347,7 +348,7 @@ func TestCompactionFallbackRejectsSyntheticSSEHTTPStatus(t *testing.T) {
 	a.CompactClient.HTTP = &http.Client{Transport: compactionTransport(func(*http.Request) (*http.Response, error) {
 		custom++
 		body := "data: {\"type\":\"response.reasoning_summary_text.delta\",\"delta\":\"Thinking\"}\n\ndata: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",\"error\":{\"code\":\"invalid_request\"}}}\n\n"
-		return &http.Response{Status: "200 OK", StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
+		return &http.Response{Status: "200 OK", StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}, nil
 	})}
 	_, _, _, err := a.CompactNow(t.Context())
 	if err == nil || custom != 1 || conversation != 0 {
