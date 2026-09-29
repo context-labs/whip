@@ -258,7 +258,9 @@ func nativeFixture(t *testing.T, p providerFunc, editor *fakeACPClient) *acpFixt
 	}
 	bridge := NewBridge("fixture", native, Options{Vision: true})
 	agent := acpsdk.NewAgentSideConnection(bridge, agentWrite, agentRead)
-	bridge.SetAgentConnection(agent)
+	if err := bridge.SetAgentConnection(agent); err != nil {
+		t.Fatal(err)
+	}
 	conn := acpsdk.NewClientSideConnection(editor, clientWrite, clientRead)
 	t.Cleanup(func() {
 		_ = agentRead.Close()

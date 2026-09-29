@@ -163,9 +163,6 @@ func (b *Bridge) ownerDecisions(s *acpSession, owner protocol.Session, seen map[
 }
 
 func (b *Bridge) startDecision(s *acpSession, id protocol.ID, handle func(context.Context)) {
-	if b.conn == nil {
-		return
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed || s.lifecycle.Err() != nil || s.pending[id] != nil || len(s.pending) >= 128 {
@@ -242,8 +239,12 @@ func (b *Bridge) awaitDecision(parent context.Context, request acp.RequestPermis
 		response acp.RequestPermissionResponse
 		err      error
 	}
+	conn, err := b.connection(ctx)
+	if err != nil {
+		return acp.RequestPermissionResponse{}, err
+	}
 	done := make(chan result, 1)
-	go func() { response, err := b.conn.RequestPermission(ctx, request); done <- result{response, err} }()
+	go func() { response, err := conn.RequestPermission(ctx, request); done <- result{response, err} }()
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {

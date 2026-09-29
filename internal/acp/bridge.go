@@ -40,6 +40,7 @@ type Bridge struct {
 	client    *client.Client
 	options   Options
 	conn      *acp.AgentSideConnection
+	connReady chan struct{}
 	lifecycle context.Context
 	stop      context.CancelFunc
 	mu        sync.Mutex
@@ -61,9 +62,40 @@ func NewBridge(version string, c *client.Client, options Options) *Bridge {
 	if options.Model != nil {
 		options.Model = new(*options.Model)
 	}
-	return &Bridge{version: version, client: c, options: options, lifecycle: ctx, stop: stop, sessions: map[acp.SessionId]*acpSession{}, loading: map[acp.SessionId]bool{}, slots: make(chan struct{}, 32), decisions: make(chan struct{}, 32)}
+	return &Bridge{connReady: make(chan struct{}), version: version, client: c, options: options, lifecycle: ctx, stop: stop, sessions: map[acp.SessionId]*acpSession{}, loading: map[acp.SessionId]bool{}, slots: make(chan struct{}, 32), decisions: make(chan struct{}, 32)}
 }
-func (b *Bridge) SetAgentConnection(conn *acp.AgentSideConnection) { b.conn = conn }
+
+// SetAgentConnection publishes one fully constructed SDK connection. The SDK
+// starts receiving during construction, so early observers must wait for this
+// publication instead of dropping their first notification or permission.
+func (b *Bridge) SetAgentConnection(conn *acp.AgentSideConnection) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed || conn == nil || b.conn != nil {
+		return errors.New("ACP connection requires one non-nil binding before close")
+	}
+	b.conn = conn
+	close(b.connReady)
+	return nil
+}
+
+func (b *Bridge) connection(ctx context.Context) (*acp.AgentSideConnection, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-b.lifecycle.Done():
+		return nil, b.lifecycle.Err()
+	case <-b.connReady:
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if err := b.lifecycle.Err(); err != nil {
+			return nil, err
+		}
+		// The channel establishes publication; conn is immutable thereafter.
+		return b.conn, nil
+	}
+}
 
 func (b *Bridge) begin(parent context.Context) (context.Context, func(), error) {
 	b.mu.Lock()
@@ -418,10 +450,11 @@ func (b *Bridge) applyPermissionMode(s *acpSession, policy protocol.PermissionPo
 }
 
 func (b *Bridge) update(ctx context.Context, id acp.SessionId, update acp.SessionUpdate) error {
-	if b.conn == nil {
-		return nil
-	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	return b.conn.SessionUpdate(ctx, acp.SessionNotification{SessionId: id, Update: update})
+	conn, err := b.connection(ctx)
+	if err != nil {
+		return err
+	}
+	return conn.SessionUpdate(ctx, acp.SessionNotification{SessionId: id, Update: update})
 }

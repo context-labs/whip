@@ -66,7 +66,11 @@ func acpCLI(args []string) error {
 	defer stdio.Close()
 	bridge := acp.NewBridge(version, c, acp.Options{Model: override, Vision: acpSupportsVision(ctx, c, selection)})
 	connection := acpsdk.NewAgentSideConnection(bridge, stdio, stdio.input)
-	bridge.SetAgentConnection(connection)
+	if err := bridge.SetAgentConnection(connection); err != nil {
+		_ = stdio.Close()
+		bridge.CloseAll()
+		return err
+	}
 	select {
 	case <-connection.Done():
 	case <-ctx.Done():
