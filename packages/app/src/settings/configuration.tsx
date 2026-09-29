@@ -16,9 +16,13 @@ type Values = HostExecutionDefaults['preferences'];
 function values(current: HostExecutionDefaults): Values { return current.preferences; }
 export function ExecutionSettings({ client, enabled = true }: { client: Client; enabled?: boolean }) {
   const query = useQuery({ queryKey: ['host-defaults', client.runtimeID], queryFn: ({ signal }) => client.hosts.executionDefaults({ signal }), enabled });
+  const owner = `${client.runtimeID}:${client.processEpoch}`;
+  const previous = useRef<{ owner: string; current: HostExecutionDefaults } | undefined>(undefined);
+  if (query.data) previous.current = { owner, current: query.data };
+  const current = query.data ?? (previous.current?.owner === owner ? previous.current.current : undefined);
   return <><ErrorNotice type="resource" owner={`${client.runtimeID}:execution-defaults`} title="Could not load execution defaults" error={query.error} />
-    {query.isPending && enabled && <p role="status">Loading host defaults…</p>}
-    {query.data && <ExecutionForm key={client.runtimeID} client={client} enabled={enabled} current={query.data} />}
+    {query.isPending && enabled && !current && <p role="status">Loading host defaults…</p>}
+    {current && <ExecutionForm key={owner} client={client} enabled={enabled && !!query.data} current={current} />}
     <ExternalBrowserSettings client={client} enabled={enabled}/></>;
 }
 function ExecutionForm({ client, enabled, current }: { client: Client; enabled: boolean; current: HostExecutionDefaults }) {

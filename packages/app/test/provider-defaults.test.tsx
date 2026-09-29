@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { DeliveryError, type ProviderPreferencesParams } from '@whip/sdk';
@@ -36,4 +36,19 @@ it('keeps the complete failed form and refreshes after lost CAS acknowledgement 
   expect(screen.getByRole('button', { name: 'Save host defaults' }).hasAttribute('disabled')).toBe(true);
   fireEvent.click(screen.getByRole('button', { name: 'Discard edits and load current defaults' }));
   await waitFor(() => expect(screen.getByRole('button', { name: 'Default model' }).textContent).toBe('other-client'));
+});
+
+it('retains unpublished edits and the captured revision through same-host client replacement', async () => {
+  const f = await providerFixture(); f.data.handlers['providers.bundled'] = () => ({ items: [model(), model('other')] });
+  const view = f.mount(<ProviderDefaultsSettings client={f.client} enabled />); await chooseModel();
+  view.rerender(f.wrap(<ProviderDefaultsSettings client={f.client} enabled={false} />));
+  act(() => f.queries.removeQueries({ queryKey: ['provider-list', f.client.runtimeID] }));
+  expect(screen.getByRole('button', { name: 'Default model' }).textContent).toBe('other');
+  expect(screen.getByRole('button', { name: 'Save host defaults' }).hasAttribute('disabled')).toBe(true);
+  const replacement = await providerFixture(); replacement.data.inventory = { ...replacement.data.inventory, revision: nextRevision };
+  view.rerender(f.wrap(<ProviderDefaultsSettings client={replacement.client} enabled />));
+  await screen.findByRole('button', { name: 'Discard edits and load current defaults' });
+  expect(screen.getByRole('button', { name: 'Default model' }).textContent).toBe('other');
+  expect(screen.getByRole('button', { name: 'Save host defaults' }).hasAttribute('disabled')).toBe(true);
+  expect(f.count('providers.set_preferences') + replacement.count('providers.set_preferences')).toBe(0);
 });
