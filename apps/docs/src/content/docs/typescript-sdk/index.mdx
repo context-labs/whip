@@ -6,326 +6,297 @@ order: 1
 draft: true
 ---
 
-Use the SDK to run tasks, observe sessions, or serve agents with your own tools. Work runs on the connected host—not in your client. That host owns model credentials, permissions, files and session history.
+Use the SDK to run tasks, observe sessions, or serve agents with your own tools. The connected host owns execution, credentials, permissions and durable history. Closing a client or cancelling a local wait leaves accepted work on that host.
 
 ## Availability and installation
 
-`@whip/legacy-sdk` is currently a private ESM workspace package in the [whip repository](https://github.com/context-labs/whip/tree/main/packages/legacy-sdk). It is not a public npm package. Use Node.js 24 and a matching whip daemon; keep the SDK and host versions together.
-
-From a source checkout:
+`@whip/sdk` is a private ESM workspace package in the [Whip repository](https://github.com/context-labs/whip/tree/main/packages/sdk). Use Node.js 24 and a matching protocol v4 host. The SDK validates the generated Go contract and rejects incompatible peers during initialization.
 
 ```bash
 npm ci
-npm run build -w @whip/legacy-sdk
+npm run build -w @whip/sdk
 ```
-
-Place the `.mts` examples below in the checkout so Node can resolve its workspace packages. Node 24 runs these examples directly; for example, `node run.mts`.
 
 | Import | Use |
 | --- | --- |
-| `@whip/legacy-sdk` | Browser-safe client, sessions, commands and turns |
-| `@whip/legacy-sdk/node` | Node client and Unix-socket transport |
-| `@whip/legacy-sdk/agents` | Agent definitions and custom tools |
-| `@whip/legacy-sdk/state` | Synchronized session views |
-| `@whip/legacy-sdk/react` | React 19 subscriptions to those views |
-| `@whip/legacy-sdk/testing` | Scripted daemon for tests without model calls |
+| `@whip/sdk` | Browser-safe client, uniform sessions and durable commands |
+| `@whip/sdk/node` | Unix-socket and persistent executor transports |
+| `@whip/sdk/browser` | Identity-checked HTTP/WebSocket gateway transports |
+| `@whip/sdk/agents` | Typed definitions, custom tools and hooks |
+| `@whip/sdk/state` | Bounded transcript, execution, catalog and trace views |
+| `@whip/sdk/react` | React 19 subscriptions to those views |
+
+There is no in-memory replacement daemon in the public SDK. Repository acceptance fixtures run the actual backend in disposable storage with local provider responses.
 
 ## Connect to a host
 
-Configure a provider on the host before submitting work. The SDK attaches to a running daemon; it does not install or start one.
-
-### Local Unix socket
-
-Start the daemon with `whipcode daemon start`. Find its socket with `whipcode daemon status --json`, then pass the reported socket path as `WHIP_SOCKET`.
-
-Save as `connect.mts`:
-
-```typescript file=connect.mts
-import { createWhipClient, unixSocket } from '@whip/legacy-sdk/node';
-
-const socket = process.env.WHIP_SOCKET;
-if (!socket) throw new Error('Set WHIP_SOCKET to the daemon socket path');
-
-export const client = createWhipClient({
-  endpoint: unixSocket(socket),
-  clientId: 'my-whip-integration',
-  clientKind: 'automation',
-});
-```
-
-### HTTP or WebSocket
-
-Browser clients use the host's web gateway. For a local development gateway, run `WHIPCODE_LISTEN=127.0.0.1:4444 whipcode web --no-open` and use its reported address.
-
-For HTTP, replace the contents of `connect.mts` with this version (a browser app can use the same client options):
-
-```typescript file=connect-http.mts
-import { createWhipClient } from '@whip/legacy-sdk';
-
-export const client = createWhipClient({
-  endpoint: 'http://127.0.0.1:4444',
-  clientId: 'my-whip-integration',
-  clientKind: 'automation',
-});
-```
-
-An HTTP origin or WebSocket URL is accepted. The gateway is not an authentication service: use a trusted network or authenticated proxy for remote access. Keep it bound to loopback for local use.
-
-Keep `clientId` stable for one application's command-recovery identity. It is not a credential. Use `clientKind: 'human'` only for an interface controlled by a person, not to bypass automation permissions.
-
-## Submit work
-
-Save as `run.mts` beside `connect.mts`. Set `WHIP_PROJECT` to a project path **on the execution host**.
-
-```typescript file=run.mts
-import { client } from './connect.mts';
-
-try {
-  await client.connect();
-  const cwd = process.env.WHIP_PROJECT;
-  if (!cwd) throw new Error('Set WHIP_PROJECT to a host project path');
-
-  const created = await client.sessions.create({
-    cwd,
-    execution_engine: 'starlark',
-    permission_mode: 'prompt',
-  }).result();
-  if (created.status !== 'succeeded' || !created.result) {
-    throw new Error(created.failure?.message ?? 'Session creation failed');
-  }
-
-  const session = client.session(created.result.root_id);
-  console.log('Session:', session.rootId);
-
-  const turn = session.run('Explain this project. Do not change files.');
-  const result = await turn.result();
-  if (result.status === 'succeeded') console.log(result.text);
-  else throw new Error(result.failure.message);
-} finally {
-  client.close();
-}
-```
-
-Run it from the checkout, replacing both paths:
+The SDK attaches to an explicit endpoint; it does not install or start a runtime. Configure a provider on the host before submitting ordinary model work. For local development, the following command creates an isolated scripted host and prints its socket:
 
 ```bash
-WHIP_SOCKET=/path/to/daemon.sock WHIP_PROJECT=/path/to/project node run.mts
+go run ./cmd/whip-runtime -directory /tmp/whip-example/state -scripted
 ```
 
-`permission_mode: 'prompt'` keeps approval mode enabled. Automation clients cannot provide human approval; leave a human client connected for actions needing approval, or expect those actions to be denied. Do not disable approvals just to make an example finish.
+Save this as `connect.mts` in the checkout:
 
-To reuse a session, keep its root ID and call `client.session(rootId)` after connecting. If you need only the final text, `await session.run(prompt).text()` returns it or throws on failure.
+```typescript file=connect.mts
+import { Client } from '@whip/sdk';
+import { unixSocket } from '@whip/sdk/node';
 
-### Attach a file
-
-Upload explicitly, then pass the returned reference. This helper accepts a session from a connected client:
-
-```typescript file=attachment.mts
-import type { Session } from '@whip/legacy-sdk';
-
-export async function summarizeNotes(session: Session, notes: string) {
-  const uploaded = await session.client.upload(
-    new TextEncoder().encode(notes),
-    { rootId: session.rootId, mediaType: 'text/plain' },
-  );
-  return session.run({
-    text: 'Summarize these notes.',
-    attachments: [uploaded.asAttachment('text', 'notes.txt')],
-  }).text();
-}
+const socket = process.env.WHIP_SOCKET;
+if (!socket) throw new Error('Set WHIP_SOCKET to the explicit runtime socket');
+const client = await Client.connect(unixSocket(socket), {
+  clientID: 'example-v4',
+  expectedRuntimeID: process.env.WHIP_RUNTIME_ID,
+  signal: AbortSignal.timeout(10_000),
+});
+console.log(client.runtimeID, client.processEpoch);
 ```
 
-Uploading alone does not put a file in a prompt. Content is scoped to its session; a child needs its own grant. Reading an existing content handle likewise does not submit it as model input.
+Save the runtime ID with a host profile. On later connections, pass it as `expectedRuntimeID`; a different runtime must require an explicit host choice. Every call checks the peer identity. A process epoch changes after restart while the persistent runtime ID stays the same.
 
-## Events and cancellation
+For a browser, use its authorized gateway origin:
 
-A `Turn` is an async iterable. It subscribes before submitting, so you can observe the work without racing its first event.
+```typescript file=browser.mts
+import { Client } from '@whip/sdk';
+import { browserSocket, discoverGateway } from '@whip/sdk/browser';
 
-```typescript file=stream.mts
-import type { Session } from '@whip/legacy-sdk';
-
-export async function streamTask(session: Session, prompt: string) {
-  const turn = session.run(prompt, { includeChildren: true });
-  let text = '';
-
-  for await (const event of turn) {
-    // Child events carry their own agentId; don't mix them into the root answer.
-    if (event.agentId !== session.rootId) continue;
-    if (event.type === 'text') text += event.delta;
-    if (event.type === 'discard') text = ''; // Provider retry replaced this draft.
-    if (event.type === 'host') {
-      console.log(event.operation, event.status);
-    }
-    if (event.type === 'text' || event.type === 'discard') {
-      console.log('Draft:', text);
-    }
-  }
-
-  const result = await turn.result();
-  if (result.status !== 'succeeded') throw new Error(result.failure.message);
-  return result.text; // Final result, not the accumulated draft, is authoritative.
-}
-```
-
-Other events include progress, usage, questions and permission requests. For a human UI, use `clientKind: 'human'` and present the request before deciding:
-
-```typescript file=approval.mts
-import type { PermissionEvent } from '@whip/legacy-sdk';
-
-type ApprovalRequest = { operation: string; command: string; path: string };
-
-export async function reviewPermission(
-  event: PermissionEvent,
-  askUser: (request: ApprovalRequest) => Promise<boolean>,
-) {
-  const allowed = await askUser({
-    operation: event.operation,
-    command: event.command,
-    path: event.path,
+export async function connectBrowser(endpoint: string, savedRuntimeID?: string) {
+  const signal = AbortSignal.timeout(10_000);
+  const discovered = await discoverGateway(endpoint, {
+    expectedRuntimeID: savedRuntimeID, signal,
   });
-  if (allowed) await event.allow(); // Once; no remembered permission.
-  else await event.deny('Declined by the user');
+  return Client.connect(browserSocket(endpoint, {
+    expectedRuntimeID: discovered.runtime_id,
+    expectedProcessEpoch: discovered.process_epoch,
+  }), {
+    clientID: 'browser-example-v4',
+    expectedRuntimeID: discovered.runtime_id, signal,
+  });
 }
 ```
 
-Call this for `permission` events with your actual approval dialog. Questions expose `answer()` and `dismiss()`; use the selected answer, not the first option automatically. After reconnect, `await session.prompts()` retrieves pending requests.
+The gateway enforces its origin and host authorization policy. A browser socket is not a way to bypass that policy or use a local-only endpoint.
 
-### Cancel explicitly
+## Create a session and run a turn
 
-For a stop button, call `await turn.cancel()`. For a deadline, pass a signal to `session.run`:
+Roots and children use the same inert `client.session(id)` handle. Creating a handle performs no I/O. Creating a root uses an immutable definition reference from the connected host and a stable creation ID:
+
+```typescript file=run.mts
+import type { Client, CreateTreeParams } from '@whip/sdk';
+
+export async function runTask(client: Client, directory: string, prompt: string,
+  creationID: string, requestID: string, overrides: CreateTreeParams['overrides'] = {}) {
+  const definition = client.builtins.find(value => value.id === 'assistant');
+  if (!definition) throw new Error('This host has no assistant definition');
+  // Keep both IDs and exact payloads before sending; never replace them on retry.
+  const created = await client.createTree({
+    engine: 'starlark', definition, working_directory: directory,
+    metadata: { title: null, archived: false, pinned: false },
+    overrides, // Empty captures the host's configured default model.
+  }, creationID, { signal: AbortSignal.timeout(10_000) });
+  if (!created.root) throw new Error('This creation refers to a deleted session');
+  const session = client.session(created.root.id);
+  const command = session.submission([{ type: 'text', text: prompt }], requestID);
+  await command.send({ signal: AbortSignal.timeout(10_000) });
+  return command.wait({ signal: AbortSignal.timeout(60_000) });
+}
+```
+
+The caller supplies an absolute directory on the host and stable IDs, such as persisted UUIDs. An empty override captures the configured host model. For the disposable `-scripted` host above, pass `{ model: { provider: 'scripted', name: 'scripted', effort: '' } }` as the last argument; its synthetic provider is not a route on ordinary hosts. Existing sessions retain their captured configuration when defaults change.
+
+Admission and execution outcome are different. `send()` can acknowledge queued work before a worker starts. `wait()` returns failed, cancelled or interrupted work as data. A timeout stops observation. Cancelling work is a separate explicit action against an exact accepted input or turn:
 
 ```typescript file=deadline.mts
-import type { Session } from '@whip/legacy-sdk';
+import type { DurableCommand, Session } from '@whip/sdk';
 
-export async function runWithDeadline(session: Session, prompt: string) {
-  const turn = session.run(prompt, {
-    signal: AbortSignal.timeout(60_000),
-  });
-  return turn.text();
+export function waitWithDeadline(command: DurableCommand<'sessions.submit'>,
+  milliseconds: number) {
+  return command.wait({ signal: AbortSignal.timeout(milliseconds) });
+}
+
+export async function cancelAcceptedInput(session: Session,
+  command: DurableCommand<'sessions.submit'>, signal: AbortSignal) {
+  if (command.params.session_id !== session.id || command.record.runtimeID !== session.client.runtimeID)
+    throw new Error('Command belongs to another session or runtime');
+  const check = await command.check({ signal });
+  if (check.state !== 'found' || !('input' in check.evidence) || !check.evidence.input)
+    throw new Error('Exact accepted input is unavailable; check delivery first');
+  return session.inputs.cancel(check.evidence.input.id, { signal });
 }
 ```
 
-A turn's signal requests cancellation and stops observation; cancellation is not a rollback. `client.close()` only disconnects—it does not cancel accepted work.
+A timeout does not call `cancelAcceptedInput`. Invoke that helper only after the person explicitly requests cancellation, using a fresh signal rather than the expired wait signal.
 
-### Command acceptance and recovery
+## Recover uncertain delivery
 
-Use `session.submit({ text })` when you need the underlying durable command handle:
+Persist the exact request before sending when your client must survive crashes. `RecoveryJournal` bounds the records and `DurableCommand` retains the original runtime, client and request identities:
 
-| Method | Meaning |
-| --- | --- |
-| `command.accepted()` | The host accepted the request; work is not necessarily finished |
-| `command.result()` | Wait for the terminal outcome |
-| `command.record` | Identity metadata for recovery, not the prompt body |
-| `command.cancel().result()` | Request cancellation and wait for that command's outcome |
+```typescript file=recovery.mts
+import { DurableCommand, RecoveryJournal } from '@whip/sdk';
+import type { Client, RecoveryStorage } from '@whip/sdk';
 
-Aborting `command.result({ signal })` stops only the local wait. This differs from passing a signal to `session.run`. If acknowledgement is lost, do not blindly resubmit: the command may already be running. Use command recovery; only retry when the host definitively reports the command missing.
+// Create one journal owner per storage. Coordinate cross-tab writers separately.
+export function createJournal(storage: RecoveryStorage) {
+  return new RecoveryJournal(storage, { maxRecords: 64, maxBytes: 8 << 20 });
+}
 
-A completed parent turn does not guarantee that every subagent or schedule has finished.
-
-## Define agents and tools
-
-Tools execute in the process serving them; model work still runs on the daemon. This example uses Zod 4 for typed input and output. Other Standard Schema implementations and raw JSON Schema are also supported.
-
-Save as `agent.mts` beside `connect.mts`:
-
-```typescript file=agent.mts
-import { client } from './connect.mts';
-import { defineAgent, tool } from '@whip/legacy-sdk/agents';
-import { z } from 'zod';
-
-const ticketSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  status: z.enum(['open', 'closed']),
-});
-const tickets = new Map([
-  ['42', { id: '42', title: 'Fix the download link', status: 'open' as const }],
-]);
-
-const lookupTicket = tool({
-  name: 'lookup_ticket',
-  description: 'Read a ticket from the local ticket store.',
-  input: z.object({ id: z.string() }),
-  output: ticketSchema,
-  execute: async ({ id }, context) => {
-    context.signal.throwIfAborted();
-    context.progress(`Looking up ticket ${id}`);
-    const ticket = tickets.get(id);
-    if (!ticket) throw new Error(`Ticket ${id} not found`);
-    return ticket;
-  },
-});
-
-const triage = defineAgent({
-  id: 'ticket-triage',
-  instructions: { persona: 'Look up the requested ticket, then summarize its status.' },
-  modules: ['context'],
-  capabilities: [],
-  mcp: { servers: [] },
-  tools: [lookupTicket],
-  output: z.object({ summary: z.string() }),
-});
-
-try {
-  await client.connect();
-  const runtime = await client.agents.serve(triage);
-  try {
-    const cwd = process.env.WHIP_PROJECT;
-    if (!cwd) throw new Error('Set WHIP_PROJECT to a host project path');
-    const session = await runtime.sessions.create({
-      cwd,
-      permission_mode: 'prompt',
-    });
-    const result = await session.run('Summarize ticket 42.').result();
-    if (result.status === 'succeeded') console.log(result.output.summary);
-    else throw new Error(result.failure.message);
-  } finally {
-    runtime.close();
+export async function inspectRecovery(client: Client, journal: RecoveryJournal,
+  signal: AbortSignal) {
+  const results = [];
+  for (const record of await journal.list()) {
+    if (record.runtimeID !== client.runtimeID || record.clientID !== client.clientID) continue;
+    const command = DurableCommand.recover(client, record, { journal });
+    const check = await command.check({ signal });
+    results.push({ record: command.record, check }); // No sends or retries.
   }
-} finally {
-  client.close();
+  return results;
 }
 ```
 
-`serve` registers the definition, pins its revision for new sessions, and handles its tools. Keep the runtime connected while agents need those handlers. Closing it aborts active handlers; it does not delete sessions.
+Pass the journal to `session.submission(parts, requestID, { journal })` before `send()`. Once the outcome is known and the caller no longer needs its recovery record, call `command.forget()`.
 
-Your tool handler owns its side effects. Respect `context.signal`; use `context.invocationId` as an idempotency key when calling a service. A timeout or disconnect cannot undo an external write. The example's in-memory lookup is read-only; approvals still follow the host policy.
+`check()` reads saved evidence; it does not resend. `found` verifies the original payload, while `missing`, `identity_only` and `unavailable` require different recovery decisions. Only an explicit retry should call `retry()`, retaining the same identity and payload. A `DeliveryError` alone cannot prove rejection.
 
-Named children and hooks belong in the same definition. See [Agents & subagents](/docs/agents-subagents) for the model and the [SDK reference](https://github.com/context-labs/whip/blob/main/packages/legacy-sdk/README.md#author-serve-run) for the full definition contract.
+Use a fresh v4 namespace and bound storage reads. The browser example coordinates shared local storage through Web Locks; independent in-memory journal queues are not a cross-tab storage lock. The journal defaults to 64 records and 8 MiB, with a 4 MiB limit per record. It refuses new sends at capacity and never evicts unresolved work. Requests contain user text. A local persistence failure after acknowledgement reports acceptance separately through `RecoveryPersistenceError`.
 
-## State views and React
+## Observe history and execution
 
-Views combine snapshots and live events. Create and start one view per session owner; React hooks only subscribe to it.
+The base session handle has no transcript cache. SDK views own bounded immutable snapshots; applications own their leases, drafts, selection and reading position.
 
-```typescript file=view.mts
-import type { Session } from '@whip/legacy-sdk';
-import { createSessionView } from '@whip/legacy-sdk/state';
+```typescript file=views.mts
+import type { Session } from '@whip/sdk';
+import { createSessionView, createExecutionView } from '@whip/sdk/state';
 
-export async function openSessionView(session: Session) {
-  const view = createSessionView(session);
+export function sessionViews(session: Session) {
+  const transcript = createSessionView(session, {
+    maxMessages: 256, maxBytes: 4 << 20,
+  });
+  const execution = createExecutionView(session, transcript, {
+    maxTurns: 16, maxBytes: 2 << 20,
+  });
+  return { transcript, execution, async dispose() {
+    await execution.dispose();
+    await transcript.dispose();
+  } };
+}
+// The owner starts these views, shares their leases, and disposes them on release.
+// Read getSnapshot(), or subscribe through the React hooks; do not copy a reducer.
+```
+
+`SessionView` keeps committed messages separate from the current disposable preview. `ExecutionView` joins turns, cells, operations and bounded live stdout by their exact identities. Imported history does not fabricate local execution. Overflow and unavailable content remain visible.
+
+Use `suspend()` when hidden, then `resume()` when visible. After reconnecting to the same runtime with a new client, call `reconnect(client)` explicitly. History revisions and process epochs invalidate incompatible evidence. Disposal joins observation without cancelling execution.
+
+React's `useSessionView`, `useExecutionView`, `useTreeCatalogView` and `useTraceView` subscribe through `useSyncExternalStore`. These hooks do not start or dispose a view. Share leases across consumers, including StrictMode remounts; do not copy their snapshots into a second reducer.
+
+For a simple console observer, give this helper a dedicated view for the exact selected session. It replaces provisional text on each snapshot, clears a missing preview, and returns only the authoritative admission result. This convenience helper throws for non-successful work instead of treating a partial preview as an answer.
+
+```typescript file=stream.mts
+import type { Session } from '@whip/sdk';
+import type { SessionView } from '@whip/sdk/state';
+
+export async function streamTask(session: Session, view: SessionView,
+  prompt: string, requestID: string, signal: AbortSignal) {
+  const owner = view.getSnapshot();
+  if (owner.sessionID !== session.id || owner.runtimeID !== session.client.runtimeID)
+    throw new Error('View belongs to another session or runtime');
+  const command = session.submission([{ type: 'text', text: prompt }], requestID);
+  const unsubscribe = view.subscribe(() => {
+    const snapshot = view.getSnapshot();
+    console.log('Draft:', snapshot.status === 'live' ? snapshot.preview?.text ?? '' : '');
+  });
   try {
     await view.start();
-    return view;
-  } catch (error) {
-    await view.dispose();
-    throw error;
+    await command.send({ signal });
+    const result = await command.wait({ signal });
+    if (result.turn?.state !== 'succeeded')
+      throw new Error(result.turn?.failure || result.turn?.state || result.input?.state || 'Work unavailable');
+    return result; // The transcript contains committed output; preview is never final.
+  } finally {
+    unsubscribe();
+    await view.suspend(); // Observation only; accepted work remains on the host.
   }
 }
 ```
 
-Pass the started view into components. This React 19 example uses `createElement` so the same TypeScript example runs without a JSX build step:
+## Decisions, content and accounting
 
-```typescript file=status.mts
-import { createElement } from 'react';
-import { useSessionView } from '@whip/legacy-sdk/react';
-import type { SessionView } from '@whip/legacy-sdk/state';
+Read pending decisions through `session.permissions.list({ pending_only: true })` and `session.questions.list({ pending_only: true })`. Resolve the exact owner-scoped operation with `permissions.resolve(operationID, approved)` or `questions.answer(operationID, answers)`. Reconnection does not imply consent. Inspect the canonical capability, resource and arguments before asking a person:
 
-export function SessionStatus({ view }: { view: SessionView }) {
-  const snapshot = useSessionView(view);
-  return createElement('p', null, `Session state: ${snapshot.status}`);
+```typescript file=approval.mts
+import type { HostOperation, Session } from '@whip/sdk';
+
+export async function reviewPermission(session: Session, operationID: string,
+  ask: (operation: Readonly<HostOperation>) => Promise<boolean>, signal: AbortSignal) {
+  const operation = await session.operations.get(operationID, { signal });
+  if (operation.state !== 'waiting') throw new Error('Permission is no longer pending');
+  const approved = await ask(operation); // An explicit human decision every time.
+  return session.permissions.resolve(operation.id, approved, { signal });
 }
 ```
 
-The owner calls `await view.dispose()` when leaving the session, then closes the client when the application no longer needs it. Do not create a client or view during React rendering, and do not reuse a disposed view. Non-React code can use `view.subscribe()` and `view.getSnapshot()` directly.
+Human terminal and browser resources remain separate from agent authority.
 
-For a working interface and offline test helpers, see the [client example](https://github.com/context-labs/whip/tree/main/examples/client) and [SDK testing reference](https://github.com/context-labs/whip/blob/main/packages/legacy-sdk/README.md#testing).
+Upload explicit bytes with `session.content.upload(referenceID, mediaType, bytes)`. Save the identity before sending. Read with `session.content.readBytes(reference, { maxBytes })`; references are scoped to their owner, and a reference does not grant another session access. Large bodies require deliberate bounded reads. Wait for upload acknowledgement before submitting the exact reference:
+
+```typescript file=attachment.mts
+import type { Session } from '@whip/sdk';
+
+export async function summarizeNotes(session: Session, notes: string,
+  referenceID: string, requestID: string, signal: AbortSignal) {
+  const reference = await session.content.upload(referenceID, 'text/plain',
+    new TextEncoder().encode(notes), { signal });
+  const command = session.submission([
+    { type: 'text', text: 'Summarize the attached notes.' },
+    { type: 'content', reference_id: reference.id },
+  ], requestID);
+  await command.send({ signal });
+  return command.wait({ signal });
+}
+```
+
+Keep the caller's reference ID and bytes if upload delivery is uncertain. Inspect that owner/reference before any explicit retry; do not invent a replacement identity.
+
+`session.turns.usage(turnID)` reports actual per-turn attempts, including helper and compaction work. `session.context.usage()` reports the latest actual prefill, with explicit reported/estimated source, stale tail and nullable capacity. It is not a current context measurement after more history is appended. Cumulative spend, uncertainty and missing token counts remain separate. Keep decimal-string counters exact; use `BigInt` when arithmetic is needed.
+
+## Author tools and agents
+
+Definitions contain canonical configuration data. Handlers stay in the process that serves an explicit executor connection:
+
+```typescript file=agents.mts
+import type { Client } from '@whip/sdk';
+import { defineAgent, tool } from '@whip/sdk/agents';
+import { executorSocket } from '@whip/sdk/node';
+import { z } from 'zod';
+
+const lookup = tool({
+  name: 'lookup_ticket', description: 'Look up a support ticket',
+  input: z.object({ id: z.string() }),
+  output: z.object({ id: z.string(), title: z.string() }),
+  execute: async ({ id }, context) => {
+    context.signal.throwIfAborted();
+    await context.progress('Looking up the ticket');
+    return { id, title: 'Example ticket' };
+  },
+});
+const definition = defineAgent({
+  id: 'support-example', name: 'Support example',
+  defaults: { modules: ['context', 'user'], automatic_title: true, goals_enabled: false },
+  tools: [lookup],
+});
+export async function serveSupport(client: Client, socket: string, signal: AbortSignal) {
+  const serving = await client.agents.serve(definition, {
+    transport: await executorSocket(socket), signal,
+  });
+  try { await serving.done; }
+  finally { await serving.close(); } // Join cooperative callbacks; never replay.
+}
+```
+
+`defineAgent({ output: null })` explicitly clears an inherited output schema; omitting `output` preserves inheritance.
+
+Register named children separately and capture their immutable references in `defaults.children`. Tool declarations do not grant authority or start executors. Hooks receive captured turn/operation identities and return explicit narrowing decisions. Required and optional hook failures have distinct host behavior.
+
+Await progress acknowledgements and cooperate with each callback's abort signal. Serving defaults to 16 active callbacks and 4,096 invocation identities per lease, with no waiting queue or automatic replay after uncertain delivery. Standard Schema validation applies transforms once; unsafe JSON integers reject rather than silently round.
+
+See the [SDK reference](https://github.com/context-labs/whip/blob/main/packages/sdk/README.md) for complete services, recovery semantics and transport limits, and the [examples](https://github.com/context-labs/whip/tree/main/examples) for client and agent programs.
