@@ -48,13 +48,27 @@ for (const name of names) {
     page.on('console', message => {
       if (message.type() === 'error' && /content.security.policy|violates.*directive/i.test(message.text()) && errors.length < 64) errors.push(message.text());
     });
-    page.on('websocket', socket => socket.on('framesent', ({ payload }) => {
-      try {
-        const request = JSON.parse(String(payload));
-        assert(traffic.length < 25_000, 'Activity traffic evidence overflow');
-        traffic.push({ method: request.method, session: request.params?.session_id });
-      } catch (error) { if (errors.length < 64) errors.push(error.message); }
-    }));
+    page.on('websocket', socket => {
+      const pending = new Map();
+      socket.on('framesent', ({ payload }) => {
+        try {
+          const request = JSON.parse(String(payload));
+          assert(traffic.length < 25_000 && pending.size < 512, 'Activity traffic evidence overflow');
+          const record = { method: request.method, session: request.params?.session_id, turn: request.params?.turn_id };
+          traffic.push(record); pending.set(request.id, record);
+        } catch (error) { if (errors.length < 64) errors.push(error.message); }
+      });
+      socket.on('framereceived', ({ payload }) => {
+        try {
+          const reply = JSON.parse(String(payload)), record = pending.get(reply.id);
+          if (!record) return;
+          pending.delete(reply.id); record.replied = true; record.error = reply.error?.kind;
+          // Bounded identity/state evidence only, never arguments, prose or credentials.
+          if (record.method === 'turns.cells_page') record.cells = reply.result?.items?.slice(0, 128).map(({ id, turn_id, state }) => ({ id, turn_id, state }));
+          if (record.method === 'sessions.activity') record.activeTurn = reply.result?.active_turn?.id;
+        } catch (error) { if (errors.length < 64) errors.push(error.message); }
+      });
+    });
     await page.exposeFunction('__recordActivityCSP', directive => { if (csp.length < 64) csp.push(String(directive).slice(0, 256)); });
     await page.addInitScript(() => {
       if (!localStorage.getItem('whip.appearance.theme.v1')) localStorage.setItem('whip.appearance.theme.v1', JSON.stringify({ version: 1, id: 'claude-code' }));
@@ -103,13 +117,18 @@ for (const name of names) {
     await expect(page.locator('[data-activity-detail]')).toContainText('Saved reasoning');
     await page.reload(); await expect(thought).toBeVisible();
     fixture.release('activity-saved-reasoning'); await saved.wait(deadline());
-    await expect(thought).toHaveCount(0);
+    await expect(thought).toHaveCount(1);
+    await expect(thought.getByRole('button')).toHaveAttribute('aria-expanded', 'false');
     await page.reload();
     const persisted = page.locator('[data-activity-group]').filter({ hasText: /read 1 file/i });
     await expect(persisted).toBeVisible(); await persisted.getByRole('button').focus(); await page.keyboard.press('Enter');
     await expect(page.locator('[data-activity-step]').filter({ hasText: 'persisted.md' })).toBeVisible();
     await page.keyboard.press('Enter'); await expect(persisted.getByRole('button')).toHaveAttribute('aria-expanded', 'false');
-    checks.push('live reasoning reload/disclosure; settled reasoning cleared; canonical file execution restores with keyboard disclosure');
+    await persisted.getByRole('button').click();
+    await thoughtStep.click();
+    await expect(page.locator('[data-activity-detail]').filter({ hasText: 'Saved reasoning' })).toBeVisible();
+    await persisted.getByRole('button').click();
+    checks.push('live reasoning reload/disclosure; settled reasoning and canonical file execution restore with keyboard disclosure');
     await writeFile(join(directory, `${name}-composer-reading.json`), JSON.stringify(await checkComposerReading(page), null, 2));
 
     console.log(`${name}: actual operations, REPL and child wait`);
@@ -250,7 +269,7 @@ for (const name of names) {
     checks.push('later replies finish in prose; prior canonical execution remains in the REPL; composer remains reachable during history reading');
     assert.deepEqual(errors, []); assert.deepEqual(csp, []);
     report.push({ browser: name, rendererDigest: manifest.digest, checks, maximumTreeRows,
-      dispositions: ['Native reasoning is live preview only, never restored from completed history.', 'Actual files.read operations settle before the explicit fixture executor hold; no injected Reading-files phase.', 'agents.wait_after_cell settles the cell and releases execution permission; UI reports Waiting for work to continue instead of an invented active agents.wait operation.'] });
+      dispositions: ['Bounded native presentation preserves settled reasoning separately from model-visible history.', 'Actual files.read operations settle before the explicit fixture executor hold; no injected Reading-files phase.', 'agents.wait_after_cell settles the cell and releases execution permission; UI reports Waiting for work to continue instead of an invented active agents.wait operation.'] });
     await writeFile(join(directory, 'results.json'), JSON.stringify(report, null, 2));
     succeeded = true;
   } catch (error) {
