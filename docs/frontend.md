@@ -3532,3 +3532,17 @@ schemas remain separate. Search displays at most 64 matches and never registers 
 binds an executor, or grants authority. Host diagnostics verify the runtime identity through
 the SDK and reject a replacement process epoch before presenting its PID, build, startup
 or gateway metadata. Reading diagnostics never starts or stops a host.
+
+The composer permission picker reads the selected root's canonical tree policy
+and captures its revision when its menu opens. Background refresh never rebases
+an open choice; unresolved delivery blocks another edit until explicit recovery.
+The picker validates tree identity and child sessions cannot change shared policy.
+Automatic mode approves eligible root actions while child grants, resource scopes
+and intrinsic validation continue to apply. Canonical failed/cancelled/interrupted
+turn notices use exact session/turn ownership and copy the recorded failure text.
+A changed current configuration is never presented as the failed turn's model.
+
+The integrated native inspector, content, REPL, navigation, permission and turn
+notice suites pass 59 focused React tests. The full application still requires
+conversation/composer, navigation-sidebar and terminal wiring; these focused
+results do not claim completion of client cutover.

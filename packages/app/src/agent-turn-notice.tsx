@@ -1,54 +1,41 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { RootSnapshot } from '@whip/legacy-protocol';
-import type { DeepReadonly, SessionView, SessionViewSnapshot } from '@whip/legacy-sdk/state';
 import { Alert, Collapsible, CopyButton } from '@whip/ui';
 import * as stylex from '@stylexjs/stylex';
 import { scale, surface, typography } from '@whip/ui/tokens.stylex';
 import { useRuntime } from './context';
 import { ErrorNotice } from './error-feedback';
-import { ContentRead } from './details/shared';
+import type { Session, SessionRecord, Turn } from '@whip/sdk';
+import type { DeepReadonly } from '@whip/sdk/state';
 
-type Agent = DeepReadonly<NonNullable<RootSnapshot['agents']>[number]>;
-
-// Most selected agents are already in the SDK snapshot/collection. A scoped,
-// cancellable detail read covers selection beyond the bounded first page.
-export function useSelectedAgent(view: SessionView, state: DeepReadonly<SessionViewSnapshot>, agentId: string, connected: boolean) {
-  const agent = state.root?.agents?.find(item => item.id === agentId)
-    ?? state.collections.agents?.items?.find(item => item.agent?.id === agentId)?.agent;
-  const query = useQuery({
-    queryKey: ['selected-agent', view.session.client.getSnapshot().info?.runtime_id, view.session.rootId, agentId],
-    queryFn: ({ signal }) => view.session.agents.inspect(agentId, { signal }),
-    enabled: connected && !agent,
-    gcTime: 0,
+/** Canonical metadata for the selected native session, independent of transcript paging. */
+export function useSelectedAgent(session: Session, connected: boolean) {
+  return useQuery({
+    queryKey: ['selected-agent', session.client.runtimeID, session.client.processEpoch, session.id],
+    queryFn: ({ signal }) => session.get({ signal }),
+    enabled: connected, gcTime: 0, retry: false, refetchInterval: connected ? 3000 : false,
   });
-  const refetch = query.refetch;
-  useEffect(() => {
-    // Agent records are replaced by the SDK's coalesced lifecycle snapshot,
-    // not by individual streaming deltas. Reuse that invalidation boundary.
-    if (connected && !agent) void refetch();
-  }, [state.root?.agents, connected, agent, refetch]);
-  return agent ?? query.data?.result?.agent;
 }
 
-export function AgentTurnNotice({ agent, view, activeTurn }: { agent?: Agent; view: SessionView; activeTurn?: string }) {
+export function AgentTurnNotice({ session, selected, turn, activeTurn }: {
+  session: Session; selected?: DeepReadonly<SessionRecord>; turn?: DeepReadonly<Turn>; activeTurn?: string;
+}) {
   const runtime = useRuntime();
-  const outcome = agent?.last_turn;
   const [copyError, setCopyError] = useState<unknown>();
-  useEffect(() => setCopyError(undefined), [agent?.id, outcome?.event_seq]);
-  if (!outcome || activeTurn || !['failed', 'cancelled', 'interrupted'].includes(outcome.status)) return null;
-  const label = outcome.status === 'failed' ? 'Last turn failed' : outcome.status === 'cancelled' ? 'Last turn cancelled' : 'Last turn interrupted';
-  return <div {...stylex.props(styles.container)} data-agent-turn-outcome={outcome.status} data-error-type="turn" data-error-owner={`${view.session.rootId}:${agent?.id}:${outcome.event_seq}`}>
-    <Alert tone={outcome.status === 'failed' ? 'error' : 'neutral'} title={`${agent?.name || 'Root agent'} · ${label}`}
-      action={outcome.error && <CopyButton label={outcome.error_truncated ? 'Copy error preview' : 'Copy error'} text={outcome.error} copy={async text => { await runtime.platform.copy(text); setCopyError(undefined); }} onError={setCopyError} />}>
+  useEffect(() => setCopyError(undefined), [session.id, turn?.id]);
+  if (!turn || turn.session_id !== session.id || selected?.id !== session.id || activeTurn || !['failed', 'cancelled', 'interrupted'].includes(turn.state)) return null;
+  const label = turn.state === 'failed' ? 'Last turn failed' : turn.state === 'cancelled' ? 'Last turn cancelled' : 'Last turn interrupted';
+  const name = selected.parent_id === null ? 'Root agent' : selected.definition.id;
+  const model = selected.config_revision === turn.config_revision ? selected.configuration.model : null;
+  return <div {...stylex.props(styles.container)} data-agent-turn-outcome={turn.state} data-error-type="turn" data-error-owner={`${session.client.runtimeID}:${session.id}:${turn.id}`}>
+    <Alert tone={turn.state === 'failed' ? 'error' : 'neutral'} title={`${name} · ${label}`}
+      action={turn.failure && <CopyButton label="Copy error" text={turn.failure} copy={async text => { await runtime.platform.copy(text); setCopyError(undefined); }} onError={setCopyError} />}>
       <div {...stylex.props(styles.body)}>
-        <span {...stylex.props(styles.meta)}>{[agent?.model, agent?.provider].filter(Boolean).join(' · ')}</span>
-        {outcome.error ? <Collapsible key={`${agent?.id}:${outcome.event_seq}`} title="Error details">
-          <pre {...stylex.props(styles.error)}>{outcome.error}</pre>
-          {outcome.error_truncated && <span {...stylex.props(styles.meta)}>Showing the beginning of the recorded error.</span>}
-          {outcome.error_details && <ContentRead key={outcome.error_details.reference_id} view={view} agentId={agent?.id} value={outcome.error_details} label="Full error" />}
-        </Collapsible> : !outcome.error && <span>No error details were recorded.</span>}
-        <ErrorNotice type="action" owner={`${agent?.id}:copy-error`} error={copyError} title="Could not copy error" />
+        {model && <span {...stylex.props(styles.meta)}>{[model.name, model.provider].join(' · ')}</span>}
+        {turn.failure ? <Collapsible key={`${session.id}:${turn.id}`} title="Error details">
+          <pre {...stylex.props(styles.error)}>{turn.failure}</pre>
+        </Collapsible> : <span>No error details were recorded.</span>}
+        <ErrorNotice type="action" owner={`${session.id}:copy-error`} error={copyError} title="Could not copy error" />
       </div>
     </Alert>
   </div>;
