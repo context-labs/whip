@@ -3991,3 +3991,8 @@ only to that exact recipient/turn, replacing the old error-text/sequence heurist
 The combined composer, submission, runtime and picker suites pass 96 tests
 (3.75 seconds), with affected source types clean. Conversation callers and the
 remaining application still need migration before the complete frontend gate.
+
+New-chat workspace descriptors now persist validated immutable agent references
+with copied/frozen revisions. Existing mutable-name drafts are preserved as an
+unresolved choice that requires explicit selection; they are never rebound to a
+current definition. All 78 session-tab tests pass (2.22 seconds).

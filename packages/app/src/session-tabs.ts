@@ -1,3 +1,5 @@
+import { validate } from '@whip/protocol';
+import type { DefinitionRef } from '@whip/sdk';
 import { isInspectorSection, type InspectorSection } from './navigation';
 import type { AppStorage } from './platform';
 import { browserURL, browserTitle, MAX_BROWSER_TABS } from './browser-address';
@@ -40,8 +42,10 @@ export interface NewChatTab {
   readonly model?: string;
   readonly provider?: string;
   readonly effort?: string;
-  /** Agent definition id the session runs; absent means the host's default (coding). */
-  readonly definition?: string;
+  /** Exact immutable revision chosen for this draft. */
+  readonly definition?: Readonly<DefinitionRef>;
+  /** A saved mutable name cannot be silently rebound to a revision. */
+  readonly unresolvedDefinition?: string;
 }
 export interface TerminalTab {
   readonly id: string;
@@ -69,7 +73,7 @@ export const kindFromSearch = (view: unknown): SessionViewKind => view === 'repl
 /** Tab title suffix for a non-chat view. */
 export const viewSuffix = (kind: SessionTab['kind']) => kind === 'repl' ? ' · REPL' : kind === 'trace' ? ' · Trace' : '';
 export type TerminalOptions = Partial<Pick<TerminalTab, 'terminalId' | 'cwd' | 'titleHint'>>;
-export type NewChatOptions = Partial<Pick<NewChatTab, 'hostProfileId' | 'runtimeId' | 'cwd' | 'permissionMode' | 'executionEngine' | 'definition' | 'model' | 'provider' | 'effort'>>;
+export type NewChatOptions = Partial<Pick<NewChatTab, 'hostProfileId' | 'runtimeId' | 'cwd' | 'permissionMode' | 'executionEngine' | 'definition' | 'unresolvedDefinition' | 'model' | 'provider' | 'effort'>>;
 /** Mirrors the daemon's definition id rule: lowercase, digits and hyphens, 2 to 64 characters. */
 export const definitionIdPattern = /^[a-z][a-z0-9-]{1,63}$/;
 export interface SessionPane {
@@ -191,13 +195,14 @@ function parseTab(value: unknown, runtimeId?: string, legacy = false): SessionTa
       (value.provider !== undefined && !identity(value.provider)) ||
       ((value.model === undefined) !== (value.provider === undefined)) ||
       (value.effort !== undefined && (typeof value.effort !== 'string' || value.effort.length > 64 || /[\0\r\n]/.test(value.effort))) ||
-      (value.definition !== undefined && (typeof value.definition !== 'string' || !definitionIdPattern.test(value.definition))) ||
+      (value.definition !== undefined && !(typeof value.definition === 'string' ? definitionIdPattern.test(value.definition) : validate('DefinitionRef', value.definition))) ||
+      (value.unresolvedDefinition !== undefined && (typeof value.unresolvedDefinition !== 'string' || !definitionIdPattern.test(value.unresolvedDefinition))) ||
       (value.permissionMode !== undefined && value.permissionMode !== 'prompt' && value.permissionMode !== 'automatic')) return;
     return { id: value.id, kind: 'new', cwd: value.cwd, permissionMode: value.permissionMode,
       ...(value.model === undefined ? {} : { model: value.model as string, provider: value.provider as string }),
       ...(value.effort === undefined ? {} : { effort: value.effort as string }),
       ...(value.executionEngine === undefined ? {} : { executionEngine: value.executionEngine as NewChatTab['executionEngine'] }),
-      ...(value.definition === undefined ? {} : { definition: value.definition as string }),
+      ...(typeof value.definition === 'string' ? { unresolvedDefinition: value.definition } : value.definition ? { definition: Object.freeze({ ...value.definition as DefinitionRef }) } : typeof value.unresolvedDefinition === 'string' ? { unresolvedDefinition: value.unresolvedDefinition } : {}),
       ...(value.hostProfileId === undefined ? {} : { hostProfileId: value.hostProfileId as string }),
       ...(value.runtimeId === undefined ? {} : { runtimeId: value.runtimeId as string }) };
   }
