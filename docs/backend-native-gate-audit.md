@@ -201,3 +201,23 @@ gateway readiness tests passed in 0.002 seconds. The changed workflow also passe
 `actionlint`. Logs: `/tmp/whip-native-ci-publish.log` and
 `/tmp/whip-native-ci-distributions-unit.log`. The complete hosted distribution
 scenario still needs its final integrated rerun.
+
+## Passive transfer memory attribution
+
+The Desktop performance harness now labels the existing periodic RSS samples
+and adds at most16 passive boundary samples around upload completion, each
+preview removal, document navigation, and the combined content download/native
+save. Each records sampling duration, process RSS, browser heap/DOM totals, and
+numeric connected light-DOM/Markdown/attachment counts. Traversal counts cap
+at100,000 with explicit lower-bound truncation; no DOM nodes or content are
+retained by the probe. These sequential reads are not atomic allocation-owner
+evidence. They run outside the timed transfer keys and never force GC, change
+the workload, delete owners, or relax the50ms typing target. The350MiB memory
+investigation trigger remains an investigation trigger, not a pass/fail limit.
+
+The18 focused Node checks pass, including traversal bounds and diagnostic
+connection teardown on failure/stall. A small actual Chromium/CDP fixture also
+verified mounted attachment removal and subtree counts; its process-memory
+source was stubbed, so it is not a Desktop workload or memory-acceptance result.
+No idle period was added. A later unchanged-workload run must supply phase
+evidence before attributing the existing natural retention to a resource owner.
