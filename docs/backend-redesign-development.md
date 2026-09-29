@@ -6051,3 +6051,28 @@ evidence, not a promise retained by this slice. Older databases are rejected
 without modification; a fresh development runtime is required. Unsupported REPL
 aliases will be removed even though this changes saved QuickJS fingerprints.
 No user's existing database or running installation is modified by these edits.
+
+Integrated instruction capture now admits an exact standing grant or eligible
+current Full Access authority, including default children with zero standing
+grants. Workspace rules, selected published skill/project roots, standing rules,
+explicit skill invocation and human skill inspection share that decision. Source
+selection stays explicit and confined; captured bytes remain immutable for the
+turn and later reads recheck authority. The isolated full store/runtime suites
+and focused race checks passed.
+
+The MCP increment captures trusted tool identities at spawn and combines that
+ceiling with live permission policy for both discovery and dispatch. It retains
+root-owned connections, explicit untrusted-tool consent, separately scoped server
+instructions and exact retry behavior. Focused real-spawn Starlark/QuickJS and
+race tests cover zero-grant discovery/calls, Ask → Full Access, off/on, nested
+restriction, reconnect/schema changes, and restart without implicit reconnection.
+Schema58 adds the fresh child MCP scope table, with no historical reconstruction.
+
+The REPL guide again covers local libraries, language differences, checkpoint
+limits, browser/computer/MCP/user calls, helper-versus-child selection, and mail
+completion behavior. Examples run in both actual engines. Unsupported messages,
+agents.wait, context.history, and legacy state aliases are removed. This changes
+builtin module sets and QuickJS fingerprints as explicitly approved for dev.
+One tiny-context usage fixture unintentionally compacted after the richer guide;
+its print-only agent now declares no host modules, keeping its original window
+and exact-prefill assertions. Focused race checks pass after that correction.

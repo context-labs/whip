@@ -322,7 +322,7 @@ Subscription credentials
 belong to the independent host account manager and its private file.
 
 Current fresh [host configuration](../internal/config/host.go) is version 21;
-the [SQLite schema](../internal/store/store.go) is version 57. Version numbers in
+the [SQLite schema](../internal/store/store.go) is version 58. Version numbers in
 the implementation histories below identify their introducing checkpoints, not
 additional formats accepted by the current binary.
 SQLite has an application identifier and schema version. This development format accepts only fresh stores or its exact schema version.
@@ -2124,7 +2124,14 @@ session kernels and human terminals. Session stop/deletion and runtime shutdown
 cancel and join owned work; a reload does not replace unrelated session state.
 
 Metadata inspection never implicitly connects a server. Guest catalog reads
-validate the exact session, captured configuration and live delegated grants.
+validate the exact session, captured configuration and current delegated authority.
+Default children capture bounded trusted tool identities at spawn, even in Ask
+mode. Full Access changes apply live within that immutable tool ceiling. Discovery
+and dispatch use the same standing-grant or inherited-policy eligibility; dispatch
+rechecks before effects. Root reconnect preserves unchanged selectors but cannot
+add newly discovered or redefined tools to an existing child. Explicit child grant
+selections, narrowed server lists, and separate server-instruction consent remain
+in force. Exact spawn retries preserve the original captured tool set.
 Calls and connections enter the ordinary operation/consent/dispatch ledger.
 Only explicitly trusted server variants are eligible for saved automatic
 permission policy. Untrusted variants remain excluded both at admission and
