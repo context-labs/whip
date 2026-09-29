@@ -8,8 +8,10 @@ import { createServer } from 'node:http';
 import path from 'node:path';
 import { parseArgs, promisify } from 'node:util';
 import asar from '@electron/asar';
-import { createWhipClient } from '@whip/legacy-sdk';
-import { unixSocket } from '@whip/legacy-sdk/node';
+import { Client, DurableCommand } from '@whip/sdk';
+import { unixSocket } from '@whip/sdk/node';
+import { manifest as version } from '@whip/protocol';
+import { configureFixtureModel, createFixtureSession, verifyFixtureHistory } from './native-fixture.mjs';
 import { fileDigest, LocalRuntime, readRuntimeManifest } from '../src/runtime.ts';
 import { repositoryRoot } from '../../../scripts/renderer-artifact.mjs';
 
@@ -25,7 +27,6 @@ const fixture = await realpath(await mkdtemp('/tmp/whip-continuity-'));
 const copiedSource = path.join(fixture, 'application-source');
 const home = path.join(fixture, 'home');
 const deadline = AbortSignal.timeout(90_000);
-const clients = new Set();
 const exec = promisify(execFile);
 const run = async (binary, args, env, timeout = 10_000) => (await exec(binary, args, {
   env, timeout, maxBuffer: 256 << 10, encoding: 'utf8',
@@ -56,7 +57,7 @@ const provider = createServer((request, response) => {
     for await (const chunk of request) { bytes += chunk.length; assert(bytes <= 1 << 20); chunks.push(chunk); }
     const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
     assert.equal(body.model, 'continuity-model'); assert.equal(body.stream, true);
-    assert.deepEqual(body.tools.map(tool => tool.function.name), ['rlm_exec']);
+    assert.deepEqual(body.tools.map(tool => tool.function.name), ['execute']);
     const phase = [...phases.values()].find(value => body.messages.some(message => message.role === 'user' && JSON.stringify(message.content).includes(value.marker)));
     assert(phase, 'Provider request did not originate from this fixture');
     assert(++phase.requests <= 2, 'A turn should require exactly one tool call and one final answer');
@@ -64,15 +65,16 @@ const provider = createServer((request, response) => {
     if (phase.requests === 1) {
       phase.code = `print(${JSON.stringify(phase.marker)})\n{"marker": ${JSON.stringify(phase.marker)}, "answer": 6 * 7}`;
       delta = { tool_calls: [{ index: 0, id: phase.marker, type: 'function', function: {
-        name: 'rlm_exec', arguments: JSON.stringify({ code: phase.code }),
+        name: 'execute', arguments: JSON.stringify({ code: phase.code }),
       } }] };
     } else {
       const tool = body.messages.find(message => message.role === 'tool' && message.tool_call_id === phase.marker);
       assert(tool, 'The provider must receive an actual worker tool result');
       phase.toolResult = JSON.parse(tool.content);
-      assert.equal(phase.toolResult.output, phase.marker + '\n');
-      assert.deepEqual(phase.toolResult.value, { marker: phase.marker, answer: 42 });
-      assert(phase.toolResult.steps > 0, 'Worker must report executed Starlark steps');
+      assert.equal(phase.toolResult.result.output, phase.marker + '\n');
+      assert.deepEqual(phase.toolResult.result.value, { marker: phase.marker, answer: 42 });
+      assert.equal(phase.toolResult.result.format_version, 2); assert.equal(phase.toolResult.result.execution_engine, 'starlark');
+      assert.equal(phase.toolResult.result.has_value, true); assert(phase.toolResult.result.metrics.starlark_steps > 0);
       if (phase === phases.get('held')) await held;
       phase.answer = `Verified ${phase.marker}: 42`;
       delta = { content: phase.answer };
@@ -116,28 +118,17 @@ try {
   assert.equal(metadata.protocolMinor, manifest.compatibility.protocolMinor);
   provider.listen(0, '127.0.0.1'); await once(provider, 'listening');
   const baseURL = `http://127.0.0.1:${provider.address().port}`;
-  const model = { providers: ['continuity-provider'], context: 65536, maxOut: 256 };
-  await writeFile(path.join(home, 'config.json'), JSON.stringify({
-    defaultModel: 'continuity-model', defaultProvider: 'continuity-provider', compactModel: 'continuity-model', compactProvider: 'continuity-provider',
-    providers: { 'continuity-provider': { baseUrl: baseURL, api: 'openai-completions', apiKey: 'fixture-only' } },
-    models: { 'continuity-model': model }, rlm: { maxWorkers: 4 },
-  }), { mode: 0o600 });
-  await writeFile(path.join(home, 'models.json'), JSON.stringify({ 'continuity-provider': {
-    fetchedAt: new Date().toISOString(), baseUrl: baseURL,
-    models: [{ id: 'continuity-model', contextLength: 65536, maxCompletionTokens: 256,
-      pricing: { prompt: '0', completion: '0', inputCacheRead: '0' } }],
-  } }), { mode: 0o600 });
   assert.equal(JSON.parse(await run(installed.executable, ['daemon', 'status', '--json'], env)).state, 'stopped');
   startAttempted = true;
   await run(installed.executable, ['daemon', 'start'], env, 20_000);
   const status = async () => JSON.parse(await run(installed.executable, ['daemon', 'status', '--json'], env));
   const initial = await status();
-  assert.equal(initial.state, 'running'); assert(!initial.network_endpoint); daemonPID = initial.pid;
-  assert(initial.socket.startsWith(home + path.sep), 'Daemon socket must belong to this isolated home');
+  assert.equal(initial.state, 'running'); assert(!initial.process.web_endpoint); daemonPID = initial.process.pid;
+  assert.equal(initial.socket, path.join(home, 'runtime-v4', 'runtime.sock'), 'Runtime socket must belong to this isolated native namespace');
   const clientId = crypto.randomUUID();
   async function connect() {
-    const client = createWhipClient({ endpoint: unixSocket(initial.socket), clientId, clientKind: 'automation' });
-    clients.add(client); await client.connect({ signal: deadline }); return client;
+    const client = await Client.connect(unixSocket(initial.socket), { clientID: clientId, expectedRuntimeID: initial.process.runtime_id, signal: deadline });
+    assert.equal(client.processEpoch, initial.process.process_epoch); return client;
   }
   async function processEvidence(pid) {
     const command = (await run('/bin/ps', ['-p', String(pid), '-o', 'command='], env)).trim();
@@ -159,39 +150,42 @@ try {
     return found;
   }
   async function start(client, name) {
-    const created = await client.sessions.create({ cwd: path.join(fixture, 'work'), model: 'continuity-model', provider: 'continuity-provider' }).result({ signal: deadline });
-    assert.equal(created.status, 'succeeded', JSON.stringify(created));
-    const rootId = created.result.root_id;
-    const command = client.session(rootId).submit({ text: phases.get(name).marker });
-    const accepted = await command.accepted({ signal: deadline });
-    assert(!['failed', 'cancelled', 'interrupted'].includes(accepted.status));
-    return { rootId, command };
+    const session = await createFixtureSession(client, path.join(fixture, 'work'), 'continuity-provider', 'continuity-model', deadline);
+    const command = session.submission([{ type: 'text', text: phases.get(name).marker }], crypto.randomUUID());
+    const accepted = await command.send({ signal: deadline });
+    assert(accepted.receipt && !accepted.receipt.deleted_at);
+    return { rootId: session.id, command };
   }
   async function finish(client, name, turn) {
-    const outcome = await turn.command.result({ signal: deadline });
+    const outcome = await turn.command.wait({ signal: deadline });
     if (providerFailure) throw providerFailure;
-    assert.equal(outcome.status, 'succeeded', JSON.stringify(outcome));
     const phase = phases.get(name);
-    assert.equal(outcome.result.text, phase.answer);
-    const snapshot = await client.session(turn.rootId).snapshot({ signal: deadline });
-    const tool = snapshot.messages.find(message => message.role === 'tool' && message.tool_call_id === phase.marker);
-    assert(tool, 'Durable snapshot must include the worker result');
-    assert.deepEqual(JSON.parse(tool.content), phase.toolResult);
-    assert(snapshot.messages.some(message => message.role === 'assistant' && message.content === phase.answer));
-    return { rootId: turn.rootId, commandId: turn.command.commandId, status: outcome.status,
-      toolResult: phase.toolResult, answer: phase.answer, snapshotVerified: true };
+    const cell = await verifyFixtureHistory(client.session(turn.rootId), outcome, phase.marker, phase.toolResult, phase.answer, deadline);
+    return { rootId: turn.rootId, requestId: outcome.receipt.identity.request_id, turnId: outcome.turn.id, cellId: cell.id, status: outcome.turn.state,
+      toolResult: phase.toolResult, answer: phase.answer, historyVerified: true };
   }
   let client = await connect();
-  const info = client.requireConnected();
-  assert.equal(info.pid, daemonPID); assert.equal(info.build_id, manifest.buildId);
+  const info = await client.hosts.status({ signal: deadline });
+  assert.equal(info.pid, daemonPID); assert.equal(info.build, manifest.buildId);
+  await configureFixtureModel(client, baseURL, 'continuity-provider', 'continuity-model', deadline);
+  const helperBefore = await client.computerStatus({ signal: deadline });
+  assert(helperBefore.bundled_available); assert.equal(helperBefore.configuration.helper_executable, '');
+  const helperSetup = await client.useBundledComputer(helperBefore.revision, { signal: deadline });
+  assert.equal(helperSetup.configuration.enabled, false);
+  assert.deepEqual(await readFile(helperSetup.configuration.helper_executable), helperBytes);
   const daemon = await processEvidence(daemonPID);
   const before = await finish(client, 'before', await start(client, 'before'));
   const beforeWorkers = await eventually(async () => { const found = await workers(); return found.length ? found : undefined; }, 'first canonical worker');
   const pending = await start(client, 'held');
   await eventually(() => { if (providerFailure) throw providerFailure; return phases.get('held').toolResult; }, 'held worker result');
-  assert.equal((await pending.command.status({ signal: deadline })).status, 'running');
+  const heldReceipt = await pending.command.check({ signal: deadline });
+  assert.equal(heldReceipt.state, 'found'); assert.equal(heldReceipt.evidence.turn.state, 'running');
   const heldWorkers = await workers(); assert(heldWorkers.length > beforeWorkers.length, 'A new session must start a distinct worker');
-  client.close(); clients.delete(client);
+  const detached = new AbortController();
+  const observation = pending.command.wait({ signal: AbortSignal.any([deadline, detached.signal]) });
+  detached.abort(); await assert.rejects(observation, error => error.name === 'AbortError');
+  const recoveryRecord = pending.command.record;
+  client = undefined;
   // Only our disposable source copy is removed. The installed app, staging
   // directory and canonical installation are never modified.
   assert.equal(path.dirname(copiedSource), fixture);
@@ -199,13 +193,13 @@ try {
   assert.equal(await lstat(copiedSource).then(() => true, error => { if (error.code === 'ENOENT') return false; throw error; }), false);
   releaseHeld();
   client = await connect();
-  assert.equal(client.requireConnected().runtime_id, info.runtime_id);
-  const recovered = await finish(client, 'held', { rootId: pending.rootId, command: client.recover(pending.command.record) });
+  assert.equal(client.runtimeID, info.runtime_id); assert.equal(client.processEpoch, info.process_epoch);
+  const recovered = await finish(client, 'held', { rootId: pending.rootId, command: DurableCommand.recover(client, recoveryRecord) });
   const after = await finish(client, 'after', await start(client, 'after'));
   const afterWorkers = await workers();
   const newWorkers = afterWorkers.filter(worker => !heldWorkers.some(previous => previous.pid === worker.pid));
   assert(newWorkers.length > 0, 'Source removal must be followed by spawning a new worker from the canonical executable');
-  const final = await status(); assert.equal(final.state, 'running'); assert.equal(final.pid, daemonPID);
+  const final = await status(); assert.equal(final.state, 'running'); assert.equal(final.process.pid, daemonPID);
   assert.equal(await fileDigest(installed.executable), manifest.files.whipcode.sha256);
   assert((await readFile(installed.executable)).includes(helperBytes), 'Canonical runtime must retain the exact embedded helper');
   await run('/usr/bin/codesign', ['--verify', '--strict', '-R',
@@ -213,15 +207,15 @@ try {
   assert.equal(providerRequests, 6); assert(!providerFailure);
   result = { purpose: 'Signed canonical runtime and RLM worker continuity across client detach and copied application-source removal; not an actual Squirrel upgrade',
     recordedAt: new Date().toISOString(), source, fixture, manifest, executableMetadata: metadata,
-    negotiated: { protocolMajor: info.protocol_major, protocolMinor: info.protocol_minor, runtimeId: info.runtime_id, buildId: info.build_id },
-    environment: { WHIPCODE_HOME: home, embeddedHelper: true, inheritedCredentials: false, provider: baseURL, daemonTCP: false },
-    daemon, finalDaemonPID: final.pid, beforeWorkers, heldWorkers, afterWorkers, newWorkerPIDsAfterSourceRemoval: newWorkers.map(worker => worker.pid),
+    negotiated: { protocolMajor: version.major, protocolMinor: version.minor, runtimeId: info.runtime_id, processEpoch: info.process_epoch, buildId: info.build },
+    environment: { WHIPCODE_HOME: home, embeddedHelper: true, explicitHelperPublication: true, inheritedCredentials: false, provider: baseURL, daemonTCP: false },
+    daemon, finalDaemonPID: final.process.pid, beforeWorkers, heldWorkers, afterWorkers, newWorkerPIDsAfterSourceRemoval: newWorkers.map(worker => worker.pid),
     before, disconnectedAcceptedTurn: recovered, after, providerRequests, sourceCopyRemoved: true, canonicalSignaturesAndHashesVerified: true,
-    limits: ['No Electron process launched: SDK client disconnect models GUI detachment.', 'No N-to-N+1 Squirrel installation or notarization tested.',
+    limits: ['No Electron process launched: cancelling SDK observation models GUI detachment; ordinary native requests own no persistent client connection.', 'No N-to-N+1 Squirrel installation or notarization tested.',
 ],
   };
 } finally {
-  releaseHeld(); for (const client of clients) client.close();
+  releaseHeld();
   provider.closeAllConnections(); if (provider.listening) await new Promise(resolve => provider.close(resolve));
   if (startAttempted) {
     try {

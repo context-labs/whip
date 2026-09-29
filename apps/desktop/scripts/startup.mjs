@@ -12,8 +12,9 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs, promisify } from 'node:util';
 import asar from '@electron/asar';
-import { createWhipClient } from '@whip/legacy-sdk';
-import { unixSocket } from '@whip/legacy-sdk/node';
+import { Client } from '@whip/sdk';
+import { unixSocket } from '@whip/sdk/node';
+import { configureFixtureModel, createFixtureSession, verifyFixtureHistory } from './native-fixture.mjs';
 import { LocalRuntime, readRuntimeManifest } from '../src/runtime.ts';
 import { verifyDesktop } from './verify.mjs';
 import { captureStartupFailure, startupDiagnostic } from './startup-diagnostics.mjs';
@@ -44,12 +45,11 @@ async function eventually(check, label, timeout = 35_000) {
   throw new Error(`Startup fixture timed out: ${label}`);
 }
 async function fixtureStatus(executable, env) {
-  // internal/daemon/socket_unix.go uses this path below 100 bytes, otherwise a
-  // hashed temporary runtime. Keep our fixtures short and prove the exact path.
-  const socket = path.join(env.WHIPCODE_HOME, 'runtime-v2/daemon.sock');
+  // Native lifecycle paths never fall back to an unrelated temporary owner.
+  const socket = path.join(env.WHIPCODE_HOME, 'runtime-v4/runtime.sock');
   assert(Buffer.byteLength(socket) < 100, 'Use a shorter fixture home');
   const status = JSON.parse(await run(executable, ['daemon', 'status', '--json'], env));
-  assert.equal(status.socket, socket); assert(!status.network_endpoint);
+  assert.equal(status.socket, socket); assert(!status.process?.web_endpoint);
   if (status.state === 'running') {
     const directory = await lstat(path.dirname(socket)), endpoint = await lstat(socket);
     assert(directory.isDirectory() && !directory.isSymbolicLink() && directory.uid === process.getuid() && (directory.mode & 0o077) === 0);
@@ -279,8 +279,8 @@ async function selfTest() {
   }
 }
 
-async function seedSession(fixture, executable, env, scheme) {
-  let requests = 0; let providerFailure;
+export async function seedSession(fixture, executable, env, scheme) {
+  let requests = 0; let providerFailure; let toolResult;
   const provider = createServer((request, response) => {
     void (async () => {
       assert(++requests <= 2); assert.equal(request.method, 'POST'); assert.equal(request.url, '/chat/completions');
@@ -289,16 +289,18 @@ async function seedSession(fixture, executable, env, scheme) {
       for await (const chunk of request) { size += chunk.length; assert(size <= 1 << 20); chunks.push(chunk); }
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       assert.equal(body.model, 'startup-model'); assert.equal(body.stream, true);
-      assert.deepEqual(body.tools.map(tool => tool.function.name), ['rlm_exec']);
+      assert.deepEqual(body.tools.map(tool => tool.function.name), ['execute']);
       assert(body.messages.some(message => message.role === 'user' && JSON.stringify(message.content).includes(marker)));
       let delta;
       if (requests === 1) delta = { tool_calls: [{ index: 0, id: 'startup-tool', type: 'function', function: {
-        name: 'rlm_exec', arguments: JSON.stringify({ code: `print(${JSON.stringify(marker)})\n{"answer": 6 * 7}` }),
+        name: 'execute', arguments: JSON.stringify({ code: `print(${JSON.stringify(marker)})\n{"answer": 6 * 7}` }),
       } }] };
       else {
         const tool = body.messages.find(message => message.role === 'tool' && message.tool_call_id === 'startup-tool');
-        assert(tool); const result = JSON.parse(tool.content);
-        assert.equal(result.output, marker + '\n'); assert.deepEqual(result.value, { answer: 42 }); assert(result.steps > 0);
+        assert(tool); toolResult = JSON.parse(tool.content); const result = toolResult.result;
+        assert.equal(result.output, marker + '\n'); assert.deepEqual(result.value, { answer: 42 });
+        assert.equal(result.format_version, 2); assert.equal(result.execution_engine, 'starlark');
+        assert.equal(result.has_value, true); assert(result.metrics.starlark_steps > 0);
         delta = { content: answer };
       }
       response.writeHead(200, { 'Content-Type': 'text/event-stream' });
@@ -309,33 +311,23 @@ async function seedSession(fixture, executable, env, scheme) {
   const baseURL = `http://127.0.0.1:${provider.address().port}`;
   let client;
   try {
-    await writeFile(path.join(env.WHIPCODE_HOME, 'config.json'), JSON.stringify({ defaultModel: 'startup-model', defaultProvider: 'startup-provider',
-      compactModel: 'startup-model', compactProvider: 'startup-provider',
-      providers: { 'startup-provider': { baseUrl: baseURL, api: 'openai-completions', apiKey: 'fixture-only' } },
-      models: { 'startup-model': { providers: ['startup-provider'], context: 65536, maxOut: 256 } }, rlm: { maxWorkers: 2 } }), { mode: 0o600 });
-    await writeFile(path.join(env.WHIPCODE_HOME, 'models.json'), JSON.stringify({ 'startup-provider': { fetchedAt: new Date().toISOString(), baseUrl: baseURL,
-      models: [{ id: 'startup-model', contextLength: 65536, maxCompletionTokens: 256, pricing: { prompt: '0', completion: '0' } }] } }), { mode: 0o600 });
-    // prepare has already started this isolated daemon. Restart after config
-    // seeding so provider registration never depends on live config reloading.
-    await run(executable, ['daemon', 'stop'], env);
-    assert.equal((await fixtureStatus(executable, env)).state, 'stopped');
-    await run(executable, ['daemon', 'start'], env);
     const status = await fixtureStatus(executable, env);
     assert.equal(status.state, 'running');
-    client = createWhipClient({ endpoint: unixSocket(status.socket), clientId: randomUUID(), clientKind: 'automation' });
-    const signal = AbortSignal.timeout(30_000); await client.connect({ signal });
-    const created = await client.sessions.create({ cwd: path.join(fixture, 'work'), model: 'startup-model', provider: 'startup-provider' }).result({ signal });
-    assert.equal(created.status, 'succeeded');
-    const rootId = created.result.root_id;
-    const outcome = await client.session(rootId).submit({ text: marker }).result({ signal });
-    assert.equal(outcome.status, 'succeeded'); if (providerFailure) throw providerFailure;
-    const snapshot = await client.session(rootId).snapshot({ signal });
-    assert(snapshot.messages.some(message => message.role === 'assistant' && message.content === answer));
+    const signal = AbortSignal.timeout(30_000);
+    client = await Client.connect(unixSocket(status.socket), { clientID: randomUUID(), expectedRuntimeID: status.process.runtime_id, signal });
+    assert.equal(client.processEpoch, status.process.process_epoch);
+    await configureFixtureModel(client, baseURL, 'startup-provider', 'startup-model', signal);
+    const session = await createFixtureSession(client, path.join(fixture, 'work'), 'startup-provider', 'startup-model', signal);
+    const command = session.submission([{ type: 'text', text: marker }], randomUUID());
+    await command.send({ signal });
+    const outcome = await command.wait({ signal });
+    if (providerFailure) throw providerFailure;
+    const cell = await verifyFixtureHistory(session, outcome, 'startup-tool', toolResult, answer, signal);
     assert.equal(requests, 2);
-    const runtimeId = client.getSnapshot().info.runtime_id;
-    return { route: `/h/${runtimeId}/s/${rootId}`, link: `${scheme}://session/${runtimeId}/${rootId}`, providerRequests: requests };
+    const runtimeId = client.runtimeID, rootId = session.id;
+    return { route: `/h/${runtimeId}/s/${rootId}`, link: `${scheme}://session/${runtimeId}/${rootId}`, providerRequests: requests, turnID: outcome.turn.id, cellID: cell.id };
   } finally {
-    client?.close(); provider.closeAllConnections(); await new Promise(resolve => provider.close(resolve));
+    provider.closeAllConnections(); await new Promise(resolve => provider.close(resolve));
   }
 }
 
@@ -411,11 +403,11 @@ async function main() {
         }, 'owned idle application');
         ownedPids.add(pid);
         const status = await fixtureStatus(executable, f.env);
-        assert.equal(status.state, 'running'); ownedDaemonPids.add(status.pid);
+        assert.equal(status.state, 'running'); ownedDaemonPids.add(status.process?.pid);
         captured = { scenario, warmup, runId, pid, state: 'sampling', systemBeforeLaunch };
         results.push(captured);
         captured.idle = {};
-        await sampleIdle(pid, status.pid, f.directory, () => interrupted, captured.idle);
+        await sampleIdle(pid, status.process?.pid, f.directory, () => interrupted, captured.idle);
         for (const sample of captured.idle.snapshots) {
           for (const row of sample.application) ownedPids.add(row.pid);
           for (const row of sample.daemon) ownedDaemonPids.add(row.pid);
@@ -450,7 +442,7 @@ async function main() {
       assert.equal(record.state, 'complete'); assert(record.checks.host && record.checks.noNotice && record.checks.fonts && record.checks.painted);
       assert(record.usable && record.connected && record.shell);
       const status = await fixtureStatus(executable, f.env);
-      assert.equal(status.state, 'running'); assert(Number.isSafeInteger(status.pid) && status.pid > 0); ownedDaemonPids.add(status.pid);
+      assert.equal(status.state, 'running'); assert(Number.isSafeInteger(status.process?.pid) && status.process?.pid > 0); ownedDaemonPids.add(status.process?.pid);
       captured.daemon = { state: status.state, privateSocketVerified: true };
       console.log(`${scenario}${warmup ? ' warmup' : ''}: shell ≤${record.shell.upperMs.toFixed(1)} ms, usable ≤${record.usable.upperMs.toFixed(1)} ms`);
     } catch (error) {
@@ -523,7 +515,7 @@ async function main() {
       if (!await lstat(env.WHIPCODE_HOME).catch(() => false)) continue;
       try {
         const status = await fixtureStatus(executable, env);
-        if (status.pid) ownedDaemonPids.add(status.pid);
+        if (status.process?.pid) ownedDaemonPids.add(status.process?.pid);
         await run(executable, ['daemon', 'stop'], env).catch(() => {});
         if ((await fixtureStatus(executable, env)).state !== 'stopped') await run(executable, ['daemon', 'stop', '--force'], env);
         cleanup.push({ scenario: path.basename(path.dirname(env.WHIPCODE_HOME)), state: (await fixtureStatus(executable, env)).state });
@@ -556,4 +548,6 @@ async function main() {
   }
 }
 
-if (values['self-test']) await selfTest(); else await main();
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  if (values['self-test']) await selfTest(); else await main();
+}

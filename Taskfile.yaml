@@ -216,6 +216,7 @@ tasks:
       - node --test --test-concurrency=1 scripts/redesign/executor-fixture.test.mjs
       - node --test --test-concurrency=1 scripts/redesign/shell-fixture.test.mjs
       - node --test --test-concurrency=1 scripts/redesign/computer-fixture.test.mjs
+      - node --test --test-concurrency=1 scripts/redesign/desktop-seed-fixture.test.mjs
       - node --test --test-concurrency=1 scripts/redesign/browser-provider-fixture.test.mjs
       - node --test --test-concurrency=1 scripts/redesign/fixture.test.mjs
 
