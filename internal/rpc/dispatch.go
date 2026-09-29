@@ -238,6 +238,18 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 			revision, err := r.TreeCatalog(ctx)
 			return protocol.TreeCatalog{Revision: protocol.Counter(revision)}, err
 		})
+	case "trees.summaries":
+		return decode(raw, func(p protocol.TreeSummariesParams) (any, error) {
+			roots := make([]session.SessionID, len(p.RootIDs))
+			for i, id := range p.RootIDs {
+				roots[i] = session.SessionID(id)
+			}
+			page, err := r.TreeSummaries(ctx, roots)
+			if err != nil {
+				return nil, err
+			}
+			return protocol.TreeSummariesFromDomain(page), nil
+		})
 	case "trees.list":
 		return listTrees(ctx, r, raw)
 	case "definitions.list":

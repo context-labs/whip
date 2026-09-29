@@ -188,6 +188,7 @@ func Operations() []Operation {
 		{"trees.creation", reflect.TypeFor[TreeCreationParams](), reflect.TypeFor[CreateTreeResult]()},
 		{"trees.catalog", reflect.TypeFor[EmptyParams](), reflect.TypeFor[TreeCatalog]()},
 		{"trees.list", reflect.TypeFor[ListTreesParams](), reflect.TypeFor[ListTreesResult]()},
+		{"trees.summaries", reflect.TypeFor[TreeSummariesParams](), reflect.TypeFor[TreeSummariesResult]()},
 		{"definitions.list", reflect.TypeFor[ListDefinitionsParams](), reflect.TypeFor[ListDefinitionsResult]()},
 		{"trees.get", reflect.TypeFor[TreeParams](), reflect.TypeFor[Tree]()},
 		{"trees.update", reflect.TypeFor[UpdateTreeParams](), reflect.TypeFor[Tree]()},
@@ -357,6 +358,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 		}
 		hostViewsSchema(schema, t)
 		discoverySchema(schema, t)
+		navigationSchema(schema, t)
 		if t == reflect.TypeFor[GoalFormulationRequest]() {
 			schema.Properties["tail_messages"] = &jsonschema.Schema{OneOf: []*jsonschema.Schema{
 				{Type: "integer", Enum: []any{0}},

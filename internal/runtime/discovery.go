@@ -18,3 +18,7 @@ func (r *Runtime) DefinitionSummaries(ctx context.Context, after *session.Defini
 func (r *Runtime) TreeCatalog(ctx context.Context) (session.Revision, error) {
 	return r.store.TreeCatalog(ctx)
 }
+
+func (r *Runtime) TreeSummaries(ctx context.Context, roots []session.SessionID) (session.TreeNavigationPage, error) {
+	return r.store.TreeSummaries(ctx, roots)
+}

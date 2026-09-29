@@ -9403,6 +9403,44 @@ export interface TreeCreationParams {
 export interface TreeParams {
   tree_id: string;
 }
+export interface TreeSummariesParams {
+  /**
+   * @minItems 1
+   * @maxItems 64
+   */
+  root_ids: [string, ...string[]];
+}
+export interface TreeSummariesResult {
+  /**
+   * @maxItems 64
+   */
+  items: {
+    tree: {
+      id: string;
+      metadata: {
+        title: null | string;
+        archived: boolean;
+        pinned: boolean;
+      };
+      engine: "starlark" | "quickjs";
+      revision: string;
+      created_at: string;
+    };
+    root_id: string;
+    working_directory: string;
+    activity: {
+      active_turn_count: string;
+      queued_input_count: string;
+      pending_permission_count: string;
+      pending_question_count: string;
+      active_workspace_action_count: string;
+    };
+  }[];
+  /**
+   * @maxItems 64
+   */
+  missing_root_ids: string[];
+}
 export interface Turn {
   history_revision: string;
   goal: null | {
@@ -9883,6 +9921,8 @@ export interface ContractTypes {
   TreeCatalog: TreeCatalog;
   TreeCreationParams: TreeCreationParams;
   TreeParams: TreeParams;
+  TreeSummariesParams: TreeSummariesParams;
+  TreeSummariesResult: TreeSummariesResult;
   Turn: Turn;
   TurnOutputResult: TurnOutputResult;
   TurnParams: TurnParams;
@@ -10064,6 +10104,7 @@ export interface Operations {
   "trees.creation": { params: TreeCreationParams; result: CreateTreeResult };
   "trees.catalog": { params: EmptyParams; result: TreeCatalog };
   "trees.list": { params: ListTreesParams; result: ListTreesResult };
+  "trees.summaries": { params: TreeSummariesParams; result: TreeSummariesResult };
   "definitions.list": { params: ListDefinitionsParams; result: ListDefinitionsResult };
   "trees.get": { params: TreeParams; result: Tree };
   "trees.update": { params: UpdateTreeParams; result: Tree };

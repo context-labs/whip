@@ -47,3 +47,22 @@ func TestCreationIdentityAndCatalogExactCounterContracts(t *testing.T) {
 		}
 	}
 }
+
+func TestNavigationSchemaBounds(t *testing.T) {
+	for _, test := range []struct {
+		name, raw string
+		valid     bool
+	}{
+		{"TreeSummariesParams", `{"root_ids":["root"]}`, true},
+		{"TreeSummariesParams", `{"root_ids":null}`, false},
+		{"TreeSummariesParams", `{"root_ids":[]}`, false},
+		{"TreeSummariesParams", `{"root_ids":["root","root"]}`, false},
+		{"TreeSummariesResult", `{"items":[],"missing_root_ids":[]}`, true},
+		{"TreeSummariesResult", `{"items":null,"missing_root_ids":[]}`, false},
+	} {
+		err := Validate(test.name, []byte(test.raw))
+		if (err == nil) != test.valid {
+			t.Fatal(test, err)
+		}
+	}
+}

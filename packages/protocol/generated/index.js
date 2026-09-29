@@ -820,6 +820,11 @@ export const manifest = {
       "result": "ListTreesResult"
     },
     {
+      "name": "trees.summaries",
+      "params": "TreeSummariesParams",
+      "result": "TreeSummariesResult"
+    },
+    {
       "name": "definitions.list",
       "params": "ListDefinitionsParams",
       "result": "ListDefinitionsResult"

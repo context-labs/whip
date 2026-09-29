@@ -8,6 +8,17 @@ export class Trees {
   constructor(private readonly client: Client) {}
   get(treeID: string, options: CallOptions = {}) { return this.client.call('trees.get', { tree_id: treeID }, options); }
   list(params: Omit<Params<'trees.list'>, 'limit'> & { limit?: number } = {}, options: CallOptions = {}) { return this.client.listTrees({ limit: 100, ...params }, options); }
+  async summaries(rootIDs: readonly string[], options: CallOptions = {}) {
+    const [first, ...rest] = rootIDs;
+    if (first === undefined) throw new RangeError('Select at least one root');
+    const result = await this.client.call('trees.summaries', { root_ids: [first, ...rest] }, options);
+    const remaining = new Set(rootIDs);
+    for (const id of [...result.items.map(item => item.root_id), ...result.missing_root_ids]) {
+      if (!remaining.delete(id)) throw new TypeError('Tree summary ownership mismatch');
+    }
+    if (remaining.size) throw new TypeError('Tree summary omitted a requested root');
+    return result;
+  }
   catalog(options: CallOptions = {}) { return this.client.treeCatalog(options); }
   create(params: Omit<Params<'trees.create'>, 'creation_id'>, creationID: string, options: CallOptions = {}) { return this.client.createTree(params, creationID, options); }
   creation(creationID: string, options: CallOptions = {}) { return this.client.getTreeCreation(creationID, options); }

@@ -3136,3 +3136,9 @@ Search stays on the host and uses the same revision-pinned keyset pages. Root
 workspace edits invalidate that catalog within their existing transaction; exact
 receipt retries do not invalidate it again. Reading a catalog never hydrates
 configuration bodies or opens a session view.
+
+`trees.summaries` reads up to 64 explicitly selected root IDs in one bounded
+SQL snapshot. Native tree metadata, root directories and tree-wide activity
+counts include deep children; missing IDs are explicit and child IDs never alias
+a root. These are current facts, not catalog-revision-cached values or a replay
+of connection events. Navigation polls only while visible and connected.

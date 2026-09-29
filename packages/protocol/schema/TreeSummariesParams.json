@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "properties": {
+    "root_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+      },
+      "minItems": 1,
+      "maxItems": 64,
+      "uniqueItems": true
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/TreeSummariesParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TreeSummariesParams",
+  "required": [
+    "root_ids"
+  ],
+  "additionalProperties": false
+}

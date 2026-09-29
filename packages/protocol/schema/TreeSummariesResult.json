@@ -1,11 +1,6 @@
 {
   "type": "object",
   "properties": {
-    "revision": {
-      "type": "string",
-      "pattern": "^[1-9][0-9]{0,18}$",
-      "format": "counter"
-    },
     "items": {
       "type": "array",
       "items": {
@@ -73,32 +68,72 @@
           "working_directory": {
             "type": "string",
             "maxLength": 4096
+          },
+          "activity": {
+            "type": "object",
+            "properties": {
+              "active_turn_count": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "queued_input_count": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "pending_permission_count": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "pending_question_count": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "active_workspace_action_count": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              }
+            },
+            "required": [
+              "active_turn_count",
+              "queued_input_count",
+              "pending_permission_count",
+              "pending_question_count",
+              "active_workspace_action_count"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
           "tree",
           "root_id",
-          "working_directory"
+          "working_directory",
+          "activity"
         ],
         "additionalProperties": false
       },
-      "maxItems": 100
+      "maxItems": 64
     },
-    "next_cursor": {
-      "type": [
-        "null",
-        "string"
-      ],
-      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    "missing_root_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+      },
+      "maxItems": 64,
+      "uniqueItems": true
     }
   },
-  "$id": "https://whip.dev/protocol/v4/ListTreesResult",
+  "$id": "https://whip.dev/protocol/v4/TreeSummariesResult",
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "ListTreesResult",
+  "title": "TreeSummariesResult",
   "required": [
-    "revision",
     "items",
-    "next_cursor"
+    "missing_root_ids"
   ],
   "additionalProperties": false
 }
