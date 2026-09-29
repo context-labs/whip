@@ -60,6 +60,9 @@ func (w *nativeWork) close() { w.mu.Lock(); w.closed = true; w.stop(); w.mu.Unlo
 // nativeModel is the native chat composition. Commands and menus are added
 // directly over typed host operations; it does not adapt retired RootActions.
 type nativeModel struct {
+	localFilesystem                 bool
+	lsp                             *nativeLSPStatus
+	panelOffsets                    [3]int
 	execution                       *nativeExecution
 	replBefore, replFocus           *protocol.ID
 	replGeneration                  uint64
@@ -77,6 +80,7 @@ type nativeModel struct {
 	attachment                      *nativeImageUpload
 	attachmentBusy                  bool
 	historyDialog                   *nativeHistoryDialog
+	messageActions                  *nativeMessageActions
 	redraft                         *nativeRedraft
 	draftDesign                     *protocol.DesignContext
 	selection                       *nativeSelection
@@ -140,6 +144,7 @@ type nativeModel struct {
 type (
 	nativePoll struct{}
 	nativeRead struct {
+		lsp                 *nativeLSPStatus
 		execution           *nativeExecution
 		executionGeneration uint64
 		agents              *nativeAgentTree
@@ -205,6 +210,7 @@ func (m *nativeModel) read() tea.Cmd {
 	observer, handle, generation, owner := m.observer, m.handle, m.generation, m.owner
 	evidence := m.polls%5 == 0
 	agentsVisible, selectedAgent := m.agentsVisible(), m.agentSelection
+	lspVisible := m.sidebarVisible() && m.openPane() == paneLSP
 	replVisible, replBefore, replFocus, replGeneration := m.replVisible(), m.replBefore, m.replFocus, m.replGeneration
 	m.polls++
 	return func() tea.Msg {
@@ -274,6 +280,13 @@ func (m *nativeModel) read() tea.Cmd {
 			} else {
 				result.evidenceError = errors.Join(result.evidenceError, err)
 			}
+			if lspVisible {
+				current := owner
+				if result.owner != nil {
+					current = *result.owner
+				}
+				result.lsp = readNativeLSP(ctx, m.connection, current)
+			}
 			if agentsVisible {
 				result.agents, err = readNativeAgents(ctx, m.connection, owner, selectedAgent)
 				result.evidenceError = errors.Join(result.evidenceError, err)
@@ -310,11 +323,15 @@ func nativeTick() tea.Cmd {
 
 func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch message.(type) {
-	case tea.KeyPressMsg, tea.PasteMsg, tea.WindowSizeMsg:
+	case tea.KeyPressMsg, tea.PasteMsg, tea.WindowSizeMsg, tea.MouseWheelMsg:
 		m.selection = nil
 		m.selectionClick = nativeSelectionClick{}
 	}
 	if mouse, ok := message.(tea.MouseMsg); ok {
+		if command, handled := m.panelMouse(mouse); handled {
+			m.selectionClick = nativeSelectionClick{}
+			return m, command
+		}
 		if command, handled := m.selectionMouse(mouse); handled {
 			return m, command
 		}
@@ -323,6 +340,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.updateMenu(message)
 	}
 	switch value := message.(type) {
+	case nativeMessageClick:
+		m.showMessageActions(value)
+		return m, nil
 	case nativeSelectionTick:
 		return m, m.selectionScroll(value)
 	case nativeCopyResult:
@@ -376,6 +396,12 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready, m.observer, m.activity = true, value.observer, value.activity
 		if value.owner != nil && value.owner.ID == m.owner.ID && value.owner.ConfigRevision >= m.owner.ConfigRevision {
 			m.owner = *value.owner
+		}
+		if value.lsp != nil && value.lsp.matches(m.owner) {
+			m.lsp = value.lsp
+		}
+		if m.lsp != nil && !m.lsp.matches(m.owner) {
+			m.lsp = nil
 		}
 		m.history.output(value.output)
 		if m.browse != nil && m.browse.transcript.snapshot.Revision != m.history.snapshot.Revision {
@@ -539,6 +565,7 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if value.err == nil {
 			m.stageRedraft(value.redraft)
+			m.clearPendingMemory(value.recoveryCleared)
 		}
 	case nativeCancelled:
 		if value.generation != m.generation {
@@ -553,6 +580,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		if value.String() != "ctrl+c" {
 			m.initialPrompt = ""
+		}
+		if m.messageActions != nil && value.String() != "ctrl+c" {
+			return m, m.messageActionKey(value)
 		}
 		if m.historyDialog != nil && value.String() != "ctrl+c" {
 			return m, m.historyDialogKey(value)
@@ -599,6 +629,7 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+r":
 			return m, m.commandKeepingDraft("/repl")
 		case "ctrl+c":
+			m.messageActions = nil
 			m.historyDialog = nil
 			m.closeCompletion(false)
 			m.palette = nil
@@ -646,6 +677,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.follow = m.browse == nil && m.vp.AtBottom()
 		}
 	case tea.PasteMsg:
+		if m.messageActions != nil {
+			return m, nil
+		}
 		if m.historyDialog != nil {
 			m.historyDialogPaste(value.Content)
 			return m, nil
@@ -680,8 +714,19 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *nativeModel) submit() tea.Cmd {
 	text := m.input.Value()
-	if strings.TrimSpace(text) == "" || !m.ready || m.sending || m.controlling {
+	if strings.TrimSpace(text) == "" || m.sending || m.controlling {
 		return nil
+	}
+	if !m.ready {
+		// A deleted/unavailable owner cannot trap its local recovery record.
+		// These explicit reads/local actions never resend an uncertain input.
+		switch strings.Fields(text)[0] {
+		case "/pending", "/check", "/sessions", "/resume", "/quit", "/exit", "/q":
+			return m.command(text)
+		default:
+			m.status = "Current owner unavailable. /pending inspects saved inputs; /sessions opens another owner. Your draft is kept."
+			return nil
+		}
 	}
 	if strings.HasPrefix(strings.TrimSpace(text), "/") {
 		return m.command(strings.TrimSpace(text))
@@ -919,6 +964,11 @@ func (m *nativeModel) refresh() {
 }
 
 func (m *nativeModel) View() tea.View {
+	if m.messageActions != nil {
+		view := tea.NewView(m.messageActions.view(m.width, m.height))
+		view.AltScreen = true
+		return view
+	}
 	if m.historyDialog != nil {
 		view := tea.NewView(m.historyDialog.view(m.width, m.height))
 		view.AltScreen = true
@@ -959,7 +1009,11 @@ func (m *nativeModel) View() tea.View {
 		main += "\n" + nativeFixedRows("Agents · Ctrl+T focuses\n"+m.agentRows(width, height-1), width, height)
 	}
 	main += "\n" + ansi.Truncate(nativeContextLabel(m.contextUsage), width, "…") + "\n" + ansi.Truncate(footer, width, "…")
-	view := tea.NewView(m.layoutFrame(main))
+	frame := m.layoutFrame(main)
+	if m.localFilesystem {
+		frame = nativeFileLinks(frame, m.owner.WorkingDirectory)
+	}
+	view := tea.NewView(frame)
 	view.AltScreen = true
 	if nativePreferenceLabel(m.preferences.Mouse, true) == "on" {
 		view.MouseMode = tea.MouseModeCellMotion

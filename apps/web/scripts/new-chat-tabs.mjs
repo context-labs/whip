@@ -1,13 +1,11 @@
 import assert from 'node:assert/strict';
-import { createServer } from 'node:http';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium, firefox, expect } from '@playwright/test';
-import { createWhipClient } from '../../../packages/legacy-sdk/dist/index.js';
-import { eventually, startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
+import { deadline, eventually, startFixture } from './native-fixture.mjs';
 import { fileTransfer, checkDropOverlay } from './chat-file-drop.mjs';
 
-// Run after npm run pack:web. Real packaged renderer, isolated daemon, synthetic text/images only.
+// Run after npm run pack:web. Real packaged renderer, isolated native runtime, engines and local provider; synthetic text/images only.
 const directory = process.env.WHIP_WEB_NEW_CHAT_RESULTS ?? '/tmp/whip-new-chat-tabs-results';
 await mkdir(directory, { recursive: true });
 const results = {};
@@ -16,43 +14,52 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
   assert.ok(launcher, `Unsupported browser ${name}`);
   console.log(`${name}: starting New Chat fixture`);
   const fixture = await startFixture();
-  let browser, client, page, providerServer;
+  let browser, client, page;
+  let closed = false, holdUpload = false, failUpload = false;
+  const connections = new Set(), closing = new Set(), uploadRequests = [], heldUploads = [];
+  const closeEndpoint = endpoint => { const pending = endpoint.close().catch(error => { if (errors.length < 32) errors.push(String(error).slice(0, 4096)); }).finally(() => closing.delete(pending)); closing.add(pending); };
   let holdCreate = false, releaseCreate;
   const frames = [], errors = [], checks = [];
   try {
     browser = await launcher.launch();
     const context = await browser.newContext({ viewport: { width: 1440, height: 960 }, colorScheme: 'light' });
     context.setDefaultTimeout(15_000);
-    // This loopback endpoint serves catalog discovery only. TestV2SDKBridge executes
-    // all model turns with its existing synthetic runner; no credentials or paid calls.
-    providerServer = createServer((_request, response) => {
-      response.writeHead(200, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({ object: 'list', data: [{ id: 'fixture-model', object: 'model' }] }));
-    });
-    await new Promise(resolve => providerServer.listen(0, '127.0.0.1', resolve));
-    client = createWhipClient({ endpoint: fixture.info.endpoint, clientId: `new-tabs-${crypto.randomUUID()}`, clientKind: 'human' });
-    await client.connect();
-    const configuration = await client.configuration.get();
-    const configured = await client.providers.create({ revision: configuration.revision, provider: 'fixture-local', definition: { name: 'Fixture local', base_url: `http://127.0.0.1:${providerServer.address().port}/v1`, api: 'openai-completions' }, credential: { mode: 'none' }, manual_model: { alias: 'fixture-model', id: 'fixture-model' } });
-    await client.configuration.update({ revision: configured.revision, default_provider: 'fixture-local', default_model: 'fixture-model' });
-    assert.equal((await client.providers.list()).selection.ready, true);
+    client = await fixture.connect(`new-tabs-${crypto.randomUUID()}`);
     page = await context.newPage();
-    // Proxy protocol traffic unchanged; one create can be held until tab focus moves.
-    // Acceptance, submit and execution responses always come from the real daemon.
-    await page.routeWebSocket('**/api/v3/ws', socket => {
-      const upstream = socket.connectToServer();
+    // Hold only exact real native effects. Cleanup closes both endpoints and
+    // discards held work; it never releases a create/upload upstream.
+    await page.routeWebSocket('**/api/v4/ws', socket => {
+      if (closed || connections.size >= 128) { if (!closed && errors.length < 32) errors.push('New Chat proxy connection bound'); closeEndpoint(socket); return; }
+      const upstream = socket.connectToServer(); let live = true;
+      const retire = () => { if (!live) return; live = false; connections.delete(retire); closeEndpoint(socket); closeEndpoint(upstream); };
+      connections.add(retire); socket.onClose(retire); upstream.onClose(retire);
       socket.onMessage(message => {
-        const frame = JSON.parse(String(message));
-        frames.push(frame);
-        if (holdCreate && frame.method === 'command.submit' && frame.params.operation === 'session.create') {
-          holdCreate = false;
-          releaseCreate = () => upstream.send(message);
-        } else upstream.send(message);
+        try {
+          if (!live || closed) return;
+          assert(Buffer.byteLength(message) <= (8 << 20));
+          const frame = JSON.parse(String(message));
+          assert(frames.length < 4096, 'New Chat probe frame bound exceeded');
+          // Never retain attachment bytes or repeated transcript bodies.
+          frames.push({ method: frame.method, session_id: frame.params?.session_id, root_ids: frame.params?.root_ids });
+          const forward = () => { if (live && !closed) upstream.send(message); };
+          if (holdCreate && frame.method === 'trees.create') {
+            holdCreate = false; releaseCreate = forward;
+          } else if (frame.method === 'content.put') {
+            assert(uploadRequests.length < 16);
+            uploadRequests.push({ owner: frame.params.session_id, reference: frame.params.reference_id });
+            if (failUpload) {
+              socket.send(JSON.stringify({ jsonrpc: '2.0', id: frame.id, error: { code: -32603, kind: 'INTERNAL', message: 'Synthetic unavailable content' } }));
+            } else if (holdUpload) { assert(heldUploads.length < 2); heldUploads.push(forward); }
+            else forward();
+          } else forward();
+        } catch (error) { if (errors.length < 32) errors.push(String(error).slice(0, 4096)); retire(); }
       });
     });
-    page.on('pageerror', error => errors.push(error.message));
+    page.on('pageerror', error => { if (errors.length < 32) errors.push(error.message.slice(0, 4096)); });
+    await page.exposeFunction('draftCSP', error => { if (errors.length < 32) errors.push(String(error)); });
+    await page.addInitScript(() => document.addEventListener('securitypolicyviolation', event => { void window.draftCSP(event.violatedDirective); }));
 
-    const origin = fixture.info.endpoint.replace(/^ws/, 'http').replace('/api/v3/ws', '');
+    const origin = fixture.info.web;
     const draft = () => page.getByLabel('Your first message', { exact: true });
     const ready = async () => { await draft().waitFor(); await eventually(() => draft().isEnabled()); };
     const id = () => decodeURIComponent(new URL(page.url()).pathname.split('/').at(-1));
@@ -90,12 +97,14 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     assert.equal(restored.find(tab => tab.id === first).cwd, fixture.directory);
     assert.equal(restored.find(tab => tab.id === first).permissionMode, 'automatic');
     assert.equal(restored.find(tab => tab.id === second).cwd, '');
-    assert.equal(restored.find(tab => tab.id === second).permissionMode, 'prompt');
+    // An untouched native draft inherits the host default; the visible Ask
+    // choice above must not manufacture a saved override.
+    assert.equal(restored.find(tab => tab.id === second).permissionMode, undefined);
     checks.push('explicit New creates distinct tabs; independent text/permission/setup survive switching and reload');
-    const sessionEffects = frames.filter(frame => frame.method === 'root.snapshot' || (frame.method === 'command.submit' && ['session.create', 'submit', 'agent.submit'].includes(frame.params.operation)));
+    const sessionEffects = frames.filter(frame => ['trees.create', 'sessions.submit', 'sessions.spawn', 'sessions.history_page', 'sessions.history', 'sessions.observe', 'sessions.turns'].includes(frame.method));
     assert.deepEqual(sessionEffects, [], 'Unsent drafts must not create/send/hydrate session roots');
-    assert.equal(frames.some(frame => frame.method === 'sessions.summaries' && frame.params.root_ids.some(id => [first, second].includes(id))), false);
-    checks.push('draft-only workspace makes no create/send/root snapshot RPCs and no summaries for draft IDs');
+    assert.equal(frames.some(frame => frame.method === 'trees.summaries' && frame.root_ids.some(id => [first, second].includes(id))), false);
+    checks.push('draft-only workspace makes no create/send/history/activity RPCs and no summaries for draft IDs');
     await page.evaluate(() => localStorage.setItem('whip.appearance.theme.v1', JSON.stringify({ version: 1, id: 'light' })));
     await page.reload(); await ready();
     const lightBackground = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--whip-background'));
@@ -122,20 +131,19 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await splitInputs[1].focus();
     await checkDropOverlay({ page, target: splitInputs[0], files: [splitImage], directory, name: `${name}-split` });
     const splitTransfer = await fileTransfer(page, [splitImage, { ...splitImage, name: 'split-second.png' }]);
-    const beforeSplitCommands = frames.filter(frame => frame.method === 'command.submit').length;
+    const beforeSplitCommands = frames.filter(frame => ['trees.create', 'sessions.submit', 'sessions.spawn'].includes(frame.method)).length;
     await splitSurface.dispatchEvent('drop', { dataTransfer: splitTransfer });
     await splitTransfer.dispose();
     await expect(splitSurface.getByRole('button', { name: /^Preview split/ })).toHaveCount(2);
     await expect(otherSurface.getByRole('group', { name: 'Message attachments', exact: true })).toHaveCount(0);
     await expect(splitInputs[1]).toBeFocused();
-    assert.equal(frames.filter(frame => frame.method === 'command.submit').length, beforeSplitCommands);
+    assert.equal(frames.filter(frame => ['trees.create', 'sessions.submit', 'sessions.spawn'].includes(frame.method)).length, beforeSplitCommands);
     await page.screenshot({ path: join(directory, `${name}-split-drop-attached.png`) });
     for (const file of ['split.png', 'split-second.png']) await splitSurface.getByRole('button', { name: `Remove ${file}`, exact: true }).click();
     checks.push('whole-pane New Chat drop stages two images only in the pane under the cursor, without creating a session or stealing focus');
     // Add a synthetic existing root without creating it from a draft.
-    const created = await client.sessions.create({ cwd: fixture.directory, model: 'model', provider: 'provider' }).result();
-    assert.equal(created.status, 'succeeded');
-    const root = created.result.root_id;
+    const created = await fixture.createRoot(client);
+    const root = created.root.id;
     await page.goto(`${origin}/h/${fixture.info.runtime_id}/s/${root}`);
     await page.getByLabel('Message WHIP', { exact: true }).waitFor();
     assert.equal(await draft().count(), 1);
@@ -157,8 +165,23 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await page.setViewportSize({ width: 1440, height: 960 });
     await page.goto(`${origin}/new/${first}`);
     await tab(first).waitFor();
-    for (const descriptor of allTabs((await workspace()).workspace.layout)) {
-      await tabRow(descriptor.id).getByRole('button', { name: /^Close / }).click({ force: true });
+    const closingTabs = allTabs((await workspace()).workspace.layout);
+    for (const descriptor of closingTabs) {
+      await tabRow(descriptor.id).getByRole('button', { name: /^Close / }).click();
+      await expect(tabRow(descriptor.id)).toHaveCount(0);
+    }
+    // Since 203695a03b, closing the final session opens one empty draft on
+    // that host/folder. Closing that draft then leaves the workspace empty.
+    if (closingTabs.at(-1).kind !== 'new') {
+      await ready();
+      const [replacement, ...extra] = allTabs((await workspace()).workspace.layout);
+      assert.equal(extra.length, 0);
+      assert.equal(replacement.kind, 'new');
+      assert.equal(replacement.runtimeId, fixture.info.runtime_id);
+      assert.equal(replacement.cwd, fixture.directory);
+      assert.equal(await draft().inputValue(), '');
+      await tabRow(replacement.id).getByRole('button', { name: /^Close / }).click();
+      await expect(tabRow(replacement.id)).toHaveCount(0);
     }
     await page.getByRole('heading', { name: 'What do you want to work on?' }).waitFor();
     assert.equal(allTabs((await workspace()).workspace.layout).length, 0);
@@ -173,8 +196,8 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     assert.equal(await draft().inputValue(), '');
     assert.equal(allTabs((await workspace()).workspace.layout).length, 1);
     checks.push('closing the final tab leaves an empty workspace across reload; explicit New opens one blank draft');
-    const commands = operation => frames.filter(frame => frame.method === 'command.submit' && frame.params.operation === operation);
-    const createCount = commands('session.create').length, submitCount = commands('submit').length;
+    const commands = method => frames.filter(frame => frame.method === method);
+    const createCount = commands('trees.create').length, submitCount = commands('sessions.submit').length;
     await page.goto(`${origin}/?new=1&runtimeId=${fixture.info.runtime_id}&cwd=${encodeURIComponent(fixture.directory)}`);
     await ready(); const foreground = id();
     const imageURL = await page.evaluate(() => {
@@ -184,38 +207,35 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
       return canvas.toDataURL('image/png');
     });
     const image = { name: 'first.png', mimeType: 'image/png', buffer: Buffer.from(imageURL.split(',')[1], 'base64') };
-    const strip = () => page.getByRole('group', { name: 'Message attachments', exact: true });
-    const uploadRequests = [];
-    let releaseUpload;
-    const uploadGate = new Promise(resolve => { releaseUpload = resolve; });
-    const pattern = '**/api/v3/content/upload?*';
-    await page.route(pattern, async route => { uploadRequests.push(route.request().url()); await uploadGate; await route.continue(); });
+    const strip = () => page.getByRole('textbox', { name: /^(Your first message|Message WHIP)$/ })
+      .locator('xpath=ancestor::form').getByRole('group', { name: 'Message attachments', exact: true });
+    holdUpload = true;
     const firstTransfer = await fileTransfer(page, [image, { ...image, name: 'second.png' }]);
     await draft().locator('xpath=ancestor::*[@data-chat-drop-surface]').dispatchEvent('drop', { dataTransfer: firstTransfer });
     await firstTransfer.dispose();
     await expect(strip().getByRole('button', { name: /^Preview/ })).toHaveCount(2);
     await expect.poll(() => strip().locator('img').evaluateAll(images => images.every(image => image.naturalWidth > 0))).toBe(true);
     assert.deepEqual(uploadRequests, []);
-    assert.equal(commands('session.create').length, createCount);
+    assert.equal(commands('trees.create').length, createCount);
     await page.screenshot({ path: join(directory, `${name}-first-images-ready.png`) });
     await page.getByRole('button', { name: 'Send first message', exact: true }).click();
     await page.getByLabel('Message WHIP', { exact: true }).waitFor();
     const promoted = allTabs((await workspace()).workspace.layout).find(tab => tab.id === foreground);
     assert.equal(promoted.kind, 'chat');
     assert.equal(id(), promoted.rootId);
-    assert.equal(commands('session.create').length, createCount + 1);
-    assert.equal(commands('submit').length, submitCount);
+    assert.equal(commands('trees.create').length, createCount + 1);
+    assert.equal(commands('sessions.submit').length, submitCount);
     await expect(strip().getByRole('img', { name: /^Uploading/ })).toHaveCount(2);
     await page.screenshot({ path: join(directory, `${name}-first-images-uploading.png`) });
-    releaseUpload();
-    await eventually(() => commands('submit').length === submitCount + 1);
+    await eventually(() => heldUploads.length > 0, { description: 'exact first native upload held' });
+    holdUpload = false; for (const forward of heldUploads.splice(0)) forward();
+    await eventually(() => commands('sessions.submit').length === submitCount + 1);
     await expect(strip()).toHaveCount(0);
     assert.equal(uploadRequests.length, 2);
-    assert.ok(uploadRequests.every(url => new URL(url).searchParams.get('root_id') === promoted.rootId));
-    await page.unroute(pattern);
-    const sentImages = page.getByRole('region', { name: 'Conversation', exact: true }).getByRole('button', { name: /^Open image/ });
+    assert.ok(uploadRequests.every(request => request.owner === promoted.rootId));
+    const sentImages = page.getByRole('region', { name: 'Conversation', exact: true }).getByRole('button', { name: /^Preview Attachment / });
     await expect(sentImages).toHaveCount(2);
-    // The synthetic runner echoes input JSON. Inspect the authored image row,
+    // The actual local provider emits deterministic fixture responses. Inspect the authored image row,
     // not its fixture-only response, and verify both thumbnails really decode.
     await expect(page.getByText('Idle', { exact: true })).toBeVisible();
     await page.getByRole('region', { name: 'Conversation', exact: true }).hover();
@@ -223,7 +243,9 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await sentImages.first().scrollIntoViewIfNeeded();
     await expect.poll(() => sentImages.locator('img').evaluateAll(images => images.length === 2 && images.every(image => image.naturalWidth > 0))).toBe(true);
     await page.screenshot({ path: join(directory, `${name}-first-images-sent.png`) });
-    assert.equal(commands('submit').length, submitCount + 1);
+    assert.equal(commands('sessions.submit').length, submitCount + 1);
+    const authored = (await client.session(promoted.rootId).history.page({ direction: 'backward', limit: 16 }, deadline())).messages.find(message => message.role === 'user');
+    assert.equal(authored?.parts.filter(part => part.type === 'content').length, 2);
     checks.push('image-only first message stages multiple previews locally, creates once, uploads in root scope and renders both images after acceptance');
     await page.goto(`${origin}/?new=1&runtimeId=${fixture.info.runtime_id}&cwd=${encodeURIComponent(fixture.directory)}`);
     await ready(); const background = id();
@@ -237,45 +259,50 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await focusedComposer.fill('Keep the focus and unsent text here.');
     releaseCreate();
     await eventually(async () => allTabs((await workspace()).workspace.layout).find(tab => tab.id === background)?.kind === 'chat', { description: 'background draft promotes after real acceptance' });
-    await eventually(() => commands('submit').length === submitCount + 2);
+    await eventually(() => commands('sessions.submit').length === submitCount + 2);
     assert.equal(id(), promoted.rootId);
     assert.equal(await focusedComposer.inputValue(), 'Keep the focus and unsent text here.');
     assert.equal(await focusedComposer.evaluate(element => document.activeElement === element), true);
-    assert.equal(commands('session.create').length, createCount + 2);
-    assert.equal(commands('submit').length, submitCount + 2);
+    assert.equal(commands('trees.create').length, createCount + 2);
+    assert.equal(commands('sessions.submit').length, submitCount + 2);
     checks.push('delayed background creation preserves and submits the image without route/focus theft or duplicate commands');
     await page.screenshot({ path: join(directory, `${name}-promoted.png`) });
     await page.goto(`${origin}/?new=1&runtimeId=${fixture.info.runtime_id}&cwd=${encodeURIComponent(fixture.directory)}`);
     await ready();
     await draft().fill('Keep my image after a failed upload.');
     await page.locator('input[type=file]').setInputFiles(image);
-    await page.route(pattern, route => route.fulfill({ status: 503, body: 'Fixture upload failure' }));
+    failUpload = true;
     await page.getByRole('button', { name: 'Send first message', exact: true }).click();
     const composer = page.getByLabel('Message WHIP', { exact: true });
     await expect(composer).toHaveValue('Keep my image after a failed upload.');
     await expect(strip().getByText('Upload failed', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
     const failedRoot = id();
-    assert.equal(commands('session.create').length, createCount + 3);
-    assert.equal(commands('submit').length, submitCount + 2);
-    await page.unroute(pattern);
+    assert.equal(commands('trees.create').length, createCount + 3);
+    assert.equal(commands('sessions.submit').length, submitCount + 2);
+    failUpload = false;
     await strip().getByRole('button', { name: 'Remove first.png', exact: true }).click();
     await page.locator('input[type=file]').setInputFiles(image);
     await page.getByRole('button', { name: 'Send message', exact: true }).click();
     await expect(strip()).toHaveCount(0);
     assert.equal(id(), failedRoot);
-    assert.equal(commands('session.create').length, createCount + 3);
-    assert.equal(commands('submit').length, submitCount + 3);
+    assert.equal(commands('trees.create').length, createCount + 3);
+    assert.equal(commands('sessions.submit').length, submitCount + 3);
     checks.push('failed initial upload retains text/image in the created session; replacing the file sends without another root');
     assert.deepEqual(errors, []);
-    results[name] = { browser: await browser.version(), checks, screenshots: ['light', 'dark', 'split', 'mixed', 'compact', 'promoted'], draftSessionEffects: sessionEffects.length, firstSendCommands: { create: commands('session.create').length - createCount, submit: commands('submit').length - submitCount }, provider: 'no-auth loopback catalog; built-in SDK fixture synthetic runner' };
+    results[name] = { browser: await browser.version(), checks, screenshots: ['light', 'dark', 'split', 'mixed', 'compact', 'promoted'], draftSessionEffects: sessionEffects.length, firstSendCommands: { create: commands('trees.create').length - createCount, submit: commands('sessions.submit').length - submitCount }, provider: 'no-auth loopback HTTP provider; production native runtime and engine' };
     console.log(`${name}: ${checks.length} New Chat workflows passed`);
   } catch (error) {
+    await page?.locator('details').evaluateAll(items => { for (const item of items) item.open = true; }).catch(() => {});
     await page?.screenshot({ path: join(directory, `${name}-failure.png`) }).catch(() => {});
     await writeFile(join(directory, `${name}-failure.txt`), `${error.stack}\n\n${await page?.locator('body').innerText().catch(() => '')}\n\n${JSON.stringify(errors)}`);
     await writeFile(join(directory, `${name}-frames.json`), JSON.stringify(frames, null, 2));
     throw error;
-  } finally { client?.close(); await browser?.close(); await fixture.close(); if (providerServer) await new Promise(resolve => providerServer.close(resolve)); }
+  } finally {
+    closed = true; releaseCreate = undefined; heldUploads.length = 0;
+    for (const retire of connections) retire();
+    try { await Promise.allSettled([...closing]); await browser?.close(); } finally { await fixture.close(); }
+  }
 }
 await writeFile(join(directory, 'new-chat-tabs.json'), JSON.stringify(results, null, 2));
 console.log(JSON.stringify(results, null, 2));

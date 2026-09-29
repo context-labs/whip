@@ -123,8 +123,12 @@ func checkedNativeFork(params protocol.ForkParams, value protocol.ForkResult) er
 
 // History controls preserve any unrelated composer while the exact intent runs.
 func (m *nativeModel) historyControl(label string, call func(context.Context) nativeControlResult) tea.Cmd {
+	return m.controlKeepingDraft(label, true, call)
+}
+
+func (m *nativeModel) controlKeepingDraft(label string, mutate bool, call func(context.Context) nativeControlResult) tea.Cmd {
 	draft := m.input.Value()
-	command := m.control(label, true, call)
+	command := m.control(label, mutate, call)
 	if draft != "" && !strings.HasPrefix(strings.TrimSpace(draft), "/") {
 		m.input.SetValue(draft)
 		m.sizeInput()

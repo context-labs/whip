@@ -11,8 +11,6 @@ import (
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
-
-	"github.com/context-labs/whip/internal/tools"
 )
 
 // newTestServer builds an in-process MCP server with greet/fail/structured/
@@ -117,7 +115,7 @@ func TestManagerConnectAndCall(t *testing.T) {
 	if len(ts) != 4 {
 		t.Fatalf("expected 4 tools, got %d: %v", len(ts), toolNames(ts))
 	}
-	out := tools.Execute(context.Background(), legacyTools(ts), "mcp__docs__greet", json.RawMessage(`{"name":"whip"}`))
+	out := callTestHandler(t, ts, "mcp__docs__greet", json.RawMessage(`{"name":"whip"}`))
 	if out != "hi whip" {
 		t.Errorf("greet = %q", out)
 	}
@@ -136,13 +134,13 @@ func TestManagerConnectAndCall(t *testing.T) {
 	}
 }
 
-func TestManagerToolFailuresAreToolOutput(t *testing.T) {
+func TestManagerToolFailuresPreserveError(t *testing.T) {
 	m := newTestManager(t, map[string]ServerConfig{"docs": testCfg("docs")})
 	m.Start(context.Background())
 	waitReady(t, m)
-	out := tools.Execute(context.Background(), legacyTools(m.Tools()), "mcp__docs__fail", nil)
-	if !strings.HasPrefix(out, "Error: ") || !strings.Contains(out, "boom") {
-		t.Errorf("fail = %q", out)
+	out, err := findTestHandler(t, m.Tools(), "mcp__docs__fail").Run(t.Context(), nil)
+	if err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Errorf("fail = %q, %v", out, err)
 	}
 }
 
@@ -151,11 +149,11 @@ func TestManagerStructuredAndMedia(t *testing.T) {
 	m.Start(context.Background())
 	waitReady(t, m)
 	ts := m.Tools()
-	out := tools.Execute(context.Background(), legacyTools(ts), "mcp__docs__structured", nil)
+	out := callTestHandler(t, ts, "mcp__docs__structured", nil)
 	if !strings.Contains(out, `"answer": 42`) {
 		t.Errorf("structured = %q", out)
 	}
-	out = tools.Execute(context.Background(), legacyTools(ts), "mcp__docs__media", nil)
+	out = callTestHandler(t, ts, "mcp__docs__media", nil)
 	if !strings.Contains(out, "here you go") || !strings.Contains(out, "[image 1: image/png, 3 bytes]") {
 		t.Errorf("media = %q", out)
 	}
@@ -217,7 +215,7 @@ func TestManagerReconnect(t *testing.T) {
 	if st := m.Statuses(); st[0].Status != StatusReady {
 		t.Fatalf("after reconnect: %+v", st[0])
 	}
-	out := tools.Execute(context.Background(), legacyTools(m.Tools()), "mcp__docs__greet", json.RawMessage(`{"name":"back"}`))
+	out := callTestHandler(t, m.Tools(), "mcp__docs__greet", json.RawMessage(`{"name":"back"}`))
 	if out != "hi back" {
 		t.Errorf("greet after reconnect = %q", out)
 	}
@@ -236,15 +234,15 @@ func TestManagerParallelCallsRaceClean(t *testing.T) {
 	done := make(chan struct{}, 32)
 	for i := range 32 {
 		go func(i int) {
+			defer func() { done <- struct{}{} }()
 			name := "mcp__a__greet"
 			if i%2 == 1 {
 				name = "mcp__b__greet"
 			}
-			out := tools.Execute(context.Background(), legacyTools(ts), name, json.RawMessage(`{"name":"x"}`))
+			out := callTestHandler(t, ts, name, json.RawMessage(`{"name":"x"}`))
 			if out == "hi x" {
 				calls.Add(1)
 			}
-			done <- struct{}{}
 		}(i)
 	}
 	for range 32 {
@@ -356,7 +354,7 @@ func TestManagerAutoReconnect(t *testing.T) {
 	if !recovered {
 		t.Fatalf("auto-reconnect did not recover: %+v", m.Statuses()[0])
 	}
-	out := tools.Execute(context.Background(), legacyTools(m.Tools()), "mcp__docs__greet", json.RawMessage(`{"name":"auto"}`))
+	out := callTestHandler(t, m.Tools(), "mcp__docs__greet", json.RawMessage(`{"name":"auto"}`))
 	if out != "hi auto" {
 		t.Errorf("call after auto-reconnect = %q", out)
 	}

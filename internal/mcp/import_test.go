@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/mcpconfig"
 )
 
 // importFixture lays out one server per interesting state across all four
@@ -57,7 +57,7 @@ func at(cands []Candidate, name string) Candidate {
 
 func TestCandidatesStatesAndOrder(t *testing.T) {
 	dir := importFixture(t)
-	native := FromConfigMap(map[string]config.MCPServer{"ahrefs": {URL: "https://api.ahrefs.com/mcp/mcp"}})
+	native := FromConfigMap(map[string]mcpconfig.Server{"ahrefs": {URL: "https://api.ahrefs.com/mcp/mcp"}})
 	policy := everySource()
 	policy.Codex.Exclude = map[string]bool{"node_repl": true}
 	cands, errs := Candidates(dir, native, policy)
@@ -124,16 +124,16 @@ func TestCandidatesStatesAndOrder(t *testing.T) {
 
 func TestApplyWritesNativeEntries(t *testing.T) {
 	dir := importFixture(t)
-	native := FromConfigMap(map[string]config.MCPServer{"ahrefs": {URL: "https://api.ahrefs.com/mcp/mcp"}})
+	native := FromConfigMap(map[string]mcpconfig.Server{"ahrefs": {URL: "https://api.ahrefs.com/mcp/mcp"}})
 	policy := everySource()
 	policy.Codex.Exclude = map[string]bool{"node_repl": true}
 	cands, _ := Candidates(dir, native, policy)
 
-	cfg := &config.Config{MCPServers: map[string]config.MCPServer{"ahrefs": {URL: "https://api.ahrefs.com/mcp/mcp"}}}
-	if _, _, err := Apply(&cfg.MCPServers, cands, []string{"chrome", "ghost"}); err == nil || !strings.Contains(err.Error(), "ghost") || len(cfg.MCPServers) != 1 {
-		t.Fatalf("an unknown name must fail before anything is written, got err=%v config=%v", err, cfg.MCPServers)
+	servers := map[string]mcpconfig.Server{"ahrefs": {URL: "https://api.ahrefs.com/mcp/mcp"}}
+	if _, _, err := Apply(&servers, cands, []string{"chrome", "ghost"}); err == nil || !strings.Contains(err.Error(), "ghost") || len(servers) != 1 {
+		t.Fatalf("an unknown name must fail before anything is written, got err=%v config=%v", err, servers)
 	}
-	added, skipped, err := Apply(&cfg.MCPServers, cands, []string{"chrome", "computer-use", "node_repl", "ahrefs", "figma"})
+	added, skipped, err := Apply(&servers, cands, []string{"chrome", "computer-use", "node_repl", "ahrefs", "figma"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestApplyWritesNativeEntries(t *testing.T) {
 		if entry.Enabled != nil {
 			t.Errorf("%s must import enabled (ticking it is the choice), got %v", name, *entry.Enabled)
 		}
-		if !FromConfigMap(cfg.MCPServers)[name].Trusted {
+		if !FromConfigMap(servers)[name].Trusted {
 			t.Errorf("%s must be trusted once native", name)
 		}
 	}
@@ -159,18 +159,18 @@ func TestApplyWritesNativeEntries(t *testing.T) {
 	if skipped["ahrefs"] != "already in Whip" || skipped["figma"] != SignInNote {
 		t.Errorf("skip reasons wrong: %v", skipped)
 	}
-	if len(cfg.MCPServers) != 4 {
-		t.Errorf("config should hold the native entry plus three imports, got %v", cfg.MCPServers)
+	if len(servers) != 4 {
+		t.Errorf("config should hold the native entry plus three imports, got %v", servers)
 	}
 	// A second apply with the same names changes nothing.
-	added, skipped, _ = Apply(&cfg.MCPServers, cands, []string{"chrome", "computer-use", "node_repl"})
-	if len(added) != 0 || len(skipped) != 3 || len(cfg.MCPServers) != 4 {
+	added, skipped, _ = Apply(&servers, cands, []string{"chrome", "computer-use", "node_repl"})
+	if len(added) != 0 || len(skipped) != 3 || len(servers) != 4 {
 		t.Errorf("apply must be idempotent, got added=%v skipped=%v", added, skipped)
 	}
 	// Apply into an empty config allocates the block; a repeated name is one import.
-	empty := &config.Config{}
-	if added, skipped, _ := Apply(&empty.MCPServers, cands, []string{"exa", "exa"}); len(added) != 1 || len(skipped) != 0 || empty.MCPServers["exa"].URL != "https://mcp.exa.ai/mcp" {
-		t.Errorf("apply into an empty config failed: added=%v skipped=%v %+v", added, skipped, empty.MCPServers)
+	var empty map[string]mcpconfig.Server
+	if added, skipped, _ := Apply(&empty, cands, []string{"exa", "exa"}); len(added) != 1 || len(skipped) != 0 || empty["exa"].URL != "https://mcp.exa.ai/mcp" {
+		t.Errorf("apply into an empty config failed: added=%v skipped=%v %+v", added, skipped, empty)
 	}
 }
 

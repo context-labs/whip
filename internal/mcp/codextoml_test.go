@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/secretref"
 )
 
 // TestParseTOMLValue pins the value grammar directly: escapes, literal vs
@@ -287,7 +287,7 @@ bearer_token_env_var = "CIO_TEST_TOKEN"
 		t.Fatalf("bearer_token_env_var should import as a reference, got %q", got)
 	}
 	// and the reference resolves at connect time
-	hv, err := config.ResolveHeader(cio.Headers["Authorization"])
+	hv, err := secretref.ResolveHeader(cio.Headers["Authorization"])
 	if err != nil || hv != "Bearer cio-live-token" {
 		t.Errorf("connect-time resolution = %q, %v", hv, err)
 	}
@@ -408,7 +408,7 @@ headers = { Authorization = "Bearer ${WHIP_IMPORT_LATE_VAR:-none}" }
 	}
 	// spawn-time: still unset → entry dropped (child inherits any ambient var
 	// instead of a masking empty value)
-	env, err := config.ResolveEnvMap(cfgs["stdio"].Env)
+	env, err := secretref.ResolveEnvMap(cfgs["stdio"].Env)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -417,11 +417,11 @@ headers = { Authorization = "Bearer ${WHIP_IMPORT_LATE_VAR:-none}" }
 	}
 	// once the var exists (exported after import), resolution works
 	t.Setenv("WHIP_IMPORT_LATE_VAR", "late-value")
-	env, err = config.ResolveEnvMap(cfgs["stdio"].Env)
+	env, err = secretref.ResolveEnvMap(cfgs["stdio"].Env)
 	if err != nil || env["API_KEY"] != "late-value" {
 		t.Errorf("late resolution = %v, %v", env, err)
 	}
-	if hv, err := config.ResolveHeader(cfgs["remote"].Headers["Authorization"]); err != nil || hv != "Bearer late-value" {
+	if hv, err := secretref.ResolveHeader(cfgs["remote"].Headers["Authorization"]); err != nil || hv != "Bearer late-value" {
 		t.Errorf("header resolution = %q, %v", hv, err)
 	}
 }

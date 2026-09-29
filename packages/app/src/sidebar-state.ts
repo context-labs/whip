@@ -50,6 +50,7 @@ const directoryName = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-
 export function sidebarRows(items: readonly Session[], collapsed: readonly string[] = [], limits: ReadonlyMap<string, number> = new Map()): SidebarRow[] {
   const groups = new Map<string, Session[]>();
   for (const session of items) {
+    if (session.tree.metadata.archived) continue;
     const group = groups.get(session.working_directory);
     if (group) group.push(session); else groups.set(session.working_directory, [session]);
   }

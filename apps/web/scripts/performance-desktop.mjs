@@ -17,7 +17,7 @@ export async function isolateDesktopPerformance() {
   return { directory };
 }
 
-export async function launchDesktopPerformance(fixture, isolation) {
+export async function launchDesktopPerformance(fixture, isolation, { executablePath } = {}) {
   const stage = join(repository, 'apps/desktop/.stage');
   const manifest = JSON.parse(await readFile(join(stage, 'app/renderer-manifest.json'), 'utf8'));
   const executable = join(isolation.directory, 'whipcode');
@@ -33,7 +33,7 @@ export async function launchDesktopPerformance(fixture, isolation) {
   const fixturePID = status.process.pid;
   assert.ok(Number.isSafeInteger(fixturePID) && fixturePID > 0);
   isolation.env = env;
-  const electron = await _electron.launch({ args: [join(stage, 'app')], env, timeout: 30_000 });
+  const electron = await _electron.launch({ executablePath, args: [join(stage, 'app')], env, timeout: 30_000 });
   isolation.electron = electron;
   const electronProcess = electron.process();
   let stderr = '';
@@ -45,6 +45,8 @@ export async function launchDesktopPerformance(fixture, isolation) {
   const context = page.context();
   context.setDefaultTimeout(15_000);
   context.setDefaultNavigationTimeout(30_000);
+  // A new test navigation must not interrupt the production initial load.
+  await page.locator('#whip-session-navigation').waitFor({ state: 'visible', timeout: 15000 });
   // Passive IPC observations; the production listeners still send/ack every
   // frame. Store bounded metadata, never base64 content or full frame bodies.
   await electron.evaluate(({ ipcMain }) => {
@@ -93,13 +95,31 @@ export async function launchDesktopPerformance(fixture, isolation) {
     },
     async saveDiagnostics() { await writeFile(join(isolation.directory, 'electron-stderr.log'), stderr); },
     async close() {
-      await electron.evaluate(({ app }) => app.exit(0)).catch(error => {
-        if (!/closed|destroyed/.test(error.message)) throw error;
-      });
-      await eventually(() => electronProcess.exitCode !== null || electronProcess.signalCode !== null,
-        { timeout: 10_000, description: 'fixture Electron process exit' });
+      await closeDesktopProcess(electron);
     },
   };
+}
+
+// Bound cleanup even when Electron's main-thread inspector is unresponsive.
+// Signals target only this launcher-owned child, never a discovered/user app.
+export async function closeDesktopProcess(electron) {
+  const child = electron.process();
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = new Promise(resolve => child.once('exit', resolve));
+  let commandError;
+  const command = electron.evaluate(({ app }) => app.exit(0)).catch(error => {
+    if (!/closed|destroyed/.test(error.message)) commandError = error;
+  });
+  const signal = name => { if (child.exitCode === null && child.signalCode === null) child.kill(name); };
+  const soft = setTimeout(() => signal('SIGTERM'), 1500);
+  const hard = setTimeout(() => signal('SIGKILL'), 5000);
+  let timer;
+  try {
+    await Promise.race([Promise.all([exited, command]), new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Owned Electron process/inspector did not join within 10 seconds')), 10000);
+    })]);
+    if (commandError) throw commandError;
+  } finally { clearTimeout(soft); clearTimeout(hard); clearTimeout(timer); }
 }
 
 // Keep only 8192 recent frame metadata records; all method counts remain exact.
@@ -303,7 +323,7 @@ export async function finishDesktopPerformance(isolation, host, fixture, succeed
     await host.saveDiagnostics().catch(error => failures.push(error));
     await host.close().catch(error => failures.push(error));
   } else if (isolation.electron) {
-    await isolation.electron.close().catch(error => failures.push(error));
+    await closeDesktopProcess(isolation.electron).catch(error => failures.push(error));
   }
   if (fixture) await fixture.close().catch(error => failures.push(error));
   if (!succeeded || failures.length) {

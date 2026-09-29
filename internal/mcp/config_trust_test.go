@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/context-labs/whip/internal/legacy/config"
+	"github.com/context-labs/whip/internal/mcpconfig"
 )
 
 func TestConfigTrustPreservesOriginThroughImportPersistence(t *testing.T) {
@@ -18,15 +18,15 @@ func TestConfigTrustPreservesOriginThroughImportPersistence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var saved config.MCPServer
+	var saved mcpconfig.Server
 	if err := json.Unmarshal(data, &saved); err != nil {
 		t.Fatal(err)
 	}
-	restored := FromConfigMap(map[string]config.MCPServer{"imported": saved})["imported"]
+	restored := FromConfigMap(map[string]mcpconfig.Server{"imported": saved})["imported"]
 	if restored.Trusted || restored.Origin != "claude" || restored.Source != source {
 		t.Fatalf("import acquired native trust after save: %+v", restored)
 	}
-	native := FromConfigMap(map[string]config.MCPServer{"native": {Command: []string{"native"}}})["native"]
+	native := FromConfigMap(map[string]mcpconfig.Server{"native": {Command: []string{"native"}}})["native"]
 	if !native.Trusted || native.Origin != "whip" || native.Source != whipConfigPath() {
 		t.Fatalf("native discovery did not establish provenance: %+v", native)
 	}
@@ -73,8 +73,8 @@ func TestConfigDiscoveryReportsWinningProvenance(t *testing.T) {
 	ClaudeGlobalPath = func() string { return filepath.Join(dir, "missing-global.json") }
 	t.Cleanup(func() { CodexPath, ClaudeGlobalPath = oldCodex, oldClaude })
 	on := true
-	native := FromConfigMap(map[string]config.MCPServer{"shared": {Command: []string{"native"}}})
-	merged := LoadMergedFiltered(dir, native, ImportPolicyFrom(&config.MCPImport{Project: &config.MCPImportSource{Enabled: &on}}))
+	native := FromConfigMap(map[string]mcpconfig.Server{"shared": {Command: []string{"native"}}})
+	merged := LoadMergedFiltered(dir, native, ImportPolicyFrom(&mcpconfig.Import{Project: &mcpconfig.ImportSource{Enabled: &on}}))
 	if merged.Sources["shared"] != "whip" || !merged.Merged["shared"].Trusted || merged.Merged["shared"].Source != whipConfigPath() || merged.Merged["shared"].Command[0] != "native" {
 		t.Fatalf("winning native provenance overwritten: %+v", merged)
 	}
@@ -84,11 +84,11 @@ func TestConfigDiscoveryReportsWinningProvenance(t *testing.T) {
 	// A filtered import must not leave a ghost blocked row or falsely label
 	// the server from another source that actually remains, in either
 	// precedence direction.
-	filtered := LoadMergedFiltered(dir, nil, ImportPolicyFrom(&config.MCPImport{Codex: &config.MCPImportSource{Exclude: []string{"shared"}}, Project: &config.MCPImportSource{Enabled: &on}}))
+	filtered := LoadMergedFiltered(dir, nil, ImportPolicyFrom(&mcpconfig.Import{Codex: &mcpconfig.ImportSource{Exclude: []string{"shared"}}, Project: &mcpconfig.ImportSource{Enabled: &on}}))
 	if _, ghost := filtered.Blocked["shared"]; ghost || filtered.Sources["shared"] != ".mcp.json" || filtered.Merged["shared"].Source != project {
 		t.Fatalf("blocked import shadowed live source: %+v", filtered)
 	}
-	filtered = LoadMergedFiltered(dir, nil, ImportPolicyFrom(&config.MCPImport{Project: &config.MCPImportSource{Enabled: &on, Exclude: []string{"shared"}}}))
+	filtered = LoadMergedFiltered(dir, nil, ImportPolicyFrom(&mcpconfig.Import{Project: &mcpconfig.ImportSource{Enabled: &on, Exclude: []string{"shared"}}}))
 	if _, ghost := filtered.Blocked["shared"]; ghost || filtered.Sources["shared"] != "codex" || filtered.Merged["shared"].Source != codex {
 		t.Fatalf("blocked project import shadowed the codex server: %+v", filtered)
 	}

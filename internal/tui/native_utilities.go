@@ -20,29 +20,32 @@ import (
 
 const nativeHelp = `Native terminal commands
 
-Conversation: /sessions · /resume <owner> · /rename <title> · /status
+Conversation: /sessions · /resume <owner> · /rename [title] · /status
 History: /older · /newer · /latest · /export [local path] · /copy [last|repl]
 Edits: /stop · /start · /clear · /rewind [sequence] · /fork <title> · /fork-at <sequence> <title>
 Input: /queue <text> · /steer <text> · !<shell command>
 Images: /attach <client-local path> · /attach clipboard|check|retry|discard · Ctrl+V reads a clipboard image
-Recovery: /check · /retry · /rejected restore|discard · /redraft restore|replace|discard|clear-context
-Configuration: /model · /model-for-session · /effort [level|default] · /setup · /settings · /theme
-Context: /context-doctor [attempt ID] · /compact · /compact log|retry|off|model <model>|provider <provider>
+Recovery: /pending list|inspect <owner>|check <owner>|forget <owner> <client ID> <request ID> <digest>
+/check · /retry · /rejected restore|discard · /redraft restore|replace|discard|clear-context
+Configuration: /model [name [provider]|refresh] · /model-for-session [name [provider]] · /effort [level|default] · /setup · /connect [provider] · /auth [provider] · /settings · /theme [name] · /mouse
+Context: /context-doctor [attempt ID] · /compact · /compact log|retry|off|<model> [provider]
 Goals: /goal [text|status|resume|clear] · /goal-from-context [2..100]
 Schedules: /schedule list [cursor] · /schedule @every <duration> <text> · /schedule @at <RFC3339 time> <text> · /schedule cancel <ID>
 Instructions: /me · /memory · /permissions
 Integrations: /lsp · /mcp · /browser · /computer · /pwd · /cd <path>
 Agents: /agents [list|open <ID>|stop <ID>|delete <child ID>|revoke <grant ID>]
-Display: /sidebar · /dock · /repl [older|latest|turn <ID>|focus] · /tools expand|collapse · /reasoning on|off · /report
+Display: /sidebar · /panel agents|context|lsp · /dock · /repl [older|latest|turn <ID>|focus] · /tools expand|collapse · /reasoning on|off · /report
 Exit: /quit (accepted host work continues)
 
 Enter sends; Ctrl+J/Shift+Enter inserts a newline; Escape cancels the exact active input.
-Ctrl+T focuses the agent tree; arrows select, Enter opens, Escape returns to its root.
+Ctrl+X 1/2/3 expands Agents/Context/LSP; sidebar headings select a panel; wheel scrolls it.
+Click an agent row in the sidebar/dock to open that owner. Ctrl+T focuses the agent tree; arrows select, Enter opens, Escape returns to its root.
 Drag selects displayed transcript/input/REPL text; release offers it to the clipboard. Double-click selects a word; triple-click a row.
+Click a user/assistant message for Copy text, Fork, or opening-input Rewind; double/triple clicks still select text.
 Ctrl+E toggles the latest loaded tool output; clicking a tool block toggles that block.
 Ctrl+R toggles REPL; PageUp/PageDown scroll the focused pane; Ctrl+C twice exits.
 Ctrl+P opens commands; Ctrl+O toggles live reasoning. Tab completes commands, @host files, $authorized skills, or host paths.
-Ctrl+X then M/L/N/B/R/T/C/G/S opens model/sessions/clear/sidebar/REPL/theme/compact/rewind or stops a selected child; Y offers the last loaded assistant text to the clipboard.
+Ctrl+X then 1/2/3 changes sidebar panels; Ctrl+X then M/L/N/B/R/T/C/G/S opens model/sessions/clear/sidebar/REPL/theme/compact/rewind or stops a selected child; Y offers the last loaded assistant text to the clipboard.
 Paste collapse is opt-in in /settings; original text is restored before sending.
 Commands act on the displayed owner. Export writes a private local file. Direct shell uses the host's normal permission and receipt path.`
 

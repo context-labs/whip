@@ -1,638 +1,248 @@
 # Recursive runtime
 
-RLM is whip’s execution model, not an optional mode. Every root and child
-model sees `rlm_exec`; its Starlark or JavaScript cells call daemon-hosted modules. There is
-no direct-tool agent mode and no mode field on a session.
-
-The design has four goals:
-
-1. keep large context available without repeatedly placing it in the prompt;
-2. make recursive delegation use one understandable session abstraction;
-3. make coordination, authority, budgets, and recovery durable;
-4. keep all side effects behind one daemon-owned policy boundary.
-
-## Session identity and recursion
-
-Root and child nodes use the same `AgentSession` type. Each has:
-
-- a provider route and reasoning effort;
-- exactly one model-facing tool;
-- one bounded kernel using its root session's immutable execution engine;
-- a durable transcript and private state;
-- an agent ID, parent ID, capabilities, and effective budgets.
-
-Capabilities omitted at spawn inherit the parent’s set. An explicit list only
-narrows it. The default maximum depth is two edges. Child names must be unique
-under one parent, and child admission fails before persistence if no kernel
-worker is available.
-
-Spawn receipts contain only `id`, `name`, `parent_id`, `status`, and `report`.
-`agents.inspect(id=...)` returns current state, capabilities, and budgets.
-Exact MCP selectors are loaded only with `include_grants=True`, in a
-`mcp_grants` inline JSON result or a caller-owned content handle. The JSON
-includes `all` and `selectors`, distinguishing a root's all-tools grant from
-an agent with no MCP access. This keeps large permission snapshots out of
-ordinary responses without changing delegation or authorization. See
-[agent inspection](tools.md#choosing-between-models-and-agents) for retrieval
-and response-shape migration examples.
-
-## Desktop Browser authority
-
-The experimental desktop Browser path is available through the same
-host module in Starlark and JavaScript; it adds no model-facing tool or execution
-engine. The [Browser guide](browser-computer-use.md#desktop-browser-tabs) owns the
-lifecycle/helper contract. A fresh root must have Browser module grants and an
-explicitly selected provider. Historical roots are not silently broadened.
-
-Open, attach and preview-port expansion resolve the exact native resource before
-durable permission admission and recheck it after Once-only approval. Saved
-permission rules do not authorize Browser v1 resource requests. Attachment IDs
-alone are not grants: `agents.spawn` must explicitly name
-`browser_attachments=[attachment_id]`. A successful handoff creates child-bound
-control and leaves the parent with delegation/revocation authority, not shared
-control; ancestry remains checked on use. Detach, stop and revoke cascade to
-retire dependent control without closing the human tab. Reconnect/restart does
-not restore native selection or replay uncertain page effects; see the
-[SDK provider lifetime](../packages/legacy-sdk/README.md#experimental-native-browser-provider).
-This contract does not imply packaged-release acceptance.
-
-## Durable communication
-
-Spawn returns immediately with the child’s admission metadata. The child’s
-assistant response stays in its transcript. To communicate, either side uses:
-
-```python
-messages.send(recipient=parent_id, subject="review", body="Findings…", delivery="queued")
-messages.list(status="pending", sender="", limit=50)
-messages.read(id=message_id)
-messages.complete(ids=[message_id])
-messages.defer(id=message_id, seconds=600)
-```
-
-`agent_messages` is the only "notify" table. A message carries a delivery
-class: `steer` is injected at the recipient's next loop boundary (or starts a
-turn when idle), `queued` gets its own turn when the recipient is idle, and
-`next_turn` rides along with whatever turn comes next. Messages move
-`pending → delivered → done`: a message is `delivered` only when the turn that
-showed that exact revision commits successfully (a failed turn shows it
-again). `messages.read` records a delivery receipt, `messages.complete`
-finishes the observed revision, and `messages.defer` returns it to `pending`
-at a later time with a new revision. Listing metadata records an observation
-for explicit controls without automatically acknowledging delivery. If a
-message changes before an explicit completion or deferral, reread it before
-retrying. Batch completion is atomic: one stale revision rejects the batch.
-
-Bodies are never pushed whole into another model's prompt. A turn that starts
-with ready mail receives a bounded digest: one line per pending message with
-sender, kind, subject, size, and a 2 KiB excerpt. Child turn results reach the
-parent the same way as runtime-authored `agent.completed`, `agent.failed`, or
-`agent.cancelled` messages with a short preview and an evidence handle for the
-full text; blackboard subscriptions post `state.changed` messages upserted per
-subscription. Readiness is derived from durable state (`queued` inbox rows and
-`pending` mail), so an in-memory wake is only an optimization.
-
-Every normal node's system prompt includes an identity block (id, name, parent,
-depth, report mode) and a child's first input is `[task from parent <name>
-(<id>)]` plus the prompt, so `messages.send(recipient="parent")` always works;
-a direct relative's name or id is accepted too. Messages travel one hop
-(parent, child, sibling), so there is no `root` alias. Parents steer children with
-`agents.submit(id, text, delivery="steer"|"queued")` and can block briefly on
-`agents.wait(ids, timeout_ms)` (default 10 s, capped at 25 s so a blocked cell
-releases its kernel pool slot promptly; host-call time is not charged to the
-cell clock; the result carries per-child status plus `settled` and
-`timed_out`, never the reply itself). The
-system prompt tells every node that mail wakes it, so the expected pattern
-after a spawn or submit is to end the turn and let the reply arrive as a
-mailbox-triggered turn. `agents.spawn(report=...)` picks how a child's
-turn end reaches the parent: `notice` (default, 160-byte preview plus evidence
-handle), `inline` (4 KiB preview), or `message` (only failures; the child must
-report explicitly). The selected mode is persisted and restored before the
-child's identity prompt and next turn are built. Sender caps: 16 KiB body (use an evidence handle above
-that), 20 pending messages per sender→recipient pair, 30 sends per 10 seconds.
-
-## Input and fork continuity
-
-Root input, child tasks, and human steers use the same recipient-authorized
-payload decoder. Referenced payloads are read completely in chunks of at most
-64 KiB. The total input ceiling is 64 MiB, matching uploads and including
-serialized multipart content and the child task prefix. The transport frame
-remains 1 MiB; large input uses the upload/content path. RLM focusing still
-controls what enters the model prompt after complete input decoding.
-
-Malformed, inaccessible, missing, and oversized payloads fail explicitly.
-They do not terminate the root or leave a child turn running. Invalid boundary
-steers are settled individually so later valid work remains usable.
-
-A fork copies the selected raw transcript prefix, root compactions fully covered
-by that prefix, and a snapshot of active content
-grants readable by the source root. Root grants retain their scope; grants to
-the source root agent/subtree are remapped to the destination root identity.
-Child-private and revoked grants, live agents, queues, subscriptions,
-schedules, and scratch are excluded. Content references remain immutable and
-shared, while the fork's access survives source deletion or later revocation.
-Deleting a root removes its dependent mailbox and descendant transcript rows
-and leaves shared content references/objects intact.
-
-## Context and handles
-
-Restoration focuses the model view to at most four recent user/assistant
-exchanges and one bounded summary. Root and child transcripts remain raw,
-append-only message logs; focusing, decay, and compaction affect the model view.
-Raw deltas, per-agent compactions, input settlement, and delivery receipts commit
-in the same turn transaction. Summaries carry raw sequence coverage rather than
-positions in the shortened model view. Tool arguments/results and multipart
-content remain retrievable after compaction and restart.
-
-`context.inspect()` describes the caller's retained history. `context.history`
-lists at most 20 message previews using `after_seq`, `limit`, and `through_seq`;
-read an individual message with `seq`, optional `field`, `offset`, and `length`
-(up to 8192 bytes). `field="message"` returns the serialized message; `content`,
-`parts.N.text`, and `tool_calls.N.arguments` address decoded text. Follow the
-complete returned continuation for partial fields, including `message_revision`
-when supplied. For list pages use `after_seq=next_seq`, `through_seq`, and
-`turn_id` when present. Changed provisional message metadata requires a fresh
-read from offset 0. Sequence IDs are agent-local; this
-API grants no parent/sibling transcript access. Clear and rewind invalidate old
-history cursors; inspect again after either operation.
-
-`context.search(query="...")` searches decoded text and tool arguments in the
-caller's raw history, including current-turn journal entries already removed
-from the model view. Those entries are explicitly provisional and identify
-their turn. Provisional cursors expire when their originating turn journal is
-replaced; inspect again. Committed pagination freezes an upper sequence so later
-appends do not shift pages. Storage errors are errors, never empty results.
-
-Explicit content-handle inspect/read/search forms remain available. Search is
-case-sensitive, literal, and non-overlapping, including across 64 KiB read
-boundaries. Queries are at most 64 KiB; each call scans at most 8 MiB and returns
-at most 20 matches (history also caps messages examined at 128). A partial search
-reports its stop reason and continuation, never an unqualified absence of
-matches. Match spans identify exact source bytes; valid UTF-8 excerpts have
-separate bounded text spans. Large inputs and host outputs still use immutable
-content handles. No constructor snapshot represents the full conversation.
-
-## Environment prompts
-
-`AgentSession.RunTurn` composes one environment prompt at the shared root/child
-turn boundary from the node's agent definition (`internal/agentdef`). Focusing
-never replaces it. The definition supplies the persona, its own operating
-rules, and the discovery it wants; the runtime supplies the `rlm_exec` guide,
-assembled from per-module fragments for the modules the definition selects
-(`rlm.RuntimeGuide`), plus one bounded catalog line per custom tool the
-definition declares. In order, a normal prompt holds the persona and runtime
-guide, identity/report mode, the definition's rules plus the instruction-scope
-block when project files are discovered, cwd/platform/time/user, scoped project
-instructions, the applicable skill catalog, and standing `me.md` instructions.
-The coding definition selects every module and every discovery source;
-JuniorDeveloper selects seven modules and three capabilities. Selection is
-enforced, not advisory: a kernel installs only its definition's modules, the
-host refuses a call to any other module, and a root's grants at first bootstrap
-cover only the operations its capabilities map to (`agentdef.Operations`). A
-reopened root keeps the grants it was issued. A child composes from its own
-definition, which is its parent's narrowed by the spawn arguments, or a named
-child of it when `agents.spawn(definition="name")` selects one. `/me`, cwd changes, reload/model replacement, and restored children
-use the updated sources on their next turn. A running turn keeps its applied
-prompt. The root `-system` override remains exact, does not propagate to
-children, and survives a model change or reload because the session re-applies
-its run configuration to the replacement runtime.
-
-Project instructions load only along the applicable workspace-root-to-cwd
-ancestor chain, broad to specific. At each directory CLAUDE.md precedes AGENTS.md;
-AGENTS.md wins conflicts at that directory. Narrower applicable rules override
-broader ones, and explicit user instructions remain authoritative. Children
-retain applicable ancestor rules. Deeper subtree rules are discovered on demand
-through existing file operations. Instruction text does not expand authority.
-
-Each project or standing-instruction source is limited to 64 KiB; skill metadata
-reads and the total assembled prompt (1 MiB) are bounded. Missing optional files
-are normal; unreadable, malformed, oversized, or escaping project-rule sources
-fail the turn explicitly instead of applying partial constraints. Existing
-`me.md` comment syntax and explicit `$skill` expansion remain supported. Context
-inspection reports the actual applied sources and application time, with file
-and cwd changes identified as taking effect next turn.
-
-## Execution language and checkpoints
-
-New roots select `starlark` or `quickjs` through creation metadata or
-`--rlm-engine`. The default is Starlark; `rlm.defaultEngine` changes future
-negotiated creations. Legacy sessions and unnegotiated creations stay Starlark.
-Descendants derive the root's persisted selection. Forks inherit it, retries
-retain it, and a conflicting resume selector fails. Running sessions cannot
-switch language.
-
-Starlark globals persist in a live worker. After each cell the kernel saves a
-structured checkpoint in `agent_checkpoints`. Legacy `agent_scratch` rows are
-retained as a read fallback and migrate on the next successful save. A fresh worker reconstructs
-supported data directly and compiles validated helper definitions before use.
-Restoration never replays data assignments or host effects.
-
-The supported data subset is `None`, booleans, arbitrary integers, finite
-floats, strings, bytes, lists, tuples, and dictionaries. Types, dictionary order,
-and shared nested list/dictionary references survive. Cycles, unsupported
-runtime objects, and containers containing functions are skipped without losing
-unrelated bindings. Checkpoints are bounded to 256 KiB per binding, 768 KiB
-aggregate, and the complete encoded protocol frame, including escaped strings
-and manifest metadata.
-
-Top-level `def`s and assigned lambdas can survive when they have immutable
-literal defaults, no captured closure state, and supported dependencies.
-Helper-to-helper references and recursion are supported. Source belongs to the
-actual function object, including definitions executed before a later ordinary
-cell error. Helpers with mutable/nonliteral defaults or changed, missing, or
-unsupported global dependencies are reported as skipped. Helpers see globals
-as bound when defined; pass arguments or mutate shared containers rather than
-rebinding a name a helper reads. Restoration must not silently change that
-binding. Tool-calling helper bodies run only when subsequently invoked.
-
-Changed omissions and persistence failures appear in the cell's scratch
-report. A failed checkpoint does not undo a completed cell or justify repeating
-its external effects; the previous durable checkpoint remains available and
-the next cell retries saving. Failed loads stop the replacement worker and
-release its reservation; the next acquisition retries. Corrupt checkpoints fail
-explicitly instead of being overwritten with an empty environment. A cell lost
-with its running worker is outside the last completed checkpoint.
-
-Every restore produces a bounded runtime notice and a `scratch.restored` actor
-event naming restored and omitted bindings. The daemon owns audit delivery;
-there is no detached notification goroutine. Important durable information
-belongs in `state`, `artifacts`, messages, files, or child transcripts. The
-schema migration preserves legacy Starlark records without replaying host effects.
-
-QuickJS runs a pinned bundled WASM build inside wazero in its own worker.
-Its settled checkpoint captures the entire guest heap: lexical bindings,
-closures, object identity, cycles, classes, and BigInts survive eviction and
-daemon restart. Ordinary language errors preserve preceding mutations once
-owned work settles. A failed `const` initializer and lexical redeclaration
-follow JavaScript rules; cells are not wrapped in a new local scope.
-
-Host functions accept an options object and return Promises, for example
-`await files.read({path: "README.md"})`. Top-level await is supported. The
-worker drains owned requests even after early rejection or a forgotten await;
-an unresolved promise, unhandled rejection, cancellation, or job limit is
-reported explicitly. Images never claim to preserve an active provider call,
-host operation, or pending stack. Restoring an image performs no host effects.
-
-Host payloads have a narrower contract than the guest heap: passive objects,
-arrays, strings, booleans, null, finite Numbers (integers must be safe), and BigInts. Exact host
-decimal/exponent/negative-zero tokens use frozen wrappers; explicit conversion
-to Number can lose precision. Unsupported values, cycles, accessors, and unsafe
-integer Numbers are rejected at the host boundary. The runtime disables Proxy
-to keep validation passive. Result previews are separately tagged and bounded;
-undefined has no value, while null is an explicit result.
-
-Checkpoint envelopes bind root/agent ownership, engine build/ABI/profile,
-sequence, settled boundary, fidelity, byte count, and SHA-256. Storage publishes
-one latest image atomically, with 40 MiB/image, 256 MiB/root, and 1 GiB/store
-ceilings. A failure preserves the previous image; a corrupt or incompatible
-image fails visibly and remains retained for explicit recovery. There is no
-automatic cross-build or cross-language migration. SHA-256 checks integrity;
-these are trusted internal artifacts, never guest-controlled handles.
-
-Result version 2 carries `execution_engine`, `language`, `has_value`, and
-`metrics`. Starlark reports steps; QuickJS reports jobs and host/compute timing.
-Public protocol major 6 deliberately requires updated clients. Current views
-read legacy Starlark results and result-v2 across live updates, history, and
-reconnect, and derive unfinished descendant cells' language from the root.
-
-Model-facing results use one JSON object containing `value`, `output`, `steps`,
-and any `scratch` or `restored` notices. Output and value previews are bounded
-before serialization so the JSON stays valid. Oversized values use `value: null`,
-`value_preview`, and `truncated: true`; the preview is not the full return value.
-Failed cells retain this result after the tool error prefix, preserving printed
-output, step counts, and checkpoint notices in client replay.
-
-Cells are observable while they run. The worker publishes its print output
-so far as `stream.tool.output` (throttled to 100 ms; the result carries a
-bounded output preview), and every host call inside a cell emits `stream.cell.host`
-with `module.operation`, a bounded argument summary (identifying keys such as
-`path` and `command` truncated to 80 bytes; payload keys such as `content`,
-`body`, and `code` shown only as their size), the duration, and any error.
-Both are per-agent presentation events, so clients can render a live REPL
-for any node without touching the model's context.
-
-## Background shell jobs
-
-`shell.run` blocks its cell and is capped at 120 seconds. `shell.start`
-launches the command as a background job under the same permission prompt and
-capability checks as `shell.run` and returns immediately with a job id;
-`shell.poll`, `shell.tail`, `shell.wait` (capped at 25 s, not charged to the
-cell clock), `shell.kill`, and `shell.list` operate on jobs the calling agent
-started. A job keeps the last 1 MiB of output in memory; once it ends,
-`shell.poll` returns the output inline or as a handle above the inline limit.
-Jobs outlive cells and turns, are killed when their agent stops or is deleted
-and when the root shuts down, and do not survive a daemon restart. At most 8
-jobs run per agent at once.
-
-## Permission rules
-
-Permission requests can be approved or denied by any connected client. Clients
-are trusted on the local machine or configured trusted network; pairing and
-signing keys are not required. Agent capabilities and budgets remain enforced,
-and internal MCP calls still require delegated authority.
-
-A permission prompt names its rules: for shell operations (`bash`,
-`workspace_process`, `shell_start`) every command on the line is collapsed to
-its arity prefix (`go test ./...` -> `go test`, `ls -la` -> `ls`), so
-`go build ./... && go test ./...` has two rules and is skipped only when both
-are covered; an `ls` rule never approves `ls && rm -rf ~`. Lines with command
-substitution, backticks, or a redirect other than a stderr merge or
-`/dev/null` have no rule and always prompt. For `write` and `edit` the rule
-is the canonical path. Approving with "always" installs the prompt's rules for
-the session tree: each is stored in SQLite as a `permission_rules` row keyed
-by root, operation, and rule, and deleted with the session. The global allowlist lives in the config
-key `permissions.allow` as `operation:rule` entries (for example
-`"bash:go test"`); the daemon reloads it on each new session, so hand edits
-take effect on the next session.
-
-When an admission matches a rule the daemon skips the prompt, stores the
-admission with `require_permission=false`, and emits
-`permission.auto_approved` with the operation, command, rule, and
-`rule_source` (`tree` or `global`). Installing rules also resolves every
-other pending prompt in the root that they now cover. Rules never
-widen a capability: the operation is still validated against the agent's
-grants. `/permissions` (or `/permissions list`) prints the tree rules and the
-global allowlist; `/permissions forget <id>` deletes a tree rule.
-
-Permission mode belongs to the root session and persists across client and
-daemon restarts. `whipcode --yolo` saves Full Access for the initially selected
-session: ordinary file grants allow host paths outside the project and permission
-prompts are approved automatically. Explicit child path and operation ceilings
-still apply. `--cautious` saves approval prompts and the original project file
-boundary for that session;
-new sessions default to prompting. Switching sessions or reconnecting restores
-the selected session's saved mode. ACP also preserves the mode when loading a
-session and reflects changes made by other clients. Capabilities and budgets
-still apply; the mode cannot change while an agent is running. The terminal
-mode label shows `full access` while automatic approval is active.
-Changing the current directory never changes authority. Downgrading to Ask keeps
-the cwd but denies subsequent outside file/process operations until navigation
-returns to an allowed directory. Pending approvals are invalidated atomically;
-already running background processes are not retroactively sandboxed or killed.
-Project-instruction and skill discovery remains bounded by project context and
-the agent's current file authority. A denied cwd contributes no project context;
-global user instructions and configured user skills remain available. Explicitly
-invoked project skills are reauthorized before reading even when their catalog
-was cached before a downgrade. Shell execution has ordinary OS-user authority
-in either mode, subject to its existing consent gate.
-
-## MCP
-
-MCP servers are daemon-owned integrations available from every authorized
-node through `mcp.search`, `mcp.describe`, `mcp.list_servers`, `mcp.list_tools`, `mcp.instructions`, and `mcp.call`. Their tools
-are not appended to the provider’s tool catalog. Root and child therefore keep
-the same stable interface even as MCP servers connect, fail, or reconnect. A
-call's text carries structured content as JSON; image, audio and binary parts
-become content handles owned by the caller and are named in the text, and image
-parts also reach the root's next turn as vision input.
-
-The root session owns the only live manager; attachment, model reload, status,
-root calls, and descendant calls use that synchronized owner. Tool invocations
-use the existing operation ledger and an MCP grant separate from file/shell
-authority. Native WHIP configuration confers trust; imported and attached
-definitions require consent or a saved rule. Approval binds the exact server,
-raw tool name, and definition, and cannot override revoked capabilities.
-
-Omitted child capabilities inherit a snapshot of the parent's currently
-advertised MCP definitions. Explicit `capabilities=["read"]` excludes MCP;
-`"mcp"` and optional `mcp_tools=[{"server": "...", "tool": "..."}]` allow
-bounded delegation. Issuer references and selectors live in the existing
-capability scopes and survive restart. Newly discovered tools never expand a
-retained child's grant. See [MCP tools and consent](tools.md#mcp) for examples.
-
-## Custom tools
-
-A definition's `tools` run outside the daemon, in the process that called
-`client.agents.serve` for that definition revision. The kernel installs them as
-the reserved `tools` module: `tools.<name>(...)` with keyword arguments, both
-engines, and only the names the definition declares (a narrowed child has no
-binding for the rest). The host refuses any other name, and the agent's `tools`
-grant (`tools:<agent>`, operations `tools.<name>`) is checked by the ledger like
-files, shell, and MCP; children receive narrowed delegations through
-`tools=[...]` or a named child's `tools`, and restart reconstructs them.
-
-A call is admitted as an operation, validated against the tool's JSON Schema,
-and sent to the executor as a `tool.invoke` notification whose invocation id is
-the ledger operation id. The executor answers with `tool.result` (a JSON value
-or an error) and may stream `tool.progress`, which the session emits as
-`stream.tool.progress`. Small results come back to the cell as values; large
-ones as content handles. The default timeout is 5 minutes and the ceiling 15; a
-running handler holds the cell's kernel slot, so long work should return a
-handle the cell polls. No bound executor fails the call after a bounded wait
-with an error the model reads. A deadline or cancelled turn settles the
-operation and sends `tool.cancel`; a disconnected or replaced executor's calls
-fail and are never replayed, so handlers should be idempotent on the
-invocation id.
-
-## Hooks
-
-A definition's `hooks` are served by the same executor as its custom tools and
-run in three places. `before_tool` runs in `recursiveHost.Call`, the single
-entry from a kernel into the host, before any module handles the call: it sees
-`module.operation` and the arguments (optionally narrowed to named operations),
-and may deny with a reason, which the cell raises as an error, or rewrite the
-arguments, which then fall through to the same handler fresh arguments reach,
-so path canonicalization, schema validation, ledger checks, and permission
-prompts run on what actually executes. `before_spawn` runs in `spawnAttempt`
-after the request is parsed and a named child's defaults are applied: it sees
-the request as the model wrote it and the resolved child (definition, modules,
-capabilities, tools, budgets, report), and a rewrite is resolved again, so it
-cannot widen. When both are declared, `before_tool` sees the raw `agents.spawn`
-call first and `before_spawn` the resolution after. `turn_start` runs in
-`RunTurn` with a bounded preview of the input; its context joins the turn's
-ephemeral system text and never enters history.
-
-Every reply field is optional; an empty reply allows unchanged. A required
-hook (the default) that goes unanswered, whether no executor is bound, the
-timeout passes (30 seconds default, 60 ceiling), or the executor disconnects,
-denies the operation with an error the model reads, and a handler that throws
-denies with its message. An `optional` hook proceeds instead, with a notice.
-`turn_start` never gates. Hooks only narrow: they cannot grant authority the
-ledger denies and a hook `allow` does not skip the user's permission mode.
-Children inherit their parent's hooks and are gated under their own agent id.
-
-Deny, rewrite, and skip emit `stream.hook.decision` (hook name, operation,
-decision, reason). Rewrites and skips also append one line to the turn's
-ephemeral system text before the model's next request, bounded to eight
-notices and 2 KiB per turn, so the model knows what ran without any operation
-changing its result shape.
-
-The ephemeral system text (the turn's budget line, a worker-restart notice,
-the `turn_start` contribution, hook notices) rides as the last message of every
-request, not beside the system prompt. Provider prefix caches match a request
-from the front, so a change in that text at index 1 would invalidate the
-cached history behind it; at the tail it costs only its own tokens. For the
-same reason the budget line names which budgets are finite and never carries
-remaining amounts, which would change every turn; `agents.inspect` has the
-numbers. Each request's ephemeral text is interned and referenced from the
-call's trace span (`ephemeral_ref`), so a trace can show what the model was
-told without the text ever entering history.
-
-## Output contracts
-
-A definition may state what a turn returns. `output` is an object JSON Schema;
-the runtime guide appends one bounded rule line stating that the final
-assistant message must be exactly one JSON value matching it, with the schema
-compacted inline (2 KiB cap). At the end of a root or child turn whose
-definition declares one, the loop hands the final message to the session
-before returning it: the message is parsed as JSON (a surrounding code fence
-is tolerated) and validated with `jsonschema-go`. A mismatch queues one
-corrective notice on the same ephemeral channel hooks use and runs one more
-model round; a second mismatch fails the turn with `output_invalid` and the
-validation error. The validated value is stored on the turn journal and
-returned beside the text in the submit command's result (`TextResult.output`).
-Named children inherit the contract unless they declare their own. Built-ins
-have none, so every prompt golden is unchanged.
-
-Tools carry the same idea: a tool's `output_schema` renders as `-> {fields}`
-on its catalog line and the daemon validates every `tool.result.output`
-against it before the value reaches the cell, settling a mismatch as an error
-naming the tool and the violation, the same shape as an invalid input.
-
-## Limits
-
-Omitted or zero values use these defaults:
-
-| Config field | Default | Scope |
-| --- | ---: | --- |
-| `rlm.steps` | 1,000,000 | Starlark steps per cell |
-| `rlm.hostRequests` | 1,024 | host calls per cell |
-| `rlm.wallMillis` | 30,000 | wall time per cell |
-| `rlm.memoryMiB` | 256 | worker memory ceiling |
-| `rlm.outputBytes` | 65,536 | captured cell output |
-| `rlm.frameBytes` | 1,048,576 | worker protocol frame |
-| `rlm.maxWorkers` | 16 | daemon-wide live kernels |
-
-The worker memory budget limits resident RAM. On Linux, the separate virtual
-address-space ceiling includes the Go runtime's measured startup reservations,
-the configured budget, and 4 GiB of growth allowance. This permits normal runtime
-allocations even when startup reservations exceed 4 GiB; the parent still enforces
-the configured RAM budget. The address-space ceiling remains finite.
-
-These are execution bounds. Durable budgets separately account for token,
-cost, elapsed, content, record, operation, child, schedule, and depth limits.
-Root model cost, tokens, and cumulative request time default to unlimited;
-children inherit unless explicitly constrained. Storage and live-capacity
-limits retain their existing defaults.
-
-Model turns, helper calls, batch members, compaction, final answers, titles,
-and every wire retry share durable ancestor budgets. Admission estimates the
-input and clamps the output allowance to fit. Actual usage is always recorded,
-even above the estimate or limit; an overdrawn budget has zero remaining and
-stops further work. Completed responses and requested-but-unexecuted tools
-remain in the transcript when accounting stops a turn.
-
-Each attempt retains compact metadata, its exact ancestor reservations, and
-its settlement identity. These internal records do not consume the agent's
-record or payload allowances; they follow the session's existing retention and
-physical cleanup lifecycle. Record storage grows with the number of attempts.
-There is no automatic pruning or accounting-history cap in this phase.
-
-Missing or interrupted usage keeps the reservation estimate in `uncertain`,
-separate from known `used` amounts. A late outcome corrects only that attempt's
-contribution. Unpriced calls require unlimited monetary budgets; a finite cap
-cannot be imposed on an existing budget with unresolved, unpriced history.
-A newly introduced child cap applies to subsequent calls. Known free rates can
-establish zero cost even when token usage remains unknown.
-
-Elapsed budget means cumulative model request time: concurrent requests each
-consume time, while idle time, ordinary tools, and retry backoff do not. Each
-request gets a deadline bounded by its remaining ancestor allowance and the
-provider timeout. The overall model-call deadline also covers retry backoff.
-
-A dispatched attempt without complete usage uses its reserved allowance as an
-explicit estimate; a pre-dispatch rejection releases the reservation without
-a token or monetary charge. Settlement is durable and idempotent by attempt
-ID. Persistence failures retain the result in the live owner and pause further
-calls until that exact settlement succeeds. Restart settles unresolved calls
-once as interrupted estimates before releasing residual reservations. A late
-result from an interrupted live call corrects its estimate without releasing
-another call's reservation. There is no provider-call replay or billing poller.
-
-
-## Files and migration boundary
-
-The runtime uses:
-
-| Path | Purpose |
-| --- | --- |
-| `~/.whipcode/runtime-v2/daemon.sock` | owner-only local protocol socket |
-| `~/.whipcode/runtime-v2/daemon.lock` | single-daemon ownership lock |
-| `~/.whipcode/runtime-v2/daemon.log` | detached daemon diagnostics |
-| `~/.whipcode/runtime-v2/sessions.db*` | commands, agents, transcripts, messages, policy, events |
-| `~/.whipcode/runtime-v2/artifacts/sha256/` | immutable large bodies |
-
-The daemon can be inspected and managed without entering the TUI:
-
-```sh
-whipcode daemon status [--json]
-whipcode daemon start
-whipcode daemon stop [--timeout 10s] [--force]
-whipcode daemon restart [--timeout 10s] [--force]
-whipcode daemon logs [-f] [-n 200]
-```
-
-`status` does not auto-start the daemon. Normal stop and restart checkpoint
-durable state and wait for the owner lock to be released. `--force` sends a
-signal only to the PID currently holding that lock.
-
-`WHIPCODE_HOME` replaces `~/.whipcode`. The clean-project schema does not open
-or migrate pre-reset databases. Incompatible stores are rejected without
-modification or automatic deletion; use the [manual reset checklist](team-reset.md).
-Current schema and compatibility identifiers are defined by the runtime source,
-not by historical migration plans.
-
-## Recovery
-
-On restart, retained non-root agents are reconstructed from metadata,
-capabilities, provider settings, report mode, and transcripts. Unclaimed
-queued input and its correlated queued root command survive. Readiness is
-re-derived from durable rows, so a restored node with ready mail or queued
-input wakes without an in-memory signal.
-
-Claimed input, including human steers already claimed at a loop boundary,
-and running turns are interrupted. Retained children return to idle. Restart
-does not replay uncertain external effects or actor controls merely because
-a command still says queued. Explicit terminal root stop/failure also
-interrupts queued input. Ordinary child execution failures can retry claimed
-input up to three times; invalid input and interrupted attempts do not retry.
-
-Mailbox delivery is at least once until a successful turn commits its receipt.
-An observed pending message can therefore be shown again after failure or
-restart. Deferral and pending-message replacement increment its revision, so
-an older receipt cannot consume its newer content or future wake. These rules
-do not provide exactly-once tool effects.
-
-## Verification and evaluation
-
-```sh
-go test ./...
-task acceptance
-```
-
-The deterministic RLM evaluation expands a large corpus, requires bounded
-handle search plus stateless reviewer fan-out, and records correctness, model
-calls, fan-out, host calls, tokens, latency, and estimated cost:
-
-```sh
-go test ./evals/rlm -run '^TestDeterministicRLMEvaluationReport$' -v
-```
-
-The opt-in live run spends provider tokens:
-
-```sh
-WHIP_RLM_LIVE_EVAL=1 \
-WHIP_RLM_EVAL_REPORT=/tmp/whip-rlm-eval.json \
-go test ./evals/rlm -run '^TestLiveRLMEvaluation$' -v
-```
-
-## Troubleshooting
-
-- **Worker capacity exhausted:** stop/delete an idle subtree or raise
-  `rlm.maxWorkers`; no rejected child record was committed.
-- **A child finished but the parent has no answer:** the parent received an
-  `agent.completed` message with a preview and evidence handle; use
-  `messages.list/read`. Ordinary child output is otherwise local.
-- **MCP unavailable:** call `mcp.list_servers()` or use `/mcp`; reconnect or
-  configuration errors stay isolated from the agent loop.
-- **Interrupted command after restart:** inspect external state before issuing
-  a new command. The runtime will not replay it automatically.
+Every root and child uses the native Go runtime and sees one model-facing
+`execute` tool. Starlark or JavaScript cells call captured host modules; the
+runtime admits and authorizes each effect separately. There is no direct-tool
+agent mode or client-owned execution loop.
+
+The [domain contract](backend-domain.md) defines exact durable transitions,
+limits and service boundaries. [The agent loop](agent-loop.md) explains provider,
+cell and checkpoint sequencing. This guide describes the current implementation;
+remaining redesign and platform acceptance is tracked in the
+[development record](backend-redesign-development.md).
+
+## Sessions and recursion
+
+Roots and children share [`session.Session`](../internal/session/session.go),
+configuration, inputs, turns, transcript, accounting and lifecycle operations.
+A tree owns its root, metadata and immutable execution language. A root has no
+parent. An agent definition is an immutable ID/revision, not a live worker.
+
+Creating a session does not allocate a kernel or start a model request. The
+scheduler derives readiness from durable queued input and due mail. Capacity
+limits bound running work; children can wait for capacity instead of being
+rejected merely because every worker is occupied. Every ancestor's applicable
+resource, model-budget and authority limits still apply.
+
+Spawn commits the child, captured configuration, original input, scoped content
+references, delegated grants and receipt together. An exact retry returns the
+same admission; changed defaults or grants cannot silently change its payload.
+`grant_ids: null` inherits currently valid standing grants; `[]` delegates none.
+A child's standing grant names its direct parent's issuer with the same
+capability/resource. Every issuer hop is checked at dispatch. One-use approvals
+cannot be delegated, and a child without authority cannot widen it through a
+permission prompt.
+
+A completed child turn leaves its response in that child's transcript. Parents
+can inspect the exact admitted input's outcome or consume completion mail.
+`agents.wait_after_cell(input_ids=[...])` registers descendant input targets and
+returns immediately. The cell must finish: only after result/checkpoint commit
+and kernel release does the runtime wait before its next model step. This permits
+recursive progress with one turn worker and one kernel slot. It replaces the old
+same-cell blocking join. A failed/cancelled/interrupted child resolves as data;
+it never automatically retries the child or fails the parent.
+
+See [child admission and waits](backend-domain.md#child-admission-delegation-and-waits)
+for exact targets, limits and deletion behavior.
+
+## Communication and explicit state
+
+Mail is separate from input and transcript. Session senders may address self,
+parent, direct children or siblings in their tree. Stable mail identities preserve
+exact original payloads across retries; clients cannot forge completion/state
+notification provenance. Optional evidence becomes a recipient-owned reference to
+the same immutable body, so sender deletion does not remove the recipient's access.
+
+`queued` mail waits for an idle session; `steer` may also be presented at a model
+boundary after preceding cells settle; `next_turn` waits for another reason to
+start work. The model sees a bounded digest and explicitly reads full evidence.
+Human inspection neither starts execution nor acknowledges agent delivery.
+
+Only a successful turn marks its presented, still-current revisions delivered.
+Explicit agent completion or deferral requires observed revisions. Failed turns
+leave mail pending and block automatic mail-only execution until explicit input
+succeeds. New mail and restart cannot bypass that barrier.
+
+A child's captured report mode chooses a small notice, a larger inline preview,
+or explicit reporting on success. Failures still report. Bounded parent-owned
+completion slots retain exact terminal evidence if mailbox/content capacity blocks
+publication. Publishing the evidence, mail revision and slot removal is atomic;
+publication failure does not run the child again. See
+[mail](backend-domain.md#mail-and-presentation) and
+[completion reports](backend-domain.md#child-completion-reports).
+
+Private/shared state, immutable values and subscriptions have their own scoped
+identities and revision checks. They do not act as another transcript or execution
+queue. See [state](backend-domain.md#explicit-state-and-immutable-values) and
+[state subscriptions](backend-domain.md#state-subscriptions).
+
+## History, context and content
+
+Raw history and the model's selected context are different views. Compaction
+records exact source coverage without deleting raw messages. Tool exchanges and
+the opening input of a partially summarized turn retain their required boundaries.
+Context inspection/search/read is bounded and owner-scoped; a reference or digest
+alone never grants access to another session's content.
+
+Committed history pagination pins revisions and upper boundaries. Rewind changes
+that revision and invalidates the REPL boundary. Old cell evidence remains readable,
+but no saved interpreter can masquerade as the newly selected history. Fork
+creates a new root with its selected prefix and authorized content references;
+it does not copy model charges, running workers, queues or native handles.
+
+The native content payload ceiling is 4 MiB. Large evidence uses explicit scoped
+references and bounded reads with exact byte offsets, truncation and continuation.
+Missing content, invalid cursors and exhausted capacity are errors or explicit
+unavailability, never fabricated empty results. See
+[content ownership](backend-domain.md#content-boundary) and
+[history/context](backend-domain.md#raw-history-and-selected-model-context).
+
+## Instructions and definitions
+
+A turn captures its configuration and applied instructions once. Project rules,
+standing instructions and skill discovery use explicit host declarations and
+session authority. Their text can constrain behavior but cannot grant filesystem,
+MCP, browser or custom-tool authority. Later file/config edits take effect in a
+subsequent turn. Context audit reports the actual applied manifest, including
+source, scope, path, byte count and digest.
+
+Project rules follow the applicable workspace-root-to-cwd chain, broad to narrow;
+CLAUDE.md precedes AGENTS.md at one directory. Sources, total prompt size and skill
+metadata reads are bounded. Invalid or inaccessible required sources fail
+explicitly rather than silently applying partial constraints. See
+[instruction capture](backend-domain.md#instruction-capture).
+
+Captured module/tool/hook bindings define syntax separately from authority.
+Configuration edits can narrow or restore names within the original binding
+ceiling; they cannot replace exact executor ownership or remove required hooks.
+Saved guest aliases are rechecked against the owning turn's captured policy.
+Children cannot widen their parent's bindings. See
+[captured definitions](backend-domain.md#captured-definition-bindings).
+
+## Languages and checkpoints
+
+A new root chooses Starlark or QuickJS; the host's `engine` default is Starlark.
+Descendants and forks retain that tree language. A model change does not replace
+the REPL. [`internal/engine/process`](../internal/engine/process/worker.go) owns
+bounded worker processes; QuickJS runs its pinned WASM image through wazero.
+Starlark uses keyword arguments; JavaScript host functions accept options objects
+and return promises, with top-level await supported.
+
+The runner admits at most 32 logical model calls and 64 dispatched cells per turn.
+Each cell names its committed assistant message and provider call. One serialized
+kernel belongs to a session, and process capacity stays pinned through settlement.
+Host calls have separate admission, consent, dispatch and result records.
+
+After evaluation, immutable checkpoint bytes are staged first. Cell outcome,
+result message and checkpoint reference then commit together. Language errors can
+retain changed globals and a valid checkpoint. Transport loss or cancellation is
+an uncertain boundary. A completed cell without a usable checkpoint stays readable,
+but further code fails instead of falling back to an older image. Text-only turns
+and history inspection remain possible; a new session starts a fresh REPL.
+
+Restore checks ownership, digest, size, engine build, ABI, profile and fidelity.
+Starlark reports skipped unsupported globals in its partial checkpoint. QuickJS
+preserves its settled heap within the engine contract. Neither engine restores
+by replaying old cells or host effects. No scratch-table fallback or cross-build
+migration exists. Detailed behavior and replacement tests are linked from
+[checkpoint ownership](backend-domain.md#code-execution-and-checkpoint-boundary).
+
+Live stdout, reasoning and progress are bounded provisional observations. They
+cannot create durable transcript entries or claim a successful operation. Exact
+committed messages/cells/operations reconcile presentation; disappearing progress
+is not a cancellation request. See
+[observation](backend-domain.md#provisional-output-and-observation).
+
+## Effects, permissions and native resources
+
+The operation ledger owns authorization and dispatch. Ask/Full Access, exact
+standing grants and one-use decisions remain distinct. Permission changes and
+ancestor revocation recheck ready operations; they cannot undo effects already
+dispatched. Changing cwd does not itself widen authority. Shell processes still
+have OS-user authority: consent is not a filesystem sandbox. See
+[permissions](backend-domain.md#host-operations-and-permission-decisions) and
+[saved policy](backend-domain.md#saved-permission-policy).
+
+Foreground shell commands have a 120-second ceiling; background jobs belong to
+the session and can survive turn completion/cancellation. Session stop/deletion
+and host shutdown kill and join their owned process groups. Handles never restore
+on restart. Output is a bounded tail with explicit counts and truncation.
+Interactive input names an exact owner, operation and sequence; late bytes cannot
+spill into a later command. Human terminal tabs are a separate epoch-bound PTY
+service with independent cursor readers and no replay of uncertain writes. Network
+terminal access requires explicit host opt-in. See
+[shell execution](backend-domain.md#session-shell-execution-and-human-input) and
+[human terminals](backend-domain.md#human-terminal-tabs-and-persistent-browser-executors).
+
+MCP connections are runtime-owned. Metadata inspection does not connect servers;
+configuration/imports use explicit revisioned controls. Catalog and call access
+honor captured server selection and delegated authority. Native trusted declarations
+and imported/client-attached variants remain distinguishable at admission and
+dispatch. Large text/media results receive owner-scoped content references.
+See [MCP ownership](backend-domain.md#mcp-ownership-imports-and-delegated-discovery)
+and the current [typed result handling](../internal/runtime/mcp_test.go).
+
+Desktop browser and computer bindings use exact selected native resources and
+bounded owners. An attachment ID alone is not a grant. Restart/reconnect cannot
+restore a native selection or replay an uncertain action. Browser execution,
+MCP imports and provider credentials have separate authority; a connected client
+must not infer one from another. See the
+[browser/computer guide](browser-computer-use.md) and
+[native SDK binding contract](../packages/sdk/README.md).
+
+## Custom tools, hooks and output
+
+Custom executors bind immutable definition revisions on persistent initialized
+connections. The runtime bounds peers, leases, calls, waiters and queued bytes.
+Input validation precedes consent; exact executor selection occurs before durable
+dispatch. Known handler failures and invalid output schemas settle failure;
+disconnect after dispatch leaves uncertainty. Restart, observation and rebinding
+never resend an invocation.
+
+Required hooks can deny or rewrite an effect, with ordinary validation and
+permission applied to the resulting request. Optional hook failure records a
+bounded skipped notice; cancellation never becomes optional success. Hooks cannot
+grant authority. Turn-start context and live hook/progress previews are temporary;
+canonical arguments and settled outcomes remain the durable evidence.
+
+A final output schema validates one complete text-only JSON value. One mismatch
+permits one corrective response through the same accounting path. A second mismatch
+or corrective tool call fails explicitly; corrective calls never execute.
+`turns.output` derives the successful result from its exact assistant message and
+captured schema. JSON null has a result record; absence of an output contract does
+not. See [output contracts](backend-domain.md#final-output-contracts).
+
+## Accounting and recovery
+
+Every ordinary, helper, batch, compaction, title and corrective provider attempt
+uses the same durable accounting boundary. Known zero, unknown usage, uncertain
+reservation estimates and exact monetary values remain distinct. Finite ancestor
+limits gate admission; actual usage is recorded even when it exceeds an estimate.
+Physical resource capacity and cumulative logical-write limits are separate.
+See [accounting](backend-domain.md#model-budgets-and-retained-accounting),
+[capacity](backend-domain.md#reusable-resource-capacity) and
+[logical writes](backend-domain.md#cumulative-logical-write-allowances).
+
+A local observation timeout does not prove rejection. Exact request identity and
+payload evidence resolve uncertain admission. Restart retains unclaimed queued
+inputs, interrupts claimed work, settles unresolved attempts and reconstructs
+readiness from durable rows. It never retries a whole failed/uncertain turn or
+replays a dispatched host effect. The narrowly recognized structured context-limit
+recovery belongs to the active model loop; it is not transport-error replay.
+
+The fresh host lives under `$WHIPCODE_HOME/runtime-v4` (default
+`~/.whipcode/runtime-v4`), with `host.json`, its native store and owned diagnostics.
+Long directories use a deterministic private short socket path. Old directories
+remain untouched and are never imported or silently deleted. Use the current
+[setup guide](setup.md), [web lifecycle](web-app.md) and
+[protocol v4 reference](protocol-v2.md) for client/startup controls.
+
+## Verification
+
+The required commands and exact passing/failed checkpoints are in the
+[development record](backend-redesign-development.md). Current native runtime,
+engine, model, store and client tests exercise real disposable processes and
+loopback fixtures. [Evaluation documentation](../evals/README.md) separates
+repeatable no-external-model qualification from opt-in paid/live-provider work.
+A passing local fixture does not imply signed-release, remote-SSH, physical-device
+or live-provider acceptance; those outstanding checks remain named explicitly.

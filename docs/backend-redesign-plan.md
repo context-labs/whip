@@ -1005,16 +1005,18 @@ Acceptance:
       behavior. All supported client targets are now in required CI.
 
 Current client follow-through (2026-09-29): the native terminal is the default;
-provider/account menus, root/child controls, REPL, original paste/image input,
-scoped completion, palette/shortcuts, copy and rendered selection have integrated
-race coverage. Actual native browser probes cover bounded history, reading
-position, attachment confirmation, queue/dock workflows and turn failures.
-Canonical architecture, setup, gateway and package guides now describe native
-ownership and storage. Remaining work includes terminal history/panel controls,
-standing-grant creation in the shared app, specialized browser fixtures, the
-intermittent Desktop screenshot/navigation failures and the 50 ms input/RSS
-acceptance. The development record names exact passing revisions and failed
-hosted runs; none of these increments completes the phase.
+provider/account menus, root/child controls, REPL, original input, completion,
+selection, captured history actions, instruction audit, local links, passive
+panels and orphaned pending-request controls have integrated race coverage.
+The shared app supports exact standing grants and archived search. Native browser
+probes cover bounded history, content, queue/dock, failures, metadata actions,
+activity and budget inspection; Electron activity also covers zoom/drag regions.
+#272's exact head passes all required hosted gates on Linux and macOS. Protocol,
+runtime, architecture, setup and package guides now describe native ownership.
+Remaining work includes the final terminal command/history/interactive-shell
+parity audit, specialized browser fixtures, intermittent platform evidence,
+50 ms input/RSS acceptance and final old-core deletion. Exact checkpoints and
+limitations remain in the development record; this does not complete the phase.
 
 ### Phase 7 — Cut over and remove the retired core
 

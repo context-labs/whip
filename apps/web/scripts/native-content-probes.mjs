@@ -7,6 +7,7 @@ import { deadline, eventually, startFixture } from './native-fixture.mjs';
 import { contentTransport } from './native-content-transport.mjs';
 import { checkComposerAttachments } from './composer-attachments.mjs';
 import { checkStoredMessages } from './stored-messages.mjs';
+import { openDesktopRemote } from './native-desktop-remote.mjs';
 
 const directory = process.env.WHIP_CONTENT_RESULTS ?? '/tmp/whip-native-content-results';
 const browsers = (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split(',');
@@ -15,11 +16,11 @@ await mkdir(directory, { recursive: true });
 const manifest = JSON.parse(await readFile(new URL('../renderer-manifest.json', import.meta.url), 'utf8'));
 for (const name of browsers) for (const mode of (process.env.WHIP_CONTENT_MODE ?? 'composer,stored').split(',')) {
   assert.ok(['composer', 'stored'].includes(mode), 'Unsupported content mode');
-  assert.ok(['chromium', 'firefox'].includes(name), 'Unsupported browser');
-  let fixture, browser, page, transfers;
+  assert.ok(['chromium', 'firefox', 'electron'].includes(name), 'Unsupported browser');
+  let fixture, browser, page, transfers, host, succeeded = false;
   const errors = [], cspErrors = [];
   try {
-    fixture = await startFixture({ lifetimeMs: 600_000, executeCode: true });
+    fixture = await startFixture({ lifetimeMs: 600_000, executeCode: true, allowedOrigins: ['whip-app://bundle'] });
     const client = await fixture.connect(`content-probe-${crypto.randomUUID()}`);
     const { root } = await fixture.createRoot(client, { title: 'Native content acceptance' });
     const session = client.session(root.id);
@@ -34,8 +35,8 @@ for (const name of browsers) for (const mode of (process.env.WHIP_CONTENT_MODE ?
       assert.equal(response.status, 200);
       assert.equal(createHash('sha256').update(new Uint8Array(await response.arrayBuffer())).digest('hex'), file.sha256, `Production renderer differs: ${path}`);
     }
-    browser = await ({ chromium, firefox }[name]).launch();
-    page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    if (name === 'electron') { host = await openDesktopRemote(fixture); page = host.page; assert.equal(host.rendererDigest, manifest.digest); }
+    else { browser = await ({ chromium, firefox }[name]).launch(); page = await browser.newPage({ viewport: { width: 1280, height: 900 } }); }
     page.setDefaultTimeout(15_000);
     page.on('pageerror', error => { if (errors.length < 64) errors.push(error.message.slice(0, 2048)); });
     await page.exposeFunction('recordContentCSP', directive => { if (cspErrors.length < 64) cspErrors.push(String(directive)); });
@@ -44,7 +45,7 @@ for (const name of browsers) for (const mode of (process.env.WHIP_CONTENT_MODE ?
       document.addEventListener('securitypolicyviolation', event => { if (window.cspErrors.length < 64) { window.cspErrors.push(event.violatedDirective); void window.recordContentCSP(event.violatedDirective); } });
     });
     transfers = await contentTransport(page, root.id);
-    const response = await page.goto(`${fixture.info.web}/h/${fixture.info.runtime_id}/s/${root.id}`);
+    const response = await page.goto(`${host?.origin ?? fixture.info.web}/h/${fixture.info.runtime_id}/s/${root.id}`);
     assert.ok(response.headers()['content-security-policy'].includes("script-src 'self' 'wasm-unsafe-eval'"));
     await expect(page.getByLabel('Message WHIP', { exact: true })).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
@@ -60,8 +61,9 @@ for (const name of browsers) for (const mode of (process.env.WHIP_CONTENT_MODE ?
     assert.deepEqual(errors, []);
     assert.deepEqual(cspErrors, []);
     assert.deepEqual(await page.evaluate(() => window.cspErrors), []);
-    results[`${name}-${mode}`] = { rendererDigest: manifest.digest, checks, contentTransfers: transfers.records, pageErrors: errors, cspErrors };
+    results[`${name}-${mode}`] = { rendererDigest: manifest.digest, transport: host ? 'staged Electron URL connection to owned gateway' : 'browser gateway', checks, contentTransfers: transfers.records, pageErrors: errors, cspErrors };
     await writeFile(join(directory, 'results.json'), JSON.stringify(results, null, 2));
+    succeeded = true;
     console.log(`${name}/${mode}: native scoped content, preview lifetime, transfer failure/retry and reading-position checks passed`);
   } catch (error) {
     if (page) {
@@ -71,6 +73,6 @@ for (const name of browsers) for (const mode of (process.env.WHIP_CONTENT_MODE ?
     throw error;
   } finally {
     transfers?.close();
-    try { await browser?.close(); } finally { await fixture?.close(); }
+    try { if (host) await host.close(succeeded); else await browser?.close(); } finally { await fixture?.close(); }
   }
 }

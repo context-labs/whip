@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { AnchorHTMLAttributes, ReactNode } from 'react';
 import { ThemeProvider, UIProvider } from '@whip/ui';
 import type { ListTreesResult, HostAttentionResult, HostAttentionParams } from '@whip/protocol';
-import { providerFixture } from './provider-fixture';
+import { providerFixture, sessionRecord } from './provider-fixture';
 import type { AppRuntime } from '../src/runtime';
 import type { HostConnection } from '../src/hosts';
 import { RuntimeContext } from '../src/context';
@@ -38,14 +38,14 @@ async function fixture() {
     const subscribers = new Set<() => void>();
     let catalog = { ...page(`${name} recent`), status: 'live' };
     const list = { getSnapshot: () => catalog, subscribe: (fn: () => void) => { subscribers.add(fn); return () => subscribers.delete(fn); }, refresh: vi.fn(async () => {}) };
-    const search = vi.fn(async (params: { search?: string; after?: string | null; expected_revision?: string | null; limit: number }, _options: { signal?: AbortSignal }) => page(`${name} ${params.after ? 'next' : params.search ? 'match' : 'landing'}`, params.after ? undefined : `${runtimeId}-cursor`));
+    const search = vi.fn(async (params: { archived?: boolean; search?: string; after?: string | null; expected_revision?: string | null; limit: number }, _options: { signal?: AbortSignal }) => page(`${name} ${params.after ? 'next' : params.search ? 'match' : 'landing'}`, params.after ? undefined : `${runtimeId}-cursor`));
     const index = vi.fn(async (params: HostAttentionParams, _options: { signal?: AbortSignal }) => attention(`${name} ${params.after ? 'next request' : 'request'}`, params.after ? undefined : `${runtimeId}-after`));
     f.data.handlers['trees.list'] = (request, signal) => search(request.params as Parameters<typeof search>[0], { signal });
     f.data.handlers['host.attention'] = (request, signal) => index(request.params as HostAttentionParams, { signal });
     const client = f.client;
     vi.spyOn(client, 'session');
     const host = { profile: { target: { kind: 'url' } }, id: runtimeId, name, runtimeId, state: 'connected', client, list } as unknown as HostConnection;
-    return { host, subscribers, list, search, index, client, revise: (revision: string) => { catalog = { ...catalog, revision }; subscribers.forEach(fn => fn()); } };
+    return { host, subscribers, list, search, index, client, data: f.data, calls: f.calls, revise: (revision: string) => { catalog = { ...catalog, revision }; subscribers.forEach(fn => fn()); } };
   };
   const local = await createHost('Local', 'local-runtime');
   const remote = await createHost('Kuzco', 'remote-runtime');
@@ -205,4 +205,64 @@ it('opens native child attention on its exact host and recipient without a trans
   expect(f.openTab).toHaveBeenCalledExactlyOnceWith('remote-runtime', 'same-root', 'Child needs approval');
   expect(f.updateLocation).toHaveBeenCalledExactlyOnceWith('view', { agent: 'child' });
   expect(f.remote.client.session).not.toHaveBeenCalled();
+});
+
+
+it('filters archived discovery through native reads, resets cursors and ignores a retired filter reply', async () => {
+  const f = await fixture();
+  f.render(<SessionSearchDialog open onOpenChange={() => {}} finalFocus={false} />);
+  await screen.findByRole('link', { name: 'Local landing · Local · /repo' });
+  fireEvent.click(screen.getByRole('button', { name: 'Load more sessions on Local' }));
+  await screen.findByRole('link', { name: 'Local next · Local · /repo' });
+  let finishActive: (value: ListTreesResult) => void = () => {};
+  let activeSignal: AbortSignal | undefined;
+  for (const [host, name] of [[f.local, 'Local'], [f.remote, 'Kuzco']] as const) {
+    host.search.mockImplementation((params, options) => {
+      if (host === f.local && params.archived === false) { activeSignal = options.signal; return new Promise(resolve => { finishActive = resolve; }); }
+      const result = page(`${name} ${params.archived ? 'archived' : 'all'}`);
+      result.items[0]!.tree.metadata.archived = params.archived === true;
+      return Promise.resolve(result);
+    });
+  }
+  const choose = async (name: string) => {
+    fireEvent.click(screen.getByRole('combobox', { name: 'Search state' }));
+    const option = await screen.findByRole('option', { name }); fireEvent.pointerDown(option); fireEvent.click(option);
+  };
+  await choose('Active sessions');
+  await waitFor(() => expect(activeSignal).toBeDefined());
+  await choose('Archived sessions');
+  const remote = await screen.findByRole('link', { name: 'Kuzco archived · Kuzco · /repo' });
+  expect(remote.textContent).toContain('Archived');
+  expect(remote.getAttribute('href')).toBe('/h/remote-runtime/s/same-root');
+  await screen.findByRole('link', { name: 'Local archived · Local · /repo' });
+  for (const host of [f.local, f.remote]) expect(host.search.mock.lastCall?.[0]).toEqual({ search: '', archived: true, limit: 64 });
+  expect(activeSignal!.aborted).toBe(true);
+  await act(async () => finishActive(page('Retired active filter')));
+  expect(screen.queryByRole('link', { name: /Retired active filter/ })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'First results on Local' })).toBeNull();
+  expect(f.local.client.session).not.toHaveBeenCalled(); expect(f.remote.client.session).not.toHaveBeenCalled();
+  await choose('All sessions');
+  await screen.findByRole('link', { name: 'Kuzco all · Kuzco · /repo' });
+  expect(f.remote.search.mock.lastCall?.[0]).toEqual({ search: '', limit: 64 });
+});
+
+it('keeps an archived menu on its exact host and rejects child metadata as a root', async () => {
+  const f = await fixture();
+  for (const [host, name] of [[f.local, 'Local'], [f.remote, 'Kuzco']] as const) {
+    const result = page(`${name} archived`); result.items[0]!.tree.metadata.archived = true;
+    host.search.mockResolvedValue(result);
+  }
+  f.remote.data.handlers['sessions.get'] = () => ({ ...sessionRecord('same-root'), parent_id: 'parent', tree_id: 'remote-tree' });
+  f.render(<SessionSearchDialog open onOpenChange={() => {}} finalFocus={false} />);
+  await screen.findByRole('link', { name: 'Kuzco archived · Kuzco · /repo' });
+  fireEvent.click(screen.getByRole('combobox', { name: 'Search state' }));
+  const option = await screen.findByRole('option', { name: 'Archived sessions' }); fireEvent.pointerDown(option); fireEvent.click(option);
+  await screen.findByRole('link', { name: 'Kuzco archived · Kuzco · /repo' });
+  fireEvent.click(screen.getByRole('button', { name: 'Actions for Kuzco archived on Kuzco' }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename', exact: true }));
+  expect((await screen.findByRole('alert')).textContent).toContain('actual root identity');
+  expect(f.remote.calls.filter(call => call.method === 'sessions.get').map(call => call.params)).toEqual([{ session_id: 'same-root' }]);
+  expect(f.local.client.session).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Save', exact: true })).toHaveProperty('disabled', true);
+  expect(f.remote.calls.some(call => call.method === 'trees.update')).toBe(false);
 });

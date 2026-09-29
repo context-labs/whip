@@ -583,3 +583,58 @@ func TestMCPInvalidImagePreservesKnownPrefixWithoutVisionChunks(t *testing.T) {
 		t.Fatal("oversized image was split into vision chunks", err)
 	}
 }
+
+// A confirmed remote failure is settled evidence for the next model step, not
+// a reason to replay the effect or abandon the whole native provider/code loop.
+func TestMCPBothEnginesContinueAfterConfirmedToolFailure(t *testing.T) {
+	isolateMCP(t)
+	for _, engine := range []session.Engine{session.Starlark, session.QuickJS} {
+		t.Run(string(engine), func(t *testing.T) {
+			url, server, effects := mcpHTTPFixture(t)
+			server.RemoveTools("visible")
+			sdkmcp.AddTool(server, &sdkmcp.Tool{Name: "visible"}, func(context.Context, *sdkmcp.CallToolRequest, map[string]any) (*sdkmcp.CallToolResult, any, error) {
+				effects.Add(1)
+				return &sdkmcp.CallToolResult{IsError: true, Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: "confirmed fixture failure"}}}, nil, nil
+			})
+			code := `print(mcp.call(server="fixture",tool="visible",arguments={}))`
+			if engine == session.QuickJS {
+				code = `console.log(await mcp.call({server:"fixture",tool:"visible",arguments:{}}));`
+			}
+			r := openEngineTest(t, t.TempDir(), cellProvider(map[string]string{"failed_tool": code}))
+			owner := createEngineSession(t, r, engine)
+			configureMCPFixture(t, r, url)
+			if _, err := r.MCPRefresh(t.Context(), owner.ID); err != nil {
+				t.Fatal(err)
+			}
+			manager := awaitMCPReady(t, r, owner)
+			call, err := manager.ResolveTool("fixture", "visible")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := r.CreateGrant(t.Context(), session.Grant{ID: "failed_call", SessionID: owner.ID, Capability: mcpCallCapability(call), Resource: mcpCallResource(owner.ID, call)}); err != nil {
+				t.Fatal(err)
+			}
+			submitTest(t, r, owner.ID, "failed_tool")
+			finished := waitTestWithin(t, r, "failed_tool", terminal, 30*time.Second)
+			if finished.Turn.State != session.Succeeded || effects.Load() != 1 {
+				t.Fatalf("turn=%+v effects=%d", finished.Turn, effects.Load())
+			}
+			cell, err := r.store.LatestCell(t.Context(), owner.ID)
+			if err != nil || cell == nil || cell.State != session.CellFailed || cell.ResultMessageID == nil {
+				t.Fatal(cell, err)
+			}
+			attempts, err := r.ModelAttempts(t.Context(), finished.Turn.ID, "", 10)
+			if err != nil || len(attempts) != 2 {
+				t.Fatal(attempts, err)
+			}
+			operations, err := r.Operations(t.Context(), finished.Turn.ID, "", 10)
+			if err != nil || len(operations) != 1 || operations[0].State != session.OperationFailed {
+				t.Fatal(operations, err)
+			}
+			history, err := r.History(t.Context(), owner.ID, 0, 10)
+			if err != nil || len(history) == 0 || !strings.Contains(history[len(history)-1].Parts[0].Text, "confirmed fixture failure") {
+				t.Fatalf("history=%+v err=%v", history, err)
+			}
+		})
+	}
+}

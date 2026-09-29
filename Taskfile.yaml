@@ -208,6 +208,10 @@ tasks:
       - node apps/web/scripts/snapshot-refresh.mjs
       - node apps/web/scripts/session-search.mjs
       - node apps/web/scripts/session-tabs.mjs
+      - node apps/web/scripts/new-chat-tabs.mjs
+      - node apps/web/scripts/session-title-notifications.mjs
+      - node apps/web/scripts/session-actions.mjs
+      - node apps/web/scripts/terminal-tabs.mjs
       - node apps/web/scripts/user-messages.mjs
       - node apps/web/scripts/sidebar.mjs
       - node apps/web/scripts/workspace-layout.mjs
@@ -243,6 +247,8 @@ tasks:
       - node apps/web/scripts/settings.mjs
       - node apps/web/scripts/provider-connections.mjs
       - node apps/web/scripts/settings-conversation.mjs
+      - node apps/web/scripts/model-budgets.mjs
+      - node apps/web/scripts/claude-code-theme.mjs
 
   check:product-distributions:
     desc: Disposable native pinned install, restart, update and packaged browser acceptance

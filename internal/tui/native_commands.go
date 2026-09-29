@@ -14,21 +14,22 @@ import (
 )
 
 type nativeControlResult struct {
-	redraft        *nativeRedraft
-	input          *client.InputCommand
-	generation     uint64
-	attach         *protocol.Session
-	picker         *nativeSessionPicker
-	label          string
-	mutation       bool
-	owner          *protocol.Session
-	policy         *protocol.PermissionPolicy
-	reset          bool
-	err            error
-	retry          tea.Cmd
-	inspectOnError bool
-	notice         string
-	decisionID     protocol.ID
+	recoveryCleared *client.InputCommand
+	redraft         *nativeRedraft
+	input           *client.InputCommand
+	generation      uint64
+	attach          *protocol.Session
+	picker          *nativeSessionPicker
+	label           string
+	mutation        bool
+	owner           *protocol.Session
+	policy          *protocol.PermissionPolicy
+	reset           bool
+	err             error
+	retry           tea.Cmd
+	inspectOnError  bool
+	notice          string
+	decisionID      protocol.ID
 }
 
 // control owns only this UI request. Its retry closure captures the original
@@ -75,6 +76,10 @@ func (m *nativeModel) command(text string) tea.Cmd {
 		return nil
 	}
 	switch name {
+	case "/pending":
+		return m.pendingCommand(args)
+	case "/panel":
+		return m.panelCommand(args)
 	case "/redraft":
 		return m.redraftCommand(args)
 	case "/copy":
@@ -213,7 +218,15 @@ func (m *nativeModel) command(text string) tea.Cmd {
 		return nil
 	}
 	switch name {
-	case "/model", "/model-for-session", "/theme", "/settings", "/setup":
+	case "/model", "/model-for-session":
+		return m.modelCommand(name, args)
+	case "/auth", "/connect", "/setup":
+		return m.setupCommand(args)
+	case "/theme":
+		return m.themeCommand(args)
+	case "/mouse":
+		return m.mouseCommand(args)
+	case "/settings":
 		if args != "" {
 			m.status = "usage: " + name
 			return nil
@@ -290,8 +303,7 @@ func (m *nativeModel) command(text string) tea.Cmd {
 		})
 	case "/rename":
 		if args == "" {
-			m.status = "usage: /rename <title>"
-			return nil
+			return m.openMenu("rename")
 		}
 		owner := m.owner
 		// The metadata revision is read once for this human command, then frozen

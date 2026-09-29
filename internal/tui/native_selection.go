@@ -113,7 +113,7 @@ func (m *nativeModel) validateSelection() {
 
 func (m *nativeModel) selectionMouse(message tea.MouseMsg) (tea.Cmd, bool) {
 	mouse := message.Mouse()
-	if m.historyDialog != nil || m.menu != nil || m.picker != nil || m.decision != nil || m.palette != nil || m.completion != nil || nativePreferenceLabel(m.preferences.Mouse, true) == "off" || mouse.Mod&tea.ModShift != 0 {
+	if m.messageActions != nil || m.historyDialog != nil || m.menu != nil || m.picker != nil || m.decision != nil || m.palette != nil || m.completion != nil || nativePreferenceLabel(m.preferences.Mouse, true) == "off" || mouse.Mod&tea.ModShift != 0 {
 		m.selection = nil
 		return nil, true
 	}
@@ -125,6 +125,7 @@ func (m *nativeModel) selectionMouse(message tea.MouseMsg) (tea.Cmd, bool) {
 	case tea.MouseClickMsg:
 		m.selection = nil
 		if mouse.Button != tea.MouseLeft {
+			m.selectionClick = nativeSelectionClick{}
 			return nil, false
 		}
 		for _, pane := range []nativeSelectionPane{nativeSelectTranscript, nativeSelectInput, nativeSelectREPL} {
@@ -172,8 +173,8 @@ func (m *nativeModel) selectionMouse(message tea.MouseMsg) (tea.Cmd, bool) {
 			s.done = true
 			if s.anchor == s.cur {
 				m.selection = nil
-				if s.pane == nativeSelectTranscript {
-					m.toggleToolAt(s.cur.row)
+				if s.pane == nativeSelectTranscript && !m.toggleToolAt(s.cur.row) {
+					return m.messageClick(s.cur.row), true
 				}
 				return nil, true
 			}

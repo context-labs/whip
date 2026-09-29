@@ -101,7 +101,11 @@ func (r *nativeRecovery) locked(operation func() error) error {
 }
 
 func (r *nativeRecovery) read(owner protocol.ID) ([]byte, error) {
-	file, err := r.root.OpenFile(r.name(owner), os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	return r.readName(r.name(owner))
+}
+
+func (r *nativeRecovery) readName(name string) ([]byte, error) {
+	file, err := r.root.OpenFile(name, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
 	}

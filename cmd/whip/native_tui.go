@@ -35,5 +35,7 @@ func nativeTUI(options tui.NativeOptions) (id string, err error) {
 		return "", err
 	}
 	defer func() { err = errors.Join(err, connection.Close()) }()
+	// This connection came from our localruntime launcher/readiness path.
+	options.KnownLocalFilesystem = true
 	return tui.RunNative(ctx, connection, options)
 }

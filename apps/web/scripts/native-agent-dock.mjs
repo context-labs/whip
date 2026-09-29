@@ -5,19 +5,20 @@ import { join } from 'node:path';
 import { chromium, firefox } from '@playwright/test';
 import { startFixture, deadline, eventually } from './native-fixture.mjs';
 import { checkAgentDock } from './agent-dock.mjs';
+import { openDesktopRemote } from './native-desktop-remote.mjs';
 
 // npm run pack:web && node apps/web/scripts/native-agent-dock.mjs
 const directory = process.env.WHIP_AGENT_DOCK_RESULTS ?? '/tmp/whip-native-agent-dock';
 const names = (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split(',');
-assert(names.length > 0 && names.length <= 2 && new Set(names).size === names.length && names.every(name => ['chromium', 'firefox'].includes(name)));
+assert(names.length > 0 && names.length <= 3 && new Set(names).size === names.length && names.every(name => ['chromium', 'firefox', 'electron'].includes(name)));
 await mkdir(directory, { recursive: true });
 const reports = [];
 for (const name of names) {
-  let fixture, browser, page;
+  let fixture, browser, page, host;
   const report = { name }, errors = [], csp = [], frames = [];
   reports.push(report);
   try {
-    fixture = await startFixture({ executeCode: true, lifetimeMs: 600000 });
+    fixture = await startFixture({ executeCode: true, lifetimeMs: 600000, allowedOrigins: ['whip-app://bundle'] });
     const client = await fixture.connect(`agent-dock-${name}`), { root } = await fixture.createRoot(client);
     const session = client.session(root.id), policy = await session.permissions.policy(deadline());
     await session.permissions.setMode({ mode: 'automatic', expected_revision: policy.revision }, randomUUID(), deadline());
@@ -34,8 +35,8 @@ for (const name of names) {
       assert(!turn || !['failed', 'interrupted', 'cancelled'].includes(turn.state), `Child ${child.id} ended ${turn?.state}`);
       return turn?.state === 'succeeded';
     }, { description: 'actual child completed' });
-    browser = await ({ chromium, firefox }[name]).launch();
-    page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    if (name === 'electron') { host = await openDesktopRemote(fixture); page = host.page; }
+    else { browser = await ({ chromium, firefox }[name]).launch(); page = await browser.newPage({ viewport: { width: 1280, height: 900 } }); }
     page.setDefaultTimeout(15000);
     page.on('pageerror', error => { if (errors.length < 64) errors.push(String(error.stack ?? error).slice(0, 4096)); });
     page.on('websocket', socket => socket.on('framesent', ({ payload }) => {
@@ -47,8 +48,8 @@ for (const name of names) {
     }));
     await page.exposeFunction('__recordDockCSP', directive => { if (csp.length < 64) csp.push(String(directive).slice(0, 256)); });
     await page.addInitScript(() => document.addEventListener('securitypolicyviolation', event => { void window.__recordDockCSP(event.violatedDirective).catch(() => {}); }));
-    await page.goto(`${fixture.info.web}/h/${client.runtimeID}/s/${root.id}`);
-    report.version = browser.version(); report.root = root.id; report.children = children.map(child => child.id);
+    await page.goto(`${host?.origin ?? fixture.info.web}/h/${client.runtimeID}/s/${root.id}`);
+    report.version = host?.version ?? browser.version(); report.transport = host ? 'staged Electron URL connection to owned gateway' : 'browser gateway'; report.root = root.id; report.children = children.map(child => child.id);
     report.result = await checkAgentDock({ page, client, root: root.id, child: children[0].id, frames, directory, name });
     assert.deepEqual(errors, []); assert.deepEqual(csp, []); report.passed = true;
     console.log(`${name}: native agent dock, metadata-only roster, actual child split/tab routing, isolated drafts/attachment/anchors and narrow/large type passed`);
@@ -60,7 +61,7 @@ for (const name of names) {
     }
     throw error;
   } finally {
-    try { await browser?.close(); }
+    try { if (host) await host.close(report.passed === true); else await browser?.close(); }
     finally {
       try { await fixture?.close(); }
       finally { await writeFile(join(directory, 'results.json'), JSON.stringify(reports, null, 2)); }

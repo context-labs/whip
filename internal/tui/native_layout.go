@@ -76,11 +76,7 @@ func (m *nativeModel) layoutFrame(main string) string {
 		main = lipgloss.JoinHorizontal(lipgloss.Top, main, " ", panel.Render(currentTheme(), m.replVP.View()))
 	}
 	if m.sidebarVisible() {
-		agentsHeight := max(m.height-6, 5)
-		panel := ui.Panel{Title: "Agents", Key: "ctrl+t", Width: 42, Height: agentsHeight, Focused: m.agentsFocus, Band: true}
-		left := panel.Render(currentTheme(), m.agentRows(panel.Inner(currentTheme())+2, max(agentsHeight-4, 1)))
-		contextPanel := ui.Panel{Title: "Context", Width: 42, Height: max(m.height-agentsHeight, 0)}
-		left += "\n" + contextPanel.Render(currentTheme(), nativeContextLabel(m.contextUsage))
+		left := m.sidebarView()
 		main = lipgloss.JoinHorizontal(lipgloss.Top, left, "  ", main)
 	}
 	rows := strings.Split(main, "\n")

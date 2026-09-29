@@ -1,4 +1,4 @@
-# Error ownership acceptance fixture
+# Native error ownership acceptance fixture
 
 Run from the repository root:
 
@@ -7,45 +7,67 @@ node apps/web/scripts/error-ownership.mjs
 node apps/web/scripts/error-ownership.mjs --desktop
 ```
 
-The first command runs browser assertions and saves screenshots and `report.json`
-to `/tmp/whip-error-ownership-results`. The second keeps a visible Electron window
-open for manual Computer inspection. Close its window to stop the fixture. Override
-`WHIP_ERROR_PORT` (default 4177) and `WHIP_ERROR_RESULTS` to run separate instances.
+The default runs the shared application in Chromium and Firefox and saves
+screenshots and `report.json` beneath `/tmp/whip-error-ownership-results`.
+`WHIP_WEB_BROWSERS=chromium` or `firefox` narrows a diagnostic.
+`--desktop` keeps a disposable sandboxed stock Electron window open for manual
+inspection; close the window to stop. Override `WHIP_ERROR_PORT` (default 4177)
+and `WHIP_ERROR_RESULTS` for separate instances. This manual host is not the
+packaged native bridge or signed release acceptance.
 
-The renderer mounts the real `createWhipApplication` through the normal bootstrap.
-The daemon is the isolated SDK integration fixture, with its own temporary home,
-fake provider, and recorded turn/execution outcomes. The toolbar is test-only;
-it injects failures at storage or transport boundaries, never by creating error
-DOM or changing application state directly. No personal daemon or credentials are
-used. The Electron host is a minimal sandboxed window, not the packaged native
-bridge; native startup/crash dialogs are outside this fixture's coverage.
+The fixture builds the real `mountApplication` sources with a separate, visibly
+labeled toolbar. Fixture CSS reserves the toolbar’s 64 px and gives the startup
+containers and shell the remaining height; it does not alter error controls or
+their content. Its actual native runtime has a private home, fake local HTTP
+provider and real admitted root/child turns and engine cells. No legacy SDK,
+RootSnapshot, seeded execution ledger, or old event reducer is used. No installed
+runtime or personal accounts are accessed.
 
-Select a scenario in the separate toolbar. Its explanation identifies the app
-interaction that triggers the fault. **Restore** removes the fault; then use the
-app's recovery action. Close modal dialogs before using the toolbar. Selecting
-another scenario resets only this fixture origin's saved state. The scenarios are:
+Faults enter at storage and WebSocket request boundaries. The test-only socket
+subclass permits only this origin’s exact `/api/v4/ws` route; the production SDK
+still performs the normal runtime, process-epoch and network-client handshake.
+It retains at most 128 live sockets, validates bounded native frames, preserves
+response identity, and retires connections on app disposal. Rejected requests
+never reach the host. Nothing injects error DOM or mutates application error
+state directly.
 
-Manual Electron uses the retained long-error child for Turn/Combined, so those
-screens remain repeatable. Restore reconnects without changing that historical
-outcome. The automated run uses the empty-history child and verifies the daemon's
-successful-follow-up control separately.
+Select a scenario in the toolbar. **Restore** removes the fault; then use the
+app’s recovery action. Close modal dialogs before using the toolbar. Selecting
+another scenario resets only this fixture origin’s saved state. Restore in the
+Turn scenario explicitly submits one real successful follow-up in that same
+child; it does not alter an existing failure record.
 
-| Scenario | Actual failure path |
+| Scenario | Native boundary and retained assertion |
 | --- | --- |
-| Application | Type a draft; its storage write throws. Restore allows saving the retained text. |
-| Host | Disconnect closes the SDK transport and blocks reopening until Restore. |
-| Session | Reject `root.snapshot` while all other requests and the host connection remain healthy. Restore, then Refresh. |
-| Turn | Read a persisted failed child-agent turn. Restore commits a successful follow-up via the existing daemon test control. |
-| Execution | Read a persisted failed cell in the child-agent REPL, alongside successful cells. |
-| Submission | Reject the actual `command.submit` for the submitted message. |
-| Uncertain | Drop that frame and close the socket; status reads fail until Restore, after which the actual daemon proves the original identity absent. |
-| Resource | Reject the actual `provider.catalogs` read; open the composer Model picker. |
-| Action | Reject `session.rename`; open sidebar session actions → Rename and submit. |
-| Validation | Settings → Servers → Add server; submit `file:///not-a-server` as the address. |
-| Combined | Persisted failed turn plus a disconnected host; Restore clears only the connection problem. |
+| Application | Actual draft storage write throws; the draft survives and saving clears the application error. |
+| Host | Close owned sockets and reject sends until Restore; one host notice, no session/global duplicate, retained draft. |
+| Session | Reject `sessions.get` while the host stays connected; scoped unavailable state, no misleading new-chat/connecting copy, explicit Refresh. |
+| Turn | Actual provider HTTP rejection persists in its exact child; explicit successful follow-up clears current outcome without changing history. |
+| Execution | Actual Starlark division by zero beside a separate committed successful cell in the native REPL. |
+| Submission | Reject native `sessions.submit` as invalid; composer error and original draft remain. |
+| Uncertain | Drop that native frame, close the socket, fail `receipts.match` until Restore; exact original identity then proves absence, with no provider replay. |
+| Resource | Reject `providers.catalog`; the model picker owns the failure and explicit Retry. |
+| Action | Reject `trees.update`; the rename dialog retains its name and owns the error until explicit retry. |
+| Validation | Invalid `file:///not-a-server` stays inside the Add server form. |
+| Combined | Real failed turn plus a disconnected host; reconnect clears only the host problem. |
 
-These are representative paths for all nine owners, not exhaustive coverage of
-every individual resource, action, validation rule, operating-system dialog, or
-failure outcome. Boundary failures use deterministic messages rather than real
-disk exhaustion or live provider outages. Successful execution history is retained
-alongside the failed execution; historical records are not erased by Restore.
+These are representative paths for all nine error owners, not exhaustive coverage
+of every resource or OS dialog. Device exhaustion and provider outages are
+injected, bounded failures; execution and turn records themselves are genuine.
+Raw provider rejection bodies are deliberately not displayed by native adapters.
+Setup and cleanup own the browser/Electron, preview server and runtime; one close
+failure cannot skip runtime shutdown. Error/CSP evidence survives reloads with
+64-entry limits and failure text is capped at 16 KiB.
+
+## Native validation checkpoint (2026-09-29)
+
+`WHIP_ERROR_RESULTS=/tmp/whip-native-error-final node apps/web/scripts/error-ownership.mjs`
+passed all 11 workflows in Chromium 153.0.8010.12 and Firefox 155.0. Both reports
+have no page errors or CSP violations; every owned browser, preview and native
+runtime joined on exit. The report and before/after screenshots are in that
+directory. The isolated fixture TypeScript check and runner syntax check pass.
+
+The automated checkpoint exercises the production shared renderer and native
+gateway through the dedicated toolbar build. It does not claim packaged Electron,
+Finder launch, Developer ID signing or notarization coverage. The optional manual
+Electron mode was preserved, but was not rerun for this migration checkpoint.

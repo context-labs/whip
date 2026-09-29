@@ -5,3 +5,8 @@ html, body { height: 100%; overflow: hidden; }
 #fixture-controls p { margin: 5px 0 0; }
 #root { position: fixed; inset: 64px 0 0; height: calc(100dvh - 64px); }
 #root > div { height: 100%; }
+/* The test toolbar owns 64px outside the application. Give the two startup
+   containers and app shell that remaining height instead of a second viewport. */
+#root [data-startup-phase],
+#root [data-startup-phase] > div,
+#root [data-startup-phase] > div > div { min-height: 0; height: 100%; }

@@ -7,7 +7,7 @@ import { deadline, eventually } from './native-fixture.mjs';
 // Delaying/failing actual owner-scoped reads must preserve the loaded evidence;
 // only explicit navigation retries an older page. Large-message/count/byte gaps
 // are separately proved by native-history-window.test.mjs against the real SDK.
-export async function checkHistoryRecovery({ page, client, fixture, root, directory, name }) {
+export async function checkHistoryRecovery({ page, client, fixture, root, directory, name, origin = fixture.info.web }) {
   const requests = [], errors = [], connections = new Set(), closing = new Set();
   let mode = 'pass', release, closed = false, tailReads = 0;
   const failure = { code: -32603, kind: 'INTERNAL', message: 'Synthetic history read unavailable' };
@@ -79,7 +79,7 @@ export async function checkHistoryRecovery({ page, client, fixture, root, direct
     await page.waitForTimeout(350);
   };
   try {
-    await page.goto(`${fixture.info.web}/h/${client.runtimeID}/s/${root}`);
+    await page.goto(`${origin}/h/${client.runtimeID}/s/${root}`);
     await expect(reading).toBeVisible(); await page.evaluate(() => document.fonts.ready);
     const session = client.session(root), initial = await session.history.snapshot(deadline());
     const draft = 'Keep this draft while reading earlier history.';

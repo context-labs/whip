@@ -4573,7 +4573,7 @@ same 2MiB bound and three real uploads totaling9,437,346 bytes. Profiled draft
 serialization fell203→17.8ms and setDraft185→47.4ms over12 upload keys. Native
 keyboard EventTiming p95 fell144±4→112±4ms during uploads and104±4→88±4ms during
 40 streams. Peak sampled RSS increased1,689,424→1,715,440KiB; post-work RSS fell
-1,436,720→1,391,280KiB. The50ms target and memory acceptance remain open. Evidence:
+1,436,720→1,391,280KiB. The 50 ms target and memory acceptance remain open. Evidence:
 /tmp/whip-desktop-transfer-linear-drafts/run-dVPZIA/performance.json. This is a
 measured improvement, not completion of Phases5–7 or performance acceptance.
 
@@ -5052,7 +5052,7 @@ snapshot; actual draft presence, eviction and errors still publish changes. The
 unchanged seven-group staged desktop workload passes. Compared with the prior
 untraced encoder build, input-handler-to-rAF p95 improves30.5→11ms and native
 keydown-to-paint p95 remains72ms (68–76ms bound;40 samples), with maximum104→88ms.
-Peak app RSS changes1,638,848→1,589,680KiB in this single pair. The50ms input and
+Peak app RSS changes1,638,848→1,589,680KiB in this single pair. The 50 ms input and
 memory acceptance remain open. Fix renderer
 `9263204a384a0329076691cb30f572e14353fa43baeb9ba6c98368f649b50c41` and artifact
 `/tmp/whip-performance-draft-notification/run-9TMoFW/performance.json` retain the
@@ -5071,3 +5071,136 @@ recovery, gateways and mobile lifetimes, with checked source links. Broader
 protocol/runtime/feature documentation, specialized client probes, performance,
 remaining terminal controls, and final retired-core removal are still required.
 No installed runtime, real account, original checkout, merge or deployment changed.
+
+### Archived search, draft tabs and remaining terminal controls — 2026-09-29
+
+The next integration branch, `codex/backend-redesign-client-finalization`, starts
+at #272's exact head `0f965d32dd8185d57b5e9620545a0ed9787fa925`. Its hosted run
+[36564812096](https://github.com/context-labs/whip/actions/runs/36564812096)
+completed successfully: all required Linux/macOS client, product, runtime/store
+race, distribution and analysis jobs pass. This establishes that checkpoint's
+required gates; it does not erase prior intermittent desktop or Firefox dock
+failures or close the performance/platform obligations.
+
+Integrated native controls include known-local file links (explicit local-client
+eligibility and bounded no-follow path inspection), passive context/LSP panels,
+exact child navigation, orphaned pending-request inspection/receipt checks and
+explicit local forget. Pending controls never resend the payload or cancel host
+work. Delayed message actions preserve double/triple selection and drag, capture
+history/configuration boundaries for fork/rewind, and retain existing drafts for
+explicit restoration. No action silently stops, uploads or submits.
+
+The session-action browser matrix exposed archived roots still appearing in the
+normal sidebar. Its projection now excludes archived rows before directory
+grouping, while open tabs and canonical catalog metadata remain available. Search
+has All/Active/Archived filters with exact cursor and owner guards. The complete
+native session-action matrix passes 11 groups in both browsers, including remote
+metadata changes, archived-only search, fork content without copied charges and
+server deletion/local saved-view purge. Native model-budget inspection passes
+all eight browser/theme/width combinations without mutating budgets or dispatching
+a provider. The associated audit files retain exact renderers and artifacts.
+
+The original activity entrypoint now uses native runners while preserving its
+modes. Both browsers pass activity (12 groups) and history (4); real local-IPC
+Electron passes activity (14, including 400% zoom and draggable regions). Electron
+remote-URL history, composer/stored content and dock checks pass. Explicit manual
+Finder drag remains unrun. The staged desktop helper now waits for its initial
+sidebar and bounds inspector/TERM/KILL cleanup; four actual lifecycle tests pass
+in 5.250s. This is fixture lifecycle coverage, not proof that every prior hosted
+navigation/capture failure is permanently fixed.
+
+Focused integrated validation passes: file links 1.811s; panels/context/LSP/dock
+6.381s; orphaned pending records 10.009s; sidebar/actions 27 tests; actual native
+sidebar one test; filtered multi-host discovery ten tests; shared app types and
+CLI/terminal vet. The first complementary native TUI aggregate failed after
+58.887s on `TestNativeCopyBoundsFailureAndConcurrentDetach`: its helper predicate
+accepted empty bytes as a ready PID. The test-only repair requires nonempty data
+and atomically publishes the disposable PID; the exact test passes 20 race-enabled
+repetitions in 4.566s. Final aggregate results are recorded below when available.
+
+Protocol v4, agent-loop and recursive-runtime guides now describe native
+ownership, exact receipts, deferred descendant waits, atomic checkpoints,
+explicit uncertainty and fresh namespaces. They remove retired notification,
+scratch fallback, daemon-command and whole-turn retry instructions. Relative
+file links in these guides resolve.
+
+Still open: remaining terminal command/history/interactive-shell affordances,
+specialized browser probes, the 50ms native input and RSS acceptance, final
+retired-core/package/test removal and final comprehensive gates. Signed release,
+actual remote SSH, physical mobile, VoiceOver, Safari, trusted Finder drag and
+live-provider evidence remain explicitly unverified. No installed runtime, real
+account or original development checkout changed; nothing was merged or deployed.
+
+The repaired integrated native TUI groups pass independently in 58.659 s and 70.836 s,
+followed by vet. The later direct command affordance leaf retains `/auth`,
+`/connect`, `/mouse`, named theme/model choices, model refresh and captured rename
+through existing menus and revisioned host/session controls; its focused real-host
+race suite passes 11.956 s. The integrated affordance result is recorded with the
+published checkpoint. Input recall and foreground-shell key forwarding remain
+separate, unfinished follow-through.
+
+The tightened title and draft-tab probes pass again in both browsers. Titles use
+catalog revisions with normal native polling and no unopened history/turn reads;
+all 12 draft-tab groups preserve local-only drafts, background creation, exact scoped
+image uploads and explicit upload-failure recovery. The provider fixture supplies
+a valid nonempty reply to image-only input. Existing last-session→blank-draft
+behavior from 203695a03b is preserved, then closing that draft proves the empty
+workspace. Final artifacts: `/tmp/whip-native-title-final` and
+`/tmp/whip-native-drafts-tightened`; fixture/stream tests pass 4 in 5.188 s. The audit
+records the review correction from obsolete `turns.page` to canonical
+`sessions.turns` and both native history reads.
+
+The native terminal-tab matrix passes six groups in both browsers, with explicit
+network opt-in, byte-exact independent cursor reads, reload without open/write
+replay and explicit close. The old output-sink takeover never conferred exclusive
+write authority; independent native readers preserve the useful behavior. The
+Claude Code theme matrix passes seven groups per browser, including exact palette,
+persistence, hover/selection, Axe contrast, mobile navigation and reset. These
+probes, metadata actions, draft/title and model-budget checks now join required
+product gates. No supported assertion is hidden behind an optional environment flag.
+
+Retained MCP tests now use native configuration and secret-reference types without
+old agent/LLM/tool adapters. Native real-engine success/failure loops and actual
+MCP endpoint coverage replace the retired loop/stdio test scaffolding. Full MCP
+race/shuffle passes 20.884 s, both native engine families 10.407 s and native MCP/EOF
+CLI races 6.751 s; vet and pinned lint pass. Exact failure evidence survives a failed
+cell/operation, two accounted model steps complete the turn, and the remote effect
+runs once. The opt-in real-account discovery test was not run; it now requires an
+explicit native host directory. The still-retained pure handler adapter and optional
+selfhost fixture remain part of final old-core cleanup.
+
+A quiet unchanged staged performance run passes all seven workflow groups but
+still misses the 50 ms input target: all 40 native keydowns give 72 ms p95 (68–76 ms
+rounding bound). Native input delay is 1.3 ms p95, keydown dispatch 0.2 ms and input
+handler 5.8 ms; these measurements do not establish the remaining rendering cause.
+Peak RSS is 1,606,160 KiB. Exact artifact:
+`/tmp/whip-performance-paint-quiet/run-kowyzI/performance.json`, renderer
+`187ddeaeefc2117ea5befac4e7c664296abc8fd3e2275fcd7c0e9aa8911e08d8`.
+The preceding concurrent run is diagnostic only. Bounded phase and memory evidence
+was retained; no unsupported performance fix or acceptance claim was introduced.
+
+Final combined renderer
+`484c6721166bf35fde7ce8ebc9585d34f56a9ad9f2a278a3a517bd59266dd1ae`
+packages successfully. All four affected app suites pass 38 tests in 5.67 s and
+shared-app types pass. The merged native fixture/stream/desktop-lifecycle group
+passes 9 tests in 14.320 s. Integrated command affordance races pass 4.917 s, followed
+by CLI/terminal vet. These checks use the final combined source; prior specialized
+browser reports retain their own exact renderer hashes rather than being relabeled.
+
+The final combined renderer also passes all 11 native session-action groups in
+both browsers (`/tmp/whip-client-finalization-session-actions`), including the
+actual archived-search behavior. Combined pinned lint for terminal, CLI, MCP and
+runtime reports zero issues. `task --list` parses the expanded required gates.
+The input-recall API and further shell/keyboard work are separate subsequent
+checkpoints; this branch makes no claim to include them.
+
+Performance evidence correction (same day): the subsequent owned-window control
+at `/tmp/whip-native-input-control-36zQu7/results.json` confirmed native Electron
+content was 1200×800 while the browser page emulated 1360×960. The short composer's
+y=834–891 was outside that content, and the near-limit composer was partially
+clipped. Focus, hit tests and accepted text did not establish actual visible paint.
+Therefore the earlier 72 ms readings, including the quiet run above, are diagnostic
+only and do not establish fully visible native input acceptance. The 50 ms target
+remains unverified. A following bounded fixture change must set the actual native
+content size, assert viewport/composer containment and rerun the unchanged workload.
+No product timing workaround or performance completion is claimed.

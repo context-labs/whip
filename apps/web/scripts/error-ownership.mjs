@@ -6,59 +6,82 @@ import { fileURLToPath } from 'node:url';
 import { build, preview } from 'vite';
 import react from '@vitejs/plugin-react';
 import stylex from '@stylexjs/unplugin';
-import { chromium, expect } from '@playwright/test';
-import { startFixture } from '../../../packages/legacy-sdk/scripts/fixture.mjs';
+import { chromium, firefox, expect } from '@playwright/test';
+import { randomUUID } from 'node:crypto';
+import { startFixture, deadline, eventually } from './native-fixture.mjs';
 
 // --desktop keeps the isolated Electron app open for Computer acceptance.
-// Default: real app workflows in Chromium, screenshots and assertion report.
+// Default: real app workflows in Chromium and Firefox, screenshots and assertion report.
 const manual = process.argv.includes('--desktop');
 const web = fileURLToPath(new URL('../', import.meta.url));
 const results = process.env.WHIP_ERROR_RESULTS ?? '/tmp/whip-error-ownership-results';
 const port = Number(process.env.WHIP_ERROR_PORT ?? 4177);
+assert(Number.isInteger(port) && port >= 1 && port <= 65535, 'Fixture port must be within 1..65535');
 const origin = `http://127.0.0.1:${port}`;
-process.env.WHIP_WEB_TURN_FAILURE_FIXTURE = '1';
-process.env.WHIP_WEB_REPL_FIXTURE = '1';
-await mkdir(results, { recursive: true });
-const fixture = await startFixture({ allowedOrigins: [origin], lifetimeMs: manual ? 30 * 60_000 : 4 * 60_000 });
-process.chdir(web);
-const proxy = {
-  '/api': { target: fixture.info.endpoint.replace(/^ws/, 'http').replace('/api/v3/ws', ''), ws: true, changeOrigin: true },
-  '/fixture': { target: fixture.info.frontend, changeOrigin: true, rewrite: path => path.replace(/^\/fixture/, '') },
-};
-const config = {
-  configFile: false, root: resolve(web, 'scripts/fixtures/error-ownership'), logLevel: 'warn',
-  define: { __FIXTURE__: JSON.stringify({ root_id: fixture.info.root_id, runtime_id: fixture.info.runtime_id,
-    ...(manual ? { turn_agent: 'turn-failed-long' } : {}) }) },
-  plugins: [stylex.vite({ useCSSLayers: { before: ['whip-reset'] }, runtimeInjection: false,
-    unstable_moduleResolution: { type: 'commonJS', rootDir: resolve(web, '../..') } }), react()],
-  build: { outDir: resolve(results, 'dist'), emptyOutDir: true, assetsInlineLimit: 0 },
-  preview: { host: '127.0.0.1', port, strictPort: true, proxy },
-};
-let server;
-let browser;
+const names = manual ? ['desktop'] : (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split(',');
+assert(manual || names.length > 0 && names.length <= 2 && new Set(names).size === names.length && names.every(name => ['chromium', 'firefox'].includes(name)));
+const reports = [];
+for (const name of names) {
+let fixture, server, browser, page, electron;
+const report = { name, checks: [] }, errors = [], csp = [];
+reports.push(report);
 try {
-  await build(config);
-  server = await preview(config);
-  await writeFile(resolve(results, 'fixture.json'), JSON.stringify({ origin, ...fixture.info }, null, 2));
+  await mkdir(resolve(results, name), { recursive: true });
+  fixture = await startFixture({ allowedOrigins: [origin], executeCode: true, rejectInput: 'error-ownership-rejected-turn', lifetimeMs: manual ? 30 * 60_000 : 600000 });
+  const client = await fixture.connect(`error-ownership-${name}`);
+  const { root } = await fixture.createRoot(client, { title: 'Error ownership session' });
+  const session = client.session(root.id), completionTurns = [];
+  const submit = async (owner, text) => {
+    const request = randomUUID(); await owner.submit([{ type: 'text', text }], request, deadline());
+    const outcome = await client.wait(request, deadline()); if (owner.id !== root.id) completionTurns.push(outcome.turn.id); return outcome;
+  };
+  await submit(session, 'Healthy root history.');
+  const spawnChild = async text => {
+    const request = randomUUID();
+    const result = await session.spawn({ overrides: { report_mode: 'notice' }, grant_ids: [], budgets: [{ kind: 'model_calls', limit: '10' }], parts: [{ type: 'text', text }] }, request, deadline());
+    const outcome = await client.wait(request, deadline()); completionTurns.push(outcome.turn.id); assert.ok(result.session); return client.session(result.session.id);
+  };
+  const turn = await spawnChild('error-ownership-rejected-turn');
+  const execution = await spawnChild('```starlark\nprint("Committed before failing cell")\n```');
+  await submit(execution, '```starlark\nprint(1 // 0)\n```');
+  const failed = await turn.activity(deadline()); assert.equal(failed.active_turn, null);
+  await eventually(async () => {
+    const effects = await fixture.effects(), activity = await session.activity(deadline());
+    return completionTurns.every(id => effects.some(text => text.startsWith(`[Mail mail_completion_${id} revision `))) && activity.active_turn === null && activity.queued_input_count === '0';
+  }, { description: 'actual child-completion reports consumed before error inspection' });
+  const proxy = { '/api': { target: fixture.info.web, ws: true, changeOrigin: true } };
+  const policy = (await fetch(fixture.info.web)).headers.get('content-security-policy'); assert.ok(policy);
+  const config = {
+    configFile: false, root: resolve(web, 'scripts/fixtures/error-ownership'), logLevel: 'warn',
+    define: { __FIXTURE__: JSON.stringify({ root_id: root.id, runtime_id: client.runtimeID, turn_agent: turn.id, execution_agent: execution.id }) },
+    plugins: [stylex.vite({ useCSSLayers: { before: ['whip-reset'] }, runtimeInjection: false,
+      unstable_moduleResolution: { type: 'commonJS', rootDir: resolve(web, '../..') } }), react()],
+    build: { outDir: resolve(results, name, 'dist'), emptyOutDir: true, assetsInlineLimit: 0 },
+    preview: { host: '127.0.0.1', port, strictPort: true, proxy, headers: { 'Content-Security-Policy': policy } },
+  };
+  await build(config); server = await preview(config);
+  await writeFile(resolve(results, name, 'fixture.json'), JSON.stringify({ origin, runtime_id: client.runtimeID, process_epoch: client.processEpoch, root: root.id, turn: turn.id, execution: execution.id }, null, 2));
   if (manual) {
-    const electron = spawn(resolve(web, '../../node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
+    electron = spawn(resolve(web, '../../node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
       [resolve(web, 'scripts/fixtures/error-ownership/electron.cjs')], {
         env: { ...process.env, WHIP_ERROR_ORIGIN: origin, WHIP_ERROR_ELECTRON_DATA: resolve(results, 'electron-profile') },
         stdio: 'inherit',
       });
     console.log(`ERROR OWNERSHIP DESKTOP READY: ${origin}\nArtifacts: ${results}\nUse Error scenario in the separate fixture toolbar. Close Electron to stop.`);
+    void fixture.exited.then(() => { if (electron?.exitCode === null && electron.signalCode === null) electron.kill('SIGTERM'); });
     await new Promise((resolve, reject) => { electron.once('exit', resolve); electron.once('error', reject); });
   } else {
-    browser = await chromium.launch();
-    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-    const errors = [];
-    page.on('pageerror', error => errors.push(error.message));
-    const report = [];
+    browser = await ({ chromium, firefox }[name]).launch();
+    page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    page.setDefaultTimeout(15000);
+    page.on('pageerror', error => { if (errors.length < 64) errors.push(String(error.stack ?? error).slice(0, 4096)); });
+    await page.exposeFunction('__errorCSP', value => { if (csp.length < 64) csp.push(String(value).slice(0, 256)); });
+    await page.addInitScript(() => document.addEventListener('securitypolicyviolation', event => { void window.__errorCSP(event.violatedDirective).catch(() => {}); }));
     const notice = type => page.locator(`[data-error-type="${type}"]`).filter({ visible: true });
     const composer = () => page.locator('[data-whip-composer]').filter({ visible: true });
     const capture = async name => {
       await page.evaluate(() => document.fonts.ready);
-      await page.screenshot({ path: resolve(results, `${name}.png`), fullPage: true });
+      await page.screenshot({ path: resolve(results, report.name, `${name}.png`), fullPage: true });
     };
     const scenario = async name => {
       await page.getByRole('combobox', { name: 'Error scenario' }).selectOption(name);
@@ -76,7 +99,7 @@ try {
     await expect(notice('application')).toHaveCount(0);
     await expect(composer()).toHaveValue('Keep this draft through a storage failure.');
     await capture('application-restored');
-    report.push('Application: failed actual draft storage write; retained draft after restoring storage.');
+    report.checks.push('Application: failed actual draft storage write; retained draft after restoring storage.');
 
     await scenario('host');
     await composer().fill('Keep this draft while offline.');
@@ -89,7 +112,7 @@ try {
     await expect(notice('host')).toHaveCount(0, { timeout: 15000 });
     await expect(composer()).toHaveValue('Keep this draft while offline.');
     await capture('host-restored');
-    report.push('Host: one host error, no session/global duplicate, clears on reconnect, draft retained.');
+    report.checks.push('Host: one host error, no session/global duplicate, clears on reconnect, draft retained.');
 
     await scenario('session');
     await expect(notice('session')).toHaveCount(1);
@@ -101,7 +124,7 @@ try {
     await notice('session').getByRole('button', { name: 'Refresh' }).click();
     await expect(notice('session')).toHaveCount(0);
     await capture('session-restored');
-    report.push('Session: snapshot failure scoped to session without connection or new-session messaging; Refresh recovers with host connected.');
+    report.checks.push('Session: snapshot failure scoped to session without connection or new-session messaging; Refresh recovers with host connected.');
 
     await scenario('combined');
     await expect(page.locator('[data-agent-turn-outcome="failed"]').filter({ visible: true })).toHaveCount(1);
@@ -114,14 +137,16 @@ try {
     await expect(notice('host')).toHaveCount(0, { timeout: 15000 });
     await expect(page.locator('[data-agent-turn-outcome="failed"]').filter({ visible: true })).toHaveCount(1);
     await capture('combined-restored');
-    report.push('Combined: host and recorded turn remain distinct; reconnect clears only host failure.');
+    report.checks.push('Combined: host and recorded turn remain distinct; reconnect clears only host failure.');
 
     await scenario('execution');
     await expect(notice('execution')).toHaveCount(1);
     await notice('execution').locator('summary').click();
-    await expect(page.getByText('synthetic Starlark division by zero', { exact: false })).toBeVisible();
+    await expect(notice('execution').locator('pre')).toBeVisible();
+    await expect(notice('execution')).toContainText(/division by zero/);
+    await expect(page.locator('[data-repl-cell]').filter({ hasText: 'Committed before failing cell' })).toHaveCount(1);
     await capture('execution');
-    report.push('Execution: persisted failing cell is visible in real REPL.');
+    report.checks.push('Execution: persisted failing cell is visible in real REPL.');
 
     await scenario('submission');
     await composer().fill('Please retain this rejected message.');
@@ -130,8 +155,10 @@ try {
     await expect(notice('application')).toHaveCount(0);
     await expect(composer()).toHaveValue('Please retain this rejected message.');
     await capture('submission');
-    report.push('Submission: rejected input appears beside composer with retained draft and no global duplicate.');
+    report.checks.push('Submission: rejected input appears beside composer with retained draft and no global duplicate.');
 
+    await eventually(async () => (await session.activity(deadline())).active_turn === null);
+    const effectsBeforeUncertain = await fixture.effects();
     await scenario('uncertain');
     await composer().fill('Verify this original identity before retrying.');
     await page.getByRole('button', { name: 'Send message', exact: true }).click();
@@ -139,9 +166,11 @@ try {
     await capture('submission-uncertain');
     await page.getByRole('button', { name: 'Restore', exact: true }).click();
     await notice('submission').getByRole('button', { name: 'Check status' }).click();
-    await expect(notice('submission')).toContainText(/not accepted|not found|not submitted/i);
+    await expect(notice('submission')).toContainText(/not accepted|not found|not submitted|not received/i);
     await capture('submission-uncertain-restored');
-    report.push('Submission uncertainty: lost acknowledgement reconciles original identity without automatic replay.');
+    assert.deepEqual(await fixture.effects(), effectsBeforeUncertain, 'Uncertain delivery inspection replayed a dropped input');
+    await expect(composer()).toHaveValue('Verify this original identity before retrying.');
+    report.checks.push('Submission uncertainty: lost acknowledgement reconciles original identity without automatic replay.');
 
     await scenario('resource');
     await page.getByRole('button', { name: 'Model', exact: true }).click();
@@ -154,11 +183,11 @@ try {
     await notice('resource').getByRole('button', { name: 'Retry', exact: true }).click();
     await expect(notice('resource')).toHaveCount(0);
     await capture('resource-restored');
-    report.push('Resource: model catalog failure stays inside its picker; Retry recovers after fault removal.');
+    report.checks.push('Resource: model catalog failure stays inside its picker; Retry recovers after fault removal.');
     await page.keyboard.press('Escape');
 
     await scenario('action');
-    await page.locator('[data-sidebar-session]').getByRole('button', { name: /^Actions for / }).click();
+    await page.locator(`[data-sidebar-session="${root.id}"]`).getByRole('button', { name: /^Actions for / }).click();
     await page.getByRole('menuitem', { name: 'Rename', exact: true }).click();
     const rename = page.getByRole('dialog', { name: 'Rename session' });
     await rename.getByRole('textbox').fill('Name retained on failure');
@@ -169,13 +198,13 @@ try {
     await capture('action');
     await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'Restore', exact: true }).click();
-    await page.locator('[data-sidebar-session]').getByRole('button', { name: /^Actions for / }).click();
+    await page.locator(`[data-sidebar-session="${root.id}"]`).getByRole('button', { name: /^Actions for / }).click();
     await page.getByRole('menuitem', { name: 'Rename', exact: true }).click();
     await rename.getByRole('textbox').fill('Name retained on failure');
     await rename.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(rename).toBeHidden({ timeout: 15000 });
     await capture('action-restored');
-    report.push('Action: rename rejection stays in dialog; retry succeeds and preserves name.');
+    report.checks.push('Action: rename rejection stays in dialog; retry succeeds and preserves name.');
 
     await scenario('validation');
     await page.getByRole('link', { name: 'Settings', exact: true }).click();
@@ -187,7 +216,7 @@ try {
     await expect(notice('validation')).toHaveCount(1);
     await expect(notice('application')).toHaveCount(0);
     await capture('validation');
-    report.push('Validation: invalid server address stays inside the form.');
+    report.checks.push('Validation: invalid server address stays inside the form.');
     await page.keyboard.press('Escape');
 
     await scenario('turn');
@@ -196,13 +225,24 @@ try {
     await page.getByRole('button', { name: 'Restore', exact: true }).click();
     await expect(page.locator('[data-agent-turn-outcome="failed"]').filter({ visible: true })).toHaveCount(0);
     await capture('turn-restored');
-    report.push('Turn: genuine recorded outcome and successful follow-up recovery.');
-    assert.deepEqual(errors, []);
-    await writeFile(resolve(results, 'report.json'), JSON.stringify(report, null, 2));
-    console.log(`Passed ${report.length} error ownership workflows. Artifacts: ${results}`);
+    report.checks.push('Turn: genuine recorded outcome and successful follow-up recovery.');
+    assert.deepEqual(errors, []); assert.deepEqual(csp, []); Object.assign(report, { errors, csp, browser: browser.version(), passed: true });
+    console.log(`${name}: Passed ${report.checks.length} error ownership workflows. Artifacts: ${results}`);
   }
+} catch (error) {
+  report.error = String(error.stack ?? error); report.errors = errors; report.csp = csp;
+  if (page) { await page.screenshot({ path: resolve(results, name, 'failure.png') }).catch(() => {}); report.body = (await page.locator('body').innerText().catch(() => '')).slice(0, 16000); }
+  throw error;
 } finally {
-  await browser?.close();
-  if (server) await new Promise(resolve => server.httpServer.close(resolve));
-  await fixture.close();
+  try { await browser?.close(); }
+  finally {
+    try {
+      if (electron && electron.exitCode === null && electron.signalCode === null) {
+        const ended = new Promise(resolve => electron.once('exit', resolve)); electron.kill('SIGTERM');
+        const timer = setTimeout(() => electron.kill('SIGKILL'), 5000); try { await ended; } finally { clearTimeout(timer); }
+      }
+      if (server) await new Promise(resolve => server.httpServer.close(resolve));
+    } finally { try { await fixture?.close(); } finally { await writeFile(resolve(results, 'report.json'), JSON.stringify(reports, null, 2)); } }
+  }
+}
 }

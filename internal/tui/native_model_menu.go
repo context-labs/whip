@@ -214,6 +214,9 @@ func (m *nativeMenu) resetInput() {
 }
 
 func (m *nativeMenu) refreshMenu() tea.Cmd {
+	if m.options.Kind == "rename" {
+		return m.readRename()
+	}
 	if m.mode == "setup-unknown" && m.setup.account != "" {
 		return m.readAccount()
 	}
