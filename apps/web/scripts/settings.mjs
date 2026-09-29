@@ -52,6 +52,11 @@ for (const engine of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split
       assert.equal(await page.evaluate(() => sessionStorage.getItem('whip.web.workspace.v3')), before);
       checks.push('dedicated Settings shell preserves the workspace without hidden conversation navigation/tabs');
 
+      // A released conversation lease deliberately remains live for 30 seconds.
+      // Reload this saved Settings route to join the old page before attributing
+      // any reads to the local appearance preview. The workspace stays saved.
+      await page.reload();
+      await expect(page.getByRole('heading', { name: 'Appearance', exact: true })).toBeVisible();
       const density = page.getByRole('slider', { name: 'Tool call density', exact: true });
       const contentReads = () => frames.filter(frame => /content\.(read|download)|sessions\.(observe|history_page)/.test(frame.method ?? '')).length;
       const reads = contentReads();
@@ -60,7 +65,7 @@ for (const engine of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split
       await expect(page.locator('[data-tool-preview]')).toBeVisible();
       await page.keyboard.press('End');
       await expect(page.locator('[data-message-id="appearance-tool-preview"] details')).toHaveAttribute('open', '');
-      assert.equal(contentReads(), reads, 'Density initiated transcript/content reads');
+      assert.equal(contentReads(), reads, `Density initiated transcript/content reads: ${JSON.stringify(frames.filter(frame => /content\.(read|download)|sessions\.(observe|history_page)/.test(frame.method ?? '')).slice(reads))}`);
       await page.getByRole('switch', { name: 'Code block word wrap', exact: true }).click();
       const uiSize = page.getByRole('textbox', { name: 'UI font size', exact: true });
       await uiSize.fill('13.5'); await uiSize.press('Tab');

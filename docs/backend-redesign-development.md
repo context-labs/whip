@@ -4576,3 +4576,19 @@ keyboard EventTiming p95 fell144±4→112±4ms during uploads and104±4→88±4m
 1,436,720→1,391,280KiB. The50ms target and memory acceptance remain open. Evidence:
 /tmp/whip-desktop-transfer-linear-drafts/run-dVPZIA/performance.json. This is a
 measured improvement, not completion of Phases5–7 or performance acceptance.
+
+### Settings preview read attribution — 2026-09-29
+
+At ccf8310e7, both hosted build jobs pass the corrected test-only package compile.
+The Settings job failed its fetch-free density assertion (five reads versus four).
+The app deliberately retains a released conversation lease for30seconds; the
+probe changed density while that old lease could still poll. The probe now reloads
+the saved Appearance route before measuring, joining the old page while retaining
+the workspace/draft. It still requires zero transcript/content reads caused by
+appearance controls. Both Chromium and Firefox pass all12 Settings workflows,
+including workspace/draft restore, density, persisted appearance, accessibility,
+provider-save guards and responsive theme controls. Logs/artifacts:
+/tmp/whip-settings-lease-repair.log and /tmp/whip-settings-lease-repair-results.
+No product polling policy, deadline or read assertion changed. The earlier hosted
+run remains failed; client/desktop results and the next exact-head run remain
+separate evidence.
