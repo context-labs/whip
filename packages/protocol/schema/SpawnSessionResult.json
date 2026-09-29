@@ -1189,7 +1189,8 @@
                         "files",
                         "tools",
                         "computer",
-                        "browser"
+                        "browser",
+                        "agents"
                       ]
                     },
                     "name": {

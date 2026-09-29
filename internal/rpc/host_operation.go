@@ -45,6 +45,9 @@ func dispatchHostOperation(ctx context.Context, r *runtime.Runtime, method strin
 }
 
 func hostToolOperation(p protocol.CallHostToolParams) (session.HostOperation, error) {
+	if p.Operation.Module == "agents" {
+		return session.HostOperation{}, session.ErrInvalid
+	}
 	if len(p.Operation.ArgumentsBase64) > base64.StdEncoding.EncodedLen(session.MaxDocumentBytes/2) {
 		return session.HostOperation{}, session.ErrInvalid
 	}

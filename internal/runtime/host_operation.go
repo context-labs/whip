@@ -34,6 +34,21 @@ func (r *Runtime) runHostOperation(ctx context.Context, claim store.Claim) (runn
 	if err := decoder.Decode(&arguments); err != nil {
 		return runner.Outcome{}, err
 	}
+	if accepted.Module == "agents" {
+		transfer, err := r.store.AcceptedChildTransfer(ctx, claim.Turn.ID)
+		if err != nil {
+			return runner.Failure(err), nil
+		}
+		raw, err := json.Marshal(transfer.Request)
+		if err != nil {
+			return runner.Failure(err), nil
+		}
+		arguments, err = hookArguments(raw)
+		if err != nil {
+			return runner.Failure(err), nil
+		}
+		delete(arguments, "parent_id") // Owner and delivery identity never enter hook rewrites.
+	}
 	_, _, err := r.tools.Call(ctx, tool.Invocation{SessionID: claim.Turn.SessionID, DirectTurnID: claim.Turn.ID, RequestID: string(claim.Input.ID), Module: accepted.Module, Name: accepted.Name, Arguments: arguments})
 	if err != nil {
 		return runner.Failure(err), nil

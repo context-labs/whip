@@ -49,6 +49,15 @@ func childTransferIntent(ctx context.Context, q querier, spec session.OperationS
 	if err != nil {
 		return intent, session.Configuration{}, err
 	}
+	if spec.DirectTurnID != "" {
+		accepted, _, err := acceptedChildTransfer(ctx, q, spec.DirectTurnID)
+		if err != nil {
+			return intent, session.Configuration{}, err
+		}
+		if accepted.Request.ParentID != ownerID {
+			return invalid()
+		}
+	}
 	parent, err := readSession(ctx, q, ownerID)
 	if err != nil {
 		return intent, session.Configuration{}, err
@@ -130,7 +139,11 @@ func (s *Store) CheckChildTransfer(ctx context.Context, id session.OperationID, 
 		if _, err := tx.ExecContext(ctx, "SAVEPOINT child_transfer_preview"); err != nil {
 			return err
 		}
-		_, admissionErr := spawnChildID(ctx, tx, intent.ChildID, session.RequestIdentity{ClientID: "operation", RequestID: string(id)}, intent.Request, &captured)
+		identity, digest, err := childTransferReceipt(ctx, tx, op, intent)
+		if err != nil {
+			return err
+		}
+		_, admissionErr := spawnChildAccepted(ctx, tx, intent.ChildID, identity, digest, intent.Request, &captured)
 		_, rollbackErr := tx.ExecContext(ctx, "ROLLBACK TO child_transfer_preview")
 		_, releaseErr := tx.ExecContext(ctx, "RELEASE child_transfer_preview")
 		return errors.Join(admissionErr, rollbackErr, releaseErr)
@@ -147,9 +160,15 @@ func (s *Store) CommitChildTransfer(ctx context.Context, id session.OperationID,
 		if err != nil {
 			return err
 		}
-		identity := session.RequestIdentity{ClientID: "operation", RequestID: string(id)}
+		var original ChildTransferIntent
+		if json.Unmarshal(op.Arguments, &original) != nil {
+			return ErrConflict
+		}
+		identity, digest, err := childTransferReceipt(ctx, tx, op, original)
+		if err != nil {
+			return err
+		}
 		if op.State == session.OperationSucceeded {
-			var original ChildTransferIntent
 			if json.Unmarshal(op.Arguments, &original) != nil || original.ChildID != TransferChildID(id) || !reflect.DeepEqual(children, original.Children) {
 				return ErrConflict
 			}
@@ -169,7 +188,7 @@ func (s *Store) CommitChildTransfer(ctx context.Context, id session.OperationID,
 		if err := authorizeOperation(ctx, tx, op); err != nil {
 			return err
 		}
-		result, err = spawnChildID(ctx, tx, intent.ChildID, identity, intent.Request, &captured)
+		result, err = spawnChildAccepted(ctx, tx, intent.ChildID, identity, digest, intent.Request, &captured)
 		if err != nil {
 			return err
 		}

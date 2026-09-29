@@ -169,3 +169,51 @@ test('direct host commands use the same read-only exact admission matcher', asyn
     assert.equal(command.record.accepted, true); assert.equal(calls.length, 1);
   }
 });
+
+test('browser transfer BUSY and terminal evidence never becomes missing or retransmits native work', async () => {
+  for (const kind of ['TRANSFER_FAILED', 'TRANSFER_UNCERTAIN', 'TRANSFER_INTERRUPTED', 'TRANSFER_CANCELLED', 'TRANSFER_DELETED']) {
+    let outcome = 'BUSY';
+    const { client, calls } = await clientFixture(request => {
+      if (request.method === 'sessions.spawn') throw new DeliveryError('private transfer accepted; public child acknowledgement absent');
+      assert.equal(request.method, 'receipts.match');
+      return { jsonrpc: '2.0', id: request.id, error: { code: -32010, kind: outcome, message: 'accepted transfer outcome' } };
+    });
+    const params = { ...fixture('SpawnSessionParams'), identity: { client_id: 'client', request_id: 'transfer' }, browser_attachments: ['attachment'] };
+    const command = client.command('sessions.spawn', params);
+    await assert.rejects(command.send(), DeliveryError);
+    await assert.rejects(command.check(), error => error.kind === 'BUSY');
+    await assert.rejects(command.retry(), error => error.kind === 'BUSY');
+    outcome = kind;
+    const recovered = DurableCommand.recover(client, command.record);
+    await assert.rejects(recovered.check(), error => error.kind === kind);
+    await assert.rejects(recovered.retry(), error => error.kind === kind);
+    assert.equal(calls.filter(call => call.method === 'sessions.spawn').length, 1);
+    assert.deepEqual(calls[0].params.browser_attachments, ['attachment']);
+    assert.equal(command.record.accepted, false, 'a child receipt was never fabricated');
+  }
+});
+
+test('browser transfer recovery preserves exact scoped attachment payload when a public child receipt arrives', async () => {
+  let accepted = false;
+  const receipt = admission('transfer');
+  const result = { session: null, admission: receipt };
+  const { client, calls } = await clientFixture(request => {
+    if (request.method === 'receipts.match') {
+      if (!accepted) return { jsonrpc: '2.0', id: request.id, error: { code: -32010, kind: 'BUSY', message: 'private accepted work pending' } };
+      return { jsonrpc: '2.0', id: request.id, result: receipt };
+    }
+    if (!accepted) throw new DeliveryError('lost child acknowledgement');
+    return { jsonrpc: '2.0', id: request.id, result };
+  });
+  const params = { ...fixture('SpawnSessionParams'), identity: { client_id: 'client', request_id: 'transfer' }, browser_attachments: ['first', 'second'] };
+  const command = client.command('sessions.spawn', params);
+  await assert.rejects(command.send(), DeliveryError);
+  accepted = true;
+  const recovered = DurableCommand.recover(client, command.record);
+  assert.equal((await recovered.check()).state, 'found');
+  assert.equal(recovered.record.accepted, true);
+  assert.deepEqual(await recovered.retry(), result);
+  const sends = calls.filter(call => call.method === 'sessions.spawn');
+  assert.equal(sends.length, 2);
+  assert.deepEqual(sends[0].params, sends[1].params);
+});

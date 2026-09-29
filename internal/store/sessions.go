@@ -156,6 +156,9 @@ func validateChildRequest(identity session.RequestIdentity, request ChildRequest
 	}
 	seenAttachments := make(map[string]bool, len(request.BrowserAttachments))
 	for _, id := range request.BrowserAttachments {
+		if len(id) > 128 {
+			return session.ErrInvalid
+		}
 		if err := session.ValidateID(id); err != nil {
 			return err
 		}
@@ -223,6 +226,10 @@ func spawnChildID(ctx context.Context, tx *sql.Tx, childID session.SessionID, id
 	if err != nil {
 		return ChildAdmission{}, err
 	}
+	return spawnChildAccepted(ctx, tx, childID, identity, digest, request, captured)
+}
+
+func spawnChildAccepted(ctx context.Context, tx *sql.Tx, childID session.SessionID, identity session.RequestIdentity, digest string, request ChildRequest, captured *session.Configuration) (ChildAdmission, error) {
 	receipt, err := readReceipt(ctx, tx, identity)
 	if err == nil {
 		if receipt.Digest != digest {

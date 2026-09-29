@@ -133,7 +133,7 @@ export interface Admission {
           page_title?: string;
         };
         host_operation: {
-          module: "shell" | "files" | "tools" | "computer" | "browser";
+          module: "shell" | "files" | "tools" | "computer" | "browser" | "agents";
           name: string;
           arguments_base64: string;
         };
@@ -2468,7 +2468,7 @@ export interface GoalAdmission {
             page_title?: string;
           };
           host_operation: {
-            module: "shell" | "files" | "tools" | "computer" | "browser";
+            module: "shell" | "files" | "tools" | "computer" | "browser" | "agents";
             name: string;
             arguments_base64: string;
           };
@@ -3827,7 +3827,7 @@ export type Input =
         page_title?: string;
       };
       host_operation: {
-        module: "shell" | "files" | "tools" | "computer" | "browser";
+        module: "shell" | "files" | "tools" | "computer" | "browser" | "agents";
         name: string;
         arguments_base64: string;
       };
@@ -4017,7 +4017,7 @@ export interface InputSteeringResult {
           page_title?: string;
         };
         host_operation: {
-          module: "shell" | "files" | "tools" | "computer" | "browser";
+          module: "shell" | "files" | "tools" | "computer" | "browser" | "agents";
           name: string;
           arguments_base64: string;
         };
@@ -7601,6 +7601,11 @@ export interface RPCError {
     | "PROVIDER_KEY_STORAGE"
     | "MCP_UNAVAILABLE"
     | "BROWSER_EVENT_STALE"
+    | "TRANSFER_FAILED"
+    | "TRANSFER_UNCERTAIN"
+    | "TRANSFER_INTERRUPTED"
+    | "TRANSFER_CANCELLED"
+    | "TRANSFER_DELETED"
     | "INTERNAL";
 }
 export interface ReadCompletionParams {
@@ -7830,6 +7835,11 @@ export type Response = {
       | "PROVIDER_KEY_STORAGE"
       | "MCP_UNAVAILABLE"
       | "BROWSER_EVENT_STALE"
+      | "TRANSFER_FAILED"
+      | "TRANSFER_UNCERTAIN"
+      | "TRANSFER_INTERRUPTED"
+      | "TRANSFER_CANCELLED"
+      | "TRANSFER_DELETED"
       | "INTERNAL";
   };
 } & {
@@ -8613,6 +8623,10 @@ export interface ShellInteractionResult {
   };
 }
 export interface SpawnSessionParams {
+  /**
+   * @maxItems 4
+   */
+  browser_attachments?: [] | [string] | [string, string] | [string, string, string] | [string, string, string, string];
   identity: {
     client_id: string;
     request_id: string;
@@ -9011,7 +9025,7 @@ export interface SpawnSessionResult {
             page_title?: string;
           };
           host_operation: {
-            module: "shell" | "files" | "tools" | "computer" | "browser";
+            module: "shell" | "files" | "tools" | "computer" | "browser" | "agents";
             name: string;
             arguments_base64: string;
           };

@@ -9,7 +9,7 @@ import (
 
 // DirectHostInput preserves exact argument bytes, including large JSON integers.
 type DirectHostInput struct {
-	Module          string `json:"module" enum:"shell,files,tools,computer,browser"`
+	Module          string `json:"module" enum:"shell,files,tools,computer,browser,agents"`
 	Name            ID     `json:"name"`
 	ArgumentsBase64 string `json:"arguments_base64"`
 }
@@ -41,6 +41,10 @@ type HostToolSchemasResult struct {
 
 func hostOperationSchema(schema *jsonschema.Schema, t reflect.Type) {
 	switch t {
+	case reflect.TypeFor[CallHostToolParams]():
+		operation := schema.Properties["operation"].CloneSchemas()
+		operation.Properties["module"].Enum = []any{"shell", "files", "tools", "computer", "browser"}
+		schema.Properties["operation"] = operation
 	case reflect.TypeFor[DirectHostInput]():
 		schema.Properties["arguments_base64"].MaxLength = new(699052)
 	case reflect.TypeFor[RunShellParams]():

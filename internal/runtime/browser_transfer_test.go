@@ -336,3 +336,73 @@ func TestBrowserTransferCommittedChildWaitsWhileSchedulerAlreadyAwake(t *testing
 		t.Fatal("unexpected native dispatch", fake.commands.Load())
 	}
 }
+
+func TestBrowserTransferDurableChildSurvivesLostCommitAckAndActivationRevocation(t *testing.T) {
+	for _, lostAck := range []bool{false, true} {
+		t.Run(map[bool]string{false: "revoked-before-activation", true: "lost-SQL-acknowledgement"}[lostAck], func(t *testing.T) {
+			r, owner, cell := modelHelperFixture(t, model.Scripted{})
+			fake := startBrowserFixture(t, r, owner)
+			attached := attachBrowserFixture(t, r, owner, cell)
+			call := spawnBrowserCall(owner, cell, attached)
+			child := browserhost.Identity{RootID: attached.Owner.RootID, AgentID: string(store.TransferChildID(call.OperationID()))}
+			capture, err := r.browser.PrepareTransfer(t.Context(), attached.Owner, child, []string{attached.Scope.AttachmentID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request, err := parseSpawn(owner.ID, call.Arguments)
+			if err != nil {
+				t.Fatal(err)
+			}
+			intent := store.ChildTransferIntent{Request: request, ChildID: session.SessionID(child.AgentID), Parents: transferScopes(capture.Parents()), Children: transferScopes(capture.Attachments())}
+			raw, err := json.Marshal(intent)
+			if err != nil {
+				t.Fatal(err)
+			}
+			spec := session.OperationSpec{ID: call.OperationID(), CellID: cell.ID, RequestID: call.RequestID, Capability: "agents.spawn", Resource: string(owner.TreeID), Arguments: raw}
+			if _, err := r.store.AdmitOperation(t.Context(), spec); err != nil {
+				t.Fatal(err)
+			}
+			lease, err := capture.Acquire(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer lease.Close()
+			if allowed, err := r.store.DispatchOperation(t.Context(), spec.ID); err != nil || !allowed {
+				t.Fatal(allowed, err)
+			}
+			var committed store.ChildAdmission
+			_, err = lease.Execute(t.Context(), string(spec.ID), func(ctx context.Context) error { return r.store.CheckChildTransfer(ctx, spec.ID, true) }, func(ctx context.Context, children []browserhost.Attachment) error {
+				var err error
+				committed, err = r.store.CommitChildTransfer(ctx, spec.ID, transferScopes(children))
+				if err != nil {
+					return err
+				}
+				if lostAck {
+					return errors.New("SQL commit acknowledgement lost")
+				}
+				r.browser.RevokeOwner(child)
+				return nil
+			})
+			if !errors.Is(err, browserhost.ErrUnknown) {
+				t.Fatal("post-commit authority loss was hidden", err)
+			}
+			lease.Close()
+			operation, err := r.Operation(t.Context(), spec.ID)
+			if err != nil || operation.State != session.OperationSucceeded {
+				t.Fatal("known commit was relabelled", operation, err)
+			}
+			receipt, err := r.Admission(t.Context(), session.RequestIdentity{ClientID: "operation", RequestID: string(spec.ID)})
+			if err != nil || receipt.Input.ID != committed.Admission.Input.ID {
+				t.Fatal("committed child receipt lost", receipt, err)
+			}
+			for _, identity := range []browserhost.Identity{attached.Owner, child} {
+				if entries := r.browser.Attachments(identity); len(entries) != 0 {
+					t.Fatal("uncertain activation retained controls", entries)
+				}
+			}
+			if fake.commands.Load() != 2 {
+				t.Fatal("commit recovery replayed native handoff", fake.commands.Load())
+			}
+		})
+	}
+}

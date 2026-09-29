@@ -158,7 +158,7 @@ func (request Request) validate(kind Kind, name string) (Request, error) {
 				return request, fmt.Errorf("%w: invalid tool-hook request", session.ErrInvalid)
 			}
 		case "before_spawn":
-			if request.HostOperation || session.ValidateID(string(request.CellID)) != nil || request.Operation != "agents.spawn" || !object(request.Spawn) || len(request.Arguments) != 0 || request.Input != "" {
+			if (request.HostOperation && request.CellID != "" || !request.HostOperation && session.ValidateID(string(request.CellID)) != nil) || request.Operation != "agents.spawn" || !object(request.Spawn) || len(request.Arguments) != 0 || request.Input != "" {
 				return request, fmt.Errorf("%w: invalid spawn-hook request", session.ErrInvalid)
 			}
 		case "turn_start":

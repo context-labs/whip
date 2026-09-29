@@ -390,6 +390,13 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 			schema.Properties["sources"].Types = nil
 			schema.Properties["sources"].MaxItems = new(1152)
 		}
+		if t == reflect.TypeFor[SpawnSessionParams]() {
+			attachments := schema.Properties["browser_attachments"]
+			attachments.Type, attachments.Types = "array", nil
+			attachments.MaxItems = new(4)
+			attachments.UniqueItems = true
+			attachments.Items.MaxLength = new(128)
+		}
 		if t == reflect.TypeFor[Input]() || t == reflect.TypeFor[SubmitParams]() || t == reflect.TypeFor[SpawnSessionParams]() {
 			schema.Properties["parts"].Items = partSchema("text", "content")
 		}

@@ -202,3 +202,15 @@ test('browser notifications preserve tagged null bodies, exact counters and boun
   assert.equal(validate('BrowserScreenshotChunkParams', { ...chunk, data_base64: 'a'.repeat(87384) }), true);
   assert.equal(validate('BrowserScreenshotChunkParams', { ...chunk, data_base64: 'a'.repeat(87385) }), false);
 });
+
+test('browser transfer controls are bounded and private spawn provenance cannot be called as a generic host tool', () => {
+  const params = structuredClone(fixtures.find(value => value.type === 'SpawnSessionParams' && value.value.browser_attachments).value);
+  assert.equal(params.browser_attachments.length, 4);
+  assert.equal(validate('SpawnSessionParams', params), true);
+  for (const browser_attachments of [['a', 'b', 'c', 'd', 'e'], ['same', 'same'], ['x'.repeat(129)], null]) assert.equal(validate('SpawnSessionParams', { ...params, browser_attachments }), false);
+  const input = fixtures.find(value => value.type === 'Input' && value.value.host_operation?.module === 'agents').value;
+  assert.equal(input.host_operation.name, 'spawn');
+  assert.equal(validate('Input', input), true);
+  assert.equal(validate('CallHostToolParams', { identity: params.identity, session_id: params.parent_id, operation: input.host_operation }), false);
+  for (const kind of ['TRANSFER_FAILED', 'TRANSFER_UNCERTAIN', 'TRANSFER_INTERRUPTED', 'TRANSFER_CANCELLED', 'TRANSFER_DELETED']) assert.equal(validate('Response', { jsonrpc: '2.0', id: 'call', error: { code: -32038, kind, message: 'terminal outcome' } }), true);
+});

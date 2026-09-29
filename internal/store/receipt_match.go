@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 
 	"github.com/context-labs/whip/internal/session"
 )
@@ -17,6 +18,13 @@ func (s *Store) matchAdmission(ctx context.Context, identity session.RequestIden
 	}
 	err = s.write(ctx, func(tx *sql.Tx) error {
 		receipt, err := readReceipt(ctx, tx, identity)
+		if errors.Is(err, ErrNotFound) {
+			if _, reserved := readReceipt(ctx, tx, childTransferIdentity(identity)); reserved == nil {
+				return ErrConflict
+			} else if !errors.Is(reserved, ErrNotFound) {
+				return reserved
+			}
+		}
 		if err != nil {
 			return err
 		}
@@ -42,6 +50,10 @@ func (s *Store) MatchSubmission(ctx context.Context, identity session.RequestIde
 }
 
 func (s *Store) MatchChild(ctx context.Context, identity session.RequestIdentity, request ChildRequest) (Admission, error) {
+	if len(request.BrowserAttachments) != 0 {
+		result, err := s.ChildTransferResult(ctx, identity, request)
+		return result.Admission, err
+	}
 	digest, err := requestDigest("spawn_child", request)
 	if err != nil {
 		return Admission{}, err

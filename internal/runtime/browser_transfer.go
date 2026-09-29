@@ -81,3 +81,33 @@ func (r *Runtime) prepareBrowserTransfer(ctx context.Context, current session.Se
 		},
 	}, nil
 }
+
+// spawnTransferredChild observes runtime-owned accepted work. Caller cancellation
+// ends only this bounded wait, never the native handoff or its durable settlement.
+func (r *Runtime) spawnTransferredChild(ctx context.Context, identity session.RequestIdentity, request store.ChildRequest) (store.ChildAdmission, error) {
+	result, err := r.store.ChildTransferResult(ctx, identity, request)
+	if !errors.Is(err, store.ErrBusy) && !errors.Is(err, store.ErrNotFound) {
+		return result, err
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		if _, err := r.store.BeginChildTransfer(ctx, identity, request); err != nil {
+			return store.ChildAdmission{}, err
+		}
+		r.Wake()
+	}
+	wait, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		result, err = r.store.ChildTransferResult(wait, identity, request)
+		if !errors.Is(err, store.ErrBusy) {
+			return result, err
+		}
+		select {
+		case <-wait.Done():
+			return store.ChildAdmission{}, store.ErrBusy
+		case <-ticker.C:
+		}
+	}
+}

@@ -20,7 +20,7 @@ test('production browser provider peers preserve consent, scoped screenshots and
   t.after(async () => { await stop(); await rm(directory, { recursive: true, force: true }); });
   await promisify(execFile)('go', ['build', '-race=false', '-o', binary, './cmd/whip-runtime'], { timeout: 60000 });
   const start = async () => {
-    child = spawn(binary, ['-directory', join(directory, 'state'), '-web', '-web-listen', '127.0.0.1:0'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    child = spawn(binary, ['-directory', join(directory, 'state'), '-scripted', '-web', '-web-listen', '127.0.0.1:0'], { stdio: ['ignore', 'pipe', 'pipe'] });
     child.stderr.on('data', data => { diagnostic = (diagnostic + data).slice(-(1 << 20)); });
     return new Promise((resolve, reject) => {
       let text = '';
@@ -36,12 +36,12 @@ test('production browser provider peers preserve consent, scoped screenshots and
   let client = await Client.connect(unixSocket(ready.socket), { clientID: 'browser-fixture', expectedRuntimeID: ready.runtime_id, ...deadline() });
   const evidence = [];
   for (const [mode, engine] of [['unix', 'starlark'], ['gateway', 'quickjs']]) {
-    const { root } = await client.createTree({ engine, definition: client.builtins[0], working_directory: directory, overrides: { modules: ['browser'], automatic_title: false }, metadata: { title: null, pinned: false, archived: false } }, 'browser-' + mode, deadline());
-    const other = await client.createTree({ engine, definition: client.builtins[0], working_directory: directory, overrides: { modules: ['browser'], automatic_title: false }, metadata: { title: null, pinned: false, archived: false } }, 'foreign-' + mode, deadline());
+    const { root } = await client.createTree({ engine, definition: client.builtins[0], working_directory: directory, overrides: { modules: ['agents', 'browser'], model: { provider: 'scripted', name: 'scripted', effort: '' }, automatic_title: false }, metadata: { title: null, pinned: false, archived: false } }, 'browser-' + mode, deadline());
+    const other = await client.createTree({ engine, definition: client.builtins[0], working_directory: directory, overrides: { modules: ['agents', 'browser'], model: { provider: 'scripted', name: 'scripted', effort: '' }, automatic_title: false }, metadata: { title: null, pinned: false, archived: false } }, 'foreign-' + mode, deadline());
     const transport = mode === 'unix' ? await browserProviderSocket(ready.socket, deadline()) : await browserProviderDuplex(ready.web, { ...pin, ...deadline() });
     const peer = await BrowserProviderClient.connect(transport, { ...pin, ...deadline() });
-    const offer = { root_id: root.id, version: 2, desktop_id: 'fake-desktop', window_id: 'fake-window', offer_revision: 'offer', create_profile_id: 'profile', offered_tabs: [{ tab_id: 'human-tab', tab_generation: 'generation', profile_id: 'profile', document_revision: 'doc', url: 'about:blank', title: 'Human-owned page' }], offered_preview_hosts: [] };
-    const commands = [], pending = new Map(), errors = []; let drop = false, effects = 0;
+    const offer = { root_id: root.id, version: 2, desktop_id: 'fake-desktop', window_id: 'fake-window', offer_revision: 'offer', create_profile_id: 'profile', offered_tabs: [{ tab_id: 'human-tab', tab_generation: 'generation', profile_id: 'profile', document_revision: 'doc', url: 'about:blank', title: 'Human-owned page' }, { tab_id: 'second-tab', tab_generation: 'generation-2', profile_id: 'profile', document_revision: 'doc', url: 'about:blank', title: 'Second human-owned page' }], offered_preview_hosts: [] };
+    const commands = [], pending = new Map(), errors = []; let drop = false, dropTransfer = false, effects = 0, transfers = 0;
     const bridge = {
       async select() {}, onEvent() { return () => {}; }, async retire() {}, async release() { for (const wait of pending.values()) wait.resolve(); },
       cancel(value) { pending.get(value.command_id)?.resolve(); },
@@ -50,6 +50,7 @@ test('production browser provider peers preserve consent, scoped screenshots and
         const operation = await client.call('operations.get', { operation_id: command.operation_id }, deadline());
         assert.equal(operation.state, 'dispatched', 'native effect preceded durable authority'); commands.push(command);
         const result = { command_id: command.command_id, root_id: command.root_id, provider_epoch: command.provider_epoch, attachment_generation: command.scope.attachment_generation, document_revision: 'doc', url: 'about:blank', title: 'Human-owned page', result: {} };
+        if (command.kind === 'transfer') { transfers++; if (dropTransfer) { const wait = defer(); pending.set(command.command_id, wait); await wait.promise; pending.delete(command.command_id); } }
         if (command.kind === 'cdp') switch (command.arguments.method) {
           case 'Page.getFrameTree': result.result = { frameTree: { frame: { id: 'frame', url: 'about:blank', securityOrigin: 'null', mimeType: 'text/html' } } }; break;
           case 'Runtime.evaluate': result.result = { result: { type: 'string', value: '{"url":"about:blank","title":"page","w":2,"h":2}' } }; break;
@@ -62,10 +63,10 @@ test('production browser provider peers preserve consent, scoped screenshots and
     };
     const selection = await selectBrowserProvider(peer, offer, bridge, { onError: error => errors.push(error) });
     t.after(() => selection.release());
-    assert.equal((await client.browserTabs(root.id, deadline())).tabs.length, 1);
+    assert.equal((await client.browserTabs(root.id, deadline())).tabs.length, 2);
     assert.equal((await client.browserAttachments(root.id, deadline())).attachments.length, 0);
     assert.equal(commands.length, 0);
-    const invoke = (name, args, key) => client.callTool(root.id, { module: 'browser', name, arguments_base64: Buffer.from(JSON.stringify(args)).toString('base64') }, mode + '-' + key, deadline());
+    const invoke = (name, args, key, owner = root.id) => client.callTool(owner, { module: 'browser', name, arguments_base64: Buffer.from(JSON.stringify(args)).toString('base64') }, mode + '-' + key, deadline());
     await invoke('attach', { tab_id: 'human-tab' }, 'attach');
     const approvals = await until(() => client.call('permissions.list', { session_id: root.id, limit: 10 }, deadline()), value => value.items.some(item => item.state === 'pending'));
     assert.equal(commands.length, 0);
@@ -80,14 +81,49 @@ test('production browser provider peers preserve consent, scoped screenshots and
     const reference_id = imageOp.result.content_references[0], content = await client.call('content.read', { session_id: root.id, reference_id }, deadline());
     assert.equal(content.reference.session_id, root.id); assert.equal(content.reference.media_type, 'image/jpeg'); assert.deepEqual(Buffer.from(content.data_base64, 'base64'), Buffer.from(jpeg));
     await assert.rejects(client.call('content.read', { session_id: other.root.id, reference_id }, deadline()), error => error.kind === 'NOT_FOUND');
-    drop = true; const lostArgs = { attachment_id: attachment.scope.attachment_id, code: 'type("once")' };
-    await invoke('run', lostArgs, 'lost'); await until(async () => effects, value => value === 1);
+    const transferParams = { identity: client.identity(mode + '-transfer'), parent_id: root.id, overrides: {}, parts: [{ type: 'text', text: 'Use the transferred browser' }], grant_ids: null, browser_attachments: [attachment.scope.attachment_id] };
+    const transfer = client.command('sessions.spawn', transferParams);
+    const creating = transfer.send();
+    const transferApproval = await until(() => client.call('permissions.list', { session_id: root.id, limit: 10 }, deadline()), value => value.items.some(item => item.state === 'pending'));
+    assert.equal(transfers, 0);
+    await assert.rejects(transfer.check(deadline()), error => error.kind === 'BUSY');
+    await client.call('permissions.resolve', { operation_id: transferApproval.items.find(item => item.state === 'pending').operation_id, approved: true }, deadline());
+    const created = await creating; assert.ok(created.session); assert.equal(created.session.parent_id, root.id);
+    await client.wait(mode + '-transfer', deadline());
+    assert.equal(transfers, 1);
+    assert.equal((await transfer.check(deadline())).state, 'found');
+    assert.equal((await transfer.retry(deadline())).session.id, created.session.id);
+    const controlled = (await client.browserAttachments(created.session.id, deadline())).attachments[0];
+    assert.equal(controlled.scope.control_lineage, attachment.scope.control_lineage);
+    assert.notEqual(controlled.scope.attachment_generation, attachment.scope.attachment_generation);
+    await invoke('run', { attachment_id: controlled.scope.attachment_id, code: 'screenshot()' }, 'child-image', created.session.id);
+    const childImage = await client.wait(mode + '-child-image', deadline()); assert.equal(childImage.turn.state, 'succeeded');
+    const childImageOp = (await client.call('turns.operations', { turn_id: childImage.turn.id, limit: 10 }, deadline())).items[0];
+    const childReference = childImageOp.result.content_references[0];
+    assert.equal((await client.call('content.read', { session_id: created.session.id, reference_id: childReference }, deadline())).reference.session_id, created.session.id);
+    await assert.rejects(client.call('content.read', { session_id: root.id, reference_id: childReference }, deadline()), error => error.kind === 'NOT_FOUND');
+    await client.call('permissions.set_mode', { edit_id: mode + '-automatic', session_id: root.id, expected_revision: '1', mode: 'automatic' }, deadline());
+    await invoke('attach', { tab_id: 'second-tab' }, 'second-attach'); await client.wait(mode + '-second-attach', deadline());
+    const second = (await client.browserAttachments(root.id, deadline())).attachments.find(item => item.scope.tab_id === 'second-tab'); assert.ok(second);
+    drop = true; const lostArgs = { attachment_id: controlled.scope.attachment_id, code: 'type("once")' };
+    await invoke('run', lostArgs, 'lost', created.session.id); await until(async () => effects, value => value === 1);
+    dropTransfer = true;
+    const lostTransferParams = { ...transferParams, identity: client.identity(mode + '-lost-transfer'), browser_attachments: [second.scope.attachment_id] };
+    const lostTransfer = client.command('sessions.spawn', lostTransferParams);
+    const lostTransferResult = lostTransfer.send().then(() => { throw new Error('lost native transfer ACK succeeded'); }, error => error);
+    await until(async () => transfers, value => value === 2);
+    await assert.rejects(lostTransfer.check(deadline()), error => error.kind === 'BUSY');
     await selection.release();
     const lost = await client.wait(mode + '-lost', deadline()); assert.equal(lost.turn.state, 'failed');
     const lostOp = (await client.call('turns.operations', { turn_id: lost.turn.id, limit: 10 }, deadline())).items[0]; assert.equal(lostOp.state, 'uncertain');
-    assert.equal((await invoke('run', lostArgs, 'lost')).input.id, lost.input.id); assert.equal(effects, 1);
+    assert.equal((await invoke('run', lostArgs, 'lost', created.session.id)).input.id, lost.input.id); assert.equal(effects, 1);
     assert.equal((await client.browserAttachments(root.id, deadline())).attachments.length, 0);
-    evidence.push({ root, attachment, reference_id, image: imageTurn.input.id, lost: lost.input.id, lostArgs, mode });
+    assert.equal((await lostTransferResult).kind, 'TRANSFER_UNCERTAIN');
+    await assert.rejects(lostTransfer.check(deadline()), error => error.kind === 'TRANSFER_UNCERTAIN');
+    await assert.rejects(lostTransfer.retry(deadline()), error => error.kind === 'TRANSFER_UNCERTAIN');
+    assert.equal(transfers, 2);
+    const sessions = await client.call('sessions.list', { tree_id: created.session.tree_id, limit: 100 }, deadline()); assert.equal(sessions.items.length, 2);
+    evidence.push({ root, child: created.session, transferParams, lostTransferParams, childReference, attachment, reference_id, image: imageTurn.input.id, lost: lost.input.id, lostArgs, mode });
     assert.equal(errors.length, 0, errors.map(error => error.message).join('\n'));
   }
   const previous = ready; await stop(); ready = await start();
@@ -96,6 +132,10 @@ test('production browser provider peers preserve consent, scoped screenshots and
   client = await Client.connect(unixSocket(ready.socket), { clientID: 'browser-fixture', expectedRuntimeID: ready.runtime_id, ...deadline() });
   for (const item of evidence) {
     assert.equal((await client.browserAttachments(item.root.id, deadline())).attachments.length, 0);
+    assert.equal((await client.browserAttachments(item.child.id, deadline())).attachments.length, 0);
+    assert.equal((await client.call('sessions.spawn', item.transferParams, deadline())).session.id, item.child.id);
+    await assert.rejects(client.call('sessions.spawn', item.lostTransferParams, deadline()), error => error.kind === 'TRANSFER_UNCERTAIN');
+    assert.equal((await client.call('content.read', { session_id: item.child.id, reference_id: item.childReference }, deadline())).reference.session_id, item.child.id);
     assert.equal((await client.recover(item.mode + '-lost', deadline())).input.id, item.lost);
     assert.equal((await client.call('content.read', { session_id: item.root.id, reference_id: item.reference_id }, deadline())).reference.media_type, 'image/jpeg');
   }

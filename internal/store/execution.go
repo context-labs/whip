@@ -144,7 +144,7 @@ func readAdmission(ctx context.Context, q querier, identity session.RequestIdent
 // Public admissions cannot occupy identities owned by internal durable work.
 // Recovery/inspection intentionally accepts these returned receipt identities.
 func validatePublicIdentity(identity session.RequestIdentity) error {
-	if identity.ClientID == "schedule" || identity.ClientID == "operation" || identity.ClientID == "goal" || identity.ClientID == titleClient {
+	if identity.ClientID == childTransferClient || identity.ClientID == "schedule" || identity.ClientID == "operation" || identity.ClientID == "goal" || identity.ClientID == titleClient {
 		return fmt.Errorf("%w: client identity is reserved for internal admissions", session.ErrInvalid)
 	}
 	return nil
@@ -239,6 +239,9 @@ func requestDigest(kind string, request any) (string, error) {
 }
 
 func admitInput(ctx context.Context, tx *sql.Tx, identity session.RequestIdentity, digest string, request Submission) (result Admission, err error) {
+	if err := checkChildTransferReservation(ctx, tx, identity, digest, request); err != nil {
+		return result, err
+	}
 	if request.Kind == "" {
 		request.Kind = session.PromptInput
 	}

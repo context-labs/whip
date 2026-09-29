@@ -63,7 +63,7 @@ func (r *Runtime) BeforeTool(ctx context.Context, current session.Session, call 
 	if err != nil {
 		return call, err
 	}
-	resolved, err := r.store.PreviewChild(ctx, call.CellID, request)
+	resolved, err := r.store.PreviewChildOperation(ctx, session.OperationSpec{CellID: call.CellID, DirectTurnID: call.DirectTurnID, Capability: "agents.spawn"}, request)
 	if err != nil {
 		return call, err
 	}
@@ -74,7 +74,7 @@ func (r *Runtime) BeforeTool(ctx context.Context, current session.Session, call 
 	if err != nil {
 		return call, err
 	}
-	result, err := r.askHook(ctx, current, "before_spawn", hook, executor.Request{SessionID: current.ID, TurnID: turn, CellID: call.CellID, Operation: "agents.spawn", Spawn: preview})
+	result, err := r.askHook(ctx, current, "before_spawn", hook, executor.Request{SessionID: current.ID, TurnID: turn, CellID: call.CellID, HostOperation: call.DirectTurnID != "", Operation: "agents.spawn", Spawn: preview})
 	if err != nil {
 		return call, err
 	}
@@ -87,7 +87,7 @@ func (r *Runtime) BeforeTool(ctx context.Context, current session.Session, call 
 		if err != nil {
 			return call, fmt.Errorf("hook before_spawn rewrite rejected: %w", err)
 		}
-		if _, err := r.store.PreviewChild(ctx, call.CellID, request); err != nil {
+		if _, err := r.store.PreviewChildOperation(ctx, session.OperationSpec{CellID: call.CellID, DirectTurnID: call.DirectTurnID, Capability: "agents.spawn"}, request); err != nil {
 			return call, fmt.Errorf("hook before_spawn rewrite rejected: %w", err)
 		}
 		call.Arguments = rewritten
@@ -99,6 +99,7 @@ func (r *Runtime) BeforeTool(ctx context.Context, current session.Session, call 
 
 func parseSpawn(parent session.SessionID, arguments map[string]any) (store.ChildRequest, error) {
 	var args struct {
+		Parts              []session.Part          `json:"parts,omitempty"`
 		Prompt             string                  `json:"prompt"`
 		BrowserAttachments []string                `json:"browser_attachments,omitempty"`
 		Definition         *session.DefinitionRef  `json:"definition,omitempty"`
@@ -111,10 +112,20 @@ func parseSpawn(parent session.SessionID, arguments map[string]any) (store.Child
 	if err := decodeArguments(arguments, &args); err != nil {
 		return store.ChildRequest{}, err
 	}
-	if err := session.ValidateText(args.Prompt, session.MaxDocumentBytes/2); err != nil {
-		return store.ChildRequest{}, err
+	if args.Parts != nil {
+		if _, supplied := arguments["prompt"]; supplied {
+			return store.ChildRequest{}, session.ErrInvalid
+		}
+		if err := session.ValidateInputParts(args.Parts); err != nil {
+			return store.ChildRequest{}, err
+		}
+	} else {
+		if err := session.ValidateText(args.Prompt, session.MaxDocumentBytes/2); err != nil {
+			return store.ChildRequest{}, err
+		}
+		args.Parts = []session.Part{{Type: "text", Text: args.Prompt}}
 	}
-	return store.ChildRequest{ParentID: parent, Definition: args.Definition, Overrides: args.Overrides, WorkingDirectory: args.WorkingDirectory, Parts: []session.Part{{Type: "text", Text: args.Prompt}}, GrantIDs: args.GrantIDs, Budgets: args.Budgets, Resources: args.Resources, BrowserAttachments: args.BrowserAttachments}, nil
+	return store.ChildRequest{ParentID: parent, Definition: args.Definition, Overrides: args.Overrides, WorkingDirectory: args.WorkingDirectory, Parts: args.Parts, GrantIDs: args.GrantIDs, Budgets: args.Budgets, Resources: args.Resources, BrowserAttachments: args.BrowserAttachments}, nil
 }
 
 func hookArguments(raw json.RawMessage) (map[string]any, error) {

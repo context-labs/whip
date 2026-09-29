@@ -394,7 +394,10 @@ export class Client {
     return this.call('sessions.fork', { ...params, fork_id: forkID }, options);
   }
 
-  /** Child identity, initial input and delegated authority share one recoverable admission. */
+  /** Child identity, initial input and delegated authority share one recoverable admission.
+   * browser_attachments transfers up to four live controls before child publication.
+   * After acceptance, receipts.match returns BUSY while pending; TRANSFER_* errors are terminal and never imply absence.
+   * Keep the same request ID and exact params for explicit observation/retry. */
   spawn(params: Omit<Operations['sessions.spawn']['params'], 'identity'>, requestID: string, options: CallOptions = {}): Promise<Operations['sessions.spawn']['result']> {
     return this.call('sessions.spawn', { ...params, identity: this.identity(requestID) }, options);
   }
