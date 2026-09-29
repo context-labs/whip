@@ -198,6 +198,7 @@ func (m *nativeModel) attachSession(owner protocol.Session) error {
 	m.picker, m.decision, m.hiddenDecision = nil, nil, nil
 	m.palette = nil
 	m.historyDialog = nil
+	m.messageActions = nil
 	m.decisions, m.decisionsHidden = nil, false
 	m.notice, m.noteRevisions = "", [2]string{}
 	m.input.SetValue(draft.text)

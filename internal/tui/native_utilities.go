@@ -41,6 +41,7 @@ Enter sends; Ctrl+J/Shift+Enter inserts a newline; Escape cancels the exact acti
 Ctrl+X 1/2/3 expands Agents/Context/LSP; sidebar headings select a panel; wheel scrolls it.
 Click an agent row in the sidebar/dock to open that owner. Ctrl+T focuses the agent tree; arrows select, Enter opens, Escape returns to its root.
 Drag selects displayed transcript/input/REPL text; release offers it to the clipboard. Double-click selects a word; triple-click a row.
+Click a user/assistant message for Copy text, Fork, or opening-input Rewind; double/triple clicks still select text.
 Ctrl+E toggles the latest loaded tool output; clicking a tool block toggles that block.
 Ctrl+R toggles REPL; PageUp/PageDown scroll the focused pane; Ctrl+C twice exits.
 Ctrl+P opens commands; Ctrl+O toggles live reasoning. Tab completes commands, @host files, $authorized skills, or host paths.

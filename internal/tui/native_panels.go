@@ -162,7 +162,7 @@ func nativeUsageQuantity(value protocol.UsageQuantity) string {
 // receives motion/release even when it crosses a column or dock boundary.
 func (m *nativeModel) panelMouse(message tea.MouseMsg) (tea.Cmd, bool) {
 	mouse := message.Mouse()
-	if m.historyDialog != nil || m.menu != nil || m.picker != nil || m.decision != nil || m.palette != nil || m.completion != nil || nativePreferenceLabel(m.preferences.Mouse, true) == "off" || mouse.Mod != 0 {
+	if m.messageActions != nil || m.historyDialog != nil || m.menu != nil || m.picker != nil || m.decision != nil || m.palette != nil || m.completion != nil || nativePreferenceLabel(m.preferences.Mouse, true) == "off" || mouse.Mod != 0 {
 		return nil, false
 	}
 	_, click := message.(tea.MouseClickMsg)

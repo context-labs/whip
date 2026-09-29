@@ -80,6 +80,7 @@ type nativeModel struct {
 	attachment                      *nativeImageUpload
 	attachmentBusy                  bool
 	historyDialog                   *nativeHistoryDialog
+	messageActions                  *nativeMessageActions
 	redraft                         *nativeRedraft
 	draftDesign                     *protocol.DesignContext
 	selection                       *nativeSelection
@@ -322,12 +323,13 @@ func nativeTick() tea.Cmd {
 
 func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch message.(type) {
-	case tea.KeyPressMsg, tea.PasteMsg, tea.WindowSizeMsg:
+	case tea.KeyPressMsg, tea.PasteMsg, tea.WindowSizeMsg, tea.MouseWheelMsg:
 		m.selection = nil
 		m.selectionClick = nativeSelectionClick{}
 	}
 	if mouse, ok := message.(tea.MouseMsg); ok {
 		if command, handled := m.panelMouse(mouse); handled {
+			m.selectionClick = nativeSelectionClick{}
 			return m, command
 		}
 		if command, handled := m.selectionMouse(mouse); handled {
@@ -338,6 +340,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.updateMenu(message)
 	}
 	switch value := message.(type) {
+	case nativeMessageClick:
+		m.showMessageActions(value)
+		return m, nil
 	case nativeSelectionTick:
 		return m, m.selectionScroll(value)
 	case nativeCopyResult:
@@ -576,6 +581,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if value.String() != "ctrl+c" {
 			m.initialPrompt = ""
 		}
+		if m.messageActions != nil && value.String() != "ctrl+c" {
+			return m, m.messageActionKey(value)
+		}
 		if m.historyDialog != nil && value.String() != "ctrl+c" {
 			return m, m.historyDialogKey(value)
 		}
@@ -621,6 +629,7 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+r":
 			return m, m.commandKeepingDraft("/repl")
 		case "ctrl+c":
+			m.messageActions = nil
 			m.historyDialog = nil
 			m.closeCompletion(false)
 			m.palette = nil
@@ -668,6 +677,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.follow = m.browse == nil && m.vp.AtBottom()
 		}
 	case tea.PasteMsg:
+		if m.messageActions != nil {
+			return m, nil
+		}
 		if m.historyDialog != nil {
 			m.historyDialogPaste(value.Content)
 			return m, nil
@@ -952,6 +964,11 @@ func (m *nativeModel) refresh() {
 }
 
 func (m *nativeModel) View() tea.View {
+	if m.messageActions != nil {
+		view := tea.NewView(m.messageActions.view(m.width, m.height))
+		view.AltScreen = true
+		return view
+	}
 	if m.historyDialog != nil {
 		view := tea.NewView(m.historyDialog.view(m.width, m.height))
 		view.AltScreen = true
