@@ -3102,3 +3102,14 @@ status/lifetimes belong to app; session/catalog truth stays in SDK views. Shared
 recovery storage must lock cross-window writes, reject before sending on capacity
 or durability failure, preserve known acceptance, and never silently evict an
 unresolved command. The old product paths remain until their actual migration.
+
+
+During v4 adoption, authored design selections travel as optional
+`sessions.submit.design_context` metadata beside the original parts. Keep exact
+content reference IDs in the selected recipient's scope. Message projections
+return `design_context` with server-derived part indices; do not infer design
+presentation by parsing tagged text or accept client-generated indices. The SDK
+`Session.submission` and `Session.submit` accept `designContext` in their options;
+the durable command retains the exact metadata for recovery. The app still owns
+the unsent selection and its local preview lifetime. A fork's copied message and
+references belong to its new owner even after the source is deleted.

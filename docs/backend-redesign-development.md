@@ -3389,6 +3389,34 @@ provenance, rather than inferring trusted metadata from tagged text. Both remain
 open alongside browser integration and full client adoption.
 
 
+## Workspace/run controls and authored design provenance
+
+Integration branch `codex/backend-redesign-input-controls` follows draft #257.
+It reuses tested controls leaf `a93b16fb4` as `929cc982b`, resolving host computer,
+host profiles, receipt matching, shared process-manager ownership and regenerated
+contract output. The retained run-control test executor now returns canonical
+parts, matching the already-integrated typed-image execution interface.
+
+Fresh schema 48/config 18/protocol 4 includes revisioned workspace/run controls and
+bounded display-only design provenance. The separate browser leaf reserves 47;
+its later merge must preserve schema 48 or a newer integrated version. No old
+storage or installed runtime was touched.
+
+Focused race/shuffle controls passed: runtime 21.091s, runner 1.983s,
+model 2.490s. Design store/RPC tests passed 2.226s/2.525s, covering exact retry
+conflict, invalid/foreign/duplicated/wrong-kind evidence, SQL immutability, both
+history readers, fork ownership, restart and receipt-first source deletion.
+The runner projection test verifies that original content bytes remain in model
+input and display metadata does not enter provider requests. Generated strict-CSP
+contracts and 109 v4 SDK tests pass; retained 466 SDK tests and 6 example checks
+also pass. The production fixture passed 38.077s, including workspace/run controls
+141ms and design provenance253ms (dropped ACK, read-only exact recovery, restart,
+fork and source deletion). Analysis passed with zero new lint findings and no
+reachable vulnerabilities before the final runner-only test addition. The full
+phase gate for this integrated checkpoint is pending below; these focused results
+do not mark Phases 5–7 complete.
+
+
 ## Separate CI runners for large race suites
 
 Draft #257's hosted run 36517034403 passed macOS race, both builds, both client
@@ -3405,3 +3433,45 @@ The local `check:race` remains the complete union. Race/shuffle/count flags,
 10-minute package deadlines, 20-minute job deadlines and the required aggregate
 are unchanged. The workflow still requires all builds, all client checks and
 analysis. Hosted results for the repaired head remain pending.
+
+
+The combined workspace/run and design checkpoint passed `task check:phase` and
+`task check:analysis` at `8012242eb`. Store/runtime/RPC/process race suites passed
+in 265.377s/339.914s/57.751s/192.569s respectively. Contract generation and strict
+CSP checks, 109 native SDK tests, 466 retained SDK tests and 6 example checks passed.
+The production v4 fixture passed in 96.792s, including workspace/run controls
+205ms and design provenance 319ms. Gateway passed 12.762s, Unix/browser executors
+5.678s/3.121s, shell 2.593s, fake computer helper 2.336s, retained crash 4.195s and
+selected daemon races 2.743s. Analysis found zero new lint issues and no reachable
+vulnerabilities. Exact logs: `/tmp/whip-input-controls-phase-final.log` and
+`/tmp/whip-input-controls-analysis-final.log`.
+
+Earlier attempts failed on a wall-clock-dependent assertion and an invalid test
+fixture literal; `038cb331e` made the timestamp deterministic and `8012242eb`
+derived the actual typed design presentation. Only the final successful runs
+above establish this checkpoint. The subsequent merge brings in #257's separate
+race-runner CI repair (`4d3b155cb`) without changing Go runtime behavior. Hosted
+checks for this new checkpoint remain pending. Phases 5–6 remain in progress and
+Phase 7 remains pending; no installed runtime was modified.
+
+
+## Input-controls hosted build deadline correction
+
+Draft #258 at c5850730c failed Linux build in run 36519493581 because
+the complete runtime package exhausted the shared 120-second package deadline.
+The sole active test (turn-permit blocked resumption/deadline) had run for just
+2 seconds and remained within its existing 5-second scenario wait. All six
+Linux/macOS race jobs, both client jobs, macOS build and analysis passed.
+
+The fast gate now runs the complete runtime package separately with a 5-minute
+aggregate deadline. Every other fast package retains 2 minutes. No tests or
+scenario assertions were removed, individual operation waits remain unchanged,
+and race package/job deadlines remain unchanged. This targets the growing
+package's cumulative cost rather than extending a stalled scenario. The full
+local build check and new hosted result are pending below. Failed-run evidence:
+`/tmp/whip-pr258-linux-build-failure.log`.
+
+The repaired #258 build gate passed locally at 35793114b, including the complete
+runtime suite in 84.853s, all other fast packages, active builds and vet. Exact
+log: `/tmp/whip-pr258-build-repair.log`. The prior complete race/client passes
+remain evidence for unchanged runtime code; the new hosted run is pending.

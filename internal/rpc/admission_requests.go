@@ -11,7 +11,7 @@ func submissionRequest(p protocol.SubmitParams) store.Submission {
 	for i, part := range p.Parts {
 		parts[i] = part.Domain()
 	}
-	return store.Submission{SessionID: session.SessionID(p.SessionID), Source: session.InputSource(p.Source), Parts: parts}
+	return store.Submission{DesignContext: p.DesignContext.Domain(), SessionID: session.SessionID(p.SessionID), Source: session.InputSource(p.Source), Parts: parts}
 }
 
 func childRequest(p protocol.SpawnSessionParams) (store.ChildRequest, error) {

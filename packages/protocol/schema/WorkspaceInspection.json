@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "working_directory": {
+      "type": "string"
+    },
+    "configuration_revision": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/WorkspaceInspection",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "WorkspaceInspection",
+  "required": [
+    "session_id",
+    "working_directory",
+    "configuration_revision"
+  ],
+  "additionalProperties": false
+}

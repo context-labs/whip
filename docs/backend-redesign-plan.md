@@ -7,7 +7,7 @@ and the audited mail repair in [PR #215](https://github.com/context-labs/whip/pu
 The earlier completion claim missed ordinary-mail content-reference transfer;
 the repair passes local gates and hosted Linux, macOS and analysis checks.
 The implementation remains in an unmerged draft PR stack.
-Phase 5 is in progress and phases 6–7 are pending. The authorized execution scope
+Phases 5–6 are in progress; Phase 7 is pending. The authorized execution scope
 is all phases, including client adoption and final removal of the retired core.
 Written: 2026-09-27. Planning reference: `6f02507bf`.
 

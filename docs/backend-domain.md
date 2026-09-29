@@ -2247,3 +2247,42 @@ URLs and caller-observed runtime pins are retained. Reads/writes neither connect
 to a saved host nor expose credentials. Native SSH/device profiles remain app
 state. Gateway discovery is a bounded passive read; SDK transports enforce the
 verified runtime and, when provided, process epoch before dependent requests.
+
+
+## Authored design evidence and session controls
+
+Fresh schema 48 adds display-only design provenance after schema 46's workspace
+and run controls (schema 47 is reserved for the separate browser integration).
+There is no old-schema reader or migration. Protocol remains 4; host config 18.
+
+`sessions.submit.design_context` optionally identifies a unique text content
+reference and an optional unique image content reference in the submitted parts.
+References are resolved in the exact recipient's scope before admission. The
+immutable descriptor is part of the receipt digest. It is limited to 8 element
+summaries, 1,000 selected elements, 160-byte labels, 256-byte selectors/titles,
+2,048-byte page URLs and 8 KiB total. Human prompt inputs alone can carry it.
+Native transcript entries derive the descriptor from their input; imported fork
+entries retain it with their copied parts and owner references. Both history
+readers derive exact part indices, including leading authored text. Callers cannot
+supply indices. Literal tagged text never creates metadata. Model requests receive
+the original text/content evidence; display metadata is absent from their shape.
+
+`workspace.inspect/set` exposes the selected session's canonical working
+directory and configuration revision. A set request has a stable ID and exact
+payload digest, checks its receipt before mutable path/session state, and uses
+configuration CAS. The whole tree must be idle, with no queued input or claimed
+workspace action; the owner must release snapshots and live shell work first.
+Only that tree's admission/claim gate is held while obsolete shell/LSP/root-MCP
+resources are joined. Other trees remain schedulable. Existing grants are never
+remapped to a new path. Child directories, history and REPL state are retained;
+active turn inspection uses its captured configuration's directory.
+
+`run.configure` captures root-only system override, max-turns, headless and cache
+key settings with the same receipt/CAS/idle rules. Empty system text restores
+composed instructions; required turn-start hooks still run. Explicit zero max
+turns is uncapped; a positive limit permits that many tool rounds followed by one
+recorded request without tools. Absent run configuration keeps the ordinary 32
+round bound. Headless denies new human waits while existing standing/automatic
+authority remains effective. Cache keys do not replace execution identity and
+are mapped through provider-specific cache handling. Children do not inherit
+root run configuration.

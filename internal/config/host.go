@@ -116,6 +116,9 @@ func (h Host) Validate() error {
 	if _, err := h.Computer.Normalize(); err != nil {
 		return fmt.Errorf("%w: %w", session.ErrInvalid, err)
 	}
+	if h.Defaults.Run != nil {
+		return fmt.Errorf("%w: run controls belong to a root session", session.ErrInvalid)
+	}
 	if _, err := session.ResolvePermissionMode(h.DefaultPermissionMode); err != nil {
 		return err
 	}

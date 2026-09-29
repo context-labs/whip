@@ -79,7 +79,7 @@ func TurnFromDomain(value session.Turn) Turn {
 }
 
 func InputFromDomain(value session.Input) Input {
-	result := Input{ID: ID(value.ID), SessionID: ID(value.SessionID), Source: string(value.Source), Kind: string(value.Kind), State: string(value.State), CreatedAt: value.CreatedAt.Format(time.RFC3339Nano)}
+	result := Input{DesignContext: designContextFromDomain(value.DesignContext), ID: ID(value.ID), SessionID: ID(value.SessionID), Source: string(value.Source), Kind: string(value.Kind), State: string(value.State), CreatedAt: value.CreatedAt.Format(time.RFC3339Nano)}
 	if value.HostOperation != nil {
 		h := value.HostOperation
 		result.HostOperation = &DirectHostInput{Module: h.Module, Name: ID(h.Name), ArgumentsBase64: base64.StdEncoding.EncodeToString(h.Arguments)}
@@ -220,7 +220,8 @@ func MessageFromDomain(value session.Message) Message {
 		parts[i] = PartFromDomain(part)
 	}
 	result := Message{
-		GroupID: ID(value.GroupID), OpeningInput: value.OpeningInput, Source: messageSource(value.Source),
+		DesignContext: designPresentationFromDomain(value.DesignContext),
+		GroupID:       ID(value.GroupID), OpeningInput: value.OpeningInput, Source: messageSource(value.Source),
 		RetiredBy: historyEditID(value.RetiredBy), RetiredRevision: historyRevision(value.RetiredRevision),
 		ID: ID(value.ID), SessionID: ID(value.SessionID), TurnID: localID(string(value.TurnID)),
 		Sequence: Counter(value.Sequence), Role: string(value.Role), Parts: parts,

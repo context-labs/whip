@@ -55,13 +55,14 @@ const historyProvenanceColumns = `COALESCE(m.group_id,''),COALESCE(m.opening_inp
 const historyColumns = `COALESCE(m.id,''),COALESCE(m.turn_id,''),m.input_id,
 	COALESCE(m.sequence,0),COALESCE(m.role,''),COALESCE(length(CAST(COALESCE(m.parts,i.parts) AS BLOB)),0),
 	CASE WHEN ? THEN COALESCE(m.parts,i.parts) END,COALESCE(m.created_at,0),
-	m.mail_id,m.mail_revision,m.mail_presentation,r.subject,r.body,mail.source_kind,mail.source_id,r.evidence_ref,` + historyProvenanceColumns
+	m.mail_id,m.mail_revision,m.mail_presentation,r.subject,r.body,mail.source_kind,mail.source_id,r.evidence_ref,COALESCE(m.design_context,i.design_context),` + historyProvenanceColumns
 
 const historyJoins = ` LEFT JOIN inputs i ON i.id=m.input_id
 	LEFT JOIN mail_revisions r ON r.mail_id=m.mail_id AND r.revision=m.mail_revision
 	LEFT JOIN mail ON mail.id=m.mail_id`
 
 type historyRecord struct {
+	design   *string
 	metadata session.HistoryMetadata
 	parts    []byte
 	created  int64
@@ -81,7 +82,7 @@ func scanHistory(row scanner, withSnapshot bool) (value historyRecord, err error
 	destinations := []any{
 		&value.metadata.SessionID, &value.maximum, &value.metadata.ID, &value.metadata.TurnID, &value.metadata.InputID,
 		&value.metadata.Sequence, &value.metadata.Role, &value.metadata.PartsBytes, &raw, &value.created,
-		&mailID, &revision, &presentation, &subject, &body, &sourceKind, &sourceID, &evidence,
+		&mailID, &revision, &presentation, &subject, &body, &sourceKind, &sourceID, &evidence, &value.design,
 		&value.metadata.GroupID, &value.metadata.OpeningInput, &sourceOwner, &sourceMessage, &sourceSequence, &value.metadata.RetiredBy, &value.metadata.RetiredRevision,
 	}
 	if withSnapshot {
@@ -186,6 +187,9 @@ func historyMessage(value historyRecord) (session.Message, error) {
 		Mail: value.metadata.Mail, Sequence: value.metadata.Sequence, Role: value.metadata.Role, CreatedAt: timestamp(value.created),
 	}
 	err := json.Unmarshal(value.parts, &message.Parts)
+	if err == nil {
+		message.DesignContext, err = decodeDesignContext(value.design, message.Parts)
+	}
 	return message, err
 }
 

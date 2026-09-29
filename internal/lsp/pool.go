@@ -154,3 +154,15 @@ func (p *Pool) Close() {
 	p.calls.Wait()
 	close(p.done)
 }
+
+// Retire joins a retained workspace client before the owner uses a new cwd.
+// The runtime excludes new turn claims and checks the tree idle around this call.
+func (p *Pool) Retire(owner string) {
+	p.mu.Lock()
+	entry := p.retained[owner]
+	delete(p.retained, owner)
+	p.mu.Unlock()
+	if entry != nil {
+		p.closeManager(entry.manager)
+	}
+}

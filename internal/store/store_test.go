@@ -180,7 +180,7 @@ func TestTopologyAndRevisionConstraints(t *testing.T) {
 	}
 	mustFail(t, s, "UPDATE sessions SET parent_id=? WHERE id=?", child.ID, root.ID)
 	mustFail(t, s, "UPDATE sessions SET tree_id=? WHERE id=?", other.ID, child.ID)
-	insert := `INSERT INTO sessions (id,tree_id,parent_id,definition_id,definition_revision,config_revision,working_directory,lifecycle,created_at) SELECT ?,?,?,definition_id,definition_revision,config_revision,working_directory,lifecycle,created_at FROM sessions WHERE id=?`
+	insert := `INSERT INTO sessions (id,tree_id,parent_id,definition_id,definition_revision,config_revision,lifecycle,created_at) SELECT ?,?,?,definition_id,definition_revision,config_revision,lifecycle,created_at FROM sessions WHERE id=?`
 	mustFail(t, s, insert, "second-root", tree.ID, nil, root.ID)
 	mustFail(t, s, insert, "cross-tree", other.ID, root.ID, root.ID)
 	mustFail(t, s, insert, "self-cycle", tree.ID, "self-cycle", root.ID)

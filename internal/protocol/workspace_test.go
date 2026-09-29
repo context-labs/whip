@@ -13,7 +13,7 @@ import (
 func TestWorkspaceProjectionRejectsPrivateIdentityAndUnknownOutcomes(t *testing.T) {
 	value := WorkspaceSnapshotFromDomain(session.WorkspaceSnapshot{
 		ID: "snapshot", SessionID: "owner", CaptureID: "capture", State: session.WorkspaceSucceeded,
-		CreatedAt: time.Now(), Semantics: session.WorkspaceSemantics,
+		CreatedAt: time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC), Semantics: session.WorkspaceSemantics,
 		Binding: session.WorkspaceBinding{Worktree: "/private/worktree", GitDirectory: "/private/git", CommonDirectory: "/private/common", Scope: "private-scope", WorktreeIdentity: "1:2"}, ObjectID: new(strings.Repeat("a", 40)),
 	})
 	raw, err := json.Marshal(value)

@@ -89,7 +89,7 @@ func (r *Runtime) mcpRoot(ctx context.Context, current session.Session, create b
 		return nil, ErrClosed
 	}
 	if entry := r.mcp.roots[root.TreeID]; entry != nil {
-		if entry.root != root.ID || entry.cwd != cwd {
+		if entry.retired || entry.root != root.ID || entry.cwd != cwd {
 			return nil, store.ErrConflict
 		}
 		return entry, nil

@@ -45,6 +45,10 @@ func (s *Store) CreateTree(ctx context.Context, request CreateTree) (session.Tre
 }
 
 func insertSession(ctx context.Context, tx *sql.Tx, tree session.TreeID, parent *session.SessionID, ref session.DefinitionRef, config session.Configuration, cwd string) (session.Session, error) {
+	if parent != nil {
+		config = config.Clone()
+		config.Run = nil
+	}
 	if err := validateBindingSources(ctx, tx, config); err != nil {
 		return session.Session{}, err
 	}
@@ -62,10 +66,10 @@ func insertSession(ctx context.Context, tx *sql.Tx, tree session.TreeID, parent 
 	}
 	id := session.SessionID(newID("session"))
 	created := now()
-	if _, err := tx.ExecContext(ctx, "INSERT INTO sessions (id,tree_id,parent_id,definition_id,definition_revision,config_revision,working_directory,lifecycle,created_at) VALUES (?,?,?,?,?,1,?,'active',?)", id, tree, parent, ref.ID, ref.Revision, filepath.Clean(cwd), created); err != nil {
+	if _, err := tx.ExecContext(ctx, "INSERT INTO sessions (id,tree_id,parent_id,definition_id,definition_revision,config_revision,lifecycle,created_at) VALUES (?,?,?,?,?,1,'active',?)", id, tree, parent, ref.ID, ref.Revision, created); err != nil {
 		return session.Session{}, err
 	}
-	if _, err := tx.ExecContext(ctx, "INSERT INTO session_configurations VALUES (?,1,?,?)", id, raw, created); err != nil {
+	if _, err := tx.ExecContext(ctx, "INSERT INTO session_configurations VALUES (?,1,?,?,?)", id, raw, filepath.Clean(cwd), created); err != nil {
 		return session.Session{}, err
 	}
 	return readSession(ctx, tx, id)
@@ -315,7 +319,7 @@ func (s *Store) SpawnChildOperation(ctx context.Context, id session.OperationID)
 }
 
 const sessionSelect = `SELECT s.id,s.tree_id,s.parent_id,s.definition_id,s.definition_revision,
- s.config_revision,s.history_revision,s.working_directory,s.lifecycle,s.created_at,c.configuration
+ s.config_revision,s.history_revision,c.working_directory,s.lifecycle,s.created_at,c.configuration
  FROM sessions s JOIN session_configurations c ON c.session_id=s.id AND c.revision=s.config_revision`
 
 type scanner interface{ Scan(...any) error }
@@ -468,7 +472,7 @@ func (s *Store) UpdateConfiguration(ctx context.Context, id session.SessionID, e
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, "INSERT INTO session_configurations VALUES (?,?,?,?)", id, expected+1, raw, now()); err != nil {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO session_configurations VALUES (?,?,?,?,?)", id, expected+1, raw, current.WorkingDirectory, now()); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, "UPDATE sessions SET config_revision=? WHERE id=?", expected+1, id); err != nil {

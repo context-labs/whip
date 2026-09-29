@@ -37,7 +37,7 @@ CREATE TRIGGER permission_mode_edit_retained BEFORE DELETE ON permission_mode_ed
 CREATE TABLE sessions (
  id TEXT PRIMARY KEY, tree_id TEXT NOT NULL REFERENCES session_trees(id) ON DELETE CASCADE,
  parent_id TEXT, definition_id TEXT NOT NULL, definition_revision TEXT NOT NULL,
- config_revision INTEGER NOT NULL CHECK(config_revision > 0), working_directory TEXT NOT NULL,
+ config_revision INTEGER NOT NULL CHECK(config_revision > 0),
  lifecycle TEXT NOT NULL CHECK(lifecycle IN ('active','stopped')), created_at INTEGER NOT NULL,
  history_revision INTEGER NOT NULL DEFAULT 1 CHECK(history_revision>0),
  UNIQUE(id,tree_id), CHECK(parent_id IS NULL OR parent_id <> id),
@@ -54,7 +54,7 @@ CREATE TRIGGER parent_exists BEFORE INSERT ON sessions WHEN NEW.parent_id IS NOT
 CREATE TRIGGER session_identity_immutable BEFORE UPDATE ON sessions
  WHEN NEW.id IS NOT OLD.id OR NEW.tree_id IS NOT OLD.tree_id OR NEW.parent_id IS NOT OLD.parent_id
  OR NEW.definition_id IS NOT OLD.definition_id OR NEW.definition_revision IS NOT OLD.definition_revision
- OR NEW.working_directory IS NOT OLD.working_directory OR NEW.created_at IS NOT OLD.created_at
+ OR NEW.created_at IS NOT OLD.created_at
  BEGIN SELECT RAISE(ABORT, 'session identity is immutable'); END;
 CREATE TRIGGER history_revision_transition BEFORE UPDATE OF history_revision ON sessions
  WHEN NEW.history_revision IS NOT OLD.history_revision AND
@@ -65,7 +65,7 @@ CREATE TRIGGER history_revision_transition BEFORE UPDATE OF history_revision ON 
 CREATE TABLE session_configurations (
  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
  revision INTEGER NOT NULL CHECK(revision > 0), configuration TEXT NOT NULL CHECK(json_valid(configuration)),
- created_at INTEGER NOT NULL, PRIMARY KEY(session_id,revision)
+ working_directory TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(session_id,revision)
 ) STRICT;
 CREATE TRIGGER configuration_immutable BEFORE UPDATE ON session_configurations
  BEGIN SELECT RAISE(ABORT, 'configuration revision is immutable'); END;
@@ -229,6 +229,7 @@ CREATE TABLE inputs (
  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
  source TEXT NOT NULL CHECK(source IN ('user','agent','schedule','goal')),
  kind TEXT NOT NULL DEFAULT 'prompt' CHECK(kind IN ('prompt','compact','goal_formulation','automatic_title','host_operation')),
+ design_context TEXT CHECK(design_context IS NULL OR (kind='prompt' AND source='user' AND json_valid(design_context) AND length(CAST(design_context AS BLOB))<=8192)),
  parts TEXT NOT NULL CHECK(json_valid(parts)), turn_id TEXT UNIQUE, cancelled_at INTEGER, created_at INTEGER NOT NULL,
  schedule_id TEXT, scheduled_for TEXT, goal_id TEXT, goal_revision INTEGER,
  CHECK((goal_id IS NOT NULL) = (source='goal')),
@@ -251,6 +252,7 @@ CREATE TRIGGER input_immutable BEFORE UPDATE ON inputs
  WHEN NEW.id IS NOT OLD.id OR NEW.ordinal IS NOT OLD.ordinal OR NEW.session_id IS NOT OLD.session_id
  OR NEW.goal_id IS NOT OLD.goal_id OR NEW.goal_revision IS NOT OLD.goal_revision
  OR NEW.schedule_id IS NOT OLD.schedule_id OR NEW.scheduled_for IS NOT OLD.scheduled_for
+ OR NEW.design_context IS NOT OLD.design_context
  OR NEW.source IS NOT OLD.source OR NEW.kind IS NOT OLD.kind OR NEW.parts IS NOT OLD.parts OR NEW.created_at IS NOT OLD.created_at
  OR OLD.turn_id IS NOT NULL OR OLD.cancelled_at IS NOT NULL
  BEGIN SELECT RAISE(ABORT, 'accepted input is immutable'); END;
@@ -334,6 +336,7 @@ CREATE TABLE messages (
  retired_by TEXT, retired_revision INTEGER,
  role TEXT NOT NULL CHECK(role IN ('system','user','assistant','tool')),
  input_id TEXT, parts TEXT CHECK(parts IS NULL OR json_valid(parts)), created_at INTEGER NOT NULL,
+ design_context TEXT CHECK(design_context IS NULL OR (role='user' AND source_session_id IS NOT NULL AND json_valid(design_context) AND length(CAST(design_context AS BLOB))<=8192)),
  model_continuation TEXT CHECK(model_continuation IS NULL OR
   (role='assistant' AND json_valid(model_continuation) AND length(CAST(model_continuation AS BLOB))<=1048576)),
  mail_id TEXT, mail_revision INTEGER, mail_presentation TEXT CHECK(mail_presentation IS NULL OR mail_presentation IN ('digest','body')),
@@ -373,6 +376,7 @@ CREATE TRIGGER message_immutable BEFORE UPDATE ON messages
  OR NEW.group_id IS NOT OLD.group_id OR NEW.sequence IS NOT OLD.sequence OR NEW.role IS NOT OLD.role
  OR NEW.opening_input IS NOT OLD.opening_input OR NEW.source_session_id IS NOT OLD.source_session_id
  OR NEW.source_message_id IS NOT OLD.source_message_id OR NEW.source_sequence IS NOT OLD.source_sequence
+ OR NEW.design_context IS NOT OLD.design_context
  OR NEW.input_id IS NOT OLD.input_id OR NEW.parts IS NOT OLD.parts OR NEW.created_at IS NOT OLD.created_at
  OR NEW.model_continuation IS NOT OLD.model_continuation OR NEW.mail_id IS NOT OLD.mail_id
  OR NEW.mail_revision IS NOT OLD.mail_revision OR NEW.mail_presentation IS NOT OLD.mail_presentation
@@ -868,3 +872,26 @@ CREATE TRIGGER trace_question_operation_update AFTER UPDATE ON operations
  BEGIN INSERT OR REPLACE INTO trace_index(root_id,tree_id,session_id,turn_id,kind,source_id)
  SELECT root_id,tree_id,session_id,turn_id,kind,source_id FROM trace_index
  WHERE kind='question' AND source_id=NEW.id; END;
+
+-- Control receipts outlive owners; configuration bodies remain canonical revisions.
+CREATE TABLE session_control_edits (
+ id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
+ kind TEXT NOT NULL CHECK(kind IN('workspace','run')), digest TEXT NOT NULL CHECK(length(digest)=64),
+ revision INTEGER NOT NULL CHECK(revision>1), created_at INTEGER NOT NULL
+) STRICT;
+CREATE UNIQUE INDEX session_control_revision ON session_control_edits(session_id,revision);
+CREATE TRIGGER session_control_edit_immutable BEFORE UPDATE ON session_control_edits
+ BEGIN SELECT RAISE(ABORT,'session control receipt is immutable'); END;
+CREATE TRIGGER session_control_edit_retained BEFORE DELETE ON session_control_edits
+ BEGIN SELECT RAISE(ABORT,'session control receipt is retained'); END;
+CREATE TRIGGER configuration_control_transition BEFORE UPDATE OF config_revision ON sessions
+ WHEN ((SELECT working_directory FROM session_configurations WHERE session_id=OLD.id AND revision=OLD.config_revision)
+ IS NOT (SELECT working_directory FROM session_configurations WHERE session_id=NEW.id AND revision=NEW.config_revision)
+ OR (SELECT json_extract(configuration,'$.run') FROM session_configurations WHERE session_id=OLD.id AND revision=OLD.config_revision)
+ IS NOT (SELECT json_extract(configuration,'$.run') FROM session_configurations WHERE session_id=NEW.id AND revision=NEW.config_revision))
+ AND NOT EXISTS(SELECT 1 FROM session_control_edits WHERE session_id=OLD.id AND revision=NEW.config_revision)
+ BEGIN SELECT RAISE(ABORT,'workspace and run controls require a typed edit'); END;
+CREATE TRIGGER run_controls_root_only BEFORE INSERT ON session_configurations
+ WHEN json_type(NEW.configuration,'$.run') IS NOT NULL AND json_type(NEW.configuration,'$.run')<>'null'
+ AND EXISTS(SELECT 1 FROM sessions WHERE id=NEW.session_id AND parent_id IS NOT NULL)
+ BEGIN SELECT RAISE(ABORT,'run controls belong only to a root'); END;

@@ -16,6 +16,7 @@ import (
 // ModelHelperRequest supplies only captured execution identity and stateless
 // prompts. The caller must already have committed the operation's dispatch.
 type ModelHelperRequest struct {
+	CacheKey    string
 	Turn        session.Turn
 	Model       session.ModelSelection
 	OperationID session.OperationID
@@ -185,7 +186,7 @@ func (r *Runner) callModel(ctx context.Context, request ModelHelperRequest, inde
 	target := &helperTarget{operationID: request.OperationID, index: index, admissionRefused: admissionRefused}
 	modelRequest := model.Request{
 		Purpose: session.ModelHelperPurpose, SessionID: request.Turn.SessionID, TurnID: request.Turn.ID,
-		Selection: request.Model, OutputTokenLimit: request.MaxTokens,
+		Selection: request.Model, CacheKey: request.CacheKey, OutputTokenLimit: request.MaxTokens,
 		Messages: []model.Message{{Role: session.User, Parts: []session.Part{{Type: "text", Text: request.Prompts[index]}}}},
 	}
 	outcome, err := r.complete(ctx, request.Turn, modelRequest, logical, target)

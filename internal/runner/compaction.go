@@ -388,6 +388,9 @@ func (r *Runner) foldToBoundary(ctx context.Context, turn session.Turn, configur
 			selectionModel = *configuration.Compaction.Model
 		}
 		request := model.Request{Purpose: "compaction", SessionID: turn.SessionID, TurnID: turn.ID, Selection: selectionModel, Instructions: compactionInstructions}
+		if configuration.Run != nil {
+			request.CacheKey = configuration.Run.CacheKey
+		}
 		through, sourceBytes, err := r.compactionPrefix(ctx, turn.SessionID, &request, selection, boundary)
 		if err != nil {
 			return selection, err

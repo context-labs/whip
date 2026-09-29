@@ -94,6 +94,7 @@ func (r DefinitionRef) Validate() error {
 }
 
 type Configuration struct {
+	Run             *RunConfiguration          `json:"run,omitempty"`
 	MCPServers      *MCPSelection              `json:"mcp_servers"`
 	Modules         []string                   `json:"modules"`
 	ToolsDefinition *DefinitionRef             `json:"tools_definition"`
@@ -155,6 +156,9 @@ func Builtins() []DefinitionDocument {
 }
 
 func (c Configuration) Clone() Configuration {
+	if c.Run != nil {
+		c.Run = new(*c.Run)
+	}
 	if c.MCPServers != nil {
 		c.MCPServers = &MCPSelection{All: c.MCPServers.All, Servers: append([]string{}, c.MCPServers.Servers...)}
 	}
@@ -314,6 +318,11 @@ func (m ModelSelection) Validate() error {
 }
 
 func (c Configuration) Validate() error {
+	if c.Run != nil {
+		if err := c.Run.Validate(); err != nil {
+			return err
+		}
+	}
 	for _, ref := range []*DefinitionRef{c.ToolsDefinition, c.HooksDefinition} {
 		if ref != nil {
 			if err := ref.Validate(); err != nil {

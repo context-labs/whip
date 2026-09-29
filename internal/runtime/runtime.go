@@ -52,6 +52,8 @@ type execution struct {
 	executorActivity ExecutorActivity
 }
 type Runtime struct {
+	controlMu        sync.Mutex
+	controlGates     map[session.TreeID]*controlGate
 	computer         *computer.Controller
 	computerMu       sync.Mutex
 	hostPicker       *hostview.Picker
@@ -385,7 +387,7 @@ func (r *Runtime) schedule(ctx context.Context, workers *sync.WaitGroup) error {
 		index++
 		r.queueCursor = candidate
 		r.mu.Unlock()
-		claim, err := r.store.Claim(ctx, candidate.SessionID)
+		claim, err := r.claimControlled(ctx, candidate.SessionID)
 		if err != nil {
 			r.mu.Lock()
 			r.runnable--

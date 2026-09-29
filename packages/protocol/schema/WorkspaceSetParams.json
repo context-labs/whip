@@ -1,0 +1,32 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "expected_revision": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "path": {
+      "type": "string",
+      "maxLength": 4096
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/WorkspaceSetParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "WorkspaceSetParams",
+  "required": [
+    "id",
+    "session_id",
+    "expected_revision",
+    "path"
+  ],
+  "additionalProperties": false
+}

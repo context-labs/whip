@@ -31,6 +31,7 @@ func resolveChild(ctx context.Context, q querier, parent session.Session, reques
 	if err != nil {
 		return ChildPreview{}, err
 	}
+	configuration.Run = nil
 	if err := session.NarrowBindings(parent.Config, configuration); err != nil {
 		return ChildPreview{}, err
 	}
@@ -64,7 +65,7 @@ func (s *Store) PreviewChild(ctx context.Context, cellID session.CellID, request
 		if parent.Lifecycle != session.Active {
 			return ErrStopped
 		}
-		parent.Config, err = readConfiguration(ctx, tx, owner, revision)
+		parent, err = capturedSession(ctx, tx, parent, revision)
 		if err != nil {
 			return err
 		}

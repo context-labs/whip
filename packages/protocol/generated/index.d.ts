@@ -12,6 +12,19 @@ export interface Admission {
   };
   input:
     | {
+        design_context?: null | {
+          context_attachment_id: string;
+          screenshot_attachment_id?: null | string;
+          elements:
+            | null
+            | {
+                label: string;
+                selector?: string;
+              }[];
+          element_count: number;
+          page_url?: string;
+          page_title?: string;
+        };
         host_operation: null;
         goal: null | {
           id: string;
@@ -56,6 +69,19 @@ export interface Admission {
         };
       }
     | {
+        design_context?: null | {
+          context_attachment_id: string;
+          screenshot_attachment_id?: null | string;
+          elements:
+            | null
+            | {
+                label: string;
+                selector?: string;
+              }[];
+          element_count: number;
+          page_url?: string;
+          page_title?: string;
+        };
         host_operation: null;
         goal: null | {
           id: string;
@@ -78,6 +104,19 @@ export interface Admission {
         };
       }
     | {
+        design_context?: null | {
+          context_attachment_id: string;
+          screenshot_attachment_id?: null | string;
+          elements:
+            | null
+            | {
+                label: string;
+                selector?: string;
+              }[];
+          element_count: number;
+          page_url?: string;
+          page_title?: string;
+        };
         host_operation: {
           module: "shell" | "files" | "tools" | "computer";
           name: string;
@@ -504,6 +543,125 @@ export interface ContextHistoryParams {
   through_sequence: string;
   limit: number;
 }
+export interface ControlEdit {
+  id: string;
+  session_id: string;
+  revision: string;
+  deleted: boolean;
+  session: null | {
+    history_revision: string;
+    id: string;
+    tree_id: string;
+    parent_id: null | string;
+    definition: {
+      id: string;
+      revision: string;
+    };
+    config_revision: string;
+    configuration: {
+      run: null | {
+        system: string;
+        max_turns: number;
+        headless: boolean;
+        cache_key: string;
+      };
+      mcp_servers: {
+        [k: string]: unknown;
+      };
+      /**
+       * @maxItems 17
+       */
+      modules: (
+        | "agents"
+        | "artifacts"
+        | "browser"
+        | "computer"
+        | "context"
+        | "files"
+        | "goals"
+        | "mail"
+        | "mcp"
+        | "messages"
+        | "models"
+        | "permissions"
+        | "schedules"
+        | "shell"
+        | "skills"
+        | "state"
+        | "user"
+      )[];
+      tools_definition: null | {
+        id: string;
+        revision: string;
+      };
+      hooks_definition: null | {
+        id: string;
+        revision: string;
+      };
+      automatic_title: boolean;
+      goals_enabled: boolean;
+      compaction: {
+        model: null | {
+          provider: string;
+          name: string;
+          effort: string;
+          temperature?: null | number;
+          top_p?: null | number;
+        };
+        threshold_percent: number;
+      };
+      report_mode: "notice" | "inline" | "message";
+      model:
+        | {
+            provider: string;
+            name: string;
+            effort: string;
+            temperature?: null | number;
+            top_p?: null | number;
+          }
+        | {
+            provider: "";
+            name: "";
+            effort: "";
+            temperature?: null | number;
+            top_p?: null | number;
+          };
+      instructions: {
+        project_root: null | string;
+        text: string;
+        project_files: null | string[];
+        discover_skills: boolean;
+        standing_instructions: boolean;
+        skill_roots: null | string[];
+      };
+      tools: {
+        [k: string]: {
+          timeout_millis: number;
+          description: string;
+          input_schema: unknown;
+          output_schema: unknown;
+        };
+      } | null;
+      children: {
+        [k: string]: {
+          id: string;
+          revision: string;
+        };
+      } | null;
+      hooks: {
+        [k: string]: {
+          operations: null | string[];
+          optional: boolean;
+          timeout_millis: number;
+        };
+      } | null;
+      output_schema: unknown;
+    };
+    working_directory: string;
+    lifecycle: "active" | "stopped";
+    created_at: string;
+  };
+}
 export interface CreateGoalParams {
   session_id: string;
   goal_id: string;
@@ -735,6 +893,12 @@ export interface CreateTreeResult {
     };
     config_revision: string;
     configuration: {
+      run: null | {
+        system: string;
+        max_turns: number;
+        headless: boolean;
+        cache_key: string;
+      };
       mcp_servers: {
         [k: string]: unknown;
       };
@@ -1573,6 +1737,12 @@ export interface ForkResult {
     };
     config_revision: string;
     configuration: {
+      run: null | {
+        system: string;
+        max_turns: number;
+        headless: boolean;
+        cache_key: string;
+      };
       mcp_servers: {
         [k: string]: unknown;
       };
@@ -1750,6 +1920,19 @@ export interface GoalAdmission {
     };
     input:
       | {
+          design_context?: null | {
+            context_attachment_id: string;
+            screenshot_attachment_id?: null | string;
+            elements:
+              | null
+              | {
+                  label: string;
+                  selector?: string;
+                }[];
+            element_count: number;
+            page_url?: string;
+            page_title?: string;
+          };
           host_operation: null;
           goal: null | {
             id: string;
@@ -1794,6 +1977,19 @@ export interface GoalAdmission {
           };
         }
       | {
+          design_context?: null | {
+            context_attachment_id: string;
+            screenshot_attachment_id?: null | string;
+            elements:
+              | null
+              | {
+                  label: string;
+                  selector?: string;
+                }[];
+            element_count: number;
+            page_url?: string;
+            page_title?: string;
+          };
           host_operation: null;
           goal: null | {
             id: string;
@@ -1816,6 +2012,19 @@ export interface GoalAdmission {
           };
         }
       | {
+          design_context?: null | {
+            context_attachment_id: string;
+            screenshot_attachment_id?: null | string;
+            elements:
+              | null
+              | {
+                  label: string;
+                  selector?: string;
+                }[];
+            element_count: number;
+            page_url?: string;
+            page_title?: string;
+          };
           host_operation: {
             module: "shell" | "files" | "tools" | "computer";
             name: string;
@@ -2000,6 +2209,21 @@ export interface HistoryPageResult {
     | null
     | (
         | {
+            design_context?: null | {
+              context_attachment_id: string;
+              screenshot_attachment_id?: null | string;
+              elements:
+                | null
+                | {
+                    label: string;
+                    selector?: string;
+                  }[];
+              element_count: number;
+              page_url?: string;
+              page_title?: string;
+              context_part_index: number;
+              screenshot_part_index?: null | number;
+            };
             group_id: string;
             opening_input: boolean;
             source: null | {
@@ -2049,6 +2273,21 @@ export interface HistoryPageResult {
             created_at: string;
           }
         | {
+            design_context?: null | {
+              context_attachment_id: string;
+              screenshot_attachment_id?: null | string;
+              elements:
+                | null
+                | {
+                    label: string;
+                    selector?: string;
+                  }[];
+              element_count: number;
+              page_url?: string;
+              page_title?: string;
+              context_part_index: number;
+              screenshot_part_index?: null | number;
+            };
             group_id: string;
             opening_input: boolean;
             source: null | {
@@ -2098,6 +2337,21 @@ export interface HistoryPageResult {
             created_at: string;
           }
         | {
+            design_context?: null | {
+              context_attachment_id: string;
+              screenshot_attachment_id?: null | string;
+              elements:
+                | null
+                | {
+                    label: string;
+                    selector?: string;
+                  }[];
+              element_count: number;
+              page_url?: string;
+              page_title?: string;
+              context_part_index: number;
+              screenshot_part_index?: null | number;
+            };
             group_id: string;
             opening_input: boolean;
             source: null | {
@@ -2167,6 +2421,21 @@ export interface HistoryPageResult {
             created_at: string;
           }
         | {
+            design_context?: null | {
+              context_attachment_id: string;
+              screenshot_attachment_id?: null | string;
+              elements:
+                | null
+                | {
+                    label: string;
+                    selector?: string;
+                  }[];
+              element_count: number;
+              page_url?: string;
+              page_title?: string;
+              context_part_index: number;
+              screenshot_part_index?: null | number;
+            };
             group_id: string;
             opening_input: boolean;
             source: null | {
@@ -2227,6 +2496,21 @@ export interface HistoryResult {
     | null
     | (
         | {
+            design_context?: null | {
+              context_attachment_id: string;
+              screenshot_attachment_id?: null | string;
+              elements:
+                | null
+                | {
+                    label: string;
+                    selector?: string;
+                  }[];
+              element_count: number;
+              page_url?: string;
+              page_title?: string;
+              context_part_index: number;
+              screenshot_part_index?: null | number;
+            };
             group_id: string;
             opening_input: boolean;
             source: null | {
@@ -2276,6 +2560,21 @@ export interface HistoryResult {
             created_at: string;
           }
         | {
+            design_context?: null | {
+              context_attachment_id: string;
+              screenshot_attachment_id?: null | string;
+              elements:
+                | null
+                | {
+                    label: string;
+                    selector?: string;
+                  }[];
+              element_count: number;
+              page_url?: string;
+              page_title?: string;
+              context_part_index: number;
+              screenshot_part_index?: null | number;
+            };
             group_id: string;
             opening_input: boolean;
             source: null | {
@@ -2325,6 +2624,21 @@ export interface HistoryResult {
             created_at: string;
           }
         | {
+            design_context?: null | {
+              context_attachment_id: string;
+              screenshot_attachment_id?: null | string;
+              elements:
+                | null
+                | {
+                    label: string;
+                    selector?: string;
+                  }[];
+              element_count: number;
+              page_url?: string;
+              page_title?: string;
+              context_part_index: number;
+              screenshot_part_index?: null | number;
+            };
             group_id: string;
             opening_input: boolean;
             source: null | {
@@ -2394,6 +2708,21 @@ export interface HistoryResult {
             created_at: string;
           }
         | {
+            design_context?: null | {
+              context_attachment_id: string;
+              screenshot_attachment_id?: null | string;
+              elements:
+                | null
+                | {
+                    label: string;
+                    selector?: string;
+                  }[];
+              element_count: number;
+              page_url?: string;
+              page_title?: string;
+              context_part_index: number;
+              screenshot_part_index?: null | number;
+            };
             group_id: string;
             opening_input: boolean;
             source: null | {
@@ -2894,6 +3223,19 @@ export interface InitializeResult {
 }
 export type Input =
   | {
+      design_context?: null | {
+        context_attachment_id: string;
+        screenshot_attachment_id?: null | string;
+        elements:
+          | null
+          | {
+              label: string;
+              selector?: string;
+            }[];
+        element_count: number;
+        page_url?: string;
+        page_title?: string;
+      };
       host_operation: null;
       goal: null | {
         id: string;
@@ -2938,6 +3280,19 @@ export type Input =
       };
     }
   | {
+      design_context?: null | {
+        context_attachment_id: string;
+        screenshot_attachment_id?: null | string;
+        elements:
+          | null
+          | {
+              label: string;
+              selector?: string;
+            }[];
+        element_count: number;
+        page_url?: string;
+        page_title?: string;
+      };
       host_operation: null;
       goal: null | {
         id: string;
@@ -2960,6 +3315,19 @@ export type Input =
       };
     }
   | {
+      design_context?: null | {
+        context_attachment_id: string;
+        screenshot_attachment_id?: null | string;
+        elements:
+          | null
+          | {
+              label: string;
+              selector?: string;
+            }[];
+        element_count: number;
+        page_url?: string;
+        page_title?: string;
+      };
       host_operation: {
         module: "shell" | "files" | "tools" | "computer";
         name: string;
@@ -3146,6 +3514,12 @@ export interface ListSessionsResult {
         };
         config_revision: string;
         configuration: {
+          run: null | {
+            system: string;
+            max_turns: number;
+            headless: boolean;
+            cache_key: string;
+          };
           mcp_servers: {
             [k: string]: unknown;
           };
@@ -3713,6 +4087,21 @@ export interface MatchReceiptParams {
 }
 export type Message =
   | {
+      design_context?: null | {
+        context_attachment_id: string;
+        screenshot_attachment_id?: null | string;
+        elements:
+          | null
+          | {
+              label: string;
+              selector?: string;
+            }[];
+        element_count: number;
+        page_url?: string;
+        page_title?: string;
+        context_part_index: number;
+        screenshot_part_index?: null | number;
+      };
       group_id: string;
       opening_input: boolean;
       source: null | {
@@ -3762,6 +4151,21 @@ export type Message =
       created_at: string;
     }
   | {
+      design_context?: null | {
+        context_attachment_id: string;
+        screenshot_attachment_id?: null | string;
+        elements:
+          | null
+          | {
+              label: string;
+              selector?: string;
+            }[];
+        element_count: number;
+        page_url?: string;
+        page_title?: string;
+        context_part_index: number;
+        screenshot_part_index?: null | number;
+      };
       group_id: string;
       opening_input: boolean;
       source: null | {
@@ -3811,6 +4215,21 @@ export type Message =
       created_at: string;
     }
   | {
+      design_context?: null | {
+        context_attachment_id: string;
+        screenshot_attachment_id?: null | string;
+        elements:
+          | null
+          | {
+              label: string;
+              selector?: string;
+            }[];
+        element_count: number;
+        page_url?: string;
+        page_title?: string;
+        context_part_index: number;
+        screenshot_part_index?: null | number;
+      };
       group_id: string;
       opening_input: boolean;
       source: null | {
@@ -3880,6 +4299,21 @@ export type Message =
       created_at: string;
     }
   | {
+      design_context?: null | {
+        context_attachment_id: string;
+        screenshot_attachment_id?: null | string;
+        elements:
+          | null
+          | {
+              label: string;
+              selector?: string;
+            }[];
+        element_count: number;
+        page_url?: string;
+        page_title?: string;
+        context_part_index: number;
+        screenshot_part_index?: null | number;
+      };
       group_id: string;
       opening_input: boolean;
       source: null | {
@@ -6752,6 +7186,17 @@ export interface RewindParams {
   observed_through: string;
   keep_through: string;
 }
+export interface RunConfigureParams {
+  id: string;
+  session_id: string;
+  expected_revision: string;
+  configuration: {
+    system: string;
+    max_turns: number;
+    headless: boolean;
+    cache_key: string;
+  };
+}
 export interface RunShellParams {
   identity: {
     client_id: string;
@@ -6982,6 +7427,12 @@ export interface Session {
   };
   config_revision: string;
   configuration: {
+    run: null | {
+      system: string;
+      max_turns: number;
+      headless: boolean;
+      cache_key: string;
+    };
     mcp_servers: {
       [k: string]: unknown;
     };
@@ -7119,6 +7570,21 @@ export interface SessionObservation {
     | null
     | (
         | {
+            design_context?: null | {
+              context_attachment_id: string;
+              screenshot_attachment_id?: null | string;
+              elements:
+                | null
+                | {
+                    label: string;
+                    selector?: string;
+                  }[];
+              element_count: number;
+              page_url?: string;
+              page_title?: string;
+              context_part_index: number;
+              screenshot_part_index?: null | number;
+            };
             group_id: string;
             opening_input: boolean;
             source: null | {
@@ -7168,6 +7634,21 @@ export interface SessionObservation {
             created_at: string;
           }
         | {
+            design_context?: null | {
+              context_attachment_id: string;
+              screenshot_attachment_id?: null | string;
+              elements:
+                | null
+                | {
+                    label: string;
+                    selector?: string;
+                  }[];
+              element_count: number;
+              page_url?: string;
+              page_title?: string;
+              context_part_index: number;
+              screenshot_part_index?: null | number;
+            };
             group_id: string;
             opening_input: boolean;
             source: null | {
@@ -7217,6 +7698,21 @@ export interface SessionObservation {
             created_at: string;
           }
         | {
+            design_context?: null | {
+              context_attachment_id: string;
+              screenshot_attachment_id?: null | string;
+              elements:
+                | null
+                | {
+                    label: string;
+                    selector?: string;
+                  }[];
+              element_count: number;
+              page_url?: string;
+              page_title?: string;
+              context_part_index: number;
+              screenshot_part_index?: null | number;
+            };
             group_id: string;
             opening_input: boolean;
             source: null | {
@@ -7286,6 +7782,21 @@ export interface SessionObservation {
             created_at: string;
           }
         | {
+            design_context?: null | {
+              context_attachment_id: string;
+              screenshot_attachment_id?: null | string;
+              elements:
+                | null
+                | {
+                    label: string;
+                    selector?: string;
+                  }[];
+              element_count: number;
+              page_url?: string;
+              page_title?: string;
+              context_part_index: number;
+              screenshot_part_index?: null | number;
+            };
             group_id: string;
             opening_input: boolean;
             source: null | {
@@ -7587,6 +8098,12 @@ export interface SpawnSessionResult {
     };
     config_revision: string;
     configuration: {
+      run: null | {
+        system: string;
+        max_turns: number;
+        headless: boolean;
+        cache_key: string;
+      };
       mcp_servers: {
         [k: string]: unknown;
       };
@@ -7696,6 +8213,19 @@ export interface SpawnSessionResult {
     };
     input:
       | {
+          design_context?: null | {
+            context_attachment_id: string;
+            screenshot_attachment_id?: null | string;
+            elements:
+              | null
+              | {
+                  label: string;
+                  selector?: string;
+                }[];
+            element_count: number;
+            page_url?: string;
+            page_title?: string;
+          };
           host_operation: null;
           goal: null | {
             id: string;
@@ -7740,6 +8270,19 @@ export interface SpawnSessionResult {
           };
         }
       | {
+          design_context?: null | {
+            context_attachment_id: string;
+            screenshot_attachment_id?: null | string;
+            elements:
+              | null
+              | {
+                  label: string;
+                  selector?: string;
+                }[];
+            element_count: number;
+            page_url?: string;
+            page_title?: string;
+          };
           host_operation: null;
           goal: null | {
             id: string;
@@ -7762,6 +8305,19 @@ export interface SpawnSessionResult {
           };
         }
       | {
+          design_context?: null | {
+            context_attachment_id: string;
+            screenshot_attachment_id?: null | string;
+            elements:
+              | null
+              | {
+                  label: string;
+                  selector?: string;
+                }[];
+            element_count: number;
+            page_url?: string;
+            page_title?: string;
+          };
           host_operation: {
             module: "shell" | "files" | "tools" | "computer";
             name: string;
@@ -7868,6 +8424,19 @@ export interface StateVersionsResult {
       }[];
 }
 export interface SubmitParams {
+  design_context?: null | {
+    context_attachment_id: string;
+    screenshot_attachment_id?: null | string;
+    elements:
+      | null
+      | {
+          label: string;
+          selector?: string;
+        }[];
+    element_count: number;
+    page_url?: string;
+    page_title?: string;
+  };
   identity: {
     client_id: string;
     request_id: string;
@@ -8267,6 +8836,11 @@ export interface WorkspaceActionParams {
   snapshot_id: string;
   session_id: string;
 }
+export interface WorkspaceInspection {
+  session_id: string;
+  working_directory: string;
+  configuration_revision: string;
+}
 export interface WorkspaceResult {
   action: {
     id: string;
@@ -8288,6 +8862,12 @@ export interface WorkspaceResult {
     created_at: string;
     released_at: null | string;
   };
+}
+export interface WorkspaceSetParams {
+  id: string;
+  session_id: string;
+  expected_revision: string;
+  path: string;
 }
 export interface WorkspaceSnapshot {
   id: string;
@@ -8358,6 +8938,7 @@ export interface ContractTypes {
   ContentReference: ContentReference;
   ContextHead: ContextHead;
   ContextHistoryParams: ContextHistoryParams;
+  ControlEdit: ControlEdit;
   CreateGoalParams: CreateGoalParams;
   CreateGrantParams: CreateGrantParams;
   CreateScheduleParams: CreateScheduleParams;
@@ -8514,6 +9095,7 @@ export interface ContractTypes {
   Response: Response;
   ResumeGoalParams: ResumeGoalParams;
   RewindParams: RewindParams;
+  RunConfigureParams: RunConfigureParams;
   RunShellParams: RunShellParams;
   ScheduleAdmission: ScheduleAdmission;
   ScheduleParams: ScheduleParams;
@@ -8575,7 +9157,9 @@ export interface ContractTypes {
   UpdateTreeParams: UpdateTreeParams;
   WorkspaceAction: WorkspaceAction;
   WorkspaceActionParams: WorkspaceActionParams;
+  WorkspaceInspection: WorkspaceInspection;
   WorkspaceResult: WorkspaceResult;
+  WorkspaceSetParams: WorkspaceSetParams;
   WorkspaceSnapshot: WorkspaceSnapshot;
   WorkspaceSnapshotParams: WorkspaceSnapshotParams;
   WorkspaceSnapshotsParams: WorkspaceSnapshotsParams;
@@ -8583,6 +9167,9 @@ export interface ContractTypes {
   WriteStateParams: WriteStateParams;
 }
 export interface Operations {
+  "workspace.inspect": { params: SessionParams; result: WorkspaceInspection };
+  "workspace.set": { params: WorkspaceSetParams; result: ControlEdit };
+  "run.configure": { params: RunConfigureParams; result: ControlEdit };
   "trace.page": { params: TracePageParams; result: TracePageResult };
   "trace.export": { params: TraceExportParams; result: TraceExportResult };
   "host.attention": { params: HostAttentionParams; result: HostAttentionResult };

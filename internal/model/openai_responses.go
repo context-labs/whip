@@ -147,7 +147,7 @@ func encodeResponses(request Request, scope string, maxTokens int64) ([]byte, er
 	if request.Selection.Effort != "" && request.Selection.Effort != "off" {
 		wire["reasoning"] = map[string]string{"effort": request.Selection.Effort, "summary": "auto"}
 	}
-	if key := promptCacheKey(request.SessionID); key != "" {
+	if key := requestCacheKey(request); key != "" {
 		wire["prompt_cache_key"] = key
 	}
 	body, err := json.Marshal(wire)
