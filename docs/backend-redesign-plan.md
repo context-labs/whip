@@ -1016,12 +1016,15 @@ runtime, architecture, setup and package guides now describe native ownership.
 Terminal input recall, interactive shell focus and terminal theme detection now
 have integrated native coverage; Mermaid uses the native production fixture.
 The audit found external Chrome live/dedicated/headless/extension mode ownership
-still missing from the native host; it has no approved retirement and remains
-required. The retired terminal model has now been removed with its supported behaviors
+missing from the native host. Its native backend, public operations and SDK are
+now integrated; controls across supported clients and unused wrapper removal
+remain required. The retired terminal model has been removed with its supported behaviors
 mapped in the [terminal disposition](native-terminal-retirement.md). Remaining
-work includes external Chrome mode ownership, specialized REPL/slash/chat/Safari
-fixtures, hosted client recovery failures, platform evidence, 50 ms input/RSS
-acceptance and final old-core deletion. Exact checkpoints and
+work includes external Chrome client controls, actual Safari execution, hosted
+history-fixture followthrough, platform evidence and 50 ms input/RSS acceptance.
+Native REPL/slash/chat probes and attachment/queue/resize repairs have both-browser
+evidence. The old core is deleted in draft #276; its restored complete gate still
+needs a passing final revision. Exact checkpoints and
 limitations remain in the development record; this does not complete the phase.
 
 ### Phase 7 — Cut over and remove the retired core

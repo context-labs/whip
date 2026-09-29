@@ -5484,3 +5484,17 @@ retirement, actual Safari automation permission and execution, hosted history
 followthrough, corrected quiet Desktop50ms/RSS targets,
 applicable manual platform/live-provider evidence and final comprehensive gates.
 No passing local subset substitutes for those outstanding requirements.
+
+Draft #276 publishes the native-core deletion at `d90668cc3`. Its first restored
+normal build exposed a real Taskfile error: multiline package discovery was
+interpolated directly into a shell `for` header. Checked command substitution
+now preserves complete package discovery while producing valid shell syntax in
+both fast and complementary-race groups. The repaired full `check:build` passes
+formatting, all fast packages, the complete runtime suite, all test compilation,
+vet and the UI-lock analyzer. Full-module pinned lint reports zero issues;
+reachable-vulnerability analysis reports zero affected calls/imported packages
+(two vulnerabilities occur only in uncalled required modules), and tidy is clean.
+Protocol17, SDK205 and example5 tests pass at that checkpoint. The subsequent
+strict external-browser inventory and discoverable host-tool schema fixes are
+released as `481d05acc` and `c0e4d5b30` with focused evidence; final hosted gates
+remain pending. Failed hosted run36577739713 is not passing evidence.

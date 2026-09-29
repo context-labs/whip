@@ -4,9 +4,6 @@ vars:
   VERSION:
     sh: printf 'dev+%s' "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
   LDFLAGS: -X main.version={{.VERSION}}
-  # Discover the complete module; cutover must not retain an active-package allowlist.
-  GO_PACKAGES:
-    sh: go list ./...
   LINT_BASELINE: e3fed9c91918d9c36766dd47d878c1b5466238d1
   CLI_FAMILIES: '^Test(Auth|OpenAIAuth|DeviceLogin|ProviderChoice|CLIChooser|TerminalKeyPrompt|Daemon|Desktop|Run|Native|Web|Headless|Sessions|TruncAndAgo|PushOTLP|MainDispatchesHeadlessCommands|ClientEntryPaths|DistributionMalformed|MCP|Acp|ACP|Update|DistributionUpdate)'
 
@@ -103,7 +100,8 @@ tasks:
     vars:
       FAST_PACKAGES:
         sh: |
-          for package in {{.GO_PACKAGES}}; do
+          packages=$(go list ./...) || exit
+          for package in $packages; do
             case "$package" in
               */internal/runtime|*/internal/engine/process|*/internal/tui|*/cmd/whip) ;;
               *) printf '%s ' "$package" ;;
@@ -181,7 +179,8 @@ tasks:
     vars:
       OTHER_PACKAGES:
         sh: |
-          for package in {{.GO_PACKAGES}}; do
+          packages=$(go list ./...) || exit
+          for package in $packages; do
             case "$package" in
               */internal/store|*/internal/runtime|*/internal/tui|*/cmd/whip) ;;
               *) printf '%s ' "$package" ;;
