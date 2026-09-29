@@ -221,6 +221,7 @@ tasks:
       - node --test --test-concurrency=1 apps/web/scripts/native-history-fixture.test.mjs apps/web/scripts/native-tool-output.test.mjs apps/web/scripts/native-history-window.test.mjs
       - node apps/web/scripts/history-prefetch.mjs
       - node apps/web/scripts/native-history-recovery.mjs
+      - node apps/web/scripts/reading-position.mjs
 
   check:product-activity:
     desc: Native operation chronology, child activity, steering and queue workflows
@@ -229,6 +230,7 @@ tasks:
       - node --test --test-concurrency=1 apps/web/scripts/native-activity-response.test.mjs apps/web/scripts/native-queue-fixture.test.mjs
       - node apps/web/scripts/native-chat-activity.mjs
       - node apps/web/scripts/composer-queue.mjs
+      - node apps/web/scripts/agent-dock.mjs
 
   check:product-settings:
     desc: Native Settings, provider connections, stored conversation and REPL workflows

@@ -4763,3 +4763,48 @@ capture deadline with a new hidden WebContentsView; this establishes first-frame
 sensitivity outside Whip, but does not prove the cause of the hosted failure.
 Failed rendering experiments were discarded. Exact final-head hosted acceptance
 is still required.
+
+### Terminal originals, REPL lineage and native reading acceptance — 2026-09-29
+
+The integrated terminal adds bounded REPL navigation through exact message,
+turn and call identities. Reused provider call IDs no longer hide later cell
+output. Imported history cannot pretend to have local execution cells, and old
+or oversized evidence requires explicit reads. Nine real turns exercise cell
+navigation and foreign-turn rejection. Utility commands now use native scoped
+controls: exact `!` shell commands, effort selection, context usage and captured
+attempt inspection, bounded environment reports, help, and atomic private local
+Markdown export. Export reads the captured canonical history through its initial
+tail without growing the UI window; concurrent appends remain outside that
+snapshot. Scoped attachment descriptors are included, not embedded bytes.
+Context inspection does not claim a new-session token or injection audit.
+
+Text paste preserves original whitespace before publishing the input journal.
+Owner-local paste chips, including hidden original bytes, share the existing
+draft bounds; capacity rejection preserves the original. The terminal refuses
+to silently normalize tabs, carriage returns or oversized logical line counts.
+Explicit shell commands receive the expanded original once. Native TUI race and
+shuffle checks pass in 93.616s with REPL/utilities and in 96.102s after paste;
+focused utility vet and frozen-baseline lint pass. Image attachments, clipboard,
+copy/palette/completion and richer history editing are still in progress.
+
+Reading-position acceptance now creates 128 actual native turns in each browser.
+Chromium and Firefox pass incoming-output reading, Latest/follow, narrow touch
+layouts and two explicit older pages through the full 260-message history. All
+measured anchors move zero pixels against the existing five-pixel bound, with
+zero JavaScript or CSP failures. The native initial window is 100 records; exact
+canonical cursors replace retired event-page arithmetic.
+
+The native dock fixture creates eight actual completed children and exercises
+metadata-only navigation, separate drafts/attachment, pane reuse, inline routes,
+keyboard focus and narrow/large-type layouts. Chromium passes; Firefox passed
+two diagnostic runs with zero drift after an earlier 28-pixel split-open failure.
+That intermittent failure remains unresolved. Bounded pre/post geometry is
+retained on success and failure, and no speculative product fix was applied.
+Reading-position and dock probes are now required in content/activity CI.
+
+Hosted workflow run 36557957330 at d94e51b03 exposed a Firefox queue test that
+scrolled before all admitted rows were observed and a macOS interactive-shell
+inactivity test failure. Both remain under investigation. Its evaluator/package
+failures predate the now-merged clean-machine fixes above. Desktop first-frame
+capture, performance targets, specialized probes and final core retirement remain
+open; these checkpoints do not complete Phases 5–7.
