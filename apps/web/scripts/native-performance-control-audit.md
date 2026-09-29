@@ -146,3 +146,96 @@ and `performance-failure.png`; the log is
 an empty error list, and recorded Electron PID 4521 and runtime PID 4517 were
 verified gone. No successful performance result was emitted. The reading-anchor
 failure remains open for diagnosis; no rerun or candidate improvement is claimed.
+
+## Completed comparison and accepted typing result
+
+On 2026-09-29 the user explicitly accepted the 72 ms typing result and asked to
+wrap up that work. The 50 ms optimization target is therefore closed as
+user-accepted; no additional latency runs or speculative typing changes are
+planned. This does not waive the separate memory-retention question.
+
+The optional anchor diagnostic completed first at
+`/tmp/whip-performance-native-anchor-full/run-t2ur2v/performance.json`: all seven
+workload groups, 40/40 key entries and cleanup passed. Its capped anchor ring
+retained 256 samples and reported 179 discarded samples. No jump reproduced.
+All timing and memory values from that run remain diagnostic and excluded from
+acceptance. The earlier `run-GN5GYV` child-tail jump remains unresolved.
+
+The subsequent untraced runs both completed the unchanged seven workload groups:
+10,000 root messages and 100 child transcripts, four prepends and selection,
+20 cached switches, 32 tabs/drafts, 16 provider streams, 40 accepted inputs/keys,
+and the bounded upload/download workload. CPU tracing, anchor tracing and forced
+collection were absent. CUA observed only the exact owned worktree Electron app
+and disposable path, raised its window, clicked its current composer and placed
+the caret at the end before releasing the pre-stream inspection pause. Each run
+reported 40/40 native key entries, zero missing/dropped entries, and passed native
+focus/visibility plus 1360×960 native/content/document bounds before and after
+keys. All five recorded Electron/runtime PIDs in each run were verified gone.
+
+| Evidence | Baseline | Parser candidate |
+| --- | --- | --- |
+| Harness/source head | `af95dfc15f9ba7e2f7322e3843debeb1ed127fa1` | `473d065d01b38a56ef562f1731920e6b4ca3648a` |
+| Staged source | `48011e766d5b069c1b47d53be396ee6fbdcabaec` | `473d065d01b38a56ef562f1731920e6b4ca3648a` |
+| Renderer SHA-256 | `3e18ccd8ca5376ea08892974771b1fff9faf6ab8cc0987483fc84656206f04f2` | `0af75b87cce53a45cc1fb60227912395b09dfe601c899c4abfeb0e0d79cdc39d` |
+| Native binary SHA-256 | `0136f40073f6ffc0ad192a853bec533a4627e4961d9dbd04c073891c6cb81efe` | `9503860103811d08f0e41e9fadfdd2d862e6a03686ea1897f6be3df309e01c00` |
+| Typing p95, native rounding bounds | 72 ms (68–76) | 72 ms (68–76) |
+| Keypress processing median / p95 | 9.9 / 10.6 ms | 8.1 / 9.0 ms |
+| Keyup processing median / p95 | 2.0 / 3.6 ms | 0.2 / 0.4 ms |
+| Natural application RSS after typing | 1,218,688 KiB | 1,222,960 KiB |
+| Sampled transfer peak RSS | 1,629,712 KiB | 1,693,136 KiB |
+| Natural end-of-work RSS | 1,614,288 KiB | 1,653,824 KiB |
+
+The heads differ only in the two parser lines and their 15 test lines; fixture
+instrumentation is identical. The baseline stage predates only fixture/docs
+changes at its harness head. Both use Node 24.14.1, Electron 44.2.0 and Chromium
+152.0.7977.76. The full-workload p95 did not improve. This single ordered pair is
+not statistical evidence of a memory regression or physical display latency.
+
+One additional comparison limit is explicit in the recorded geometry: the
+baseline remained on the primary display at x=600/y=143. The candidate's native
+window was inside the left display at the before-key check (x=−1400/y=543), then
+inside the primary display at the after-key check (x=745/y=326). Both checks
+passed the same content size, visibility and focus constraints, but the physical
+display was not pinned. No window movement was issued during the key interval;
+the evidence does not establish why its position changed. Do not use this pair
+to claim a causal improvement in physical presentation timing.
+
+Raw results:
+
+- `/tmp/whip-performance-native-baseline-comparable/run-niNF8k/performance.json`,
+  SHA-256 `359a7e344f99c5b49bb39d523030b2098a36fc135c83e08313af7c4cb2eddd2c`.
+- `/tmp/whip-performance-native-candidate-comparable/run-iGeccx/performance.json`,
+  SHA-256 `65319fe42cb1864851300d7711e7334b3fd0d7f32121f6fc3442bf60c8c25785`.
+
+### Natural retention attribution
+
+Both runs localize their largest late step to the full document navigation into
+the scheduled-prompt inspector, after all upload previews had been removed:
+
+| Sequential boundary | Baseline application / renderer RSS | Candidate application / renderer RSS |
+| --- | ---: | ---: |
+| Before uploads | 1,284.8 / 717.6 MiB | 1,267.5 / 706.3 MiB |
+| Uploads and transfer typing complete | 1,393.2 / 787.0 MiB | 1,388.3 / 771.2 MiB |
+| All previews removed, before navigation | 1,385.7 / 780.0 MiB | 1,382.4 / 765.0 MiB |
+| New document and scheduled prompt ready | 1,575.7 / 975.8 MiB | 1,570.9 / 963.9 MiB |
+
+Across that navigation, connected DOM nodes increased from 7,544 to 11,641 in
+the baseline and 7,679 to 11,774 in the candidate. Total reported DOM nodes rose
+from 7,657 to 19,406 and 7,788 to 20,144 respectively; document count rose from
+one to two. The largest Markdown block grew from about 6,035 nodes to 10,000.
+No mounted upload attachments or images remained before navigation. This rules
+out retained upload-preview elements as the sole explanation of that late step;
+it does not prove a leaked document, identify retaining objects, or attribute
+all RSS to DOM. Sampling is sequential/non-atomic, can miss brief peaks, and
+summed process RSS can count shared pages more than once. No 350 MiB pass bar is
+invented and no forced collection authorizes a memory pass.
+
+The next step is a bounded source/lifetime audit of that navigation boundary:
+old preload/IPC subscriptions, SDK/React owners and expected Markdown subtree
+growth. If ownership remains ambiguous, a focused retention-only check can take
+passive samples after effects settle and the existing view-retention interval
+expires, with exact document/context ownership and connected-node counts. It
+needs no timed typing, repeated latency benchmark, forced collection, owner
+deletion or speculative product repair. Ordinary browser/document retention and
+an app-owned leak remain distinct possibilities; the current immediate samples
+do not decide between them.
