@@ -40,7 +40,8 @@ export function fixtureExternalOrigin(value) {
 
 /** Owns the real production runtime, engines and gateway, a local fake HTTP
  * provider and one explicit fixture executor lease. No legacy runtime or DTOs. */
-export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 240_000, externalOrigin, managedDirectory = false, executeCode = false, agentResponses = false, performanceStreams = false, activityStreams = false, queueStreams = false, replStreams = false, chatPolishStreams = false, networkTerminals = false, terminalProfile = false, workers = 4, rejectInput, rejectionMessage = 'Explicit fixture provider rejection' } = {}) {
+export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 240_000, externalOrigin, managedDirectory = false, executeCode = false, agentResponses = false, performanceStreams = false, activityStreams = false, queueStreams = false, replStreams = false, chatPolishStreams = false, networkTerminals = false, terminalProfile = false, providerSettings = false, workers = 4, rejectInput, rejectionMessage = 'Explicit fixture provider rejection' } = {}) {
+  if (typeof providerSettings !== 'boolean') throw new TypeError('providerSettings must be a boolean');
   if (typeof chatPolishStreams !== 'boolean') throw new TypeError('chatPolishStreams must be a boolean');
   if (typeof replStreams !== 'boolean') throw new TypeError('replStreams must be a boolean');
   if (typeof terminalProfile !== 'boolean') throw new TypeError('terminalProfile must be a boolean');
@@ -63,6 +64,7 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
     HOME: fixtureHome, ZDOTDIR: fixtureHome, XDG_CONFIG_HOME: join(fixtureHome, '.config'),
     TMPDIR: join(directory, 'tmp'), WHIPCODE_HOME: join(fixtureHome, '.whipcode') };
   if (terminalProfile) Object.assign(runtimeEnvironment, { SHELL: '/bin/zsh', ZDOTDIR: join(fixtureHome, 'shell'), WHIP_FIXTURE_PROMPT_LABEL: 'fixture-human' });
+  if (providerSettings) Object.assign(runtimeEnvironment, { INFERENCE_API_KEY: 'fixture-environment-key', OPENROUTER_API_KEY: 'fixture-environment-key', WHIP_PROVIDER_FIXTURE_DIRECTORY: directory });
   const lifetime = new AbortController(), holds = new Map();
   let runtime, exited, executor, local, info, output = '', closed = false, gatewayAddress = '127.0.0.1:0';
   let effectBytes = 0;
@@ -87,7 +89,7 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
     try {
       if (request.url === '/v1/models') {
         response.setHeader('Content-Type', 'application/json');
-        response.end(JSON.stringify({ data: [{ id: 'model', supports_tools: true }, { id: 'replacement', reasoning_efforts: ['low', 'medium', 'high'], supports_tools: true }] })); return;
+        response.end(JSON.stringify({ data: [{ id: 'model', supports_tools: true }, { id: 'replacement', reasoning_efforts: [...(providerSettings ? ['off'] : []), 'low', 'medium', 'high'], supports_tools: true }] })); return;
       }
       if (request.url !== '/v1/chat/completions' || request.method !== 'POST') { response.writeHead(404).end(); return; }
       let bytes = 0; const chunks = [];
@@ -239,8 +241,9 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
     // falls back to its real bounded host-directory browser on unavailable.
     for (const name of ['osascript', 'zenity', 'kdialog', 'powershell']) await writeFile(join(helperDirectory, name), '#!/bin/sh\nexit 2\n', { mode: 0o700 });
     await writeFile(join(directory, 'effects.jsonl'), '', { mode: 0o600 });
+    if (providerSettings) await writeFile(join(directory, 'provider-control.json'), JSON.stringify({ login: 'pending' }), { mode: 0o600 });
     provider.listen(0, '127.0.0.1'); await once(provider, 'listening');
-    await promisify(execFile)('go', ['build', '-race=false', '-o', binary, './cmd/whip-runtime'], { cwd: repository, timeout: 120000, signal: lifetime.signal, env: { ...process.env, GOTOOLCHAIN: 'go1.27.0' } });
+    await promisify(execFile)('go', ['build', '-race=false', '-o', binary, providerSettings ? './apps/web/scripts/fixtures/provider-settings' : './cmd/whip-runtime'], { cwd: repository, timeout: 120000, signal: lifetime.signal, env: { ...process.env, GOTOOLCHAIN: 'go1.27.0' } });
     if (origin) {
       // Select a loopback port before configuring exact Host authorities. A lost
       // reservation fails startup; never broaden the production gateway policy.
