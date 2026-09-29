@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/context-labs/whip/internal/protocol"
@@ -19,8 +20,15 @@ type Error struct{ protocol.RPCError }
 func (e *Error) Error() string { return e.Kind + ": " + e.Message }
 
 type Client struct {
-	socket  string
-	initial protocol.InitializeResult
+	socket     string
+	initial    protocol.InitializeResult
+	lifecycle  context.Context
+	cancel     context.CancelFunc
+	mu         sync.Mutex
+	closed     bool
+	owned      sync.WaitGroup
+	ownedCount int
+	ownedBytes int
 }
 
 func (c *Client) Identity() protocol.ID { return c.initial.RuntimeID }
@@ -37,7 +45,8 @@ func Connect(ctx context.Context, socket string, expected *protocol.ID) (*Client
 	if err != nil {
 		return nil, err
 	}
-	return &Client{socket: socket, initial: initial}, nil
+	lifecycle, cancel := context.WithCancel(context.Background())
+	return &Client{socket: socket, initial: initial, lifecycle: lifecycle, cancel: cancel}, nil
 }
 
 // Call reconnects with the pinned runtime identity. Transport errors have an
@@ -46,6 +55,13 @@ func (c *Client) Call(ctx context.Context, method string, params, result any) er
 	if method == "initialize" {
 		return errors.New("use Connect to initialize")
 	}
+	if err := c.lifecycle.Err(); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := context.AfterFunc(c.lifecycle, cancel)
+	defer stop()
 	return exchange(ctx, c.socket, protocol.InitializeParams{Major: protocol.Major, ExpectedRuntimeID: &c.initial.RuntimeID}, method, params, result)
 }
 
@@ -68,6 +84,9 @@ func exchange(parent context.Context, socket string, initial protocol.Initialize
 	var initialized protocol.InitializeResult
 	if err := invoke(conn, scanner, "init", "initialize", initial, &initialized); err != nil {
 		return err
+	}
+	if initialized.Major != protocol.Major || initial.ExpectedRuntimeID != nil && initialized.RuntimeID != *initial.ExpectedRuntimeID {
+		return errors.New("runtime initialization identity or protocol mismatch")
 	}
 	if method == "initialize" {
 		raw, err := json.Marshal(initialized)
@@ -140,6 +159,9 @@ func (c *Client) Wait(ctx context.Context, identity protocol.RequestIdentity) (p
 		if err := c.Call(ctx, "receipts.get", identity, &result); err != nil {
 			return result, err
 		}
+		if result.Receipt.Identity != identity {
+			return protocol.Admission{}, errors.New("receipt identity mismatch")
+		}
 		if result.Receipt.DeletedAt != nil || result.Input != nil && result.Input.State == "cancelled" || result.Turn != nil && result.Turn.FinishedAt != nil {
 			return result, nil
 		}
@@ -149,4 +171,34 @@ func (c *Client) Wait(ctx context.Context, identity protocol.RequestIdentity) (p
 		case <-ticker.C:
 		}
 	}
+}
+
+// Close cancels and joins client-owned sends. It never cancels accepted host work.
+// Callers own synchronous calls and observation callbacks; their contexts are
+// cancelled as well, without holding a lock across transport or callback work.
+func (c *Client) Close() error {
+	c.mu.Lock()
+	c.closed = true
+	c.cancel()
+	c.mu.Unlock()
+	c.owned.Wait()
+	return nil
+}
+
+func (c *Client) startOwned(weight int, run func()) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return context.Canceled
+	}
+	if c.ownedCount >= 64 || weight > 8<<20-c.ownedBytes {
+		return errors.New("pending client send limit exceeded")
+	}
+	c.ownedCount++
+	c.ownedBytes += weight
+	c.owned.Go(func() {
+		defer func() { c.mu.Lock(); c.ownedCount--; c.ownedBytes -= weight; c.mu.Unlock() }()
+		run()
+	})
+	return nil
 }
