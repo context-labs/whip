@@ -7732,6 +7732,39 @@ export interface ReadWorkspaceActionParams {
   session_id: string;
   action_id: string;
 }
+export interface RecentTreesParams {
+  limit: number;
+}
+export interface RecentTreesResult {
+  catalog_revision: string;
+  /**
+   * @maxItems 100
+   */
+  items: {
+    tree: {
+      id: string;
+      metadata: {
+        title: null | string;
+        archived: boolean;
+        pinned: boolean;
+      };
+      engine: "starlark" | "quickjs";
+      revision: string;
+      created_at: string;
+    };
+    root_id: string;
+    working_directory: string;
+    model: {
+      provider: string;
+      name: string;
+      effort: string;
+      temperature?: null | number;
+      top_p?: null | number;
+    };
+    last_activity_at: string;
+  }[];
+  has_more: boolean;
+}
 export interface RemoveProviderParams {
   revision: string;
   provider: string;
@@ -9905,6 +9938,8 @@ export interface ContractTypes {
   ReadStateParams: ReadStateParams;
   ReadStateResult: ReadStateResult;
   ReadWorkspaceActionParams: ReadWorkspaceActionParams;
+  RecentTreesParams: RecentTreesParams;
+  RecentTreesResult: RecentTreesResult;
   RemoveProviderParams: RemoveProviderParams;
   Request: Request;
   RequestIdentity: RequestIdentity;
@@ -10155,6 +10190,7 @@ export interface Operations {
   "trees.create": { params: CreateTreeParams; result: CreateTreeResult };
   "trees.creation": { params: TreeCreationParams; result: CreateTreeResult };
   "trees.catalog": { params: EmptyParams; result: TreeCatalog };
+  "trees.recent": { params: RecentTreesParams; result: RecentTreesResult };
   "trees.list": { params: ListTreesParams; result: ListTreesResult };
   "trees.summaries": { params: TreeSummariesParams; result: TreeSummariesResult };
   "definitions.list": { params: ListDefinitionsParams; result: ListDefinitionsResult };

@@ -250,6 +250,11 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 			}
 			return protocol.TreeSummariesFromDomain(page), nil
 		})
+	case "trees.recent":
+		return decode(raw, func(p protocol.RecentTreesParams) (any, error) {
+			page, err := r.RecentTrees(ctx, p.Limit)
+			return protocol.RecentTreesFromDomain(page), err
+		})
 	case "trees.list":
 		return listTrees(ctx, r, raw)
 	case "definitions.list":

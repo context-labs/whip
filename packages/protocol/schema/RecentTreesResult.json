@@ -1,0 +1,143 @@
+{
+  "type": "object",
+  "properties": {
+    "catalog_revision": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,18}$",
+      "format": "counter"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "tree": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "metadata": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": [
+                      "null",
+                      "string"
+                    ]
+                  },
+                  "archived": {
+                    "type": "boolean"
+                  },
+                  "pinned": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "title",
+                  "archived",
+                  "pinned"
+                ],
+                "additionalProperties": false
+              },
+              "engine": {
+                "type": "string",
+                "enum": [
+                  "starlark",
+                  "quickjs"
+                ]
+              },
+              "revision": {
+                "type": "string",
+                "pattern": "^(0|[1-9][0-9]{0,18})$",
+                "format": "counter"
+              },
+              "created_at": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "metadata",
+              "engine",
+              "revision",
+              "created_at"
+            ],
+            "additionalProperties": false
+          },
+          "root_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "working_directory": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "model": {
+            "type": "object",
+            "properties": {
+              "provider": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+              },
+              "name": {
+                "type": "string"
+              },
+              "effort": {
+                "type": "string"
+              },
+              "temperature": {
+                "type": [
+                  "null",
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 2
+              },
+              "top_p": {
+                "type": [
+                  "null",
+                  "number"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "required": [
+              "provider",
+              "name",
+              "effort"
+            ],
+            "additionalProperties": false
+          },
+          "last_activity_at": {
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "tree",
+          "root_id",
+          "working_directory",
+          "model",
+          "last_activity_at"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 100
+    },
+    "has_more": {
+      "type": "boolean"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/RecentTreesResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RecentTreesResult",
+  "required": [
+    "catalog_revision",
+    "items",
+    "has_more"
+  ],
+  "additionalProperties": false
+}

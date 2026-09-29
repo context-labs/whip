@@ -815,6 +815,11 @@ export const manifest = {
       "result": "TreeCatalog"
     },
     {
+      "name": "trees.recent",
+      "params": "RecentTreesParams",
+      "result": "RecentTreesResult"
+    },
+    {
       "name": "trees.list",
       "params": "ListTreesParams",
       "result": "ListTreesResult"
