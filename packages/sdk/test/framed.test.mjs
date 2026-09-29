@@ -76,3 +76,16 @@ test('native epoch pins reject restart before relaying a dependent effect', asyn
   await assert.rejects(Client.connect(transport, { clientID: 'native' }), /process generation/);
   assert.equal(connections[2].sent.length, 1);
 });
+test('explicit host prompts retain bounded longer deadlines; invalid deadlines never open a connection', async () => {
+  const saved = AbortSignal.timeout, durations = [];
+  AbortSignal.timeout = milliseconds => { durations.push(milliseconds); return new AbortController().signal; };
+  try {
+    const { transport, connections } = connector((handlers, request) => request.method === 'initialize' ? reply(handlers, request) : handlers.message(response(request.id, { path: null, cancelled: true })));
+    const client = await Client.connect(transport, { clientID: 'native' });
+    assert.deepEqual(await client.pickHostDirectory(), { path: null, cancelled: true });
+    assert.deepEqual(durations, [15000, 130000]);
+    const count = connections.length;
+    for (const timeoutMs of [0, -1, NaN, 180001, 1.5]) await assert.rejects(client.treeCatalog({ timeoutMs }), RangeError);
+    assert.equal(connections.length, count);
+  } finally { AbortSignal.timeout = saved; }
+});

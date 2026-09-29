@@ -31,17 +31,18 @@ type SessionInputParams struct {
 }
 
 type InputSummary struct {
-	ID               ID      `json:"id"`
-	SessionID        ID      `json:"session_id"`
-	Ordinal          Counter `json:"ordinal"`
-	Source           string  `json:"source" enum:"user,agent,schedule,goal"`
-	Kind             string  `json:"kind" enum:"prompt,compact,goal_formulation,automatic_title,host_operation"`
-	State            string  `json:"state" enum:"queued,claimed,cancelled"`
-	TurnID           *ID     `json:"turn_id"`
-	CreatedAt        string  `json:"created_at"`
-	TextPreview      string  `json:"text_preview"`
-	PreviewTruncated bool    `json:"preview_truncated"`
-	AttachmentCount  Counter `json:"attachment_count"`
+	Steering         *InputSteeringRef `json:"steering,omitempty"`
+	ID               ID                `json:"id"`
+	SessionID        ID                `json:"session_id"`
+	Ordinal          Counter           `json:"ordinal"`
+	Source           string            `json:"source" enum:"user,agent,schedule,goal"`
+	Kind             string            `json:"kind" enum:"prompt,compact,goal_formulation,automatic_title,host_operation"`
+	State            string            `json:"state" enum:"queued,claimed,cancelled"`
+	TurnID           *ID               `json:"turn_id"`
+	CreatedAt        string            `json:"created_at"`
+	TextPreview      string            `json:"text_preview"`
+	PreviewTruncated bool              `json:"preview_truncated"`
+	AttachmentCount  Counter           `json:"attachment_count"`
 }
 
 type InputPageResult struct {
@@ -70,6 +71,7 @@ func InputPageFromDomain(value session.InputPage) InputPageResult {
 		if item.TurnID != nil {
 			summary.TurnID = new(ID(*item.TurnID))
 		}
+		summary.Steering = steeringRef(item.Steering)
 		result.Items = append(result.Items, summary)
 	}
 	return result

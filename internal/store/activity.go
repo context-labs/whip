@@ -28,7 +28,7 @@ func readActivity(ctx context.Context, q querier, owner session.SessionID) (sess
  ) SELECT s.id,s.lifecycle,
  COALESCE(t.id,''),COALESCE(t.config_revision,0),COALESCE(t.history_revision,0),COALESCE(t.state,''),t.started_at,
  COALESCE(i.kind,'prompt'),t.goal_id,t.goal_revision,i.id,
- (SELECT COUNT(*) FROM inputs WHERE session_id=s.id AND turn_id IS NULL AND cancelled_at IS NULL),
+ (SELECT COUNT(*) FROM inputs WHERE session_id=s.id AND turn_id IS NULL AND steered_turn_id IS NULL AND cancelled_at IS NULL),
  (SELECT COUNT(*) FROM permissions p JOIN owned_operations o ON o.id=p.operation_id WHERE p.state='pending'),
  (SELECT COUNT(*) FROM questions q JOIN owned_operations o ON o.id=q.operation_id WHERE o.state='dispatched' AND q.close_reason IS NULL AND q.deadline>?),
  EXISTS(SELECT 1 FROM turn_permits WHERE turn_id=t.id),
@@ -67,10 +67,11 @@ func (s *Store) InputPage(ctx context.Context, owner session.SessionID, state st
  COALESCE((SELECT json_extract(value,'$.text') FROM json_each(i.parts) WHERE json_extract(value,'$.type')='text' LIMIT 1),'') AS first_text,
  (SELECT COUNT(*) FROM json_each(i.parts) WHERE json_extract(value,'$.type')='text') AS text_count,
  (SELECT COUNT(*) FROM json_each(i.parts) WHERE json_extract(value,'$.type')='content') AS attachments
- FROM inputs i WHERE i.session_id=? AND i.ordinal>? AND (?='all' OR (i.turn_id IS NULL AND i.cancelled_at IS NULL))
+ FROM inputs i WHERE i.session_id=? AND i.ordinal>? AND (?='all' OR (i.turn_id IS NULL AND i.steered_turn_id IS NULL AND i.cancelled_at IS NULL))
  ORDER BY i.ordinal LIMIT ?
- ) SELECT s.id,COALESCE(i.id,''),COALESCE(i.ordinal,0),COALESCE(i.source,''),COALESCE(i.kind,''),i.turn_id,i.cancelled_at,i.created_at,
- COALESCE(substr(i.first_text,1,512),''),COALESCE(length(i.first_text)>512 OR i.text_count>1,0),COALESCE(i.attachments,0)
+ ) SELECT s.id,COALESCE(i.id,''),COALESCE(i.ordinal,0),COALESCE(i.source,''),COALESCE(i.kind,''),COALESCE(i.turn_id,i.steered_turn_id),i.cancelled_at,i.created_at,
+ COALESCE(substr(i.first_text,1,512),''),COALESCE(length(i.first_text)>512 OR i.text_count>1,0),COALESCE(i.attachments,0),
+ (SELECT id FROM input_steering target WHERE target.input_id=i.id),(SELECT turn_id FROM input_steering target WHERE target.input_id=i.id),COALESCE(i.steered_turn_id IS NOT NULL,0)
  FROM sessions s LEFT JOIN selected i ON i.session_id=s.id WHERE s.id=? ORDER BY i.ordinal`, owner, after, state, limit+1, owner)
 	if err != nil {
 		return page, err
@@ -80,7 +81,10 @@ func (s *Store) InputPage(ctx context.Context, owner session.SessionID, state st
 	for rows.Next() {
 		var item session.InputSummary
 		var created, cancelled sql.NullInt64
-		if err := rows.Scan(&item.SessionID, &item.ID, &item.Ordinal, &item.Source, &item.Kind, &item.TurnID, &cancelled, &created, &item.TextPreview, &item.PreviewTruncated, &item.AttachmentCount); err != nil {
+		var steeringID *session.InputSteeringID
+		var targetTurn *session.TurnID
+		var consumed bool
+		if err := rows.Scan(&item.SessionID, &item.ID, &item.Ordinal, &item.Source, &item.Kind, &item.TurnID, &cancelled, &created, &item.TextPreview, &item.PreviewTruncated, &item.AttachmentCount, &steeringID, &targetTurn, &consumed); err != nil {
 			return page, err
 		}
 		foundOwner = true
@@ -90,6 +94,9 @@ func (s *Store) InputPage(ctx context.Context, owner session.SessionID, state st
 		if len(page.Items) == limit {
 			page.NextCursor = new(page.Items[len(page.Items)-1].Ordinal)
 			break
+		}
+		if steeringID != nil && targetTurn != nil {
+			item.Steering = &session.InputSteeringRef{ID: *steeringID, TurnID: *targetTurn, Consumed: consumed}
 		}
 		item.CreatedAt = timestamp(created.Int64)
 		item.State = session.Queued

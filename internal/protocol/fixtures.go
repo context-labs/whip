@@ -62,6 +62,8 @@ func Fixtures() ([]Fixture, error) {
 
 	executorLease := ExecutorLease{Epoch: "executor_fixture", Definition: DefinitionRef{ID: "custom", Revision: ref.Revision}, Generation: 9007199254740993, Tools: []ID{"lookup"}, Hooks: []ID{}}
 	executorInvocation := ExecutorInvocation{Origin: "cell", InvocationID: "invocation_fixture", Lease: executorLease, Kind: "tool", Name: "lookup", SessionID: "session_root", TurnID: "turn_fixture", CellID: new(ID("cell_fixture")), OperationID: new(ID("operation_fixture")), Operation: "tools.lookup", ArgumentsBase64: new(base64.StdEncoding.EncodeToString([]byte(`{"count":9007199254740993}`))), DeadlineMillis: Counter(created.UnixMilli())}
+	browserScope := BrowserScope{ProviderID: "provider", ProviderEpoch: "provider_epoch", TabID: "tab", TabGeneration: "tab_generation", ProfileID: "profile", ControlLineage: "lineage", AttachmentID: "attachment", AttachmentGeneration: "attachment_generation", Preview: &BrowserPreviewScope{HostID: "host", HostIdentity: "runtime", ConnectionGeneration: "connection", EnvironmentID: "environment", Loopback: "127.0.0.1", Ports: []int{3000}}}
+	browserCommand := BrowserCommand{CommandID: "command", OperationID: "operation", RootID: "session_root", AgentID: "session_child", ProviderEpoch: browserScope.ProviderEpoch, Scope: browserScope, ExpectedDocument: "document", DeadlineMillis: 9007199254740993, Kind: "cdp", Arguments: json.RawMessage(`{"method":"Page.captureScreenshot","params":{"format":"jpeg"}}`)}
 	directInput := InputFromDomain(session.Input{ID: "direct_input", SessionID: "session_root", Source: session.UserInput, Kind: session.HostOperationInputKind, State: session.Queued, Parts: []session.Part{}, HostOperation: &session.HostOperation{Module: "shell", Name: "run", Arguments: json.RawMessage(`{"command":"printf direct"}`)}, CreatedAt: created})
 	modelFree := root
 	modelFree.Configuration.Model = ModelSelection{}
@@ -69,6 +71,23 @@ func Fixtures() ([]Fixture, error) {
 		name  string
 		value any
 	}{
+		{"HostExecutionDefaults", HostExecutionDefaults{Revision: ref.Revision, Engine: "quickjs", Effort: "high", CompactionPercent: 0, GoalMaxContinuations: 9007199254740993, MaxAttempts: 3}},
+		{"SetExecutionDefaultsParams", SetExecutionDefaultsParams{ExpectedRevision: ref.Revision, Defaults: ExecutionDefaults{Engine: "starlark", GoalMaxContinuations: 0, MaxAttempts: 1}}},
+		{"BrowserProviderBindParams", BrowserProviderBindParams{RootID: "session_root", Version: 2, DesktopID: "desktop", WindowID: "window", OfferRevision: "offer", CreateProfileID: "profile", OfferedTabs: []BrowserOfferedTab{{TabID: "tab", TabGeneration: "tab_generation", ProfileID: "profile", DocumentRevision: "document", URL: "https://example.test/", Title: "Example", Preview: browserScope.Preview}}, OfferedPreviewHosts: []BrowserPreviewScope{*browserScope.Preview}}},
+		{"BrowserProviderBindResult", BrowserProviderBindResult{Version: 2, ProviderID: browserScope.ProviderID, ProviderEpoch: browserScope.ProviderEpoch}},
+		{"BrowserProviderUnbindParams", BrowserProviderUnbindParams{RootID: "session_root", ProviderEpoch: browserScope.ProviderEpoch}},
+		{"BrowserAccepted", BrowserAccepted{Accepted: true}},
+		{"BrowserAttachmentsResult", BrowserAttachmentsResult{Attachments: []BrowserAttachment{{Scope: browserScope, RootID: "session_root", AgentID: "session_child", DocumentRevision: "document", URL: "https://example.test/", Title: "Example"}}}},
+		{"BrowserTabsResult", BrowserTabsResult{Tabs: []BrowserTab{{TabID: "tab", TabGeneration: "tab_generation", DocumentRevision: "document", URL: "https://example.test/", Title: "Example", State: "attached", AttachmentID: new(BrowserToken("attachment"))}}}},
+		{"BrowserCommandResultParams", BrowserCommandResultParams{CommandID: "command", RootID: "session_root", ProviderEpoch: browserScope.ProviderEpoch, AttachmentGeneration: browserScope.AttachmentGeneration, DocumentRevision: "document", URL: "https://example.test/", Title: "Example", Screenshot: &BrowserScreenshot{Size: 4194304, Digest: strings.Repeat("a", 64), MediaType: "image/jpeg"}}},
+		{"BrowserScreenshotChunkParams", BrowserScreenshotChunkParams{CommandID: "command", RootID: "session_root", ProviderEpoch: browserScope.ProviderEpoch, AttachmentGeneration: browserScope.AttachmentGeneration, Offset: 9007199254740993, DataBase64: "eA=="}},
+		{"BrowserInventoryResultParams", BrowserInventoryResultParams{RequestID: "inventory", RootID: "session_root", ProviderEpoch: browserScope.ProviderEpoch, Tabs: []BrowserTab{}}},
+		{"BrowserProviderEventParams", BrowserProviderEventParams{RootID: "session_root", ProviderEpoch: browserScope.ProviderEpoch, TabID: browserScope.TabID, TabGeneration: browserScope.TabGeneration, AttachmentID: browserScope.AttachmentID, AttachmentGeneration: browserScope.AttachmentGeneration, Sequence: 9007199254740993, OperationID: new(ID("operation")), DocumentRevision: "document", Kind: "cdp", Method: "Page.loadEventFired", Params: json.RawMessage(`{}`)}},
+		{"BrowserEvent", BrowserEvent{JSONRPC: "2.0", Method: "browser.command", Command: &browserCommand}},
+		{"BrowserEvent", BrowserEvent{JSONRPC: "2.0", Method: "browser.inventory", Inventory: &BrowserInventoryRequest{RequestID: "inventory", RootID: "session_root", AgentID: "session_child", ProviderID: browserScope.ProviderID, ProviderEpoch: browserScope.ProviderEpoch, Tabs: []BrowserInventoryTarget{{TabID: browserScope.TabID, TabGeneration: browserScope.TabGeneration}}}}},
+		{"BrowserEvent", BrowserEvent{JSONRPC: "2.0", Method: "browser.command.cancel", Cancel: &BrowserCommandCancel{CommandID: "command", RootID: "session_root", ProviderEpoch: browserScope.ProviderEpoch, AttachmentGeneration: browserScope.AttachmentGeneration}}},
+		{"BrowserEvent", BrowserEvent{JSONRPC: "2.0", Method: "browser.provider.revoked", Revoked: &BrowserProviderRevoked{RootID: "session_root", ProviderID: browserScope.ProviderID, ProviderEpoch: browserScope.ProviderEpoch, Reason: "closed"}}},
+		{"BrowserEvent", BrowserEvent{JSONRPC: "2.0", Method: "browser.scopes.retired", Retired: &BrowserScopesRetired{RootID: "session_root", ProviderID: browserScope.ProviderID, ProviderEpoch: browserScope.ProviderEpoch, Scopes: []BrowserScope{browserScope}}}},
 		{"HostProfiles", HostProfiles{Revision: ref.Revision, Profiles: []HostProfile{{ID: "remote", Name: "Remote", URL: "https://example.test:8443/", RuntimeID: "runtime_remote", ConnectOnLaunch: true}}}},
 		{"SetHostProfilesParams", SetHostProfilesParams{ExpectedRevision: ref.Revision, Profiles: []HostProfile{}}},
 		{"Input", directInput},
@@ -156,6 +175,7 @@ func Fixtures() ([]Fixture, error) {
 		{"CompactParams", CompactParams{Identity: RequestIdentity{ClientID: "client", RequestID: "compact"}, SessionID: child.ID}},
 		{"TreeCreationParams", TreeCreationParams{CreationID: "MiXeD:Creation"}},
 		{"CreateTreeParams", CreateTreeParams{CreationID: "MiXeD:Creation", Engine: "quickjs", Definition: DefinitionRef{ID: ID(ref.ID), Revision: ref.Revision}, WorkingDirectory: "/workspace", Overrides: ConfigPatch{}}},
+		{"CreateTreeParams", CreateTreeParams{CreationID: "default_engine", Definition: DefinitionRef{ID: ID(ref.ID), Revision: ref.Revision}, WorkingDirectory: "/workspace", Overrides: ConfigPatch{}}},
 		{"CreateTreeResult", CreateTreeResult{Creation: TreeCreation{ID: "MiXeD:Creation", TreeID: "tree_fixture", RootID: "session_root", CreatedAt: created.Format(time.RFC3339Nano)}, Tree: &Tree{ID: "tree_fixture", Engine: "quickjs", Revision: 1, CreatedAt: created.Format(time.RFC3339Nano)}, Root: &root}},
 		{"CreateTreeResult", CreateTreeResult{Creation: TreeCreation{ID: "Deleted:Creation", TreeID: "tree_fixture", RootID: "session_root", CreatedAt: created.Format(time.RFC3339Nano)}, Deleted: true}},
 		{"TerminalList", TerminalList{ProcessEpoch: "boot_fixture", Items: []TerminalInfo{}}},
@@ -265,6 +285,11 @@ func Fixtures() ([]Fixture, error) {
 		{"Message", MessageFromDomain(session.Message{ID: "message_image", SessionID: "session_child", GroupID: "turn_fixture", TurnID: "turn_fixture", Sequence: 9007199254740996, Role: session.Tool, Parts: []session.Part{{Type: "tool_result", Result: &session.ToolResult{CallID: "image_call", Output: "unchanged output"}}, {Type: "content", ReferenceID: "image_ref"}}, CreatedAt: created})},
 		{"SpawnSessionParams", SpawnSessionParams{Identity: RequestIdentity{ClientID: "client", RequestID: "spawn"}, ParentID: root.ID, Parts: []Part{{Type: "text", Text: "Child work"}}, GrantIDs: []ID{}}},
 		{"SubmitParams", SubmitParams{Identity: RequestIdentity{ClientID: "client", RequestID: "request"}, SessionID: child.ID, Source: "user", Parts: []Part{{Type: "text", Text: "Run this."}}}},
+		{"SteerInputParams", SteerInputParams{EditID: "edit", SessionID: "root", InputID: "queued", TurnID: "active"}},
+		{"InputSteeringParams", InputSteeringParams{EditID: "edit", SessionID: "root"}},
+		{"InputSteeringResult", InputSteeringResult{ID: "edit", SessionID: "root", InputID: "queued", TurnID: "active", CreatedAt: created.Format(time.RFC3339Nano), Deleted: true}},
+		{"SubmitParams", SubmitParams{Identity: RequestIdentity{ClientID: "human", RequestID: "steer"}, SessionID: child.ID, Source: "user", Parts: []Part{{Type: "text", Text: "More"}}, Delivery: "steer", TargetTurnID: new(ID("active"))}},
+		{"Input", InputFromDomain(session.Input{ID: "queued", SessionID: "root", Source: session.UserInput, Kind: session.PromptInput, State: session.Claimed, Parts: []session.Part{{Type: "text", Text: "More"}}, TurnID: new(session.TurnID("active")), Steering: &session.InputSteeringRef{ID: "edit", TurnID: "active", Consumed: true}, CreatedAt: created})},
 		{"SubmitParams", SubmitParams{Identity: RequestIdentity{ClientID: "human", RequestID: "design"}, SessionID: child.ID, Source: "user", Parts: []Part{{Type: "text", Text: "Selected evidence"}, {Type: "content", ReferenceID: "context"}}, DesignContext: &DesignContext{ContextAttachmentID: "context", Elements: []DesignContextElement{{Label: "Save", Selector: "button.save"}}, ElementCount: 1, PageTitle: "Settings"}}},
 		{"UpdateConfigurationParams", UpdateConfigurationParams{SessionID: child.ID, ExpectedRevision: 9007199254740993, Patch: ConfigPatch{Modules: []ID{}, AutomaticTitle: new(false), GoalsEnabled: new(false), Compaction: &CompactionPolicy{Model: nil, ThresholdPercent: 0}, ReportMode: new("inline"), Tools: map[string]ToolDeclaration{}, Output: &OutputPolicy{}}}},
 		{"Turn", Turn{Goal: &GoalRef{ID: "goal_fixture", Revision: 9007199254740993}, ID: "turn_fixture", SessionID: child.ID, Kind: "prompt", HistoryRevision: 9007199254740993, ConfigRevision: 9007199254740993, State: "running", StartedAt: created.Format(time.RFC3339Nano)}},
@@ -361,6 +386,14 @@ func Fixtures() ([]Fixture, error) {
 			return nil, err
 		}
 		result = append(result, Fixture{Type: "OpenAIAccountStatus", Value: raw, Valid: false})
+	}
+
+	for _, delivery := range []string{"queued", "invalid"} {
+		raw, err := json.Marshal(SubmitParams{Identity: RequestIdentity{ClientID: "human", RequestID: "steer"}, SessionID: child.ID, Source: "user", Parts: []Part{{Type: "text", Text: "More"}}, Delivery: delivery, TargetTurnID: new(ID("active"))})
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, Fixture{Type: "SubmitParams", Value: raw, Valid: false})
 	}
 	questions, err := questionFixtures(created)
 	if err != nil {

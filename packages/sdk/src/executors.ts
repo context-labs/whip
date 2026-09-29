@@ -6,9 +6,9 @@ import type { CallOptions } from './wire.js';
 /** A single persistent connection. Close/abort revokes its executor leases.
  * Implementations must bound frames, outstanding requests and unread events,
  * and must never reconnect, rebind or replay automatically. */
-export interface DuplexTransport {
+export interface DuplexTransport<Event = ExecutorEvent> {
   request(request: Request, options: CallOptions): Promise<Response>;
-  events: AsyncIterable<ExecutorEvent>;
+  events: AsyncIterable<Event>;
   close(): Promise<void>;
 }
 

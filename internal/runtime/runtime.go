@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/context-labs/whip/internal/browserhost"
 	"github.com/context-labs/whip/internal/capability"
 	"github.com/context-labs/whip/internal/computer"
 	"github.com/context-labs/whip/internal/config"
@@ -54,6 +55,7 @@ type execution struct {
 type Runtime struct {
 	controlMu        sync.Mutex
 	controlGates     map[session.TreeID]*controlGate
+	browser          *browserhost.Host
 	computer         *computer.Controller
 	computerMu       sync.Mutex
 	hostPicker       *hostview.Picker
@@ -177,7 +179,7 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 		return nil, err
 	}
 	r := &Runtime{
-		mcp: newMCPOwners(directory), executors: executor.New(), epoch: "boot_" + rand.Text(), previews: map[session.SessionID]*livePreview{},
+		browser: browserhost.New(), mcp: newMCPOwners(directory), executors: executor.New(), epoch: "boot_" + rand.Text(), previews: map[session.SessionID]*livePreview{},
 		engineManager: process.NewManager(options.KernelWorkers), kernels: map[session.SessionID]*sessionKernel{},
 		store: database, content: bodies, owner: lock, directory: directory, host: host, configuration: configuration, options: options,
 		wake: make(chan struct{}, 1), done: make(chan struct{}), active: map[session.SessionID]*execution{},
@@ -191,6 +193,7 @@ func Open(ctx context.Context, directory string, provider runner.Provider, optio
 	defer func() {
 		if err != nil {
 			_ = r.hostPicker.Close()
+			r.browser.Close()
 			r.languageServers.Close()
 			if r.computer != nil {
 				r.computer.Close()
@@ -256,6 +259,7 @@ func (r *Runtime) Close() error {
 		}
 		r.mu.Unlock()
 		pickerErr := r.hostPicker.Close()
+		r.browser.Close()
 		r.executors.Close()
 		r.shells.Close()
 		workspaceErr := r.workspace.Close()

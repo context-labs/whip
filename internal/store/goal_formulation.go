@@ -13,7 +13,13 @@ import (
 
 // AdmitGoalFormulation freezes a raw-history window using ordinary receipt and
 // queue semantics. Model selection is captured later by the turn at Claim.
-func (s *Store) AdmitGoalFormulation(ctx context.Context, identity session.RequestIdentity, owner session.SessionID, request session.GoalFormulationRequest) (result Admission, err error) {
+func (s *Store) AdmitGoalFormulation(ctx context.Context, identity session.RequestIdentity, owner session.SessionID, request session.GoalFormulationRequest) (Admission, error) {
+	return s.AdmitGoalFormulationWithDefault(ctx, identity, owner, request, 100)
+}
+
+// AdmitGoalFormulationWithDefault freezes an omitted allowance at admission,
+// independently of later host edits and before formulation executes.
+func (s *Store) AdmitGoalFormulationWithDefault(ctx context.Context, identity session.RequestIdentity, owner session.SessionID, request session.GoalFormulationRequest, defaultContinuations int64) (result Admission, err error) {
 	if err := validatePublicIdentity(identity); err != nil {
 		return result, err
 	}
@@ -38,7 +44,11 @@ func (s *Store) AdmitGoalFormulation(ctx context.Context, identity session.Reque
 		if !errors.Is(err, ErrNotFound) {
 			return err
 		}
-		resolved, err := request.Resolve()
+		resolved := request
+		if resolved.MaxContinuations == nil {
+			resolved.MaxContinuations = new(defaultContinuations)
+		}
+		resolved, err = resolved.Resolve()
 		if err != nil {
 			return err
 		}

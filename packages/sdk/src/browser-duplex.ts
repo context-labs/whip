@@ -1,5 +1,6 @@
+import { callSignal } from './wire.js';
 import { assertValid } from '@whip/protocol';
-import type { ExecutorEvent, Request, Response } from '@whip/protocol';
+import type { BrowserEvent, ExecutorEvent, Request, Response } from '@whip/protocol';
 import { maxFrameBytes, openBrowserConnection } from './browser-connection.js';
 import type { BrowserConnection } from './browser-connection.js';
 import { checkNetworkInitialize, networkInitialize } from './browser-identity.js';
@@ -15,7 +16,13 @@ const maxRequests = 32;
  * selected runtime and network acknowledgement before dependent calls. Aborting
  * a request closes its connection-owned leases, never accepted session work.
  * No reconnect, rebind or invocation replay occurs. */
-export async function browserDuplex(endpoint: string, options: BrowserOptions & CallOptions): Promise<DuplexTransport> {
+export function browserDuplex(endpoint: string, options: BrowserOptions & CallOptions): Promise<DuplexTransport> {
+  return eventBrowser(endpoint, options, (value: unknown): asserts value is ExecutorEvent => assertValid('ExecutorEvent', value));
+}
+export function browserProviderDuplex(endpoint: string, options: BrowserOptions & CallOptions): Promise<DuplexTransport<BrowserEvent>> {
+  return eventBrowser(endpoint, options, (value: unknown): asserts value is BrowserEvent => assertValid('BrowserEvent', value));
+}
+async function eventBrowser<Event>(endpoint: string, options: BrowserOptions & CallOptions, assertEvent: (value: unknown) => asserts value is Event): Promise<DuplexTransport<Event>> {
   const pinned = { expectedRuntimeID: options.expectedRuntimeID, expectedProcessEpoch: options.expectedProcessEpoch };
   networkInitialize({ major: 4 }, pinned);
   options.signal?.throwIfAborted();
@@ -26,9 +33,9 @@ export async function browserDuplex(endpoint: string, options: BrowserOptions & 
   let initialized = false;
   let initializing = false;
   let queuedBytes = 0;
-  const queue: { value: ExecutorEvent; bytes: number }[] = [];
+  const queue: { value: Event; bytes: number }[] = [];
   const requests = new Map<string, { initialize: boolean; resolve(value: Response): void; reject(error: unknown): void; cleanup(): void }>();
-  let waiting: { resolve(value: IteratorResult<ExecutorEvent>): void; reject(error: unknown): void } | undefined;
+  let waiting: { resolve(value: IteratorResult<Event>): void; reject(error: unknown): void } | undefined;
   const finish = (reason?: unknown) => {
     if (ended) return;
     ended = true;
@@ -72,7 +79,7 @@ export async function browserDuplex(endpoint: string, options: BrowserOptions & 
           request.resolve(value);
         } else {
           if (!initialized) throw new TypeError('Executor event preceded initialization');
-          assertValid('ExecutorEvent', value);
+          assertEvent(value);
           if (waiting) {
             waiting.resolve({ done: false, value });
             waiting = undefined;
@@ -102,9 +109,9 @@ export async function browserDuplex(endpoint: string, options: BrowserOptions & 
         return Promise.reject(new TypeError('Executor connection requires initialization'));
       }
       if (requests.size >= maxRequests || requests.has(request.id)) return Promise.reject(new TypeError('Executor request capacity or identity conflict'));
+      const signal = callSignal(callOptions);
       if (initialize) initializing = true;
       return new Promise<Response>((resolve, reject) => {
-        const signal = callOptions.signal ? AbortSignal.any([callOptions.signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000);
         const abort = () => finish(signal.reason);
         signal.addEventListener('abort', abort, { once: true });
         requests.set(request.id, { initialize, resolve, reject, cleanup: () => signal.removeEventListener('abort', abort) });
@@ -117,14 +124,14 @@ export async function browserDuplex(endpoint: string, options: BrowserOptions & 
         if (consumed) throw new TypeError('Executor event stream already consumed');
         consumed = true;
         return {
-          next(): Promise<IteratorResult<ExecutorEvent>> {
+          next(): Promise<IteratorResult<Event>> {
             if (waiting) return Promise.reject(new TypeError('Concurrent executor event reads are unsupported'));
             if (ended) return failure === undefined ? Promise.resolve({ done: true, value: undefined }) : Promise.reject(failure);
             const item = queue.shift();
             if (item) { queuedBytes -= item.bytes; return Promise.resolve({ done: false, value: item.value }); }
             return new Promise((resolve, reject) => { waiting = { resolve, reject }; });
           },
-          async return(): Promise<IteratorResult<ExecutorEvent>> { finish(); return { done: true, value: undefined }; },
+          async return(): Promise<IteratorResult<Event>> { finish(); return { done: true, value: undefined }; },
         };
       },
     },

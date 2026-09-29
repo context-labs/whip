@@ -49,6 +49,7 @@
             "PROVIDER_KEY_PENDING",
             "PROVIDER_KEY_STORAGE",
             "MCP_UNAVAILABLE",
+            "BROWSER_EVENT_STALE",
             "INTERNAL"
           ]
         }

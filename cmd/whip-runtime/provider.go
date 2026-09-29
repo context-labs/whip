@@ -26,6 +26,9 @@ func configuredProvider(directory string, auth model.SubscriptionAuth, inference
 			return model.Route{}, fmt.Errorf("provider route %q is not configured", selection.Provider)
 		}
 		settings := provider.Models[selection.Name]
+		if settings.MaxAttempts == 0 {
+			settings.MaxAttempts = host.ExecutionDefaults().MaxAttempts
+		}
 		if provider.Kind == "openai-codex" {
 			if provider.CredentialEnv != "" || provider.BaseURL != "" {
 				return model.Route{}, fmt.Errorf("%w: subscription routes cannot configure an endpoint or API credential", session.ErrInvalid)

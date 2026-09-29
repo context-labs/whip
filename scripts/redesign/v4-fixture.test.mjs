@@ -5,6 +5,7 @@ import { hostOperationAcceptance } from './host-operation-fixture.mjs';
 import { hostViewsAcceptance } from './host-views-fixture.mjs';
 import { traceAcceptance } from './trace-fixture.mjs';
 import { designContextAcceptance } from './design-context-fixture.mjs';
+import { steeringAcceptance } from './steering-fixture.mjs';
 import { sessionControlsAcceptance } from './session-controls-fixture.mjs';
 import { execFile, spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
@@ -289,6 +290,7 @@ test('v4 SDK executes, recovers lost acknowledgements, and preserves queued inpu
     await stage('MCP connections and tools', () => mcpAcceptance(runtime, client, createParams, evidence, deadline));
     await stage('direct human host operations', () => hostOperationAcceptance(runtime, client, createParams, evidence, deadline, dropAcknowledgement));
     await stage('workspace and run controls', () => sessionControlsAcceptance(runtime, client, createParams, evidence, deadline, dropAcknowledgement));
+    await stage('input steering and queued promotion', () => steeringAcceptance(runtime, client, createParams, evidence, { dropAcknowledgement, unixSocket, deadline, until }));
     await stage('design context provenance', () => designContextAcceptance(runtime, client, createParams, evidence, deadline, dropAcknowledgement));
     await stage('history rewind', () => rewindAcceptance(runtime, client, createParams, evidence));
     await stage('conversation fork', () => forkAcceptance(runtime, client, createParams, evidence));

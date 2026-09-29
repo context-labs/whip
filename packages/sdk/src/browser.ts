@@ -1,3 +1,4 @@
+import { callSignal } from './wire.js';
 import { assertValid } from '@whip/protocol';
 import type { ContentReference, Request, Response } from '@whip/protocol';
 import { DeliveryError } from './wire.js';
@@ -7,7 +8,7 @@ import { checkNetworkInitialize, networkInitialize } from './browser-identity.js
 import type { BrowserOptions } from './browser-identity.js';
 export type { BrowserOptions } from './browser-identity.js';
 export { checkNetworkInitialize, networkInitialize } from './browser-identity.js';
-export { browserDuplex } from './browser-duplex.js';
+export { browserDuplex, browserProviderDuplex } from './browser-duplex.js';
 export { discoverGateway } from './browser-discovery.js';
 
 /** One connection per ordinary call. Every connection verifies the selected host.
@@ -20,7 +21,7 @@ export function browserSocket(endpoint: string, options: BrowserOptions): Transp
     if (expectedRuntimeID !== undefined && expectedRuntimeID !== pinned.expectedRuntimeID) throw new TypeError('Runtime identity mismatch');
     assertValid('Request', request);
     request = structuredClone(request);
-    const signal = callOptions.signal ? AbortSignal.any([callOptions.signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000);
+    const signal = callSignal(callOptions);
     let pending: { id: string; resolve(value: Response): void; reject(error: unknown): void } | undefined;
     let failure: unknown;
     const connection = await openBrowserConnection(endpoint, {
@@ -67,7 +68,7 @@ export function browserContent(endpoint: string, options: BrowserOptions) {
     if (pinned.expectedProcessEpoch) url.searchParams.set('expected_process_epoch', pinned.expectedProcessEpoch);
     return url;
   };
-  const signalFor = (options: CallOptions) => options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(120_000)]) : AbortSignal.timeout(120_000);
+  const signalFor = (options: CallOptions) => callSignal(options, 120_000);
   return {
     async upload(sessionID: string, referenceID: string, mediaType: string, bytes: Uint8Array, options: CallOptions = {}): Promise<ContentReference> {
       const signal = signalFor(options); signal.throwIfAborted();

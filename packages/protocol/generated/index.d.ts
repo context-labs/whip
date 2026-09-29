@@ -12,6 +12,11 @@ export interface Admission {
   };
   input:
     | {
+        steering?: null | {
+          id: string;
+          turn_id: string;
+          consumed: boolean;
+        };
         design_context?: null | {
           context_attachment_id: string;
           screenshot_attachment_id?: null | string;
@@ -69,6 +74,11 @@ export interface Admission {
         };
       }
     | {
+        steering?: null | {
+          id: string;
+          turn_id: string;
+          consumed: boolean;
+        };
         design_context?: null | {
           context_attachment_id: string;
           screenshot_attachment_id?: null | string;
@@ -104,6 +114,11 @@ export interface Admission {
         };
       }
     | {
+        steering?: null | {
+          id: string;
+          turn_id: string;
+          consumed: boolean;
+        };
         design_context?: null | {
           context_attachment_id: string;
           screenshot_attachment_id?: null | string;
@@ -118,7 +133,7 @@ export interface Admission {
           page_title?: string;
         };
         host_operation: {
-          module: "shell" | "files" | "tools" | "computer";
+          module: "shell" | "files" | "tools" | "computer" | "browser";
           name: string;
           arguments_base64: string;
         };
@@ -218,6 +233,420 @@ export interface AutomaticTitleResultParams {
   tree_id: string;
   attempt_id: string;
 }
+export interface BrowserAccepted {
+  accepted: boolean;
+}
+export interface BrowserAttachmentsResult {
+  /**
+   * @maxItems 8
+   */
+  attachments: {
+    scope: {
+      provider_id: string;
+      provider_epoch: string;
+      tab_id: string;
+      tab_generation: string;
+      profile_id: string;
+      control_lineage: string;
+      attachment_id: string;
+      attachment_generation: string;
+      preview?: null | {
+        host_id: string;
+        host_identity: string;
+        connection_generation: string;
+        environment_id: string;
+        loopback: "127.0.0.1" | "::1";
+        /**
+         * @maxItems 64
+         */
+        ports: number[];
+      };
+    };
+    root_id: string;
+    agent_id: string;
+    document_revision: string;
+    url: string;
+    title: string;
+  }[];
+}
+export interface BrowserCommand {
+  command_id: string;
+  operation_id: string;
+  root_id: string;
+  agent_id: string;
+  provider_epoch: string;
+  scope: {
+    provider_id: string;
+    provider_epoch: string;
+    tab_id: string;
+    tab_generation: string;
+    profile_id: string;
+    control_lineage: string;
+    attachment_id: string;
+    attachment_generation: string;
+    preview?: null | {
+      host_id: string;
+      host_identity: string;
+      connection_generation: string;
+      environment_id: string;
+      loopback: "127.0.0.1" | "::1";
+      /**
+       * @maxItems 64
+       */
+      ports: number[];
+    };
+  };
+  expected_document: string;
+  deadline_millis: string;
+  kind: "open" | "attach" | "allow_preview_port" | "detach" | "begin" | "cdp" | "end" | "transfer";
+  arguments: unknown;
+}
+export interface BrowserCommandCancel {
+  command_id: string;
+  root_id: string;
+  provider_epoch: string;
+  attachment_generation: string;
+}
+export interface BrowserCommandResultParams {
+  command_id: string;
+  root_id: string;
+  provider_epoch: string;
+  attachment_generation: string;
+  document_revision: string;
+  url: string;
+  title: string;
+  result?: unknown;
+  error?: null | {
+    kind:
+      | "permission_denied"
+      | "desktop_unavailable"
+      | "host_not_connected"
+      | "browser_busy"
+      | "stale_document"
+      | "attachment_revoked"
+      | "tab_closed"
+      | "preview_disconnected"
+      | "unsupported_operation"
+      | "outcome_unknown";
+    message: string;
+  };
+  screenshot?: null | {
+    size: string;
+    digest: string;
+    media_type: "image/jpeg";
+  };
+}
+export type BrowserEvent = {
+  jsonrpc: "2.0";
+  method:
+    | "browser.command"
+    | "browser.inventory"
+    | "browser.command.cancel"
+    | "browser.provider.revoked"
+    | "browser.scopes.retired";
+  command: null | {
+    command_id: string;
+    operation_id: string;
+    root_id: string;
+    agent_id: string;
+    provider_epoch: string;
+    scope: {
+      provider_id: string;
+      provider_epoch: string;
+      tab_id: string;
+      tab_generation: string;
+      profile_id: string;
+      control_lineage: string;
+      attachment_id: string;
+      attachment_generation: string;
+      preview?: null | {
+        host_id: string;
+        host_identity: string;
+        connection_generation: string;
+        environment_id: string;
+        loopback: "127.0.0.1" | "::1";
+        /**
+         * @maxItems 64
+         */
+        ports: number[];
+      };
+    };
+    expected_document: string;
+    deadline_millis: string;
+    kind: "open" | "attach" | "allow_preview_port" | "detach" | "begin" | "cdp" | "end" | "transfer";
+    arguments: unknown;
+  };
+  inventory: null | {
+    request_id: string;
+    root_id: string;
+    agent_id: string;
+    provider_id: string;
+    provider_epoch: string;
+    /**
+     * @maxItems 72
+     */
+    tabs: {
+      tab_id: string;
+      tab_generation: string;
+    }[];
+  };
+  cancel: null | {
+    command_id: string;
+    root_id: string;
+    provider_epoch: string;
+    attachment_generation: string;
+  };
+  revoked: null | {
+    root_id: string;
+    provider_id: string;
+    provider_epoch: string;
+    reason: string;
+  };
+  retired: null | {
+    root_id: string;
+    provider_id: string;
+    provider_epoch: string;
+    /**
+     * @maxItems 256
+     */
+    scopes: {
+      provider_id: string;
+      provider_epoch: string;
+      tab_id: string;
+      tab_generation: string;
+      profile_id: string;
+      control_lineage: string;
+      attachment_id: string;
+      attachment_generation: string;
+      preview?: null | {
+        host_id: string;
+        host_identity: string;
+        connection_generation: string;
+        environment_id: string;
+        loopback: "127.0.0.1" | "::1";
+        /**
+         * @maxItems 64
+         */
+        ports: number[];
+      };
+    }[];
+  };
+} & (
+  | {
+      cancel?: null;
+      command?: {};
+      inventory?: null;
+      method?: "browser.command";
+      retired?: null;
+      revoked?: null;
+      [k: string]: unknown;
+    }
+  | {
+      cancel?: null;
+      command?: null;
+      inventory?: {};
+      method?: "browser.inventory";
+      retired?: null;
+      revoked?: null;
+      [k: string]: unknown;
+    }
+  | {
+      cancel?: {};
+      command?: null;
+      inventory?: null;
+      method?: "browser.command.cancel";
+      retired?: null;
+      revoked?: null;
+      [k: string]: unknown;
+    }
+  | {
+      cancel?: null;
+      command?: null;
+      inventory?: null;
+      method?: "browser.provider.revoked";
+      retired?: null;
+      revoked?: {};
+      [k: string]: unknown;
+    }
+  | {
+      cancel?: null;
+      command?: null;
+      inventory?: null;
+      method?: "browser.scopes.retired";
+      retired?: {};
+      revoked?: null;
+      [k: string]: unknown;
+    }
+);
+export interface BrowserInventoryRequest {
+  request_id: string;
+  root_id: string;
+  agent_id: string;
+  provider_id: string;
+  provider_epoch: string;
+  /**
+   * @maxItems 72
+   */
+  tabs: {
+    tab_id: string;
+    tab_generation: string;
+  }[];
+}
+export interface BrowserInventoryResultParams {
+  request_id: string;
+  root_id: string;
+  provider_epoch: string;
+  /**
+   * @maxItems 72
+   */
+  tabs: {
+    tab_id: string;
+    tab_generation: string;
+    document_revision: string;
+    url: string;
+    title: string;
+    state: "available" | "busy" | "attached";
+    requestable: boolean;
+    attachment_id?: null | string;
+  }[];
+  error?: null | {
+    kind:
+      | "permission_denied"
+      | "desktop_unavailable"
+      | "host_not_connected"
+      | "browser_busy"
+      | "stale_document"
+      | "attachment_revoked"
+      | "tab_closed"
+      | "preview_disconnected"
+      | "unsupported_operation"
+      | "outcome_unknown";
+    message: string;
+  };
+}
+export interface BrowserProviderBindParams {
+  root_id: string;
+  version: number;
+  desktop_id: string;
+  window_id: string;
+  offer_revision: string;
+  create_profile_id: string;
+  availability?: boolean;
+  expected_provider_epoch?: null | string;
+  /**
+   * @maxItems 32
+   */
+  offered_tabs: {
+    tab_id: string;
+    tab_generation: string;
+    profile_id: string;
+    document_revision: string;
+    url: string;
+    title: string;
+    preview?: null | {
+      host_id: string;
+      host_identity: string;
+      connection_generation: string;
+      environment_id: string;
+      loopback: "127.0.0.1" | "::1";
+      /**
+       * @maxItems 64
+       */
+      ports: number[];
+    };
+  }[];
+  /**
+   * @maxItems 16
+   */
+  offered_preview_hosts: {
+    host_id: string;
+    host_identity: string;
+    connection_generation: string;
+    environment_id: string;
+    loopback: "127.0.0.1" | "::1";
+    /**
+     * @maxItems 64
+     */
+    ports: number[];
+  }[];
+}
+export interface BrowserProviderBindResult {
+  version: number;
+  provider_id: string;
+  provider_epoch: string;
+}
+export interface BrowserProviderEventParams {
+  root_id: string;
+  provider_epoch: string;
+  tab_id: string;
+  tab_generation: string;
+  attachment_id: string;
+  attachment_generation: string;
+  sequence: string;
+  operation_id?: null | string;
+  document_revision: string;
+  kind: "cdp" | "state" | "document" | "closed" | "revoked" | "preview_disconnected";
+  method?: string;
+  params?: unknown;
+  url?: string;
+  title?: string;
+}
+export interface BrowserProviderUnbindParams {
+  root_id: string;
+  provider_epoch: string;
+}
+export interface BrowserScopesRetired {
+  root_id: string;
+  provider_id: string;
+  provider_epoch: string;
+  /**
+   * @maxItems 256
+   */
+  scopes: {
+    provider_id: string;
+    provider_epoch: string;
+    tab_id: string;
+    tab_generation: string;
+    profile_id: string;
+    control_lineage: string;
+    attachment_id: string;
+    attachment_generation: string;
+    preview?: null | {
+      host_id: string;
+      host_identity: string;
+      connection_generation: string;
+      environment_id: string;
+      loopback: "127.0.0.1" | "::1";
+      /**
+       * @maxItems 64
+       */
+      ports: number[];
+    };
+  }[];
+}
+export interface BrowserScreenshotChunkParams {
+  command_id: string;
+  root_id: string;
+  provider_epoch: string;
+  attachment_generation: string;
+  offset: string;
+  data_base64: string;
+}
+export interface BrowserTabsResult {
+  /**
+   * @maxItems 72
+   */
+  tabs: {
+    tab_id: string;
+    tab_generation: string;
+    document_revision: string;
+    url: string;
+    title: string;
+    state: "available" | "busy" | "attached";
+    requestable: boolean;
+    attachment_id?: null | string;
+  }[];
+}
 export interface Budget {
   session_id: string;
   kind:
@@ -261,7 +690,7 @@ export interface CallHostToolParams {
   };
   session_id: string;
   operation: {
-    module: "shell" | "files" | "tools" | "computer";
+    module: "shell" | "files" | "tools" | "computer" | "browser";
     name: string;
     arguments_base64: string;
   };
@@ -757,7 +1186,7 @@ export interface CreateTreeParams {
     archived: boolean;
     pinned: boolean;
   };
-  engine: "starlark" | "quickjs";
+  engine?: "starlark" | "quickjs";
   resources?:
     | null
     | {
@@ -1296,9 +1725,7 @@ export type ExecutorEvent = {
   };
 } & (
   | {
-      invocation?: {
-        [k: string]: unknown;
-      };
+      invocation?: {};
       method?: "executor.invoke";
       [k: string]: unknown;
     }
@@ -1920,6 +2347,11 @@ export interface GoalAdmission {
     };
     input:
       | {
+          steering?: null | {
+            id: string;
+            turn_id: string;
+            consumed: boolean;
+          };
           design_context?: null | {
             context_attachment_id: string;
             screenshot_attachment_id?: null | string;
@@ -1977,6 +2409,11 @@ export interface GoalAdmission {
           };
         }
       | {
+          steering?: null | {
+            id: string;
+            turn_id: string;
+            consumed: boolean;
+          };
           design_context?: null | {
             context_attachment_id: string;
             screenshot_attachment_id?: null | string;
@@ -2012,6 +2449,11 @@ export interface GoalAdmission {
           };
         }
       | {
+          steering?: null | {
+            id: string;
+            turn_id: string;
+            consumed: boolean;
+          };
           design_context?: null | {
             context_attachment_id: string;
             screenshot_attachment_id?: null | string;
@@ -2026,7 +2468,7 @@ export interface GoalAdmission {
             page_title?: string;
           };
           host_operation: {
-            module: "shell" | "files" | "tools" | "computer";
+            module: "shell" | "files" | "tools" | "computer" | "browser";
             name: string;
             arguments_base64: string;
           };
@@ -2847,6 +3289,14 @@ export interface HostDirectoryPickResult {
   path: null | string;
   cancelled: boolean;
 }
+export interface HostExecutionDefaults {
+  engine: "starlark" | "quickjs";
+  effort: string;
+  compaction_percent: number;
+  goal_max_continuations: string;
+  max_attempts: number;
+  revision: string;
+}
 export type HostOperation = {
   permission_revision: null | string;
   id: string;
@@ -2874,9 +3324,7 @@ export type HostOperation = {
   finished_at: null | string;
 } & (
   | {
-      cell_id?: {
-        [k: string]: unknown;
-      };
+      cell_id?: {};
       origin?: "cell";
       [k: string]: unknown;
     }
@@ -2897,11 +3345,34 @@ export interface HostOperationsParams {
 export interface HostOperationsResult {
   items:
     | null
-    | (
+    | ({
+        permission_revision: null | string;
+        id: string;
+        session_id: string;
+        turn_id: string;
+        cell_id: null | string;
+        origin: "cell" | "host_operation";
+        request_id: string;
+        capability: string;
+        resource: string;
+        arguments: unknown;
+        state: "waiting" | "ready" | "dispatched" | "succeeded" | "failed" | "denied" | "cancelled" | "uncertain";
+        grant_id: null | string;
+        result: null | {
+          /**
+           * @maxItems 8
+           */
+          content_references: string[];
+          state: "succeeded" | "failed" | "denied" | "cancelled" | "uncertain";
+          value?: unknown;
+          failure?: null | string;
+        };
+        created_at: string;
+        dispatched_at: null | string;
+        finished_at: null | string;
+      } & (
         | {
-            cell_id?: {
-              [k: string]: unknown;
-            };
+            cell_id?: {};
             origin?: "cell";
             [k: string]: unknown;
           }
@@ -2910,7 +3381,7 @@ export interface HostOperationsResult {
             origin?: "host_operation";
             [k: string]: unknown;
           }
-      )[];
+      ))[];
 }
 export interface HostProfiles {
   revision: string;
@@ -3032,10 +3503,10 @@ export interface HostThemesResult {
 }
 export interface HostToolSchemasResult {
   /**
-   * @maxItems 136
+   * @maxItems 142
    */
   items: {
-    module: "shell" | "files" | "tools" | "computer";
+    module: "shell" | "files" | "tools" | "computer" | "browser";
     name: string;
     description: string;
     input_schema: unknown;
@@ -3223,6 +3694,11 @@ export interface InitializeResult {
 }
 export type Input =
   | {
+      steering?: null | {
+        id: string;
+        turn_id: string;
+        consumed: boolean;
+      };
       design_context?: null | {
         context_attachment_id: string;
         screenshot_attachment_id?: null | string;
@@ -3280,6 +3756,11 @@ export type Input =
       };
     }
   | {
+      steering?: null | {
+        id: string;
+        turn_id: string;
+        consumed: boolean;
+      };
       design_context?: null | {
         context_attachment_id: string;
         screenshot_attachment_id?: null | string;
@@ -3315,6 +3796,11 @@ export type Input =
       };
     }
   | {
+      steering?: null | {
+        id: string;
+        turn_id: string;
+        consumed: boolean;
+      };
       design_context?: null | {
         context_attachment_id: string;
         screenshot_attachment_id?: null | string;
@@ -3329,7 +3815,7 @@ export type Input =
         page_title?: string;
       };
       host_operation: {
-        module: "shell" | "files" | "tools" | "computer";
+        module: "shell" | "files" | "tools" | "computer" | "browser";
         name: string;
         arguments_base64: string;
       };
@@ -3363,6 +3849,11 @@ export interface InputPageResult {
   items:
     | null
     | {
+        steering?: null | {
+          id: string;
+          turn_id: string;
+          consumed: boolean;
+        };
         id: string;
         session_id: string;
         ordinal: string;
@@ -3379,6 +3870,166 @@ export interface InputPageResult {
 }
 export interface InputParams {
   input_id: string;
+}
+export interface InputSteeringParams {
+  edit_id: string;
+  session_id: string;
+}
+export interface InputSteeringResult {
+  id: string;
+  session_id: string;
+  input_id: string;
+  turn_id: string;
+  created_at: string;
+  deleted: boolean;
+  input:
+    | {
+        steering?: null | {
+          id: string;
+          turn_id: string;
+          consumed: boolean;
+        };
+        design_context?: null | {
+          context_attachment_id: string;
+          screenshot_attachment_id?: null | string;
+          elements:
+            | null
+            | {
+                label: string;
+                selector?: string;
+              }[];
+          element_count: number;
+          page_url?: string;
+          page_title?: string;
+        };
+        host_operation: null;
+        goal: null | {
+          id: string;
+          revision: string;
+        };
+        id: string;
+        session_id: string;
+        source: "user" | "agent" | "schedule" | "goal";
+        kind: "prompt";
+        /**
+         * @minItems 1
+         * @maxItems 128
+         */
+        parts: [
+          (
+            | {
+                text: string;
+                type: "text";
+              }
+            | {
+                reference_id: string;
+                type: "content";
+              }
+          ),
+          ...(
+            | {
+                text: string;
+                type: "text";
+              }
+            | {
+                reference_id: string;
+                type: "content";
+              }
+          )[]
+        ];
+        state: "queued" | "claimed" | "cancelled";
+        turn_id: null | string;
+        created_at: string;
+        schedule: null | {
+          schedule_id: string;
+          scheduled_for: string;
+        };
+      }
+    | {
+        steering?: null | {
+          id: string;
+          turn_id: string;
+          consumed: boolean;
+        };
+        design_context?: null | {
+          context_attachment_id: string;
+          screenshot_attachment_id?: null | string;
+          elements:
+            | null
+            | {
+                label: string;
+                selector?: string;
+              }[];
+          element_count: number;
+          page_url?: string;
+          page_title?: string;
+        };
+        host_operation: null;
+        goal: null | {
+          id: string;
+          revision: string;
+        };
+        id: string;
+        session_id: string;
+        source: "user" | "agent" | "schedule" | "goal";
+        kind: "compact" | "goal_formulation" | "automatic_title";
+        /**
+         * @maxItems 0
+         */
+        parts: [];
+        state: "queued" | "claimed" | "cancelled";
+        turn_id: null | string;
+        created_at: string;
+        schedule: null | {
+          schedule_id: string;
+          scheduled_for: string;
+        };
+      }
+    | {
+        steering?: null | {
+          id: string;
+          turn_id: string;
+          consumed: boolean;
+        };
+        design_context?: null | {
+          context_attachment_id: string;
+          screenshot_attachment_id?: null | string;
+          elements:
+            | null
+            | {
+                label: string;
+                selector?: string;
+              }[];
+          element_count: number;
+          page_url?: string;
+          page_title?: string;
+        };
+        host_operation: {
+          module: "shell" | "files" | "tools" | "computer" | "browser";
+          name: string;
+          arguments_base64: string;
+        };
+        goal: null | {
+          id: string;
+          revision: string;
+        };
+        id: string;
+        session_id: string;
+        source: "user";
+        kind: "host_operation";
+        /**
+         * @maxItems 0
+         */
+        parts: [];
+        state: "queued" | "claimed" | "cancelled";
+        turn_id: null | string;
+        created_at: string;
+        schedule: null | {
+          schedule_id: string;
+          scheduled_for: string;
+        };
+      }
+    | null;
 }
 export interface InstructionManifestResult {
   manifest: null | {
@@ -6935,6 +7586,7 @@ export interface RPCError {
     | "PROVIDER_KEY_PENDING"
     | "PROVIDER_KEY_STORAGE"
     | "MCP_UNAVAILABLE"
+    | "BROWSER_EVENT_STALE"
     | "INTERNAL";
 }
 export interface ReadCompletionParams {
@@ -7163,6 +7815,7 @@ export type Response = {
       | "PROVIDER_KEY_PENDING"
       | "PROVIDER_KEY_STORAGE"
       | "MCP_UNAVAILABLE"
+      | "BROWSER_EVENT_STALE"
       | "INTERNAL";
   };
 } & {
@@ -7877,6 +8530,16 @@ export interface SetDefaultPermissionModeParams {
   expected_revision: string;
   mode: "prompt" | "automatic";
 }
+export interface SetExecutionDefaultsParams {
+  expected_revision: string;
+  defaults: {
+    engine: "starlark" | "quickjs";
+    effort: string;
+    compaction_percent: number;
+    goal_max_continuations: string;
+    max_attempts: number;
+  };
+}
 export interface SetHostProfilesParams {
   expected_revision: string;
   /**
@@ -8213,6 +8876,11 @@ export interface SpawnSessionResult {
     };
     input:
       | {
+          steering?: null | {
+            id: string;
+            turn_id: string;
+            consumed: boolean;
+          };
           design_context?: null | {
             context_attachment_id: string;
             screenshot_attachment_id?: null | string;
@@ -8270,6 +8938,11 @@ export interface SpawnSessionResult {
           };
         }
       | {
+          steering?: null | {
+            id: string;
+            turn_id: string;
+            consumed: boolean;
+          };
           design_context?: null | {
             context_attachment_id: string;
             screenshot_attachment_id?: null | string;
@@ -8305,6 +8978,11 @@ export interface SpawnSessionResult {
           };
         }
       | {
+          steering?: null | {
+            id: string;
+            turn_id: string;
+            consumed: boolean;
+          };
           design_context?: null | {
             context_attachment_id: string;
             screenshot_attachment_id?: null | string;
@@ -8319,7 +8997,7 @@ export interface SpawnSessionResult {
             page_title?: string;
           };
           host_operation: {
-            module: "shell" | "files" | "tools" | "computer";
+            module: "shell" | "files" | "tools" | "computer" | "browser";
             name: string;
             arguments_base64: string;
           };
@@ -8423,7 +9101,17 @@ export interface StateVersionsResult {
         created_at: string;
       }[];
 }
-export interface SubmitParams {
+export interface SteerInputParams {
+  edit_id: string;
+  session_id: string;
+  input_id: string;
+  turn_id: string;
+}
+export type SubmitParams = {
+  [k: string]: unknown;
+} & {
+  delivery?: "queued" | "steer";
+  target_turn_id?: null | string;
   design_context?: null | {
     context_attachment_id: string;
     screenshot_attachment_id?: null | string;
@@ -8469,7 +9157,7 @@ export interface SubmitParams {
         }
     )[]
   ];
-}
+};
 export interface SubscribeStateParams {
   subscription_id: string;
   session_id: string;
@@ -8646,7 +9334,12 @@ export interface TracePageResult {
       /**
        * @maxItems 64
        */
-      attributes: (
+      attributes: ({
+        key: string;
+        text: null | string;
+        count: null | string;
+        flag: null | boolean;
+      } & (
         | {
             count?: null;
             flag?: null;
@@ -8665,7 +9358,7 @@ export interface TracePageResult {
             text?: null;
             [k: string]: unknown;
           }
-      )[];
+      ))[];
     };
   }[];
   revision: string;
@@ -8918,6 +9611,21 @@ export interface ContractTypes {
   AutomaticTitleDecision: AutomaticTitleDecision;
   AutomaticTitleResult: AutomaticTitleResult;
   AutomaticTitleResultParams: AutomaticTitleResultParams;
+  BrowserAccepted: BrowserAccepted;
+  BrowserAttachmentsResult: BrowserAttachmentsResult;
+  BrowserCommand: BrowserCommand;
+  BrowserCommandCancel: BrowserCommandCancel;
+  BrowserCommandResultParams: BrowserCommandResultParams;
+  BrowserEvent: BrowserEvent;
+  BrowserInventoryRequest: BrowserInventoryRequest;
+  BrowserInventoryResultParams: BrowserInventoryResultParams;
+  BrowserProviderBindParams: BrowserProviderBindParams;
+  BrowserProviderBindResult: BrowserProviderBindResult;
+  BrowserProviderEventParams: BrowserProviderEventParams;
+  BrowserProviderUnbindParams: BrowserProviderUnbindParams;
+  BrowserScopesRetired: BrowserScopesRetired;
+  BrowserScreenshotChunkParams: BrowserScreenshotChunkParams;
+  BrowserTabsResult: BrowserTabsResult;
   Budget: Budget;
   BudgetsResult: BudgetsResult;
   CallHostToolParams: CallHostToolParams;
@@ -8989,6 +9697,7 @@ export interface ContractTypes {
   HostDirectoriesResult: HostDirectoriesResult;
   HostDirectoryPickParams: HostDirectoryPickParams;
   HostDirectoryPickResult: HostDirectoryPickResult;
+  HostExecutionDefaults: HostExecutionDefaults;
   HostOperation: HostOperation;
   HostOperationParams: HostOperationParams;
   HostOperationsParams: HostOperationsParams;
@@ -9015,6 +9724,8 @@ export interface ContractTypes {
   InputPageParams: InputPageParams;
   InputPageResult: InputPageResult;
   InputParams: InputParams;
+  InputSteeringParams: InputSteeringParams;
+  InputSteeringResult: InputSteeringResult;
   InstructionManifestResult: InstructionManifestResult;
   LanguageServersResult: LanguageServersResult;
   LifecycleParams: LifecycleParams;
@@ -9112,6 +9823,7 @@ export interface ContractTypes {
   SessionParams: SessionParams;
   SetBudgetParams: SetBudgetParams;
   SetDefaultPermissionModeParams: SetDefaultPermissionModeParams;
+  SetExecutionDefaultsParams: SetExecutionDefaultsParams;
   SetHostProfilesParams: SetHostProfilesParams;
   SetPermissionModeParams: SetPermissionModeParams;
   SetResourceParams: SetResourceParams;
@@ -9127,6 +9839,7 @@ export interface ContractTypes {
   StateSubscriptionsResult: StateSubscriptionsResult;
   StateVersion: StateVersion;
   StateVersionsResult: StateVersionsResult;
+  SteerInputParams: SteerInputParams;
   SubmitParams: SubmitParams;
   SubscribeStateParams: SubscribeStateParams;
   TerminalAccepted: TerminalAccepted;
@@ -9170,6 +9883,14 @@ export interface Operations {
   "workspace.inspect": { params: SessionParams; result: WorkspaceInspection };
   "workspace.set": { params: WorkspaceSetParams; result: ControlEdit };
   "run.configure": { params: RunConfigureParams; result: ControlEdit };
+  "browser.provider.bind": { params: BrowserProviderBindParams; result: BrowserProviderBindResult };
+  "browser.provider.unbind": { params: BrowserProviderUnbindParams; result: BrowserAccepted };
+  "browser.provider.event": { params: BrowserProviderEventParams; result: BrowserAccepted };
+  "browser.command.result": { params: BrowserCommandResultParams; result: BrowserAccepted };
+  "browser.screenshot.chunk": { params: BrowserScreenshotChunkParams; result: BrowserAccepted };
+  "browser.inventory.result": { params: BrowserInventoryResultParams; result: BrowserAccepted };
+  "browser.attachments": { params: SessionParams; result: BrowserAttachmentsResult };
+  "browser.tabs": { params: SessionParams; result: BrowserTabsResult };
   "trace.page": { params: TracePageParams; result: TracePageResult };
   "trace.export": { params: TraceExportParams; result: TraceExportResult };
   "host.attention": { params: HostAttentionParams; result: HostAttentionResult };
@@ -9307,6 +10028,8 @@ export interface Operations {
   "permissions.set_mode": { params: SetPermissionModeParams; result: PermissionModeEdit };
   "permissions.mode_edit": { params: PermissionModeEditParams; result: PermissionModeEdit };
   "host.profiles": { params: EmptyParams; result: HostProfiles };
+  "host.execution_defaults": { params: EmptyParams; result: HostExecutionDefaults };
+  "host.set_execution_defaults": { params: SetExecutionDefaultsParams; result: HostExecutionDefaults };
   "host.set_profiles": { params: SetHostProfilesParams; result: HostProfiles };
   "host.permission_default": { params: EmptyParams; result: DefaultPermissionMode };
   "host.set_permission_default": { params: SetDefaultPermissionModeParams; result: DefaultPermissionMode };
@@ -9328,6 +10051,8 @@ export interface Operations {
   "sessions.list": { params: ListSessionsParams; result: ListSessionsResult };
   "sessions.configure": { params: UpdateConfigurationParams; result: Session };
   "sessions.submit": { params: SubmitParams; result: Admission };
+  "inputs.steer": { params: SteerInputParams; result: InputSteeringResult };
+  "inputs.steering": { params: InputSteeringParams; result: InputSteeringResult };
   "sessions.history_page": { params: HistoryPageParams; result: HistoryPageResult };
   "sessions.history": { params: HistoryParams; result: HistoryResult };
   "sessions.rewind": { params: RewindParams; result: HistoryEdit };

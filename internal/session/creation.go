@@ -18,6 +18,7 @@ type TreeCreationRequest struct {
 }
 
 type TreeCreationDefaults struct {
+	Engine         Engine
 	Configuration  Configuration
 	Resources      []ResourceLimit
 	PermissionMode PermissionMode

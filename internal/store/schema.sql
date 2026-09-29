@@ -230,7 +230,7 @@ CREATE TABLE inputs (
  source TEXT NOT NULL CHECK(source IN ('user','agent','schedule','goal')),
  kind TEXT NOT NULL DEFAULT 'prompt' CHECK(kind IN ('prompt','compact','goal_formulation','automatic_title','host_operation')),
  design_context TEXT CHECK(design_context IS NULL OR (kind='prompt' AND source='user' AND json_valid(design_context) AND length(CAST(design_context AS BLOB))<=8192)),
- parts TEXT NOT NULL CHECK(json_valid(parts)), turn_id TEXT UNIQUE, cancelled_at INTEGER, created_at INTEGER NOT NULL,
+ parts TEXT NOT NULL CHECK(json_valid(parts)), turn_id TEXT UNIQUE, steered_turn_id TEXT, cancelled_at INTEGER, created_at INTEGER NOT NULL,
  schedule_id TEXT, scheduled_for TEXT, goal_id TEXT, goal_revision INTEGER,
  CHECK((goal_id IS NOT NULL) = (source='goal')),
  CHECK((goal_revision IS NULL) = (goal_id IS NULL)),
@@ -242,20 +242,51 @@ CREATE TABLE inputs (
  UNIQUE(schedule_id,scheduled_for),
  FOREIGN KEY(schedule_id,session_id) REFERENCES schedules(id,session_id),
  CHECK(kind='prompt' OR (json_type(parts)='array' AND json_array_length(parts)=0)),
- CHECK(turn_id IS NULL OR cancelled_at IS NULL), UNIQUE(id,turn_id,session_id),
- FOREIGN KEY(turn_id,session_id) REFERENCES turns(id,session_id) ON DELETE CASCADE
+ CHECK(turn_id IS NULL OR steered_turn_id IS NULL),
+ CHECK((turn_id IS NULL AND steered_turn_id IS NULL) OR cancelled_at IS NULL),
+ CHECK(steered_turn_id IS NULL OR (kind='prompt' AND source IN ('user','agent'))),
+ UNIQUE(id,turn_id,session_id), UNIQUE(id,session_id),
+ FOREIGN KEY(turn_id,session_id) REFERENCES turns(id,session_id) ON DELETE CASCADE,
+ FOREIGN KEY(steered_turn_id,session_id) REFERENCES turns(id,session_id) ON DELETE CASCADE
 ) STRICT;
 CREATE INDEX goal_inputs ON inputs(goal_id,ordinal DESC) WHERE goal_id IS NOT NULL;
 CREATE INDEX schedule_inputs ON inputs(schedule_id,ordinal DESC) WHERE schedule_id IS NOT NULL;
-CREATE INDEX queued_inputs ON inputs(session_id,ordinal) WHERE turn_id IS NULL AND cancelled_at IS NULL;
+CREATE INDEX queued_inputs ON inputs(session_id,ordinal) WHERE turn_id IS NULL AND steered_turn_id IS NULL AND cancelled_at IS NULL;
+CREATE INDEX steered_inputs ON inputs(steered_turn_id) WHERE steered_turn_id IS NOT NULL;
+CREATE TRIGGER input_initially_unsteered BEFORE INSERT ON inputs
+ WHEN NEW.steered_turn_id IS NOT NULL
+ BEGIN SELECT RAISE(ABORT, 'steering consumption requires an admitted input'); END;
 CREATE TRIGGER input_immutable BEFORE UPDATE ON inputs
  WHEN NEW.id IS NOT OLD.id OR NEW.ordinal IS NOT OLD.ordinal OR NEW.session_id IS NOT OLD.session_id
  OR NEW.goal_id IS NOT OLD.goal_id OR NEW.goal_revision IS NOT OLD.goal_revision
  OR NEW.schedule_id IS NOT OLD.schedule_id OR NEW.scheduled_for IS NOT OLD.scheduled_for
  OR NEW.design_context IS NOT OLD.design_context
  OR NEW.source IS NOT OLD.source OR NEW.kind IS NOT OLD.kind OR NEW.parts IS NOT OLD.parts OR NEW.created_at IS NOT OLD.created_at
- OR OLD.turn_id IS NOT NULL OR OLD.cancelled_at IS NOT NULL
+ OR OLD.turn_id IS NOT NULL OR OLD.steered_turn_id IS NOT NULL OR OLD.cancelled_at IS NOT NULL
  BEGIN SELECT RAISE(ABORT, 'accepted input is immutable'); END;
+-- Each input has at most one exact steering target. These small immutable
+-- routing receipts retain identity after deletion, never input bodies.
+CREATE TABLE input_steering (
+ id TEXT PRIMARY KEY, digest TEXT NOT NULL, session_id TEXT NOT NULL,
+ input_id TEXT NOT NULL UNIQUE, turn_id TEXT NOT NULL, created_at INTEGER NOT NULL
+) STRICT;
+CREATE INDEX pending_steering ON input_steering(turn_id,input_id);
+CREATE TRIGGER input_steering_admission BEFORE INSERT ON input_steering
+ WHEN NOT EXISTS(SELECT 1 FROM inputs i JOIN turns t ON t.session_id=i.session_id
+ WHERE i.id=NEW.input_id AND i.session_id=NEW.session_id AND i.kind='prompt' AND i.source IN ('user','agent')
+ AND i.turn_id IS NULL AND i.steered_turn_id IS NULL AND i.cancelled_at IS NULL
+ AND t.id=NEW.turn_id AND t.state='running'
+ AND COALESCE((SELECT kind FROM inputs WHERE turn_id=t.id),'prompt')='prompt')
+ BEGIN SELECT RAISE(ABORT, 'steering requires an exact live prompt turn and queued input'); END;
+CREATE TRIGGER input_steering_immutable BEFORE UPDATE ON input_steering
+ BEGIN SELECT RAISE(ABORT, 'input steering is immutable'); END;
+CREATE TRIGGER input_steering_retained BEFORE DELETE ON input_steering
+ BEGIN SELECT RAISE(ABORT, 'input steering identity is retained'); END;
+CREATE TRIGGER input_steering_consumption BEFORE UPDATE OF steered_turn_id ON inputs
+ WHEN NEW.steered_turn_id IS NOT NULL AND NOT EXISTS(
+ SELECT 1 FROM input_steering s JOIN turns t ON t.id=s.turn_id
+ WHERE s.input_id=NEW.id AND s.session_id=NEW.session_id AND s.turn_id=NEW.steered_turn_id AND t.state='running')
+ BEGIN SELECT RAISE(ABORT, 'steered input must consume its accepted target'); END;
 CREATE TABLE receipts (
  client_id TEXT NOT NULL, request_id TEXT NOT NULL, digest TEXT NOT NULL,
  input_id TEXT UNIQUE REFERENCES inputs(id), deleted_at INTEGER, created_at INTEGER NOT NULL,
@@ -349,14 +380,14 @@ CREATE TABLE messages (
  CHECK((turn_id IS NULL)=(source_session_id IS NOT NULL)),
  CHECK(source_session_id IS NULL OR (parts IS NOT NULL AND input_id IS NULL AND mail_id IS NULL)),
  CHECK(source_session_id IS NOT NULL OR (role='user')=(input_id IS NOT NULL OR mail_id IS NOT NULL)),
- CHECK(source_session_id IS NOT NULL OR opening_input=(input_id IS NOT NULL)),
+ CHECK(source_session_id IS NOT NULL OR opening_input=0 OR input_id IS NOT NULL),
  CHECK(opening_input=0 OR role='user'),
  CHECK((retired_by IS NULL)=(retired_revision IS NULL)),
  FOREIGN KEY(group_id,session_id) REFERENCES history_groups(id,session_id) ON DELETE CASCADE,
  FOREIGN KEY(retired_by,session_id,retired_revision) REFERENCES history_edits(id,session_id,revision),
  FOREIGN KEY(mail_id,mail_revision) REFERENCES mail_revisions(mail_id,revision) ON DELETE CASCADE,
  FOREIGN KEY(turn_id,session_id) REFERENCES turns(id,session_id) ON DELETE CASCADE,
- FOREIGN KEY(input_id,turn_id,session_id) REFERENCES inputs(id,turn_id,session_id) ON DELETE CASCADE
+ FOREIGN KEY(input_id,session_id) REFERENCES inputs(id,session_id) ON DELETE CASCADE
 ) STRICT;
 CREATE INDEX message_turn_role_sequence ON messages(turn_id,role,sequence DESC);
 CREATE INDEX message_group_sequence ON messages(group_id,sequence);
@@ -364,6 +395,11 @@ CREATE INDEX active_history_sequence ON messages(session_id,sequence) WHERE reti
 CREATE INDEX message_retirement ON messages(retired_by,session_id,retired_revision) WHERE retired_by IS NOT NULL;
 CREATE INDEX message_retired_coverage ON messages(session_id,retired_revision,sequence) WHERE retired_revision IS NOT NULL;
 CREATE UNIQUE INDEX group_opening_input ON messages(group_id) WHERE opening_input=1;
+CREATE TRIGGER message_input_owner BEFORE INSERT ON messages
+ WHEN NEW.input_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM inputs i
+ WHERE i.id=NEW.input_id AND i.session_id=NEW.session_id AND COALESCE(i.turn_id,i.steered_turn_id)=NEW.turn_id
+ AND NEW.opening_input=(i.turn_id IS NOT NULL))
+ BEGIN SELECT RAISE(ABORT, 'message must reference its exact opening or steered input'); END;
 CREATE TRIGGER message_group_owner BEFORE INSERT ON messages
  WHEN NEW.retired_by IS NOT NULL
  OR NOT EXISTS(SELECT 1 FROM history_groups WHERE id=NEW.group_id AND session_id=NEW.session_id AND turn_id IS NEW.turn_id)
@@ -426,8 +462,8 @@ CREATE TABLE operations (
  CHECK(result IS NULL OR json_extract(result,'$.state') IS state),
  CHECK((state IN ('dispatched','succeeded','failed','uncertain')) = (dispatched_at IS NOT NULL)),
  CHECK(state <> 'waiting' OR (grant_id IS NULL AND permission_revision IS NULL)),
- CHECK(permission_revision IS NULL OR (grant_id IS NULL AND capability NOT IN ('user.ask','mcp.catalog','permissions.inspect','mcp.call','mcp.connect','computer.run','computer.applescript'))),
- CHECK(state NOT IN ('ready','dispatched','succeeded','failed','uncertain') OR grant_id IS NOT NULL OR permission_revision IS NOT NULL OR capability IN ('user.ask','mcp.catalog','permissions.inspect'))
+ CHECK(permission_revision IS NULL OR (grant_id IS NULL AND capability NOT IN ('user.ask','mcp.catalog','permissions.inspect','browser.catalog','mcp.call','mcp.connect','computer.run','computer.applescript'))),
+ CHECK(state NOT IN ('ready','dispatched','succeeded','failed','uncertain') OR grant_id IS NOT NULL OR permission_revision IS NOT NULL OR capability IN ('user.ask','mcp.catalog','permissions.inspect','browser.catalog'))
 ) STRICT;
 CREATE INDEX operations_by_cell ON operations(cell_id,id);
 CREATE INDEX operations_by_grant ON operations(grant_id,id) WHERE state='ready';

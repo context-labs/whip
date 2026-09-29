@@ -25,6 +25,14 @@ func Operations() []Operation {
 		{"workspace.inspect", reflect.TypeFor[SessionParams](), reflect.TypeFor[WorkspaceInspection]()},
 		{"workspace.set", reflect.TypeFor[WorkspaceSetParams](), reflect.TypeFor[ControlEdit]()},
 		{"run.configure", reflect.TypeFor[RunConfigureParams](), reflect.TypeFor[ControlEdit]()},
+		{"browser.provider.bind", reflect.TypeFor[BrowserProviderBindParams](), reflect.TypeFor[BrowserProviderBindResult]()},
+		{"browser.provider.unbind", reflect.TypeFor[BrowserProviderUnbindParams](), reflect.TypeFor[BrowserAccepted]()},
+		{"browser.provider.event", reflect.TypeFor[BrowserProviderEventParams](), reflect.TypeFor[BrowserAccepted]()},
+		{"browser.command.result", reflect.TypeFor[BrowserCommandResultParams](), reflect.TypeFor[BrowserAccepted]()},
+		{"browser.screenshot.chunk", reflect.TypeFor[BrowserScreenshotChunkParams](), reflect.TypeFor[BrowserAccepted]()},
+		{"browser.inventory.result", reflect.TypeFor[BrowserInventoryResultParams](), reflect.TypeFor[BrowserAccepted]()},
+		{"browser.attachments", reflect.TypeFor[SessionParams](), reflect.TypeFor[BrowserAttachmentsResult]()},
+		{"browser.tabs", reflect.TypeFor[SessionParams](), reflect.TypeFor[BrowserTabsResult]()},
 		{"trace.page", reflect.TypeFor[TracePageParams](), reflect.TypeFor[TracePageResult]()},
 		{"trace.export", reflect.TypeFor[TraceExportParams](), reflect.TypeFor[TraceExportResult]()},
 		{"host.attention", reflect.TypeFor[HostAttentionParams](), reflect.TypeFor[HostAttentionResult]()},
@@ -165,6 +173,8 @@ func Operations() []Operation {
 		{"permissions.set_mode", reflect.TypeFor[SetPermissionModeParams](), reflect.TypeFor[PermissionModeEdit]()},
 		{"permissions.mode_edit", reflect.TypeFor[PermissionModeEditParams](), reflect.TypeFor[PermissionModeEdit]()},
 		{"host.profiles", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostProfiles]()},
+		{"host.execution_defaults", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostExecutionDefaults]()},
+		{"host.set_execution_defaults", reflect.TypeFor[SetExecutionDefaultsParams](), reflect.TypeFor[HostExecutionDefaults]()},
 		{"host.set_profiles", reflect.TypeFor[SetHostProfilesParams](), reflect.TypeFor[HostProfiles]()},
 		{"host.permission_default", reflect.TypeFor[EmptyParams](), reflect.TypeFor[DefaultPermissionMode]()},
 		{"host.set_permission_default", reflect.TypeFor[SetDefaultPermissionModeParams](), reflect.TypeFor[DefaultPermissionMode]()},
@@ -186,6 +196,8 @@ func Operations() []Operation {
 		{"sessions.list", reflect.TypeFor[ListSessionsParams](), reflect.TypeFor[ListSessionsResult]()},
 		{"sessions.configure", reflect.TypeFor[UpdateConfigurationParams](), reflect.TypeFor[Session]()},
 		{"sessions.submit", reflect.TypeFor[SubmitParams](), reflect.TypeFor[Admission]()},
+		{"inputs.steer", reflect.TypeFor[SteerInputParams](), reflect.TypeFor[InputSteeringResult]()},
+		{"inputs.steering", reflect.TypeFor[InputSteeringParams](), reflect.TypeFor[InputSteeringResult]()},
 		{"sessions.history_page", reflect.TypeFor[HistoryPageParams](), reflect.TypeFor[HistoryPageResult]()},
 		{"sessions.history", reflect.TypeFor[HistoryParams](), reflect.TypeFor[HistoryResult]()},
 		{"sessions.rewind", reflect.TypeFor[RewindParams](), reflect.TypeFor[HistoryEdit]()},
@@ -210,6 +222,11 @@ func Operations() []Operation {
 
 func Types() map[string]reflect.Type {
 	result := map[string]reflect.Type{}
+	result["BrowserEvent"] = reflect.TypeFor[BrowserEvent]()
+	result["BrowserCommand"] = reflect.TypeFor[BrowserCommand]()
+	result["BrowserCommandCancel"] = reflect.TypeFor[BrowserCommandCancel]()
+	result["BrowserInventoryRequest"] = reflect.TypeFor[BrowserInventoryRequest]()
+	result["BrowserScopesRetired"] = reflect.TypeFor[BrowserScopesRetired]()
 	result["ExecutorEvent"] = reflect.TypeFor[ExecutorEvent]()
 	result["RPCError"] = reflect.TypeFor[RPCError]()
 	result["Request"] = reflect.TypeFor[Request]()
@@ -228,6 +245,7 @@ func Types() map[string]reflect.Type {
 
 func SchemaFor(t reflect.Type) (*jsonschema.Schema, error) {
 	schema, err := jsonschema.ForType(t, &jsonschema.ForOptions{TypeSchemas: map[reflect.Type]*jsonschema.Schema{
+		reflect.TypeFor[BrowserToken]():     {Type: "string", MinLength: new(1), MaxLength: new(128), Pattern: "^[^\x00-\x20\x7f]+$"},
 		reflect.TypeFor[AccountTimestamp](): {Type: "string", Format: "account-time"},
 		reflect.TypeFor[ID]():               {Type: "string", Pattern: `^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$`},
 		reflect.TypeFor[Counter]():          {Type: "string", Pattern: `^(0|[1-9][0-9]{0,18})$`, Format: "counter"},
@@ -259,6 +277,9 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 	}
 	switch t.Kind() {
 	case reflect.Struct:
+		if t == reflect.TypeFor[HostExecutionDefaults]() {
+			applyTags(schema, reflect.TypeFor[ExecutionDefaults]())
+		}
 		for field := range t.Fields() {
 			name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
 			child := schema.Properties[name]
@@ -313,6 +334,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 		automaticTitleSchema(schema, t)
 		providerSchema(schema, t)
 		executorSchema(schema, t)
+		browserSchema(schema, t)
 		questionSchema(schema, t)
 		languageServerSchema(schema, t)
 		mcpSchema(schema, t)
@@ -326,6 +348,7 @@ func applyTags(schema *jsonschema.Schema, t reflect.Type) {
 		attentionSchema(schema, t)
 		traceSchema(schema, t)
 		controlsSchema(schema, t)
+		steeringSchema(schema, t)
 		if t == reflect.TypeFor[InputSummary]() {
 			schema.Properties["text_preview"].MaxLength = new(512)
 		}

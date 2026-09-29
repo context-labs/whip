@@ -1,5 +1,358 @@
 [
   {
+    "type": "HostExecutionDefaults",
+    "value": {
+      "engine": "quickjs",
+      "effort": "high",
+      "compaction_percent": 0,
+      "goal_max_continuations": "9007199254740993",
+      "max_attempts": 3,
+      "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+    },
+    "valid": true
+  },
+  {
+    "type": "SetExecutionDefaultsParams",
+    "value": {
+      "expected_revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "defaults": {
+        "engine": "starlark",
+        "effort": "",
+        "compaction_percent": 0,
+        "goal_max_continuations": "0",
+        "max_attempts": 1
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "BrowserProviderBindParams",
+    "value": {
+      "root_id": "session_root",
+      "version": 2,
+      "desktop_id": "desktop",
+      "window_id": "window",
+      "offer_revision": "offer",
+      "create_profile_id": "profile",
+      "offered_tabs": [
+        {
+          "tab_id": "tab",
+          "tab_generation": "tab_generation",
+          "profile_id": "profile",
+          "document_revision": "document",
+          "url": "https://example.test/",
+          "title": "Example",
+          "preview": {
+            "host_id": "host",
+            "host_identity": "runtime",
+            "connection_generation": "connection",
+            "environment_id": "environment",
+            "loopback": "127.0.0.1",
+            "ports": [
+              3000
+            ]
+          }
+        }
+      ],
+      "offered_preview_hosts": [
+        {
+          "host_id": "host",
+          "host_identity": "runtime",
+          "connection_generation": "connection",
+          "environment_id": "environment",
+          "loopback": "127.0.0.1",
+          "ports": [
+            3000
+          ]
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "type": "BrowserProviderBindResult",
+    "value": {
+      "version": 2,
+      "provider_id": "provider",
+      "provider_epoch": "provider_epoch"
+    },
+    "valid": true
+  },
+  {
+    "type": "BrowserProviderUnbindParams",
+    "value": {
+      "root_id": "session_root",
+      "provider_epoch": "provider_epoch"
+    },
+    "valid": true
+  },
+  {
+    "type": "BrowserAccepted",
+    "value": {
+      "accepted": true
+    },
+    "valid": true
+  },
+  {
+    "type": "BrowserAttachmentsResult",
+    "value": {
+      "attachments": [
+        {
+          "scope": {
+            "provider_id": "provider",
+            "provider_epoch": "provider_epoch",
+            "tab_id": "tab",
+            "tab_generation": "tab_generation",
+            "profile_id": "profile",
+            "control_lineage": "lineage",
+            "attachment_id": "attachment",
+            "attachment_generation": "attachment_generation",
+            "preview": {
+              "host_id": "host",
+              "host_identity": "runtime",
+              "connection_generation": "connection",
+              "environment_id": "environment",
+              "loopback": "127.0.0.1",
+              "ports": [
+                3000
+              ]
+            }
+          },
+          "root_id": "session_root",
+          "agent_id": "session_child",
+          "document_revision": "document",
+          "url": "https://example.test/",
+          "title": "Example"
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "type": "BrowserTabsResult",
+    "value": {
+      "tabs": [
+        {
+          "tab_id": "tab",
+          "tab_generation": "tab_generation",
+          "document_revision": "document",
+          "url": "https://example.test/",
+          "title": "Example",
+          "state": "attached",
+          "requestable": false,
+          "attachment_id": "attachment"
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "type": "BrowserCommandResultParams",
+    "value": {
+      "command_id": "command",
+      "root_id": "session_root",
+      "provider_epoch": "provider_epoch",
+      "attachment_generation": "attachment_generation",
+      "document_revision": "document",
+      "url": "https://example.test/",
+      "title": "Example",
+      "screenshot": {
+        "size": "4194304",
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "media_type": "image/jpeg"
+      }
+    },
+    "valid": true
+  },
+  {
+    "type": "BrowserScreenshotChunkParams",
+    "value": {
+      "command_id": "command",
+      "root_id": "session_root",
+      "provider_epoch": "provider_epoch",
+      "attachment_generation": "attachment_generation",
+      "offset": "9007199254740993",
+      "data_base64": "eA=="
+    },
+    "valid": true
+  },
+  {
+    "type": "BrowserInventoryResultParams",
+    "value": {
+      "request_id": "inventory",
+      "root_id": "session_root",
+      "provider_epoch": "provider_epoch",
+      "tabs": []
+    },
+    "valid": true
+  },
+  {
+    "type": "BrowserProviderEventParams",
+    "value": {
+      "root_id": "session_root",
+      "provider_epoch": "provider_epoch",
+      "tab_id": "tab",
+      "tab_generation": "tab_generation",
+      "attachment_id": "attachment",
+      "attachment_generation": "attachment_generation",
+      "sequence": "9007199254740993",
+      "operation_id": "operation",
+      "document_revision": "document",
+      "kind": "cdp",
+      "method": "Page.loadEventFired",
+      "params": {}
+    },
+    "valid": true
+  },
+  {
+    "type": "BrowserEvent",
+    "value": {
+      "jsonrpc": "2.0",
+      "method": "browser.command",
+      "command": {
+        "command_id": "command",
+        "operation_id": "operation",
+        "root_id": "session_root",
+        "agent_id": "session_child",
+        "provider_epoch": "provider_epoch",
+        "scope": {
+          "provider_id": "provider",
+          "provider_epoch": "provider_epoch",
+          "tab_id": "tab",
+          "tab_generation": "tab_generation",
+          "profile_id": "profile",
+          "control_lineage": "lineage",
+          "attachment_id": "attachment",
+          "attachment_generation": "attachment_generation",
+          "preview": {
+            "host_id": "host",
+            "host_identity": "runtime",
+            "connection_generation": "connection",
+            "environment_id": "environment",
+            "loopback": "127.0.0.1",
+            "ports": [
+              3000
+            ]
+          }
+        },
+        "expected_document": "document",
+        "deadline_millis": "9007199254740993",
+        "kind": "cdp",
+        "arguments": {
+          "method": "Page.captureScreenshot",
+          "params": {
+            "format": "jpeg"
+          }
+        }
+      },
+      "inventory": null,
+      "cancel": null,
+      "revoked": null,
+      "retired": null
+    },
+    "valid": true
+  },
+  {
+    "type": "BrowserEvent",
+    "value": {
+      "jsonrpc": "2.0",
+      "method": "browser.inventory",
+      "command": null,
+      "inventory": {
+        "request_id": "inventory",
+        "root_id": "session_root",
+        "agent_id": "session_child",
+        "provider_id": "provider",
+        "provider_epoch": "provider_epoch",
+        "tabs": [
+          {
+            "tab_id": "tab",
+            "tab_generation": "tab_generation"
+          }
+        ]
+      },
+      "cancel": null,
+      "revoked": null,
+      "retired": null
+    },
+    "valid": true
+  },
+  {
+    "type": "BrowserEvent",
+    "value": {
+      "jsonrpc": "2.0",
+      "method": "browser.command.cancel",
+      "command": null,
+      "inventory": null,
+      "cancel": {
+        "command_id": "command",
+        "root_id": "session_root",
+        "provider_epoch": "provider_epoch",
+        "attachment_generation": "attachment_generation"
+      },
+      "revoked": null,
+      "retired": null
+    },
+    "valid": true
+  },
+  {
+    "type": "BrowserEvent",
+    "value": {
+      "jsonrpc": "2.0",
+      "method": "browser.provider.revoked",
+      "command": null,
+      "inventory": null,
+      "cancel": null,
+      "revoked": {
+        "root_id": "session_root",
+        "provider_id": "provider",
+        "provider_epoch": "provider_epoch",
+        "reason": "closed"
+      },
+      "retired": null
+    },
+    "valid": true
+  },
+  {
+    "type": "BrowserEvent",
+    "value": {
+      "jsonrpc": "2.0",
+      "method": "browser.scopes.retired",
+      "command": null,
+      "inventory": null,
+      "cancel": null,
+      "revoked": null,
+      "retired": {
+        "root_id": "session_root",
+        "provider_id": "provider",
+        "provider_epoch": "provider_epoch",
+        "scopes": [
+          {
+            "provider_id": "provider",
+            "provider_epoch": "provider_epoch",
+            "tab_id": "tab",
+            "tab_generation": "tab_generation",
+            "profile_id": "profile",
+            "control_lineage": "lineage",
+            "attachment_id": "attachment",
+            "attachment_generation": "attachment_generation",
+            "preview": {
+              "host_id": "host",
+              "host_identity": "runtime",
+              "connection_generation": "connection",
+              "environment_id": "environment",
+              "loopback": "127.0.0.1",
+              "ports": [
+                3000
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "valid": true
+  },
+  {
     "type": "HostProfiles",
     "value": {
       "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
@@ -1287,6 +1640,24 @@
         "pinned": false
       },
       "engine": "quickjs",
+      "definition": {
+        "id": "assistant",
+        "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
+      },
+      "overrides": {},
+      "working_directory": "/workspace"
+    },
+    "valid": true
+  },
+  {
+    "type": "CreateTreeParams",
+    "value": {
+      "creation_id": "default_engine",
+      "metadata": {
+        "title": null,
+        "archived": false,
+        "pinned": false
+      },
       "definition": {
         "id": "assistant",
         "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd"
@@ -3493,6 +3864,84 @@
     "valid": true
   },
   {
+    "type": "SteerInputParams",
+    "value": {
+      "edit_id": "edit",
+      "session_id": "root",
+      "input_id": "queued",
+      "turn_id": "active"
+    },
+    "valid": true
+  },
+  {
+    "type": "InputSteeringParams",
+    "value": {
+      "edit_id": "edit",
+      "session_id": "root"
+    },
+    "valid": true
+  },
+  {
+    "type": "InputSteeringResult",
+    "value": {
+      "id": "edit",
+      "session_id": "root",
+      "input_id": "queued",
+      "turn_id": "active",
+      "created_at": "2026-09-27T12:00:00.123456Z",
+      "deleted": true,
+      "input": null
+    },
+    "valid": true
+  },
+  {
+    "type": "SubmitParams",
+    "value": {
+      "delivery": "steer",
+      "target_turn_id": "active",
+      "identity": {
+        "client_id": "human",
+        "request_id": "steer"
+      },
+      "session_id": "session_child",
+      "source": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "More"
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "type": "Input",
+    "value": {
+      "steering": {
+        "id": "edit",
+        "turn_id": "active",
+        "consumed": true
+      },
+      "host_operation": null,
+      "goal": null,
+      "id": "queued",
+      "session_id": "root",
+      "source": "user",
+      "kind": "prompt",
+      "parts": [
+        {
+          "type": "text",
+          "text": "More"
+        }
+      ],
+      "state": "claimed",
+      "turn_id": "active",
+      "created_at": "2026-09-27T12:00:00.123456Z",
+      "schedule": null
+    },
+    "valid": true
+  },
+  {
     "type": "SubmitParams",
     "value": {
       "design_context": {
@@ -4305,6 +4754,46 @@
       "plan": null,
       "expires_at": "not-a-time",
       "failure": null
+    },
+    "valid": false
+  },
+  {
+    "type": "SubmitParams",
+    "value": {
+      "delivery": "queued",
+      "target_turn_id": "active",
+      "identity": {
+        "client_id": "human",
+        "request_id": "steer"
+      },
+      "session_id": "session_child",
+      "source": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "More"
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "type": "SubmitParams",
+    "value": {
+      "delivery": "invalid",
+      "target_turn_id": "active",
+      "identity": {
+        "client_id": "human",
+        "request_id": "steer"
+      },
+      "session_id": "session_child",
+      "source": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "More"
+        }
+      ]
     },
     "valid": false
   },

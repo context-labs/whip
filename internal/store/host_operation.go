@@ -40,7 +40,7 @@ func (s *Store) AdmitHostOperation(ctx context.Context, identity session.Request
 		var busy bool
 		if err := tx.QueryRowContext(ctx, `SELECT
  EXISTS(SELECT 1 FROM turns WHERE session_id=? AND state IN ('running','cancelling')) OR
- EXISTS(SELECT 1 FROM inputs WHERE session_id=? AND turn_id IS NULL AND cancelled_at IS NULL) OR
+ EXISTS(SELECT 1 FROM inputs WHERE session_id=? AND turn_id IS NULL AND steered_turn_id IS NULL AND cancelled_at IS NULL) OR
  EXISTS(SELECT 1 FROM workspace_actions WHERE session_id=? AND state='claimed')`, owner, owner, owner).Scan(&busy); err != nil {
 			return err
 		}
@@ -64,7 +64,7 @@ func readHostOperation(ctx context.Context, q querier, input session.InputID) (s
 func requireNoDirectWork(ctx context.Context, q querier, owner session.SessionID) error {
 	var busy bool
 	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM inputs i LEFT JOIN turns t ON t.id=i.turn_id
- WHERE i.session_id=? AND i.kind='host_operation' AND ((i.turn_id IS NULL AND i.cancelled_at IS NULL) OR t.state IN ('running','cancelling')))`, owner).Scan(&busy); err != nil {
+ WHERE i.session_id=? AND i.kind='host_operation' AND ((i.turn_id IS NULL AND i.steered_turn_id IS NULL AND i.cancelled_at IS NULL) OR t.state IN ('running','cancelling')))`, owner).Scan(&busy); err != nil {
 		return err
 	}
 	if busy {

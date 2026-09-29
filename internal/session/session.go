@@ -118,6 +118,7 @@ const (
 // Input owns the accepted payload. Its execution outcome is the linked Turn;
 // terminal turn states are never copied onto input or receipt rows.
 type Input struct {
+	Steering      *InputSteeringRef
 	DesignContext *DesignContext
 	HostOperation *HostOperation
 	Goal          *GoalRef

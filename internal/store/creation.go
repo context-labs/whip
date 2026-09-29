@@ -55,7 +55,11 @@ func (s *Store) CreateRoot(ctx context.Context, request session.TreeCreationRequ
 		if exists || err != nil {
 			return err
 		}
-		if err := request.Engine.Validate(); err != nil {
+		engine := request.Engine
+		if engine == "" {
+			engine = defaults.Engine
+		}
+		if err := engine.Validate(); err != nil {
 			return err
 		}
 		if err := validMetadata(request.Metadata); err != nil {
@@ -92,7 +96,7 @@ func (s *Store) CreateRoot(ctx context.Context, request session.TreeCreationRequ
 		}
 		treeID := session.TreeID(newID("tree"))
 		created := now()
-		if _, err := tx.ExecContext(ctx, "INSERT INTO session_trees VALUES (?,?,?,1,?)", treeID, metadata, request.Engine, created); err != nil {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO session_trees VALUES (?,?,?,1,?)", treeID, metadata, engine, created); err != nil {
 			return err
 		}
 		root, err := insertSession(ctx, tx, treeID, nil, request.Definition, config, request.WorkingDirectory)

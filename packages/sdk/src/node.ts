@@ -1,3 +1,4 @@
+import { callSignal } from './wire.js';
 import { connect } from 'node:net';
 import { once } from 'node:events';
 import { assertValid } from '@whip/protocol';
@@ -11,7 +12,7 @@ const maxFrameBytes = 8 << 20;
 export function unixSocket(path: string): Transport {
   if (!path) throw new TypeError('Runtime socket required');
   return async (request, expectedRuntimeID, options) => {
-    const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000);
+    const signal = callSignal(options);
     signal.throwIfAborted();
     const socket = connect(path);
     const aborted = () => socket.destroy();
@@ -57,4 +58,4 @@ export function unixSocket(path: string): Transport {
   };
 }
 
-export { executorSocket } from './executor-node.js';
+export { executorSocket, browserProviderSocket } from './executor-node.js';

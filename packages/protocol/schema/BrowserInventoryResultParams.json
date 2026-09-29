@@ -1,0 +1,126 @@
+{
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\u0000- ]+$"
+    },
+    "root_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "provider_epoch": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\u0000- ]+$"
+    },
+    "tabs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "tab_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[^\u0000- ]+$"
+          },
+          "tab_generation": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[^\u0000- ]+$"
+          },
+          "document_revision": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 8192
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "available",
+              "busy",
+              "attached"
+            ]
+          },
+          "requestable": {
+            "type": "boolean"
+          },
+          "attachment_id": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[^\u0000- ]+$"
+          }
+        },
+        "required": [
+          "tab_id",
+          "tab_generation",
+          "document_revision",
+          "url",
+          "title",
+          "state",
+          "requestable"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 72
+    },
+    "error": {
+      "type": [
+        "null",
+        "object"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "permission_denied",
+            "desktop_unavailable",
+            "host_not_connected",
+            "browser_busy",
+            "stale_document",
+            "attachment_revoked",
+            "tab_closed",
+            "preview_disconnected",
+            "unsupported_operation",
+            "outcome_unknown"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "kind",
+        "message"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/BrowserInventoryResultParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BrowserInventoryResultParams",
+  "required": [
+    "request_id",
+    "root_id",
+    "provider_epoch",
+    "tabs"
+  ],
+  "additionalProperties": false
+}

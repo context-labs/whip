@@ -3454,6 +3454,65 @@ race-runner CI repair (`4d3b155cb`) without changing Go runtime behavior. Hosted
 checks for this new checkpoint remain pending. Phases 5–6 remain in progress and
 Phase 7 remains pending; no installed runtime was modified.
 
+## Browser peers, execution defaults and input steering
+
+`codex/backend-redesign-browser-integration` follows draft #258. Integrated code
+`fc5753961` preserves schema 49/config 19/protocol 4. It reuses execution defaults
+8b652a1a9, the three browser foundation leaves 322c613cc/d1d60f7a0/bb0e75812,
+browser runtime 28271aae7, public peers c89fdeec1 and steering bfcba5070. Native
+transport deadlines reuse c2480748e. Browser runtime merged with existing tree
+control gates, schema versions stayed monotonic, and generated contracts were
+rebuilt from the combined Go registry.
+
+The combined browser/defaults/import-boundary focused race suite passed runtime
+14.563s, store 4.016s and RPC 5.705s. Independent steering evidence passed focused
+store/runtime/runner/RPC/protocol races, complete runner tests, 112 SDK tests,
+contract/CSP/drift checks and the production crash fixture (35.832s, steering
+stage 197ms). Independent browser public peers passed actual-socket RPC races,
+118 SDK tests and 13 strict-CSP contracts; these are leaf results, not a combined
+release pass. Full integrated phase and analysis gates are pending below. Every
+browser, browser/extrelay and browserhost test is now in the active gate union.
+
+Browser offers/catalogs do not grant control. Captured SQL authority and live
+provider epoch/attachment lineage both govern native dispatch. Preview expansion
+retires narrower authority; stop/revoke/delete/disconnect retire live resources.
+Screenshot chunks are confined to the exact pending command. Native success does
+not pre-settle an operation, and uncertain publication never restores live control.
+Atomic child transfer and the actual desktop bridge remain subsequent work.
+
+Input steering records one immutable target while preserving the original input
+and its one logical charge. Consumption appends canonical messages only at full
+tool-batch or text-response boundaries, bounded to 20 messages/2 MiB of encoded
+parts. An untaken input remains queued and may open its own later turn, never
+retargeting a different active turn. Exact promotion receipts survive deletion.
+Human submission defaults queued; guest agents.submit preserves default steering.
+
+Host execution defaults use configuration CAS. Engine, effort, compaction,
+additional goal continuations and total model attempts are captured at admission;
+existing work is unchanged. Maximum attempts remains the native 1–5 bound, with
+3 by default; zero additional goal continuations means none. These deliberate
+semantics replace legacy overloaded reset/retry labels in product settings.
+
+Draft #257's repaired hosted run 36518700275 at 4d3b155cb passed all Linux/macOS
+build, race-store, race-runtime, race-other and client jobs, analysis and the
+required aggregate. This supersedes the pending repair status above; the earlier
+Linux timeout is still a recorded failed run. Draft #258 remains pending hosted
+validation. Neither pull request was merged.
+
+
+The first integrated browser/defaults/steering phase attempt at dc0ed126b failed
+in the fast configuration suite: the computer-settings test still expected
+configuration version 18 after execution defaults advanced it to 19. The
+assertion now checks the current version constant; explicit rejection of the old
+format remains covered. Analysis passed with zero new lint issues and no reachable
+vulnerabilities. The failed phase run did not reach race/client gates. Logs:
+`/tmp/whip-browser-steering-phase.log` and
+`/tmp/whip-browser-steering-analysis.log`.
+
+Browser selection checkpoint 2b532b1c0 and contract declaration fix c4fe5276e
+are integrated with regenerated contracts. The browser-provider production
+fixture is now required by check:fixture. Combined phase validation follows;
+independent leaf results do not establish that pass.
 
 ## Input-controls hosted build deadline correction
 
@@ -3475,3 +3534,94 @@ The repaired #258 build gate passed locally at 35793114b, including the complete
 runtime suite in 84.853s, all other fast packages, active builds and vet. Exact
 log: `/tmp/whip-pr258-build-repair.log`. The prior complete race/client passes
 remain evidence for unchanged runtime code; the new hosted run is pending.
+
+
+## Integrated browser checkpoint validation
+
+At a65a3a0b2 the complete active build/vet and race/shuffle suites passed,
+including store 289.550s, runtime 347.842s, RPC 70.195s and process 115.739s.
+The phase command then failed contract drift because the declaration-generator
+leaf had been integrated after the earlier generation. f2005eb2c regenerates
+only that declaration (five BrowserEvent non-null variant constraints). Go and
+wire validation behavior are unchanged. The failed command is not a phase pass.
+
+All remaining client gates passed at f2005eb2c: native contract14 plus retained16,
+native SDK133, retained SDK466, examples6, and every production fixture. Actual
+scenario durations: v4 crash/admission33.461s, gateway3.651s, Unix/browser
+executors2.452s/2.509s, shell2.211s, fake computer2.180s, native browser
+provider1.860s, retained crash4.299s and selected daemon races2.772s. Analysis at
+a65a3a0b2 passed zero new lint issues and no reachable vulnerabilities. Exact logs:
+`/tmp/whip-browser-phase-integrated.log`,
+`/tmp/whip-browser-clients-integrated.log`, and
+`/tmp/whip-browser-analysis-integrated.log`.
+
+This checkpoint integrates the tested #258 build-gate repair ae59e2e48. Its
+local complete build gate passed; replacement hosted validation is pending.
+Browser child transfer, product renderer/native-client migration, and retired
+core removal remain outstanding. Phases5–6 are in progress; Phase7 is pending.
+No merge, deployment, or installed-runtime change occurred.
+
+
+### Browser integration hosted fixture repair (2026-09-28)
+
+Draft #259 at `8d538697d` failed Linux build in run `36521788536`:
+`internal/browser` found the system Chrome through `PATH`, but only the explicit
+candidate-path branch configured `ROD_BROWSER_BIN`. Production `Open` therefore
+launched Rod's downloaded Chromium, which had no usable sandbox on the runner.
+The fixture now consistently selects its detected executable. Linux build and
+race-other jobs use an isolated Xvfb display for the retained headed dedicated
+browser scenarios. Production launch flags and sandbox policy are unchanged;
+no browser scenario is removed. Local browser checks and the subsequent hosted
+run are recorded separately below; this failed run is not passing evidence.
+
+Local affected browser scenarios (`TestE2EHeadless`, `TestE2EDedicated` including
+reattachment, and `TestManySequentialCalls`) passed in 10.964s on macOS with an
+isolated profile. This proves the fixture change locally, not the Linux Xvfb
+setup; the exact repaired hosted head must pass before crediting Linux evidence.
+
+### PR 259 store race gate partition — 2026-09-28
+
+The repaired `ff8796849` hosted run 36522499701 passed both browser/build gates,
+both runtime race gates, other races, clients and analysis. Its Linux store
+package exhausted the aggregate 600-second timeout while a newly started
+`TestModelHelperProvenanceIsOwnedImmutableAndRetryable` (reported 0 seconds old)
+was initializing a fresh schema. This is recorded as a failed run. The same
+full store suite passed locally at the later integration head in 286.639 seconds.
+
+The hosted matrix now runs the store suite in two complementary groups: names
+matching `^Test[A-M]`, and everything excluded by that exact pattern. Both retain
+the race detector, shuffled order, count one and ten-minute package deadline;
+no individual test, assertion, production timeout or fixture is weakened. The
+local `check:race-store` target runs both groups sequentially. Examples and future
+names automatically belong to the complement, preserving complete coverage.
+
+Local complementary store validation passed in 193.133 seconds and 89.438
+seconds respectively (`task check:race-store`), with every test covered exactly
+once by the mutually exclusive run/skip patterns. Hosted validation is pending
+for this repair; the previous hosted failure is not claimed as passed.
+
+### PR 259 extension relay publication repair — 2026-09-28
+
+Hosted run 36523975388 at `39c76adb6` exposed a real intermittent handshake
+race: `TestCDPTunnelRoundTrip` waited the entire 120-second package deadline.
+The extension's HTTP 101 acknowledgement could reach its client before the
+relay published that connection, letting the first CDP command see no extension.
+Leaf `ef99a4403` holds the existing relay lock across upgrade and publication.
+A deterministic gated-socket regression fails on the old code and passes with
+the repair. Focused handshake/auth/roundtrip races pass 100 repetitions (4.318s);
+the full fake-only relay race suite passes ten repetitions (3.958s), vet and
+pinned lint pass. Test-local reads/dials now fail after five seconds instead of
+hanging indefinitely. No production timeout, assertion or test is weakened.
+The prior failed hosted run remains recorded as failed; fresh validation follows.
+
+### Hosted runtime aggregate race partition — 2026-09-28
+
+Draft #259 at `2f56f9f58` passes both platform builds, store race groups, other
+race packages, clients and analysis in run `36525000977`. The Linux runtime
+package alone reached its ten-minute aggregate deadline, with the current
+automatic-title deletion case running for one second; macOS runtime passed.
+This remains a failed run, not a passing checkpoint. Runtime race tests now use
+complementary `^Test[A-M]` and `-skip ^Test[A-M]` jobs, preserving every test and
+example, race instrumentation, shuffle, count and each ten-minute deadline.
+The aggregate runtime task executes both jobs. No test assertion or individual
+operation timeout changes. Hosted validation of the partition is pending.

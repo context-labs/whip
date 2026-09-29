@@ -139,24 +139,25 @@ func goalEligible(ctx context.Context, tx *sql.Tx, owner session.SessionID, exce
 }
 
 func cancelQueuedGoalInputs(ctx context.Context, tx *sql.Tx, id session.GoalID) error {
-	_, err := tx.ExecContext(ctx, "UPDATE inputs SET cancelled_at=? WHERE goal_id=? AND turn_id IS NULL AND cancelled_at IS NULL", now(), id)
+	_, err := tx.ExecContext(ctx, "UPDATE inputs SET cancelled_at=? WHERE goal_id=? AND turn_id IS NULL AND steered_turn_id IS NULL AND cancelled_at IS NULL", now(), id)
 	return err
 }
 
 // CreateGoal resolves a stable ID before inspecting the owner's current state.
 // Replaying this request never selects an old goal or admits another input.
-func (s *Store) CreateGoal(ctx context.Context, owner session.SessionID, id session.GoalID, expected *session.GoalRef, request session.GoalRequest, start bool) (result GoalAdmission, err error) {
+func (s *Store) CreateGoal(ctx context.Context, owner session.SessionID, id session.GoalID, expected *session.GoalRef, request session.GoalRequest, start bool) (GoalAdmission, error) {
+	return s.CreateGoalWithDefault(ctx, owner, id, expected, request, start, 100)
+}
+
+// CreateGoalWithDefault captures an injected host allowance only for a new goal
+// with an omitted allowance. The unresolved request remains the retry identity.
+func (s *Store) CreateGoalWithDefault(ctx context.Context, owner session.SessionID, id session.GoalID, expected *session.GoalRef, request session.GoalRequest, start bool, defaultContinuations int64) (result GoalAdmission, err error) {
 	for _, value := range []string{string(owner), string(id)} {
 		if err := session.ValidateID(value); err != nil {
 			return result, err
 		}
 	}
-	digest, err := requestDigest("goal_create", struct {
-		Owner    session.SessionID
-		Expected *session.GoalRef
-		Spec     session.GoalRequest
-		Start    bool
-	}{owner, expected, request, start})
+	digest, err := goalCreationDigest(owner, expected, request, start)
 	if err != nil {
 		return result, err
 	}
@@ -178,7 +179,11 @@ func (s *Store) CreateGoal(ctx context.Context, owner session.SessionID, id sess
 				return err
 			}
 		}
-		spec, err := request.Resolve()
+		resolved := request
+		if resolved.MaxContinuations == nil {
+			resolved.MaxContinuations = new(defaultContinuations)
+		}
+		spec, err := resolved.Resolve()
 		if err != nil {
 			return err
 		}
@@ -286,7 +291,7 @@ func (s *Store) ResumeGoal(ctx context.Context, identity session.RequestIdentity
 			return ErrConflict
 		}
 		var outstanding, started bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM inputs i LEFT JOIN turns t ON t.id=i.turn_id WHERE i.goal_id=? AND ((i.turn_id IS NULL AND i.cancelled_at IS NULL) OR t.state IN ('running','cancelling'))),(EXISTS(SELECT 1 FROM inputs WHERE goal_id=?) OR EXISTS(SELECT 1 FROM turns WHERE goal_id=?))`, ref.ID, ref.ID, ref.ID).Scan(&outstanding, &started); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM inputs i LEFT JOIN turns t ON t.id=i.turn_id WHERE i.goal_id=? AND ((i.turn_id IS NULL AND i.steered_turn_id IS NULL AND i.cancelled_at IS NULL) OR t.state IN ('running','cancelling'))),(EXISTS(SELECT 1 FROM inputs WHERE goal_id=?) OR EXISTS(SELECT 1 FROM turns WHERE goal_id=?))`, ref.ID, ref.ID, ref.ID).Scan(&outstanding, &started); err != nil {
 			return err
 		}
 		if outstanding {

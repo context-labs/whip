@@ -7,8 +7,10 @@ type ChildTarget struct {
 }
 
 type ChildSubmit struct {
-	SessionID SessionID `json:"session_id"`
-	Parts     []Part    `json:"parts"`
+	Delivery     InputDelivery `json:"delivery,omitempty"`
+	TargetTurnID *TurnID       `json:"target_turn_id,omitempty"`
+	SessionID    SessionID     `json:"session_id"`
+	Parts        []Part        `json:"parts"`
 }
 
 type ChildInspect struct {

@@ -1,7 +1,8 @@
+import { callSignal } from './wire.js';
 import { connect } from 'node:net';
 import { once } from 'node:events';
 import { assertValid } from '@whip/protocol';
-import type { ExecutorEvent, Request, Response } from '@whip/protocol';
+import type { BrowserEvent, ExecutorEvent, Request, Response } from '@whip/protocol';
 import { DeliveryError } from './wire.js';
 import type { CallOptions } from './wire.js';
 import type { DuplexTransport } from './executors.js';
@@ -12,7 +13,13 @@ const maxRequests = 32;
 
 /** An explicit persistent Unix connection. Aborting a request closes this peer;
  * accepted ordinary session work still belongs to the runtime. No reconnects. */
-export async function executorSocket(path: string, options: CallOptions = {}): Promise<DuplexTransport> {
+export function executorSocket(path: string, options: CallOptions = {}): Promise<DuplexTransport> {
+  return eventSocket(path, options, (value: unknown): asserts value is ExecutorEvent => assertValid('ExecutorEvent', value));
+}
+export function browserProviderSocket(path: string, options: CallOptions = {}): Promise<DuplexTransport<BrowserEvent>> {
+  return eventSocket(path, options, (value: unknown): asserts value is BrowserEvent => assertValid('BrowserEvent', value));
+}
+async function eventSocket<Event>(path: string, options: CallOptions, assertEvent: (value: unknown) => asserts value is Event): Promise<DuplexTransport<Event>> {
   if (!path) throw new TypeError('Runtime socket required');
   options.signal?.throwIfAborted();
   const socket = connect(path);
@@ -33,9 +40,9 @@ export async function executorSocket(path: string, options: CallOptions = {}): P
   let consumed = false;
   let pending = Buffer.alloc(0);
   let queuedBytes = 0;
-  const queue: { value: ExecutorEvent; bytes: number }[] = [];
+  const queue: { value: Event; bytes: number }[] = [];
   const requests = new Map<string, { resolve(value: Response): void; reject(error: unknown): void; cleanup(): void }>();
-  let waiting: { resolve(value: IteratorResult<ExecutorEvent>): void; reject(error: unknown): void } | undefined;
+  let waiting: { resolve(value: IteratorResult<Event>): void; reject(error: unknown): void } | undefined;
   let closedResolve!: () => void;
   const closed = new Promise<void>(resolve => { closedResolve = resolve; });
 
@@ -89,7 +96,7 @@ export async function executorSocket(path: string, options: CallOptions = {}): P
           request.cleanup();
           request.resolve(value);
         } else {
-          assertValid('ExecutorEvent', value);
+          assertEvent(value);
           if (waiting) {
             waiting.resolve({ done: false, value });
             waiting = undefined;
@@ -114,7 +121,7 @@ export async function executorSocket(path: string, options: CallOptions = {}): P
       const bytes = Buffer.from(JSON.stringify(request) + '\n');
       if (bytes.length > maxFrameBytes || bytes.length > maxFrameBytes - socket.writableLength) return Promise.reject(new TypeError('Executor write exceeds bounds'));
       return new Promise<Response>((resolve, reject) => {
-        const signal = callOptions.signal ? AbortSignal.any([callOptions.signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000);
+        const signal = callSignal(callOptions);
         const abort = () => finish(signal.reason);
         signal.addEventListener('abort', abort, { once: true });
         requests.set(request.id, { resolve, reject, cleanup: () => signal.removeEventListener('abort', abort) });
@@ -127,14 +134,14 @@ export async function executorSocket(path: string, options: CallOptions = {}): P
         if (consumed) throw new TypeError('Executor event stream already consumed');
         consumed = true;
         return {
-          next(): Promise<IteratorResult<ExecutorEvent>> {
+          next(): Promise<IteratorResult<Event>> {
             if (waiting) return Promise.reject(new TypeError('Concurrent executor event reads are unsupported'));
             if (ended) return failure === undefined ? Promise.resolve({ done: true, value: undefined }) : Promise.reject(failure);
             const item = queue.shift();
             if (item) { queuedBytes -= item.bytes; return Promise.resolve({ done: false, value: item.value }); }
             return new Promise((resolve, reject) => { waiting = { resolve, reject }; });
           },
-          async return(): Promise<IteratorResult<ExecutorEvent>> { finish(); await closed; return { done: true, value: undefined }; },
+          async return(): Promise<IteratorResult<Event>> { finish(); await closed; return { done: true, value: undefined }; },
         };
       },
     },

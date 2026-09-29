@@ -1,0 +1,172 @@
+{
+  "type": "object",
+  "properties": {
+    "attachments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "object",
+            "properties": {
+              "provider_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\u0000- ]+$"
+              },
+              "provider_epoch": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\u0000- ]+$"
+              },
+              "tab_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\u0000- ]+$"
+              },
+              "tab_generation": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\u0000- ]+$"
+              },
+              "profile_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\u0000- ]+$"
+              },
+              "control_lineage": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\u0000- ]+$"
+              },
+              "attachment_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\u0000- ]+$"
+              },
+              "attachment_generation": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\u0000- ]+$"
+              },
+              "preview": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "host_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[^\u0000- ]+$"
+                  },
+                  "host_identity": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[^\u0000- ]+$"
+                  },
+                  "connection_generation": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[^\u0000- ]+$"
+                  },
+                  "environment_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[^\u0000- ]+$"
+                  },
+                  "loopback": {
+                    "type": "string",
+                    "enum": [
+                      "127.0.0.1",
+                      "::1"
+                    ]
+                  },
+                  "ports": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 65535
+                    },
+                    "maxItems": 64,
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "host_id",
+                  "host_identity",
+                  "connection_generation",
+                  "environment_id",
+                  "loopback",
+                  "ports"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "provider_id",
+              "provider_epoch",
+              "tab_id",
+              "tab_generation",
+              "profile_id",
+              "control_lineage",
+              "attachment_id",
+              "attachment_generation"
+            ],
+            "additionalProperties": false
+          },
+          "root_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "agent_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "document_revision": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 8192
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 512
+          }
+        },
+        "required": [
+          "scope",
+          "root_id",
+          "agent_id",
+          "document_revision",
+          "url",
+          "title"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 8
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/BrowserAttachmentsResult",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BrowserAttachmentsResult",
+  "required": [
+    "attachments"
+  ],
+  "additionalProperties": false
+}

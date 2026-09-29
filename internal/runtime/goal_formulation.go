@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 
 	"github.com/context-labs/whip/internal/session"
 	"github.com/context-labs/whip/internal/store"
@@ -13,7 +14,14 @@ func (r *Runtime) FormulateGoal(ctx context.Context, identity session.RequestIde
 	if err := r.Err(); err != nil {
 		return store.Admission{}, err
 	}
-	result, err := r.store.AdmitGoalFormulation(ctx, identity, owner, request)
+	if result, err := r.store.MatchGoalFormulation(ctx, identity, owner, request); !errors.Is(err, store.ErrNotFound) {
+		return result, err
+	}
+	current, err := r.configuration.Snapshot(ctx)
+	if err != nil {
+		return store.Admission{}, err
+	}
+	result, err := r.store.AdmitGoalFormulationWithDefault(ctx, identity, owner, request, current.Host.ExecutionDefaults().GoalMaxContinuations)
 	if err == nil {
 		r.Wake()
 	}

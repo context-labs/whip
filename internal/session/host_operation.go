@@ -18,6 +18,11 @@ type HostOperation struct {
 func (h HostOperation) Validate() error {
 	allowed := false
 	switch h.Module {
+	case "browser":
+		switch h.Name {
+		case "list_tabs", "open", "attach", "run", "detach", "allow_preview_port":
+			allowed = true
+		}
 	case "computer":
 		allowed = h.Name == "run"
 	case "shell":
@@ -58,5 +63,5 @@ func (h HostOperation) Normalize() (HostOperation, error) {
 // DirectCapability identifies only the base intent. Preparation may narrow its
 // resource and diagnostics may add one standing-only observation.
 func (h HostOperation) DirectCapability(capability string) bool {
-	return h.Module == "computer" && h.Name == "run" && (capability == "computer.run" || capability == "computer.run.trusted" || capability == "computer.applescript") || capability == h.Module+"."+h.Name || h.Module == "files" && (h.Name == "write" || h.Name == "patch" || h.Name == "diagnostics") && capability == "lsp.diagnostics"
+	return h.Module == "browser" && (h.Name == "list_tabs" && capability == "browser.catalog" || h.Name != "list_tabs" && capability == "browser.control") || h.Module == "computer" && h.Name == "run" && (capability == "computer.run" || capability == "computer.run.trusted" || capability == "computer.applescript") || capability == h.Module+"."+h.Name || h.Module == "files" && (h.Name == "write" || h.Name == "patch" || h.Name == "diagnostics") && capability == "lsp.diagnostics"
 }

@@ -4,8 +4,8 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import net from 'node:net';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { ExecutorClient } from '../dist/index.js';
-import { executorSocket } from '../dist/node.js';
+import { ExecutorClient, BrowserProviderClient } from '../dist/index.js';
+import { executorSocket, browserProviderSocket } from '../dist/node.js';
 
 const fixtures = JSON.parse(await readFile(new URL('../../protocol/schema/fixtures.json', import.meta.url), 'utf8'));
 const fixture = name => structuredClone(fixtures.find(value => value.type === name && value.valid).value);
@@ -118,5 +118,23 @@ test('unread events and request cancellation fail the peer without reconnect', a
   const pending = peer.request({ jsonrpc: '2.0', id: 'one', method: 'initialize', params: { major: 4 } }, { signal: controller.signal });
   controller.abort(new Error('cancelled peer'));
   await assert.rejects(pending, /cancelled peer/);
+  await peer.close();
+});
+
+
+test('Unix browser provider preserves exact commands and closes on an executor event without reconnecting', async t => {
+  let connected;
+  const path = await socketFixture(t, (socket, request) => {
+    connected = socket;
+    socket.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: request.method === 'initialize' ? initial : fixture('BrowserProviderBindResult') }) + '\n');
+  });
+  const peer = await browserProviderSocket(path);
+  const client = await BrowserProviderClient.connect(peer, { expectedRuntimeID: 'runtime', expectedProcessEpoch: 'boot_test' });
+  await client.bind(fixture('BrowserProviderBindParams'));
+  connected.write(JSON.stringify(fixture('BrowserEvent')) + '\n');
+  const events = client.events();
+  assert.equal((await events.next()).value.command.deadline_millis, '9007199254740993');
+  connected.write(JSON.stringify(fixture('ExecutorEvent')) + '\n');
+  await assert.rejects(events.next(), TypeError);
   await peer.close();
 });

@@ -25,3 +25,9 @@ Working audit at `b81fc5ff9` (integrated executor, shell, MCP); this is evidence
 ## Completed families deliberately not reopened
 
 Imported history and compaction, fork, workspace snapshot/restore, automatic titles, account/provider authority, definition/module bindings and executor core, modes and delegated grants, root recovery/catalog, questions, files.list/search/LSP, schedules/goals/mail/state, shell run/input/jobs, and MCP trust/discovery/root ownership have existing tested checkpoints. Integration or documentation lag is not evidence that they need recreation. Broad test gates, canonical records, and draft PRs remain parent-owned.
+
+### Hosted scheduling repairs (2026-09-28)
+
+PR #259 at cbd39d5dc (run36526022483) passed the partitioned runtime suites but failed the macOS terminal slow-reader fixture. PR #260 at b9e9cfa19 (run36526214610) additionally observed an empty MCP catalog during tools/list_changed refresh. These runs are failures, not final gate evidence.
+
+The terminal fixture now waits until its queue is actually full before detaching and emits enough bytes to fill that queue plus two chunks. Failure diagnostics retain only a bounded4KiB tail. The existing15-second deadline remains. Twenty focused shuffled race repetitions passed20.013s. The MCP fixture waits for the refreshed root catalog and exact delegated child subset, checking that extra tools never appear on every poll; forty focused shuffled races passed17.144s. Both changes repair synchronization in tests without changing production behavior or skipping assertions. Hosted reruns remain pending.

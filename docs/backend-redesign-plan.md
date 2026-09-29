@@ -390,9 +390,9 @@ Maintain one compact table here as families are addressed:
 | Workspace files and language services | List/search/read/write/patch, path revalidation and mutation ordering | Bounded list/search/read/write/patch and separate standing/explicit diagnostic operations integrated; captured content, workspace identity, child revocation and joined LSP lifetimes covered. Expanded phase/analysis gates pass; saved-mode interaction follows separately | 5 in progress |
 | Agent shell and human terminals | Background jobs and PTYs have separate ownership, bounded output, detach/replay and joined shutdown | Session shell foreground/jobs and exact-operation interactive input implemented with real-process cancellation, output/content bounds and joined groups; independent human terminal controls implemented with process-epoch identities, bounded ring reads and joined shutdown; direct human action audit remains | 5 |
 | MCP | Configuration/import trust, bounded discovery, delegated catalogs, refresh/reconnect without unrelated state loss | Native captured selection, delegated discovery, trusted versus explicit-consent calls, fingerprinted imports, bounded connections/results and public controls implemented; typed image-to-model handoff follows | 5 |
-| Browser/computer/native helper | Human resource ownership separate from revocable agent access; no reconnect replay | Computer/helper wiring, typed image settlement and explicit host controls implemented against fake helpers; browser provider/transfer runtime integration and actual native platform evidence remain pending | 5 |
+| Browser/computer/native helper | Human resource ownership separate from revocable agent access; no reconnect replay | Computer/helper wiring, typed images, captured browser authority and connection-bound public browser peers implemented against fake helpers; atomic child transfer, desktop bridge adoption and actual native platform evidence remain pending | 5 |
 | Host/gateway trust | Socket execution owner, Host/Origin validation, network restrictions and scoped content | New pure v4 gateway, exact Host/Origin checks, pinned runtime/epoch/network handshake, server-side human-terminal restrictions, bounded scoped HTTP content and browser SDK transport implemented with passing focused/production fixtures; persistent browser executors implemented with bounded duplex transport; product assets/adoption remain | 5–6 |
-| All client surfaces | Correct submission, observation, recovery and resource cleanup | New SDK/socket fixture passes; product clients remain on the retained implementation | 2 complete; 6 pending |
+| All client surfaces | Correct submission, observation, recovery and resource cleanup | New SDK/socket fixture passes; shared app host/recovery/settings/transcript adoption is underway; complete desktop/mobile/CLI/TUI/ACP migration remains | 2 complete; 6 in progress |
 | Old schemas/protocol/scratch compatibility | Retired by fresh-start scope | Delete with corresponding implementation | 1 through 7 |
 
 ### Test fixture and diagnostics
@@ -436,7 +436,7 @@ complete with a passing check or recorded manual evidence.
 | 3 | One provider, one engine, execution and recovery | 2 | Complete |
 | 4 | Recursion and shared coordination | 3 | Complete |
 | 5 | Remaining engines, integrations and product behavior | 4 | In progress |
-| 6 | Complete client adoption and product validation | Starts at 2; finishes after 5 | Pending |
+| 6 | Complete client adoption and product validation | Starts at 2; finishes after 5 | In progress |
 | 7 | Cutover, deletion and release readiness | All prior gates | Pending |
 
 ### Phase 0 — Establish the feedback loop

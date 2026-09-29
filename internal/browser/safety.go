@@ -11,12 +11,14 @@ package browser
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // alwaysBlockedHosts are sentinel hostnames with no legitimate agent use.
@@ -35,6 +37,26 @@ var alwaysBlockedNets = []netip.Prefix{
 	netip.MustParsePrefix("169.254.170.2/32"),   // ECS task metadata
 	netip.MustParsePrefix("100.100.100.200/32"), // Alibaba
 	netip.MustParsePrefix("fd00:ec2::254/128"),  // AWS IPv6 IMDS
+}
+
+// ValidateNavigationURL is the pure navigation floor used before permission.
+// CheckURL additionally checks all DNS answers during authorized execution.
+func ValidateNavigationURL(raw string) error {
+	if len(raw) > 8192 || !utf8.ValidString(raw) || strings.ContainsRune(raw, 0) {
+		return errors.New("navigation URL exceeds bounds")
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.User != nil || (raw != "about:blank" && ((u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "")) {
+		return errors.New("navigation requires HTTP, HTTPS or about:blank without credentials")
+	}
+	host := strings.ToLower(strings.TrimSuffix(u.Hostname(), "."))
+	if alwaysBlockedHosts[host] {
+		return errors.New("cloud metadata navigation is unavailable")
+	}
+	if ip, err := netip.ParseAddr(host); err == nil && ipBlocked(ip.Unmap()) {
+		return errors.New("cloud metadata navigation is unavailable")
+	}
+	return nil
 }
 
 // CheckURL enforces the always-blocked floor on url. Every navigation —

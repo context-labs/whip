@@ -189,7 +189,7 @@ export class Client {
   /** Saved declarations only; never connects or resolves credentials. */
   computerStatus(options: CallOptions = {}): Promise<Operations['computer.status']['result']> { return this.call('computer.status', {}, options); }
   configureComputer(params: Operations['computer.configure']['params'], options: CallOptions = {}): Promise<Operations['computer.configure']['result']> { return this.call('computer.configure', params, options); }
-  reconnectComputer(generation: string, options: CallOptions = {}): Promise<Operations['computer.reconnect']['result']> { return this.call('computer.reconnect', { generation }, options); }
+  reconnectComputer(generation: string, options: CallOptions = {}): Promise<Operations['computer.reconnect']['result']> { return this.call('computer.reconnect', { generation }, { timeoutMs: 160_000, ...options }); }
   disconnectComputer(generation: string, options: CallOptions = {}): Promise<Operations['computer.disconnect']['result']> { return this.call('computer.disconnect', { generation }, options); }
   mcpConfiguration(options: CallOptions = {}): Promise<Operations['mcp.configuration']['result']> { return this.call('mcp.configuration', {}, options); }
   /** Explicit CAS publication. Reread configuration after lost delivery; never automatically replay. */
@@ -343,7 +343,7 @@ export class Client {
   }
 
   pickHostDirectory(start = '', options: CallOptions = {}): Promise<Operations['host.directory.pick']['result']> {
-    return this.call('host.directory.pick', { start }, options);
+    return this.call('host.directory.pick', { start }, { timeoutMs: 130_000, ...options });
   }
 
   completeHostSkills(params: Operations['host.skills.complete']['params'], options: CallOptions = {}): Promise<Operations['host.skills.complete']['result']> {
@@ -374,9 +374,9 @@ export class Client {
   }
 
   /** Keep this requestID and exact payload until admission is known, including after a lost acknowledgement. */
-  submit(sessionID: string, parts: Operations['sessions.submit']['params']['parts'], requestID: string, options: CallOptions & { designContext?: Operations['sessions.submit']['params']['design_context'] } = {}): Promise<Admission> {
-    const { designContext, ...callOptions } = options;
-    return this.call('sessions.submit', { session_id: sessionID, source: 'user', parts, identity: this.identity(requestID), ...(designContext === undefined ? {} : { design_context: designContext }) }, callOptions);
+  submit(sessionID: string, parts: Operations['sessions.submit']['params']['parts'], requestID: string, options: CallOptions & { designContext?: Operations['sessions.submit']['params']['design_context']; delivery?: 'queued' | 'steer'; targetTurnID?: string } = {}): Promise<Admission> {
+    const { designContext, delivery, targetTurnID, ...callOptions } = options;
+    return this.call('sessions.submit', { session_id: sessionID, source: 'user', parts, identity: this.identity(requestID), ...(designContext === undefined ? {} : { design_context: designContext }), ...(delivery === undefined ? {} : { delivery }), ...(targetTurnID === undefined ? {} : { target_turn_id: targetTurnID }) }, callOptions);
   }
 
   /** Queues context maintenance with ordinary admission, cancellation and receipt recovery. */
@@ -595,6 +595,15 @@ export class Client {
     }
   }
 
+  browserAttachments(sessionID: string, options: CallOptions = {}): Promise<Operations['browser.attachments']['result']> {
+    return this.call('browser.attachments', { session_id: sessionID }, options);
+  }
+
+  /** Explicitly asks the offered native provider for bounded current metadata. */
+  browserTabs(sessionID: string, options: CallOptions = {}): Promise<Operations['browser.tabs']['result']> {
+    return this.call('browser.tabs', { session_id: sessionID }, options);
+  }
+
   private identity(requestID: string): RequestIdentity { return { client_id: this.clientID, request_id: requestID }; }
 }
 
@@ -611,3 +620,8 @@ export type { Session as SessionRecord } from '@whip/protocol';
 
 export { framedTransport } from './framed.js';
 export type { FramedConnection, FrameHandlers, FramedConnector } from './framed.js';
+
+export { BrowserProviderClient } from './browser-provider.js';
+export { browserProviderFramed } from './browser-framed.js';
+export { selectBrowserProvider } from './browser-selection.js';
+export type { BrowserProviderBridge, BrowserSelection, BrowserSelectionOptions } from './browser-selection.js';

@@ -44,7 +44,7 @@ type InitializeResult struct {
 type RPCError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
-	Kind    string `json:"kind" enum:"INVALID,NOT_FOUND,CONFLICT,BUSY,LIMIT,STOPPED,CLOSED,IDENTITY,METHOD,NETWORK_RESTRICTED,TERMINAL_WRITE_UNCERTAIN,ACCOUNT_CREDENTIALS,ACCOUNT_SETUP,ACCOUNT_CONFIGURATION,ACCOUNT_LOGOUT,ACCOUNT_MANAGEMENT,PROVIDER_CREDENTIALS,PROVIDER_DISCOVERY,PROVIDER_CONFIGURATION,PROVIDER_KEY_PENDING,PROVIDER_KEY_STORAGE,MCP_UNAVAILABLE,INTERNAL"`
+	Kind    string `json:"kind" enum:"INVALID,NOT_FOUND,CONFLICT,BUSY,LIMIT,STOPPED,CLOSED,IDENTITY,METHOD,NETWORK_RESTRICTED,TERMINAL_WRITE_UNCERTAIN,ACCOUNT_CREDENTIALS,ACCOUNT_SETUP,ACCOUNT_CONFIGURATION,ACCOUNT_LOGOUT,ACCOUNT_MANAGEMENT,PROVIDER_CREDENTIALS,PROVIDER_DISCOVERY,PROVIDER_CONFIGURATION,PROVIDER_KEY_PENDING,PROVIDER_KEY_STORAGE,MCP_UNAVAILABLE,BROWSER_EVENT_STALE,INTERNAL"`
 }
 
 type (
@@ -208,6 +208,7 @@ type GoalRef struct {
 	Revision Counter `json:"revision"`
 }
 type Input struct {
+	Steering      *InputSteeringRef   `json:"steering,omitempty"`
 	DesignContext *DesignContext      `json:"design_context,omitempty"`
 	HostOperation *DirectHostInput    `json:"host_operation"`
 	Goal          *GoalRef            `json:"goal"`
@@ -260,7 +261,7 @@ type CreateTreeParams struct {
 	CreationID       ID              `json:"creation_id"`
 	PermissionMode   *string         `json:"permission_mode,omitempty" enum:"prompt,automatic"`
 	Metadata         TreeMetadata    `json:"metadata"`
-	Engine           string          `json:"engine" enum:"starlark,quickjs"`
+	Engine           string          `json:"engine,omitempty" enum:"starlark,quickjs"`
 	Resources        []ResourceLimit `json:"resources,omitempty"`
 	Definition       DefinitionRef   `json:"definition"`
 	Overrides        ConfigPatch     `json:"overrides"`
@@ -307,6 +308,8 @@ type UpdateConfigurationParams struct {
 	Patch            ConfigPatch `json:"patch"`
 }
 type SubmitParams struct {
+	Delivery      string          `json:"delivery,omitempty" enum:"queued,steer"`
+	TargetTurnID  *ID             `json:"target_turn_id,omitempty"`
 	DesignContext *DesignContext  `json:"design_context,omitempty"`
 	Identity      RequestIdentity `json:"identity"`
 	SessionID     ID              `json:"session_id"`

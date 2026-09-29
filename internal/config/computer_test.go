@@ -15,7 +15,7 @@ func TestComputerConfigurationExplicitPrivateVersionAndValidation(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if host.Version != 18 || host.Computer.Enabled || host.Computer.HelperExecutable != "" {
+	if host.Version != Version || host.Computer.Enabled || host.Computer.HelperExecutable != "" {
 		t.Fatal(host.Computer)
 	}
 	authority, err := NewAuthority(dir)

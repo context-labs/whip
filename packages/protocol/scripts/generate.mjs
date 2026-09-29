@@ -4,6 +4,7 @@ import Ajv from 'ajv';
 import standaloneCode from 'ajv/dist/standalone/index.js';
 import equalRuntime from 'ajv/dist/runtime/equal.js';
 import { _ } from 'ajv/dist/compile/codegen/index.js';
+import { declarationSchema } from './declaration-schema.mjs';
 
 const check = process.argv.includes('--check');
 const manifest = JSON.parse(await readFile('schema/manifest.json', 'utf8'));
@@ -16,7 +17,7 @@ let declarations = '// Generated from Go DTOs. Run npm run generate.\n';
 for (const [name, schema] of Object.entries(schemas)) {
   // Nested bounded collections otherwise expand into thousands of unioned
   // tuples. Go and standalone validators retain every exact collection bound.
-  declarations += await compile(schema, name, { bannerComment: '', maxItems: 4 });
+  declarations += await compile(declarationSchema(schema), name, { bannerComment: '', maxItems: 4 });
 }
 declarations += '\nexport interface ContractTypes {\n';
 for (const name of Object.keys(schemas)) declarations += '  ' + name + ': ' + name + ';\n';

@@ -78,7 +78,8 @@ func (s *recordingSink) waitMatch(t *testing.T, pattern *regexp.Regexp) string {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("output never matched %q; got %q", pattern, s.text())
+	text := s.text()
+	t.Fatalf("output never matched %q; received %d bytes; tail %q", pattern, len(text), text[max(0, len(text)-4096):])
 	return ""
 }
 
@@ -376,10 +377,20 @@ func TestDetachReleasesAReaderBlockedOnASlowSink(t *testing.T) {
 	if _, _, err := m.Attach(term.ID, 0, slow); err != nil {
 		t.Fatal(err)
 	}
-	// Far more than the queue holds: the reader must block on push. Use a byte
-	// stream so millions of newline translations do not dominate the test.
-	write(t, term, fmt.Sprintf("head -c %d /dev/zero; echo flood-$((1+1))-done\n", 4*queueChunks*ChunkBytes))
-	time.Sleep(300 * time.Millisecond)
+	// Fill the queue plus the delivery and read in flight, even if every PTY
+	// read is a maximum-sized chunk. Observe backpressure instead of relying
+	// on a sleep or testing how quickly a race-instrumented PTY drains 8 MiB.
+	write(t, term, fmt.Sprintf("head -c %d /dev/zero; echo flood-$((1+1))-done\n", (queueChunks+2)*ChunkBytes))
+	term.mu.Lock()
+	attachment := term.attached
+	term.mu.Unlock()
+	deadline := time.Now().Add(15 * time.Second)
+	for len(attachment.queue) < cap(attachment.queue) {
+		if time.Now().After(deadline) {
+			t.Fatal("slow receiver did not fill the output queue")
+		}
+		time.Sleep(time.Millisecond)
+	}
 	m.Detach(slow)
 	close(slow.block)
 	fresh := newSink()

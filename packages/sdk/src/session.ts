@@ -40,6 +40,14 @@ export class Session {
       return value;
     },
     cancel: async (inputID: string, options: CallOptions = {}) => this.cancelInput(await this.inputs.get(inputID, options), options),
+    /** Explicitly promote a queued input to this exact active turn. */
+    steer: (inputID: string, turnID: string, editID: string, options: CallOptions = {}) => this.client.call('inputs.steer', { session_id: this.id, input_id: inputID, turn_id: turnID, edit_id: editID }, options),
+    steering: async (editID: string, options: CallOptions = {}) => {
+      const value = await this.client.call('inputs.steering', { session_id: this.id, edit_id: editID }, options);
+      if (value.id !== editID || value.session_id !== this.id || value.input && (value.input.session_id !== this.id || value.input.id !== value.input_id)) throw new TypeError('Steering receipt belongs to another input');
+      return value;
+    },
+    promotion: (inputID: string, turnID: string, editID: string, options: { journal?: RecoveryJournal } = {}) => this.client.command('inputs.steer', { session_id: this.id, input_id: inputID, turn_id: turnID, edit_id: editID }, options),
   };
   configure(expectedRevision: string, patch: Params<'sessions.configure'>['patch'], options: CallOptions = {}) {
     return this.client.call('sessions.configure', { session_id: this.id, expected_revision: expectedRevision, patch }, options);
@@ -48,9 +56,9 @@ export class Session {
   delete(options: CallOptions = {}) { return this.client.call('sessions.delete', { session_id: this.id }, options); }
   submit(parts: Params<'sessions.submit'>['parts'], requestID: string, options: Parameters<Client['submit']>[3] = {}) { return this.client.submit(this.id, parts, requestID, options); }
   /** Prepare a recoverable submission. Call send explicitly after preserving the handle/record. */
-  submission(parts: Params<'sessions.submit'>['parts'], requestID: string, options: { journal?: RecoveryJournal; designContext?: Params<'sessions.submit'>['design_context'] } = {}) {
-    const { designContext, ...commandOptions } = options;
-    return this.client.command('sessions.submit', { session_id: this.id, parts, source: 'user', identity: { client_id: this.client.clientID, request_id: requestID }, ...(designContext === undefined ? {} : { design_context: designContext }) }, commandOptions);
+  submission(parts: Params<'sessions.submit'>['parts'], requestID: string, options: { journal?: RecoveryJournal; designContext?: Params<'sessions.submit'>['design_context']; delivery?: 'queued' | 'steer'; targetTurnID?: string } = {}) {
+    const { designContext, delivery, targetTurnID, ...commandOptions } = options;
+    return this.client.command('sessions.submit', { session_id: this.id, parts, source: 'user', identity: { client_id: this.client.clientID, request_id: requestID }, ...(designContext === undefined ? {} : { design_context: designContext }), ...(delivery === undefined ? {} : { delivery }), ...(targetTurnID === undefined ? {} : { target_turn_id: targetTurnID }) }, commandOptions);
   }
   observe(options: Parameters<Client['observe']>[1] = {}) { return this.client.observe(this.id, options); }
   spawn(params: Omit<Params<'sessions.spawn'>, 'parent_id' | 'identity'>, requestID: string, options: CallOptions = {}) { return this.client.spawn({ ...params, parent_id: this.id }, requestID, options); }

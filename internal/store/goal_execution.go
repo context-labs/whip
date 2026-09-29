@@ -117,7 +117,7 @@ func finishGoal(ctx context.Context, tx *sql.Tx, turn session.Turn) error {
 		return cancelQueuedGoalInputs(ctx, tx, goal.ID)
 	}
 	var outstanding bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM inputs WHERE goal_id=? AND turn_id IS NULL AND cancelled_at IS NULL)`, goal.ID).Scan(&outstanding); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM inputs WHERE goal_id=? AND turn_id IS NULL AND steered_turn_id IS NULL AND cancelled_at IS NULL)`, goal.ID).Scan(&outstanding); err != nil {
 		return err
 	}
 	if outstanding {

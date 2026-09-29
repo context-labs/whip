@@ -147,7 +147,7 @@ func (s *Store) ClaimWorkspace(ctx context.Context, kind session.WorkspaceAction
 		var busy bool
 		if err := tx.QueryRowContext(ctx, `SELECT
  EXISTS(SELECT 1 FROM turns WHERE session_id=? AND finished_at IS NULL) OR
- EXISTS(SELECT 1 FROM inputs WHERE session_id=? AND turn_id IS NULL AND cancelled_at IS NULL) OR
+ EXISTS(SELECT 1 FROM inputs WHERE session_id=? AND turn_id IS NULL AND steered_turn_id IS NULL AND cancelled_at IS NULL) OR
  EXISTS(SELECT 1 FROM workspace_actions WHERE session_id=? AND state='claimed')`, request.SessionID, request.SessionID, request.SessionID).Scan(&busy); err != nil {
 			return err
 		}

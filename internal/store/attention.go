@@ -42,7 +42,7 @@ func (s *Store) Attention(ctx context.Context, after *session.AttentionCursor, l
  FROM sessions s JOIN session_trees t ON t.id=s.tree_id JOIN sessions r ON r.tree_id=s.tree_id AND r.parent_id IS NULL
  WHERE (s.tree_id,s.id)>(?,?) AND (
  EXISTS(SELECT 1 FROM turns WHERE session_id=s.id AND state IN ('running','cancelling'))
- OR EXISTS(SELECT 1 FROM inputs WHERE session_id=s.id AND turn_id IS NULL AND cancelled_at IS NULL)
+ OR EXISTS(SELECT 1 FROM inputs WHERE session_id=s.id AND turn_id IS NULL AND steered_turn_id IS NULL AND cancelled_at IS NULL)
  OR EXISTS(SELECT 1 FROM workspace_actions WHERE session_id=s.id AND state='claimed'))
  ORDER BY s.tree_id,s.id LIMIT ?`, cursor.TreeID, cursor.SessionID, limit+1)
 	if err != nil {

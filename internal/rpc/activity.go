@@ -11,6 +11,16 @@ import (
 
 func dispatchActivity(ctx context.Context, r *runtime.Runtime, method string, raw json.RawMessage) (any, error) {
 	switch method {
+	case "inputs.steer":
+		return decode(raw, func(p protocol.SteerInputParams) (any, error) {
+			value, err := r.SteerInput(ctx, session.SteerInputRequest{ID: session.InputSteeringID(p.EditID), SessionID: session.SessionID(p.SessionID), InputID: session.InputID(p.InputID), TurnID: session.TurnID(p.TurnID)})
+			return protocol.InputSteeringFromDomain(value), err
+		})
+	case "inputs.steering":
+		return decode(raw, func(p protocol.InputSteeringParams) (any, error) {
+			value, err := r.InputSteering(ctx, session.SessionID(p.SessionID), session.InputSteeringID(p.EditID))
+			return protocol.InputSteeringFromDomain(value), err
+		})
 	case "sessions.activity":
 		return decode(raw, func(p protocol.SessionParams) (any, error) {
 			value, err := r.Activity(ctx, session.SessionID(p.SessionID))

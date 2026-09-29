@@ -80,6 +80,7 @@ func TurnFromDomain(value session.Turn) Turn {
 
 func InputFromDomain(value session.Input) Input {
 	result := Input{DesignContext: designContextFromDomain(value.DesignContext), ID: ID(value.ID), SessionID: ID(value.SessionID), Source: string(value.Source), Kind: string(value.Kind), State: string(value.State), CreatedAt: value.CreatedAt.Format(time.RFC3339Nano)}
+	result.Steering = steeringRef(value.Steering)
 	if value.HostOperation != nil {
 		h := value.HostOperation
 		result.HostOperation = &DirectHostInput{Module: h.Module, Name: ID(h.Name), ArgumentsBase64: base64.StdEncoding.EncodeToString(h.Arguments)}

@@ -1,3 +1,4 @@
+import { callSignal } from './wire.js';
 import { assertValid } from '@whip/protocol';
 import type { Request, Response } from '@whip/protocol';
 import { decodeResponse, DeliveryError, RemoteError } from './wire.js';
@@ -28,7 +29,7 @@ export function framedTransport(open: FramedConnector, { expectedProcessEpoch }:
       request.params = { ...request.params, expected_process_epoch: expectedProcessEpoch };
       assertValid('InitializeParams', request.params);
     }
-    const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000);
+    const signal = callSignal(options);
     signal.throwIfAborted();
     let connection: FramedConnection | undefined;
     let pending: { id: string; resolve(value: Response): void; reject(error: unknown): void } | undefined;

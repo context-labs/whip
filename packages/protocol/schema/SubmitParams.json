@@ -1,6 +1,20 @@
 {
   "type": "object",
   "properties": {
+    "delivery": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "steer"
+      ]
+    },
+    "target_turn_id": {
+      "type": [
+        "null",
+        "string"
+      ],
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
     "design_context": {
       "type": [
         "null",
@@ -152,5 +166,29 @@
     "source",
     "parts"
   ],
-  "additionalProperties": false
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "target_turn_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_turn_id"
+        ]
+      },
+      "then": {
+        "properties": {
+          "delivery": {
+            "const": "steer"
+          }
+        },
+        "required": [
+          "delivery"
+        ]
+      }
+    }
+  ]
 }

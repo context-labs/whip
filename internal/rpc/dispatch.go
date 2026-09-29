@@ -50,6 +50,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return nil, ErrMethod
 	}
 	switch method {
+	case "browser.tabs", "browser.attachments":
+		return dispatchBrowserRead(ctx, r, method, raw)
 	case "receipts.match":
 		return dispatchReceiptMatch(ctx, r, raw)
 	case "workspace.inspect", "workspace.set", "run.configure":
@@ -60,7 +62,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return dispatchHostViews(ctx, r, method, raw)
 	case "tool.schemas", "tool.call", "shell.run":
 		return dispatchHostOperation(ctx, r, method, raw)
-	case "sessions.activity", "inputs.page", "inputs.get":
+	case "sessions.activity", "inputs.page", "inputs.get", "inputs.steer", "inputs.steering":
 		return dispatchActivity(ctx, r, method, raw)
 	case "executor.activity":
 		return decode(raw, func(p protocol.SessionParams) (any, error) {
@@ -145,6 +147,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return dispatchObservation(ctx, r, raw)
 	case "host.profiles", "host.set_profiles":
 		return dispatchHostProfiles(ctx, r, method, raw)
+	case "host.execution_defaults", "host.set_execution_defaults":
+		return dispatchExecutionDefaults(ctx, r, method, raw)
 	case "permissions.policy", "permissions.set_mode", "permissions.mode_edit", "host.permission_default", "host.set_permission_default":
 		return dispatchPermissionMode(ctx, r, method, raw)
 	case "questions.get", "questions.list", "questions.answer":

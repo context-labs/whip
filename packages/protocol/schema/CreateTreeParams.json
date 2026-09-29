@@ -461,7 +461,6 @@
   "required": [
     "creation_id",
     "metadata",
-    "engine",
     "definition",
     "overrides",
     "working_directory"

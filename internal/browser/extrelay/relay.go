@@ -156,11 +156,15 @@ func (r *Relay) handleExt(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "bad token", http.StatusUnauthorized)
 		return
 	}
+	// HTTP 101 can reach the extension before upgrade returns. Keep observers
+	// and the CDP forwarder behind publication, so an immediately sent command
+	// cannot mistake this acknowledged connection for an absent extension.
+	r.mu.Lock()
 	c, err := upgrade(w, req)
 	if err != nil {
+		r.mu.Unlock()
 		return
 	}
-	r.mu.Lock()
 	if r.ext != nil {
 		r.ext.close() // one extension at a time; newest wins
 	}
@@ -292,7 +296,9 @@ func (r *Relay) serveCDP(c *conn) {
 	r.mu.Unlock()
 	defer func() {
 		r.mu.Lock()
-		r.setCDPLocked(nil)
+		if r.cdpConn == c {
+			r.setCDPLocked(nil)
+		}
 		r.mu.Unlock()
 		c.close()
 	}()
