@@ -5,9 +5,10 @@ over its private Tailscale HTTPS address. Execution, provider credentials, sessi
 permissions stay on the host. The phone has no application login, pairing service,
 QR scanning or push notifications in this release.
 
-This workspace is under implementation. The
-[acceptance record](../.ai-docs/plans/mobile-app/EVIDENCE.md) distinguishes passing
-checks from device/release work that remains. A successful Metro export is not a
+The native v4 client is part of the unmerged backend redesign. The
+[development record](backend-redesign-development.md) tracks current revisions
+and automated checks; [earlier mobile evidence](../.ai-docs/plans/mobile-app/EVIDENCE.md)
+is historical and does not establish native-backend device acceptance. A successful Metro export is not a
 native build or TestFlight release.
 
 ## Connect a host
@@ -29,7 +30,7 @@ native build or TestFlight release.
 
    Keep the foreground gateway running; `--no-open` does not exit after printing
    the URL. Ctrl+C stops web access but leaves daemon work running. No restart
-   is needed to add a gateway to a compatible running daemon. For an owned child
+   is needed to add a gateway to a compatible running daemon. For a managed gateway inside the native host
    at daemon startup instead, set `WHIPCODE_NETWORK=1` alongside the same gateway
    settings on `whipcode daemon start`. `WHIPCODE_LISTEN` alone is not an opt-in.
    Existing daemons keep their launch configuration; do not restart active work
@@ -47,7 +48,7 @@ native build or TestFlight release.
    The [Serve CLI reference](https://tailscale.com/docs/reference/tailscale-cli/serve)
    documents inspecting and removing individual mappings.
 4. Open Whip mobile → Connect a server. Enter the HTTPS **base address**, with an
-   optional friendly name. Do not append `/api/v3/ws`. The SDK owns socket/content
+   optional friendly name. Do not append `/api/v4/ws`. The SDK owns socket/content
    paths, initializes the protocol and verifies persistent runtime identity.
    **Test Connection** checks HTTPS discovery, the live WebSocket handshake and
    a one-item session read before saving anything. Each step has a 15-second
@@ -64,48 +65,16 @@ release. Client IDs identify durable command namespaces; they are not credential
 Tailscale Serve remains tailnet-private; no public Funnel or unauthenticated public
 reverse proxy is needed.
 
-### Configured development host: gpu-4090-sam
+### Earlier development-host evidence
 
-The SSH alias `gpu-4090-sam` reaches `sam@kuzco-gpu-2`. Enter this base address
-in the phone app while Tailscale is connected:
-
-```text
-https://kuzco-gpu-2.tail7524e6.ts.net
-```
-
-The `whip-sam.service` system service starts at boot and runs
-`/home/sam/.local/bin/whip _daemon` as `sam`, with data in `/home/sam/.whip`.
-The recorded deployment uses `127.0.0.1:9876`, with persistent Tailscale Serve
-proxying private HTTPS port 443 and exact Host/Origin allowlists in the service
-unit. **When upgrading this deployment to the gateway architecture**, the unit
-must also opt into the owned child with `WHIPCODE_NETWORK=1` (or manage a separate
-foreground gateway). The daemon itself no longer binds TCP, and `WHIPCODE_LISTEN`
-alone does not start a gateway. These instructions do not establish that this
-host has been migrated or device-tested. Manage the installation through systemd
-so its intended settings persist:
-
-```sh
-ssh gpu-4090-sam 'systemctl status whip-sam.service --no-pager'
-ssh -t gpu-4090-sam 'sudo systemctl restart whip-sam.service'
-```
-
-Restart only when interrupting host work is intended. This is a fresh runtime,
-with no sessions migrated from other users or machines. Its default Inference.net
-provider entry exists, but credentials have not been configured. To enable model
-execution, complete the provider's browser login using the remote CLI:
-
-```sh
-ssh -t gpu-4090-sam '/home/sam/.local/bin/whipcode auth inference-net login'
-```
-
-Open the printed verification address locally and follow the account/project
-selection prompts. Provider credentials stay on the execution host. This is
-provider setup, separate from the app's Tailscale connection.
-
-HTTPS certificate verification, SDK WebSocket initialization, and session,
-attention, directory, configuration and model catalog reads passed from the Mac
-on 2026-09-08. Physical-phone workflows and model execution remain to be verified.
-`kuzco-4090` is a different machine; the earlier preparation there was rolled back.
+The September 8, 2026 mobile preparation recorded HTTPS and SDK reads against a
+private Tailscale host using the retired daemon. That deployment is not native
+v4 acceptance evidence. Its `_daemon` service command is no longer supported,
+and its saved configuration/data are not inputs to the native backend. No
+remote host upgrade, service restart, provider login or physical-phone test was
+performed by this redesign. An operator must explicitly authorize and verify
+any future deployment; use the native lifecycle commands above with fresh,
+separate storage.
 
 ## Use the companion
 
@@ -113,8 +82,8 @@ on 2026-09-08. Physical-phone workflows and model execution remain to be verifie
   search, host filters, archived sessions and local pins. The top-right plus and
   empty-state New session button open the same host → folder → review flow.
   Model, reasoning, execution language and advertised agent definitions are in
-  Session options; the first message is optional. Creation,
-  effort selection and first input are independently journaled; partial failure
+  Session options; the first message is optional. The chosen model/effort/definition are captured by creation; creation and
+  the optional first input are separately journaled. Partial failure
   retains the created root and requires an explicit next action.
 - A **conversation** names the host, root and current recipient. Select Root agent
   or a child, load older history, queue or steer input, or stop the exact displayed

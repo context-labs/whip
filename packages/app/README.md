@@ -4,9 +4,9 @@ Start with the canonical [frontend architecture and design guide](../../docs/fro
 for design decisions, state ownership, package boundaries, and implementation patterns.
 This README documents the app package's integration contract.
 
-WHIP's shared React application for the web shell and a future Electron renderer.
+WHIP's shared React application for the web and Electron renderer.
 This private ESM package distributes TypeScript source. It owns navigation and
-presentation; `@whip/legacy-sdk` owns connections and synchronized session state, and
+presentation; `@whip/sdk` owns native connections, bounded views and durable delivery, and
 the execution host owns all work and configuration.
 
 ```tsx
@@ -43,21 +43,23 @@ There is one Query client per application runtime, cleared when detaching a host
 It contains host reads and detail pages, never a second session snapshot or
 transcript. Unobserved queries are
 immediately discarded; mailbox pagination retains at most four bounded pages.
-The workspace leases one SDK view per distinct visible root (8 MiB retained payload, 512 messages per opened agent),
-with at most four retained roots and 30 seconds of unused-view retention. Route
-preloading never opens roots. Explicit content reads are limited to 1 MiB of text;
-code rendering separately caps retained tokens, and downloads have a 64 MiB limit.
-These are payload bounds, not a claim about total JavaScript heap overhead.
+The workspace leases shared native SessionView and ExecutionView instances for
+visible runtime/session identities. Retained history, execution, trace, content,
+drafts and recovery each have independent count, byte and lifetime bounds;
+[the frontend guide](../../docs/frontend.md#current-retention-budgets) lists the
+current values and source owners. Explicit gaps and older-page controls expose
+missing history. These are payload bounds, not total JavaScript heap claims.
+
 
 
 The workspace model lives in `session-tabs.ts`: up to four nested panes and 32
 view instances, with one selected tab per pane. `session-tab-routing.ts` applies
 the focused view's URL and browser-history hint. `workspace-views.ts` releases
 obsolete consumers before acquiring their replacements. Duplicate chat/REPL views share
-root/child SDK views and recipient drafts/uploads/locks; mode, scroll, caret and
+session SDK views and recipient drafts/uploads/locks; mode, scroll, caret and
 agent selection belong to each view. Generic geometry and dragging live in
-`@whip/ui/workspace-layout`. Window storage migrates the old flat tab list to
-`whip.web.workspace.v2`, retaining the original v1 entry. It never stores a
+`@whip/ui/workspace-layout`. Window storage uses `whip.web.workspace.v3` across connected hosts. Explicit
+layout recovery preserves earlier window metadata without replaying commands. It never stores a
 transcript. The full tree survives single-pane presentation on narrow screens.
 
 A tab's **Open REPL** action creates a fresh read-only execution view immediately
@@ -66,8 +68,8 @@ there, or creates one to the right, preserving both views and their reading posi
 The shared session information bar shows host/project, selected agent and current
 activity; requests and child activity remain above the composer.
 `?view=repl` is the shareable mode; legacy and ordinary session URLs use chat.
-`SessionContent` shares leases and human-request controls, `ReplView` renders SDK
-`executionRows`, and `ReadingList` owns virtual reading/selection behavior for
+`SessionContent` shares leases and human-request controls, `ReplView` renders
+canonical execution records, and `ReadingList` owns virtual reading/selection behavior for
 both modes. The viewer submits no work and loads older history only on request.
 
 Draft text is saved separately from command recovery metadata: up to 32 drafts,
@@ -76,8 +78,8 @@ selection, paste or drop. The window's composition store preserves files and
 uploads across view teardown and tab close/reopen. Host replacement interrupts
 transfers and marks files unavailable; reload requires reselecting them. Explicit
 removal, accepted submission, or draft discard clears the matching attachments.
-Uploads are never resubmitted automatically. Command identities are stored
-before delivery.
+Uploads are never resubmitted automatically. Exact native command requests and identities are stored in the bounded recovery
+journal before delivery. Unresolved requests are never evicted to send another.
 Uncertain acceptance checks the original command; retry is explicit and retains
 its original identity and payload. Closing the app, aborting a wait or changing
 hosts never cancels accepted daemon work. Cancellation uses the exact active turn.
@@ -99,5 +101,6 @@ npm run test:packed -w @whip/ui
 ```
 
 See [web-app.md](../../docs/web-app.md) for local setup, test evidence and remaining manual checks.
-Editing, review, interactive terminals, hosting authentication and Electron
-packaging are outside this application milestone.
+Human terminal tabs and Desktop browser tabs have explicit platform/lifetime
+owners. Authentication for a network deployment remains the operator’s trust
+boundary; native packaging and device acceptance are separate validation gates.

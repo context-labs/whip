@@ -11,7 +11,15 @@ output. Configuration contains logical model names, never provider credentials.
 Result collections can be null when the Go value is nil; SDK readers normalize
 them to empty collections. Patch null remains distinct from an empty map.
 
-These are initial Phase 1 declarations. Runtime handlers and SDK adoption arrive
-in Phase 2. Current applications still use @whip/legacy-protocol; v4 does not
-translate or accept that contract. Operation names in the manifest describe the
-new surface and do not claim that handlers are already serving it.
+The native runtime, Go client, SDK and supported product clients use this
+contract directly. The runtime validates requests and responses against the
+same registry; browser validators contain no runtime code generation and work
+under the production CSP. Major 4 peers reject retired contracts. Fresh native
+storage and client recovery namespaces do not translate retired identities.
+
+From the repository root, use `npm run generate -w @whip/protocol` after changing
+Go DTOs, then `npm run check -w @whip/protocol`. Do not edit generated declarations
+or add a parallel schema. See [the native domain](../../docs/backend-domain.md)
+for ownership and [the SDK](../sdk/README.md) for services, bounded views and
+recovery. The development record tracks remaining client acceptance and final
+retired-core deletion; protocol adoption alone does not complete those gates.
