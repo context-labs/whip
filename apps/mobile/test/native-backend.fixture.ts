@@ -246,3 +246,30 @@ test('mobile host browser settings inspect lost CAS acknowledgment, persist acro
   expect(aligned).toMatchObject({ configured_driver: before.driver, driver: before.driver, pinned: true });
   expect(f.requests.every(method => method === 'host.browser_driver' || method === 'host.set_browser_driver')).toBe(true);
 });
+
+test('mobile external Chrome controls use exact CAS and root generation without launch or replay across restart', async () => {
+  let f = await mobile('external-browser'), client = f.runtime.requireReady(); const owner = await root(f.runtime, 'external-browser-root');
+  const original = await client.hosts.externalBrowser(deadline());
+  const configuration = { mode: 'headless' as const, executable: join(directory, 'never-launch-this'), live_endpoint: '', live_profile: '', allow_private_urls: false };
+  f.lose('host.set_external_browser'); await expect(client.hosts.setExternalBrowser(original.revision, configuration, deadline())).rejects.toThrow('lost mobile ACK');
+  const saved = await client.hosts.externalBrowser(deadline()); expect(saved.configuration).toEqual(configuration);
+  expect(f.requests.filter(method => method === 'host.set_external_browser')).toHaveLength(1);
+  await expect(client.hosts.setExternalBrowser(original.revision, original.configuration, deadline())).rejects.toMatchObject({ kind: 'CONFLICT' });
+  expect(await client.hosts.externalBrowserSessions(owner.id, deadline())).toEqual({ items: [] });
+  expect(existsSync(join(directory, 'host', 'browser'))).toBe(false);
+  await client.callTool(owner.id, { module: 'browser', name: 'run', arguments_base64: Buffer.from(JSON.stringify({ session: 'default', code: 'info()' })).toString('base64') }, 'external-browser-held', deadline());
+  const pending = await until(() => client.session(owner.id).permissions.list({ pending_only: true }, deadline()), value => value.items?.length === 1, 'external browser permission');
+  const permission = pending.items?.[0]; if (!permission) throw new Error('Browser permission missing');
+  expect((await client.session(owner.id).operations.get(permission.operation_id, deadline())).capability).toBe('browser.external');
+  const captured = (await client.hosts.externalBrowserSessions(owner.id, deadline())).items[0]; if (!captured) throw new Error('Prepared browser resource missing'); expect(captured).toMatchObject({ root_id: owner.id, state: 'prepared', mode: 'headless' });
+  f.lose('browser.reconnect_external'); await expect(client.hosts.reconnectExternalBrowser(owner.id, captured.name, captured.generation, deadline())).rejects.toThrow('lost mobile ACK');
+  const fresh = (await client.hosts.externalBrowserSessions(owner.id, deadline())).items[0]; if (!fresh) throw new Error('Fresh browser resource missing'); expect(fresh.generation).not.toBe(captured.generation); expect(fresh.resource).not.toBe(captured.resource); expect(fresh.state).toBe('prepared');
+  expect((await client.wait('external-browser-held', deadline())).turn?.state).not.toBe('succeeded'); expect(f.requests.filter(method => method === 'browser.reconnect_external')).toHaveLength(1);
+  expect(existsSync(join(directory, 'host', 'browser'))).toBe(false);
+  expect((await client.hosts.disconnectExternalBrowser(owner.id, fresh.name, fresh.generation, deadline())).state).toBe('ended');
+  const previousEpoch = client.processEpoch; await f.runtime.dispose(); await stop(); ready = await start();
+  f = await mobile('external-browser'); client = f.runtime.requireReady(); expect(client.processEpoch).not.toBe(previousEpoch);
+  expect((await client.hosts.externalBrowser(deadline())).configuration).toEqual(configuration); expect(await client.hosts.externalBrowserSessions(owner.id, deadline())).toEqual({ items: [] });
+  expect(f.requests).toEqual(['host.external_browser', 'browser.external_sessions']); expect(existsSync(join(directory, 'host', 'browser'))).toBe(false);
+  await f.runtime.dispose();
+});

@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { HostBrowserDriver } from '@whip/protocol';
 import { useRuntime, useRuntimeState } from '../runtime/context';
 import { Button, Notice, Screen, Section, Text } from '../ui';
+import { ExternalBrowserSettings } from './external-browser-settings';
 
 function bounded(value: HostBrowserDriver) {
   if (new TextEncoder().encode(JSON.stringify(value)).byteLength > 4096) throw new Error('Browser settings exceed the mobile inspection limit.');
@@ -53,17 +54,18 @@ export function BrowserSettings() {
     finally { guard.current.busy = false; setBusy(false); }
   }
   const value = status.data;
-  return <Screen><Text variant="title">Browser driver</Text><Text muted>{state.host?.name ?? 'Selected host'}</Text>
+  return <Screen><Text variant="title">Browser automation</Text><Text muted>{state.host?.name ?? 'Selected host'}</Text>
     {!online && <Notice>Connect this host and keep this screen open to inspect its browser settings.</Notice>}
     {(error || status.error) && <Notice danger>{error || status.error!.message}</Notice>}
     {uncertain && <Notice>The change was not confirmed. Read current settings before another change. The request will not be replayed.</Notice>}
     {value && <Section title="HOST BROWSER DRIVER"><Text>Saved driver: {label(value.configured_driver)}</Text><Text>Effective driver: {label(value.driver)}</Text>
       {value.pinned && <Notice>This host process pins {label(value.driver)}. Changing that override requires restarting the host with different process settings. You can save the pinned driver for future starts.</Notice>}
-      <Text muted>Changes apply to future browser batches. A batch already prepared keeps its captured driver. These settings do not open a browser, attach a tab, or grant control.</Text>
+      <Text muted>Desktop batches keep their captured driver. Changing the effective driver retires external Chrome connections. These settings do not open a browser, attach a tab, or grant control.</Text>
       {(['rod', 'chromedp'] as const).map(driver => <Button key={driver} label={`Use ${label(driver)}…`} variant="secondary" disabled={!online || busy || uncertain || status.isFetching || !!status.error || value.configured_driver === driver || (value.pinned && value.driver !== driver)} onPress={() => {
-        Alert.alert(`Use ${label(driver)} on ${state.host?.name ?? 'this host'}?`, 'This changes the saved host driver for future browser batches. Existing batches keep their captured driver; no browser is opened.', [{ text: 'Keep current driver', style: 'cancel' }, { text: `Use ${label(driver)}`, onPress: () => { void save(value, driver); } }]);
+        Alert.alert(`Use ${label(driver)} on ${state.host?.name ?? 'this host'}?`, 'This saves the host driver. A changed effective driver retires external Chrome connections. Desktop batches keep their captured driver; no browser is opened.', [{ text: 'Keep current driver', style: 'cancel' }, { text: `Use ${label(driver)}`, onPress: () => { void save(value, driver); } }]);
       }} />)}
     </Section>}
     <Button label="Read current browser settings" variant="secondary" disabled={!online || busy || status.isFetching} onPress={() => { void refresh(); }} />
+    <ExternalBrowserSettings/>
   </Screen>;
 }

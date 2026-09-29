@@ -41,6 +41,12 @@ Children have read-only connection metadata and still need delegated grants.
 After an unconfirmed action, **Read current external connections** observes the
 host without retrying the action.
 
+Mobile exposes the same settings under **Settings → Hosts → Browser automation**.
+Its conversation controls show exact named generations, with reconnect and
+disconnect available only on the root recipient. Leaving the foreground aborts
+local waits; an unconfirmed change requires an explicit read before another
+write. Mobile never opens a browser on the phone.
+
 The native SDK exposes the same configuration CAS:
 
 ```ts
