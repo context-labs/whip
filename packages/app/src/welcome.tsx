@@ -1,3 +1,4 @@
+import { providerReady } from './provider-readiness';
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
@@ -116,7 +117,8 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
   const effortAvailable = tab.effort === undefined || levels.includes(effort);
   const readiness = useQuery({ queryKey: ['provider-readiness', runtimeId, { provider, name: model, effort: effort === 'off' ? '' : effort }],
     queryFn: ({ signal }) => client.providerReadiness({ provider, name: model, effort: effort === 'off' ? '' : effort }, { signal }), enabled: connected && !!provider && !!model, retry: false });
-  const ready = readiness.data ? readiness.data.configured && ['available', 'not_required'].includes(readiness.data.credential_state) : providers.ready === false ? false : undefined;
+  const ready = providerReady(readiness.data) ?? (providers.ready === false ? false : undefined);
+  const readinessPending = ready === undefined && !readiness.error && !providers.inventory.error;
   const executionEngine = tab.executionEngine ?? execution.data?.engine ?? '';
   const engineOptions = engines.map(engine => ({ value: engine.id, label: engine.label }));
   const engineAvailable = engineOptions.some(engine => engine.value === executionEngine);
@@ -155,8 +157,8 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
   }
 
   const disabled = !connected || busy;
-  // While the inventory is pending, the device's last answer for this host picks the layout; unknown keeps the composer's footprint.
-  const knownReady = providers.inventory.isPending ? providers.lastKnownReady : ready;
+  // While readiness is pending, the device's last answer for this host picks the layout; unknown keeps the composer's footprint.
+  const knownReady = readinessPending ? providers.lastKnownReady : ready;
   const setupVisible = (knownReady === false && draftingRuntime !== runtimeId) || showProviders;
   // Once a provider works, a host that has MCP servers configured for other
   // agents gets one offer to bring them in. Native MCP configuration records whether this host
@@ -207,10 +209,10 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
           error={connected ? catalog.error?.message : undefined} onRetry={() => void catalog.refetch()} disabled={disabled}
           onChange={(model, provider) => updateSetup({ model, provider, effort: modelEfforts(catalogModels(catalog.data, provider), model).includes(effort) ? effort : 'off' })}
           onSessionOptions={() => setShowOptions(true)} />
-          : providers.inventory.isPending ? <PickerSkeletons count={2} />
+          : readinessPending ? <PickerSkeletons count={2} />
           : <><Button variant="ghost" disabled={disabled} onClick={openProviders}>Connect a provider</Button>
             <Button variant="ghost" disabled={disabled} onClick={() => setShowOptions(true)}>Session options</Button></>}
-        {(ready || !providers.inventory.isPending) && <DraftEffortPicker value={effort} levels={levels} disabled={disabled || !ready || catalog.isPending} onChange={effort => updateSetup({ effort })} />}
+        {(ready || !readinessPending) && <DraftEffortPicker value={effort} levels={levels} disabled={disabled || !ready || catalog.isPending} onChange={effort => updateSetup({ effort })} />}
         <Button type="submit" variant="primary" aria-label="Send first message" xstyle={styles.send} loading={busy}
           disabled={disabled || !permissionAvailable || !!unresolved || !definitionAvailable || !engineAvailable || !effortAvailable || !ready || (!draft.trim() && !attachments.length) || !cwd.trim()}>{!busy && <ArrowUp size={16} />}</Button>
       </div>
@@ -234,7 +236,7 @@ export function WelcomeComposer({ client, host, tab, focused = true, hostControl
       {definitions.truncated && <p role="status">Only the first 1,000 agent revisions are shown.</p>}
       {definitions.query.error && <ErrorNotice type="resource" owner={`${runtimeId}:definitions`} title="Could not load agent revisions" error={definitions.query.error} />}
     </Dialog>
-    {!setupVisible && connected && (!engineAvailable || !definitionAvailable) && <Button variant="ghost" onClick={() => setShowOptions(true)}>Review unavailable session options</Button>}
+    {!setupVisible && connected && ((!engineAvailable && !execution.isPending) || !definitionAvailable) && <Button variant="ghost" onClick={() => setShowOptions(true)}>Review unavailable session options</Button>}
     {!setupVisible && !effortAvailable && !catalog.isPending && <p role="status" {...stylex.props(styles.note)}>Choose an available reasoning effort for this model before sending.</p>}
     {!setupVisible && <ErrorNotice type="resource" owner={`${runtimeId}:provider-status`} title="Could not load provider status"
       error={providers.inventory.error || providers.presets.error || readiness.error}

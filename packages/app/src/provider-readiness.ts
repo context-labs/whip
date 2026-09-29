@@ -1,6 +1,12 @@
+import type { ProviderReadiness } from '@whip/sdk';
 import type { AppStorage } from './platform';
 
 const prefix = 'whip.web.provider-ready.v1:';
+
+/** Local setup evidence, not a probe. Commands and account refresh run on explicit use. */
+export function providerReady(value?: Pick<ProviderReadiness, 'configured' | 'credential_state'>): boolean | undefined {
+  return value && value.configured && ['available', 'not_required', 'unchecked', 'refresh_required'].includes(value.credential_state);
+}
 
 /** Whether a host's default provider was ready the last time its inventory answered; undefined until it has. */
 export function recallProviderReady(storage: AppStorage, runtimeId: string | undefined): boolean | undefined {

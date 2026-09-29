@@ -1,5 +1,5 @@
 import { QueryClient } from '@tanstack/react-query';
-import { rememberProviderReady } from './provider-readiness';
+import { providerReady, rememberProviderReady } from './provider-readiness';
 import { readModelCatalog } from './model-options';
 import {
   DeliveryError, DurableCommand, RecoveryError, RecoveryJournal, RecoveryPersistenceError,
@@ -324,28 +324,30 @@ export class AppRuntime {
     });
     this.titleListeners.set(client, off);
   }
-  /** Warm host metadata; readiness remains a separate local-evidence query. */
+  /** Only local provider readiness gates startup; other metadata warms independently. */
   primeProviders(runtimeId?: string, client = runtimeId ? this.connections.host(runtimeId)?.client : undefined): Promise<void> {
     if (!runtimeId || !client) return Promise.resolve();
     return this.queries.prefetchQuery({ queryKey: ['provider-list', runtimeId], queryFn: ({ signal }) => client.listProviders({ signal }) })
       .then(async () => {
         if (!this.connections.isAttached(client)) return;
-        await Promise.all([
+        const inventory = this.queries.getQueryData<Operations['providers.list']['result']>(['provider-list', runtimeId]);
+        const selection = inventory?.defaults;
+        const queryKey = ['provider-readiness', runtimeId, selection];
+        const readiness = selection && this.queries.prefetchQuery({ queryKey,
+          queryFn: ({ signal }) => client.providerReadiness(selection, { signal }) });
+        void Promise.all([
           this.queries.prefetchQuery({ queryKey: ['provider-presets', runtimeId], queryFn: ({ signal }) => client.providerPresets({ signal }) }),
           this.queries.prefetchQuery({ queryKey: ['provider-catalogs', runtimeId, ''], queryFn: ({ signal }) => readModelCatalog(client, signal) }),
           this.queries.prefetchQuery({ queryKey: ['host-permission-default', runtimeId, client.processEpoch], queryFn: ({ signal }) => client.getDefaultPermissionMode({ signal }) }),
           this.queries.prefetchQuery({ queryKey: ['host-execution-defaults', runtimeId, client.processEpoch], queryFn: ({ signal }) => client.hosts.executionDefaults({ signal }) }),
           this.queries.prefetchQuery({ queryKey: ['mcp-configuration', runtimeId], queryFn: ({ signal }) => client.mcpConfiguration({ signal }) }),
         ]);
-        const inventory = this.queries.getQueryData<Operations['providers.list']['result']>(['provider-list', runtimeId]);
         if (!inventory) return;
-        if (!inventory.defaults) { rememberProviderReady(this.platform.storage, runtimeId, false); return; }
-        const queryKey = ['provider-readiness', runtimeId, inventory.defaults];
-        await this.queries.prefetchQuery({ queryKey,
-          queryFn: ({ signal }) => client.providerReadiness(inventory.defaults!, { signal }) });
+        if (!selection) { rememberProviderReady(this.platform.storage, runtimeId, false); return; }
+        await readiness;
         const ready = this.queries.getQueryState<Operations['providers.readiness']['result']>(queryKey);
         if (ready?.status === 'success' && ready.data && this.connections.isAttached(client))
-          rememberProviderReady(this.platform.storage, runtimeId, ready.data.configured && ['available', 'not_required'].includes(ready.data.credential_state));
+          rememberProviderReady(this.platform.storage, runtimeId, providerReady(ready.data) === true);
       });
   }
   /** Remove local state only after deletion has succeeded on this runtime. */

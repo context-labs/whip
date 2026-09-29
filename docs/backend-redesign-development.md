@@ -6047,3 +6047,15 @@ current native fixture success does not establish parity. Existing NATIVE
 acceptance findings remain open. This documentation-only checkpoint validates
 links, reference hashes and diff scope; it does not claim new product execution,
 UX parity or release acceptance.
+
+
+## 2026-09-29 — start approved frontend UX restoration
+
+Implementation follows the exact approved development reference, reconstructed
+and built in an isolated checkout. The first slice restores readiness and
+session-opening behavior without changing host/session authority or the old
+loading markup. Four startup regressions and one tree-metadata gating regression
+were reproduced before their fixes. See the
+[implementation record](frontend-ux-restoration-progress.md) for validation and
+remaining gates. Backend/SDK prerequisites and comparative product acceptance
+remain in progress; no installed runtime or original development file is changed.

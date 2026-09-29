@@ -261,20 +261,18 @@ export function SessionContent({
     refetchInterval: hostConnected && scopeValid ? 3000 : false,
   });
   const tree = treeQuery.data;
+  // Observation owns content readiness. Tree details only enrich controls;
+  // loading or failing them must not interrupt an already observed session.
+  const observing = hostConnected && state.status === 'live';
   const connected =
-    hostConnected &&
-    scopeValid &&
-    !!tree &&
-    tree.id === root?.tree_id &&
-    !selectedQuery.error &&
-    !rootQuery.error &&
-    !treeQuery.error;
+    observing && scopeValid && !selectedQuery.error && !rootQuery.error;
   const opening =
-    hostConnected &&
-    (!selected || !root || !tree) &&
-    !selectedQuery.error &&
-    !rootQuery.error &&
-    !treeQuery.error;
+    hostConnected && !state.history.snapshot && !state.error &&
+    !selectedQuery.error && !rootQuery.error &&
+    (state.status === 'idle' || state.status === 'loading');
+  const controlsPending =
+    hostConnected && (!selected || !root) &&
+    !selectedQuery.error && !rootQuery.error;
   useEffect(() => {
     if (tree?.metadata.title)
       runtime.tabs.titles(
@@ -405,9 +403,9 @@ export function SessionContent({
     state.error?.message;
   const status = opening
     ? { text: 'Loading session…', active: false }
-    : resourceError
+    : resourceError && !state.history.snapshot
       ? { text: 'Session unavailable', active: false }
-      : activityStatus(state, cells, connected, lastTurn, delivery);
+      : activityStatus(state, cells, observing, lastTurn, delivery);
   const actions = useSessionActions(),
     navigate = useNavigate();
   const [actionError, setActionError] = useState<unknown>();
@@ -690,7 +688,7 @@ export function SessionContent({
         kind={kind}
         host={host?.name ?? 'Unavailable host'}
         cwd={selected?.working_directory ?? summaryCwd}
-        pending={opening}
+        pending={opening || controlsPending}
         agentName={
           session.id === rootId ? 'Root' : selected?.definition.id || session.id
         }
@@ -750,7 +748,7 @@ export function SessionContent({
         activity={
           <CurrentActivity
             status={status}
-            connected={connected}
+            connected={observing}
             onDetails={() => setPanel('agents')}
           />
         }
@@ -760,6 +758,7 @@ export function SessionContent({
           type="session"
           owner={`${expectedRuntimeId}:${rootId}:${session.id}`}
           error={resourceError}
+          title={state.error ? undefined : 'Could not load session details'}
           action={
             <Button
               variant="ghost"
@@ -882,7 +881,7 @@ export function SessionContent({
         <SessionLoading />
       ) : (
         <div {...stylex.props(layout.empty)}>
-          {resourceError ? (
+          {resourceError && !state.history.snapshot ? (
             <p {...stylex.props(layout.emptyText)}>
               Session content is unavailable. Use Refresh above.
             </p>
@@ -1016,18 +1015,18 @@ export function SessionContent({
           }
           connected={connected}
           unavailableReason={
-            !connected && !opening
+            !connected && !opening && !controlsPending
               ? 'Session content or host connection is unavailable.'
               : undefined
           }
-          pending={opening}
+          pending={opening || controlsPending}
           activeTurn={activeTurn}
           lastTurn={lastTurn}
           runtimeId={expectedRuntimeId}
           viewId={viewId}
           active={focused && !panel}
           modelControl={
-            selected && tree ? (
+            selected ? (
               <>
                 <PermissionModePicker
                   session={session}
@@ -1044,7 +1043,7 @@ export function SessionContent({
                 />
               </>
             ) : (
-              opening && <PickerSkeletons />
+              (opening || controlsPending) && <PickerSkeletons />
             )
           }
         />

@@ -896,6 +896,19 @@ published (the splash also awaits Local’s warm-up). Host configuration and mod
 catalogs warm alongside it without blocking the splash. Query owns deduplication and
 freshness, so failed or expired prefetches can be retried. The last readiness
 answer is remembered per host in device storage (`provider-readiness.ts`).
+Readiness is requested immediately after inventory selects a default, independently
+of optional preset, catalog, execution and MCP reads. Pending readiness retains
+the composer and its control footprint; it is not a setup failure. Locally
+configured command credentials (`unchecked`) and refreshable accounts
+(`refresh_required`) are eligible for explicit first use without running either
+mechanism during a read-only readiness check.
+
+Session content readiness comes from its owned `SessionView`. Selected/root
+metadata must still prove the command target, but tree decoration and queue
+reads do not gate sending or replace live activity with a loading/unavailable
+state. Tree failures get a scoped details notice; the transcript, composer draft
+and focus remain mounted. Suspended/stale observation still disables commands.
+
 Provider inventory, runtime configuration, model catalogs, and definitions have
 five-minute inactive retention in the runtime's query defaults: closing the last
 tab must not discard the metadata needed to paint the next New Chat. Freshness

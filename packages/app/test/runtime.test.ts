@@ -117,6 +117,49 @@ describe('v4 application observation ownership', () => {
       expect(app.getSnapshot().error).toBeUndefined();
     } finally { app.dispose(); }
   });
+it('settles provider readiness while optional host metadata is still loading', async () => {
+  const app = runtime();
+  const defaults = { provider: 'fixture', name: 'model', effort: '' };
+  const held = vi.fn(
+    ({ signal }: { signal: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), {
+          once: true,
+        });
+      }),
+  );
+  const providerReadiness = vi.fn(async () => ({
+    configured: true,
+    credential_state: 'available',
+  }));
+  const client = {
+    runtimeID: 'runtime',
+    processEpoch: 'epoch',
+    listProviders: async () => ({ defaults, routes: [] }),
+    providerReadiness,
+    providerPresets: held,
+    getDefaultPermissionMode: held,
+    mcpConfiguration: held,
+    hosts: { executionDefaults: held },
+  } as unknown as Client;
+  vi.spyOn(app.connections, 'isAttached').mockReturnValue(true);
+  let settled = false;
+  void app.primeProviders('runtime', client).then(() => {
+    settled = true;
+  });
+  try {
+    await vi.waitFor(() => expect(settled).toBe(true));
+    expect(providerReadiness).toHaveBeenCalledOnce();
+    expect(held).toHaveBeenCalled();
+    expect(
+      app.platform.storage.getItem('whip.web.provider-ready.v1:runtime'),
+    ).toBe('true');
+    expect(app.getSnapshot().error).toBeUndefined();
+  } finally {
+    app.dispose();
+  }
+});
+
   it('retains only host query metadata after its consumer leaves', async () => {
     vi.useFakeTimers(); const app = runtime(); const keys = ['provider-list', 'provider-presets', 'provider-readiness', 'provider-catalogs', 'host-permission-default', 'host-execution-defaults', 'mcp-configuration', 'definitions'];
     for (const key of [...keys, 'detail']) { const observer = new QueryObserver(app.queries, { queryKey: [key, 'runtime'], queryFn: async () => ({ value: true }) }); const off = observer.subscribe(() => {}); await observer.refetch(); off(); }
