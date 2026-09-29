@@ -88,11 +88,13 @@ See [MCP contracts](tools.md#mcp), [connection manager](../internal/mcp) and
 | Immutable artifacts | [Artifacts](../internal/runtime/artifacts.go); owner-scoped bounded content, never ambient filesystem handles. |
 | Goals and schedules | [Goals](../internal/runtime/goals.go), [schedules](../internal/runtime/schedules.go); explicit completion, bounded continuations and durable due input. |
 
-External Chrome live/dedicated/headless/extension modes are a retained capability
-whose native owner/configuration port is still open in the development record.
+External Chrome live/dedicated/headless/extension modes use the native host
+configuration and root-owned connection generations. Web/Desktop, mobile, CLI
+and TUI expose explicit revisioned configuration and exact connection controls.
 The old `browser.mode` configuration does not activate them in the native host.
-This is an unresolved migration obligation, not an approved feature retirement.
-[Browser and computer use](browser-computer-use.md) tracks their integration.
+[Browser and computer use](browser-computer-use.md) describes current ownership;
+unused wrapper retirement and final platform evidence remain in the development
+record.
 
 ## Provider loop and models
 

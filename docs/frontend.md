@@ -92,10 +92,9 @@ execution evidence; neither executes user-entered code or inspects raw VM global
 All JavaScript packages are private ESM npm workspaces with one root lockfile.
 Use Node 24 and the versions in the manifests. The supported renderer, mobile,
 agent examples and client examples consume native `@whip/sdk` and generated
-`@whip/protocol` v4 directly. Retired packages still present during cutover are
-not an API for new work. Their final deletion and remaining client acceptance
-are tracked in [the redesign plan](backend-redesign-plan.md), not inferred from
-this guide. No source change upgrades an installed application or runtime.
+`@whip/protocol` v4 directly. Retired SDK/protocol packages have been removed.
+Remaining compatibility cleanup and client acceptance are tracked in
+[the redesign plan](backend-redesign-plan.md), not inferred from this guide. No source change upgrades an installed application or runtime.
 
 | Package | Owns | May depend on |
 | --- | --- | --- |

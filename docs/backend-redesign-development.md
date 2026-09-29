@@ -5573,3 +5573,27 @@ skip/missing-result rejection (36 workflow and five readiness tests pass).
 The exact slash-command acknowledgement fix (`30a472f51`) fails before the change
 and passes three focused tests plus14 groups each in Chromium and Firefox with
 zero errors/CSP violations. Receipt lookup waits for admission and never resends.
+
+
+Hosted runtime diagnosis is recorded in [the gate audit](native-runtime-gate-diagnosis.md).
+The timed test was only one second old; the600second alarm belonged to the whole
+partition. A separately proven fixture leak retained MCP server sessions after
+HTTP teardown; its new regression fails before cleanup and the full MCP family
+passes race14.012s afterward. This does not prove that leak caused the hosted
+alarm. First/middle/rest now partition234 real test names82/70/82 with all race,
+coverage, shuffle and original10minute flags preserved. Executed shell membership
+also checks nine future/example/fuzz boundaries; CI includes all three on both OSes.
+
+History diagnostics (`bff967547`) preserve the full durable workload and original
+120/125second deadlines. At most64 bounded stderr records expose seed stages,
+counts, elapsed/self CPU and OS block output; settings reports exact browser/mode
+and joined cleanup. All four Settings browser scenarios pass locally with zero
+page/CSP errors and previous runtime exit0 before the next scenario. The hosted
+seed timeout remains open until the next run supplies equivalent evidence.
+
+The integrated revision `1fa8dbfb2` passes protocol18 with generated drift checks,
+SDK build, shared app types and1382 tests across114 files, plus mobile types and
+226 tests across35 suites. Full CLI/TUI validation and the unchanged staged
+Desktop packaging/acceptance gate are running on that source revision. The
+original development checkout remains untouched and the designated handoff
+worktree remains clean at `239f761522`.

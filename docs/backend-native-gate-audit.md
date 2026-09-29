@@ -106,9 +106,9 @@ The retirement table's named native test files were checked against the source
 tree and exist (the table abbreviates the common `internal/` prefix and package
 prefixes). Final documentation should still reconcile the plan's old progress
 paragraphs and links to removed daemon/legacy-SDK files with immutable historical
-links. The driver README also needs its retired `computer_exec`, `Helper` and
-`~/.whip/bin` setup prose replaced by the current explicit helper publication
-contract. These are documentation obligations, not new compatibility paths.
+links. The driver README now describes explicit native Controller/Connection and helper
+publication; the unused automatic helper wrapper is removed. Its replacement
+coverage is recorded in [the computer disposition](backend-native-computer-retirement.md).
 
 The separate history-seed investigation remains unchanged: the hosted 120-second
 failure was real but not reproduced locally. The exact durable workload passed

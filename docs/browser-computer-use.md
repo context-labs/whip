@@ -47,6 +47,12 @@ disconnect available only on the root recipient. Leaving the foreground aborts
 local waits; an unconfirmed change requires an explicit read before another
 write. Mobile never opens a browser on the phone.
 
+The CLI exposes `browser status`, `configure`, `list`, `reconnect` and
+`disconnect`. The terminal offers `/browser external` equivalents; both require
+the displayed revision or exact connection generation. See the
+[command guide](native-external-browser-controls.md) for complete declarations
+and uncertain-response recovery.
+
 The native SDK exposes the same configuration CAS:
 
 ```ts
