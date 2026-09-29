@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from '@tanstack/react-router';
-import type { WhipClient } from '@whip/legacy-sdk';
+import type { Client, SessionRecord, Tree } from '@whip/sdk';
 import { Button, Dialog, Field, Input, useToast, type MenuItem } from '@whip/ui';
 import { useAppState, useRuntime } from './context';
 import { errorMessage, readPreference, type ProjectEditor } from './platform';
@@ -15,8 +15,8 @@ export interface SessionActionTarget {
   archived?: boolean;
 }
 type Action = 'rename' | 'fork' | 'delete' | 'ssh';
-type Metadata = Awaited<ReturnType<WhipClient['sessions']['get']>>;
-interface Selection { target: SessionActionTarget; hostName: string; client: WhipClient; action: Action; metadata?: Metadata; error?: string; errorType?: 'action' | 'validation' | 'resource' }
+interface Metadata { root: SessionRecord; tree: Tree }
+interface Selection { target: SessionActionTarget; hostName: string; client: Client; action: Action; metadata?: Metadata; error?: string; errorType?: 'action' | 'validation' | 'resource' }
 interface Actions { items(target: SessionActionTarget): MenuItem[]; prepare(open: boolean): void; archive(target: SessionActionTarget, archived: boolean): Promise<void> }
 const ActionsContext = createContext<Actions | null>(null);
 const aliasKey = (runtimeId: string) => `whip.web.editor-ssh.v1:${runtimeId}`;
@@ -44,17 +44,20 @@ export function SessionActionsProvider({ children }: { children: ReactNode }) {
     const saved = readPreference<unknown>(runtime.platform.storage, aliasKey(runtimeId), '');
     return typeof saved === 'string' && /^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,252}$/.test(saved) ? saved : '';
   };
-  function attached(target: SessionActionTarget, client?: WhipClient) {
+  function attached(target: SessionActionTarget, client?: Client) {
     const host = runtime.connections.host(target.runtimeId);
     if (!host?.client || host.state !== 'connected' || (client && client !== host.client))
       throw new Error('This session’s host is disconnected or changed. Reconnect it and try again.');
     return host;
   }
-  async function metadata(target: SessionActionTarget, client: WhipClient, signal?: AbortSignal) {
+  async function metadata(target: SessionActionTarget, client: Client, signal?: AbortSignal) {
     attached(target, client);
-    const result = await client.sessions.get(target.rootId, { signal });
+    const root = await client.session(target.rootId).get({ signal });
+    if (root.parent_id !== null) throw new Error('Session navigation requires the actual root identity');
+    const tree = await client.trees.get(root.tree_id, { signal });
+    if (tree.id !== root.tree_id) throw new Error('Tree metadata belongs to another session');
     attached(target, client);
-    return result;
+    return { root, tree };
   }
   function close() { if (!lock.current) { request.current?.abort(); setSelection(undefined); } }
   async function begin(target: SessionActionTarget, action: Action) {
@@ -75,7 +78,7 @@ export function SessionActionsProvider({ children }: { children: ReactNode }) {
       const data = await metadata(target, client, abort.signal);
       if (abort.signal.aborted) return;
       setSelection({ ...next, metadata: data });
-      setValue(data.title);
+      setValue(data.tree.metadata.title ?? '');
       if (action === 'fork') await fork(next, data, origin);
     } catch (error) {
       if (abort.signal.aborted || !mounted.current) return;
@@ -98,8 +101,14 @@ export function SessionActionsProvider({ children }: { children: ReactNode }) {
     await perform(async () => {
       if (runtime.tabs.workspace().tabs.length >= 32) throw new Error('Close a tab before forking: there are already 32 open session tabs.');
       attached(current.target, current.client);
-      const result = await runtime.run(current.client.session(current.target.rootId).fork({ expected_revision: data.history_revision }), 'Fork session');
-      const rootId = result.result?.root_id;
+      const snapshot = await current.client.session(current.target.rootId).history.snapshot({ signal: runtime.connections.signal(current.client) });
+      attached(current.target, current.client);
+      const result = await runtime.run(runtime.command(current.client, 'sessions.fork', {
+        fork_id: crypto.randomUUID(), session_id: current.target.rootId,
+        expected_history_revision: snapshot.revision, expected_config_revision: data.root.config_revision,
+        observed_through: snapshot.through_sequence, keep_through: snapshot.through_sequence, title: data.tree.metadata.title,
+      }), 'Fork session');
+      const rootId = result.root?.id;
       if (!rootId) throw new Error('The host did not return the new session. Check command recovery before trying again.');
       attached(current.target, current.client);
       // A late result stays available in the catalog without stealing navigation.
@@ -124,10 +133,16 @@ export function SessionActionsProvider({ children }: { children: ReactNode }) {
         const name = value.trim();
         runtime.platform.storage.setItem(aliasKey(target.runtimeId), JSON.stringify(name));
       } else if (action === 'rename') {
-        await runtime.run(client.session(target.rootId).rename(value.trim()), 'Rename session');
+        if (!current.metadata) throw new Error('Load the tree metadata before renaming');
+        const tree = current.metadata.tree;
+        await client.trees.update(tree.id, tree.revision, { ...tree.metadata, title: value.trim() }, { signal: runtime.connections.signal(client) });
+        attached(target, client);
+        await runtime.queries.invalidateQueries({ predicate: query => query.queryKey[1] === target.runtimeId });
+        await runtime.connections.host(target.runtimeId)?.list?.refresh();
         runtime.tabs.titles(target.runtimeId, new Map([[target.rootId, value.trim()]]));
       } else if (action === 'delete') {
-        await runtime.run(client.session(target.rootId).delete(), 'Delete session');
+        await client.session(target.rootId).delete({ signal: runtime.connections.signal(client) });
+        attached(target, client);
         const currentRoute = sessionDestination(locationRef.current.pathname);
         runtime.forgetSession(target.runtimeId, target.rootId);
         if (currentRoute?.runtimeId === target.runtimeId && currentRoute.rootId === target.rootId) {
@@ -143,13 +158,10 @@ export function SessionActionsProvider({ children }: { children: ReactNode }) {
     await perform(async () => {
       const host = attached(target);
       const client = host.client!;
-      host.list?.setOptimisticArchived(target.rootId, archived);
-      try {
-        await runtime.run(client.session(target.rootId).archive(archived), archived ? 'Archive session' : 'Restore session');
-      } catch (error) {
-        host.list?.setOptimisticArchived(target.rootId, !archived);
-        throw error;
-      }
+      const data = await metadata(target, client);
+      await client.trees.update(data.tree.id, data.tree.revision, { ...data.tree.metadata, archived }, { signal: runtime.connections.signal(client) });
+      attached(target, client);
+      await Promise.all([host.list?.refresh(), runtime.queries.invalidateQueries({ predicate: query => query.queryKey[1] === target.runtimeId })]);
       toast.add({ title: archived ? 'Session archived' : 'Session restored', description: archived
         ? <Button variant="ghost" onClick={() => void archive(target, false)}>Undo archive</Button>
         : 'This session is back in the sidebar.' });
@@ -159,9 +171,9 @@ export function SessionActionsProvider({ children }: { children: ReactNode }) {
     await perform(async () => {
       const host = attached(target);
       const data = await metadata(target, host.client!);
-      if (!data.cwd) throw new Error('This session has no working directory.');
-      if (app) await runtime.platform.projectEditors!.open({ app, directory: data.cwd, connectionId: host.id, runtimeId: target.runtimeId, sshAlias: host.profile.target.kind === 'local' ? undefined : alias(target.runtimeId) || undefined });
-      else { await runtime.platform.copy(data.cwd); toast.add({ title: 'Directory copied' }); }
+      if (!data.root.working_directory) throw new Error('This session has no working directory.');
+      if (app) await runtime.platform.projectEditors!.open({ app, directory: data.root.working_directory, connectionId: host.id, runtimeId: target.runtimeId, sshAlias: host.profile.target.kind === 'local' ? undefined : alias(target.runtimeId) || undefined });
+      else { await runtime.platform.copy(data.root.working_directory); toast.add({ title: 'Directory copied' }); }
     }, target, app ? 'Could not open directory' : 'Could not copy directory');
   }
   async function copyId(target: SessionActionTarget) {
@@ -211,10 +223,11 @@ export function SessionActionsProvider({ children }: { children: ReactNode }) {
       {selection && <p>{selection.target.title || 'Untitled session'} · {selection.hostName}</p>}
       {selection?.action !== 'ssh' && !selection?.metadata && !selection?.error && <p role="status">Loading session details…</p>}
       {(selection?.action === 'rename' && selection.metadata || selection?.action === 'ssh') && <Field label={selection.action === 'ssh' ? 'SSH host alias' : 'Session name'}><Input value={value} onChange={event => setValue(event.target.value)} maxLength={selection.action === 'ssh' ? 253 : 65536} disabled={busy} autoFocus onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing && value.trim()) void submit(); }} /></Field>}
-      {selection?.action === 'delete' && selection.metadata && <><p>{selection.metadata.title || 'Untitled session'}</p><p>Host: {selection.hostName}</p></>}
+      {selection?.action === 'delete' && selection.metadata && <><p>{selection.metadata.tree.metadata.title || 'Untitled session'}</p><p>Host: {selection.hostName}</p></>}
       {selection?.action === 'fork' && busy && <p role="status">Copying committed conversation history in the same working directory…</p>}
       {selection?.error && <ErrorNotice type={selection.errorType ?? "action"} owner={`${selection.target.runtimeId}:${selection.target.rootId}`} error={selection.error}
-        action={selection.errorType === "resource" && <Button variant="ghost" onClick={() => void begin(selection.target, selection.action)}>Retry loading session</Button>} />}
+        action={selection.errorType === "resource" ? <Button variant="ghost" onClick={() => void begin(selection.target, selection.action)}>Retry loading session</Button>
+          : selection.action === 'rename' ? <Button variant="ghost" disabled={busy} onClick={() => { const current = selection; void perform(async () => { const data = await metadata(current.target, current.client); if (mounted.current) setSelection({ ...current, metadata: data }); }); }}>Reload current metadata</Button> : undefined} />}
     </Dialog>
     <Dialog open={!!failure} title={failure?.title ?? "Session action failed"} onOpenChange={open => { if (!open) setFailure(undefined); }}
       footer={<Button onClick={() => setFailure(undefined)}>Close</Button>}>

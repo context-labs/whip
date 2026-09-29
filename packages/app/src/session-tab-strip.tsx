@@ -24,7 +24,7 @@ import { layout } from './styles';
 
 export interface SessionTabActions { next(offset: -1 | 1): void; close(viewId?: string): boolean; reopen(): void; showPicker(): void; newTerminal(): void }
 function Status({ item, stale }: { item?: SessionNavigationSummary; stale: boolean }) {
-  if (!item || stale || item.missing) return <CircleHelp size={13} aria-hidden="true" />;
+  if (!item || stale) return <CircleHelp size={13} aria-hidden="true" />;
   if (sessionNeedsInput(item, stale)) return <MessageSquareWarning size={14} {...stylex.props(styles.attention)} aria-hidden="true" />;
   if (sessionBusy(item, stale)) return <Circle size={7} fill="currentColor" {...stylex.props(styles.running)} aria-hidden="true" />;
   return <MessageSquare size={13} aria-hidden="true" />;
@@ -68,12 +68,11 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     if (!host.client || !host.runtimeId) return [];
     const ids = [...new Set(tabs.filter(isSessionTab).filter(tab => tab.runtimeId === host.runtimeId).map(tab => tab.rootId))].sort();
     if (!ids.length) return [];
-    const supported = host.client.getSnapshot().info?.negotiated_capabilities?.includes('session_summaries') ?? false;
-    return [{ host, client: host.client, runtimeId: host.runtimeId, ids, enabled: visible && host.state === 'connected' && supported }];
+    return [{ host, client: host.client, runtimeId: host.runtimeId, ids, enabled: visible && host.state === 'connected' }];
   }), [hosts, tabs, visible]);
   const summaries = useQueries({ queries: groups.map(group => ({
     queryKey: ['session-tab-summaries', group.runtimeId, group.ids],
-    queryFn: ({ signal }: { signal: AbortSignal }) => group.client.sessions.summaries(group.ids, { signal }),
+    queryFn: ({ signal }: { signal: AbortSignal }) => group.client.trees.summaries(group.ids, { signal }),
     enabled: group.enabled, refetchInterval: group.enabled ? 2000 : false as const,
     refetchIntervalInBackground: false, refetchOnWindowFocus: true, staleTime: 0, gcTime: 0,
   })) });
@@ -83,29 +82,18 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
   const item = (tab: SessionTab) => isSessionTab(tab) ? items.get(workspaceRootKey(tab)) : undefined;
   const hostName = (tab: SessionTab) => tab.kind === 'browser' ? (tab.environmentId ? 'SSH preview' : 'This Mac') : hosts.find(host => tab.kind === 'new' && tab.hostProfileId ? host.id === tab.hostProfileId : !!tab.runtimeId && host.runtimeId === tab.runtimeId)?.name ?? (tab.runtimeId ? `Unavailable host ${tab.runtimeId.slice(0, 8)}` : 'Choose a host');
   useEffect(() => {
-    const cleanups = groups.filter(group => group.enabled).map(group => {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const off = group.client.onEvent(event => {
-        if (!group.ids.includes(event.root_id) || !/^(?:turn\.|agent\.(?:turn\.|admitted|prompt\.queued|subtree\.)|root\.|permission\.|question\.)/.test(event.kind) || timer) return;
-        timer = setTimeout(() => { timer = undefined; void runtime.queries.invalidateQueries({ queryKey: ['session-tab-summaries', group.runtimeId] }); }, 250);
-      });
-      return () => { off(); clearTimeout(timer); };
-    });
-    return () => cleanups.forEach(cleanup => cleanup());
-  }, [groups, runtime]);
-  useEffect(() => {
     summaries.forEach((query, index) => {
-      if (query.data) runtime.tabs.titles(groups[index]!.runtimeId, new Map(query.data.items.filter(item => !item.missing).map(item => [item.root_id, item.title])));
+      if (query.data) runtime.tabs.titles(groups[index]!.runtimeId, new Map(query.data.items.map(item => [item.root_id, item.tree.metadata.title ?? ''])));
     });
   }, [runtime, groups, summaries]);
 
   const pendingNavigation = useRef<string | undefined>(undefined);
-  const title = (tab: SessionTab) => tab.kind === 'new' ? 'New Chat' : tab.kind === 'browser' ? tab.titleHint || 'Browser' : tab.kind === 'terminal' ? tab.titleHint || 'Terminal' : item(tab)?.title || tab.titleHint || 'Untitled session';
+  const title = (tab: SessionTab) => tab.kind === 'new' ? 'New Chat' : tab.kind === 'browser' ? tab.titleHint || 'Browser' : tab.kind === 'terminal' ? tab.titleHint || 'Terminal' : item(tab)?.tree.metadata.title || tab.titleHint || 'Untitled session';
   // The sidebar's catalog already holds a session's directory before the first summaries poll, so an opening tab can show its project at first paint.
-  const knownCwd = (tab: SessionTab) => !isSessionTab(tab) ? undefined : item(tab)?.cwd ?? hosts.find(host => host.runtimeId === tab.runtimeId)?.list?.getSnapshot().page?.items?.find(session => session.id === tab.rootId)?.cwd;
-  const project = (tab: SessionTab) => (tab.kind === 'new' || tab.kind === 'terminal' ? tab.cwd : item(tab)?.cwd)?.split(/[\\/]/).filter(Boolean).at(-1) ?? '';
+  const knownCwd = (tab: SessionTab) => !isSessionTab(tab) ? undefined : item(tab)?.working_directory ?? hosts.find(host => host.runtimeId === tab.runtimeId)?.list?.getSnapshot().items.find(session => session.root_id === tab.rootId)?.working_directory;
+  const project = (tab: SessionTab) => (tab.kind === 'new' || tab.kind === 'terminal' ? tab.cwd : item(tab)?.working_directory)?.split(/[\\/]/).filter(Boolean).at(-1) ?? '';
   const hasDraft = (tab: SessionTab) => isSessionTab(tab) && runtime.hasSessionDraft(tab.runtimeId, tab.rootId);
-  const kindLabel = (tab: SessionTab) => tab.kind === 'new' ? 'Not sent yet' : tab.kind === 'browser' ? 'Browser' : tab.kind === 'terminal' ? 'Terminal' : summaryDescription(item(tab), stale(tab));
+  const kindLabel = (tab: SessionTab) => tab.kind === 'new' ? 'Not sent yet' : tab.kind === 'browser' ? 'Browser' : tab.kind === 'terminal' ? 'Terminal' : summaryDescription(item(tab), stale(tab), isSessionTab(tab) && summaries.some((query, index) => groups[index]?.runtimeId === tab.runtimeId && query.data?.missing_root_ids.includes(tab.rootId)));
   const icon = (tab: SessionTab) => tab.kind === 'browser' ? <Globe size={13} aria-hidden="true"/> : tab.kind === 'new' ? <MessageSquare size={13} aria-hidden="true"/> : tab.kind === 'terminal' ? <SquareTerminal size={13} aria-hidden="true"/> : <Status item={item(tab)} stale={stale(tab)}/>;
   const go = (viewId: string, replace = false) => {
     runtime.clearWorkspaceError();
@@ -202,7 +190,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     const state = runtime.getSnapshot();
     const host = (selected && selected.kind !== 'browser' && selected.runtimeId ? hosts.find(h => h.runtimeId === selected.runtimeId) : undefined) ?? hosts.find(h => h.id === state.selectedHostId) ?? hosts.find(h => h.client);
     if (!host?.runtimeId) { runtime.reportWorkspace('Connect a host before opening a terminal.'); return; }
-    const cwd = selected?.kind === 'terminal' || selected?.kind === 'new' ? selected.cwd || undefined : selected ? item(selected)?.cwd : undefined;
+    const cwd = selected?.kind === 'terminal' || selected?.kind === 'new' ? selected.cwd || undefined : selected ? item(selected)?.working_directory : undefined;
     void openTerminalTab(runtime, navigate, { runtimeId: host.runtimeId, cwd, rootId: selected && isSessionTab(selected) ? selected.rootId : undefined, paneId: pane.id });
   };
   const actions = (tab: SessionTab): MenuItem[] => {
@@ -228,7 +216,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
         void openSessionView(runtime, navigate, tab.id, kind);
       } })),
       { id: 'details', label: 'Session details', onSelect: () => { setPicker(false); void navigate({ to: '/h/$runtimeId/s/$rootId', params: { runtimeId: tab.runtimeId, rootId: tab.rootId }, search: { ...sessionSearch(tab), panel: 'agents' }, state: { whipViewId: tab.id } }); } },
-      { id: 'terminal', label: 'Open terminal here', onSelect: () => { setPicker(false); void openTerminalTab(runtime, navigate, { runtimeId: tab.runtimeId, cwd: item(tab)?.cwd, rootId: tab.rootId, paneId: pane.id }); } },
+      { id: 'terminal', label: 'Open terminal here', onSelect: () => { setPicker(false); void openTerminalTab(runtime, navigate, { runtimeId: tab.runtimeId, cwd: item(tab)?.working_directory, rootId: tab.rootId, paneId: pane.id }); } },
       { id: 'close', label: 'Close tab', onSelect: () => close([tab.id], true) },
       { id: 'others', label: 'Close other tabs', disabled: pane.tabs.length < 2, onSelect: () => close(pane.tabs.filter(item => item.id !== tab.id).map(item => item.id), true) },
       { id: 'right', label: 'Close tabs to the right', disabled: index === pane.tabs.length - 1, onSelect: () => close(pane.tabs.slice(index + 1).map(item => item.id), true) },
@@ -309,7 +297,7 @@ export function SessionTabStrip({ compact, onManageHosts, utilities, children, n
     <Sheet open={picker} onOpenChange={setPicker} title="Open sessions" description="Closing a tab leaves its session, drafts, and agents on the host.">
       <Input aria-label="Find an open session" placeholder="Find a session or project…" value={search} onChange={event => setSearch(event.target.value)}/>
       <div {...stylex.props(styles.pickerList)}>
-        {tabs.filter(tab => `${title(tab)} ${hostName(tab)} ${item(tab)?.cwd ?? ''}`.toLocaleLowerCase().includes(search.toLocaleLowerCase())).map(tab => <div key={tab.id} {...stylex.props(styles.pickerRow, active?.id === tab.id && styles.selected)}>
+        {tabs.filter(tab => `${title(tab)} ${hostName(tab)} ${item(tab)?.working_directory ?? ''}`.toLocaleLowerCase().includes(search.toLocaleLowerCase())).map(tab => <div key={tab.id} {...stylex.props(styles.pickerRow, active?.id === tab.id && styles.selected)}>
           <button {...stylex.props(styles.pickerSelect)} onClick={() => go(tab.id)}>{icon(tab)}<span {...stylex.props(layout.column, styles.pickerText)}><strong>{title(tab)}{viewSuffix(tab.kind)}</strong><span {...stylex.props(layout.muted)}>{panes.length > 1 ? `Pane ${panes.indexOf(sessionViewPane(workspace, tab.id)!) + 1} · ` : ''}{hostName(tab)} · {project(tab)}{project(tab) ? ' · ' : ''}{kindLabel(tab)}{hasDraft(tab) ? ' · Unsent draft' : ''}</span></span></button>
           <Menu trigger={<IconButton variant="ghost" label={`Tab actions for ${title(tab)}`}><MoreHorizontal size={15}/></IconButton>} items={actions(tab)}/>
           <IconButton variant="ghost" label={`Close ${title(tab)}`} onClick={() => close([tab.id])}><X size={16}/></IconButton>

@@ -1,24 +1,22 @@
-import type { SessionSummariesResult } from '@whip/legacy-protocol';
+import type { TreeSummariesResult } from '@whip/protocol';
 
-export type SessionNavigationSummary = SessionSummariesResult['items'][number];
+export type SessionNavigationSummary = TreeSummariesResult['items'][number];
 
-/** Busy: the session has running or queued agents. */
 export function sessionBusy(item?: SessionNavigationSummary, stale = false): boolean {
-  if (!item || stale || item.missing) return false;
-  return BigInt(item.running_agents) > 0n || BigInt(item.queued_agents) > 0n;
+  if (!item || stale) return false;
+  return BigInt(item.activity.active_turn_count) > 0n || BigInt(item.activity.queued_input_count) > 0n || BigInt(item.activity.active_workspace_action_count) > 0n;
 }
-
-/** Needs input: the session has pending permissions or questions. */
 export function sessionNeedsInput(item?: SessionNavigationSummary, stale = false): boolean {
-  if (!item || stale || item.missing) return false;
-  return BigInt(item.pending_permissions) + BigInt(item.pending_questions) > 0n;
+  if (!item || stale) return false;
+  return BigInt(item.activity.pending_permission_count) + BigInt(item.activity.pending_question_count) > 0n;
 }
-
-export function summaryDescription(item?: SessionNavigationSummary, stale = false) {
-  if (!item || stale) return 'Activity unavailable';
-  if (item.missing) return 'Session unavailable';
-  const needs = BigInt(item.pending_permissions) + BigInt(item.pending_questions);
+export function summaryDescription(item?: SessionNavigationSummary, stale = false, missing = false) {
+  if (stale) return 'Activity unavailable';
+  if (missing) return 'Session unavailable';
+  if (!item) return 'Activity unavailable';
+  const activity = item.activity;
+  const needs = BigInt(activity.pending_permission_count) + BigInt(activity.pending_question_count);
   if (needs > 0n) return `${needs} ${needs === 1n ? 'request needs' : 'requests need'} your input`;
-  if (BigInt(item.running_agents) || BigInt(item.queued_agents)) return `${item.running_agents} running · ${item.queued_agents} queued agents`;
+  if (sessionBusy(item)) return `${activity.active_turn_count} active turns · ${activity.queued_input_count} queued inputs${BigInt(activity.active_workspace_action_count) > 0n ? ` · ${activity.active_workspace_action_count} workspace actions` : ''}`;
   return 'No currently observed activity';
 }

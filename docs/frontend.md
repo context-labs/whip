@@ -3410,3 +3410,12 @@ cancellation; rows remain until authoritative refresh. Full input parts load onl
 when the preview opens, with metadata and verified content reads kept separate.
 The queue renderer owns neither an inbox cache nor another session view; its
 caller supplies bounded canonical pages and explicit pagination/refresh actions.
+
+Native navigation reads bounded `trees.summaries` only for open roots while the
+window is visible and its host is connected. Titles and directories come from
+canonical tree/catalog metadata; missing roots remain distinct from idle roots.
+Tree metadata edits capture the exact tree revision and preserve unrelated
+metadata. A conflict retains the authored title until an explicit metadata reload;
+no implicit rebase or resend occurs. Fork controls preserve the captured history
+revision, through-sequence and root configuration revision in the recovery journal.
+Deletion removes local tabs and drafts only after the native deletion acknowledges.
