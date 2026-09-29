@@ -138,6 +138,8 @@ def wait_for_gateway(status, version, previous_process=None, timeout=15):
         observed = status()
         process = observed.get('process') or {}
         if (observed.get('state') == 'running' and process.get('build') == version
+                and isinstance(process.get('runtime_id'), str) and process['runtime_id']
+                and isinstance(process.get('process_epoch'), str) and process['process_epoch']
                 and process.get('web_state') == 'running' and process.get('web_endpoint')
                 and (previous_process is None or (
                     process.get('runtime_id') == previous_process['runtime_id']

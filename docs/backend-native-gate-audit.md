@@ -116,3 +116,24 @@ on macOS and constrained Linux/arm64; no count, timeout, FULL synchronous settin
 or production store API was changed. Its detailed evidence remains in
 `/tmp/whip-native-history-seed-diagnosis-2026-09-29.md`. A later hosted pass must
 not be described as proof of an unimplemented optimization.
+
+## Hosted workflow contract follow-up
+
+The first core-removal distribution job exposed three workflow-test failures:
+new checkouts lacked an explicit immutable source, and two assertions still
+required the retired standalone CI job names. All new checkouts now specify
+`github.sha`. The tests require both distribution matrix platforms, Node/Go/task
+and browser dependencies before execution, and the ordinary asset prerequisite
+before the installer checks. The aggregate's actual shell body is exercised with
+all-success and every individual failure, cancellation, skip and missing result.
+
+The next distribution unit suite also still called the retired generation API.
+Its five readiness cases now use native runtime identity, process epoch and web
+state, retaining wrong-build, incomplete-gateway and same-PID guarantees. Missing
+runtime/epoch evidence is refused instead of counting as a successful restart.
+No product lifecycle, install destination, workload or deadline was changed.
+All 36 publication/workflow tests passed in 51.502 seconds and all five native
+gateway readiness tests passed in 0.002 seconds. The changed workflow also passes
+`actionlint`. Logs: `/tmp/whip-native-ci-publish.log` and
+`/tmp/whip-native-ci-distributions-unit.log`. The complete hosted distribution
+scenario still needs its final integrated rerun.
