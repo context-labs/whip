@@ -55,6 +55,76 @@
           "configuration": {
             "type": "object",
             "properties": {
+              "modules": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "agents",
+                    "artifacts",
+                    "browser",
+                    "computer",
+                    "context",
+                    "files",
+                    "goals",
+                    "mail",
+                    "mcp",
+                    "messages",
+                    "models",
+                    "permissions",
+                    "schedules",
+                    "shell",
+                    "skills",
+                    "state",
+                    "user"
+                  ],
+                  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                },
+                "maxItems": 17,
+                "uniqueItems": true
+              },
+              "tools_definition": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "revision": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                },
+                "required": [
+                  "id",
+                  "revision"
+                ],
+                "additionalProperties": false
+              },
+              "hooks_definition": {
+                "type": [
+                  "null",
+                  "object"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+                  },
+                  "revision": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                },
+                "required": [
+                  "id",
+                  "revision"
+                ],
+                "additionalProperties": false
+              },
               "automatic_title": {
                 "type": "boolean"
               },
@@ -216,6 +286,11 @@
                 "additionalProperties": {
                   "type": "object",
                   "properties": {
+                    "timeout_millis": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 900000
+                    },
                     "description": {
                       "type": "string"
                     },
@@ -223,6 +298,7 @@
                     "output_schema": true
                   },
                   "required": [
+                    "timeout_millis",
                     "description",
                     "input_schema",
                     "output_schema"
@@ -277,7 +353,7 @@
                     },
                     "timeout_millis": {
                       "type": "integer",
-                      "minimum": 1,
+                      "minimum": 0,
                       "maximum": 60000
                     }
                   },
@@ -292,6 +368,9 @@
               "output_schema": true
             },
             "required": [
+              "modules",
+              "tools_definition",
+              "hooks_definition",
               "automatic_title",
               "goals_enabled",
               "compaction",

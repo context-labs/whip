@@ -15,7 +15,7 @@ import (
 
 const (
 	FileName = "host.json"
-	Version  = 14
+	Version  = 15
 )
 
 type Provider struct {

@@ -20,7 +20,7 @@ func TestContractFixtures(t *testing.T) {
 }
 
 func TestPatchClearRoundTripAndOwnership(t *testing.T) {
-	patch := ConfigPatch{ReportMode: new("inline"), Tools: map[string]ToolDeclaration{}, Output: &OutputPolicy{}}
+	patch := ConfigPatch{Modules: []ID{}, ReportMode: new("inline"), Tools: map[string]ToolDeclaration{}, Output: &OutputPolicy{}}
 	raw, err := json.Marshal(patch)
 	if err != nil {
 		t.Fatal(err)
@@ -33,7 +33,7 @@ func TestPatchClearRoundTripAndOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if domain.Tools == nil || len(domain.Tools) != 0 || domain.Output == nil {
+	if domain.Modules == nil || len(domain.Modules) != 0 || domain.Tools == nil || len(domain.Tools) != 0 || domain.Output == nil {
 		t.Fatal("explicit clear became inheritance")
 	}
 	if domain.ReportMode == nil || *domain.ReportMode != "inline" {

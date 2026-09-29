@@ -79,3 +79,46 @@ func TestKernelInstallsEveryModuleByDefault(t *testing.T) {
 		t.Fatalf("default kernel lost a module: %v", err)
 	}
 }
+
+func TestKernelExplicitEmptyModulesStayEmptyAfterRestart(t *testing.T) {
+	for _, engine := range []string{EngineStarlark, EngineQuickJS} {
+		t.Run(engine, func(t *testing.T) {
+			executable, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			options := KernelOptions{Command: []string{executable, "-test.run=TestWorkerProcess", "--"}, Engine: engine, Modules: []string{}, Checkpoints: &memoryCheckpoints{}, Host: HostFunc(func(context.Context, string, string, map[string]any) (any, error) { calls++; return false, nil })}
+			for run := range 2 {
+				kernel, err := NewKernel(options)
+				if err != nil {
+					t.Fatal(err)
+				}
+				code, call := `x=41`, `files.read(path="forbidden")`
+				if run == 1 {
+					code = `print(x)`
+				}
+				if engine == EngineQuickJS {
+					code = `var x=41`
+					call = `await files.read({path:"forbidden"})`
+					if run == 1 {
+						code = `console.log(x)`
+					}
+				}
+				result, err := kernel.Exec(t.Context(), Cell{Code: code})
+				if err != nil || run == 1 && result.Output != "41\n" {
+					kernel.Close()
+					t.Fatal("checkpoint lost", result, err)
+				}
+				if _, err := kernel.Exec(t.Context(), Cell{Code: call}); err == nil || !strings.Contains(err.Error(), "files") {
+					kernel.Close()
+					t.Fatal("empty modules installed files", err)
+				}
+				kernel.Close()
+			}
+			if calls != 0 {
+				t.Fatal("empty bindings reached host")
+			}
+		})
+	}
+}

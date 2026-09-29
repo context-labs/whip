@@ -13,7 +13,7 @@ func TestDefinitionRevisionAndResolutionIsolation(t *testing.T) {
 		Model:        ModelSelection{Provider: "local", Name: "model"},
 		Instructions: Instructions{ProjectFiles: []string{"AGENTS.md"}},
 		Tools:        map[string]ToolDeclaration{"read": {InputSchema: json.RawMessage(`{"type":"object"}`)}},
-		Hooks:        map[string]HookDeclaration{"before_tool": {Operations: []string{"read"}, TimeoutMillis: 500}},
+		Hooks:        map[string]HookDeclaration{"before_tool": {Operations: []string{"files.read"}, TimeoutMillis: 500}},
 		OutputSchema: json.RawMessage(`{"type":"string"}`),
 	}
 	document := Builtins()[0]
@@ -34,11 +34,11 @@ func TestDefinitionRevisionAndResolutionIsolation(t *testing.T) {
 	first.Hooks["before_tool"].Operations[0] = "write"
 	first.OutputSchema[0] = '!'
 	if second.Instructions.ProjectFiles[0] != "AGENTS.md" ||
-		second.Hooks["before_tool"].Operations[0] != "read" ||
+		second.Hooks["before_tool"].Operations[0] != "files.read" ||
 		!json.Valid(second.Tools["read"].InputSchema) || !json.Valid(second.OutputSchema) {
 		t.Fatal("resolved sessions share mutable configuration")
 	}
-	if !json.Valid(base.Tools["read"].InputSchema) || base.Hooks["before_tool"].Operations[0] != "read" {
+	if !json.Valid(base.Tools["read"].InputSchema) || base.Hooks["before_tool"].Operations[0] != "files.read" {
 		t.Fatal("resolution mutated caller defaults")
 	}
 	registered.Defaults.Instructions.Text = "new revision"
@@ -113,7 +113,7 @@ func TestConfigurationValidation(t *testing.T) {
 		{"remote schema", ConfigPatch{Tools: map[string]ToolDeclaration{"read": {InputSchema: json.RawMessage(`{"$ref":"https://example.test/schema"}`)}}}},
 		{"unpinned child", ConfigPatch{Children: map[string]DefinitionRef{"child": {ID: "assistant"}}}},
 		{"unknown hook", ConfigPatch{Hooks: map[string]HookDeclaration{"event": {TimeoutMillis: 10}}}},
-		{"unbounded hook", ConfigPatch{Hooks: map[string]HookDeclaration{"before_tool": {TimeoutMillis: 0}}}},
+		{"unbounded hook", ConfigPatch{Hooks: map[string]HookDeclaration{"before_tool": {TimeoutMillis: 60001}}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if !errors.Is(tc.patch.Validate(), ErrInvalid) {

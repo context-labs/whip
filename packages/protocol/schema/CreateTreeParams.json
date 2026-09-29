@@ -98,6 +98,37 @@
     "overrides": {
       "type": "object",
       "properties": {
+        "modules": {
+          "type": [
+            "null",
+            "array"
+          ],
+          "items": {
+            "type": "string",
+            "enum": [
+              "agents",
+              "artifacts",
+              "browser",
+              "computer",
+              "context",
+              "files",
+              "goals",
+              "mail",
+              "mcp",
+              "messages",
+              "models",
+              "permissions",
+              "schedules",
+              "shell",
+              "skills",
+              "state",
+              "user"
+            ],
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+          },
+          "maxItems": 17,
+          "uniqueItems": true
+        },
         "automatic_title": {
           "type": [
             "null",
@@ -277,6 +308,11 @@
           "additionalProperties": {
             "type": "object",
             "properties": {
+              "timeout_millis": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 900000
+              },
               "description": {
                 "type": "string"
               },
@@ -284,6 +320,7 @@
               "output_schema": true
             },
             "required": [
+              "timeout_millis",
               "description",
               "input_schema",
               "output_schema"
@@ -338,7 +375,7 @@
               },
               "timeout_millis": {
                 "type": "integer",
-                "minimum": 1,
+                "minimum": 0,
                 "maximum": 60000
               }
             },

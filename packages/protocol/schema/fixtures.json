@@ -62,7 +62,7 @@
   {
     "type": "ProviderInventory",
     "value": {
-      "revision": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
+      "revision": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f",
       "routes": [],
       "defaults": null,
       "compaction_model": null
@@ -72,7 +72,7 @@
   {
     "type": "ChangeProviderParams",
     "value": {
-      "revision": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
+      "revision": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f",
       "provider": "custom",
       "declaration": {
         "kind": "openai-chat",
@@ -96,7 +96,7 @@
   {
     "type": "ProviderDefaultsParams",
     "value": {
-      "revision": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
+      "revision": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f",
       "defaults": {
         "selection": {
           "provider": "custom",
@@ -124,7 +124,7 @@
   {
     "type": "RemoveProviderParams",
     "value": {
-      "revision": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
+      "revision": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f",
       "provider": "custom",
       "replacement": {
         "selection": null,
@@ -441,7 +441,7 @@
           "client_id": "client",
           "request_id": "deleted"
         },
-        "digest": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
+        "digest": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f",
         "input_id": null,
         "deleted_at": "2026-09-27T12:00:00.123456Z",
         "created_at": "2026-09-27T12:00:00.123456Z"
@@ -989,7 +989,7 @@
     "value": {
       "id": "edit",
       "session_id": "session_child",
-      "digest": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
+      "digest": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f",
       "expected_revision": "9007199254740993",
       "revision": "9007199254740994",
       "observed_through": "9007199254740995",
@@ -1146,7 +1146,7 @@
             "root_id": null,
             "path": ".agents/skills/my-skill/SKILL.md",
             "bytes": "40",
-            "sha256": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1"
+            "sha256": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f"
           }
         }
       ],
@@ -1159,7 +1159,7 @@
     "value": {
       "manifest": {
         "bytes": "80000",
-        "sha256": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
+        "sha256": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f",
         "sources": [
           {
             "kind": "invoked_skill",
@@ -1167,7 +1167,7 @@
             "root_id": null,
             "path": ".agents/skills/my-skill/SKILL.md",
             "bytes": "70000",
-            "sha256": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1"
+            "sha256": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f"
           }
         ]
       }
@@ -1179,7 +1179,7 @@
     "value": {
       "manifest": {
         "bytes": "100",
-        "sha256": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
+        "sha256": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f",
         "sources": [
           {
             "kind": "skill_metadata",
@@ -1187,7 +1187,7 @@
             "root_id": "team",
             "path": "review/SKILL.md",
             "bytes": "40",
-            "sha256": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1"
+            "sha256": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f"
           }
         ]
       }
@@ -1199,7 +1199,7 @@
     "value": {
       "manifest": {
         "bytes": "100",
-        "sha256": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
+        "sha256": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f",
         "sources": [
           {
             "kind": "standing_instructions",
@@ -1207,7 +1207,7 @@
             "root_id": "standing",
             "path": "me.md",
             "bytes": "40",
-            "sha256": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1"
+            "sha256": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f"
           }
         ]
       }
@@ -1219,7 +1219,7 @@
     "value": {
       "manifest": {
         "bytes": "100",
-        "sha256": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
+        "sha256": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f",
         "sources": [
           {
             "kind": "project_file",
@@ -1227,7 +1227,7 @@
             "root_id": "project",
             "path": "app/AGENTS.md",
             "bytes": "40",
-            "sha256": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1"
+            "sha256": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f"
           }
         ]
       }
@@ -1246,7 +1246,7 @@
     "value": {
       "manifest": {
         "bytes": "40",
-        "sha256": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
+        "sha256": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f",
         "sources": [
           {
             "kind": "project_file",
@@ -1266,7 +1266,7 @@
     "value": {
       "manifest": {
         "bytes": "20",
-        "sha256": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
+        "sha256": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f",
         "sources": []
       }
     },
@@ -1633,7 +1633,7 @@
       "state": "succeeded",
       "result_message_id": "message_result",
       "checkpoint": {
-        "digest": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
+        "digest": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f",
         "size": "123",
         "engine": "starlark",
         "metadata": {
@@ -1692,7 +1692,7 @@
             },
             "route": "https://provider.example/v1/chat/completions",
             "adapter": "openai-chat",
-            "request_digest": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
+            "request_digest": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f",
             "prices": {
               "input": null,
               "output": null,
@@ -1753,7 +1753,7 @@
             },
             "route": "https://provider.example/v1/chat/completions",
             "adapter": "openai-chat",
-            "request_digest": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
+            "request_digest": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f",
             "prices": {
               "input": null,
               "output": null,
@@ -1814,7 +1814,7 @@
             },
             "route": "https://provider.example/v1/chat/completions",
             "adapter": "openai-chat",
-            "request_digest": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1",
+            "request_digest": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f",
             "prices": {
               "input": null,
               "output": null,
@@ -1870,7 +1870,7 @@
       "builtins": [
         {
           "id": "assistant",
-          "revision": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1"
+          "revision": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f"
         }
       ]
     },
@@ -1921,10 +1921,31 @@
       "parent_id": null,
       "definition": {
         "id": "assistant",
-        "revision": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1"
+        "revision": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f"
       },
       "config_revision": "9007199254740993",
       "configuration": {
+        "modules": [
+          "agents",
+          "artifacts",
+          "browser",
+          "computer",
+          "context",
+          "files",
+          "goals",
+          "mail",
+          "mcp",
+          "messages",
+          "models",
+          "permissions",
+          "schedules",
+          "shell",
+          "skills",
+          "state",
+          "user"
+        ],
+        "tools_definition": null,
+        "hooks_definition": null,
         "automatic_title": true,
         "goals_enabled": true,
         "compaction": {
@@ -1967,10 +1988,31 @@
       "parent_id": "session_root",
       "definition": {
         "id": "assistant",
-        "revision": "39ba8baa6fedee5f2a4fd745e5746afb625bdaa9e0c9c6398126ffe39c606ef1"
+        "revision": "81abdabf0564d722ca74fc5897d1683fcb3281b324f535e552300cf7dcc42f7f"
       },
       "config_revision": "9007199254740993",
       "configuration": {
+        "modules": [
+          "agents",
+          "artifacts",
+          "browser",
+          "computer",
+          "context",
+          "files",
+          "goals",
+          "mail",
+          "mcp",
+          "messages",
+          "models",
+          "permissions",
+          "schedules",
+          "shell",
+          "skills",
+          "state",
+          "user"
+        ],
+        "tools_definition": null,
+        "hooks_definition": null,
         "automatic_title": true,
         "goals_enabled": true,
         "compaction": {
@@ -2170,6 +2212,7 @@
           "threshold_percent": 0
         },
         "goals_enabled": false,
+        "modules": [],
         "output": {
           "schema": null
         },
