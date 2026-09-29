@@ -13,7 +13,8 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
   let browser, page;
   const frames = [], errors = [], checks = [], catalogReads = [];
   const proxyConnections = new Set(), proxyClosing = new Set();
-  let proxyClosed = false, armFiltered = false, releaseSearch, filteredReply;
+  let proxyClosed = false, armedSearch, releaseSearch;
+  const heldSearches = [];
   const recordError = error => { if (errors.length < 64) errors.push(String(error.stack ?? error).slice(0, 4096)); };
   const closeEndpoint = endpoint => { const pending = endpoint.close().catch(recordError).finally(() => proxyClosing.delete(pending)); proxyClosing.add(pending); };
   try {
@@ -53,6 +54,26 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     const saved = () => page.getByLabel('Saved sessions', { exact: true });
     const group = cwd => sidebar().getByRole('button', { name: cwd, exact: true });
     const ready = () => page.getByLabel('Message WHIP', { exact: true }).waitFor();
+    const filteredSearch = async (query, rootID) => {
+      const dialog = page.getByRole('dialog', { name: 'Search sessions', exact: true });
+      await page.evaluate(() => {
+        window.sidebarSelectionClicks = [];
+        if (window.sidebarSelectionListening) return;
+        window.sidebarSelectionListening = true;
+        for (const type of ['click', 'auxclick']) document.addEventListener(type, event => {
+          if (window.sidebarSelectionClicks.length < 16) window.sidebarSelectionClicks.push({ type, button: event.button, modifiers: [event.metaKey, event.ctrlKey, event.shiftKey, event.altKey], prevented: event.defaultPrevented, link: event.target.closest('a')?.getAttribute('href') });
+        }, true);
+      });
+      const after = catalogReads.length;
+      armedSearch = { query, rootID };
+      await page.getByLabel('Search sessions on this host', { exact: true }).fill(query);
+      await eventually(() => releaseSearch, { description: `actual filtered ${query} reply is held` });
+      assert.equal(await dialog.getByRole('link', { name: new RegExp(query) }).count(), 0, 'A recent match is not the pending filtered result');
+      assert.equal(await dialog.getByLabel('Session search results').getAttribute('aria-busy'), 'true');
+      releaseSearch();
+      await eventually(() => catalogReads.slice(after).some(read => read.search === query && read.replied && !read.error && read.roots?.includes(rootID)), { description: 'exact filtered native search reply received' });
+      await eventually(async () => await dialog.getByLabel('Session search results').getAttribute('aria-busy') === 'false', { description: 'filtered search rows committed' });
+    };
     const paths = [join(fixture.directory, 'repo/main'), join(fixture.directory, 'worktrees/main'), join(fixture.directory, 'sdk')];
     for (const path of paths) await mkdir(path, { recursive: true });
     for (const [index, path] of paths.entries()) paths[index] = await realpath(path);
@@ -76,14 +97,17 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
       proxyConnections.add(retire); route.onClose(retire); server.onClose(retire);
       route.onMessage(data => guarded(() => {
         const request = JSON.parse(String(data));
-        if (armFiltered && request.method === 'trees.list' && request.params?.search === 'Session 139') target = request.id;
+        if (armedSearch && request.method === 'trees.list' && request.params?.search === armedSearch.query) {
+          target = { id: request.id, ...armedSearch }; armedSearch = undefined;
+        }
         server.send(data);
       }));
       server.onMessage(data => guarded(() => {
         const reply = JSON.parse(String(data));
-        if (target !== undefined && reply.id === target && !filteredReply) {
-          assert.equal(reply.error, undefined); assert(reply.result.items.some(item => item.root_id === roots[139]));
-          filteredReply = { id: reply.id, roots: reply.result.items.map(item => item.root_id) };
+        if (target !== undefined && reply.id === target.id) {
+          assert.equal(reply.error, undefined); assert(reply.result.items.some(item => item.root_id === target.rootID));
+          assert(heldSearches.length < 2);
+          heldSearches.push({ id: reply.id, query: target.query, roots: reply.result.items.map(item => item.root_id) }); target = undefined;
           releaseSearch = () => { releaseSearch = undefined; guarded(() => route.send(data)); }; return;
         }
         route.send(data);
@@ -242,7 +266,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await page.getByRole('option', { name: 'Search sessions', exact: true }).click();
     const input = page.getByLabel('Search sessions on this host', { exact: true });
     await eventually(() => input.evaluate(node => node === document.activeElement), { description: 'search dialog receives keyboard focus' });
-    await input.fill('Session 133');
+    await filteredSearch('Session 133', roots[133]);
     await page.getByRole('dialog', { name: 'Search sessions', exact: true }).getByRole('link', { name: new RegExp('Session 133') }).waitFor();
     const resultLink = page.getByRole('dialog', { name: 'Search sessions', exact: true }).getByRole('link', { name: /Session 133/ });
     assert.ok((await resultLink.getAttribute('href')).includes('panel=execution'), 'Sidebar lost saved inspector location');
@@ -329,22 +353,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     // The same root appears in the recent results before the 200ms debounce.
     // A locator matching its label alone can click across the query replacement.
     await searchDialog.getByRole('link', { name: /Session 139/ }).waitFor();
-    armFiltered = true;
-    const searchStart = catalogReads.length;
-    await input.fill('Session 139');
-    await eventually(() => releaseSearch, { description: 'actual filtered catalog reply is held' });
-    assert.equal(await searchDialog.getByRole('link', { name: /Session 139/ }).count(), 0, 'A recent match is not the pending filtered result');
-    assert.equal(await searchDialog.getByLabel('Session search results').getAttribute('aria-busy'), 'true');
-    releaseSearch();
-    await eventually(() => catalogReads.slice(searchStart).some(read => read.search === 'Session 139' && read.replied && !read.error && read.roots?.includes(roots[139])), { description: 'exact filtered native search reply received' });
-    await eventually(async () => await searchDialog.getByLabel('Session search results').getAttribute('aria-busy') === 'false', { description: 'filtered search rows committed' });
-    await searchDialog.getByRole('link', { name: /Session 139/ }).waitFor();
-    await page.evaluate(() => {
-      window.sidebarSelectionClicks = [];
-      document.addEventListener('click', event => {
-        if (window.sidebarSelectionClicks.length < 16) window.sidebarSelectionClicks.push({ button: event.button, modifiers: [event.metaKey, event.ctrlKey, event.shiftKey, event.altKey], prevented: event.defaultPrevented, link: event.target.closest('a')?.getAttribute('href') });
-      }, true);
-    });
+    await filteredSearch('Session 139', roots[139]);
     assert.ok((await searchDialog.getByRole('link', { name: /Session 139/ }).boundingBox()).height >= 44);
     await page.screenshot({ path: join(directory, `${name}-mobile.png`) });
     await searchDialog.getByRole('link', { name: /Session 139/ }).click(); await ready();
@@ -353,11 +362,12 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     console.log(`${name}: completed workflow ${checks.length + 1}`);
     checks.push('mobile Sheet, 44px controls, search/selection, close and no document overflow');
     assert.deepEqual(errors, []);
-    results[name] = { checks, screenshots: directory };
+    assert.equal(heldSearches.length, 2);
+    results[name] = { checks, heldSearches, screenshots: directory };
     console.log(`${name}: ${checks.length} sidebar workflows passed`);
   } catch (error) {
     await page?.screenshot({ path: join(directory, `${name}-failure.png`) }).catch(() => {});
-    await writeFile(join(directory, `${name}-failure.txt`), `${error.stack}\n\n${page ? await page.locator('body').innerText().catch(() => '') : ''}\n\n${JSON.stringify({ errors, catalogReads, filteredReply, clicks: await page?.evaluate(() => window.sidebarSelectionClicks).catch(() => undefined) })}`);
+    await writeFile(join(directory, `${name}-failure.txt`), `${error.stack}\n\n${page ? await page.locator('body').innerText().catch(() => '') : ''}\n\n${JSON.stringify({ errors, catalogReads, heldSearches, clicks: await page?.evaluate(() => window.sidebarSelectionClicks).catch(() => undefined) })}`);
     throw error;
   } finally {
     proxyClosed = true; releaseSearch = undefined; for (const retire of [...proxyConnections]) retire();
