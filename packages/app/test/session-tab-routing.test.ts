@@ -521,3 +521,50 @@ describe('terminal tab routes', () => {
     expect(open).toHaveBeenCalledTimes(1);
   });
 });
+
+it('resolves the connected host home before opening a terminal from an empty workspace', async () => {
+  const { openTerminalTab } = await import('../src/session-tab-routing');
+  const tabs = new SessionTabs();
+  const directories = vi.fn(async () => ({ path: '/remote/home' }));
+  const open = vi.fn(async ({ cwd }: { cwd: string }) => ({ id: 'terminal', process_epoch: 'boot', cwd }));
+  const client = { runtimeID: 'mac', processEpoch: 'boot', hostDirectories: directories, openTerminal: open };
+  const runtime = { tabs, connections: { isAttached: () => true, host: () => ({ client }) }, reportWorkspace: vi.fn() } as unknown as AppRuntime;
+  const navigate = vi.fn(async () => {});
+  await openTerminalTab(runtime, navigate as unknown as AnyRouter['navigate'], { runtimeId: 'mac' });
+  expect(directories).toHaveBeenCalledWith({ path: '~', after: '', prefix: '', show_hidden: false, limit: 1 });
+  expect(open).toHaveBeenCalledExactlyOnceWith({ cwd: '/remote/home', cols: 80, rows: 24 });
+  expect(tabs.workspace().tabs[0]).toMatchObject({ kind: 'terminal', cwd: '/remote/home', terminalId: 'terminal' });
+});
+
+it('does not record or send a terminal open when directory discovery fails or its connection detaches', async () => {
+  const { openTerminalTab } = await import('../src/session-tab-routing');
+  const tabs = new SessionTabs();
+  let attached = true;
+  const directories = vi.fn<() => Promise<{ path: string }>>(async () => { throw new Error('Home unavailable'); });
+  const open = vi.fn();
+  const client = { runtimeID: 'mac', processEpoch: 'boot', hostDirectories: directories, openTerminal: open };
+  const runtime = { tabs, connections: { isAttached: () => attached, host: () => ({ client }) }, reportWorkspace: vi.fn() } as unknown as AppRuntime;
+  const navigate = vi.fn(async () => {});
+  await openTerminalTab(runtime, navigate as unknown as AnyRouter['navigate'], { runtimeId: 'mac' });
+  expect(runtime.reportWorkspace).toHaveBeenLastCalledWith(expect.objectContaining({ message: 'Home unavailable' }));
+  directories.mockImplementation(async () => { attached = false; return { path: '/home' }; });
+  await openTerminalTab(runtime, navigate as unknown as AnyRouter['navigate'], { runtimeId: 'mac' });
+  expect(runtime.reportWorkspace).toHaveBeenLastCalledWith(expect.objectContaining({ message: 'Reconnect this host before opening a terminal.' }));
+  expect(open).not.toHaveBeenCalled(); expect(tabs.workspace().tabs).toEqual([]); expect(navigate).not.toHaveBeenCalled();
+});
+
+it('shares the pending open when two home lookups finish together', async () => {
+  const { openTerminalTab } = await import('../src/session-tab-routing');
+  const tabs = new SessionTabs();
+  let resolveDirectory!: (value: { path: string }) => void;
+  const directory = new Promise<{ path: string }>(resolve => { resolveDirectory = resolve; });
+  const open = vi.fn(async ({ cwd }: { cwd: string }) => ({ id: 'terminal', process_epoch: 'boot', cwd }));
+  const client = { runtimeID: 'mac', processEpoch: 'boot', hostDirectories: () => directory, openTerminal: open };
+  const runtime = { tabs, connections: { isAttached: () => true, host: () => ({ client }) }, reportWorkspace: vi.fn() } as unknown as AppRuntime;
+  const navigate = vi.fn(async () => {});
+  const first = openTerminalTab(runtime, navigate as unknown as AnyRouter['navigate'], { runtimeId: 'mac' });
+  const second = openTerminalTab(runtime, navigate as unknown as AnyRouter['navigate'], { runtimeId: 'mac' });
+  resolveDirectory({ path: '/home' });
+  const ids = await Promise.all([first, second]);
+  expect(ids[0]).toBe(ids[1]); expect(open).toHaveBeenCalledTimes(1); expect(tabs.workspace().tabs).toHaveLength(1);
+});

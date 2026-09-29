@@ -110,8 +110,18 @@ export async function openTerminalTab(runtime: AppRuntime, navigate: AnyRouter['
       await navigate(tabDestination(pending));
       return pending.id;
     }
+    // Resolve the selected host's home before recording or sending an open.
+    // Native terminal admission always receives an explicit absolute directory.
+    const cwd = options.cwd || (await client.hostDirectories({ path: '~', after: '', prefix: '', show_hidden: false, limit: 1 })).path;
+    if (!runtime.connections.isAttached(client)) throw new Error('Reconnect this host before opening a terminal.');
+    const openedWhileReading = runtime.tabs.pendingTerminal(options.runtimeId);
+    if (openedWhileReading) {
+      if (!runtime.tabs.workspace().tabs.some(tab => tab.id === openedWhileReading.id)) runtime.tabs.reopenView(openedWhileReading.id);
+      await navigate(tabDestination(openedWhileReading));
+      return openedWhileReading.id;
+    }
     if (!runtime.tabs.canOpen()) throw new Error('There are 32 open session tabs. Close a tab before opening a terminal.');
-    const id = runtime.tabs.openTerminal(options.runtimeId, null, options.cwd ?? '', options.paneId, client.processEpoch);
+    const id = runtime.tabs.openTerminal(options.runtimeId, null, cwd, options.paneId, client.processEpoch);
     const captured = runtime.tabs.workspace().tabs.find(tab => tab.id === id)!;
     if (captured.kind !== 'terminal') throw new Error('The terminal recovery view could not be saved.');
     await navigate(tabDestination(captured));
