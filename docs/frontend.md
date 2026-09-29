@@ -1112,6 +1112,15 @@ process/CLI gates plus product web, Chromium/Firefox browser, mobile, Apple Sili
 desktop and examples. Read their actual commands rather than inferring coverage
 from a generic test name. Build/pack assets before production browser fixtures.
 
+`npm run generate`, `build`, `check` and `test` target the supported native-v4
+protocol and SDK. `npm run acceptance` exercises actual native runtime, gateway,
+executor, shell, computer, desktop discovery and browser-provider fixtures.
+`npm run test:browser` builds the production renderer and runs Chromium/Firefox
+acceptance. `npm run test:package` installs packed native archives into an isolated
+consumer, checks public imports/types and browser bundling, then submits a real
+input to its own disposable native runtime. Retained legacy reference fixtures
+remain explicitly named in the transition Taskfile until their final disposition.
+
 `task check:product-web` checks shared app/UI and assets.
 `task check:product-browser` uses disposable native hosts and production assets.
 `task check:product-mobile` includes native backend fixtures and both Expo exports.
