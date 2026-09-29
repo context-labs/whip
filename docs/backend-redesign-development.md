@@ -3513,3 +3513,50 @@ Browser selection checkpoint 2b532b1c0 and contract declaration fix c4fe5276e
 are integrated with regenerated contracts. The browser-provider production
 fixture is now required by check:fixture. Combined phase validation follows;
 independent leaf results do not establish that pass.
+
+## Input-controls hosted build deadline correction
+
+Draft #258 at c5850730c failed Linux build in run 36519493581 because
+the complete runtime package exhausted the shared 120-second package deadline.
+The sole active test (turn-permit blocked resumption/deadline) had run for just
+2 seconds and remained within its existing 5-second scenario wait. All six
+Linux/macOS race jobs, both client jobs, macOS build and analysis passed.
+
+The fast gate now runs the complete runtime package separately with a 5-minute
+aggregate deadline. Every other fast package retains 2 minutes. No tests or
+scenario assertions were removed, individual operation waits remain unchanged,
+and race package/job deadlines remain unchanged. This targets the growing
+package's cumulative cost rather than extending a stalled scenario. The full
+local build check and new hosted result are pending below. Failed-run evidence:
+`/tmp/whip-pr258-linux-build-failure.log`.
+
+The repaired #258 build gate passed locally at 35793114b, including the complete
+runtime suite in 84.853s, all other fast packages, active builds and vet. Exact
+log: `/tmp/whip-pr258-build-repair.log`. The prior complete race/client passes
+remain evidence for unchanged runtime code; the new hosted run is pending.
+
+
+## Integrated browser checkpoint validation
+
+At a65a3a0b2 the complete active build/vet and race/shuffle suites passed,
+including store 289.550s, runtime 347.842s, RPC 70.195s and process 115.739s.
+The phase command then failed contract drift because the declaration-generator
+leaf had been integrated after the earlier generation. f2005eb2c regenerates
+only that declaration (five BrowserEvent non-null variant constraints). Go and
+wire validation behavior are unchanged. The failed command is not a phase pass.
+
+All remaining client gates passed at f2005eb2c: native contract14 plus retained16,
+native SDK133, retained SDK466, examples6, and every production fixture. Actual
+scenario durations: v4 crash/admission33.461s, gateway3.651s, Unix/browser
+executors2.452s/2.509s, shell2.211s, fake computer2.180s, native browser
+provider1.860s, retained crash4.299s and selected daemon races2.772s. Analysis at
+a65a3a0b2 passed zero new lint issues and no reachable vulnerabilities. Exact logs:
+`/tmp/whip-browser-phase-integrated.log`,
+`/tmp/whip-browser-clients-integrated.log`, and
+`/tmp/whip-browser-analysis-integrated.log`.
+
+This checkpoint integrates the tested #258 build-gate repair ae59e2e48. Its
+local complete build gate passed; replacement hosted validation is pending.
+Browser child transfer, product renderer/native-client migration, and retired
+core removal remain outstanding. Phases5–6 are in progress; Phase7 is pending.
+No merge, deployment, or installed-runtime change occurred.

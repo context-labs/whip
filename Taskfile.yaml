@@ -108,7 +108,18 @@ tasks:
           echo "$unformatted"
           exit 1
         fi
-      - go test -timeout=2m {{.REDESIGN_PACKAGES}}
+      # The runtime package now contains over 180 integration tests. Its total
+      # deadline is separate from fast leaf packages and individual scenario waits.
+      - |
+        set -- {{.REDESIGN_PACKAGES}}
+        packages=""
+        for package in "$@"; do
+          if [ "$package" != "./internal/runtime" ]; then
+            packages="$packages $package"
+          fi
+        done
+        go test -timeout=2m $packages
+      - go test -timeout=5m ./internal/runtime
       - go build {{.REDESIGN_INTEGRATION_PACKAGES}}
 
   check:build:
