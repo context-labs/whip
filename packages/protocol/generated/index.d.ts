@@ -9371,6 +9371,7 @@ export type TracePageParams =
       trace_id: string;
     };
 export interface TracePageResult {
+  observed_at_ns: string;
   /**
    * @maxItems 2048
    */

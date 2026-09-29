@@ -45,10 +45,11 @@ type TraceRow struct {
 	Span       *TraceSpan `json:"span"`
 }
 type TracePageResult struct {
-	Items    []TraceRow `json:"items"`
-	Revision Counter    `json:"revision"`
-	Next     Counter    `json:"next"`
-	HasMore  bool       `json:"has_more"`
+	ObservedAtNS Counter    `json:"observed_at_ns"`
+	Items        []TraceRow `json:"items"`
+	Revision     Counter    `json:"revision"`
+	Next         Counter    `json:"next"`
+	HasMore      bool       `json:"has_more"`
 }
 type TraceExportParams struct {
 	RootID           ID       `json:"root_id"`
@@ -115,7 +116,7 @@ func traceSchema(schema *jsonschema.Schema, t reflect.Type) {
 }
 
 func TracePageFromDomain(page session.TracePage) TracePageResult {
-	result := TracePageResult{Items: []TraceRow{}, Revision: Counter(page.Revision), Next: Counter(page.Next), HasMore: page.HasMore}
+	result := TracePageResult{ObservedAtNS: Counter(page.ObservedAtNS), Items: []TraceRow{}, Revision: Counter(page.Revision), Next: Counter(page.Next), HasMore: page.HasMore}
 	for _, row := range page.Items {
 		item := TraceRow{Sequence: Counter(row.Sequence), RootID: ID(row.RootID), SessionID: ID(row.SessionID), TurnID: ID(row.TurnID), SourceKind: row.SourceKind, SourceID: ID(row.SourceID), SpanID: row.SpanID}
 		if row.Span != nil {

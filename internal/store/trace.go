@@ -112,6 +112,7 @@ func (s *Store) TracePage(ctx context.Context, query session.TraceQuery) (sessio
 			result.Next = 0
 		}
 	}
+	result.ObservedAtNS = time.Now().UnixNano()
 	if err := tx.Commit(); err != nil {
 		return result, err
 	}

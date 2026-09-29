@@ -61,7 +61,9 @@ func TestTraceIndexAtomicSettlementPagingAndQuestionUpdate(t *testing.T) {
 	if _, err := s.ResolvePermission(t.Context(), op.ID, true); err == nil {
 		t.Fatal("injected failure ignored")
 	}
-	if unchanged := readTrace(t, s, owner.ID); !reflect.DeepEqual(unchanged, initial) {
+	unchanged := readTrace(t, s, owner.ID)
+	unchanged.ObservedAtNS = initial.ObservedAtNS
+	if !reflect.DeepEqual(unchanged, initial) {
 		t.Fatal("trace index escaped rollback", unchanged, initial)
 	}
 	execTest(t, s, "DROP TRIGGER reject_trace_decision")

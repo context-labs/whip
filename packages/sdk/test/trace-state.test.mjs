@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Client } from '../dist/index.js';
-import { createTraceView } from '../dist/state.js';
+import { createTraceView, traceNowNS } from '../dist/state.js';
 
 const base = 9007199254740993n;
 const hex = (value, width) => BigInt(value).toString(16).padStart(width, '0');
@@ -85,6 +85,7 @@ async function backend(count = 100) {
         let page = structuredClone({
           items,
           revision: revision(),
+          observed_at_ns: '1790600000000001000',
           next: has_more ? next : '0',
           has_more,
         });
@@ -302,4 +303,16 @@ test('suspend joins one read and concurrent refreshes do not queue; restart clea
   assert.equal(view.getSnapshot().status, 'closed');
   assert.equal(view.getSnapshot().rows.length, 0);
   await assert.rejects(view.start());
+});
+
+test('trace display timing keeps exact host nanoseconds and only advances by nonnegative monotonic elapsed', async (t) => {
+  const { client } = await backend();
+  const view = viewFor(t, client);
+  await view.start();
+  const value = view.getSnapshot();
+  assert.equal(value.observedAtNS, '1790600000000001000');
+  assert.equal(traceNowNS(value, value.receivedAtMs + 12.5), 1790600000012501000n);
+  assert.equal(traceNowNS(value, value.receivedAtMs - 500), 1790600000000001000n);
+  await view.suspend();
+  assert.equal(traceNowNS(view.getSnapshot(), value.receivedAtMs + 99999), 1790600000000001000n);
 });

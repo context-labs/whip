@@ -5,7 +5,7 @@ import { RemoteError } from './wire.js';
 import { boundedInteger, bytes, freeze } from './value.js';
 import type { DeepReadonly } from './value.js';
 export type { DeepReadonly } from './value.js';
-export { TraceView, createTraceView } from './trace-state.js';
+export { TraceView, createTraceView, traceNowNS } from './trace-state.js';
 export type { TraceViewSnapshot, TraceViewOptions, TraceRow } from './trace-state.js';
 export { ExecutionView, createExecutionView, cellExecutionRows } from './execution-state.js';
 export type { ExecutionViewSnapshot, ExecutionViewOptions, CellExecutionRow } from './execution-state.js';

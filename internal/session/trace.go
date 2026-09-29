@@ -52,10 +52,11 @@ type TraceQuery struct {
 }
 
 type TracePage struct {
-	Items    []TraceRow
-	Revision int64
-	Next     int64
-	HasMore  bool
+	ObservedAtNS int64
+	Items        []TraceRow
+	Revision     int64
+	Next         int64
+	HasMore      bool
 }
 
 func TraceSpanID(kind, source string) string {

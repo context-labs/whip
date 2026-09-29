@@ -16,7 +16,11 @@ import (
 func TestTraceRPCExactProjectionExportAndConflict(t *testing.T) {
 	r, c := fixture(t)
 	root := create(t, c).Root
+	readStarted := time.Now().UnixNano()
 	empty := call[protocol.TracePageResult](t, c, "trace.page", protocol.TracePageParams{RootID: root.ID, After: new(protocol.Counter(0)), Limit: 10, MaxBytes: 4096})
+	if int64(empty.ObservedAtNS) < readStarted || int64(empty.ObservedAtNS) > time.Now().UnixNano() {
+		t.Fatal("trace clock is not the host read time", empty.ObservedAtNS)
+	}
 	if len(empty.Items) != 0 || empty.Revision != 0 {
 		t.Fatal(empty)
 	}

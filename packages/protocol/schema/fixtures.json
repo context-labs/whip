@@ -476,6 +476,7 @@
   {
     "type": "TracePageResult",
     "value": {
+      "observed_at_ns": "1790600000000001000",
       "items": [
         {
           "sequence": "9007199254740999",

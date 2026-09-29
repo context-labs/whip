@@ -14,6 +14,8 @@ export interface TraceViewSnapshot {
   rootID: string;
   epoch: string;
   revision: string | null;
+  observedAtNS: string | null;
+  receivedAtMs: number | null;
   traceID: string;
   /** Current canonical rows, newest change first; null spans are tombstones. */
   rows: readonly DeepReadonly<TraceRow>[];
@@ -85,6 +87,8 @@ export class TraceView {
       rootID,
       epoch: client.processEpoch,
       revision: null,
+      observedAtNS: null,
+      receivedAtMs: null,
       traceID: '',
       rows: [],
       roots: [],
@@ -161,6 +165,8 @@ export class TraceView {
       this.patch({
         epoch: client.processEpoch,
         revision: null,
+        observedAtNS: null,
+        receivedAtMs: null,
         rows: [],
         roots: [],
         windowBefore: null,
@@ -231,14 +237,15 @@ export class TraceView {
       max_bytes: roots ? this.rootBytes : this.rowBytes,
     };
     const page = await this.client.tracePage(params, { signal: this.controller.signal });
+    const receivedAtMs = performance.now();
     checkPage(page, params);
-    return page;
+    return { page, receivedAtMs };
   }
   private async read(generation: number) {
     if (!this.valid(generation)) return;
-    const page = await this.page(this.before, false, null);
+    const { page, receivedAtMs } = await this.page(this.before, false, null);
     if (!this.valid(generation)) return;
-    const roots = await this.page(this.rootsBefore, true, page.revision);
+    const { page: roots } = await this.page(this.rootsBefore, true, page.revision);
     if (!this.valid(generation)) return;
     this.publish({
       status: 'live',
@@ -246,6 +253,8 @@ export class TraceView {
       rootID: this.current.rootID,
       epoch: this.client.processEpoch,
       revision: page.revision,
+      observedAtNS: page.observed_at_ns,
+      receivedAtMs,
       traceID: this.traceID,
       rows: page.items,
       roots: roots.items,
@@ -343,3 +352,14 @@ function checkPage(page: TracePageResult, params: TracePageParams & { before?: s
 
 export const createTraceView = (client: Client, rootID: string, options?: TraceViewOptions) =>
   new TraceView(client, rootID, options);
+
+/** Host read time advanced only by local monotonic elapsed time. This is display
+ * timing, never a committed end timestamp or measured transport latency. */
+export function traceNowNS(
+  snapshot: DeepReadonly<TraceViewSnapshot>,
+  now = performance.now(),
+): bigint | null {
+  if (snapshot.observedAtNS === null || snapshot.receivedAtMs === null) return null;
+  const elapsed = snapshot.status === 'live' ? Math.max(0, now - snapshot.receivedAtMs) : 0;
+  return BigInt(snapshot.observedAtNS) + BigInt(Math.floor(elapsed * 1e6));
+}
