@@ -7,6 +7,7 @@ import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { setTimeout as delay } from 'node:timers/promises';
 import { Client } from '../../../packages/sdk/dist/index.js';
 import { defineAgent, tool } from '../../../packages/sdk/dist/agents.js';
 import { browserSocket, discoverGateway } from '../../../packages/sdk/dist/browser.js';
@@ -35,7 +36,8 @@ export function fixtureExternalOrigin(value) {
 
 /** Owns the real production runtime, engines and gateway, a local fake HTTP
  * provider and one explicit fixture executor lease. No legacy runtime or DTOs. */
-export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 240_000, externalOrigin, executeCode = false, agentResponses = false, rejectInput } = {}) {
+export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 240_000, externalOrigin, executeCode = false, agentResponses = false, performanceStreams = false, workers = 4, rejectInput } = {}) {
+  if (!Number.isInteger(workers) || workers < 1 || workers > 16) throw new RangeError('Fixture workers must be within 1..16');
   if (rejectInput !== undefined && (typeof rejectInput !== 'string' || rejectInput.length < 1 || rejectInput.length > 256)) throw new RangeError('Rejected fixture input must contain 1..256 characters');
   if (!Number.isInteger(lifetimeMs) || lifetimeMs < 1 || lifetimeMs > 1_800_000) throw new RangeError('Fixture lifetime must be within 1..1800000ms');
   const origin = fixtureExternalOrigin(externalOrigin);
@@ -110,6 +112,16 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
         const refresh = text.startsWith('hold:tool-stream-refresh-');
         const codes = [refresh ? 'print("completed before snapshot")' : 'print("first"); print("second")', `print("first"); print("second"); tools.fixture_wait(key=${JSON.stringify(text.slice(5))})`];
         message = { role: 'assistant', content: text, tool_calls: codes.map(code => ({ id: randomUUID(), type: 'function', function: { name: 'execute', arguments: JSON.stringify({ code }) } })) };
+      } else if (performanceStreams && text.startsWith('hold:performance-stream-')) {
+        if (!stream) throw new Error('Performance fixture requires actual streaming');
+        // Bounded real provider SSE; native observations remain replacement
+        // previews. The fixture never appends legacy events or bypasses SQL.
+        for (let index = 0; index < 2000; index++) {
+          delta({ ...(index === 0 ? { role: 'assistant' } : {}), content: `**delta-${String(index).padStart(4, '0')}** ` });
+          await delay(30, undefined, { signal });
+        }
+        await wait(text.slice(5), signal);
+        message = { role: 'assistant', content: null };
       } else {
         if (text === 'hold:thinking-response') await wait('thinking-first-token', signal);
         if (stream) { delta({ role: 'assistant', content: text.slice(0, Math.ceil(text.length / 2)) }); delta({ content: text.slice(Math.ceil(text.length / 2)) }); }
@@ -156,7 +168,7 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
     } catch (error) { await stop(child); throw error; }
   }
   async function start() {
-    const started = await startProcess(binary, ['-directory', state, '-workers', '4', '-web', '-web-listen', gatewayAddress, '-web-origins', allowedOrigins.join(','), ...(origin ? ['-web-hosts', gatewayAddress + ',' + new URL(origin).host] : [])]); runtime = started.child;
+    const started = await startProcess(binary, ['-directory', state, '-workers', String(workers), '-web', '-web-listen', gatewayAddress, '-web-origins', allowedOrigins.join(','), ...(origin ? ['-web-hosts', gatewayAddress + ',' + new URL(origin).host] : [])]); runtime = started.child;
     exited = new Promise(resolve => runtime.once('exit', (code, signal) => resolve([code, signal])));
     info = { ...started.ready, generation: (info?.generation ?? 0) + 1 };
     local = await Client.connect(unixSocket(info.socket), { clientID: 'native-web-setup', expectedRuntimeID: info.runtime_id, ...deadline() });
