@@ -256,3 +256,14 @@ Desktop text-input implementation; ASCII values are never sent as native macOS
 hardware key codes. ChromeDP navigation uses `Page.navigate` on the captured
 executor instead of an allocator-dependent helper, preserving one dispatch and
 no automatic retry on rejection or connection failure.
+
+`task check:native-browser` requires an explicit installed Chrome executable
+(or resolves the separately installed Playwright binary) and runs the retained
+E2E/driver parity, three concurrent sessions, ten launch/close cycles, fifty
+sequential calls, five immediate-attach cycles, explicit-reconnect no-replay,
+live-detach/profile-refusal and native runtime upload/screenshot/restart tests.
+It enables the private headed dedicated fixture too; Linux CI supplies Xvfb
+without disabling Chrome’s sandbox. The real extension fixture remains a
+separate Chrome-for-Testing opt-in because branded hosted Chrome refuses
+unpacked extension loading. A normal package run that skips missing real-browser
+prerequisites does not replace this required gate.
