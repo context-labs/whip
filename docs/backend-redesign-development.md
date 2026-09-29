@@ -5204,3 +5204,91 @@ only and do not establish fully visible native input acceptance. The 50 ms targe
 remains unverified. A following bounded fixture change must set the actual native
 content size, assert viewport/composer containment and rerun the unchanged workload.
 No product timing workaround or performance completion is claimed.
+
+
+### Native terminal input, terminal environment and diagram acceptance — 2026-09-29
+
+This checkpoint follows draft #273 (`05e41970a`) on
+`codex/backend-redesign-terminal-input`. It preserves original local input recall
+and adds bounded cross-session human-text recall through `inputs.recent_text`.
+The query scans at most 500 canonical input rows per page before filtering,
+returns at most 256 KiB of exact first-text-part content and uses the returned
+ordinal cursor. Empty pages can still advance. It exposes no foreign attachment,
+design, credential or execution authority. The SDK validates exact decimal
+ordinals, counts, ordering, cursor progress and UTF-8 byte bounds. The terminal
+retains original local parts first (32 entries / 1 MiB), then lazily reads at
+most eight global pages into a 500-entry / 256 KiB text cache. Edits or owner
+changes discard late reads; recall never submits work.
+
+Escape preserves original drafts before clearing, restores root navigation from
+a child without cancellation, and targets an exact active turn when appropriate.
+Double Ctrl+C freezes the observed turn ID; quitting/detaching leaves accepted
+host work running. Interactive shell output is a bounded passive tail. Explicit
+`/shell focus` or Ctrl+X I captures owner, operation, process epoch and input
+sequence. One write may be in flight with at most 16 KiB of unsent input; a lost
+acknowledgement discards buffered intent and requires explicit refocus instead
+of replay. Ctrl+] returns to the untouched composer. The Go client's new
+`CallAtEpoch` rejects a replacement process before dispatch.
+
+The default terminal route now uses Bubble Tea's owned background/color-profile
+messages, preserving explicit saved themes and launch overrides. Unknown
+backgrounds stay neutral with an actionable hint. Optional tmux/mosh hints use
+bounded read-only inspection and joined helper processes. No competing raw TTY
+reader or termios mutation was reintroduced. Semantic native production/test
+closure confirms no dependency on retained test helpers; the nine shared
+presentation files and mixed report helper are recorded for the deletion slice.
+
+The Mermaid production probe now uses actual native inputs, held provider
+streams, exact owner-scoped history cursors and canonical large source.
+Chromium and Firefox pass all 12 groups each on the combined renderer
+`a918fb0988b027f06423f1650712a578428004445340e479c3e924b592a4d690`.
+The separate staged Electron checkpoint uses native window sizing before
+interaction and passes worker/font/decode, live settlement, expansion, reload
+and CSP. Its exact older renderer/runtime hashes and component incomplete-source
+coverage remain in [the Mermaid audit](../apps/web/scripts/native-mermaid-audit.md).
+Mermaid is now part of the required product-content gate.
+
+The opt-in MCP self-host test builds a disposable native binary, supplies private
+home/workspace paths, proves workspace reads plus exact policy denial for write
+and shell effects, and stops only its verified fixture host. It no longer starts
+an installed/default runtime or expects the retired four-tool endpoint.
+
+The [native web workflow inventory](native-web-workflows.md) classifies all 216
+current manifest operations with existing source owners (153 Web, 16 Internal,
+47 SDK-only). SDK-only is an explicit current UI boundary, not permission to
+retire a retained feature. Its test no longer reads the retired contract or a
+historical plan. The first combined jsdom run exposed a test-environment mismatch
+(`import.meta.url` became HTTP); this filesystem-only contract now explicitly
+uses Vitest's Node environment and passes under the real shared test config.
+[Tools](tools.md) and [providers](models-providers.md) now document native modules,
+request ownership, route kinds, host configuration and credential/account rules.
+
+Validation: combined recall/store/RPC/client/TUI race groups passed
+3.367 / 2.360 / 2.538 / 7.194 seconds, with vet; exact cancellation passed
+2.736 seconds. The full complementary native terminal groups after shell
+integration passed 68.925 and 72.569 seconds. The later terminal-environment
+checks passed 2.101 seconds and the actual default-route terminal/host fixture
+passed 3.806 seconds. The isolated MCP self-host race passed 7.288 seconds.
+Protocol validation and generation drift passed (17 tests), all 203 SDK tests
+passed, the combined native/viewport fixture suites passed 10 tests, and the
+native inventory/Mermaid component suites passed 11 tests. Combined pinned lint,
+app type checking and Taskfile parsing also pass. Tests use disposable runtimes;
+no installed runtime, real account or development checkout was changed.
+
+The corrected quiet desktop workload verifies native content and document at
+1360×960, a fully contained focused composer before/after all 40 keys, and zero
+dropped observations. All seven workload groups pass, but Event Timing p95
+remains 72 ms (rounded bounds 68–76 ms); handler-to-rAF p95 is 11.6 ms. Peak
+aggregate application RSS is 1,581,968 KiB (about 1.509 GiB). Evidence is
+`/tmp/whip-performance-native-visible/run-xl6auP/performance.json`. This supersedes
+the clipped-window paint evidence, not the outstanding 50 ms/RSS acceptance.
+Geometry checks do not prove OS non-occlusion or physical scanout latency.
+
+The audit also found an unresolved retained capability: external Chrome
+live/dedicated/headless/extension engines exist, but the current native runtime
+only consumes offered Browser providers, and `browser install` still names the
+retired config path. No approved retirement was found. Restoring explicit native
+mode ownership/configuration is required; old implicit browser fallback and
+uncertain mutation replay cannot be reused. Remaining REPL/slash/chat/Safari
+probes, platform evidence, performance targets, complete retired-core removal
+and final comprehensive gates still prevent Phase 5–7 completion.

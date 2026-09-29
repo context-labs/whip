@@ -128,6 +128,22 @@ React consumers use `useSessionView(view)` and `useTreeCatalogView(view)` from
 `@whip/sdk/react`. These hooks only subscribe: the application owns shared leases,
 visibility, suspension, explicit reconnection and disposal.
 
+`client.sessions.recentInputText({ before_ordinal, limit })` is a separate trusted
+editor read across sessions. It returns only the first text part of admitted human
+prompt inputs, ordered by exact descending ordinal; attachments, design context,
+receipts and injected work are excluded. Text remains complete, never a silently
+truncated command. This is recall data, not authority to replay another input.
+The SDK verifies ordering, identities, counts, continuation and the 256 KiB text
+ceiling. Clients own their bounded recall cache and any text deduplication.
+
+The limit bounds examined records (1–500), including excluded records. Continue
+an empty page when `next_cursor` is present. `scanned_count` describes that window;
+`skipped_count` reports eligible inputs too large to recall. The server decodes at
+most 4 MiB per page plus one bounded 1 MiB lookahead, and never loads larger input
+bodies into Go. A stable descending cursor excludes newer concurrent admissions;
+it is not a retained snapshot and deleted inputs can disappear. This read never
+claims, stops or submits work, and no guest module exposes cross-session recall.
+
 Queued work is independently discoverable through `session.inputs.page()` and
 owner-scoped `.get(inputID)`, including requests admitted by another client.
 `session.activity()` reports exact queue/decision counts and active execution

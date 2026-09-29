@@ -3477,6 +3477,41 @@
     "valid": true
   },
   {
+    "type": "RecentInputTextParams",
+    "value": {
+      "before_ordinal": "9007199254740995",
+      "limit": 500
+    },
+    "valid": true
+  },
+  {
+    "type": "InputTextPage",
+    "value": {
+      "items": [
+        {
+          "session_id": "session_child",
+          "input_id": "recall_input",
+          "ordinal": "9007199254740994",
+          "text": "exact human text"
+        }
+      ],
+      "next_cursor": "9007199254740993",
+      "scanned_count": 2,
+      "skipped_count": 1
+    },
+    "valid": true
+  },
+  {
+    "type": "InputTextPage",
+    "value": {
+      "items": [],
+      "next_cursor": "9007199254740993",
+      "scanned_count": 500,
+      "skipped_count": 0
+    },
+    "valid": true
+  },
+  {
     "type": "InputPageParams",
     "value": {
       "session_id": "session_child",

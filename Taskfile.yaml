@@ -223,6 +223,7 @@ tasks:
       - task: web-assets
       - node apps/web/scripts/native-content-probes.mjs
       - node apps/web/scripts/attachment-confirmation.mjs
+      - node apps/web/scripts/mermaid-diagrams.mjs
       - node --test --test-concurrency=1 apps/web/scripts/native-history-fixture.test.mjs apps/web/scripts/native-tool-output.test.mjs apps/web/scripts/native-history-window.test.mjs
       - node apps/web/scripts/history-prefetch.mjs
       - node apps/web/scripts/native-history-recovery.mjs

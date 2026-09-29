@@ -4278,6 +4278,22 @@ export interface InputSteeringResult {
       }
     | null;
 }
+export interface InputTextPage {
+  /**
+   * @maxItems 500
+   */
+  items:
+    | null
+    | {
+        session_id: string;
+        input_id: string;
+        ordinal: string;
+        text: string;
+      }[];
+  next_cursor: null | string;
+  scanned_count: number;
+  skipped_count: number;
+}
 export interface InstructionManifestResult {
   manifest: null | {
     bytes: string;
@@ -8267,6 +8283,10 @@ export interface ReadWorkspaceActionParams {
   session_id: string;
   action_id: string;
 }
+export interface RecentInputTextParams {
+  before_ordinal?: null | string;
+  limit: number;
+}
 export interface RecentTreesParams {
   limit: number;
 }
@@ -10733,6 +10753,7 @@ export interface ContractTypes {
   InputParams: InputParams;
   InputSteeringParams: InputSteeringParams;
   InputSteeringResult: InputSteeringResult;
+  InputTextPage: InputTextPage;
   InstructionManifestResult: InstructionManifestResult;
   LanguageServersResult: LanguageServersResult;
   LifecycleParams: LifecycleParams;
@@ -10808,6 +10829,7 @@ export interface ContractTypes {
   ReadStateParams: ReadStateParams;
   ReadStateResult: ReadStateResult;
   ReadWorkspaceActionParams: ReadWorkspaceActionParams;
+  RecentInputTextParams: RecentInputTextParams;
   RecentTreesParams: RecentTreesParams;
   RecentTreesResult: RecentTreesResult;
   ReloadEdit: ReloadEdit;
@@ -11115,6 +11137,7 @@ export interface Operations {
   "turns.attempts": { params: ModelAttemptsParams; result: ModelAttemptsResult };
   "turns.cancel": { params: TurnParams; result: Turn };
   "sessions.activity": { params: SessionParams; result: SessionActivity };
+  "inputs.recent_text": { params: RecentInputTextParams; result: InputTextPage };
   "inputs.page": { params: InputPageParams; result: InputPageResult };
   "inputs.get": { params: SessionInputParams; result: Input };
   "inputs.cancel": { params: InputParams; result: Input };

@@ -28,6 +28,29 @@ export class Trees {
 }
 export class Sessions {
   constructor(private readonly client: Client) {}
+  /** Trusted-client editor recall across owners. An empty page may still have a cursor.
+   * Text never carries attachment/design/receipt authority and must not be replayed automatically. */
+  async recentInputText(params: Omit<Params<'inputs.recent_text'>, 'limit'> & { limit?: number } = {}, options: CallOptions = {}) {
+    const request = { limit: 100, ...params };
+    const value = await this.client.call('inputs.recent_text', request, options);
+    const items = value.items ?? [];
+    if (value.scanned_count > request.limit || items.length + value.skipped_count > value.scanned_count) throw new TypeError('Input recall count mismatch');
+    let previous = request.before_ordinal && request.before_ordinal !== '0' ? BigInt(request.before_ordinal) : null;
+    let bytes = 0;
+    const ids = new Set<string>();
+    for (const item of items) {
+      const ordinal = BigInt(item.ordinal);
+      if (ordinal <= 0n || previous !== null && ordinal >= previous || ids.has(item.input_id)) throw new TypeError('Input recall ordering or identity mismatch');
+      previous = ordinal; ids.add(item.input_id);
+      bytes += new TextEncoder().encode(item.text).byteLength;
+      if (bytes > 262144) throw new TypeError('Input recall text exceeds byte bound');
+    }
+    if (value.next_cursor !== null) {
+      const cursor = BigInt(value.next_cursor);
+      if (!value.scanned_count || cursor <= 0n || previous !== null && (items.length ? cursor > previous : cursor >= previous)) throw new TypeError('Input recall continuation mismatch');
+    }
+    return { ...value, items };
+  }
   handle(sessionID: string) { return new Session(this.client, sessionID); }
   get(sessionID: string, options: CallOptions = {}) { return this.handle(sessionID).get(options); }
   list(treeID: string, params: Omit<Params<'sessions.list'>, 'tree_id' | 'limit'> & { limit?: number } = {}, options: CallOptions = {}) { return this.client.call('sessions.list', { limit: 100, ...params, tree_id: treeID }, options); }

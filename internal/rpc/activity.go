@@ -11,6 +11,15 @@ import (
 
 func dispatchActivity(ctx context.Context, r *runtime.Runtime, method string, raw json.RawMessage) (any, error) {
 	switch method {
+	case "inputs.recent_text":
+		return decode(raw, func(p protocol.RecentInputTextParams) (any, error) {
+			var before int64
+			if p.Before != nil {
+				before = int64(*p.Before)
+			}
+			value, err := r.RecentInputText(ctx, before, p.Limit)
+			return protocol.InputTextPageFromDomain(value), err
+		})
 	case "inputs.steer":
 		return decode(raw, func(p protocol.SteerInputParams) (any, error) {
 			value, err := r.SteerInput(ctx, session.SteerInputRequest{ID: session.InputSteeringID(p.EditID), SessionID: session.SessionID(p.SessionID), InputID: session.InputID(p.InputID), TurnID: session.TurnID(p.TurnID)})

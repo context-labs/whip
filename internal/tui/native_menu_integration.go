@@ -38,6 +38,7 @@ func (m *nativeModel) closeMenu() {
 }
 
 func (m *nativeModel) close() {
+	m.releaseShellFocus()
 	m.closeCompletion(false)
 	m.closeMenu()
 	if m.clipboard != nil {

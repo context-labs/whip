@@ -21,3 +21,8 @@ func (r *Runtime) SessionInput(ctx context.Context, owner session.SessionID, id 
 func (r *Runtime) TurnPage(ctx context.Context, owner session.SessionID, before session.TurnID, limit int) (session.TurnPage, error) {
 	return r.store.TurnPage(ctx, owner, before, limit)
 }
+
+// RecentInputText is a trusted-client editor read. No guest module exposes it.
+func (r *Runtime) RecentInputText(ctx context.Context, before int64, limit int) (session.InputTextPage, error) {
+	return r.store.RecentInputText(ctx, before, limit)
+}

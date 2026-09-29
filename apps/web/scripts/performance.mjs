@@ -11,7 +11,7 @@ import { startHistoryFixture } from './native-history-fixture.mjs';
 
 // Owned canonical store seed followed by the real production runtime/provider.
 const desktop = process.env.WHIP_WEB_PERFORMANCE_HOST === 'desktop';
-const { isolateDesktopPerformance, launchDesktopPerformance, exerciseDesktopTabs, exerciseDesktopTransfer, finishDesktopPerformance } = desktop ? await import('./performance-desktop.mjs') : {};
+const { isolateDesktopPerformance, launchDesktopPerformance, setDesktopViewport, assertDesktopViewport, exerciseDesktopTabs, exerciseDesktopTransfer, finishDesktopPerformance } = desktop ? await import('./performance-desktop.mjs') : {};
 const requestedDirectory = resolve(process.env.WHIP_WEB_BROWSER_RESULTS ??
   (desktop ? '/tmp/whip-desktop-performance-results' : '/tmp/whip-web-browser-results'));
 await mkdir(requestedDirectory, { recursive: true });
@@ -38,7 +38,7 @@ client = await fixture.connect(`web-performance-${randomUUID()}`);
 if (desktop) {
   host = await launchDesktopPerformance(fixture, isolation);
   ({ page, context } = host);
-  await page.setViewportSize({ width: 1360, height: 960 });
+  metrics.desktopViewport = await setDesktopViewport(host, { width: 1360, height: 960 });
 } else {
   browser = await chromium.launch({ headless: true });
   context = await browser.newContext({ viewport: { width: 1360, height: 960 } });
@@ -466,6 +466,7 @@ const frame = () =>
   await textarea.focus();
   await textarea.press('End');
   await frame();
+  if (desktop) metrics.desktopTypingBounds = { before: await assertDesktopViewport(host, { composer: true }) };
   await page.evaluate(() => {
     window.__performanceInputs = [];
     window.__performanceStreams = 0;
@@ -588,6 +589,7 @@ const frame = () =>
     probeOverflow: window.__performanceProbeOverflow,
     keyboard: window.__finishPerformanceKeyboard(),
   }));
+  if (desktop) metrics.desktopTypingBounds.after = await assertDesktopViewport(host, { composer: true });
   assert.equal(input.samples.length, 40);
   assert.ok(input.streamingMutations > 0);
   metrics.drafts = {

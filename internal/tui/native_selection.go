@@ -61,7 +61,7 @@ func (m *nativeModel) selectionArea(pane nativeSelectionPane) nativeSelectionAre
 		if m.input.Value() == "" {
 			return nativeSelectionArea{}
 		}
-		return nativeSelectionArea{x: x, y: m.vp.Height() + 1 + m.completionHeight(), width: m.transcriptWidth(), height: m.input.Height(), rows: strings.Split(m.input.View(), "\n")}
+		return nativeSelectionArea{x: x, y: m.vp.Height() + 1 + m.completionHeight() + m.shellHeight(), width: m.transcriptWidth(), height: m.input.Height(), rows: strings.Split(m.input.View(), "\n")}
 	case nativeSelectREPL:
 		if !m.replVisible() {
 			return nativeSelectionArea{}

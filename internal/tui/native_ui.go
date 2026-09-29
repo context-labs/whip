@@ -60,90 +60,100 @@ func (w *nativeWork) close() { w.mu.Lock(); w.closed = true; w.stop(); w.mu.Unlo
 // nativeModel is the native chat composition. Commands and menus are added
 // directly over typed host operations; it does not adapt retired RootActions.
 type nativeModel struct {
-	localFilesystem                 bool
-	lsp                             *nativeLSPStatus
-	panelOffsets                    [3]int
-	execution                       *nativeExecution
-	replBefore, replFocus           *protocol.ID
-	replGeneration                  uint64
-	replFocused                     bool
-	replVP                          transcriptView
-	replDisplay                     []string
-	agents                          *nativeAgentTree
-	agentSelection                  protocol.ID
-	agentsFocus, dock               bool
-	drafts                          map[protocol.ID]nativeDraft
-	pastes                          map[string]string
-	pasteSequence                   uint64
-	images                          map[string]nativeImage
-	imageSequence                   uint64
-	attachment                      *nativeImageUpload
-	attachmentBusy                  bool
-	historyDialog                   *nativeHistoryDialog
-	messageActions                  *nativeMessageActions
-	redraft                         *nativeRedraft
-	draftDesign                     *protocol.DesignContext
-	selection                       *nativeSelection
-	selectionClick                  nativeSelectionClick
-	messageRows                     []nativeMessageRows
-	toolExpansion                   map[protocol.ID]bool
-	clipboard                       *nativeClipboardOwner
-	copyBusy                        bool
-	clientDirectory                 string
-	completion                      *nativeCompletion
-	palette                         *nativeCommandPalette
-	leaderAt                        time.Time
-	work                            nativeWork
-	connection                      *client.Client
-	handle                          *client.Session
-	owner                           protocol.Session
-	permissionPolicy                *protocol.PermissionPolicy
-	observer                        *client.Observer
-	readCancel                      context.CancelFunc
-	picker                          *nativeSessionPicker
-	menu                            *nativeMenu
-	preferencesDirectory            string
-	preferences                     nativePreferences
-	initialPrompt                   string
-	recovery                        *nativeRecovery
-	recoveryCheck                   bool
-	navigationRequest               uint64
-	history                         nativeTranscript
-	activity                        protocol.SessionActivity
-	usage                           protocol.Usage
-	contextUsage                    protocol.ContextUsage
-	input                           textarea.Model
-	vp                              transcriptView
-	rows                            []string
-	width, height                   int
-	ready, reading, sending, follow bool
-	polls                           int
-	status                          string
-	uncertain                       *client.InputCommand
-	rejected                        *client.InputCommand
-	quitArmed                       bool
-	cancelling                      bool
-	controlling                     bool
-	retryControl                    tea.Cmd
-	generation                      uint64
-	notesHome                       string
-	noteRevisions                   [2]string
-	notice                          string
-	standingDraft                   *protocol.WriteHostStandingInstructionsParams
-	decisions                       []nativeDecision
-	decision                        *nativeDecisionDialog
-	hiddenDecision                  *nativeDecisionDialog
-	decisionsHidden                 bool
-	browse                          *nativeBrowse
-	browsing                        bool
-	browseRequest                   uint64
-	renderCache                     nativeRenderCache
-	expandTools, showReasoning      bool
+	terminal                                  *nativeTerminal
+	shell                                     *nativeShellView
+	shellFocus, shellPending                  *nativeShellFocus
+	shellHidden                               bool
+	recallLocal                               []nativeDraft
+	recall                                    *nativeInputRecall
+	recallUpAt, escapeAt, interruptAt, quitAt time.Time
+	interruptTarget                           protocol.ID
+	localFilesystem                           bool
+	lsp                                       *nativeLSPStatus
+	panelOffsets                              [3]int
+	execution                                 *nativeExecution
+	replBefore, replFocus                     *protocol.ID
+	replGeneration                            uint64
+	replFocused                               bool
+	replVP                                    transcriptView
+	replDisplay                               []string
+	agents                                    *nativeAgentTree
+	agentSelection                            protocol.ID
+	agentsFocus, dock                         bool
+	drafts                                    map[protocol.ID]nativeDraft
+	pastes                                    map[string]string
+	pasteSequence                             uint64
+	images                                    map[string]nativeImage
+	imageSequence                             uint64
+	attachment                                *nativeImageUpload
+	attachmentBusy                            bool
+	historyDialog                             *nativeHistoryDialog
+	messageActions                            *nativeMessageActions
+	redraft                                   *nativeRedraft
+	draftDesign                               *protocol.DesignContext
+	selection                                 *nativeSelection
+	selectionClick                            nativeSelectionClick
+	messageRows                               []nativeMessageRows
+	toolExpansion                             map[protocol.ID]bool
+	clipboard                                 *nativeClipboardOwner
+	copyBusy                                  bool
+	clientDirectory                           string
+	completion                                *nativeCompletion
+	palette                                   *nativeCommandPalette
+	leaderAt                                  time.Time
+	work                                      nativeWork
+	connection                                *client.Client
+	handle                                    *client.Session
+	owner                                     protocol.Session
+	permissionPolicy                          *protocol.PermissionPolicy
+	observer                                  *client.Observer
+	readCancel                                context.CancelFunc
+	picker                                    *nativeSessionPicker
+	menu                                      *nativeMenu
+	preferencesDirectory                      string
+	preferences                               nativePreferences
+	initialPrompt                             string
+	recovery                                  *nativeRecovery
+	recoveryCheck                             bool
+	navigationRequest                         uint64
+	history                                   nativeTranscript
+	activity                                  protocol.SessionActivity
+	usage                                     protocol.Usage
+	contextUsage                              protocol.ContextUsage
+	input                                     textarea.Model
+	vp                                        transcriptView
+	rows                                      []string
+	width, height                             int
+	ready, reading, sending, follow           bool
+	polls                                     int
+	status                                    string
+	uncertain                                 *client.InputCommand
+	rejected                                  *client.InputCommand
+	quitArmed                                 bool
+	cancelling                                bool
+	controlling                               bool
+	retryControl                              tea.Cmd
+	generation                                uint64
+	notesHome                                 string
+	noteRevisions                             [2]string
+	notice                                    string
+	standingDraft                             *protocol.WriteHostStandingInstructionsParams
+	decisions                                 []nativeDecision
+	decision                                  *nativeDecisionDialog
+	hiddenDecision                            *nativeDecisionDialog
+	decisionsHidden                           bool
+	browse                                    *nativeBrowse
+	browsing                                  bool
+	browseRequest                             uint64
+	renderCache                               nativeRenderCache
+	expandTools, showReasoning                bool
 }
 
 type (
 	nativePoll struct{}
 	nativeRead struct {
+		shell               *nativeShellView
+		shellError          error
 		lsp                 *nativeLSPStatus
 		execution           *nativeExecution
 		executionGeneration uint64
@@ -194,6 +204,13 @@ func newNativeModel(ctx context.Context, c *client.Client, owner protocol.Sessio
 }
 
 func (m *nativeModel) Init() tea.Cmd {
+	if m.terminal != nil {
+		commands := []tea.Cmd{m.read(), m.terminalCommands()}
+		if m.menu != nil {
+			commands = append(commands, m.menu.Init())
+		}
+		return tea.Batch(commands...)
+	}
 	if m.menu != nil {
 		return tea.Batch(m.read(), m.menu.Init())
 	}
@@ -268,6 +285,11 @@ func (m *nativeModel) read() tea.Cmd {
 		// Primary history is delivered even if a later auxiliary read fails.
 		// Otherwise Observer's advanced cursor would silently skip messages.
 		result.output, result.evidenceError = handle.CellOutput(ctx)
+		if result.evidenceError == nil && result.activity.ActiveTurn != nil {
+			result.shell, result.shellError = readNativeShell(ctx, m.connection, owner.ID, result.output.Epoch)
+		} else {
+			result.shellError = result.evidenceError
+		}
 		if evidence {
 			result.decisions, err = readNativeDecisions(ctx, m.connection, owner)
 			result.evidenceError = errors.Join(result.evidenceError, err)
@@ -322,12 +344,16 @@ func nativeTick() tea.Cmd {
 }
 
 func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
+	if m.terminalMessage(message) {
+		return m, nil
+	}
 	switch message.(type) {
 	case tea.KeyPressMsg, tea.PasteMsg, tea.WindowSizeMsg, tea.MouseWheelMsg:
 		m.selection = nil
 		m.selectionClick = nativeSelectionClick{}
 	}
 	if mouse, ok := message.(tea.MouseMsg); ok {
+		m.releaseShellFocus()
 		if command, handled := m.panelMouse(mouse); handled {
 			m.selectionClick = nativeSelectionClick{}
 			return m, command
@@ -340,6 +366,14 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.updateMenu(message)
 	}
 	switch value := message.(type) {
+	case nativeShellFocused:
+		m.shellFocused(value)
+		return m, nil
+	case nativeShellSent:
+		return m, m.shellSent(value)
+	case nativeRecallLoaded:
+		m.recallLoaded(value)
+		return m, nil
 	case nativeMessageClick:
 		m.showMessageActions(value)
 		return m, nil
@@ -374,6 +408,7 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.reading = false
 		if value.err != nil {
+			m.observeShell(nil, value.err)
 			m.ready = false
 			m.status = "Connection read failed: " + value.err.Error()
 			return m, nativeTick()
@@ -404,6 +439,8 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.lsp = nil
 		}
 		m.history.output(value.output)
+		m.observeShell(value.shell, value.shellError)
+		m.sizeInput()
 		if m.browse != nil && m.browse.transcript.snapshot.Revision != m.history.snapshot.Revision {
 			m.latest()
 			m.status = "History changed; the older page was closed."
@@ -578,8 +615,18 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "Cancellation requested for turn " + string(value.turn)
 		}
 	case tea.KeyPressMsg:
+		// Typing during the focus read keeps ownership in the composer.
+		m.shellPending = nil
+		if value.String() != "esc" {
+			m.escapeAt = time.Time{}
+		}
 		if value.String() != "ctrl+c" {
+			m.interruptTarget = ""
+			m.quitArmed = false
 			m.initialPrompt = ""
+		}
+		if command, handled := m.shellKey(value); handled {
+			return m, command
 		}
 		if m.messageActions != nil && value.String() != "ctrl+c" {
 			return m, m.messageActionKey(value)
@@ -617,7 +664,12 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if command, handled := m.agentKey(value); handled {
 			return m, command
 		}
+		if command, handled := m.recallKey(value); handled {
+			return m, command
+		}
 		switch value.String() {
+		case "ctrl+k":
+			return m, m.commandKeepingDraft("/clear")
 		case "tab", "shift+tab":
 			return m, m.completeInput(true)
 		case "ctrl+e":
@@ -633,16 +685,9 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.historyDialog = nil
 			m.closeCompletion(false)
 			m.palette = nil
-			if m.quitArmed {
-				return m, tea.Quit
-			}
-			m.quitArmed = true
-			m.status = "Press Ctrl+C again to detach. Host work continues. Esc cancels the displayed active turn."
-			return m, nil
+			return m, m.interruptKey()
 		case "esc":
-			if m.ready && !m.cancelling && m.activity.ActiveTurn != nil {
-				return m, m.cancelTurn(m.activity.ActiveTurn.ID)
-			}
+			return m, m.escapeKey()
 		case "enter":
 			return m, m.submit()
 		case "pgup", "pgdown":
@@ -677,6 +722,10 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.follow = m.browse == nil && m.vp.AtBottom()
 		}
 	case tea.PasteMsg:
+		m.shellPending = nil
+		if m.shellFocus != nil {
+			return m, m.queueShellInput(value.Content)
+		}
 		if m.messageActions != nil {
 			return m, nil
 		}
@@ -685,6 +734,7 @@ func (m *nativeModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.initialPrompt = ""
+		m.escapeAt = time.Time{}
 		m.closeCompletion(false)
 		if m.picker != nil {
 			return m, nil
@@ -728,6 +778,12 @@ func (m *nativeModel) submit() tea.Cmd {
 			return nil
 		}
 	}
+	draft := m.captureDraft()
+	defer func() {
+		if m.input.Value() != text {
+			m.rememberDraft(draft)
+		}
+	}()
 	if strings.HasPrefix(strings.TrimSpace(text), "/") {
 		return m.command(strings.TrimSpace(text))
 	}
@@ -878,6 +934,7 @@ func (m *nativeModel) cancelTurn(id protocol.ID) tea.Cmd {
 }
 
 func (m *nativeModel) refresh() {
+	m.input.SetStyles(currentTheme().Textarea)
 	width := m.transcriptWidth()
 	m.input.SetWidth(max(width-2, 1))
 	m.sizeInput()
@@ -938,6 +995,10 @@ func (m *nativeModel) refresh() {
 			}
 		}
 	}
+	if hints := m.terminal.notice(); hints != "" {
+		rows = append(rows, "", "Local terminal hints")
+		appendText(hints)
+	}
 	if m.notice != "" {
 		rows = append(rows, "", "Terminal command output · not conversation history")
 		appendText(m.notice)
@@ -945,7 +1006,7 @@ func (m *nativeModel) refresh() {
 	m.rows = boundNativeRows(rows, nativeRenderBytes, nativeRenderRows)
 	m.vp.rows = func(y int) string { return m.selectionRow(nativeSelectTranscript, y, m.rows[y]) }
 	m.vp.SetWidth(width)
-	m.vp.SetHeight(max(m.height-m.input.Height()-4-m.dockHeight()-m.completionHeight(), 1))
+	m.vp.SetHeight(max(m.height-m.input.Height()-4-m.dockHeight()-m.completionHeight()-m.shellHeight(), 1))
 	m.vp.setTotal(len(m.rows))
 	if m.follow && m.browse == nil {
 		m.vp.GotoBottom()
@@ -1003,6 +1064,9 @@ func (m *nativeModel) View() tea.View {
 	main := m.vp.View() + "\n" + ansi.Truncate(nativeDisplayText(m.status), width, "…") + "\n"
 	if completions := m.completionView(); completions != "" {
 		main += completions + "\n"
+	}
+	if shell := m.shellView(); shell != "" {
+		main += shell + "\n"
 	}
 	main += m.selectedInputView()
 	if height := m.dockHeight(); height > 0 {

@@ -1013,9 +1013,13 @@ probes cover bounded history, content, queue/dock, failures, metadata actions,
 activity and budget inspection; Electron activity also covers zoom/drag regions.
 #272's exact head passes all required hosted gates on Linux and macOS. Protocol,
 runtime, architecture, setup and package guides now describe native ownership.
-Remaining work includes the final terminal command/history/interactive-shell
-parity audit, specialized browser fixtures, intermittent platform evidence,
-50 ms input/RSS acceptance and final old-core deletion. Exact checkpoints and
+Terminal input recall, interactive shell focus and terminal theme detection now
+have integrated native coverage; Mermaid uses the native production fixture.
+The audit found external Chrome live/dedicated/headless/extension mode ownership
+still missing from the native host; it has no approved retirement and remains
+required. Remaining work includes that port, specialized REPL/slash/chat/Safari
+fixtures, intermittent platform evidence, 50 ms input/RSS acceptance and final
+old-core deletion. Exact checkpoints and
 limitations remain in the development record; this does not complete the phase.
 
 ### Phase 7 — Cut over and remove the retired core

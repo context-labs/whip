@@ -1,271 +1,178 @@
 # Tools and host modules
 
-The model-facing catalog has one entry:
+The model-facing catalog contains one `execute` tool for both roots and children.
+It evaluates a bounded Starlark or JavaScript cell. Captured module bindings
+select the available syntax; the host separately authorizes every operation.
+MCP discovery does not add direct tools to the model catalog.
 
-| Tool | Purpose |
-| --- | --- |
-| `rlm_exec` | Evaluate one bounded Starlark cell against daemon-hosted modules |
-
-This is true for roots and children. MCP discovery does not add tools to a
-model request; configured MCP operations remain under the `mcp` module.
-
-The module table below is the coding agent's. Another definition selects a
-subset: its prompt describes only those modules, its kernels install only
-those bindings, and the host refuses a call to any other module.
+[The runtime guide](rlm-runtime.md) explains execution and checkpoints. The
+[domain contract](backend-domain.md) owns precise admission, authority, resource
+and failure semantics. Host vocabulary lives in
+[`internal/hostmodule/modules.go`](../internal/hostmodule/modules.go); declarations
+and schemas are generated from the current captured definition, not this table.
 
 ## Modules
 
-Host operations accept keyword arguments. The local `json` module accepts
-positional arguments and does not contact the daemon.
+Starlark host functions accept keyword arguments. JavaScript host functions take
+an options object and return a promise. The local `json` helpers do not contact
+the host. A definition can expose only a subset of the following modules.
 
-| Module | Operations |
+| Module | Purpose and principal operations |
 | --- | --- |
-| `context` | `inspect`, `search`, `read` supplied or history handles |
-| `files` | `list`, `search`, `read`, `write`, `patch` |
-| `shell` | `run` (blocking, 120 s cap), `read` handle-backed output, background jobs: `start`, `poll`, `tail`, `wait`, `kill`, `list` |
-| `browser` | `run`; [desktop attachment lifecycle](browser-computer-use.md#desktop-browser-tabs) |
-| `computer` | `run` |
-| `models` | `call`, `batch` for stateless model work |
-| `agents` | `spawn`, `submit`, `wait`, `inspect`, `list`, `stop`, `delete` |
-| `messages` | `send`, `list`, `read`, `complete`, `defer` |
-| `mcp` | `list_servers`, `list_tools`, `search`, `describe`, `instructions`, `call` |
-| `state` | private/blackboard get, set, append, CAS, list/history, subscriptions |
-| `artifacts` | `put`, `inspect`, `read` |
-| `schedules` | `create`, `list`, `cancel` |
-| `permissions` | `request`, `status`; a kernel cannot approve |
-| `user` | `ask`; root agent only |
-| `json` | local `encode`, `decode`, `encode_indent`, `indent` |
+| `context` | Bounded `inspect`, `search`, `read` and `history` for the current owner's evidence. |
+| `files` | Workspace `list`, `search`, `read`, `write`, `patch` and `diagnostics`. |
+| `skills` | Read an explicitly discovered skill. Text never grants additional authority. |
+| `shell` | Foreground `run`, scoped output `read`, and background `start`, `poll`, `tail`, `wait`, `kill`, `list`. |
+| `browser` | Offered-page `list_tabs`, `open`, `attach`, `run`, `detach`, `allow_preview_port`. |
+| `computer` | Permission-gated `run` against allowed host applications. |
+| `models` | Accounted stateless `call` and ordered `batch`. |
+| `agents` | `spawn`, `submit`, `inspect`, `list`, `stop`, `delete`; exact-input waits and pending completion reports. |
+| `mail` / `messages` | `send`, `list`, `read`, `complete`, `defer` with observed revisions and explicit delivery. |
+| `mcp` | Catalog `list_servers`, `list_tools`, `search`, `describe`, `instructions`; authorized `refresh`, `reconnect`, `call`. |
+| `state` | Revisioned `get`, `read`, `write`, `append`, `list`, `history` and subscriptions in session or tree scope. |
+| `artifacts` | Immutable owner-scoped `put`, `inspect`, `read`. |
+| `goals` | Explicit `complete` for the current captured goal. |
+| `schedules` | `create`, `list`, `cancel` with durable due-input admission. |
+| `permissions` | `request`, `status`; a guest cannot approve itself. |
+| `user` | Root-only `ask` with durable pending and terminal outcomes. |
 
-Example:
-
-```python
-matches = files.search(path=".", query="TODO")
-reviewers = models.batch(prompts=[
-    "Identify the risky change",
-    "Identify missing tests",
-], max_tokens=800)
-child = agents.spawn(
-    name="reviewer",
-    prompt="Review the persistence changes and message the parent with findings",
-    capabilities=["read", "shell"],
-)
-{"matches": matches, "reviewers": reviewers, "child": child}
-```
-
-Starlark is not Python: there is no `import`, `open`, or `try/except`.
-Supported data and top-level helpers survive worker eviction and restart.
-Unsupported bindings are reported; see the scratch contract in
-`rlm-runtime.md`. A completed cell can still have an unsaved checkpoint:
-check its scratch warning and do not repeat external effects merely to save
-the checkpoint. Use `state`, `artifacts`, messages, and retained children for
-important durable work.
+Starlark is not Python: it has no `import`, ambient `open` or `try/except`.
+Neither engine has ambient filesystem, network or process authority. Supported
+checkpoint state can survive eviction and restart without evaluating old cells.
+A saved alias never bypasses the current turn's captured bindings or grants.
 
 ## Desktop Browser helper mode
 
-Desktop Browser remains **experimental and release-gated**, enabled by default
-unless launched with `WHIP_DESKTOP_BROWSER_TABS=0`. An exact, unambiguous Desktop
-can service permission-gated `browser.open` (`browser_open` for MCP clients)
-without a manually created or offered tab. `browser.list_tabs`
-(`browser_list_tabs`) discovers only scoped current metadata on demand, without
-creating a page or granting control. No inventory is injected into prompts.
-Opening starts the attachment lifecycle; `browser.run` with `attachment_id`
-uses the existing helper language against that same human-visible page. Do not
-mix an attachment target with a legacy browser session. Missing selection or
-authority fails closed, without launching or falling back to another browser.
+Desktop Browser tabs remain experimental. Explicitly offered pages and an exact
+provider connection supply the browser target; availability, tab metadata and
+an attachment ID do not grant control. Open, attach and preview-port expansion
+use captured resource identity and the native permission dispatcher. Missing or
+ambiguous selection fails without silently choosing another page.
 
-Open, attach and preview-port expansion use the existing permission policy
-(Once-only consent in prompt mode, or the current automatic mode);
-attachment control is not implicit in a tab ID or generic browser capability.
-See [Browser lifecycle and helper constraints](browser-computer-use.md#desktop-browser-tabs)
-for the operation inventory, delegation and unsupported helpers, and the
-[SDK provider guide](../packages/legacy-sdk/README.md#experimental-native-browser-provider)
-for explicit selection/release and transport ownership. Neither API discovery
-nor experimental enablement grants authority.
+The helper batch runs against the same page shown to the person. Rod and
+ChromeDP are interpreter choices, not alternate authority or browser-selection
+paths. Preview routes stay bound to the selected execution host. Disconnect or
+release ends control without closing human pages, and reconnect does not restore
+an old attachment. See [Browser and computer use](browser-computer-use.md),
+[desktop behavior](desktop.md#browser-tabs-experimental) and
+[the SDK](../packages/sdk/README.md).
 
 ## Structured state
 
-Private state belongs to one agent. The blackboard is shared within the root
-tree. Both return records with `key`, `version`, `author_agent_id`, and a decoded
-`value` when small:
+Session state is private to its owner. Tree state is shared within the current
+tree. Every write names the observed revision; `"0"` creates an absent key.
+Read the new revision before choosing a subsequent write or append:
 
 ```python
-saved = state.private_set(key="progress", value={"files": ["main.go"], "done": False})
-progress = state.private_get(key="progress")["value"]
-state.private_cas(key="progress", version=saved["version"], value={"files": progress["files"], "done": True})
-state.blackboard_set(key="findings", value=[])
-state.blackboard_append(key="findings", value={"file": "main.go", "issue": "missing check"})
+saved = state.write(scope="session", key="progress", expected_revision="0",
+                    value={"done": False})
+entry = state.get(scope="session", key="progress")
+print(entry["value"])
 ```
 
-Values are JSON-compatible trees: `None`, booleans, strings, arbitrary integers,
-finite floats, lists, and string-keyed dictionaries. Bytes, tuples, functions,
-cycles, and non-finite floats are rejected. Mutation calls require `value`;
-explicit `None` stores JSON null. Append adds one value to a JSON array. CAS
-conflicts require rereading the current record before choosing another update.
-
-Large records return `handle`, `size`, and `media_type` instead of `value`.
-Use existing authorized `context.inspect/search/read` operations for bounded
-retrieval. `json.decode(text)` decodes complete JSON retrieved that way; it
-cannot decode a chunk that ends in the middle of a JSON document.
-
-`state.private_list(after_key="", limit=20)` and
-`state.blackboard_history(key="findings", after_version=0, limit=20)` return
-`items`, `next` when more remain, and `truncated`. Pass the fields of `next`
-to continue. Pages allow at most 100 entries and 64 KiB of encoded response.
-List pagination is a live view; individual records carry versions for writes.
+Values are bounded JSON-compatible data. Non-finite numbers, cycles and live
+resources are rejected. Large values retain immutable bodies and exact byte
+metadata; read them through the corresponding scoped state/content operations.
+Private/shared visibility, CAS conflicts, history and subscription delivery are
+specified in [explicit state](backend-domain.md#explicit-state-and-immutable-values).
+Inspection does not acknowledge mail or start an agent turn.
 
 ## user.ask
 
-`user.ask(question="...", options=[{"label": "...", "description": "...", "recommended": bool}, ...], multiple=False)`
-shows the user a floating dialog with 2 to 6 options (unique, non-empty
-labels; descriptions optional; at most one option marked `recommended`,
-which the clients badge but do not pre-select) and blocks the cell until
-they pick, dismiss, or the turn is cancelled. The user may also answer with
-free text instead of (or, where allowed, alongside) the option labels. Host
-time is not charged to the cell clock. It returns
-`{"answer": [labels...], "dismissed": bool}`; a dismissed question has an
-empty answer.
+```python
+answer = user.ask(question="Choose", options=[
+    {"label": "A", "recommended": True}, {"label": "B"}
+])
+print(answer["answer"])
+```
 
-The batch form
-`user.ask(questions=[{"question": "...", "options": [...], "multiple": bool}, ...])`
-asks 1 to 8 questions in one call: the client pages through them
-(Next/Back/Skip; Skip leaves that question unanswered, X dismisses the
-batch) and the call returns
-`{"answers": [{"answer": [labels], "dismissed": bool}, ...], "dismissed": bool}`,
-one entry per question in order; `dismissed` at the top is true only when
-every question was dismissed.
+A question has 2–6 unique options, optional descriptions and at most one
+recommendation. The batch form accepts 1–8 questions. Clients can answer or
+dismiss; cancellation, expiry and restart produce explicit terminal states.
+Only a root may ask. A child must communicate with its parent.
 
-Only the root agent may ask; a descendant gets the error
-`only the root agent can ask the user; send your parent a message instead`,
-and one question per agent is open at a time. Clients hear about it through
-the `question.pending`, `question.answered`, and `question.closed` events and
-answer with the `question.answer` client op (`answer`/`dismissed` for one
-question, `answers` for a batch); a client that connects while a question is
-open finds it in the session snapshot. The blocked cell keeps its
-kernel pool slot while it waits, so a root waiting on the user holds one of
-the pool's `MaxWorkers` slots. Headless `whip run` prints the
-pending question and leaves it open; under ACP the question appears as a
-permission prompt with one option per label plus Dismiss (batched questions
-page through one prompt each), so `multiple=True` collapses to a single
-answer there.
+The native host records the question as an ordinary operation. Clients inspect
+`questions.list` / `questions.get` and answer with `questions.answer`; connecting
+late does not require replaying a notification to discover pending work. ACP presents the
+question through editor permission choices; its single-choice surface does not
+represent arbitrary multiple selection. See the native
+[question contract](../internal/session/question.go) and
+[client protocol](protocol-v2.md).
 
 ## Choosing between models and agents
 
-Use `models.call` or `models.batch` for independent stateless analysis. Use
-`agents.spawn` when work needs an identity, capabilities, a transcript,
-follow-up turns, messages, or further recursive delegation.
+Use `models.call` or `models.batch` for independent stateless analysis. They
+capture their route, instructions, sampling and output limits, record every
+attempt and preserve input order. Large output becomes scoped evidence. A
+failed item does not erase already incurred accounting.
 
-Spawn is asynchronous and returns a compact admission receipt containing `id`,
-`name`, `parent_id`, `status`, and `report`. The `queued` status acknowledges
-admission; `agents.inspect(id=...)` reports current state, capabilities, and
-budgets. When a child turn ends the parent receives an `agent.completed`
-message with a short preview and an evidence handle; a child sends
-`messages.send` for anything more. Mail reaches a turn as a bounded digest of excerpts; the parent loads
-full bodies with `messages.read` and finishes them with `messages.complete`.
-
-Full MCP grants are available explicitly:
+Use `agents.spawn` when work needs an identity, independent history, subsequent
+turns, mail or further delegation. Spawn returns an admission with an exact
+`input_id`. It commits the child, captured configuration, scoped original input
+and delegated grants together. `grant_ids: null` inherits valid standing grants;
+`[]` delegates none. A child cannot widen its ancestor's authority or module
+ceiling, and one-use approval is not a delegatable grant.
 
 ```python
-child = agents.spawn(name="review", prompt="Review the changes.")
-info = agents.inspect(id=child["id"], include_grants=True)
-print(info["mcp_grants"])
+child = agents.spawn(prompt="Review the persistence changes.")
+agents.wait_after_cell(input_ids=[child["input_id"]])
 ```
 
-`mcp_grants` contains either `output` with complete JSON, or `handle`, `size`,
-`source`, and `preview` for bounded `context.inspect/search/read` retrieval.
-The JSON has `all` (whether a root grant covers all tools) and `selectors`
-(exact server, tool, and definition fingerprints). An agent without MCP has
-`all: false` and an empty selector list. Handles belong to the inspecting
-caller. Inspection is restricted to parents, direct children, and siblings;
-grant-chain read failures are reported as errors. Current consent and tool
-availability are still checked when calling a tool.
-
-Scripts that previously read `effective_mcp_tools` from spawn or inspection
-must request `include_grants=True`. Spawn's former `effective_capabilities`
-and `effective_budgets` fields are available through ordinary inspection as
-`effective_capabilities` and `budgets`.
+The registration returns immediately. Finish the cell to commit its outcome
+and release the execution/kernel permits before waiting. This permits recursive
+progress with one worker; it replaces same-cell blocking joins. Failed,
+interrupted or cancelled child outcomes are data, not permission to retry them.
+Parents receive captured completion reports and can inspect pending evidence
+without rerunning a child. See [recursion](rlm-runtime.md#sessions-and-recursion).
 
 ## MCP
 
-The daemon owns MCP connections. Both root and child kernels call:
+The native host owns bounded MCP connections and cached catalogs. Guest reads
+use exact configured server and original tool names:
 
 ```python
 mcp.search(query="lease search", limit=5)
 mcp.describe(server="docs", tool="search")
-mcp.list_servers()
-mcp.list_tools(server="docs", offset=0, limit=100)
-mcp.instructions(server="docs")
 mcp.call(server="docs", tool="search", arguments={"query": "leases"})
 ```
 
-Discovery reads the daemon's cached catalogs and never touches a server.
-`search` ranks tools across every ready server (or one, with `server=`) by
-name, then title, then description and schema property names; every query
-token must hit; results carry a one-line summary and no schema. `describe`
-returns one tool's full entry including its input schema, and names the
-nearest tools when the name is wrong. `list_tools` windows one server's
-name-sorted catalog (`offset`, `limit`, default 100) without schemas unless
-`schemas=True`; `list_servers` reports each server's total.
+Catalog inspection does not itself connect a server. Explicit refresh or
+reconnect has its own authority and lifetime. Catalog results are bounded;
+large schemas/instructions use owner-scoped metadata evidence. A catalog entry
+or server instruction is never permission to execute.
 
-Calls use the exact configured server and original tool name. Search results
-and listings mark which definitions the caller is authorized to use. Each call runs through
-the durable capability dispatcher, reserves operation capacity, and rechecks its
-grant and current server definition after permission and the server's call queue.
-Large results become handles through the same bounded-output path as built-in
-operations. A call's text keeps every text part and appends any
-`structuredContent` as JSON; image, audio and binary resource parts are stored
-as content handles owned by the calling agent and named in the text
-(`[image 1: image/png, 48213 bytes; handle …]`), and image parts also reach the
-root's next turn as vision input through the same path browser and computer
-screenshots use. Children receive the handle only.
+Native declarations live in `runtime-v4/host.json`. Project `.mcp.json`, Codex,
+Claude and OpenCode declarations are import sources with recorded provenance.
+Discovery does not make them trusted. Explicit import/configuration materializes
+the chosen declaration into the native host configuration. Attached client
+servers remain untrusted and cannot replace a native declaration of the same
+name. The captured session selection still limits which servers are available.
 
-Servers explicitly configured in native WHIP configuration are trusted.
-Definitions discovered from the project's `.mcp.json`, the Codex file, the
-global Claude file, or the OpenCode files retain their provenance and require
-consent or a saved allow rule; `whipcode mcp import` and the app's import screen
-materialize them into native configuration, which is how an imported server
-becomes trusted. The project file is an import source of its own and is off
-unless enabled. ACP attachments are
-additive and untrusted for calls: they join the running manager, an
-attachment outside the agent definition's server list or one that names a
-native server is recorded as blocked instead, and re-attaching a
-non-native name replaces that entry. Only the daemon's native configuration establishes native
-trust. A client cannot claim it or replace a native definition by attaching a
-server of the same name.
-Explicit permission denials and revoked grants still win. Headless execution
-uses preauthorization or denies promptly; it never waits for a permission UI.
+Calls freeze exact endpoint/tool/schema identity and recheck permission after
+waiting for capacity. Text, structured content and typed attachments retain
+canonical operation evidence. Authorized images can enter model context through
+scoped content hydration; foreign references cannot be copied as authority.
+Changed declarations, lost connections or uncertain transmitted effects are
+never automatically replayed. See the [MCP runtime](../internal/runtime/mcp_operations.go)
+and [checked connection manager](../internal/mcp/manager_call.go).
 
-Children inherit the parent's currently available MCP tools when capabilities
-are omitted. `capabilities=["read"]` has no MCP access. An explicit list can
-include `"mcp"`, optionally narrowed by
-`mcp_tools=[{"server": "docs", "tool": "search"}]`. These exact definitions are
-persisted with the child's issuer grant. New tools or changed endpoints and
-schemas do not expand an existing child's authority; ancestor revocation still
-applies after restart.
-
-`mcp.instructions` returns server usage guidance with its source and connection
-generation. Large guidance returns a handle for bounded `context.read` calls.
-Instructions and tool annotations do not authorize effects. Replacing or
-reconnecting a manager invalidates pending calls; transmitted calls are never
-automatically retried because their external outcome may be uncertain.
-
-`whip mcp serve` is a protocol bridge for external MCP clients. It hosts
-daemon-owned tool services directly and does not create a model agent. It
-cannot obtain new consent: operations covered by saved rules run, everything
-else is denied, and an outer client's approval is never treated as whip
-consent.
+`whipcode mcp serve` exposes a restricted native endpoint with read/write/edit/
+bash and Browser aliases. It uses an isolated model-free session, preauthorizes
+workspace reads and denies interactive permission acquisition. A declared tool
+is not a grant: writes, shell effects and browser control still require native
+authority. Closing the MCP stream joins its own work; it does not shut down the
+shared native host. The endpoint does not expose interpreter execution.
 
 ## Authorization and output
 
-- File, shell, MCP, and desktop Browser operations use the capability dispatcher
-  with the calling agent’s identity and grants. Browser v1 resource consent is
-  Once-only; the remembered-rule behavior below does not apply to it.
-- Omitted child capabilities inherit the parent set; an explicit list may
-  only narrow it.
-- Permission approval is human/protocol-side and revalidates the exact
-  operation before it resumes. Approving "always" installs a rule (the
-  arity-collapsed command prefix, the canonical path, or the exact MCP server,
-  raw tool name, and definition digest) for the session
-  tree; `permissions.allow` in the config holds the global `operation:rule`
-  allowlist, and `/permissions` lists or forgets tree rules.
-- Inline output is bounded. Larger content is stored immutably and returned
-  with a handle, source, size, and readable spans.
+Operations record admission, captured authority, dispatch and outcome separately.
+Approval revalidates the exact current resource before dispatch. Saved standing
+grants have explicit capability/resource scope and issuer chains; ancestor
+revocation and explicit denial still apply. The client cannot infer permission
+from an exposed schema or a previous successful operation.
+
+Inline output and live previews are bounded. Larger evidence has explicit
+owner, digest, size, offsets and continuation. Truncation or unavailable content
+must remain visible. Retrying a local observation or database settlement cannot
+repeat a provider request, shell command or external mutation whose outcome is
+uncertain.

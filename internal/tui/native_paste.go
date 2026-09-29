@@ -141,12 +141,12 @@ func (m *nativeModel) switchDraft(owner protocol.ID) (nativeDraft, error) {
 
 func (m *nativeModel) sizeInput() {
 	m.input.DynamicHeight = true
-	m.input.MaxHeight = min(24, max(m.height-8-m.dockHeight(), 1))
+	m.input.MaxHeight = min(24, max(m.height-8-m.dockHeight()-m.shellHeight(), 1))
 	m.input.MaxContentHeight = nativeDraftLimit + 1
 	// SetWidth recalculates the dynamic height and scroll offset in the pinned
 	// editor, retaining its cursor/selection rather than rebuilding the model.
 	m.input.SetWidth(max(m.transcriptWidth()-2, 1))
-	m.vp.SetHeight(max(m.height-m.input.Height()-4-m.dockHeight()-m.completionHeight(), 1))
+	m.vp.SetHeight(max(m.height-m.input.Height()-4-m.dockHeight()-m.completionHeight()-m.shellHeight(), 1))
 	if m.follow && m.browse == nil {
 		m.vp.GotoBottom()
 	}

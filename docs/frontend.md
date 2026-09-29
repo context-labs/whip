@@ -11,6 +11,11 @@ permission approvals no longer use a signer or enrollment. Current user
 instructions take precedence. When changing an architectural decision, update
 this guide and the affected reference in the same change.
 
+The [native web workflow inventory](native-web-workflows.md) classifies every
+registered v4 operation by its current shared-renderer or SDK/service owner.
+Its manifest check uses the native protocol; SDK-only rows expose current UI
+boundaries and do not waive retained-feature parity.
+
 ## Start here
 
 Before implementation, identify the owner of the state you are changing and read

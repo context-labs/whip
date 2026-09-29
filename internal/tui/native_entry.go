@@ -56,6 +56,7 @@ func RunNative(ctx context.Context, connection *client.Client, options NativeOpt
 		return string(owner.ID), err
 	}
 	defer m.close()
+	m.terminal = newNativeTerminal(m.clientDirectory, os.Getenv("TERM"), os.Getenv("TMUX"), os.Getenv("WHIP_THEME"), os.Getenv("COLORFGBG"))
 	m.localFilesystem = options.KnownLocalFilesystem
 	m.notesHome, m.preferencesDirectory, m.preferences = options.ClientHome, directory, preferences
 	m.showReasoning = nativePreferenceLabel(preferences.Thinking, true) == "on"
@@ -73,7 +74,7 @@ func RunNative(ctx context.Context, connection *client.Client, options NativeOpt
 	if m.uncertain != nil {
 		m.initialPrompt = ""
 	}
-	m.status = "Session " + string(owner.ID) + " · /setup /model /sessions /settings · Ctrl+C twice detaches"
+	m.status = "Session " + string(owner.ID) + " · /setup /model /sessions /settings · Ctrl+C twice cancels active work or detaches when idle"
 	specs, failures := theme.Load(directory)
 	themeMu.Lock()
 	userThemes = specs
