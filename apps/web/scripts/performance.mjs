@@ -451,6 +451,7 @@ const frame = () =>
   assert.equal((await textarea.inputValue()).length, draft.activeBytes);
   if (await page.getByRole('button', { name: 'Latest', exact: true }).count()) await page.getByRole('button', { name: 'Latest', exact: true }).click();
   await frame();
+  if (desktop) metrics.desktopBeforeStreams = await host.processMemory('near-limit-drafts-before-streams');
   console.log('Measuring typing and accepted inputs under 16 actual provider streams');
   const concurrent = [];
   for (let index = 0; index < 15; index++) {
@@ -478,6 +479,7 @@ const frame = () =>
     const keyboard = {
       keydowns: [],
       entries: [],
+      eventPhases: [],
       overflow: false,
       droppedEntries: null,
       initialEventCount: performance.eventCounts.get('keydown') ?? 0,
@@ -495,12 +497,19 @@ const frame = () =>
     document.addEventListener('keydown', recordKeydown, true);
     const collectEntries = (entries) => {
       for (const entry of entries) {
+        if (['keydown', 'keypress', 'beforeinput', 'input', 'keyup'].includes(entry.name)) {
+          if (keyboard.eventPhases.length >= 512) keyboard.overflow = true;
+          else keyboard.eventPhases.push({ name: entry.name, startTime: entry.startTime, duration: entry.duration,
+            processingStart: entry.processingStart, processingEnd: entry.processingEnd, interactionId: entry.interactionId });
+        }
         if (entry.name !== 'keydown') continue;
         if (keyboard.entries.length >= 128) keyboard.overflow = true;
         else
           keyboard.entries.push({
             startTime: entry.startTime,
             duration: entry.duration,
+            processingStart: entry.processingStart,
+            processingEnd: entry.processingEnd,
             interactionId: entry.interactionId,
           });
       }
@@ -613,6 +622,8 @@ const frame = () =>
     assert.ok(entry.duration >= 16);
     assert.equal(entry.duration % 8, 0, 'Unexpected native duration quantization');
     assert.ok(entry.interactionId > 0);
+    assert.ok(Number.isFinite(entry.processingStart) && entry.processingStart >= entry.startTime);
+    assert.ok(Number.isFinite(entry.processingEnd) && entry.processingEnd >= entry.processingStart);
     return entry.duration;
   });
   // Unknown slow entries within our measured input interval must fail, rather
@@ -652,6 +663,17 @@ const frame = () =>
     durationQuantizationMilliseconds: 8,
     censoredUpperBoundMilliseconds: 20,
     droppedEntries: keyboard.droppedEntries,
+    reportedPhases: {
+      eventPhases: keyboard.eventPhases,
+      inputDelay: summarize([...matchedEntries].map(entry => entry.processingStart - entry.startTime)),
+      processing: summarize([...matchedEntries].map(entry => entry.processingEnd - entry.processingStart)),
+      presentationRemainderBounds: {
+        lower: summarize([...matchedEntries].map(entry => Math.max(0, entry.duration - 4 - (entry.processingEnd - entry.startTime)))),
+        upper: summarize([...matchedEntries].map(entry => Math.max(0, entry.duration + 4 - (entry.processingEnd - entry.startTime)))),
+      },
+      samples: [...matchedEntries],
+      boundary: 'Reported keydown entries only, excluding threshold-censored events. Native processing timestamps separate input delay and keydown dispatch; the remaining rounded duration includes later input/default actions and browser rendering, not solely paint. Overall percentile bounds above still include all 40 keys.',
+    },
     boundary:
       'Native PerformanceEventTiming duration from trusted keyboard keydown timestamp through the next browser rendering completion, rounded to 8ms; a browser next-paint estimate, not physical display timing.',
     censoring:
@@ -679,6 +701,7 @@ const frame = () =>
     commitBounds: 'SQL acceptance occurs after request start and before the verified admission receipt returns. DOM observation minus those endpoints bounds commit-to-DOM; no exact SQL timestamp, clock calibration, or physical paint claim.',
   };
   metrics.checks.push('40 real native admissions reached exact identity-correlated queue DOM under 16 concurrent actual provider streams; accepted queued inputs cancelled explicitly without inference');
+  if (desktop) metrics.desktopAfterTyping = await host.processMemory('after-40-keys-before-transfer');
   if (desktop) { console.log('Measuring bounded desktop uploads and native download'); await exerciseDesktopTransfer({ host, fixture, client, metrics, directory, summarize }); }
   for (const id of [...concurrent.map(item => item.root), fixture.history.root_id]) {
     const session = client.session(id), activity = await session.activity(deadline());
