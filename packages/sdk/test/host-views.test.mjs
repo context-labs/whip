@@ -43,3 +43,21 @@ test('workspace completion uses exact selected session, validates bounds, and pr
  await assert.rejects(client.completeWorkspace(params,{signal:AbortSignal.abort()}),error=>error.name==='AbortError');
  assert.equal(calls.length,1);
 });
+
+test('human folder creation preserves the exact destination and never retries uncertainty', async () => {
+ const calls = [];
+ const client = await Client.connect(async request => {
+  if (request.method === 'initialize') return { jsonrpc: '2.0', id: request.id, result: initial };
+  calls.push(request);
+  if (request.params.name === 'uncertain') throw new DeliveryError('lost acknowledgement');
+  return { jsonrpc: '2.0', id: request.id, result: { path: '/workspace/new project' } };
+ }, { clientID: 'folder-picker' });
+ assert.deepEqual(await client.createHostDirectory({ parent: '/workspace', name: 'new project' }), { path: '/workspace/new project' });
+ assert.deepEqual(calls[0].params, { parent: '/workspace', name: 'new project' });
+ await assert.rejects(client.createHostDirectory({ parent: '/workspace', name: 'uncertain' }), DeliveryError);
+ assert.equal(calls.length, 2);
+ await assert.rejects(client.createHostDirectory({ parent: '/workspace', name: '' }), TypeError);
+ await assert.rejects(client.createHostDirectory({ parent: '/workspace', name: 'x'.repeat(256) }), TypeError);
+ await assert.rejects(client.createHostDirectory({ parent: '/workspace', name: 'cancelled' }, { signal: AbortSignal.abort() }), error => error.name === 'AbortError');
+ assert.equal(calls.length, 2);
+});

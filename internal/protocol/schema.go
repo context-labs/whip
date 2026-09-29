@@ -45,6 +45,7 @@ func Operations() []Operation {
 		{"host.attention", reflect.TypeFor[HostAttentionParams](), reflect.TypeFor[HostAttentionResult]()},
 		{"host.directories.list", reflect.TypeFor[HostDirectoriesParams](), reflect.TypeFor[HostDirectoriesResult]()},
 		{"host.directory.pick", reflect.TypeFor[HostDirectoryPickParams](), reflect.TypeFor[HostDirectoryPickResult]()},
+		{"host.directory.create", reflect.TypeFor[HostDirectoryCreateParams](), reflect.TypeFor[HostDirectoryCreateResult]()},
 		{"host.skills.roots", reflect.TypeFor[EmptyParams](), reflect.TypeFor[HostSkillRoots]()},
 		{"host.skills.publish", reflect.TypeFor[PublishSkillRootParams](), reflect.TypeFor[HostSkillRoots]()},
 		{"host.skills.set_defaults", reflect.TypeFor[SetDefaultSkillRootsParams](), reflect.TypeFor[HostSkillRoots]()},

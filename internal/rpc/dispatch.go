@@ -65,7 +65,7 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return dispatchTrace(ctx, r, method, raw)
 	case "host.skills.roots", "host.skills.publish", "host.skills.set_defaults":
 		return dispatchSkillRoots(ctx, r, method, raw)
-	case "workspace.complete", "host.attention", "host.directories.list", "host.directory.pick", "host.skills.complete", "host.themes.list", "host.themes.resolve":
+	case "workspace.complete", "host.attention", "host.directories.list", "host.directory.pick", "host.directory.create", "host.skills.complete", "host.themes.list", "host.themes.resolve":
 		return dispatchHostViews(ctx, r, method, raw)
 	case "tool.schemas", "tool.call", "shell.run":
 		return dispatchHostOperation(ctx, r, method, raw)

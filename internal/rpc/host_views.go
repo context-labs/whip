@@ -45,6 +45,11 @@ func dispatchHostViews(ctx context.Context, r *runtime.Runtime, method string, r
 			value, err := r.PickHostDirectory(ctx, p.Start)
 			return protocol.HostDirectoryPickResult(value), err
 		})
+	case "host.directory.create":
+		return decode(raw, func(p protocol.HostDirectoryCreateParams) (any, error) {
+			path, err := r.CreateHostDirectory(ctx, p.Parent, p.Name)
+			return protocol.HostDirectoryCreateResult{Path: path}, err
+		})
 	case "host.skills.complete":
 		return decode(raw, func(p protocol.HostSkillsParams) (any, error) {
 			request := runtime.HostSkillsRequest{Scope: p.Scope, CWD: p.CWD, Prefix: p.Prefix, Limit: p.Limit}
