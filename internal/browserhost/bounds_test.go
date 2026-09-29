@@ -231,6 +231,9 @@ func TestPreviewExpansionRotatesResourceAfterCommitOnly(t *testing.T) {
 		done <- err
 	}()
 	command = next(t, p).Command
+	if command.Scope.Resource() != original.Scope.Resource() {
+		t.Fatal("native preview expansion must authenticate the current scope before changing it")
+	}
 	if e = p.Settle(response(command)); e != nil {
 		t.Fatal(e)
 	}

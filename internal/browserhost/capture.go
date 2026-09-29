@@ -322,7 +322,7 @@ func (l *Lease) Execute(ctx context.Context, operationID string, check Check, co
 		return Attachment{}, e
 	}
 	args, _ := json.Marshal(c.args)
-	reply, e := h.command(ctx, l.attachment, operationID, c.operation, args, c.args.ExpectedDocument, check, &c.scope)
+	reply, e := h.command(ctx, l.attachment, operationID, c.operation, args, c.args.ExpectedDocument, check, nil)
 	if e != nil {
 		if c.initial == nil || errors.Is(e, ErrUnknown) {
 			h.mu.Lock()
