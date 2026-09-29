@@ -7,7 +7,7 @@ and the audited mail repair in [PR #215](https://github.com/context-labs/whip/pu
 The earlier completion claim missed ordinary-mail content-reference transfer;
 the repair passes local gates and hosted Linux, macOS and analysis checks.
 The implementation remains in an unmerged draft PR stack.
-Phases 5–6 are in progress; Phase 7 is pending. The authorized execution scope
+Phases 5–7 are in progress. The authorized execution scope
 is all phases, including client adoption and final removal of the retired core.
 Written: 2026-09-27. Planning reference: `6f02507bf`.
 
@@ -1025,6 +1025,12 @@ acceptance and final old-core deletion. Exact checkpoints and
 limitations remain in the development record; this does not complete the phase.
 
 ### Phase 7 — Cut over and remove the retired core
+
+The isolated native core-removal increment deletes the retired execution roots,
+legacy SDK/protocol and contract generator, and restores dynamic whole-product
+CI. [The family disposition](backend-native-core-retirement.md) records retained
+guarantees, removed compatibility and shared leaf cleanup. Final integrated
+client/platform/performance gates still determine completion.
 
 Finish deletion, restore comprehensive product gates and prepare matching
 backend/SDK/client artifacts with a fresh runtime/config namespace.

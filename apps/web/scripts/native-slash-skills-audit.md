@@ -1,0 +1,76 @@
+# Native slash-skill acceptance
+
+The retained `slash-skills.mjs` entrypoint now runs `native-slash-skills.mjs`
+against the actual protocol-v4 runtime and packaged production renderer.
+It imports no retired SDK, reducer, daemon fixture or fabricated candidate list.
+
+## Preserved scenarios and native contracts
+
+- A provider-free, folderless draft is available through the explicit **Draft
+  before connecting** action. Primary onboarding still opens first. The existing
+  composer, project picker and Session options are reused; Send is disabled.
+- The disposable fixture publishes two exact named roots with
+  `host.skills.publish`, selects them with `host.skills.set_defaults`, and uses
+  the exact shipped `coding` definition. Both calls use the actual host revision.
+  There is no ambient legacy-home scan, direct configuration write or restart.
+- Global completion returns exactly 100 names from both named roots. Project
+  completion adds exactly 100 project names, excluding unrelated process cwd.
+  These human metadata reads do not require a configured provider or create work.
+- Actual metadata replies are delayed 1,500ms. Focus preloads, editing remains
+  usable, and Enter during a pending lookup never submits. Filtering finds names
+  past index64 before applying the32-row visual cap. Native input events retain
+  next-animation-frame filtering and zero RPC/loading flashes for11seconds.
+- Folder choice preserves text/caret and changes the exact native scope. A new
+  folderless draft cannot reuse project candidates. Returning to the first draft
+  restores its authored reference, directory and exact definition.
+- Only the explicit first Send creates one root and submits the exact text once.
+  An ungranted `$skill` remains literal: the first successful turn's immutable
+  instruction manifest has no skill metadata or invoked body, and `skills.list`
+  returns no candidates. Publication/default selection does not grant authority.
+- The fixture separately creates exact standing `files.read` and named
+  `skills.read` grants. A **fresh** invocation succeeds and its immutable manifest
+  proves the selected skill body and named-root metadata. Accepted work is never
+  repeated. Provider effects are frozen after these two deliberate turns.
+- Existing-session discovery uses `skills.list`, exact selected session identity,
+  and two100-record pages with the returned name cursor. This is one logical
+  preload, replacing the old single `workspace.complete` response. Warm typing
+  performs no reads, even after freshness expiry.
+- Keyboard Up/Down/Enter, held Enter suppression, mouse selection, Escape,
+  middle-caret replacement, independent menu scrolling, light/dark rendering and
+ 390px popup containment remain asserted. Picker interactions add no provider
+  calls, submissions or page/CSP errors.
+
+The old advertised-capability strings, `root.snapshot`, `command.submit`,
+`workspace.complete`, synthetic turn runner and legacy cwd/permission arguments
+are replaced by their canonical native contracts, not emulated. Host previews
+are explicitly human metadata reads. Selected-session instruction authority
+still comes from exact grants. Native CLI `skills publish/defaults/allow` provides
+an actual setup path (prerequisite f1e5c4998); the earlier convenience gap is
+closed by that independent leaf, not by this fixture.
+
+## Bounds and lifetime
+
+The proxy only delays genuine skill metadata replies. It has at most128 live
+connections,64 held replies and64 pending identities per connection. Metadata
+retention is bounded to20,000 records/8MiB; errors64/4KiB and proxy errors32/2KiB.
+Replies are matched by connection plus wire identity. Closing retires both ends,
+clears timers, and cannot forward a delayed reply or initiate any request.
+Two deterministic lifecycle tests cover exact forwarding and retirement while
+held. Fixture, browser and proxy setup/cleanup are nested under their owners.
+The runtime uses disposable HOME, paths, no-auth local provider and explicit
+native roots. No installed state or user browser is changed.
+
+## Executed evidence
+
+- `node --test apps/web/scripts/native-skills-transport.test.mjs`:2passed.
+- `WHIP_SLASH_SKILLS_RESULTS=/tmp/whip-native-slash-final node apps/web/scripts/slash-skills.mjs`:
+  Chromium153.0.8010.12 and Firefox155.0,14workflow groups eachPASS.
+- Metadata evidence452,566/464,952bytes; zero page/CSP/proxy errors, zero overflow.
+  Screenshots, exact scoped request/reply metadata and report are under the above
+  disposable results directory. All owned processes joined.
+- Product prerequisite b80c793cf:43focused welcome/completion tests and full
+  shared-app TypeScript checkPASS. Production renderer digest
+  `7a3cc9491d3fad594e5d5e30dc95c5da6731276da79262dc79421b14290c6553`.
+
+This is actual Chromium/Firefox web acceptance. It makes no Safari, native
+Desktop, signed-release, model-quality or quantitative performance claim.

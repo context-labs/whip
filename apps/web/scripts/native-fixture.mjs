@@ -14,6 +14,8 @@ import { browserSocket, discoverGateway } from '../../../packages/sdk/dist/brows
 import { executorSocket, unixSocket } from '../../../packages/sdk/dist/node.js';
 import { activityResponse } from './native-activity-response.mjs';
 import { queueResponse } from './native-queue-response.mjs';
+import { replResponse } from './native-repl-response.mjs';
+import { chatPolishResponse } from './native-chat-polish-response.mjs';
 
 export const repository = fileURLToPath(new URL('../../../', import.meta.url));
 export const deadline = () => ({ signal: AbortSignal.timeout(15_000) });
@@ -38,7 +40,9 @@ export function fixtureExternalOrigin(value) {
 
 /** Owns the real production runtime, engines and gateway, a local fake HTTP
  * provider and one explicit fixture executor lease. No legacy runtime or DTOs. */
-export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 240_000, externalOrigin, managedDirectory = false, executeCode = false, agentResponses = false, performanceStreams = false, activityStreams = false, queueStreams = false, networkTerminals = false, workers = 4, rejectInput, rejectionMessage = 'Explicit fixture provider rejection' } = {}) {
+export async function startFixture({ allowedOrigins = [], retainOnFailure = false, lifetimeMs = 240_000, externalOrigin, managedDirectory = false, executeCode = false, agentResponses = false, performanceStreams = false, activityStreams = false, queueStreams = false, replStreams = false, chatPolishStreams = false, networkTerminals = false, workers = 4, rejectInput, rejectionMessage = 'Explicit fixture provider rejection' } = {}) {
+  if (typeof chatPolishStreams !== 'boolean') throw new TypeError('chatPolishStreams must be a boolean');
+  if (typeof replStreams !== 'boolean') throw new TypeError('replStreams must be a boolean');
   if (typeof networkTerminals !== 'boolean') throw new TypeError('networkTerminals must be a boolean');
   if (!Number.isInteger(workers) || workers < 1 || workers > 16) throw new RangeError('Fixture workers must be within 1..16');
   if (rejectInput !== undefined && (typeof rejectInput !== 'string' || rejectInput.length < 1 || rejectInput.length > 256)) throw new RangeError('Rejected fixture input must contain 1..256 characters');
@@ -107,15 +111,21 @@ export async function startFixture({ allowedOrigins = [], retainOnFailure = fals
         && messages.at(-2)?.role === 'tool';
       let message;
       const queued = queueStreams ? await queueResponse({ text, stream, delta, wait, signal }) : undefined;
-      if (queued) message = queued;
+      const polished = chatPolishStreams ? await chatPolishResponse({ messages, last, delta, wait, signal }) : undefined;
+      if (polished) message = polished;
+      else if (queued) message = queued;
       else if (toolImages) message = { role: 'assistant', content: 'Received tool images.' };
+      else if (replStreams && text === 'repl:live') {
+        if (!stream) throw new Error('REPL fixture requires actual provider streaming');
+        message = await replResponse({ last, delta, wait, signal });
+      }
       else if (activityStreams && text.startsWith('activity:')) {
         if (!stream) throw new Error('Activity fixture requires actual provider streaming');
         message = await activityResponse({ text, last, delta, wait, signal });
       }
       else if (agentResponses && last.role === 'tool') message = { role: 'assistant', content: final ?? `done: ${typeof last.content === 'string' ? last.content : JSON.stringify(last.content)}` };
       else if (last.role === 'tool') message = { role: 'assistant', content: text.startsWith('hold:tool-stream') ? 'Completed held tools.' : text };
-      else if (executeCode && /```(?:starlark|python|javascript|js)\n([\s\S]*?)\n```/.test(text)) {
+      else if (executeCode && body.tools?.some(tool => tool.type === 'function' && tool.function?.name === 'execute') && /```(?:starlark|python|javascript|js)\n([\s\S]*?)\n```/.test(text)) {
         const code = text.match(/```(?:starlark|python|javascript|js)\n([\s\S]*?)\n```/)[1];
         message = { role: 'assistant', content: null, tool_calls: [{ id: randomUUID(), type: 'function', function: { name: 'execute', arguments: JSON.stringify({ code }) } }] };
       } else if (final !== undefined) message = { role: 'assistant', content: final };

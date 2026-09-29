@@ -1,5 +1,10 @@
 # Plan: cut context/token cost without losing quality
 
+> Historical research for the retired pre-v4 runtime. Its source paths and
+> implementation instructions are retained as history. Current context,
+> compaction and accounting behavior lives in [the agent loop](agent-loop.md)
+> and [the domain contract](backend-domain.md).
+
 Evidence: session `7ec5ba63` (kimi-k3, 2026-09-01 → 09-03) — 731 main-loop
 requests + 1,365 subagent requests, 283M input tokens served (264M cached,
 19M fresh), ≈ $210 at inference-net rates. Peak per-request prompt: 392k

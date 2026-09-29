@@ -118,3 +118,31 @@ Focused regressions also cover confirmation during a pending byte read,
 foreign-owner metadata refusal, owner/reference/runtime replacement, and row
 retirement aborting a pending read. The earlier implementation failed both
 same-input confirmation regressions (dialog unmounted and its read cancelled).
+
+## Immutable preview after turn completion (2026-09-29)
+
+Hosted Firefox acceptance found a second read even though the exact dialog DOM
+survived confirmation. The cause was the normal host-query invalidation after
+`AppRuntime.run` observed turn completion: infinite stale time permits explicit
+invalidation, so it refetched immutable content metadata and verified bytes.
+Two focused regressions failed before the repair, for both successful preview
+bytes and a failed preview being retried without a user action.
+
+The existing attachment queries now use TanStack Query's static freshness.
+Their exact owner/reference/digest keys, zero inactive retention, read bounds,
+cancellation and explicit Retry are unchanged. No runtime invalidation policy
+or second content cache was added. Explicit Retry after a failed read remains
+covered, alongside owner/reference/client/retirement cancellation.
+
+The native confirmation probe now holds both the exact canonical observation
+and the exact completed admission receipt until the preview is open. It then
+releases both and waits for the renderer to retire that command's recovery
+record, deliberately exercising the completion invalidation rather than racing
+it. The original same-DOM, one-upload, one-byte-read and no-metadata-refetch
+assertions remain strict.
+
+Validation: 20 focused attachment tests and full shared-app TypeScript passed.
+The strengthened actual production probe passed Chromium 153.0.8010.12 and
+Firefox 155.0, each with exactly `content.put`, `content.read`, no `content.get`,
+and no page/CSP errors. Both owned browser/runtime lifetimes joined. Renderer:
+`506ad7b4cb180f3f1dcf157fad80f06f66f333a5f79bf9b4a005d657d8dd3fe6`.

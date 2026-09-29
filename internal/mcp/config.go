@@ -6,8 +6,8 @@
 // Configuration is backwards compatible with claude-style (.mcp.json project
 // files), codex-style (~/.codex/config.toml [mcp_servers]) and OpenCode
 // (~/.config/opencode/opencode.json "mcp") formats; all are normalized into
-// ServerConfig and merged with whip's own "mcp" block in ~/.whipcode/config.json,
-// which always wins on name conflicts.
+// ServerConfig and merged with the explicit owning host configuration, which
+// always wins on name conflicts.
 package mcp
 
 import (
@@ -22,7 +22,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/context-labs/whip/internal/buildinfo"
 	config "github.com/context-labs/whip/internal/mcpconfig"
 )
 
@@ -377,7 +376,7 @@ func loadSources(cwd string) discovered {
 	return d
 }
 
-// LoadMergedFiltered discovers server configs like LoadMerged, then applies
+// LoadMergedFiltered discovers foreign server configs, then applies
 // the import policy: filtered-out claude/codex entries land in Blocked as
 // disabled+noted copies. whipCfg entries always pass through.
 func LoadMergedFiltered(cwd string, whipCfg map[string]ServerConfig, policy ImportPolicy) Filtered {
@@ -387,7 +386,7 @@ func LoadMergedFiltered(cwd string, whipCfg map[string]ServerConfig, policy Impo
 		cfg = cloneConfig(cfg)
 		cfg.Trusted = cfg.Origin == "" || cfg.Origin == "whip"
 		if cfg.Trusted {
-			cfg.Origin, cfg.Source = "whip", whipConfigPath()
+			cfg.Origin = "whip"
 		}
 		whipCfg[name] = cfg
 	}
@@ -443,17 +442,6 @@ func LoadMergedFiltered(cwd string, whipCfg map[string]ServerConfig, policy Impo
 	return Filtered{Merged: merged, Blocked: blocked, Sources: sources, Errs: d.errs}
 }
 
-// LoadMerged discovers MCP server configs from all supported sources and
-// merges them with the default import policy: the user's claude and codex
-// files wholesale, the project .mcp.json only when enabled, then whip's own
-// config on top. cwd is the project directory; whipCfg may be nil. Discovery
-// failures (unreadable/unparseable files) are reported in errs, keyed by
-// source path, and never abort the merge.
-func LoadMerged(cwd string, whipCfg map[string]ServerConfig) (map[string]ServerConfig, map[string]error) {
-	f := LoadMergedFiltered(cwd, whipCfg, ImportPolicyFrom(nil))
-	return f.Merged, f.Errs
-}
-
 // CodexPath is the codex CLI's config file location (~/.codex/config.toml).
 // A variable so tests can point it at fixtures.
 var CodexPath = defaultCodexPath
@@ -462,24 +450,6 @@ var CodexPath = defaultCodexPath
 // (~/.claude.json), which carries user-scoped mcpServers alongside the
 // project .mcp.json. A variable so tests can point it at fixtures.
 var ClaudeGlobalPath = defaultClaudeGlobalPath
-
-// whipConfigPath is whip's own config file location (~/.whipcode/config.json) —
-// the source of any server from the config's "mcp" block. Best-effort: ""
-// when the home dir isn't resolvable.
-func whipConfigPath() string {
-	if directory := os.Getenv(buildinfo.Env("HOME")); directory != "" {
-		return filepath.Join(directory, "config.json")
-	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(buildinfo.Home(home), "config.json")
-}
-
-// FromConfigMap converts whip's config-file MCP block (identical field
-// shape, defined in the shared declaration leaf) into
-// normalized server configs.
-func FromConfigMap(in map[string]config.Server) map[string]ServerConfig {
-	return NativeConfigs(in, whipConfigPath())
-}
 
 // NativeConfigs accepts the explicit owning host file; it does not discover a default path.
 func NativeConfigs(in map[string]config.Server, source string) map[string]ServerConfig {

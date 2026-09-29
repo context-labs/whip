@@ -218,7 +218,11 @@ func Resolve(base Configuration, definition DefinitionDocument, overrides Config
 			resolved.ReportMode = *patch.ReportMode
 		}
 		if patch.Instructions != nil {
-			resolved.Instructions = *patch.Instructions
+			if index == 0 {
+				resolved.Instructions = DefinitionInstructions(resolved.Instructions, definition)
+			} else {
+				resolved.Instructions = *patch.Instructions
+			}
 		}
 		if patch.Tools != nil {
 			if index == 0 {

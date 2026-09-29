@@ -148,6 +148,7 @@ func (r *Runtime) applyLifecycleChange(change store.LifecycleChange) {
 		cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		if identity, err := r.browserIdentity(cleanup, change.Session); err == nil {
 			r.browser.RevokeOwner(identity)
+			r.externalBrowser.RevokeOwner(identity.RootID, identity.AgentID)
 		}
 		cancel()
 		r.languageServers.RetireAll()

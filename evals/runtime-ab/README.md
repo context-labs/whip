@@ -317,7 +317,7 @@ and ignored by Git.
 Run serially while builds, tests, and task containers are idle:
 
 ```sh
-go test ./internal/rlm -run '^$' -bench '^BenchmarkRuntime' -benchmem -benchtime=1s -count=10 > evals/runtime-ab/results/microbench.txt
+go test ./internal/engine/process -run '^$' -bench '^BenchmarkRuntime' -benchmem -benchtime=1s -count=10 > evals/runtime-ab/results/microbench.txt
 ```
 
 Checkpoint fidelity differs deliberately: Starlark's tagged partial state and

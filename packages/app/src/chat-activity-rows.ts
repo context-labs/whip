@@ -420,6 +420,7 @@ export function activitySummary(group: ActivityGroup): string {
     counts.other ? `called ${plural(counts.other, 'tool')}` : '',
     counts.executions ? plural(counts.executions, 'execution') : '',
     counts.failed ? `${counts.failed} failed` : '',
+    activityItems(group).some(item => item.kind === 'mailbox') ? 'agent updates' : '',
   ].filter(Boolean);
   const text = labels.join(' · ') || 'Agent updates';
   return `${group.cells.some((cell) => !cell.call || (cell.cell.result_message_id !== null && !cell.result)) || activityItems(group).some((item) => item.row?.truncated) ? 'Partial activity · ' : ''}${text[0]!.toUpperCase()}${text.slice(1)}`;

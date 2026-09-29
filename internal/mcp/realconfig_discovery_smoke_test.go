@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -27,7 +28,7 @@ func TestRealConfigDiscoverySmoke(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	servers := FromConfigMap(cfg.MCP.Servers)
+	servers := NativeConfigs(cfg.MCP.Servers, filepath.Join(directory, config.FileName))
 	for name, server := range servers {
 		if server.URL == "" {
 			delete(servers, name) // this opt-in check only connects HTTP servers

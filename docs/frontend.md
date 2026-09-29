@@ -1123,8 +1123,9 @@ executor, shell, computer, desktop discovery and browser-provider fixtures.
 `npm run test:browser` builds the production renderer and runs Chromium/Firefox
 acceptance. `npm run test:package` installs packed native archives into an isolated
 consumer, checks public imports/types and browser bundling, then submits a real
-input to its own disposable native runtime. Retained legacy reference fixtures
-remain explicitly named in the transition Taskfile until their final disposition.
+input to its own disposable native runtime. The normal product gate discovers
+all remaining Go packages; retired core and legacy SDK/protocol fixtures have
+been removed with their [behavior disposition](backend-native-core-retirement.md).
 
 `task check:product-web` checks shared app/UI and assets.
 `task check:product-browser` uses disposable native hosts and production assets.

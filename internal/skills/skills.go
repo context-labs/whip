@@ -1,4 +1,4 @@
-// Package skills discovers SKILL.md files and renders them into the system prompt.
+// Package skills parses skill metadata and scans explicitly selected import directories.
 package skills
 
 import (
@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-
-	"github.com/context-labs/whip/internal/buildinfo"
 )
 
 // Skill is one discovered skill.
@@ -34,27 +32,6 @@ type Skill struct {
 type ScanProblem struct {
 	Path string
 	Err  string
-}
-
-// DefaultDirs returns whip's skill locations: project .agents/skills, then
-// user ~/.whipcode/skills and ~/.agents/skills.
-func DefaultDirs() []string {
-	wd, _ := os.Getwd()
-	return DirsFor(wd)
-}
-
-// DirsFor returns configured skill roots for a specific daemon session. This
-// avoids resolving project skills against the daemon process's startup cwd.
-func DirsFor(workingDirectory string) []string {
-	var dirs []string
-	if workingDirectory != "" {
-		dirs = append(dirs, filepath.Join(workingDirectory, ".agents", "skills"))
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		dirs = append(dirs, filepath.Join(buildinfo.Home(home), "skills"))
-		dirs = append(dirs, filepath.Join(home, ".agents", "skills"))
-	}
-	return dirs
 }
 
 // ForeignDirs returns other harnesses' user-level skill locations that an
@@ -355,42 +332,4 @@ func validate(s Skill) string {
 		problems = append(problems, fmt.Sprintf("description exceeds %d characters (%d)", specMaxDesc, len(s.Description)))
 	}
 	return strings.Join(problems, "; ")
-}
-
-// PromptBlock renders the skill catalog for the system prompt in the Agent
-// Skills spec format (agentskills.io/integrate-skills): <available_skills>
-// of <skill><name>/<description>/<location> entries, XML-escaped. Skills
-// with disable-model-invocation are excluded (explicit $name invocation
-// only). "" when none.
-func PromptBlock(sk []Skill) string {
-	var visible []Skill
-	for _, s := range sk {
-		if !s.DisableModelInvocation {
-			visible = append(visible, s)
-		}
-	}
-	if len(visible) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString("\n\n<available_skills>\nThese skills hold task-specific instructions. When one is relevant, read its SKILL.md with files.read and follow it. Relative paths in a skill resolve against the skill's directory (the parent of its SKILL.md).\n")
-	for _, s := range visible {
-		b.WriteString("  <skill>\n")
-		fmt.Fprintf(&b, "    <name>%s</name>\n", xmlEscape(s.Name))
-		fmt.Fprintf(&b, "    <description>%s</description>\n", xmlEscape(s.Description))
-		fmt.Fprintf(&b, "    <location>%s</location>\n", xmlEscape(s.Path))
-		b.WriteString("  </skill>\n")
-	}
-	b.WriteString("</available_skills>")
-	return b.String()
-}
-
-func xmlEscape(s string) string {
-	return strings.NewReplacer(
-		"&", "&amp;",
-		"<", "&lt;",
-		">", "&gt;",
-		`"`, "&quot;",
-		"'", "&apos;",
-	).Replace(s)
 }

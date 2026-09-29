@@ -4,12 +4,11 @@ vars:
   VERSION:
     sh: printf 'dev+%s' "$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
   LDFLAGS: -X main.version={{.VERSION}}
-  # Fast domain/runtime checks; all tests in these packages are required.
-  REDESIGN_PACKAGES: ./evals/rlm ./internal/modelcatalog ./internal/runtimepath ./internal/update ./internal/clientnotes ./internal/acp ./internal/imageutil ./internal/browser ./internal/browser/extrelay ./internal/browserhost ./internal/trace ./internal/computer ./internal/computerconfig ./internal/helperprogram ./internal/hostview ./internal/theme ./internal/terminal ./internal/mcp ./internal/mcpconfig ./internal/jsonc ./internal/secretref ./internal/brandicon ./internal/gateway ./internal/webassets ./internal/executor ./internal/bashrun ./internal/shell ./internal/schedule ./internal/content ./internal/session ./internal/hostmodule ./internal/store ./internal/config ./internal/protocol ./internal/model ./internal/openaiauth ./internal/inferenceauth ./internal/inferenceaccount ./internal/providerhost ./internal/account ./internal/runner ./internal/tool ./internal/instruction ./internal/skills ./internal/capability ./internal/lsp ./internal/lspconfig ./internal/workspace ./internal/runtime ./internal/rpc ./internal/client ./internal/runclient ./internal/localruntime ./internal/hostcmd ./internal/engine ./internal/engine/quickjs ./cmd/whip-contract ./cmd/whip-runtime ./cmd/modelgen
-  # Process containment stress tests run in full at the change/CI boundary.
-  REDESIGN_INTEGRATION_PACKAGES: ./internal/engine/process
-  REDESIGN_ALL_PACKAGES: '{{.REDESIGN_PACKAGES}} {{.REDESIGN_INTEGRATION_PACKAGES}}'
-  REDESIGN_BASELINE: e3fed9c91918d9c36766dd47d878c1b5466238d1
+  # Discover the complete module; cutover must not retain an active-package allowlist.
+  GO_PACKAGES:
+    sh: go list ./...
+  LINT_BASELINE: e3fed9c91918d9c36766dd47d878c1b5466238d1
+  CLI_FAMILIES: '^Test(Auth|OpenAIAuth|DeviceLogin|ProviderChoice|CLIChooser|TerminalKeyPrompt|Daemon|Desktop|Run|Native|Web|Headless|Sessions|TruncAndAgo|PushOTLP|MainDispatchesHeadlessCommands|ClientEntryPaths|DistributionMalformed|MCP|Acp|ACP|Update|DistributionUpdate)'
 
 tasks:
   default:
@@ -100,42 +99,44 @@ tasks:
       - go test ./...
 
   check:fast:
-    desc: Redesign active-package formatting and regression tests (no npm setup needed)
+    desc: Complete-module formatting and fast regressions; heavy clients run in their bounded race groups
+    vars:
+      FAST_PACKAGES:
+        sh: |
+          for package in {{.GO_PACKAGES}}; do
+            case "$package" in
+              */internal/runtime|*/internal/engine/process|*/internal/tui|*/cmd/whip) ;;
+              *) printf '%s ' "$package" ;;
+            esac
+          done
     cmds:
       - |
-        unformatted=$(gofmt -s -l {{.REDESIGN_ALL_PACKAGES}})
+        unformatted=$(gofmt -s -l .)
         if [ -n "$unformatted" ]; then
           echo "$unformatted"
           exit 1
         fi
-      # The runtime package now contains over 180 integration tests. Its total
-      # deadline is separate from fast leaf packages and individual scenario waits.
-      - |
-        set -- {{.REDESIGN_PACKAGES}}
-        packages=""
-        for package in "$@"; do
-          if [ "$package" != "./internal/runtime" ]; then
-            packages="$packages $package"
-          fi
-        done
-        go test -timeout=2m $packages
+      - go test -timeout=2m {{.FAST_PACKAGES}}
       - go test -timeout=5m ./internal/runtime
-      - go build {{.REDESIGN_INTEGRATION_PACKAGES}}
+      - go build ./internal/engine/process
 
   check:build:
-    desc: Redesign formatting, fast regressions, active build and vet
+    desc: Whole-module formatting, fast regressions, test compilation, vet and TUI deadlock analysis
     cmds:
+      - task: models:check
       - task: check:fast
       # Compile test-only eval packages too; they intentionally export no library.
-      - go test -run '^$' {{.REDESIGN_ALL_PACKAGES}}
-      - go vet {{.REDESIGN_ALL_PACKAGES}}
+      - go test -run '^$' ./...
+      - go vet ./...
+      - go run ./cmd/whipvet ./...
 
   check:race:
-    desc: Complete redesign race and shuffle suite with bounded package concurrency
+    desc: Complete Go race/shuffle suite in complementary bounded groups
     cmds:
-      # SQLite and subprocess race suites are CPU/memory intensive. Preserve
-      # every package and its deadline, while limiting competing test binaries.
-      - go test -p=2 -race -shuffle=on -count=1 -timeout=10m {{.REDESIGN_ALL_PACKAGES}}
+      - task: check:race-store
+      - task: check:race-runtime
+      - task: check:race-other
+      - task: check:native-cli
 
   check:race-store:
     desc: Complete SQL store race suite in complementary bounded groups
@@ -146,13 +147,15 @@ tasks:
   check:race-store-first:
     desc: SQL store race tests whose names begin TestA through TestM
     cmds:
-      - go test -p=2 -race -shuffle=on -count=1 -timeout=10m -run '^Test[A-M]' ./internal/store
+      - mkdir -p test-results/go
+      - go test -coverprofile=test-results/go/race-store-first.out -p=2 -race -shuffle=on -count=1 -timeout=10m -run '^Test[A-M]' ./internal/store
 
   check:race-store-rest:
     desc: Every other SQL store test and example under the race detector
     cmds:
+      - mkdir -p test-results/go
       # Complement the first group, including newly added test names/examples.
-      - go test -p=2 -race -shuffle=on -count=1 -timeout=10m -skip '^Test[A-M]' ./internal/store
+      - go test -coverprofile=test-results/go/race-store-rest.out -p=2 -race -shuffle=on -count=1 -timeout=10m -skip '^Test[A-M]' ./internal/store
 
   check:race-runtime:
     desc: Complete runtime race suite in complementary bounded groups
@@ -163,41 +166,46 @@ tasks:
   check:race-runtime-first:
     desc: Runtime race tests whose names begin TestA through TestM
     cmds:
-      - go test -p=2 -race -shuffle=on -count=1 -timeout=10m -run '^Test[A-M]' ./internal/runtime
+      - mkdir -p test-results/go
+      - go test -coverprofile=test-results/go/race-runtime-first.out -p=2 -race -shuffle=on -count=1 -timeout=10m -run '^Test[A-M]' ./internal/runtime
 
   check:race-runtime-rest:
     desc: Every other runtime test and example under the race detector
     cmds:
+      - mkdir -p test-results/go
       # Complement the first group, including newly added test names/examples.
-      - go test -p=2 -race -shuffle=on -count=1 -timeout=10m -skip '^Test[A-M]' ./internal/runtime
+      - go test -coverprofile=test-results/go/race-runtime-rest.out -p=2 -race -shuffle=on -count=1 -timeout=10m -skip '^Test[A-M]' ./internal/runtime
 
   check:race-other:
-    desc: Complete race suite for every remaining active package
+    desc: Every Go package outside the separately partitioned store, runtime and terminal/CLI clients
     vars:
       OTHER_PACKAGES:
         sh: |
-          for package in {{.REDESIGN_ALL_PACKAGES}}; do
+          for package in {{.GO_PACKAGES}}; do
             case "$package" in
-              ./internal/store|./internal/runtime) ;;
+              */internal/store|*/internal/runtime|*/internal/tui|*/cmd/whip) ;;
               *) printf '%s ' "$package" ;;
             esac
           done
     cmds:
-      - go test -p=2 -race -shuffle=on -count=1 -timeout=10m {{.OTHER_PACKAGES}}
+      - mkdir -p test-results/go
+      - go test -coverprofile=test-results/go/race-other.out -p=2 -race -shuffle=on -count=1 -timeout=10m {{.OTHER_PACKAGES}}
 
   check:clients:
-    desc: Generated contracts, SDK/examples, real-process clients and retained regressions
+    desc: Native contracts, SDK/examples, complete Go clients and real-process acceptance
     cmds:
       - task: contract
       - task: sdk
+      - node --test internal/browser/extrelay/worker.test.mjs
       - task: check:native-cli
       - task: check:fixture
-      - task: check:retained
+      - task: check:invariants
 
   check:product-web:
     desc: Shared app, web assets, UI and browser support regressions
     cmds:
       - task: web
+      - npm run build:storybook -w @whip/ui
 
   check:product-browser:
     desc: Native production web acceptance in Chromium and Firefox
@@ -216,6 +224,40 @@ tasks:
       - node apps/web/scripts/sidebar.mjs
       - node apps/web/scripts/workspace-layout.mjs
       - node apps/web/scripts/multiple-hosts.mjs
+
+  check:product-conversation:
+    desc: Native REPL, skill completion and chat presentation in Chromium and Firefox
+    cmds:
+      - task: web-assets
+      # These maintained entrypoints require their native fixture ports at cutover.
+      - node apps/web/scripts/repl-viewer.mjs
+      - node apps/web/scripts/slash-skills.mjs
+      - node apps/web/scripts/chat-polish.mjs
+
+  check:product-ui:
+    desc: UI browser behavior, exact CSP, packed consumer and model picker geometry
+    cmds:
+      - npm run build -w @whip/sdk
+      - node packages/ui/tests/browser.mjs
+      - node packages/ui/tests/csp.mjs
+      - node packages/ui/tests/packed.mjs
+      - node packages/ui/tests/workspace-tabs.mjs
+      - node packages/ui/tests/workspace-layout.mjs
+      - node apps/web/scripts/model-picker.mjs
+
+  check:product-safari:
+    desc: Explicit macOS Safari application acceptance; run manually with a visible Safari session
+    platforms: [darwin]
+    cmds:
+      - task: web-assets
+      - node apps/web/scripts/safari.mjs
+      - node packages/ui/tests/csp.mjs
+
+  check:product-performance:
+    desc: Native web performance measurement; run without competing builds or tests
+    cmds:
+      - task: web-assets
+      - node apps/web/scripts/performance.mjs
 
   check:product-content:
     desc: Native scoped content and bounded canonical history in Chromium and Firefox
@@ -255,6 +297,12 @@ tasks:
     desc: Disposable native pinned install, restart, update and packaged browser acceptance
     cmds:
       - task: web-assets
+      - python3 scripts/test-install-whipcode.py
+      - python3 scripts/test-publish-whipcode.py
+      - PYTHONDONTWRITEBYTECODE=1 python3 scripts/test-distributions-unit.py
+      - node --test scripts/build-installers.test.mjs
+      - task: test:update-local
+      - task: test:onboarding-docker
       - python3 scripts/test-distributions.py --browser
 
   check:product-evals:
@@ -279,7 +327,10 @@ tasks:
       - npm run build -w @whip/sdk
       - npm run check:docs
       - npm run test:docs
+      - npm run test:docs:dev
       - npm run build:docs
+      - npm run test:docs:browser
+      - npm run build:storybook:docs
 
   check:product-mobile:
     desc: Mobile types, UI, real native backend lifecycle and both platform bundles
@@ -289,6 +340,7 @@ tasks:
       - npm run test:backend -w @whip/mobile
       - task: web-assets
       - node --test apps/mobile/scripts/fixture.test.mjs
+      - (cd apps/mobile && EXPO_OFFLINE=1 npx --yes expo-doctor@1.20.4)
       - npm run export:mobile
 
   check:product-desktop:
@@ -304,7 +356,15 @@ tasks:
       - npm run check:desktop
       - npm run test:desktop
       - node --test apps/desktop/scripts/onboarding-fixture.test.mjs
-      - npm run package:desktop
+      - |
+        if [ '{{.RENDERER_READY | default "false"}}' = true ]; then
+          node scripts/pack-web.mjs --release
+          npm run package:desktop -- --renderer-ready
+        else
+          npm run package:desktop
+        fi
+      - node apps/desktop/scripts/verify.mjs apps/desktop/out/Whip-darwin-arm64/Whip.app
+      - WHIP_DESKTOP_SSH_TEST_EXECUTABLE="$PWD/apps/desktop/.stage/native/whipcode" npm run test:desktop
       - BROWSER_NATIVE_DAEMON=1 node apps/desktop/scripts/browser-native.mjs
       - node apps/desktop/scripts/onboarding-smoke.mjs
       - node apps/desktop/scripts/smoke.mjs
@@ -315,31 +375,37 @@ tasks:
   check:native-cli:
     desc: Native lifecycle and CLI fixtures, plus terminal client regressions
     cmds:
+      - mkdir -p test-results/go
       # Protocol clients have independent real-host lifecycles. Keep the same
       # deadline per family without growing one aggregate timer with each client.
-      - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(Auth|OpenAIAuth|DeviceLogin|ProviderChoice|CLIChooser|TerminalKeyPrompt)'
-      - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(Daemon|Desktop)'
-      - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^TestRun'
-      - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(Native|Web|Headless|Sessions|TruncAndAgo|PushOTLP|MainDispatchesHeadlessCommands|ClientEntryPaths|DistributionMalformed)'
-      - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(MCP|Acp|ACP)'
-      - go test -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(Update|DistributionUpdate)'
+      - go test -coverprofile=test-results/go/client-1.out -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(Auth|OpenAIAuth|DeviceLogin|ProviderChoice|CLIChooser|TerminalKeyPrompt)'
+      - go test -coverprofile=test-results/go/client-2.out -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(Daemon|Desktop)'
+      - go test -coverprofile=test-results/go/client-3.out -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^TestRun'
+      - go test -coverprofile=test-results/go/client-4.out -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(Native|Web|Headless|Sessions|TruncAndAgo|PushOTLP|MainDispatchesHeadlessCommands|ClientEntryPaths|DistributionMalformed)'
+      - go test -coverprofile=test-results/go/client-5.out -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(MCP|Acp|ACP)'
+      - go test -coverprofile=test-results/go/client-6.out -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -run '^Test(Update|DistributionUpdate)'
       - go test -tags=integration -count=1 -timeout=2m ./cmd/whip -run '^TestNativeCompiledCLI'
-      - go test -race -tags=integration -count=1 -timeout=3m ./cmd/whip -run '^TestDesktopCompiledUpdate$'
-      # Keep all native and retained terminal tests with independent unchanged deadlines.
-      - go test -race -shuffle=on -count=1 -timeout=3m ./internal/tui -run '^TestNative[A-L]'
-      - go test -race -shuffle=on -count=1 -timeout=3m ./internal/tui -run '^TestNative' -skip '^TestNative[A-L]'
-      - go test -race -shuffle=on -count=1 -timeout=3m ./internal/tui -skip '^TestNative'
+      - go test -coverprofile=test-results/go/client-7.out -race -tags=integration -count=1 -timeout=3m ./cmd/whip -run '^TestDesktopCompiledUpdate$'
+      - go test -coverprofile=test-results/go/cli-integration.out -race -shuffle=on -tags=integration -count=1 -timeout=3m ./cmd/whip -run '^Test(NativeCompiledBenchmark|Desktop(SSH|Askpass|PromptSocket))'
+      # Keep all native and pure presentation tests with independent unchanged deadlines.
+      - go test -coverprofile=test-results/go/client-8.out -race -shuffle=on -count=1 -timeout=3m ./internal/tui -run '^TestNative[A-L]'
+      - go test -coverprofile=test-results/go/client-9.out -race -shuffle=on -count=1 -timeout=3m ./internal/tui -run '^TestNative' -skip '^TestNative[A-L]'
+      - go test -coverprofile=test-results/go/client-10.out -race -shuffle=on -count=1 -timeout=3m ./internal/tui -skip '^TestNative'
+      # Complements every family above, including new test names and examples.
+      - go test -coverprofile=test-results/go/cli-rest.out -race -shuffle=on -count=1 -timeout=3m ./cmd/whip -skip '{{.CLI_FAMILIES}}'
       - go vet ./cmd/whip
 
   check:change:
-    desc: Redesign integration gate (run npm ci first)
+    desc: Complete native Go, contract and client integration gate (run npm ci first)
     cmds:
       - task: check:build
-      - task: check:race
+      - task: check:race-store
+      - task: check:race-runtime
+      - task: check:race-other
       - task: check:clients
 
   check:fixture:
-    desc: New v4 runtime and retained legacy reference, SDK admission and process-restart checks
+    desc: Production native runtime, SDK admission, crash recovery and process-lifetime checks
     cmds:
       - npm run build
       - node --test --test-concurrency=1 scripts/redesign/v4-fixture.test.mjs
@@ -349,74 +415,69 @@ tasks:
       - node --test --test-concurrency=1 scripts/redesign/computer-fixture.test.mjs
       - node --test --test-concurrency=1 scripts/redesign/desktop-seed-fixture.test.mjs
       - node --test --test-concurrency=1 scripts/redesign/browser-provider-fixture.test.mjs
-      - node --test --test-concurrency=1 scripts/redesign/fixture.test.mjs
+      - WHIP_TEST_SELFHOST=1 go test -race -shuffle=on -count=1 -timeout=150s ./internal/mcp -run '^Test(ServeSelfHost|StdioServerEndToEnd)$'
+      - |
+        fixture=$(mktemp -d "${TMPDIR:-/tmp}/whip-runtime-gate.XXXXXX")
+        trap 'rm -rf "$fixture"' EXIT HUP INT TERM
+        go build -o "$fixture/whipcode" ./cmd/whip
+        WHIP_RLM_TEST_EXECUTABLE="$fixture/whipcode" go test -race -shuffle=on -tags=integration -count=1 -timeout=2m ./internal/engine/process -run '^TestPackagedRuntime$'
 
   check:analysis:
-    desc: Pinned lint and reachable-vulnerability checks for redesign active packages
+    desc: Pinned lint against the frozen baseline and reachable-vulnerability checks over the complete module
     vars:
-      REDESIGN_TOOLCHAIN:
+      TOOLCHAIN:
         sh: go env GOVERSION
     env:
-      GOTOOLCHAIN: '{{.REDESIGN_TOOLCHAIN}}'
+      GOTOOLCHAIN: '{{.TOOLCHAIN}}'
     cmds:
-      - go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1 run --new-from-rev={{.REDESIGN_BASELINE}} {{.REDESIGN_ALL_PACKAGES}} ./cmd/whip
-      - go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 {{.REDESIGN_ALL_PACKAGES}} ./cmd/whip
+      - go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1 run --new-from-rev={{.LINT_BASELINE}} ./...
+      - go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+      - go mod tidy
+      - git diff --exit-code -- go.mod go.sum
 
   check:phase:
-    desc: Redesign milestone gate; expands with supported capabilities
+    desc: Complete native milestone gate for this host; CI also requires the supported OS matrix
     cmds:
-      - task: check:change
+      - task: ci
 
-  check:retained:
-    desc: Selected retained acceptance, restart and accounting invariants
+  check:invariants:
+    desc: Durable acceptance, child restart, single dispatch, settlement repair and nonblocking execution
     cmds:
-      - go test -race -shuffle=on -count=1 -timeout=3m ./internal/daemon -run '^(TestClientAcceptancePrecedesProviderConstructionAndSurvivesDisconnect|TestQueuedInitialAgentPromptSurvivesRestartExactlyOnce|TestModelAccountingFailureRetriesSettlementWithoutProviderReplay|TestModelAdmissionWaitingForActorDoesNotHoldAccountingLock)$'
+      - go test -race -shuffle=on -count=1 -timeout=3m ./internal/store -run '^(TestAttemptAdmissionAndSingleDispatchAcrossConnections|TestAttemptSettlementAndTranscriptCommitAtomicallyAndRetryExactly|TestAttemptRecoveryDistinguishesUndispatchedFromUncertainAndRollsBack|TestReceiptMatchNeverAdmitsAndKeepsPayloadProofAcrossDeletionAndRestart)$'
+      - go test -race -shuffle=on -count=1 -timeout=3m ./internal/runtime -run '^(TestReadingQueuedHistoryDoesNotExecuteAndRestartResumes|TestObserverCancellationAndExplicitCancellationHaveDifferentLifetimes|TestChildAdmissionSurvivesRestartWithoutLoadedWorker|TestStructuredOutputSQLSettlementRetryDoesNotReplayProvider|TestSlowProviderDoesNotBlockDurableCancellation|TestWorkerCapacityYieldPreservesOwnershipAndAlternatesAdmission|TestWorkerCapacityCancellationDuringWaitAndResumption)$'
 
-  dev:redesign:
-    desc: Retained legacy product fixture (-- --minutes=1..30)
+  dev:fixture:
+    desc: Disposable native web/mobile product fixture (-- --minutes=1..30)
     cmds:
-      - npm run build
-      - WHIP_SDK_AGENTS_FIXTURE=1 node apps/mobile/scripts/fixture.mjs {{.CLI_ARGS}}
+      - task: web-assets
+      - node apps/mobile/scripts/fixture.mjs {{.CLI_ARGS}}
 
   dev:v4:
-    desc: New scripted runtime (pass -- -directory /private/disposable/path)
+    desc: Disposable scripted runtime (pass -- -directory /private/disposable/path)
     cmds:
       - go run ./cmd/whip-runtime -scripted {{.CLI_ARGS}}
 
   acceptance:
-    desc: "Run the deterministic daemon, recursive-agent, client, and RLM release acceptance suite"
+    desc: Native durable invariants, every compiled process/client fixture and packaged SDK acceptance
     cmds:
-      - go test -race -tags=integration ./internal/tui -run '^TestInteractiveSessionOverTrustedProtocol$'
-      - go test -race -tags=integration ./internal/daemon -run '^TestRecursiveAgent(ReceiptsWithLargeMCPGrants|GrantInspectionAccess)$'
-      - go test -race ./internal/daemon ./internal/legacy/session ./internal/legacy/protocol -run '^(TestV2|TestV3|TestTrustedClient|TestRuntimeRegistry|TestCommandAcceptance|TestClientAcceptance|TestDeleteAcceptance|TestQuestionSnapshot|TestRootCollection|TestSessionCatalog|TestIncompatible|TestVersionFive|TestVersionSix|TestBounded|TestTranscriptPage)'
-      - go test -race ./internal/mcp ./internal/tools ./internal/legacy/session ./internal/daemon ./internal/acp ./internal/tui -run '^(TestMCP|TestExternalPermission|TestCheckedManager|TestConfigTrust|TestConfigDiscoveryReportsWinningProvenance|TestManagerOwnsConfigMapsAndNeverTrustsSourceLabels|TestCapabilityFinishStorageFailureSettlesAndReleasesCapacity|TestCapabilityFinishDeniedSettlesAdmittedOperation|TestBridgeMCP)'
-      - go test -race ./internal/daemon -run '^(TestRuntimeAcceptance.*|TestRuntimePathsAndOwnerLock|TestOwnerOnlySocketRefusesUnsafeState|TestArchitecture.*|TestRecursiveRuntimeUsesOneInterfaceAtEveryDepth|TestRecursiveSpawnQueuesUnderWorkerPressure|TestRecursiveChildrenInheritOrExplicitlyOverrideOneAgentConfiguration|TestRecursiveAgentClientControlsAuthorizeAndPersist|TestRecursiveRuntimeRestoresRetainedAgentAndTranscript|TestQueuedInitialAgentPromptSurvivesRestartExactlyOnce|TestConcurrentChildTurnPressureKeepsPromptQueued|TestSuspendedKernelNoticeIsEphemeral|TestSuspendedKernelRestoresScratchWithEphemeralNotice|TestBackgroundShellJobOutlivesTheCellAndTurn|TestToolHostRunsOnlyRestrictedToolCommands|TestPermissionRuleResolvesCoveredPromptsAndSkipsFutureOnes|TestUserAskRoundTripsThroughQuestionEvents|TestUserAskDismissAndCancelClose|TestUserAskIsRootOnlyAndValidatesArguments)$'
-      - go test -race ./internal/legacy/session ./internal/capability ./internal/daemon -run '^(TestRuntimeTransitionIsAtomicAndLargeValuesAreHandleBacked|TestStatePrivateIsolationBlackboardVisibilityAndHandles|TestMailboxMessageIsCanonicalAndBodyStaysBehindRead|TestMailboxTurnDeliversOnCommitAndNewMailStaysPending|TestFailedMailboxTurnRedeliversPendingMail|TestRootMailboxFailureRequiresExplicitInputAcrossRestart|TestRootTurnLifecycleIdentifiesExactTurn|TestMessageDeliveryClassesAndDeferral|TestAgentAdmissionPersistsPromptAtomically|TestRecoveryKeepsQueuedAgentPromptButInterruptsRunningInput|TestChildBudgetClampingDepthAndActiveChildLimits|TestBudgetKindsExhaustIndependently|TestCapabilityPermissionSurvivesDispatcherAndRevalidates|TestDispatcherRunsDirectAndPersistedPermissionThroughOnePath|TestDispatcherRejectsCanonicalPathChangeAfterApproval|TestDispatcherWorkspaceMutationRunsAlongsidePathMutations|TestRecoveryInterruptsEveryNonterminalRuntimeRecord|TestSlowOutboundClientClosesWithoutStoppingDaemon|TestRootsRunConcurrentlyAndCallerCancellationDoesNotOwnWork|TestMCPLifecyclePanicFailsOnlyItsRoot|TestRootClientReconnectsStableCommandWithoutDuplicateEvent|TestRestartReturnsAuthoritativeInterruptedCommandWithoutReexecution)$'
-      - go test -race ./internal/tui ./internal/acp ./cmd/whip -run '^(TestClientReconnectReplayAndSnapshotFallback|TestClientReattachesInFlightActionWithSameIdentityAfterDisconnect|TestDaemonBackedModelRendersWithoutAnAgent|TestThinPaletteAndAgentControlsStayDaemonBacked|TestBridgeNativeSessionPromptAndCanonicalReplay|TestBridgePermissionAndModesWithoutCredentials|TestBridgeQuestionMapsToPermissionPromptAndAnswerOp|TestBridgeConcurrentSessionsAndCloseDetach|TestRunDaemonAlwaysUsesRLMRuntime|TestRunTextOutput|TestSessionsCLI|TestMCPServeStopsCleanlyOnStdinEOF|TestMCPTestCLIReady|TestBridgeMCPPermissionKeepsConcreteArguments)$'
-      - go test -race ./internal/engine/process -run '^(TestKernelEnforcesStepWallOutputHostAndFrameLimits|TestKernelDeadlineReapsProcessGroup|TestKernelDeniesAmbientAuthority|TestKernelStripsDaemonEnvironment|TestKernelReservationAndCrashRestart|TestKernelManagerSchedulesFIFOWithoutEvictingRunningTurns|TestKernelManagerEvictsIdleWorkersInLRUOrderAcrossRetainedSessions|TestKernelManagerRemovesCancelledWaitersAndWakesOnShutdown|TestKernelTurnLeasePreservesScratchAndSuspendRejectsRunning|TestKernelScratchSurvivesSuspensionAndMidTurnRestart)$'
-      - go test -race ./evals/rlm -run '^TestDeterministicRLMEvaluationReport$'
-      - WHIP_SDK_RACE=1 npm run acceptance
-      - npm run test:package
-      - go test -race ./internal/engine/process ./internal/rlm ./internal/legacy/session ./internal/daemon -run '^(TestScratch|TestWorkerSnapshot|TestWorkerRestore|TestWorkerCrossChunk|TestStructuredState|TestStatePages|TestChildScratchSurvivesDaemonRestart|TestPhaseFourAndFiveStoresAreRejectedWithoutMutation)'
-
-      - go test -race ./internal/llm ./internal/legacy/session ./internal/agent ./internal/daemon ./internal/tui -run '^(TestModel|TestPricing|TestUsage|TestStreamPreserves|TestStreamUnterminated|TestCompletePreserves|TestMalformedUsage)'
+      - task: check:invariants
+      - task: check:fixture
+      - task: check:product-examples
 
   contract:
     desc: "Validate generated Node 24 contracts and deterministic generation (run npm ci first)"
     cmds:
       - npm run check -w @whip/protocol
-      - npm run check -w @whip/legacy-protocol
 
   sdk:
     desc: "Build and test the TypeScript SDK, synchronized views, and React example"
     cmds:
       - npm run check -w @whip/sdk
-      - npm run check -w @whip/legacy-sdk
       - npm run build -w @whip/client-example
       - npm run check -w @whip/agents-example
 
   check:
-    desc: "Format + vet + test (what the pre-commit hook runs, plus golangci-lint when installed)"
+    desc: "Whole-module format, vet and regressions plus native contracts and web checks"
     cmds:
       - task: models:check
       - |
@@ -446,7 +507,7 @@ tasks:
   lint:
     desc: "golangci-lint with the repo's .golangci.yml (the CI lint gate)"
     cmds:
-      - golangci-lint run ./...
+      - go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1 run --new-from-rev={{.LINT_BASELINE}} ./...
 
   lint-fix:
     desc: "golangci-lint with auto-fix"
@@ -456,11 +517,27 @@ tasks:
   vuln:
     desc: "govulncheck: reachable known-vulnerability scan (the CI security gate)"
     cmds:
-      - go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      - go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
 
   ci:
-    desc: "Run the full local CI gate: check + lint + vuln + release acceptance"
-    deps: [check, lint, vuln, acceptance]
+    desc: Complete host CI checks; the reusable workflow adds the OS/build matrix and explicit platform jobs
+    cmds:
+      - task: check:change
+      - task: check:analysis
+      - task: check:product-web
+      - task: check:product-browser
+      - task: check:product-performance
+      - task: check:product-conversation
+      - task: check:product-ui
+      - task: check:product-content
+      - task: check:product-activity
+      - task: check:product-settings
+      - task: check:product-distributions
+      - task: check:product-examples
+      - task: check:product-evals
+      - task: check:product-docs
+      - task: check:product-mobile
+      - task: check:product-desktop
 
   hooks:
     desc: "Enable the repo's git hooks (sets core.hooksPath to scripts/git-hooks)"

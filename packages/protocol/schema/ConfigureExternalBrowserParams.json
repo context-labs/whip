@@ -1,0 +1,55 @@
+{
+  "type": "object",
+  "properties": {
+    "expected_revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "configuration": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "disabled",
+            "live",
+            "dedicated",
+            "headless",
+            "extension"
+          ]
+        },
+        "executable": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "live_endpoint": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "live_profile": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "allow_private_urls": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "mode",
+        "executable",
+        "live_endpoint",
+        "live_profile",
+        "allow_private_urls"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/ConfigureExternalBrowserParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ConfigureExternalBrowserParams",
+  "required": [
+    "expected_revision",
+    "configuration"
+  ],
+  "additionalProperties": false
+}

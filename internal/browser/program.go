@@ -18,8 +18,10 @@ const MaxProgramOutput = 64 << 10
 // Program is a fully parsed immutable desktop helper batch. It contains no live
 // browser, execution cursor, permission, or resumable effect state.
 type Program struct {
-	steps       []programStep
-	screenshots int
+	steps        []programStep
+	external     bool
+	allowPrivate bool
+	screenshots  int
 }
 type programStep struct {
 	method  string
@@ -40,14 +42,33 @@ func (p *Program) ValidateTarget(target string) error {
 	return nil
 }
 
-func CompileProgram(code string) (*Program, error) {
+func CompileProgram(code string) (*Program, error) { return compileProgram(code, false, false) }
+
+// CompileNativeProgram preserves the non-live private-network check alongside
+// the metadata floor shared by all browser paths.
+func CompileNativeProgram(code string, live, allowPrivate bool) (*Program, error) {
+	return compileProgram(code, true, live || allowPrivate)
+}
+
+func compileProgram(code string, external, allowPrivate bool) (*Program, error) {
 	calls, e := helperprogram.Parse(code)
 	if e != nil {
 		return nil, e
 	}
-	program := &Program{}
+	program := &Program{external: external, allowPrivate: allowPrivate}
 	for i, c := range calls {
-		step, err := compileProgramStep(c)
+		var step programStep
+		var err error
+		if external && c.Name == "print" {
+			if nested, ok := c.Arguments[0].(helperprogram.Call); ok {
+				c = nested
+			}
+		}
+		if external && c.Name == "upload" {
+			step, err = compileUpload(c)
+		} else {
+			step, err = compileProgramStep(c)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("browser statement %d: %w", i+1, err)
 		}
@@ -241,7 +262,7 @@ func (p *Program) Run(ctx context.Context, b Backend, limits ProgramLimits, sink
 		return "", errors.New("invalid browser program execution bounds")
 	}
 	defer func() {
-		note, policyErr := checkProgramFinalURL(ctx, b)
+		note, policyErr := checkProgramFinalURLWith(ctx, b, p.checkURL)
 		err = errors.Join(err, policyErr)
 		if note != "" {
 			if len(note)+1 > MaxProgramOutput-len(output) {
@@ -260,7 +281,7 @@ func (p *Program) Run(ctx context.Context, b Backend, limits ProgramLimits, sink
 		if s.method == "screenshot" && (images >= limits.Images || bytes >= limits.ImageBytes) {
 			return out.String(), errors.New("browser screenshot budget exhausted before capture")
 		}
-		text, image, e := s.run(ctx, b)
+		text, image, e := s.run(ctx, b, p.checkURL)
 		if e != nil {
 			return out.String(), fmt.Errorf("browser statement %d: %w", i+1, e)
 		}
@@ -288,12 +309,12 @@ func (p *Program) Run(ctx context.Context, b Backend, limits ProgramLimits, sink
 	return out.String(), nil
 }
 
-func (s programStep) run(ctx context.Context, b Backend) (string, []byte, error) {
+func (s programStep) run(ctx context.Context, b Backend, checkURL func(context.Context, string) error) (string, []byte, error) {
 	switch s.method {
 	case "print":
 		return s.text[0], nil, nil
 	case "goto":
-		if e := CheckURL(ctx, s.text[0]); e != nil {
+		if e := checkURL(ctx, s.text[0]); e != nil {
 			return "", nil, e
 		}
 		return "", nil, b.Navigate(ctx, s.text[0])
@@ -342,7 +363,14 @@ func (s programStep) run(ctx context.Context, b Backend) (string, []byte, error)
 		return string(raw), nil, e
 	case "useTab":
 		return "", nil, b.UseTab(ctx, s.text[0])
+	case "upload":
+		return "", nil, b.UploadFiles(ctx, s.text[0], s.text[1:])
 	case "dialog":
+		if contextual, ok := b.(interface {
+			HandleDialogContext(context.Context, bool, string) error
+		}); ok {
+			return "", nil, contextual.HandleDialogContext(ctx, s.flag, s.text[0])
+		}
 		return "", nil, b.HandleDialog(s.flag, s.text[0])
 	case "screenshot":
 		image, e := b.Screenshot(ctx, 1568)
@@ -358,7 +386,8 @@ func (s programStep) run(ctx context.Context, b Backend) (string, []byte, error)
 // Preserve the retained post-navigation metadata floor for js/click redirects.
 // The live scoped transport still rechecks authority before Info and Navigate;
 // this cleanup cannot bypass a revoked grant or replay the failed helper.
-func checkProgramFinalURL(ctx context.Context, b Backend) (string, error) {
+
+func checkProgramFinalURLWith(ctx context.Context, b Backend, checkURL func(context.Context, string) error) (string, error) {
 	if e := ctx.Err(); e != nil {
 		return "", e
 	}
@@ -369,11 +398,95 @@ func checkProgramFinalURL(ctx context.Context, b Backend) (string, error) {
 	if info.URL == "" || info.Dialog != nil {
 		return "", nil
 	}
-	if e = CheckURL(ctx, info.URL); e == nil {
+	if e = checkURL(ctx, info.URL); e == nil {
 		return "", nil
 	}
 	if cleanupErr := b.Navigate(ctx, "about:blank"); cleanupErr != nil {
 		return "", errors.Join(errors.New("browser post-navigation policy failed and neutralization could not be confirmed"), cleanupErr)
 	}
 	return "(post-navigation URL policy rejected the destination; page neutralized to about:blank)", nil
+}
+
+func (p *Program) checkURL(ctx context.Context, target string) error {
+	if err := CheckURL(ctx, target); err != nil {
+		return err
+	}
+	if p.external {
+		return CheckPrivateURL(ctx, target, p.allowPrivate)
+	}
+	return nil
+}
+
+func compileUpload(c helperprogram.Call) (programStep, error) {
+	if len(c.Arguments) != 2 {
+		return programStep{}, errors.New("upload requires a selector and one path or paths array")
+	}
+	selector, ok := c.Arguments[0].(string)
+	if !ok || selector == "" || len(selector) > 4096 || !utf8.ValidString(selector) || strings.ContainsRune(selector, 0) {
+		return programStep{}, errors.New("invalid upload selector")
+	}
+	var paths []string
+	switch value := c.Arguments[1].(type) {
+	case string:
+		paths = []string{value}
+	case []any:
+		for _, item := range value {
+			path, ok := item.(string)
+			if !ok {
+				return programStep{}, errors.New("upload paths must be strings")
+			}
+			paths = append(paths, path)
+		}
+	default:
+		return programStep{}, errors.New("upload paths must be strings")
+	}
+	if len(paths) == 0 || len(paths) > 16 {
+		return programStep{}, errors.New("upload requires 1-16 files")
+	}
+	for _, path := range paths {
+		if path == "" || len(path) > 4096 || !utf8.ValidString(path) || strings.ContainsRune(path, 0) {
+			return programStep{}, errors.New("invalid upload path")
+		}
+	}
+	return programStep{method: "upload", text: append([]string{selector}, paths...)}, nil
+}
+
+func (p *Program) UploadPaths() []string {
+	var paths []string
+	for _, step := range p.steps {
+		if step.method == "upload" {
+			paths = append(paths, step.text[1:]...)
+		}
+	}
+	return paths
+}
+
+// WithUploads binds only host-captured private copies. Unmapped paths fail closed.
+func WithUploads(backend Backend, paths map[string]string) Backend {
+	return &uploadBackend{Backend: backend, paths: paths}
+}
+
+type uploadBackend struct {
+	Backend
+	paths map[string]string
+}
+
+func (b *uploadBackend) UploadFiles(ctx context.Context, selector string, paths []string) error {
+	resolved := make([]string, len(paths))
+	for i, path := range paths {
+		resolved[i] = b.paths[path]
+		if resolved[i] == "" {
+			return errors.New("upload path was not captured")
+		}
+	}
+	return b.Backend.UploadFiles(ctx, selector, resolved)
+}
+
+func (b *uploadBackend) HandleDialogContext(ctx context.Context, accept bool, text string) error {
+	if v, ok := b.Backend.(interface {
+		HandleDialogContext(context.Context, bool, string) error
+	}); ok {
+		return v.HandleDialogContext(ctx, accept, text)
+	}
+	return b.HandleDialog(accept, text)
 }

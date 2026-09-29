@@ -95,7 +95,7 @@ func TestCDPTunnelRoundTrip(t *testing.T) {
 	defer r.Close()
 	ext := dialWS(t, fmt.Sprintf("ws://%s/ext?token=%s", r.Addr(), r.Token()))
 	defer ext.Close()
-	cdp := dialWS(t, "ws://"+r.Addr()+"/cdp")
+	cdp := dialWS(t, r.CDPURL())
 	defer cdp.Close()
 
 	// rod sends a page-level command → extension receives it → replies → rod gets it.
@@ -121,7 +121,7 @@ func TestSynthTargetCommands(t *testing.T) {
 	writeCli(t, ext, `{"method":"whip.attached","params":{"tabId":42,"title":"X / chamath","url":"https://x.com/chamath"}}`)
 	time.Sleep(100 * time.Millisecond)
 
-	cdp := dialWS(t, "ws://"+r.Addr()+"/cdp")
+	cdp := dialWS(t, r.CDPURL())
 	defer cdp.Close()
 
 	for m, want := range map[string]string{
@@ -147,7 +147,7 @@ func TestNoTabAttachedErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer r.Close()
-	cdp := dialWS(t, "ws://"+r.Addr()+"/cdp")
+	cdp := dialWS(t, r.CDPURL())
 	defer cdp.Close()
 	writeCli(t, cdp, `{"id":5,"method":"Runtime.evaluate","params":{"expression":"1"}}`)
 	if resp := readSrv(t, cdp); !strings.Contains(resp, "click the whipcode extension icon") {
@@ -236,7 +236,7 @@ func TestExtensionHandshakePublicationPrecedesAttachedObservation(t *testing.T) 
 	case <-time.After(time.Second):
 		t.Fatal("attachment observation stayed blocked")
 	}
-	cdp := dialWS(t, url+"/cdp")
+	cdp := dialWS(t, url+"/cdp?token="+r.token)
 	defer cdp.Close()
 	writeCli(t, cdp, `{"id":7,"method":"Runtime.evaluate","params":{"expression":"1+1"}}`)
 	if got := readSrv(t, ext); !strings.Contains(got, "Runtime.evaluate") {
@@ -289,11 +289,16 @@ func TestObsoleteCDPDisconnectCannotClearReplacement(t *testing.T) {
 	}
 	old, _, oldRead := makeConnection(release)
 	oldDone := make(chan struct{})
+	r.cdpConn = old
 	go func() { r.serveCDP(old); close(oldDone) }()
 	t.Cleanup(func() { unblock(); old.close(); wait(oldDone) })
 	wait(oldRead)
 	current, cdp, currentRead := makeConnection(nil)
 	currentDone := make(chan struct{})
+	r.mu.Lock()
+	old.close()
+	r.cdpConn = current
+	r.mu.Unlock()
 	go func() { r.serveCDP(current); close(currentDone) }()
 	t.Cleanup(func() { current.close(); wait(currentDone) })
 	wait(currentRead) // Replacement is published; obsolete cleanup remains held.

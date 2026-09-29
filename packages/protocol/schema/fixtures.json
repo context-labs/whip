@@ -54,6 +54,42 @@
     "valid": true
   },
   {
+    "type": "ExternalBrowserStatus",
+    "value": {
+      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "configuration": {
+        "mode": "disabled",
+        "executable": "",
+        "live_endpoint": "",
+        "live_profile": "",
+        "allow_private_urls": false
+      },
+      "driver": "rod",
+      "driver_pinned": false
+    },
+    "valid": true
+  },
+  {
+    "type": "ExternalBrowserSessions",
+    "value": {
+      "items": []
+    },
+    "valid": true
+  },
+  {
+    "type": "ExternalBrowserSession",
+    "value": {
+      "root_id": "root",
+      "name": "default",
+      "mode": "live",
+      "driver": "rod",
+      "generation": "generation",
+      "resource": "browser-external:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "state": "prepared"
+    },
+    "valid": true
+  },
+  {
     "type": "HostExecutionDefaults",
     "value": {
       "engine": "quickjs",
@@ -403,6 +439,39 @@
           }
         ]
       }
+    },
+    "valid": true
+  },
+  {
+    "type": "HostSkillRoots",
+    "value": {
+      "revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "roots": [
+        {
+          "id": "personal",
+          "path": "/skills"
+        }
+      ],
+      "defaults": [
+        "personal"
+      ]
+    },
+    "valid": true
+  },
+  {
+    "type": "PublishSkillRootParams",
+    "value": {
+      "expected_revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "id": "personal",
+      "path": "/skills"
+    },
+    "valid": true
+  },
+  {
+    "type": "SetDefaultSkillRootsParams",
+    "value": {
+      "expected_revision": "426afdda2024c495e93e965701fdbca39634563b13d15abdd5946898630d7bdd",
+      "roots": []
     },
     "valid": true
   },

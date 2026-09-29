@@ -23,7 +23,8 @@ export function MessageAttachments({ references, uploaded, designContext, client
   const query = useQuery({
     queryKey: ['message-attachments', client.runtimeID, agentId, references],
     initialData,
-    enabled: connected && references.length > 0, staleTime: Infinity, gcTime: 0, retry: false, refetchOnWindowFocus: false,
+    // This reference metadata cannot change when unrelated host queries refresh.
+    enabled: connected && references.length > 0, staleTime: 'static', gcTime: 0, retry: false, refetchOnWindowFocus: false,
     queryFn: async ({ signal }) => {
       if (references.length > 128) throw new RangeError('Message has too many attachments');
       const unique = [...new Set(references)];

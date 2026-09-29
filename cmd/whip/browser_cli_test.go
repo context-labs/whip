@@ -1,13 +1,13 @@
 package main
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/context-labs/whip/internal/browser/extrelay"
+	"github.com/context-labs/whip/internal/buildinfo"
+	"github.com/context-labs/whip/internal/localruntime"
 )
 
 func TestBrowserCLIDispatch(t *testing.T) {
@@ -19,14 +19,14 @@ func TestBrowserCLIDispatch(t *testing.T) {
 	}
 }
 
-// install writes the unpacked extension and the relay state file into an
+// install writes only unpacked extension assets into an
 // isolated HOME. PATH is emptied so the best-effort open of
 // chrome://extensions can never launch anything on the test machine.
 func TestBrowserInstall(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("WHIPCODE_HOME", "")
 	t.Setenv("HOME", home)
-	t.Setenv("PATH", t.TempDir()) // xdg-open/open not found: Start fails silently
+	t.Setenv("PATH", t.TempDir()) // xdg-open/open cannot launch a browser
 
 	var err error
 	out := captureStdout(t, func() { err = browserCLI([]string{"install"}) })
@@ -34,7 +34,7 @@ func TestBrowserInstall(t *testing.T) {
 		t.Fatalf("install: %v", err)
 	}
 
-	dir := extrelay.ExtensionDir(home)
+	dir := filepath.Join(buildinfo.Home(home), localruntime.Namespace, "browser", "extension")
 	entries, rerr := os.ReadDir(dir)
 	if rerr != nil || len(entries) == 0 {
 		t.Fatalf("extension dir not written: %v", rerr)
@@ -43,19 +43,13 @@ func TestBrowserInstall(t *testing.T) {
 		t.Errorf("manifest.json missing: %v", err)
 	}
 
-	// relay state: valid JSON with a non-empty token, private perms
-	statePath := extrelay.RelayStatePath(home)
-	info, serr := os.Stat(statePath)
-	if serr != nil {
-		t.Fatalf("relay state missing: %v", serr)
+	// Installation is inert: the native operation owner publishes relay credentials
+	// only after durable dispatch and permission, never a closed placeholder relay.
+	if _, err := os.Stat(filepath.Join(dir, "relay.json")); !os.IsNotExist(err) {
+		t.Fatal("install minted relay state", err)
 	}
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("relay state should be 0600, got %v", info.Mode().Perm())
-	}
-	data, _ := os.ReadFile(statePath)
-	var state struct{ Addr, Token string }
-	if err := json.Unmarshal(data, &state); err != nil || state.Token == "" || state.Addr == "" {
-		t.Errorf("relay state should carry addr+token: %v %q", err, data)
+	if !strings.Contains(out, "host.json") || !strings.Contains(out, "external_browser.mode") || strings.Contains(out, "config.json") {
+		t.Fatal(out)
 	}
 
 	// the instructions name the folder the user must load
@@ -87,23 +81,27 @@ func TestBrowserInstallHomeErrors(t *testing.T) {
 	}
 }
 
-// The relay state file is part of the install: if it can't be written, the
-// install fails loudly rather than leaving an extension with no token.
-func TestBrowserInstallRelayStateError(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("WHIPCODE_HOME", "")
-	t.Setenv("HOME", home)
-	t.Setenv("PATH", t.TempDir())
-
-	// occupy the state path with a directory, which os.WriteFile can't replace
-	state := extrelay.RelayStatePath(home)
-	if err := os.MkdirAll(state, 0o700); err != nil {
+func TestBrowserInstallPreservesRunningOwnerState(t *testing.T) {
+	directory := t.TempDir()
+	dir := filepath.Join(directory, "browser", "extension")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-
+	state := filepath.Join(dir, "relay.json")
+	if err := os.WriteFile(state, []byte("owned active record"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir())
 	var err error
-	_ = captureStdout(t, func() { err = browserCLI([]string{"install"}) })
-	if err == nil || !strings.Contains(err.Error(), "write relay state") {
-		t.Errorf("an unwritable relay state should fail the install, got %v", err)
+	_ = captureStdout(t, func() { err = browserCLI([]string{"install", "--directory", directory}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(state)
+	if err != nil || string(data) != "owned active record" {
+		t.Fatal(string(data), err)
+	}
+	if err := browserCLI([]string{"install", "--directory", "relative"}); err == nil {
+		t.Fatal("relative runtime install")
 	}
 }

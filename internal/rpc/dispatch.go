@@ -63,6 +63,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return dispatchControls(ctx, r, method, raw)
 	case "models.inspection", "trace.page", "trace.export":
 		return dispatchTrace(ctx, r, method, raw)
+	case "host.skills.roots", "host.skills.publish", "host.skills.set_defaults":
+		return dispatchSkillRoots(ctx, r, method, raw)
 	case "workspace.complete", "host.attention", "host.directories.list", "host.directory.pick", "host.skills.complete", "host.themes.list", "host.themes.resolve":
 		return dispatchHostViews(ctx, r, method, raw)
 	case "tool.schemas", "tool.call", "shell.run":
@@ -152,6 +154,8 @@ func Dispatch(ctx context.Context, r *runtime.Runtime, host HostServices, method
 		return dispatchObservation(ctx, r, raw)
 	case "host.profiles", "host.set_profiles":
 		return dispatchHostProfiles(ctx, r, method, raw)
+	case "host.external_browser", "host.set_external_browser", "browser.external_sessions", "browser.reconnect_external", "browser.disconnect_external":
+		return dispatchExternalBrowser(ctx, r, method, raw)
 	case "host.browser_driver", "host.set_browser_driver":
 		return dispatchBrowserDriver(ctx, r, method, raw)
 	case "host.execution_defaults", "host.set_execution_defaults":

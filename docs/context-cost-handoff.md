@@ -1,5 +1,10 @@
 # Handoff: whip context/token cost reduction
 
+> Historical research for the retired pre-v4 runtime. Its source paths and
+> implementation instructions are retained as history. Current context,
+> compaction and accounting behavior lives in [the agent loop](agent-loop.md)
+> and [the domain contract](backend-domain.md).
+
 > **Status on `whip-rlm` (merge of main, 2026-09):** the real-usage
 > compaction trigger (`lastPrompt`/`notePrompt`, estimate fallback), the
 > token-budgeted compaction tail, `llm.PartTokens` per-part estimates and

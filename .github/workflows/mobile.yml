@@ -17,24 +17,18 @@ jobs:
       CI: '1'
       EXPO_NO_TELEMETRY: '1'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.sha }}
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Mobile types and shared SDK build
-        run: npm run check:mobile
-      - name: Mobile behavior tests
-        run: npm run test:mobile
-      # Validate the locked SDK against its bundled compatibility table. The
-      # online table can advance before an intentional native rebuild/upgrade.
-      - name: Expo dependency and configuration checks
-        env:
-          EXPO_OFFLINE: '1'
-        working-directory: apps/mobile
-        run: npx --yes expo-doctor@1.20.4
-      - name: Production iOS and Android bundle exports
-        run: npm run export:mobile
+      - run: go install github.com/go-task/task/v3/cmd/task@v3.48.0
+      - name: Complete native mobile contracts, behavior, backend and both exports
+        run: task check:product-mobile

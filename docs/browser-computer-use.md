@@ -1,140 +1,188 @@
-# Browser & computer use
+# Browser and computer use
 
-whipcode can drive the user's existing Chrome and Mac desktop, or an explicitly
-selected native Browser tab in the desktop workspace. Native tabs have isolated
-profiles and scoped attachment authority; they do not borrow the user's external
-Chrome profile. Legacy `browser_exec` and `computer_exec` behavior is unchanged.
+Native browser control has two explicit targets: an offered Desktop Browser tab,
+or a named external Chrome session. Neither discovers authority from old
+configuration, saved checkpoints, tab IDs, or a previous connection. The
+`browser` and `computer` modules use the same durable operation and permission
+ledger as other native host effects.
 
-## Legacy browser: four modes
+## External Chrome modes
 
-`browser.mode` in `~/.whipcode/config.json` picks how whipcode talks to Chrome:
+The native host's `external_browser` declaration selects one mode. Its default
+is `disabled`. Configuration and status reads do not launch Chrome, discover a
+profile, install an extension, open a relay, or grant control.
 
-```mermaid
-flowchart TB
-    BE["browser_exec<br/>(model tool)"] --> SEL{mode}
-    SEL -->|live| L["attach to running Chrome<br/>with --remote-debugging-port<br/>(your real profile, cookies, sessions)"]
-    SEL -->|dedicated| DED["whipcode-owned Chrome instance<br/>auto-fallback when nothing debuggable runs"]
-    SEL -->|headless| H["whipcode-owned headless Chrome<br/>no window, CI-friendly"]
-    SEL -->|extension| EXTMODE["Chrome extension relay<br/>(works on default profile, Chrome ≥ 136)"]
+| Mode | Explicit configuration | Ownership |
+| --- | --- | --- |
+| `live` | One literal loopback `live_endpoint`, or one absolute `live_profile` containing `DevToolsActivePort` | Attaches to that browser; disconnect never closes human Chrome. |
+| `dedicated` | Absolute `executable` | Launches an owned visible Chrome with an isolated profile under the native runtime directory. |
+| `headless` | Absolute `executable` | Uses the same owned profile and process rules, with headless Chrome. |
+| `extension` | Explicitly installed native extension | Opens an authenticated loopback relay after operation approval, then waits for the person to pin a tab. |
 
-    subgraph EXT["extension mode detail"]
-        W["whipcode local relay<br/>(token-authenticated)"] <-->|raw CDP| X["unpacked extension<br/>~/.whipcode/browser/extension"]
-        X <-->|chrome.debugger| TAB["the tab you pinned<br/>(green ● = attached)"]
-    end
+Live endpoints accept `http://127.0.0.1:PORT`, an equivalent literal IPv6 loopback
+address, or an exact `ws://…/devtools/browser/…` URL. HTTP discovery cannot redirect
+or change endpoint authority. Profile discovery uses only the named profile and
+its published loopback port. There is no well-known-profile scan, conventional
+port probe, downloaded executable, silent live-to-dedicated fallback, or browser
+process takeover. A locked dedicated profile fails explicitly; Whip does not
+kill another Chrome or move its profile to make the launch succeed.
+
+The native SDK exposes configuration CAS:
+
+```ts
+const current = await client.hosts.externalBrowser();
+await client.hosts.setExternalBrowser(current.revision, {
+  mode: 'headless',
+  executable: '/absolute/path/to/chrome',
+  live_endpoint: '',
+  live_profile: '',
+  allow_private_urls: false,
+});
 ```
 
-- **live** — whipcode scans well-known Chromium profile dirs for
-  `DevToolsActivePort` and attaches. Zero setup if you launch Chrome with
-  debugging on.
-- **dedicated / headless** — whipcode launches its own Chrome; the automatic
-  fallback when no debuggable Chrome is running.
-- **extension** — the only mode that works on Chrome ≥ 136's **default
-  profile**, where direct CDP is blocked. Chrome forbids programmatic
-  extension install, so setup is `whipcode browser install` plus three clicks
-  (Developer mode → Load unpacked → select the folder). Then click the
-  extension icon on a tab to pin it; click again to detach. While pinned,
-  Chrome shows a "whip is debugging this browser" bar — that bar *is* the
-  mechanism.
+After a lost configuration acknowledgment, read the host declaration and
+reconcile it. Do not automatically resend the edit. The driver (`rod` or
+`chromedp`) is a separate host setting; a process-level driver pin is reported
+explicitly. Changing effective external-browser configuration or driver retires
+old external connections and prepared captures.
+
+An agent explicitly names its external session:
+
+```python
+browser.run(session="default", code='goto("https://example.com"); info()')
+```
+
+JavaScript uses the same fields in an object. Names contain 1–64 letters, digits,
+dashes or underscores. A retained `mode:name` spelling is accepted only when its
+mode matches the host declaration; it cannot override host policy. A missing
+`session` does not select external Chrome. Never combine it with `attachment_id`
+or another Desktop lifecycle argument.
+
+`browser.external` authorizes the exact root, name and process generation. The
+permission intent identifies the mode, driver and whole-browser scope: live and
+owned Chrome may enumerate or select their tabs. Extension control is limited to
+the currently pinned tab. Children need an explicitly delegated grant for the
+same resource; sharing a root does not give them control.
+
+Named external sessions are bounded to four per root and sixteen per host.
+Live and extension modes each permit one selected resource on the host. Each
+resource allows one active batch plus four queued batches; at most four batches
+run across the host. The execution deadline defaults to 60 seconds and can be
+set explicitly up to 120 seconds. Permission waiting precedes that deadline.
+Cancellation removes queued work, and every CDP primitive rechecks its captured
+configuration and dispatched operation authority.
+
+A failed or canceled delivered batch retires the connection without replay.
+`client.hosts.externalBrowserSessions(sessionID)` lists bounded metadata.
+Root-only `reconnectExternalBrowser(rootID, name, generation)` explicitly creates
+a new prepared generation; it does not launch a browser or repeat the failed
+operation. `disconnectExternalBrowser` and permission revocation retire the exact
+generation. Old grants and captures cannot restore control after restart.
+Owned Chrome is stopped and joined; its profile cookies remain. Human Chrome
+and human pages remain open.
+
+### Helpers, uploads and screenshots
+
+The batch parser retains `goto`, `back`, `info`, `js`, `click`, `type`, `press`,
+`fill`, `scroll`, `waitLoad`, `waitFor`, `ax`, `box`, `tabs`, `useTab`, `dialog`,
+`screenshot`, `upload` and `print`. Parsing and static validation finish before
+permission. All modes reject metadata destinations; non-live modes also reject
+private network destinations unless `allow_private_urls` is explicitly enabled.
+The final page URL is checked after helper execution, including redirects. This
+is a destination policy, not a claim that arbitrary page JavaScript is a network
+sandbox.
+
+External `upload(selector, pathOrPaths)` requires the separate
+`browser.external.upload` capability for the exact browser generation,
+captured workspace and canonical path set. A generic browser-control grant
+cannot authorize host file bytes. Paths must remain inside the invoking
+session's captured working directory, including for children. The native host
+rejects replaced files/workspaces and nonregular files, then reads bounded bytes
+only after dispatch. Chrome receives private copies, not mutable workspace paths.
+At most sixteen files and sixteen MiB are retained per browser generation, with
+a four MiB limit per file. Copies remain available for a later form submission
+and are removed on generation retirement; the next exclusive runtime startup
+collects copies left by a crash. Capacity failure is explicit.
+
+Screenshots use canonical owner-scoped content references and the existing
+operation/cell image budgets. Accepted tool images become ordinary model vision
+parts; the host does not infer image authority from JSON text. Browser output is
+bounded to 64 KiB, individual CDP replies to 12 MiB, and transport overflow ends
+the connection rather than starting a replacement.
+
+### Extension installation
+
+Run `whipcode browser install`, or pass `--directory /absolute/runtime-directory`
+for a deliberately selected native runtime. The default location is
+`$WHIPCODE_HOME/runtime-v4/browser/extension` (or
+`~/.whipcode/runtime-v4/browser/extension`). Installation writes extension assets;
+it does not mint a token or launch a relay.
+
+In Chrome, open `chrome://extensions`, enable Developer mode, choose **Load
+unpacked**, and select the printed folder. Configure the native host's mode as
+`extension`. Submit and approve a named `browser.run` request, then click the
+extension icon on the desired tab while the host waits for selection. Clicking
+again detaches. A lost relay or controller connection requires explicit reconnect
+and a new human pin; the worker never reconnects or resends an old command.
+
+Implementation: [native connection factory](../internal/browser/native_open.go),
+[bounded owner](../internal/browser/native_host.go),
+[runtime admission](../internal/runtime/external_browser.go), and
+[SDK controls](../packages/sdk/src/services.ts).
 
 ## Desktop Browser tabs
 
-This experimental path controls **the same embedded page the human sees**, using
-the existing browser helper parser and Rod adapter over a scoped native CDP
-transport. It does not launch a second automation browser, expose a production
-debugging port, or fall back to any legacy browser mode. Desktop advertises inert
-availability for an exact open conversation and native window even with zero
-Browser tabs. An unambiguous destination can service an approved agent create;
-multiple candidate windows require explicit selection. Existing human pages must
-still be explicitly offered to a conversation before discovery or attachment.
+Desktop controls the same embedded page the person sees, through an exact
+root-offered tab and a scoped provider connection. It does not borrow external
+Chrome configuration or expose a production debugging port. Desktop advertises
+availability for an exact conversation/window; ambiguous destinations require
+explicit selection. Existing human pages must be offered before discovery or
+attachment.
 
-The RLM browser module adds `list_tabs`, `open`, `attach`, `allow_preview_port` and `detach`;
-`run` accepts an `attachment_id` as an alternative to its legacy session target.
-The MCP tool host exposes corresponding `browser_list_tabs`, `browser_open`, `browser_attach`,
-`browser_run`, `browser_allow_preview_port` and `browser_detach` tools. An unpaired
-MCP client can discover these names but receives an unavailable/denied result,
-not another browser. Do not combine legacy and attachment targets.
+`browser.list_tabs()` returns bounded metadata for offered and caller-owned
+pages. A listed ID is only a candidate for permission-gated `open` or `attach`.
+`browser.run(attachment_id=…, code=…)`, `detach`, and `allow_preview_port` retain
+exact provider/tab/profile/document authority. Child transfer requires explicit
+`browser_attachments` delegation during spawn and tracks ancestor revocation.
+Provider release, disconnect or revocation ends agent control without closing
+the person's page. Reconnect can advertise availability, not restore a grant.
 
-`browser.list_tabs()` requires Browser module authority, but not create/control
-approval. It returns current, bounded metadata for explicitly root-offered tabs,
-caller-created tabs and caller-owned attachments, not the window's private tab
-inventory. Page titles and URLs are untrusted data. Discovery never creates a
-page, acquires control, enables a preview route or injects inventories into prompts.
-An available Desktop with no shared pages returns `availability: "available"`
-and `tabs: []`; unavailable, ambiguous and older providers return structured
-errors. A listed `tab_id` is only a candidate for permission-gated `attach`.
+Desktop batches are serialized, bounded and never replay uncertain mutations.
+Screenshots travel over the exact holder connection into scoped native content.
+Filesystem-path uploads remain unavailable on this path. SSH previews can reach
+only approved literal loopback ports on the selected saved SSH connection; there
+is no Mac-local network fallback.
 
-Open, attach and port expansion resolve exact provider/tab/profile/preview
-identity **before** entering the existing durable permission dispatcher. Browser
-resource requests remain Once-only in prompt mode; existing automatic permission
-mode is respected. Availability and discovery do not bypass either policy.
-Permission waiting does not consume the page execution
-timeout; after approval, identity and authority are checked again. A run is
-serialized for its entire batch, with bounded queuing, cancellation, document
-revision checks and no replay of an uncertain delivered mutation. Screenshots
-use authorized chunk RPCs on the selected holder connection, including for
-WebSocket providers, scoped to the requesting root/agent. Agent filesystem upload/download helpers are
-unsupported on this path; they cannot turn a renderer path into host access.
-
-Attachment IDs alone convey no authority. Child use requires explicit
-`browser_attachments` delegation during spawn, with fresh child-bound control and
-ancestor revocation tracking; implicit inheritance is not allowed. Historical
-roots without Browser module grants stay denied—start a fresh conversation.
-Provider release, disconnect or revocation ends agent control without closing the
-human's page. Reconnect can re-advertise availability, never restore control.
-Existing explicit human-page offers require reselection; old roots are not
-silently given new discovery grants.
-
-For SSH previews, only approved literal remote loopback ports on the selected
-saved SSH connection are reachable; there is no Mac-local fallback. Preview
-network permission belongs to the tab environment, independently of the agent
-attachment. See [desktop behavior](desktop.md#browser-tabs-experimental) and the
-[frontend ownership boundary](frontend.md#native-browser-workspace-boundary).
-
-Implementation: [`internal/tools/browser_desktop.go`](../internal/tools/browser_desktop.go),
-[`internal/browser/desktop.go`](../internal/browser/desktop.go),
-[`internal/daemon/browser_provider.go`](../internal/daemon/browser_provider.go),
-[`SDK provider transport`](../packages/legacy-sdk/src/browser.ts), and
-[`native control`](../apps/desktop/src/browser-control.ts).
+Implementation: [browser host](../internal/browserhost/host.go),
+[runtime](../internal/runtime/browser.go),
+[SDK provider transport](../packages/sdk/src/browser-provider.ts), and
+[native Desktop control](../apps/desktop/src/browser-control.ts). See also
+[Desktop behavior](desktop.md#browser-tabs-experimental) and the
+[frontend boundary](frontend.md#native-browser-workspace-boundary).
 
 ## Computer use (macOS)
 
-`computer_exec` drives the actual desktop: accessibility tree first, pixels
-as fallback.
+`computer.run(code=…)` drives native apps through bounded helper batches. The
+host owns one revocable helper generation and borrows the same process manager
+as other native services. Status and availability reads do not extract, start,
+or enable the helper. Installing the bundled helper, enabling it, changing saved
+app policy, and reconnecting are explicit human actions with configuration or
+generation CAS.
 
-```mermaid
-flowchart LR
-    CE["computer_exec<br/>(model tool)"] --> H["Swift helper binary<br/>(Accessibility + Screen Recording)"]
-    H --> AX["AX tree<br/>state(), click by index,<br/>type, press, scroll"]
-    H --> PX["pixel fallback<br/>click(x,y), screenshot"]
-    CE --> CR["Chrome helpers<br/>(AppleScript — no helper needed)<br/>tabs, goto, JS eval"]
-```
+`state(app)` supplies indexed accessibility evidence and scoped screenshots.
+Indexed actions must match the observed app/UI generation in the current live
+kernel. Kernel eviction, disconnect and restart do not restore those indices.
+Saved Allow is availability policy, not a SQL grant; unlisted apps can still ask
+for one-off consent, while explicit Deny rejects them. Cancellation never turns
+a waiting batch into an authorized one.
 
-- **AX-first**: `state(app)` returns the app's indexed accessibility tree plus
-  a screenshot; `click(app, index)` acts on elements, not coordinates.
-  Element indexes are generation-guarded — if the UI changed since the read,
-  the action fails instead of clicking the wrong thing.
-- **Consent-gated**: the first drive of an app asks the user to approve.
-  whipcode never guesses credentials and stops at login walls.
-- **Chrome AppleScript path**: driving the user's open Chrome (tabs,
-  navigation, `chrome_js`) works through Chrome's AppleScript dictionary with
-  no helper at all — the flagship zero-setup path.
+Chrome AppleScript helpers retain their explicit app authority. General `tell`
+is visibly broad AppleScript authority, not an app-confined script. Required
+permissions and current helper/policy generations are checked before effects;
+partial failures remain uncertain without resume or replay. Accessibility and
+Screen Recording permissions are managed by macOS and are not bypassed.
 
-On macOS arm64 builds the Swift helper is embedded at build time via
-`task driver`.
-
-## Safety posture
-
-Both tools act on the user's behalf with the user's sessions:
-
-- browser relay requires a minted token; extension attach is explicit
-  (user clicks the icon per tab).
-- computer-use asks per-app consent and is confined to granted Accessibility
-  / Screen Recording permissions.
-- Screen content is treated as untrusted evidence, not instructions.
-
-## Read next
-
-- [features.md](features.md#browser-automation) — linked to code and tests
-- [learnings/browser-use-integration.md](learnings/browser-use-integration.md) —
-  the integration notes behind the design
-- README §Browser — the user-facing setup walkthrough
+Implementation: [runtime computer controls](../internal/runtime/computer.go),
+[helper controller](../internal/computer/controller.go), and
+[batch validation](../internal/computer/batch.go). Screen and page contents remain
+untrusted evidence, never instructions to the host.

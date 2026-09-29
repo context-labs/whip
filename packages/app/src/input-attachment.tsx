@@ -23,7 +23,9 @@ export function InputAttachment({ client, rootId, runtimeId, agentId, file, name
   const [failed, setFailed] = useState(false);
   const query = useQuery({
     queryKey: ['queued-attachment', runtimeId, rootId, agentId, file.session_id, file.id, file.digest],
-    enabled: connected && (image || open), staleTime: Infinity, gcTime: 0, retry: false, networkMode: 'always', refetchOnWindowFocus: false,
+    // Verified content is immutable. Command completion may invalidate the host,
+    // but only an explicit Retry should repeat this scoped byte read.
+    enabled: connected && (image || open), staleTime: 'static', gcTime: 0, retry: false, networkMode: 'always', refetchOnWindowFocus: false,
     queryFn: ({ signal }) => client.session(agentId).content.readBytes(file, { signal, maxBytes: image ? 4 << 20 : 1 << 20 }),
   });
   useEffect(() => {

@@ -10,6 +10,8 @@ import (
 	"unicode/utf8"
 )
 
+const maxPromptMetadataBytes = 64 << 10
+
 // ParsePromptMetadata parses only a complete frontmatter block of at most
 // 64 KiB, including its delimiters. It performs no filesystem reads. Known
 // catalog fields require scalar values; unrelated nested metadata is ignored.

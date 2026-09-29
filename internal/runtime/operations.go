@@ -29,6 +29,9 @@ func (r *Runtime) RevokeGrantForOwner(ctx context.Context, owner session.Session
 
 func (r *Runtime) retireRevokedGrant(ctx context.Context, grant session.Grant) {
 	r.languageServers.RetireAll()
+	if grant.Capability == "browser.external" || grant.Capability == "browser.external.upload" {
+		r.externalBrowser.RevokeResource(grant.Resource)
+	}
 	if grant.Capability == "browser.control" {
 		if owner, readErr := r.store.Session(ctx, grant.SessionID); readErr == nil {
 			if identity, identityErr := r.browserIdentity(ctx, owner); identityErr == nil {

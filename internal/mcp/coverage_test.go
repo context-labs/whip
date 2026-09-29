@@ -106,13 +106,13 @@ func TestRingBuffer(t *testing.T) {
 	}
 }
 
-func TestFromConfigMap(t *testing.T) {
+func TestNativeConfigs(t *testing.T) {
 	t.Setenv("FROMCFG_KEY", "v1")
 	in := map[string]mcpconfig.Server{
 		"docs": {Command: []string{"npx", "-y"}, Env: map[string]string{"K": "$FROMCFG_KEY"}, StartupTimeout: 3},
 		"web":  {URL: "https://x", Headers: map[string]string{"A": "b"}},
 	}
-	out := FromConfigMap(in)
+	out := NativeConfigs(in, "/fixture/runtime-v4/host.json")
 	// env references stay references through config load — resolution happens
 	// at spawn time (secretref.ResolveEnvMap), so a var set between launches
 	// still resolves and resolved secrets never sit in the config file
@@ -122,7 +122,7 @@ func TestFromConfigMap(t *testing.T) {
 	if !out["web"].Remote() || out["web"].Headers["A"] != "b" {
 		t.Errorf("web = %+v", out["web"])
 	}
-	if FromConfigMap(nil) != nil {
+	if NativeConfigs(nil, "/fixture/runtime-v4/host.json") != nil {
 		t.Error("nil in, nil out")
 	}
 }

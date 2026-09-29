@@ -1,0 +1,27 @@
+{
+  "type": "object",
+  "properties": {
+    "expected_revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "path": {
+      "type": "string",
+      "maxLength": 4096,
+      "pattern": "^[^\\x00]+$"
+    }
+  },
+  "$id": "https://whip.dev/protocol/v4/PublishSkillRootParams",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PublishSkillRootParams",
+  "required": [
+    "expected_revision",
+    "id",
+    "path"
+  ],
+  "additionalProperties": false
+}

@@ -42,18 +42,21 @@ func testNativeTUIPromptContext(t *testing.T) {
 		id  string
 		err error
 	}
-	acknowledged := make(chan struct{}, 1)
+	acknowledged := make(chan string, 1)
 	done := make(chan outcome, 1)
 	joined := make(chan struct{})
 	clientHome := t.TempDir()
 	t.Cleanup(func() { cancel(); _ = writer.Close(); <-joined })
 	go func() {
 		defer close(joined)
+		var lastAcknowledged string
 		id, err := tui.RunNative(ctx, connection, tui.NativeOptions{Resume: string(owner.ID), ClientHome: clientHome, InitialPrompt: "verify prompt environment"}, tea.WithInput(input), tea.WithOutput(io.Discard), tea.WithoutRenderer(), tea.WithWindowSize(100, 30), tea.WithFilter(func(model tea.Model, message tea.Msg) tea.Msg {
-			if strings.Contains(model.View().Content, "Accepted input") {
-				select {
-				case acknowledged <- struct{}{}:
-				default:
+			// Canonical settlement can precede the UI's admission response. Wait
+			// for each distinct acknowledgement before sending the next command.
+			if _, status, ok := strings.Cut(model.View().Content, "Accepted input "); ok {
+				if fields := strings.Fields(status); len(fields) > 0 && fields[0] != lastAcknowledged {
+					lastAcknowledged = fields[0]
+					acknowledged <- lastAcknowledged
 				}
 			}
 			return message
@@ -63,11 +66,7 @@ func testNativeTUIPromptContext(t *testing.T) {
 	for turn := range 2 {
 		marker := "STANDING_BEFORE_EDIT"
 		if turn == 1 {
-			select {
-			case <-acknowledged:
-			case <-ctx.Done():
-				t.Fatal("terminal did not acknowledge its first input", ctx.Err())
-			}
+
 			marker = "STANDING_AFTER_EDIT"
 			writePromptRequestFile(t, standing, "# COMMENT_MUST_NOT_REACH_MODEL\n"+marker)
 			if _, err := io.WriteString(writer, "/queue verify prompt environment\r"); err != nil {
@@ -102,8 +101,16 @@ func testNativeTUIPromptContext(t *testing.T) {
 			case <-time.After(10 * time.Millisecond):
 			}
 		}
+		select {
+		case <-acknowledged:
+		case <-ctx.Done():
+			t.Fatal("terminal did not acknowledge its input", ctx.Err())
+		}
 	}
-	if _, err := io.WriteString(writer, "\x03\x03"); err != nil {
+	// The host may settle before the terminal observes its idle state. Explicit
+	// quit detaches; double Ctrl+C targets a still-observed turn. A trailing
+	// space closes command completion so Enter submits instead of inserting.
+	if _, err := io.WriteString(writer, "/quit \r"); err != nil {
 		t.Fatal(err)
 	}
 	select {

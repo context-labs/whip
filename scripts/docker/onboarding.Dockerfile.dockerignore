@@ -22,8 +22,6 @@ internal/tui/whip-transcript-*.md
 internal/webassets/dist
 packages/sdk/dist
 packages/sdk/build
-packages/legacy-sdk/dist
-packages/legacy-sdk/build
 packages/ui/storybook-static
 examples/*/dist
 apps/*/dist

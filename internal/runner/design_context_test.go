@@ -23,6 +23,10 @@ func (s *designTranscript) History(_ context.Context, _ session.SessionID, after
 	return []session.Message{s.message}, nil
 }
 
+func (*designTranscript) ContentReference(_ context.Context, owner session.SessionID, id string) (session.ContentReference, error) {
+	return session.ContentReference{SessionID: owner, ID: id, MediaType: "text/plain", Size: int64(len("Literal selected evidence"))}, nil
+}
+
 func (*designTranscript) ReadContent(_ context.Context, owner session.SessionID, id string, _ int64) (session.ContentReference, []byte, error) {
 	data := []byte("Literal selected evidence")
 	return session.ContentReference{SessionID: owner, ID: id, MediaType: "text/plain", Size: int64(len(data))}, data, nil

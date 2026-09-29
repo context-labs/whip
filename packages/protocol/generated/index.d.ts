@@ -994,6 +994,16 @@ export interface ConfigureComputerParams {
     default_deny: boolean;
   };
 }
+export interface ConfigureExternalBrowserParams {
+  expected_revision: string;
+  configuration: {
+    mode: "disabled" | "live" | "dedicated" | "headless" | "extension";
+    executable: string;
+    live_endpoint: string;
+    live_profile: string;
+    allow_private_urls: boolean;
+  };
+}
 export interface ConfigureMCPParams {
   revision: string;
   name: string;
@@ -2283,6 +2293,138 @@ export interface ExecutorToolResultParams {
   invocation_id: string;
   output_base64: null | string;
   failure: string;
+}
+export interface ExternalBrowserConnectionParams {
+  root_id: string;
+  name: string;
+  generation: string;
+}
+export interface ExternalBrowserSession {
+  root_id: string;
+  name: string;
+  mode: "live" | "dedicated" | "headless" | "extension";
+  driver: "rod" | "chromedp";
+  generation: string;
+  resource: string;
+  state: "prepared" | "connected" | "ended";
+}
+export interface ExternalBrowserSessions {
+  /**
+   * @maxItems 4
+   */
+  items:
+    | null
+    | []
+    | [
+        {
+          root_id: string;
+          name: string;
+          mode: "live" | "dedicated" | "headless" | "extension";
+          driver: "rod" | "chromedp";
+          generation: string;
+          resource: string;
+          state: "prepared" | "connected" | "ended";
+        }
+      ]
+    | [
+        {
+          root_id: string;
+          name: string;
+          mode: "live" | "dedicated" | "headless" | "extension";
+          driver: "rod" | "chromedp";
+          generation: string;
+          resource: string;
+          state: "prepared" | "connected" | "ended";
+        },
+        {
+          root_id: string;
+          name: string;
+          mode: "live" | "dedicated" | "headless" | "extension";
+          driver: "rod" | "chromedp";
+          generation: string;
+          resource: string;
+          state: "prepared" | "connected" | "ended";
+        }
+      ]
+    | [
+        {
+          root_id: string;
+          name: string;
+          mode: "live" | "dedicated" | "headless" | "extension";
+          driver: "rod" | "chromedp";
+          generation: string;
+          resource: string;
+          state: "prepared" | "connected" | "ended";
+        },
+        {
+          root_id: string;
+          name: string;
+          mode: "live" | "dedicated" | "headless" | "extension";
+          driver: "rod" | "chromedp";
+          generation: string;
+          resource: string;
+          state: "prepared" | "connected" | "ended";
+        },
+        {
+          root_id: string;
+          name: string;
+          mode: "live" | "dedicated" | "headless" | "extension";
+          driver: "rod" | "chromedp";
+          generation: string;
+          resource: string;
+          state: "prepared" | "connected" | "ended";
+        }
+      ]
+    | [
+        {
+          root_id: string;
+          name: string;
+          mode: "live" | "dedicated" | "headless" | "extension";
+          driver: "rod" | "chromedp";
+          generation: string;
+          resource: string;
+          state: "prepared" | "connected" | "ended";
+        },
+        {
+          root_id: string;
+          name: string;
+          mode: "live" | "dedicated" | "headless" | "extension";
+          driver: "rod" | "chromedp";
+          generation: string;
+          resource: string;
+          state: "prepared" | "connected" | "ended";
+        },
+        {
+          root_id: string;
+          name: string;
+          mode: "live" | "dedicated" | "headless" | "extension";
+          driver: "rod" | "chromedp";
+          generation: string;
+          resource: string;
+          state: "prepared" | "connected" | "ended";
+        },
+        {
+          root_id: string;
+          name: string;
+          mode: "live" | "dedicated" | "headless" | "extension";
+          driver: "rod" | "chromedp";
+          generation: string;
+          resource: string;
+          state: "prepared" | "connected" | "ended";
+        }
+      ];
+}
+export interface ExternalBrowserStatus {
+  revision: string;
+  configuration: {
+    mode: "disabled" | "live" | "dedicated" | "headless" | "extension";
+    executable: string;
+    live_endpoint: string;
+    live_profile: string;
+    allow_private_urls: boolean;
+  };
+  driver: "rod" | "chromedp";
+  driver_pinned: boolean;
 }
 export interface ForkParams {
   fork_id: string;
@@ -3606,6 +3748,20 @@ export interface HostProfiles {
     runtime_id: string;
     connect_on_launch: boolean;
   }[];
+}
+export interface HostSkillRoots {
+  revision: string;
+  /**
+   * @maxItems 16
+   */
+  roots: {
+    id: string;
+    path: string;
+  }[];
+  /**
+   * @maxItems 16
+   */
+  defaults: string[];
 }
 export interface HostSkillsParams {
   scope: "global" | "project";
@@ -5922,6 +6078,11 @@ export interface ProviderReadinessParams {
     temperature?: null | number;
     top_p?: null | number;
   };
+}
+export interface PublishSkillRootParams {
+  expected_revision: string;
+  id: string;
+  path: string;
 }
 export interface PutContentParams {
   session_id: string;
@@ -9294,6 +9455,13 @@ export interface SetDefaultPermissionModeParams {
   expected_revision: string;
   mode: "prompt" | "automatic";
 }
+export interface SetDefaultSkillRootsParams {
+  expected_revision: string;
+  /**
+   * @maxItems 16
+   */
+  roots: string[];
+}
 export interface SetExecutionDefaultsParams {
   expected_revision: string;
   defaults: {
@@ -10664,6 +10832,7 @@ export interface ContractTypes {
   ComputerConnectionParams: ComputerConnectionParams;
   ComputerStatus: ComputerStatus;
   ConfigureComputerParams: ConfigureComputerParams;
+  ConfigureExternalBrowserParams: ConfigureExternalBrowserParams;
   ConfigureMCPParams: ConfigureMCPParams;
   ContentReference: ContentReference;
   ContextHead: ContextHead;
@@ -10692,6 +10861,10 @@ export interface ContractTypes {
   ExecutorPendingResult: ExecutorPendingResult;
   ExecutorProgressParams: ExecutorProgressParams;
   ExecutorToolResultParams: ExecutorToolResultParams;
+  ExternalBrowserConnectionParams: ExternalBrowserConnectionParams;
+  ExternalBrowserSession: ExternalBrowserSession;
+  ExternalBrowserSessions: ExternalBrowserSessions;
+  ExternalBrowserStatus: ExternalBrowserStatus;
   ForkParams: ForkParams;
   ForkResult: ForkResult;
   FormulateGoalParams: FormulateGoalParams;
@@ -10727,6 +10900,7 @@ export interface ContractTypes {
   HostOperationsParams: HostOperationsParams;
   HostOperationsResult: HostOperationsResult;
   HostProfiles: HostProfiles;
+  HostSkillRoots: HostSkillRoots;
   HostSkillsParams: HostSkillsParams;
   HostSkillsResult: HostSkillsResult;
   HostStandingInstructions: HostStandingInstructions;
@@ -10812,6 +10986,7 @@ export interface ContractTypes {
   ProviderPresetsResult: ProviderPresetsResult;
   ProviderReadiness: ProviderReadiness;
   ProviderReadinessParams: ProviderReadinessParams;
+  PublishSkillRootParams: PublishSkillRootParams;
   PutContentParams: PutContentParams;
   Question: Question;
   QuestionParams: QuestionParams;
@@ -10862,6 +11037,7 @@ export interface ContractTypes {
   SetBrowserDriverParams: SetBrowserDriverParams;
   SetBudgetParams: SetBudgetParams;
   SetDefaultPermissionModeParams: SetDefaultPermissionModeParams;
+  SetDefaultSkillRootsParams: SetDefaultSkillRootsParams;
   SetExecutionDefaultsParams: SetExecutionDefaultsParams;
   SetHostProfilesParams: SetHostProfilesParams;
   SetPermissionDenialParams: SetPermissionDenialParams;
@@ -10955,6 +11131,9 @@ export interface Operations {
   "host.attention": { params: HostAttentionParams; result: HostAttentionResult };
   "host.directories.list": { params: HostDirectoriesParams; result: HostDirectoriesResult };
   "host.directory.pick": { params: HostDirectoryPickParams; result: HostDirectoryPickResult };
+  "host.skills.roots": { params: EmptyParams; result: HostSkillRoots };
+  "host.skills.publish": { params: PublishSkillRootParams; result: HostSkillRoots };
+  "host.skills.set_defaults": { params: SetDefaultSkillRootsParams; result: HostSkillRoots };
   "host.skills.complete": { params: HostSkillsParams; result: HostSkillsResult };
   "host.standing.read": { params: EmptyParams; result: HostStandingInstructions };
   "host.standing.write": { params: WriteHostStandingInstructionsParams; result: HostStandingInstructions };
@@ -11097,6 +11276,11 @@ export interface Operations {
   "permissions.denial_edit": { params: PermissionModeEditParams; result: PermissionDenialEdit };
   "permissions.mode_edit": { params: PermissionModeEditParams; result: PermissionModeEdit };
   "host.profiles": { params: EmptyParams; result: HostProfiles };
+  "host.external_browser": { params: EmptyParams; result: ExternalBrowserStatus };
+  "host.set_external_browser": { params: ConfigureExternalBrowserParams; result: ExternalBrowserStatus };
+  "browser.external_sessions": { params: SessionParams; result: ExternalBrowserSessions };
+  "browser.reconnect_external": { params: ExternalBrowserConnectionParams; result: ExternalBrowserSession };
+  "browser.disconnect_external": { params: ExternalBrowserConnectionParams; result: ExternalBrowserSession };
   "host.browser_driver": { params: EmptyParams; result: HostBrowserDriver };
   "host.set_browser_driver": { params: SetBrowserDriverParams; result: HostBrowserDriver };
   "host.execution_defaults": { params: EmptyParams; result: HostExecutionDefaults };

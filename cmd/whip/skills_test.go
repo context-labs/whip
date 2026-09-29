@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/context-labs/whip/internal/config"
+	"github.com/context-labs/whip/internal/model"
 	"github.com/context-labs/whip/internal/skills"
 )
 
@@ -168,6 +170,7 @@ func TestSkillsImportContinuesPastFailure(t *testing.T) {
 // TestSkillsListCLI: `whipcode skills list` renders loaded skills and their
 // source dirs without error.
 func TestSkillsListCLI(t *testing.T) {
+	nativeRunFixtureConfigured(t, model.Scripted{}, config.Default())
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	wd := t.TempDir()

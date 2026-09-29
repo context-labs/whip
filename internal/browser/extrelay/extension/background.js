@@ -1,192 +1,178 @@
-// whip browser extension service worker.
-//
-// Clicking the toolbar icon on a tab pins it: the worker attaches
-// chrome.debugger to that tab, opens a WebSocket to the whip relay
-// (address + token from relay.json, which `whip browser install` writes
-// next to this file), and pipes raw CDP both ways. whip's rod backend talks
-// CDP to the relay; this worker forwards it to the tab and streams events
-// back. Clicking the icon again (or a debugger detach) unpins.
-//
-// Only the one pinned tab is ever drivable, and only while pinned.
-
-let ws = null;
-let pinnedTabId = null;
-// rod addresses the synthesized single session "whip-ext"; chrome.debugger
-// is inherently single-session, so we strip that field both ways.
+// The toolbar pin owns one exact tab/socket pair. A lost connection ends that
+// selection; neither the worker nor the host reconnects or resends effects.
 const SESSION_ID = "whip-ext";
+const MAX_MESSAGE_BYTES = 12 * 1024 * 1024;
+const MAX_PENDING_CALLS = 32;
+let selected = null;
+let selecting = false;
+let retiring = null;
+let pendingCalls = 0;
+let autoAttaching = false;
 
-async function relayEndpoint() {
-  const url = chrome.runtime.getURL("relay.json");
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("relay.json missing — run `whip browser install`");
-  const { addr, token, autoAttach } = await res.json();
-  if (!addr || !token) throw new Error("relay.json is incomplete — re-run `whip browser install`");
-  return {
-    ws: `ws://${addr}/ext?token=${encodeURIComponent(token)}`,
-    log: `http://${addr}/swlog?token=${encodeURIComponent(token)}`,
-    autoAttach: !!autoAttach,
-  };
+async function readRelay() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3000);
+  try {
+    const response = await fetch(chrome.runtime.getURL("relay.json"), { signal: controller.signal });
+    if (!response.ok) throw new Error("Start the native extension relay before pinning a tab");
+    const text = await response.text();
+    if (text.length > 4096) throw new Error("Relay configuration exceeds bounds");
+    const value = JSON.parse(text);
+    if (typeof value.addr !== "string" || !/^127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(value.addr) || Number(value.addr.split(":")[1]) > 65535 || typeof value.token !== "string" || !/^[a-f0-9]{48}$/.test(value.token)) {
+      throw new Error("Invalid native relay configuration");
+    }
+    return value;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
-// swlog POSTs a diagnostic line to the relay (test/debug): the SW's console
-// is hard to capture because it runs and suspends before a debugger attaches,
-// so each step of pin/autoAttach reports over plain HTTP instead. Reads the
-// relay address directly from relay.json so it works even when
-// relayEndpoint() itself is what's failing.
 async function swlog(step, extra) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3000);
   try {
-    const res = await fetch(chrome.runtime.getURL("relay.json"));
-    if (!res.ok) { return; }
-    const { addr, token } = await res.json();
-    if (!addr) { return; }
-    await fetch(`http://${addr}/swlog?token=${encodeURIComponent(token || "")}`, {
-      method: "POST",
-      body: step + (extra !== undefined ? ": " + extra : ""),
+    const { addr, token } = await readRelay();
+    await fetch(`http://${addr}/swlog?token=${token}`, {
+      method: "POST", signal: controller.signal,
+      body: (step + (extra === undefined ? "" : `: ${extra}`)).slice(0, 1024),
     });
-  } catch (_) {}
+  } catch (_) {
+    // Diagnostics never select a tab or retry an effect.
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
-// autoAttach (test/CI only): when relay.json sets it, pin the currently
-// active tab on startup without waiting for an icon click — lets the E2E
-// test load the extension and drive a tab unattended. Off by default; the
-// production flow is always an explicit icon click. Retries: the service
-// worker can start before Chrome has opened its first tab.
-async function maybeAutoAttach() {
-  let auto = false;
-  try {
-    auto = (await relayEndpoint()).autoAttach;
-  } catch (err) {
-    swlog("relay-read-failed", String(err));
+function current(binding) {
+  return selected === binding && !binding.closed;
+}
+
+function badge(binding, on) {
+  chrome.action.setBadgeText({ text: on ? "●" : "", tabId: binding.tabId }).catch(() => {});
+  if (on) chrome.action.setBadgeBackgroundColor({ color: "#16a34a", tabId: binding.tabId }).catch(() => {});
+}
+
+function send(binding, value) {
+  if (!current(binding) || binding.socket?.readyState !== WebSocket.OPEN) return;
+  const encoded = JSON.stringify(value);
+  if (encoded.length > MAX_MESSAGE_BYTES || new TextEncoder().encode(encoded).length > MAX_MESSAGE_BYTES || binding.socket.bufferedAmount + encoded.length > MAX_MESSAGE_BYTES) {
+    void unpin(binding);
     return;
   }
-  swlog("autoAttach-flag", String(auto));
-  if (!auto) return;
-  for (let i = 0; i < 30 && pinnedTabId == null; i++) {
-    try {
-      const tabs = await chrome.tabs.query({});
-      const tab = tabs.find((t) => t.url && !t.url.startsWith("chrome://")) || tabs[0];
-      swlog("poll", `i=${i} tabs=${tabs.length} tab=${tab && tab.id} url=${tab && tab.url}`);
-      if (tab && tab.id != null) {
-        await pin(tab.id);
-        swlog("pinned", `tabId=${tab.id}`);
-        return;
-      }
-    } catch (err) {
-      swlog("autoAttach-attempt-failed", String(err && err.message || err));
-    }
-    await new Promise((r) => setTimeout(r, 500));
-  }
+  binding.socket.send(encoded);
 }
 
-function setBadge(on) {
-  const text = on ? "●" : "";
-  const color = on ? "#16a34a" : "#000000";
-  if (pinnedTabId != null) {
-    chrome.action.setBadgeText({ text, tabId: pinnedTabId }).catch(() => {});
-    if (on) chrome.action.setBadgeBackgroundColor({ color, tabId: pinnedTabId }).catch(() => {});
+// Local revocation is synchronous. The browser API's in-flight commands cannot
+// be undone; their late results stay with the retired binding and are discarded.
+function unpin(binding = selected) {
+  if (!binding || binding.closed) return retiring ?? Promise.resolve();
+  binding.closed = true;
+  if (selected === binding) selected = null;
+  const socket = binding.socket;
+  if (socket) {
+    socket.onopen = socket.onmessage = socket.onclose = socket.onerror = null;
+    socket.close();
   }
+  badge(binding, false);
+  const cleanup = (async () => {
+    if (binding.attached) { try { await chrome.debugger.detach({ tabId: binding.tabId }); } catch (_) {} }
+  })();
+  retiring = cleanup;
+  cleanup.finally(() => { if (retiring === cleanup) retiring = null; });
+  return cleanup;
 }
 
 async function pin(tabId) {
-  // Attach the debugger first so failures surface before we open the socket.
-  await swlog("pin-enter", `tabId=${tabId}`);
-  await chrome.debugger.attach({ tabId }, "1.3");
-  await swlog("debugger-attached", `tabId=${tabId}`);
-  pinnedTabId = tabId;
-  const { ws: endpoint } = await relayEndpoint();
-  ws = new WebSocket(endpoint);
-  ws.onopen = async () => {
-    await swlog("ws-open", `tabId=${tabId}`);
-    // Tell the relay which tab it is driving so Target.getTargets can
-    // describe it accurately.
-    let title = "", url = "";
-    try {
-      const t = await chrome.tabs.get(tabId);
-      title = t.title || ""; url = t.url || "";
-    } catch (_) {}
-    ws.send(JSON.stringify({ method: "whip.attached", params: { tabId, title, url } }));
-    setBadge(true);
-  };
-  ws.onerror = () => { swlog("ws-error", `tabId=${tabId}`); };
-  ws.onmessage = (ev) => {
-    // CDP request from whip → the pinned tab.
-    try {
-      const msg = JSON.parse(ev.data);
-      if (msg.sessionId === SESSION_ID) delete msg.sessionId;
-      chrome.debugger
-        .sendCommand({ tabId }, msg.method, msg.params || {})
-        .then((result) => {
-          if (msg.id) send({ id: msg.id, result: result || {} });
-        })
-        .catch((err) => {
-          if (msg.id) send({ id: msg.id, error: { code: -32000, message: String(err && err.message || err) } });
-        });
-    } catch (_) {}
-  };
-  ws.onclose = () => unpin();
-  ws.onerror = () => {};
-}
-
-function send(obj) {
-  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
-}
-
-async function unpin() {
-  const tabId = pinnedTabId;
-  pinnedTabId = null;
-  if (ws) {
-    const s = ws;
-    ws = null;
-    try { s.close(); } catch (_) {}
-  }
-  if (tabId != null) {
-    setBadge(false);
-    try { await chrome.debugger.detach({ tabId }); } catch (_) {}
-  }
-}
-
-// Tab events → whip (as CDP events). chrome.debugger.onEvent fires for the
-// pinned tab while attached.
-chrome.debugger.onEvent.addListener((source, method, params) => {
-  if (source.tabId === pinnedTabId) send({ method, params: params || {} });
-});
-
-// Chrome detached the debugger (user clicked "Cancel" on the infobar, etc.).
-chrome.debugger.onDetach.addListener((source) => {
-  if (source.tabId === pinnedTabId) unpin();
-});
-
-// Toolbar icon toggles the pin on the active tab.
-chrome.action.onClicked.addListener(async (tab) => {
-  if (pinnedTabId === tab.id) {
-    await unpin();
-    return;
-  }
-  if (pinnedTabId != null) await unpin(); // re-pinning moves the pin
+  if (selected || retiring || !Number.isSafeInteger(tabId) || tabId < 0) throw new Error("Browser selection is unavailable");
+  const binding = { tabId, socket: null, closed: false, attached: false, requests: new Set() };
+  selected = binding;
   try {
-    await pin(tab.id);
-  } catch (err) {
-    console.error("whip: pin failed:", err);
-    pinnedTabId = null;
+    const { addr, token } = await readRelay();
+    if (!current(binding)) return;
+    await chrome.debugger.attach({ tabId }, "1.3");
+    binding.attached = true;
+    if (!current(binding)) { try { await chrome.debugger.detach({ tabId }); } catch (_) {} return; }
+    const socket = new WebSocket(`ws://${addr}/ext?token=${token}`);
+    binding.socket = socket;
+    socket.onopen = async () => {
+      let title = "", url = "";
+      try {
+        const tab = await chrome.tabs.get(tabId);
+        title = typeof tab.title === "string" ? tab.title : "";
+        url = typeof tab.url === "string" ? tab.url : "";
+      } catch (_) {}
+      if (!current(binding)) return;
+      if (new TextEncoder().encode(title).length > 4096 || new TextEncoder().encode(url).length > 8192) { await unpin(binding); return; }
+      send(binding, { method: "whip.attached", params: { tabId, title, url } });
+      if (current(binding)) badge(binding, true);
+    };
+    socket.onmessage = (event) => {
+      if (!current(binding)) return;
+      try {
+        if (typeof event.data !== "string" || event.data.length > MAX_MESSAGE_BYTES || new TextEncoder().encode(event.data).length > MAX_MESSAGE_BYTES) throw new Error("CDP frame exceeds bounds");
+        const message = JSON.parse(event.data);
+        if (!Number.isSafeInteger(message.id) || message.id <= 0 || typeof message.method !== "string" || message.method.length > 256 || binding.requests.has(message.id) || pendingCalls >= MAX_PENDING_CALLS || (message.sessionId !== undefined && message.sessionId !== SESSION_ID)) throw new Error("Invalid CDP request");
+        binding.requests.add(message.id);
+        pendingCalls++;
+        // Capture the binding, never the mutable selected socket. No retry.
+        Promise.resolve().then(() => {
+          if (!current(binding)) throw new Error("Selection retired");
+          return chrome.debugger.sendCommand({ tabId }, message.method, message.params || {});
+        }).then((result) => {
+          send(binding, { id: message.id, result: result || {} });
+        }, () => {
+          send(binding, { id: message.id, error: { code: -32000, message: "Chrome debugger command failed" } });
+        }).finally(() => { pendingCalls--; binding.requests.delete(message.id); });
+      } catch (_) { void unpin(binding); }
+    };
+    socket.onclose = () => { void unpin(binding); };
+    socket.onerror = () => { void unpin(binding); };
+  } catch (error) {
+    await unpin(binding);
+    throw error;
   }
-});
+}
 
-// Keep the service worker alive while pinned (MV3 suspends idle workers).
+async function select(tab) {
+  if (selecting || retiring) return;
+  selecting = true;
+  try {
+    const previous = selected;
+    if (previous) await unpin(previous);
+    if (previous?.tabId !== tab.id) await pin(tab.id);
+  } catch (_) {
+    // Chrome shows its own permission/debugger error; no implicit alternate tab.
+  } finally { selecting = false; }
+}
+
+chrome.debugger.onEvent.addListener((source, method, params) => {
+  const binding = selected;
+  if (binding && source.tabId === binding.tabId) send(binding, { method, params: params || {} });
+});
+chrome.debugger.onDetach.addListener((source) => {
+  const binding = selected;
+  if (binding && source.tabId === binding.tabId) void unpin(binding);
+});
+chrome.action.onClicked.addListener(select);
 setInterval(() => {
-  if (pinnedTabId != null && ws && ws.readyState === WebSocket.OPEN) {
-    send({ method: "whip.ping", params: {} });
-  }
+  if (selected) send(selected, { method: "whip.ping", params: {} });
 }, 20000);
 
-// Wake the service worker for the lifecycle events that matter: install,
-// browser startup, and (test/CI) the autoAttach poll. MV3 SWs are dormant
-// until an event fires — top-level code alone won't reliably run autoAttach,
-// so it's driven by these listeners.
-chrome.runtime.onInstalled.addListener(() => { swlog("onInstalled"); maybeAutoAttach(); });
-chrome.runtime.onStartup.addListener(() => { swlog("onStartup"); maybeAutoAttach(); });
-
-// Test/CI hook: pin the active tab without a click when relay.json sets
-// autoAttach. No-op in the production flow (flag absent). Also run once at
-// top level in case the worker is already awake.
-swlog("sw-start", "top-level");
-maybeAutoAttach();
+// Test/CI opt-in only. Production relay state never writes autoAttach. These
+// retries select an initial tab, never repeat a CDP command or reconnect a pin.
+async function maybeAutoAttach() {
+  if (autoAttaching) return;
+  autoAttaching = true;
+  try {
+    if (!(await readRelay()).autoAttach) return;
+    for (let attempt = 0; attempt < 30 && !selected; attempt++) {
+      const tabs = await chrome.tabs.query({});
+      const tab = tabs.find((value) => value.url && !value.url.startsWith("chrome://")) || tabs[0];
+      if (tab) await select(tab);
+      if (!selected) await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  } catch (_) {} finally { autoAttaching = false; }
+}
+chrome.runtime.onInstalled.addListener(() => { void swlog("onInstalled"); void maybeAutoAttach(); });
+chrome.runtime.onStartup.addListener(() => { void swlog("onStartup"); void maybeAutoAttach(); });
+void maybeAutoAttach();

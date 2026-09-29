@@ -3,63 +3,70 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/context-labs/whip/internal/browser/extrelay"
+	"github.com/context-labs/whip/internal/buildinfo"
+	"github.com/context-labs/whip/internal/localruntime"
 )
 
-// browserCLI implements `whipcode browser <install>`.
-//
-//	install    write the unpacked extension to ~/.whipcode/browser/extension,
-//	           generate a relay token, and open chrome://extensions + the
-//	           folder so the user can load it (Chrome forbids programmatic
-//	           install — the three clicks are on the user).
+// browserCLI explicitly installs native extension assets. Relay credentials are
+// published only by an approved native browser operation, never by installation.
 func browserCLI(args []string) error {
 	if len(args) == 0 {
 		return errors.New("usage: whipcode browser <install>")
 	}
 	switch args[0] {
 	case "install":
-		return browserInstall()
+		flags := flag.NewFlagSet("browser install", flag.ContinueOnError)
+		flags.SetOutput(io.Discard)
+		directory := flags.String("directory", "", "explicit native runtime directory")
+		if err := flags.Parse(args[1:]); err != nil {
+			return err
+		}
+		if flags.NArg() != 0 {
+			return errors.New("usage: whipcode browser install [--directory /absolute/runtime-directory]")
+		}
+		if *directory != "" && (!filepath.IsAbs(*directory) || filepath.Clean(*directory) != *directory) {
+			return errors.New("browser install directory must be clean and absolute")
+		}
+
+		return browserInstall(*directory)
 	default:
 		return fmt.Errorf("unknown whipcode browser subcommand %q (want: install)", args[0])
 	}
 }
 
-func browserInstall() error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
+func browserInstall(directory string) error {
+	if directory == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		paths, err := localruntime.Resolve(buildinfo.Home(home))
+		if err != nil {
+			return err
+		}
+		directory = paths.Directory
 	}
-	dir := extrelay.ExtensionDir(home)
+	dir := filepath.Join(directory, "browser", "extension")
 	written, err := extrelay.WriteExtension(dir)
 	if err != nil {
 		return fmt.Errorf("write extension: %w", err)
-	}
-
-	// Fresh relay token for the extension to authenticate with. The address
-	// is filled in for real when the agent starts the relay (ephemeral port);
-	// we write the token now and a placeholder addr that the running agent
-	// overwrites via WriteRelayState on startup.
-	r, err := extrelay.NewRelay()
-	if err != nil {
-		return fmt.Errorf("start relay to mint token: %w", err)
-	}
-	defer func() { _ = r.Close() }()
-	statePath, err := extrelay.WriteRelayState(home, r.Addr(), r.Token())
-	if err != nil {
-		return fmt.Errorf("write relay state: %w", err)
 	}
 
 	fmt.Println("whipcode browser extension written:")
 	for _, f := range written {
 		fmt.Println("  ", f)
 	}
-	fmt.Printf("  %s (relay address + token, 0600)\n\n", statePath)
+	fmt.Println()
 
 	fmt.Println("Load it into Chrome (3 clicks — Chrome doesn't allow programmatic install):")
 	fmt.Println("  1. In chrome://extensions, toggle ON \"Developer mode\" (top right).")
@@ -67,9 +74,12 @@ func browserInstall() error {
 	fmt.Printf("  3. Select this folder:\n       %s\n\n", dir)
 
 	fmt.Println("Then, to let whipcode drive a tab:")
-	fmt.Println("  - Set \"browser\": { \"mode\": \"extension\" } in ~/.whipcode/config.json.")
+	fmt.Printf("  - In %s, set external_browser.mode to extension (host version 21),\n", filepath.Join(directory, "host.json"))
+	fmt.Println("    or use the native SDK hosts.setExternalBrowser configuration CAS.")
+	fmt.Println("  - Submit and approve browser.run(session=\"default\", code=\"info()\").")
+	fmt.Println("    The running native host then publishes its private relay address and token.")
 	fmt.Println("  - Open the tab you want, click the whipcode extension icon (a green ● appears).")
-	fmt.Println("  - Click the icon again to detach.")
+	fmt.Println("  - Click the icon again to detach. Reconnect is explicit; no command is replayed.")
 	fmt.Println()
 	fmt.Println("Note: while pinned, Chrome shows a \"whipcode is debugging this browser\" bar —")
 	fmt.Println("that's chrome.debugger, the mechanism that lets whipcode drive your real session.")
@@ -81,24 +91,25 @@ func browserInstall() error {
 // openInstallTargets opens chrome://extensions and the extension folder so
 // the manual load is one switch away. Best-effort; failure isn't fatal.
 func openInstallTargets(dir string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	var urlCmd, dirCmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		urlCmd = exec.CommandContext(context.Background(), "open", "-a", "Google Chrome", "chrome://extensions")
-		dirCmd = exec.CommandContext(context.Background(), "open", dir)
+		urlCmd = exec.CommandContext(ctx, "open", "-a", "Google Chrome", "chrome://extensions")
+		dirCmd = exec.CommandContext(ctx, "open", dir)
 	case "windows":
-		urlCmd = exec.CommandContext(context.Background(), "cmd", "/c", "start", "", "chrome://extensions")
-		dirCmd = exec.CommandContext(context.Background(), "explorer", dir)
+		urlCmd = exec.CommandContext(ctx, "cmd", "/c", "start", "", "chrome://extensions")
+		dirCmd = exec.CommandContext(ctx, "explorer", dir)
 	default: // linux
-		urlCmd = exec.CommandContext(context.Background(), "xdg-open", "chrome://extensions")
-		dirCmd = exec.CommandContext(context.Background(), "xdg-open", dir)
+		urlCmd = exec.CommandContext(ctx, "xdg-open", "chrome://extensions")
+		dirCmd = exec.CommandContext(ctx, "xdg-open", dir)
 	}
-	if urlCmd != nil {
-		_ = urlCmd.Start()
+	if urlCmd != nil && dirCmd != nil {
+		if errors.Join(urlCmd.Run(), dirCmd.Run()) == nil {
+			fmt.Printf("\n(opened chrome://extensions and %s)\n", filepath.Clean(dir))
+			return
+		}
 	}
-	if dirCmd != nil {
-		_ = dirCmd.Start()
-	}
-	fmt.Println()
-	fmt.Printf("(opened chrome://extensions and %s for you)\n", filepath.Clean(dir))
+	fmt.Println("\nOpen chrome://extensions and the listed folder manually if they did not open.")
 }

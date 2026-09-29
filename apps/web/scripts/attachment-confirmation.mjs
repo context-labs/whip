@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { chromium, firefox, expect } from '@playwright/test';
 import { deadline, eventually, startFixture } from './native-fixture.mjs';
 
-// Hold only the actual canonical read that confirms this one authored input.
+// Hold the actual canonical read and completed receipt for this authored input.
 // Upload and admission remain real; cleanup discards held reads and never sends
 // a delayed effect. No alternate event stream or content cache is installed.
 const directory = process.env.WHIP_ATTACHMENT_CONFIRMATION_RESULTS ?? '/tmp/whip-attachment-confirmation-results';
@@ -18,6 +18,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
   assert(['chromium', 'firefox'].includes(name));
   let fixture, browser, page, release;
   let closed = false, released = false, heldBytes = 0;
+  let submission;
   const connections = new Set(), closing = new Set(), errors = [], content = [], held = [];
   const recordError = error => { if (errors.length < 64) errors.push(String(error.stack ?? error).slice(0, 4096)); };
   const closeEndpoint = endpoint => {
@@ -49,6 +50,10 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
         assert(Buffer.byteLength(data) <= (4 << 20));
         const request = JSON.parse(String(data));
         assert(requests.size < 8); requests.set(request.id, { method: request.method, owner: request.params?.session_id });
+        if (request.method === 'sessions.submit') {
+          assert.equal(request.params.session_id, root.id); assert.equal(submission, undefined, 'Only one submission is admitted');
+          submission = request.params.identity;
+        }
         if (['content.put', 'content.get', 'content.read'].includes(request.method)) {
           assert.equal(request.params.session_id, root.id); assert(content.length < 128);
           content.push({ method: request.method, owner: request.params.session_id, reference: request.params.reference_id });
@@ -58,10 +63,14 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
       server.onMessage(data => guarded(() => {
         assert(Buffer.byteLength(data) <= (4 << 20));
         const reply = JSON.parse(String(data)), request = requests.get(reply.id); requests.delete(reply.id);
-        if (!released && request?.owner === root.id && ['sessions.observe', 'sessions.history_page'].includes(request.method)
-          && reply.result?.messages?.some(message => message.role === 'user' && message.parts.some(part => part.type === 'text' && part.text === text))) {
+        const confirmation = request?.owner === root.id && ['sessions.observe', 'sessions.history_page'].includes(request.method)
+          && reply.result?.messages?.some(message => message.role === 'user' && message.parts.some(part => part.type === 'text' && part.text === text));
+        const completion = request?.method === 'receipts.match' && submission && reply.result?.turn?.session_id === root.id
+          && reply.result.turn.finished_at && reply.result.receipt.identity.client_id === submission.client_id
+          && reply.result.receipt.identity.request_id === submission.request_id;
+        if (!released && (confirmation || completion)) {
           assert(held.length < 4); heldBytes += Buffer.byteLength(data); assert(heldBytes <= (1 << 20));
-          held.push({ method: request.method, owner: request.owner }); forwards.push(() => guarded(() => socket.send(data))); return;
+          held.push({ method: request.method, owner: root.id }); forwards.push(() => guarded(() => socket.send(data))); return;
         }
         socket.send(data);
       }));
@@ -73,7 +82,7 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     await form.locator('input[type=file]').setInputFiles({ name: 'continuity.txt', mimeType: 'text/plain', buffer: bytes });
     await expect(form.getByRole('button', { name: 'Send message', exact: true })).toBeEnabled();
     await input.fill(text); await form.getByRole('button', { name: 'Send message', exact: true }).click();
-    await eventually(() => held.length > 0, { description: 'canonical attachment confirmation is held' });
+    await eventually(() => held.some(read => read.method === 'receipts.match') && held.some(read => read.method !== 'receipts.match'), { description: 'canonical attachment confirmation and completed receipt are held' });
     const row = page.getByRole('region', { name: 'Conversation', exact: true }).locator('[data-message-role="user"]').filter({ hasText: text });
     await row.getByRole('button', { name: 'Preview Attachment 1', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Attachment 1', exact: true });
@@ -88,6 +97,14 @@ for (const name of (process.env.WHIP_WEB_BROWSERS ?? 'chromium,firefox').split('
     assert.equal(reference.digest, createHash('sha256').update(bytes).digest('hex'));
     const metadataReads = content.filter(record => record.method === 'content.get').length;
     release();
+    await eventually(() => page.evaluate(identity => {
+      const records = JSON.parse(localStorage.getItem('whip.web.recovery.v4') ?? '[]');
+      return !records.some(({ record }) => {
+        const request = JSON.parse(record.request);
+        return request.method === 'sessions.submit' && request.params.identity.client_id === identity.client_id && request.params.identity.request_id === identity.request_id;
+      });
+    }, submission), { description: 'renderer processes exact turn completion and retires its recovery record' });
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
     await expect(page.locator(`[data-reading-seq="${canonical.sequence}"]`)).toBeVisible();
     await expect(dialog).toBeVisible();
     assert(await dialog.evaluate(node => node === window.confirmationDialog && node.isConnected), 'Confirmation must retain the same open dialog');

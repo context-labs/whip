@@ -14,139 +14,16 @@ permissions:
   contents: read
 
 jobs:
-  checks:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-15]
-        gate: [build, race-store-first, race-store-rest, race-runtime-first, race-runtime-rest, race-other, clients]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-          cache: true
-          # Keep the test compiler cache separate from analysis and production CI.
-          cache-dependency-path: |
-            go.sum
-            Taskfile.yaml
-      - if: matrix.gate == 'clients'
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 24
-          cache: npm
-      - run: go install github.com/go-task/task/v3/cmd/task@v3.48.0
-      - if: matrix.gate == 'clients'
-        run: npm ci --no-audit --no-fund
-      - name: Required ${{ matrix.gate }} gate
-        env:
-          # The retained legacy fixture uses this; v4 acceptance builds the
-          # production binary. Required Go package suites still run with -race.
-          WHIP_SDK_RACE: '1'
-        run: |
-          # The native browser package exercises dedicated headed sessions.
-          # Use the runner's sandbox-capable Chrome and an isolated X display.
-          if [[ "$RUNNER_OS" == Linux && ( "${{ matrix.gate }}" == build || "${{ matrix.gate }}" == race-other ) ]]; then
-            xvfb-run --auto-servernum task check:${{ matrix.gate }}
-          else
-            task check:${{ matrix.gate }}
-          fi
-      - name: Failure artifacts
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: redesign-failure-${{ matrix.os }}-${{ matrix.gate }}
-          path: test-results/redesign/
-          if-no-files-found: ignore
+  product:
+    uses: ./.github/workflows/ci.yml
 
-  products:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - {os: ubuntu-latest, gate: product-web}
-          - {os: ubuntu-latest, gate: product-browser}
-          - {os: ubuntu-latest, gate: product-content}
-          - {os: ubuntu-latest, gate: product-activity}
-          - {os: ubuntu-latest, gate: product-settings}
-          - {os: ubuntu-latest, gate: product-distributions}
-          - {os: macos-15, gate: product-distributions}
-          - {os: ubuntu-latest, gate: product-mobile}
-          - {os: ubuntu-latest, gate: product-examples}
-          - {os: ubuntu-latest, gate: product-evals}
-          - {os: ubuntu-latest, gate: product-docs}
-          # macos-15 is Apple Silicon, matching the supported desktop artifact.
-          - {os: macos-15, gate: product-desktop}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-          cache: true
-          cache-dependency-path: |
-            go.sum
-            Taskfile.yaml
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 24
-          cache: npm
-      - run: go install github.com/go-task/task/v3/cmd/task@v3.48.0
-      - run: npm ci --no-audit --no-fund
-      - if: matrix.gate == 'product-evals'
-        run: |
-          python3 -m venv "$RUNNER_TEMP/whip-eval-uv"
-          "$RUNNER_TEMP/whip-eval-uv/bin/pip" install uv==0.11.7
-          echo "$RUNNER_TEMP/whip-eval-uv/bin" >> "$GITHUB_PATH"
-      - if: matrix.gate == 'product-desktop'
-        run: |
-          node node_modules/electron/install.js
-          npx playwright install ffmpeg
-      - if: matrix.gate == 'product-browser' || matrix.gate == 'product-content' || matrix.gate == 'product-activity' || matrix.gate == 'product-settings' || matrix.gate == 'product-examples' || matrix.gate == 'product-distributions'
-        run: npx playwright install --with-deps chromium firefox
-      - name: Required ${{ matrix.gate }} gate
-        run: task check:${{ matrix.gate }}
-      - name: Product failure artifacts
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: redesign-failure-${{ matrix.os }}-${{ matrix.gate }}
-          path: |
-            test-results/redesign/
-            /tmp/whip-*-results/
-            /tmp/whip-history-prefetch/
-          if-no-files-found: ignore
-
-  analysis:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-          cache: true
-          cache-dependency-path: |
-            go.sum
-            Taskfile.yaml
-            .golangci.yml
-      - run: go install github.com/go-task/task/v3/cmd/task@v3.48.0
-      - run: task check:analysis
-
-  # Keep one stable required context; a failed or cancelled dependency fails it.
+  # Keep the existing branch-required context while sharing the normal gate.
   redesign:
     if: always()
-    needs: [checks, products, analysis]
+    needs: product
     runs-on: ubuntu-latest
     steps:
-      - name: Require every active check
+      - name: Require complete product CI
         env:
-          CHECKS_RESULT: ${{ needs.checks.result }}
-          PRODUCTS_RESULT: ${{ needs.products.result }}
-          ANALYSIS_RESULT: ${{ needs.analysis.result }}
-        run: test "$CHECKS_RESULT" = success && test "$PRODUCTS_RESULT" = success && test "$ANALYSIS_RESULT" = success
+          PRODUCT_RESULT: ${{ needs.product.result }}
+        run: test "$PRODUCT_RESULT" = success

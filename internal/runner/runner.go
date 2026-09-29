@@ -36,6 +36,7 @@ type Attempts interface {
 	SettleModelAttempt(context.Context, session.ModelAttemptID, session.ModelAttemptResult, *session.MessageDraft) (session.ModelAttempt, error)
 }
 type ContentReader interface {
+	ContentReference(context.Context, session.SessionID, string) (session.ContentReference, error)
 	ReadContent(context.Context, session.SessionID, string, int64) (session.ContentReference, []byte, error)
 }
 type Executor interface {
@@ -130,7 +131,7 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 	if err != nil {
 		return Failure(err), nil
 	}
-	if err := r.hydrate(ctx, &request); err != nil {
+	if err := r.hydrateContext(ctx, turn, configuration, &request, &size, &folds, nil); err != nil {
 		return Failure(err), nil
 	}
 	pressure := contextPressure{}
@@ -167,7 +168,7 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 				}
 			}
 			if len(messages) > 0 {
-				if err := r.hydrate(ctx, &request); err != nil {
+				if err := r.hydrateContext(ctx, turn, configuration, &request, &size, &folds, correction); err != nil {
 					return Failure(err), nil
 				}
 			}
@@ -177,7 +178,7 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 			if err != nil {
 				return Failure(err), nil
 			}
-			if err := r.hydrate(ctx, &request); err != nil {
+			if err := r.hydrateContext(ctx, turn, configuration, &request, &size, &folds, correction); err != nil {
 				return Failure(err), nil
 			}
 		}
@@ -231,7 +232,7 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 							return Failure(err), nil
 						}
 					}
-					if err := r.hydrate(ctx, &request); err != nil {
+					if err := r.hydrateContext(ctx, turn, configuration, &request, &size, &folds, correction); err != nil {
 						return Failure(err), nil
 					}
 					continue
@@ -243,7 +244,7 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 					if err := r.appendCompletedContext(&request, completed, &size); err != nil {
 						return Failure(err), nil
 					}
-					if err := r.hydrate(ctx, &request); err != nil {
+					if err := r.hydrateContext(ctx, turn, configuration, &request, &size, &folds, correction); err != nil {
 						return Failure(err), nil
 					}
 					if _, err := r.proactiveContext(ctx, turn, configuration, &request, &size, &folds, correction, &pressure, prepared); err != nil {
@@ -269,7 +270,7 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 			if err := r.appendTurnContext(&request, session.System, correction, &size); err != nil {
 				return Failure(err), nil
 			}
-			if err := r.hydrate(ctx, &request); err != nil {
+			if err := r.hydrateContext(ctx, turn, configuration, &request, &size, &folds, correction); err != nil {
 				return Failure(err), nil
 			}
 			continue
@@ -298,7 +299,7 @@ func (r *Runner) Run(ctx context.Context, turn session.Turn, configuration sessi
 				return Failure(err), nil
 			}
 		}
-		if err := r.hydrate(ctx, &request); err != nil {
+		if err := r.hydrateContext(ctx, turn, configuration, &request, &size, &folds, correction); err != nil {
 			return Failure(err), nil
 		}
 	}

@@ -120,6 +120,21 @@ export const manifest = {
       "result": "HostDirectoryPickResult"
     },
     {
+      "name": "host.skills.roots",
+      "params": "EmptyParams",
+      "result": "HostSkillRoots"
+    },
+    {
+      "name": "host.skills.publish",
+      "params": "PublishSkillRootParams",
+      "result": "HostSkillRoots"
+    },
+    {
+      "name": "host.skills.set_defaults",
+      "params": "SetDefaultSkillRootsParams",
+      "result": "HostSkillRoots"
+    },
+    {
       "name": "host.skills.complete",
       "params": "HostSkillsParams",
       "result": "HostSkillsResult"
@@ -828,6 +843,31 @@ export const manifest = {
       "name": "host.profiles",
       "params": "EmptyParams",
       "result": "HostProfiles"
+    },
+    {
+      "name": "host.external_browser",
+      "params": "EmptyParams",
+      "result": "ExternalBrowserStatus"
+    },
+    {
+      "name": "host.set_external_browser",
+      "params": "ConfigureExternalBrowserParams",
+      "result": "ExternalBrowserStatus"
+    },
+    {
+      "name": "browser.external_sessions",
+      "params": "SessionParams",
+      "result": "ExternalBrowserSessions"
+    },
+    {
+      "name": "browser.reconnect_external",
+      "params": "ExternalBrowserConnectionParams",
+      "result": "ExternalBrowserSession"
+    },
+    {
+      "name": "browser.disconnect_external",
+      "params": "ExternalBrowserConnectionParams",
+      "result": "ExternalBrowserSession"
     },
     {
       "name": "host.browser_driver",
