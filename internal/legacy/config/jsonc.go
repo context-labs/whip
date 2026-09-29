@@ -2,9 +2,10 @@ package config
 
 import (
 	"encoding/json"
-	"github.com/context-labs/whip/internal/jsonc"
 	"os"
 	"path/filepath"
+
+	"github.com/context-labs/whip/internal/jsonc"
 )
 
 func stripJSONC(src []byte) ([]byte, error) { return jsonc.Strip(src) }

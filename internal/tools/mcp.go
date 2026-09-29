@@ -12,6 +12,7 @@ import (
 )
 
 type MCPAttachment = capability.MCPAttachment
+
 type MCPResult = capability.MCPResult
 
 // MCPProvider resolves canonical tool identities and checks a call after its
