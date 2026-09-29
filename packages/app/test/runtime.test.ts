@@ -91,6 +91,30 @@ describe('v4 application observation ownership', () => {
     await vi.waitFor(() => expect(local.mock.calls.length).toBe(countA + 1)); expect(other.mock.calls.length).toBe(countB);
     offA(); offB(); app.dispose();
   });
+  it.each(['cancelled', 'failed', 'ready'] as const)('provider metadata warming settles on %s readiness without an unhandled rejection', async outcome => {
+    const app = runtime();
+    const defaults = { provider: 'fixture', name: 'model', effort: '' };
+    const providerReadiness = vi.fn(async (_selection: unknown, { signal }: { signal: AbortSignal }) => {
+      if (outcome === 'failed') throw new Error('Readiness unavailable');
+      if (outcome === 'ready') return { configured: true, credential_state: 'available' };
+      return new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    });
+    const client = { runtimeID: 'runtime', processEpoch: 'epoch',
+      listProviders: async () => ({ defaults, routes: [] }), providerReadiness,
+      providerPresets: async () => [], getDefaultPermissionMode: async () => ({}), mcpConfiguration: async () => ({}),
+      hosts: { executionDefaults: async () => ({}) },
+    } as unknown as Client;
+    vi.spyOn(app.connections, 'isAttached').mockReturnValue(true);
+    const settled = app.primeProviders('runtime', client).then(() => 'settled', error => error);
+    await vi.waitFor(() => expect(providerReadiness).toHaveBeenCalledOnce());
+    if (outcome === 'cancelled') await app.queries.cancelQueries({ queryKey: ['provider-readiness', 'runtime'], exact: false });
+    try {
+      expect(await settled).toBe('settled');
+      expect(app.platform.storage.getItem('whip.web.provider-ready.v1:runtime')).toBe(outcome === 'ready' ? 'true' : null);
+      if (outcome === 'failed') expect(app.queries.getQueryState(['provider-readiness', 'runtime', defaults])?.error?.message).toBe('Readiness unavailable');
+      expect(app.getSnapshot().error).toBeUndefined();
+    } finally { app.dispose(); }
+  });
   it('retains only host query metadata after its consumer leaves', async () => {
     vi.useFakeTimers(); const app = runtime(); const keys = ['provider-list', 'provider-presets', 'provider-readiness', 'provider-catalogs', 'host-permission-default', 'host-execution-defaults', 'mcp-configuration', 'definitions'];
     for (const key of [...keys, 'detail']) { const observer = new QueryObserver(app.queries, { queryKey: [key, 'runtime'], queryFn: async () => ({ value: true }) }); const off = observer.subscribe(() => {}); await observer.refetch(); off(); }

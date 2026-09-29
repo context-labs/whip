@@ -337,9 +337,12 @@ export class AppRuntime {
         const inventory = this.queries.getQueryData<Operations['providers.list']['result']>(['provider-list', runtimeId]);
         if (!inventory) return;
         if (!inventory.defaults) { rememberProviderReady(this.platform.storage, runtimeId, false); return; }
-        const ready = await this.queries.fetchQuery({ queryKey: ['provider-readiness', runtimeId, inventory.defaults],
+        const queryKey = ['provider-readiness', runtimeId, inventory.defaults];
+        await this.queries.prefetchQuery({ queryKey,
           queryFn: ({ signal }) => client.providerReadiness(inventory.defaults!, { signal }) });
-        if (this.connections.isAttached(client)) rememberProviderReady(this.platform.storage, runtimeId, ready.configured && ['available', 'not_required'].includes(ready.credential_state));
+        const ready = this.queries.getQueryState<Operations['providers.readiness']['result']>(queryKey);
+        if (ready?.status === 'success' && ready.data && this.connections.isAttached(client))
+          rememberProviderReady(this.platform.storage, runtimeId, ready.data.configured && ['available', 'not_required'].includes(ready.data.credential_state));
       });
   }
   /** Remove local state only after deletion has succeeded on this runtime. */
