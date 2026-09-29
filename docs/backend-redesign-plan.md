@@ -715,8 +715,10 @@ same helper attempt loop, atomic billing/candidate/activation settlement, bounde
 captured raw source, public maintenance receipts and immutable candidate reads.
 The SDK process scenario covers root/child ownership, lost acknowledgements,
 rejected activation, automatic initial input and dispatched crash recovery.
-Hosted formulation validation passed at `c47fefe96` in run `36484832748`;
-product-client adoption remains open.
+Hosted formulation validation passed at `c47fefe96` in run `36484832748`.
+Subsequent shared/mobile and [terminal goal controls](../internal/tui/native_goals.go)
+complete the implementation's client adoption. Final combined and live-provider
+acceptance remains open in [the gate audit](backend-native-gate-audit.md).
 
 Stateless model-helper implementation decisions:
 
@@ -820,7 +822,7 @@ Automatic-title implementation decisions (backend/SDK implemented and locally va
   retain unopened/off-page title refresh through host/catalog revision
   invalidation, without a second mutable title authority.
 
-Fork, rewind and workspace implementation decisions (work remains open):
+Implemented fork, rewind and workspace decisions (final acceptance remains open):
 
 - Make content handles unique within their owner using `(owner_session_id,
   reference_id)`. Fork can copy existing handles into a new owner while storing
@@ -963,15 +965,16 @@ This progress does not narrow Phases 5–7.
 
 ### Phase 6 — Complete SDK and client adoption
 
-SDK services and views are implemented; product-client adoption and the milestone
-remain in progress. Roots and children use one inert session handle, bounded
-history/activity/input services, exact command recovery and SDK-owned immutable
+SDK services, views and supported product-client adoption are implemented;
+the milestone's final validation remains open. Roots and children use one inert
+session handle, bounded history/activity/input services, exact command recovery and SDK-owned immutable
 views. The global tree catalog revision refreshes unopened/off-page titles and
 membership; React subscriptions consume those same snapshots. SQL receipt
 matching verifies original input payloads before acceptance is inferred from a
 lost acknowledgement. Recovery storage has a fresh namespace and explicit
-count/byte limits. These SDK checks do not stand in for supported renderer,
-native bridge, CLI/TUI or ACP adoption below.
+count/byte limits. SDK checks alone do not establish the renderer, native bridge,
+CLI/TUI or ACP acceptance below; [the current gate audit](backend-native-gate-audit.md)
+records their separate checkpoints and remaining requirements.
 
 
 Finish the uniform services and views, shared app, web gateway, desktop native

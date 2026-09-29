@@ -44,5 +44,6 @@ diagnostics. Compiled native replacement passed in 22.67s and both real engines
 passed in 11.03s (36.573s for the race-enabled integration run). The initial
 replacement fixture incorrectly used an immediately due repeating schedule for
 a future-only preservation assertion; the final fixture explicitly schedules
-the occurrence 24 hours ahead. Final Linux/macOS hosted validation and the
-remaining terminal/core removal are separate requirements.
+the occurrence 24 hours ahead. Terminal/core removal remained separate at this
+checkpoint and is now recorded in the linked retirement documents above. Final
+combined Linux/macOS hosted acceptance is tracked in [the gate audit](backend-native-gate-audit.md).
