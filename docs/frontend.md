@@ -3324,3 +3324,12 @@ rows inspect at most 128 references in batches of four, with zero inactive Query
 retention. Text bytes load on disclosure; images load through their mounted
 preview. Inspecting metadata does not claim that stored bytes are available or
 verified; the separate SDK byte read performs that verification.
+
+The v4 conversation projection consumes canonical `Message.parts` and the SDK's
+whole `preview` value. It has no stream-event reducer or independent history
+cache. Sequence values remain decimal strings, including reading bookmarks.
+Tool output matches only the recorded exchange ID plus call ID; imported messages
+retain their group even with a null local turn. Mail styling follows explicit
+mail provenance. Design grouping verifies unique reference identities at the
+server-derived part indices and never parses tagged transcript text. Local input
+previews retire on exact input identity, not prose similarity or queue disappearance.
