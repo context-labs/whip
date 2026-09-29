@@ -7,7 +7,7 @@ import type { Client } from '@whip/sdk';
 import { clientQueryKey } from './client-query-key';
 import { readRecentProjects, type RecentProjects, type RecentProjectsRange } from './recent-projects';
 import type { SessionNavigationSummary } from './session-status';
-import { useQueries } from '@tanstack/react-query';
+import { useQueries, type UseQueryResult } from '@tanstack/react-query';
 import { Button, IconButton, Menu, ContextMenu, Spinner, WhipcodeWordmark, Tooltip, Popover } from '@whip/ui';
 import { Plus, Search, Settings2, Plug, ArrowUpRight, MoreHorizontal, ChevronRight, ChevronDown, Circle, Pin, MessageSquare, MessageSquareWarning, Archive, Folder, Globe, RotateCw } from 'lucide-react';
 import * as stylex from '@stylexjs/stylex';
@@ -23,6 +23,9 @@ import { sessionSearch } from './session-tabs';
 
 const noCollapsedDirectories: readonly string[] = [];
 const sidebarRowGap = 1;
+// useQueries' outer result array changes on every render. Its combine output is
+// structurally shared, so measuring virtual rows cannot invalidate them again.
+const combineProjectQueries = (results: UseQueryResult<RecentProjects>[]) => results.map(({ data, error, isFetching, isSuccess, refetch }) => ({ data, error, isFetching, isSuccess, refetch }));
 
 interface SidebarProps {
   headerAction?: ReactNode;
@@ -232,7 +235,7 @@ function SessionRows({ hosts, state, setState, onNavigate, onConnect, scroll, co
     refetchOnWindowFocus: (query: { state: { data?: RecentProjects } }) => !query.state.data?.range.after && (query.state.data?.range.pages ?? 1) === 1,
     refetchIntervalInBackground: false,
     gcTime: 0,
-  })) });
+  })), combine: combineProjectQueries });
   const lastRevisions = useRef(new WeakMap<Client, string | null | undefined>());
   useEffect(() => {
     hosts.forEach((host, index) => {
