@@ -4808,3 +4808,32 @@ inactivity test failure. Both remain under investigation. Its evaluator/package
 failures predate the now-merged clean-machine fixes above. Desktop first-frame
 capture, performance targets, specialized probes and final core retirement remain
 open; these checkpoints do not complete Phases 5–7.
+
+Terminal image attachment and explicit clipboard capture are now integrated.
+Client-local files are bounded before normalization (16 MiB and 64 megapixels),
+then uploaded as complete owner-scoped bodies of at most 4 MiB. An uncertain
+upload retains the exact owner, reference and bytes for explicit check/retry;
+switching owners cannot retarget it. At most eight image references enter the
+existing input journal, and rejected multipart input restores its draft. Shell
+commands reject image parts. Clipboard fixtures verify bounded output and joined
+child cleanup; no real clipboard or installed runtime was accessed. The complete
+integrated native terminal race/shuffle suite passes in 109.808s, followed by vet.
+Unsubmitted upload drafts remain ephemeral on terminal exit; accepted input
+records remain durable.
+
+Attachment confirmation now keeps the same scoped preview subtree and uses
+verified upload metadata in the existing query cache. An open preview survives
+the original input's canonical confirmation; owner, runtime, client, reference,
+digest or row retirement still closes it. Both browsers prove the same dialog
+node, one upload, one body read and no additional metadata read at confirmation,
+with zero page/CSP errors. The released leaf passes 106 tests across eight suites
+and app types; the integrated focused components pass 15 tests plus app types.
+The actual confirmation browser probe is now required in product-content CI.
+
+The queue fixture now requires the observed canonical set size of 24 before its
+single bottom scroll, then samples full-row geometry and hit-testing together.
+Both browsers pass all eight workflows; the last row and viewport bottoms are
+both 778 pixels and the hit-test succeeds, retaining the one-pixel bound. The
+late-arrival explanation for the hosted failure is inferred from source and its
+screenshot; the local run already had all 24 rows. No product policy, deadline
+or visibility requirement changed. Run 36557957330 remains failed.
