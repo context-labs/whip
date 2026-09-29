@@ -125,6 +125,30 @@ tasks:
       # every package and its deadline, while limiting competing test binaries.
       - go test -p=2 -race -shuffle=on -count=1 -timeout=10m {{.REDESIGN_ALL_PACKAGES}}
 
+  check:race-store:
+    desc: Complete SQL store race suite on its own CI runner
+    cmds:
+      - go test -p=2 -race -shuffle=on -count=1 -timeout=10m ./internal/store
+
+  check:race-runtime:
+    desc: Complete runtime race suite on its own CI runner
+    cmds:
+      - go test -p=2 -race -shuffle=on -count=1 -timeout=10m ./internal/runtime
+
+  check:race-other:
+    desc: Complete race suite for every remaining active package
+    vars:
+      OTHER_PACKAGES:
+        sh: |
+          for package in {{.REDESIGN_ALL_PACKAGES}}; do
+            case "$package" in
+              ./internal/store|./internal/runtime) ;;
+              *) printf '%s ' "$package" ;;
+            esac
+          done
+    cmds:
+      - go test -p=2 -race -shuffle=on -count=1 -timeout=10m {{.OTHER_PACKAGES}}
+
   check:clients:
     desc: Generated contracts, SDK/examples, real-process clients and retained regressions
     cmds:

@@ -3387,3 +3387,21 @@ promotion need a v4 implementation; existing mail steering is not equivalent.
 Browser design selections also require explicit validated input presentation
 provenance, rather than inferring trusted metadata from tagged text. Both remain
 open alongside browser integration and full client adoption.
+
+
+## Separate CI runners for large race suites
+
+Draft #257's hosted run 36517034403 passed macOS race, both builds, both client
+gates and analysis, but Linux store/runtime each exhausted the existing 10-minute
+package deadline. The tests active at timeout had run for only 1 second; both
+stacks were making ordinary SQLite progress rather than demonstrating a stuck
+individual test. The overall job finished 19m44s with failure. This is not a
+passing release gate.
+
+CI now gives the complete store suite and complete runtime suite separate
+runners on each OS. A third race job runs every other active package, derived
+from the same active-package union with only those two exact paths excluded.
+The local `check:race` remains the complete union. Race/shuffle/count flags,
+10-minute package deadlines, 20-minute job deadlines and the required aggregate
+are unchanged. The workflow still requires all builds, all client checks and
+analysis. Hosted results for the repaired head remain pending.
