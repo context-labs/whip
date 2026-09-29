@@ -1,0 +1,190 @@
+{
+  "type": "object",
+  "properties": {
+    "command_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\u0000- ]+$"
+    },
+    "operation_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "root_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "agent_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$"
+    },
+    "provider_epoch": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\u0000- ]+$"
+    },
+    "scope": {
+      "type": "object",
+      "properties": {
+        "provider_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\u0000- ]+$"
+        },
+        "provider_epoch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\u0000- ]+$"
+        },
+        "tab_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\u0000- ]+$"
+        },
+        "tab_generation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\u0000- ]+$"
+        },
+        "profile_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\u0000- ]+$"
+        },
+        "control_lineage": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\u0000- ]+$"
+        },
+        "attachment_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\u0000- ]+$"
+        },
+        "attachment_generation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\u0000- ]+$"
+        },
+        "preview": {
+          "type": [
+            "null",
+            "object"
+          ],
+          "properties": {
+            "host_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[^\u0000- ]+$"
+            },
+            "host_identity": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[^\u0000- ]+$"
+            },
+            "connection_generation": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[^\u0000- ]+$"
+            },
+            "environment_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[^\u0000- ]+$"
+            },
+            "loopback": {
+              "type": "string",
+              "enum": [
+                "127.0.0.1",
+                "::1"
+              ]
+            },
+            "ports": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65535
+              },
+              "maxItems": 64,
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "host_id",
+            "host_identity",
+            "connection_generation",
+            "environment_id",
+            "loopback",
+            "ports"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "provider_id",
+        "provider_epoch",
+        "tab_id",
+        "tab_generation",
+        "profile_id",
+        "control_lineage",
+        "attachment_id",
+        "attachment_generation"
+      ],
+      "additionalProperties": false
+    },
+    "expected_document": {
+      "type": "string",
+      "maxLength": 128
+    },
+    "deadline_millis": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18})$",
+      "format": "counter"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "open",
+        "attach",
+        "allow_preview_port",
+        "detach",
+        "begin",
+        "cdp",
+        "end",
+        "transfer"
+      ]
+    },
+    "arguments": true
+  },
+  "$id": "https://whip.dev/protocol/v4/BrowserCommand",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BrowserCommand",
+  "required": [
+    "command_id",
+    "operation_id",
+    "root_id",
+    "agent_id",
+    "provider_epoch",
+    "scope",
+    "expected_document",
+    "deadline_millis",
+    "kind",
+    "arguments"
+  ],
+  "additionalProperties": false
+}

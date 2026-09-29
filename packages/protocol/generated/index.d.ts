@@ -269,6 +269,44 @@ export interface BrowserAttachmentsResult {
     title: string;
   }[];
 }
+export interface BrowserCommand {
+  command_id: string;
+  operation_id: string;
+  root_id: string;
+  agent_id: string;
+  provider_epoch: string;
+  scope: {
+    provider_id: string;
+    provider_epoch: string;
+    tab_id: string;
+    tab_generation: string;
+    profile_id: string;
+    control_lineage: string;
+    attachment_id: string;
+    attachment_generation: string;
+    preview?: null | {
+      host_id: string;
+      host_identity: string;
+      connection_generation: string;
+      environment_id: string;
+      loopback: "127.0.0.1" | "::1";
+      /**
+       * @maxItems 64
+       */
+      ports: number[];
+    };
+  };
+  expected_document: string;
+  deadline_millis: string;
+  kind: "open" | "attach" | "allow_preview_port" | "detach" | "begin" | "cdp" | "end" | "transfer";
+  arguments: unknown;
+}
+export interface BrowserCommandCancel {
+  command_id: string;
+  root_id: string;
+  provider_epoch: string;
+  attachment_generation: string;
+}
 export interface BrowserCommandResultParams {
   command_id: string;
   root_id: string;
@@ -450,6 +488,20 @@ export type BrowserEvent = {
       [k: string]: unknown;
     }
 );
+export interface BrowserInventoryRequest {
+  request_id: string;
+  root_id: string;
+  agent_id: string;
+  provider_id: string;
+  provider_epoch: string;
+  /**
+   * @maxItems 72
+   */
+  tabs: {
+    tab_id: string;
+    tab_generation: string;
+  }[];
+}
 export interface BrowserInventoryResultParams {
   request_id: string;
   root_id: string;
@@ -552,6 +604,35 @@ export interface BrowserProviderEventParams {
 export interface BrowserProviderUnbindParams {
   root_id: string;
   provider_epoch: string;
+}
+export interface BrowserScopesRetired {
+  root_id: string;
+  provider_id: string;
+  provider_epoch: string;
+  /**
+   * @maxItems 256
+   */
+  scopes: {
+    provider_id: string;
+    provider_epoch: string;
+    tab_id: string;
+    tab_generation: string;
+    profile_id: string;
+    control_lineage: string;
+    attachment_id: string;
+    attachment_generation: string;
+    preview?: null | {
+      host_id: string;
+      host_identity: string;
+      connection_generation: string;
+      environment_id: string;
+      loopback: "127.0.0.1" | "::1";
+      /**
+       * @maxItems 64
+       */
+      ports: number[];
+    };
+  }[];
 }
 export interface BrowserScreenshotChunkParams {
   command_id: string;
@@ -9518,13 +9599,17 @@ export interface ContractTypes {
   AutomaticTitleResultParams: AutomaticTitleResultParams;
   BrowserAccepted: BrowserAccepted;
   BrowserAttachmentsResult: BrowserAttachmentsResult;
+  BrowserCommand: BrowserCommand;
+  BrowserCommandCancel: BrowserCommandCancel;
   BrowserCommandResultParams: BrowserCommandResultParams;
   BrowserEvent: BrowserEvent;
+  BrowserInventoryRequest: BrowserInventoryRequest;
   BrowserInventoryResultParams: BrowserInventoryResultParams;
   BrowserProviderBindParams: BrowserProviderBindParams;
   BrowserProviderBindResult: BrowserProviderBindResult;
   BrowserProviderEventParams: BrowserProviderEventParams;
   BrowserProviderUnbindParams: BrowserProviderUnbindParams;
+  BrowserScopesRetired: BrowserScopesRetired;
   BrowserScreenshotChunkParams: BrowserScreenshotChunkParams;
   BrowserTabsResult: BrowserTabsResult;
   Budget: Budget;

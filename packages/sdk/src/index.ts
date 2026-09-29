@@ -623,3 +623,5 @@ export type { FramedConnection, FrameHandlers, FramedConnector } from './framed.
 
 export { BrowserProviderClient } from './browser-provider.js';
 export { browserProviderFramed } from './browser-framed.js';
+export { selectBrowserProvider } from './browser-selection.js';
+export type { BrowserProviderBridge, BrowserSelection, BrowserSelectionOptions } from './browser-selection.js';

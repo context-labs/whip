@@ -223,6 +223,10 @@ func Operations() []Operation {
 func Types() map[string]reflect.Type {
 	result := map[string]reflect.Type{}
 	result["BrowserEvent"] = reflect.TypeFor[BrowserEvent]()
+	result["BrowserCommand"] = reflect.TypeFor[BrowserCommand]()
+	result["BrowserCommandCancel"] = reflect.TypeFor[BrowserCommandCancel]()
+	result["BrowserInventoryRequest"] = reflect.TypeFor[BrowserInventoryRequest]()
+	result["BrowserScopesRetired"] = reflect.TypeFor[BrowserScopesRetired]()
 	result["ExecutorEvent"] = reflect.TypeFor[ExecutorEvent]()
 	result["RPCError"] = reflect.TypeFor[RPCError]()
 	result["Request"] = reflect.TypeFor[Request]()
